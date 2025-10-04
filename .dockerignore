@@ -1,0 +1,69 @@
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Testing
+coverage
+*.tgz
+*.tar.gz
+
+# Development files
+src
+test
+jest.config.js
+tsconfig*.json
+nest-cli.json
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+lib-cov
+coverage
+
+# Temporary folders
+tmp
+temp
+
+# Documentation
+*.md
+docs
+
+# Development scripts
+scripts/development
+*.dev.*
+
+# Local environment files
+.env.local
+.env.development
+.env.test
+
+# Build artifacts (except dist which we need)
+*.tsbuildinfo
+
+# Database files
+*.db
+*.sqlite
+
+# Uploads (handled via volume mount)
+uploads/*
+!uploads/.gitkeep

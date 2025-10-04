@@ -1,0 +1,195 @@
+// packages/utils/src/sortOrder.ts
+
+import {
+  VACATION_STATUS_ORDER,
+  TASK_STATUS_ORDER,
+  ORDER_STATUS_ORDER,
+  SERVICE_ORDER_STATUS_ORDER,
+  AIRBRUSHING_STATUS_ORDER,
+  USER_STATUS_ORDER,
+  WARNING_SEVERITY_ORDER,
+  WARNING_CATEGORY_ORDER,
+  MAINTENANCE_STATUS_ORDER,
+  MAINTENANCE_FREQUENCY_ORDER,
+  COLOR_PALETTE_ORDER,
+  ACTIVITY_REASON_ORDER,
+  PAINT_BRAND_ORDER,
+  PAINT_FINISH_ORDER,
+  TRUCK_MANUFACTURER_ORDER,
+  BATCH_OPERATION_STATUS_ORDER,
+  BORROW_STATUS_ORDER,
+  PPE_REQUEST_STATUS_ORDER,
+  NOTIFICATION_IMPORTANCE_ORDER,
+  NOTIFICATION_TYPE_ORDER,
+  HOLIDAY_TYPE_ORDER,
+  MONTH_ORDER,
+  MONTH_OCCURRENCE_ORDER,
+  SCHEDULE_FREQUENCY_ORDER,
+  PANTS_SIZE_ORDER,
+  SHIRT_SIZE_ORDER,
+  BOOT_SIZE_ORDER,
+  ACTIVITY_OPERATION_ORDER,
+  AUDIT_ACTION_ORDER,
+  ENTITY_TYPE_ORDER,
+  NOTIFICATION_CHANNEL_ORDER,
+  PPE_DELIVERY_MODE_ORDER,
+  ORDER_TRIGGER_TYPE_ORDER,
+  COLOR_SCHEMA_ORDER,
+  WORKLOAD_LEVEL_ORDER,
+  FILE_ENTITY_TYPE_ORDER,
+  FILE_FORMAT_ORDER,
+  ACTIVITY_LEVEL_ORDER,
+  CHANGE_ACTION_ORDER,
+  EVENT_TYPE_ORDER,
+  TIMELINE_EVENT_TYPE_ORDER,
+  MERGE_STRATEGY_ORDER,
+  GROUP_BY_ORDER,
+  ALERT_TYPE_ORDER,
+  TASK_OBSERVATION_TYPE_ORDER,
+  ITEM_ISSUE_TYPE_ORDER,
+  TIME_RANGE_ORDER,
+  TREND_DIRECTION_ORDER,
+  TREND_TYPE_ORDER,
+  PERIOD_TYPE_ORDER,
+  PRIORITY_TYPE_ORDER,
+  RISK_LEVEL_ORDER,
+  STOCK_LEVEL_ORDER,
+  HEALTH_STATUS_ORDER,
+  PERFORMANCE_LEVEL_ORDER,
+  URGENCY_LEVEL_ORDER,
+  EFFORT_LEVEL_ORDER,
+  CONFIDENCE_LEVEL_ORDER,
+  PERCENTAGE_ADJUST_TYPE_ORDER,
+  EXPORT_FORMAT_ORDER,
+  VALIDATION_SEVERITY_ORDER,
+  VACATION_TYPE_ORDER,
+  CUT_STATUS_ORDER,
+} from '@constants';
+
+/**
+ * Generic function to get sort order for any status/enum value
+ * Falls back to 1 if the value is not found in the order map
+ */
+export function getSortOrder(value: string, orderMap: Record<string, number>): number {
+  return orderMap[value] || 1;
+}
+
+// Specific helper functions for commonly used sort orders
+
+export function getVacationStatusOrder(status: string): number {
+  return getSortOrder(status, VACATION_STATUS_ORDER);
+}
+
+
+export function getTaskStatusOrder(status: string): number {
+  return getSortOrder(status, TASK_STATUS_ORDER);
+}
+
+export function getOrderStatusOrder(status: string): number {
+  return getSortOrder(status, ORDER_STATUS_ORDER);
+}
+
+export function getServiceOrderStatusOrder(status: string): number {
+  return getSortOrder(status, SERVICE_ORDER_STATUS_ORDER);
+}
+
+export function getAirbrushingStatusOrder(status: string): number {
+  return getSortOrder(status, AIRBRUSHING_STATUS_ORDER);
+}
+
+export function getUserStatusOrder(status: string): number {
+  return getSortOrder(status, USER_STATUS_ORDER);
+}
+
+export function getWarningSeverityOrder(severity: string): number {
+  return getSortOrder(severity, WARNING_SEVERITY_ORDER);
+}
+
+export function getMaintenanceStatusOrder(status: string): number {
+  return getSortOrder(status, MAINTENANCE_STATUS_ORDER);
+}
+
+export function getColorPaletteOrder(palette: string): number {
+  return getSortOrder(palette, COLOR_PALETTE_ORDER);
+}
+
+export function getActivityReasonOrder(reason: string): number {
+  return getSortOrder(reason, ACTIVITY_REASON_ORDER);
+}
+
+export function getVacationTypeOrder(type: string): number {
+  return getSortOrder(type, VACATION_TYPE_ORDER);
+}
+
+// Paint type order is now managed dynamically in the database
+
+export function getCutStatusOrder(status: string): number {
+  return getSortOrder(status, CUT_STATUS_ORDER);
+}
+
+// Export all order maps for direct access if needed
+export {
+  VACATION_STATUS_ORDER,
+  TASK_STATUS_ORDER,
+  ORDER_STATUS_ORDER,
+  SERVICE_ORDER_STATUS_ORDER,
+  AIRBRUSHING_STATUS_ORDER,
+  USER_STATUS_ORDER,
+  WARNING_SEVERITY_ORDER,
+  WARNING_CATEGORY_ORDER,
+  MAINTENANCE_STATUS_ORDER,
+  MAINTENANCE_FREQUENCY_ORDER,
+  COLOR_PALETTE_ORDER,
+  ACTIVITY_REASON_ORDER,
+  PAINT_BRAND_ORDER,
+  PAINT_FINISH_ORDER,
+  TRUCK_MANUFACTURER_ORDER,
+  BATCH_OPERATION_STATUS_ORDER,
+  BORROW_STATUS_ORDER,
+  PPE_REQUEST_STATUS_ORDER,
+  NOTIFICATION_IMPORTANCE_ORDER,
+  NOTIFICATION_TYPE_ORDER,
+  HOLIDAY_TYPE_ORDER,
+  MONTH_ORDER,
+  MONTH_OCCURRENCE_ORDER,
+  SCHEDULE_FREQUENCY_ORDER,
+  PANTS_SIZE_ORDER,
+  SHIRT_SIZE_ORDER,
+  BOOT_SIZE_ORDER,
+  ACTIVITY_OPERATION_ORDER,
+  AUDIT_ACTION_ORDER,
+  ENTITY_TYPE_ORDER,
+  NOTIFICATION_CHANNEL_ORDER,
+  PPE_DELIVERY_MODE_ORDER,
+  ORDER_TRIGGER_TYPE_ORDER,
+  COLOR_SCHEMA_ORDER,
+  WORKLOAD_LEVEL_ORDER,
+  FILE_ENTITY_TYPE_ORDER,
+  FILE_FORMAT_ORDER,
+  ACTIVITY_LEVEL_ORDER,
+  CHANGE_ACTION_ORDER,
+  EVENT_TYPE_ORDER,
+  TIMELINE_EVENT_TYPE_ORDER,
+  MERGE_STRATEGY_ORDER,
+  GROUP_BY_ORDER,
+  ALERT_TYPE_ORDER,
+  TASK_OBSERVATION_TYPE_ORDER,
+  ITEM_ISSUE_TYPE_ORDER,
+  TIME_RANGE_ORDER,
+  TREND_DIRECTION_ORDER,
+  TREND_TYPE_ORDER,
+  PERIOD_TYPE_ORDER,
+  PRIORITY_TYPE_ORDER,
+  RISK_LEVEL_ORDER,
+  STOCK_LEVEL_ORDER,
+  HEALTH_STATUS_ORDER,
+  PERFORMANCE_LEVEL_ORDER,
+  URGENCY_LEVEL_ORDER,
+  EFFORT_LEVEL_ORDER,
+  CONFIDENCE_LEVEL_ORDER,
+  PERCENTAGE_ADJUST_TYPE_ORDER,
+  EXPORT_FORMAT_ORDER,
+  VALIDATION_SEVERITY_ORDER,
+  VACATION_TYPE_ORDER,
+  CUT_STATUS_ORDER,
+};

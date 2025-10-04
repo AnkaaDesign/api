@@ -1,0 +1,288 @@
+import { z } from "zod";
+import { 
+  CNH_CATEGORY,
+  LICENSE_TYPE,
+  DRIVER_STATUS,
+  BLOOD_TYPE,
+  BRAZILIAN_STATES 
+} from "@ankaa/constants";
+import {
+  createNameSchema,
+  phoneSchema,
+  cpfSchema,
+  emailSchema,
+  addressSchema,
+  addressNumberSchema,
+  addressComplementSchema,
+  neighborhoodSchema,
+  citySchema,
+  stateSchema,
+  zipCodeSchema,
+  createDateRangeSchema,
+  createPaginationSchema,
+  createGetManySchema,
+  createQueryTransform,
+  createGetByIdSchema,
+  createBatchCreateSchema,
+  createBatchUpdateSchema,
+  createBatchDeleteSchema,
+  toFormData,
+} from "./common";
+
+// =====================
+// Include Schemas
+// =====================
+export const driverIncludeSchema = z
+  .object({
+    user: z.boolean().optional(),
+    trucks: z.boolean().optional(),
+  })
+  .optional();
+
+export type DriverInclude = z.infer<typeof driverIncludeSchema>;
+
+// =====================
+// OrderBy Schemas
+// =====================
+export const driverOrderBySchema = z.union([
+  z.object({ name: z.enum(["asc", "desc"]) }),
+  z.object({ cpf: z.enum(["asc", "desc"]) }),
+  z.object({ cnhNumber: z.enum(["asc", "desc"]) }),
+  z.object({ cnhExpiryDate: z.enum(["asc", "desc"]) }),
+  z.object({ status: z.enum(["asc", "desc"]) }),
+  z.object({ hireDate: z.enum(["asc", "desc"]) }),
+  z.object({ createdAt: z.enum(["asc", "desc"]) }),
+  z.object({ updatedAt: z.enum(["asc", "desc"]) }),
+]);
+
+export type DriverOrderBy = z.infer<typeof driverOrderBySchema>;
+
+// =====================
+// Where Schemas
+// =====================
+export const driverWhereSchema: z.ZodType<any> = z.lazy(() =>
+  z
+    .object({
+      AND: z.union([driverWhereSchema, z.array(driverWhereSchema)]).optional(),
+      OR: z.array(driverWhereSchema).optional(),
+      NOT: z.union([driverWhereSchema, z.array(driverWhereSchema)]).optional(),
+
+      id: z.union([z.string(), z.object({ equals: z.string().optional(), in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
+      
+      name: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+            mode: z.enum(["default", "insensitive"]).optional(),
+          }),
+        ])
+        .optional(),
+
+      cpf: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+
+      status: z
+        .union([
+          z.enum(Object.values(DRIVER_STATUS) as [string, ...string[]]),
+          z.object({
+            equals: z.enum(Object.values(DRIVER_STATUS) as [string, ...string[]]).optional(),
+            in: z.array(z.enum(Object.values(DRIVER_STATUS) as [string, ...string[]])).optional(),
+            notIn: z.array(z.enum(Object.values(DRIVER_STATUS) as [string, ...string[]])).optional(),
+          }),
+        ])
+        .optional(),
+
+      cnhCategory: z
+        .union([
+          z.enum(Object.values(CNH_CATEGORY) as [string, ...string[]]),
+          z.object({
+            equals: z.enum(Object.values(CNH_CATEGORY) as [string, ...string[]]).optional(),
+            in: z.array(z.enum(Object.values(CNH_CATEGORY) as [string, ...string[]])).optional(),
+            notIn: z.array(z.enum(Object.values(CNH_CATEGORY) as [string, ...string[]])).optional(),
+          }),
+        ])
+        .optional(),
+
+      cnhExpiryDate: createDateRangeSchema,
+      birthDate: createDateRangeSchema,
+      hireDate: createDateRangeSchema,
+      medicalCertificateExpiry: createDateRangeSchema,
+
+      createdAt: createDateRangeSchema,
+      updatedAt: createDateRangeSchema,
+    })
+    .strict()
+);
+
+export type DriverWhere = z.infer<typeof driverWhereSchema>;
+
+// =====================
+// Get Many Schema
+// =====================
+const driverTransform = createQueryTransform(["name", "cpf", "cnhNumber"]);
+
+export const driverGetManySchema = createGetManySchema({
+  orderBySchema: driverOrderBySchema,
+  whereSchema: driverWhereSchema,
+  includeSchema: driverIncludeSchema,
+  transform: driverTransform,
+});
+
+export type DriverGetManyFormData = z.infer<typeof driverGetManySchema>;
+
+// =====================
+// Get By ID Schema
+// =====================
+export const driverGetByIdSchema = createGetByIdSchema(driverIncludeSchema);
+export type DriverGetByIdFormData = z.infer<typeof driverGetByIdSchema>;
+
+// =====================
+// Query Schema
+// =====================
+export const driverQuerySchema = z.object({
+  include: driverIncludeSchema,
+});
+export type DriverQueryFormData = z.infer<typeof driverQuerySchema>;
+
+// =====================
+// RG Schema
+// =====================
+const rgSchema = z
+  .string()
+  .min(7, "RG deve ter pelo menos 7 caracteres")
+  .max(15, "RG deve ter no máximo 15 caracteres")
+  .regex(/^[0-9A-Za-z.-]+$/, "RG contém caracteres inválidos")
+  .nullable()
+  .optional();
+
+// =====================
+// Create Schema
+// =====================
+export const driverCreateSchema = z
+  .object({
+    // Required fields
+    name: createNameSchema(2, 100, "Nome").min(1, "Nome é obrigatório"),
+    cpf: cpfSchema.min(1, "CPF é obrigatório"),
+    cnhNumber: z.string().min(1, "Número da CNH é obrigatório").max(20, "Número da CNH deve ter no máximo 20 caracteres"),
+    cnhCategory: z.enum(Object.values(CNH_CATEGORY) as [string, ...string[]], {
+      errorMap: () => ({ message: "Categoria de CNH inválida" }),
+    }),
+    cnhExpiryDate: z.coerce.date({ errorMap: () => ({ message: "Data de validade da CNH é obrigatória" }) }),
+    licenseType: z.enum(Object.values(LICENSE_TYPE) as [string, ...string[]], {
+      errorMap: () => ({ message: "Tipo de licença inválido" }),
+    }),
+    status: z.enum(Object.values(DRIVER_STATUS) as [string, ...string[]], {
+      errorMap: () => ({ message: "Status inválido" }),
+    }),
+
+    // Optional fields
+    rg: rgSchema,
+    birthDate: z.coerce.date().nullable().optional(),
+    phone: phoneSchema,
+    email: emailSchema,
+    
+    // Address fields
+    address: addressSchema,
+    addressNumber: addressNumberSchema,
+    addressComplement: addressComplementSchema,
+    neighborhood: neighborhoodSchema,
+    city: citySchema,
+    state: stateSchema,
+    zipCode: zipCodeSchema,
+
+    // CNH additional info
+    cnhIssueDate: z.coerce.date().nullable().optional(),
+    cnhIssuingState: z.enum(Object.values(BRAZILIAN_STATES) as [string, ...string[]]).nullable().optional(),
+
+    // Emergency contact
+    emergencyContactName: createNameSchema(2, 100, "Nome do contato").nullable().optional(),
+    emergencyContactPhone: phoneSchema,
+    emergencyContactRelation: createNameSchema(2, 50, "Relação").nullable().optional(),
+
+    // Medical info
+    medicalCertificateExpiry: z.coerce.date().nullable().optional(),
+    bloodType: z.enum(Object.values(BLOOD_TYPE) as [string, ...string[]]).nullable().optional(),
+    allergies: z.string().max(500, "Alergias deve ter no máximo 500 caracteres").nullable().optional(),
+    medications: z.string().max(500, "Medicações deve ter no máximo 500 caracteres").nullable().optional(),
+
+    // Employment info
+    userId: z.string().uuid("Usuário inválido").nullable().optional(),
+    hireDate: z.coerce.date().nullable().optional(),
+    employeeId: z.string().max(50, "Funcionário deve ter no máximo 50 caracteres").nullable().optional(),
+
+    // Notes
+    notes: z.string().max(1000, "Notas deve ter no máximo 1000 caracteres").nullable().optional(),
+  })
+  .transform(toFormData);
+
+export type DriverCreateFormData = z.infer<typeof driverCreateSchema>;
+
+// =====================
+// Update Schema
+// =====================
+export const driverUpdateSchema = driverCreateSchema.partial();
+export type DriverUpdateFormData = z.infer<typeof driverUpdateSchema>;
+
+// =====================
+// Batch Schemas
+// =====================
+export const driverBatchCreateSchema = createBatchCreateSchema(driverCreateSchema, "motorista", 50);
+export type DriverBatchCreateFormData = z.infer<typeof driverBatchCreateSchema>;
+
+export const driverBatchUpdateSchema = createBatchUpdateSchema(driverUpdateSchema, "motorista", 50);
+export type DriverBatchUpdateFormData = z.infer<typeof driverBatchUpdateSchema>;
+
+export const driverBatchDeleteSchema = createBatchDeleteSchema("motorista", 50);
+export type DriverBatchDeleteFormData = z.infer<typeof driverBatchDeleteSchema>;
+
+// =====================
+// Mapper Functions
+// =====================
+export function mapDriverToFormData(driver: any): DriverUpdateFormData {
+  return {
+    name: driver.name,
+    cpf: driver.cpf,
+    cnhNumber: driver.cnhNumber,
+    cnhCategory: driver.cnhCategory,
+    cnhExpiryDate: driver.cnhExpiryDate ? new Date(driver.cnhExpiryDate) : new Date(),
+    licenseType: driver.licenseType,
+    status: driver.status,
+    rg: driver.rg || null,
+    birthDate: driver.birthDate ? new Date(driver.birthDate) : null,
+    phone: driver.phone || null,
+    email: driver.email || null,
+    address: driver.address || null,
+    addressNumber: driver.addressNumber || null,
+    addressComplement: driver.addressComplement || null,
+    neighborhood: driver.neighborhood || null,
+    city: driver.city || null,
+    state: driver.state || null,
+    zipCode: driver.zipCode || null,
+    cnhIssueDate: driver.cnhIssueDate ? new Date(driver.cnhIssueDate) : null,
+    cnhIssuingState: driver.cnhIssuingState || null,
+    emergencyContactName: driver.emergencyContactName || null,
+    emergencyContactPhone: driver.emergencyContactPhone || null,
+    emergencyContactRelation: driver.emergencyContactRelation || null,
+    medicalCertificateExpiry: driver.medicalCertificateExpiry ? new Date(driver.medicalCertificateExpiry) : null,
+    bloodType: driver.bloodType || null,
+    allergies: driver.allergies || null,
+    medications: driver.medications || null,
+    userId: driver.userId || null,
+    hireDate: driver.hireDate ? new Date(driver.hireDate) : null,
+    employeeId: driver.employeeId || null,
+    notes: driver.notes || null,
+  };
+}

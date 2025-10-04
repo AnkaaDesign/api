@@ -1,0 +1,133 @@
+// Deployment Management Schema
+// Add this to your main schema.prisma file
+
+enum DeploymentStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+}
+
+enum DeploymentEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum DeploymentTrigger {
+  MANUAL
+  AUTO
+  ROLLBACK
+  WEBHOOK
+}
+
+enum DeploymentType {
+  FULL
+  INCREMENTAL
+  HOTFIX
+  ROLLBACK
+}
+
+model Deployment {
+  id        String   @id @default(uuid())
+
+  // Core deployment info
+  commitHash    String   @db.VarChar(40)
+  commitMessage String?  @db.VarChar(500)
+  branch        String   @db.VarChar(100)
+
+  // Environment
+  environment      DeploymentEnvironment
+  environmentOrder Int
+
+  // Status tracking
+  status      DeploymentStatus @default(PENDING)
+  statusOrder Int              @default(2)
+
+  // Deployment metadata
+  trigger      DeploymentTrigger
+  triggerOrder Int
+
+  type      DeploymentType
+  typeOrder Int
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  duration    Int?      // Duration in seconds
+
+  // User tracking
+  deployedBy   User?   @relation(fields: [deployedById], references: [id], onDelete: SetNull)
+  deployedById String?
+
+  // Rollback tracking
+  previousDeployment   Deployment?  @relation("DeploymentHistory", fields: [previousDeploymentId], references: [id], onDelete: SetNull)
+  previousDeploymentId String?
+  nextDeployments      Deployment[] @relation("DeploymentHistory")
+
+  rolledBackFrom   Deployment?  @relation("DeploymentRollback", fields: [rolledBackFromId], references: [id], onDelete: SetNull)
+  rolledBackFromId String?
+  rollbacks        Deployment[] @relation("DeploymentRollback")
+
+  // Build information
+  buildNumber Int?
+  buildUrl    String? @db.VarChar(500)
+
+  // Error tracking
+  errorMessage String? @db.VarChar(1000)
+  errorStack   String? @db.Text
+
+  // Additional metadata
+  tags  String[] @default([])
+  notes String?  @db.VarChar(1000)
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes
+  @@index([environment, status, completedAt(sort: Desc)])
+  @@index([environment, createdAt(sort: Desc)])
+  @@index([commitHash])
+  @@index([branch])
+  @@index([deployedById])
+  @@index([status, statusOrder])
+}
+
+model DeploymentConfig {
+  id          String   @id @default(uuid())
+  environment DeploymentEnvironment @unique
+
+  // Auto-deploy settings
+  autoDeployEnabled Boolean @default(false)
+  autoDeployBranch  String? @db.VarChar(100)
+
+  // Notification settings
+  notifyOnSuccess      Boolean  @default(true)
+  notifyOnFailure      Boolean  @default(true)
+  notificationChannels String[] @default([])
+
+  // Rollback settings
+  autoRollbackOnFailure Boolean @default(false)
+  maxRollbackAttempts   Int     @default(3)
+
+  // Health check settings
+  healthCheckUrl     String? @db.VarChar(500)
+  healthCheckTimeout Int     @default(30) // in seconds
+
+  // Additional configuration
+  environmentVariables Json    @default("{}")
+  buildCommand         String? @db.VarChar(500)
+  deployCommand        String? @db.VarChar(500)
+
+  // Updated by
+  updatedBy   User?   @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedById String?
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([environment])
+}

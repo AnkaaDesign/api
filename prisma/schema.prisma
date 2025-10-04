@@ -1,0 +1,2002 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Activity {
+  id          String            @id @default(uuid())
+  quantity    Float
+  operation   ActivityOperation @default(OUTBOUND)
+  userId      String?
+  itemId      String
+  orderId     String?
+  orderItemId String?
+  reason      ActivityReason    @default(PRODUCTION_USAGE)
+  reasonOrder Int?              @default(2)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  item        Item              @relation("ACTIVITY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  order       Order?            @relation("ACTIVITY_ORDER", fields: [orderId], references: [id])
+  orderItem   OrderItem?        @relation("ACTIVITY_ORDER_ITEM", fields: [orderItemId], references: [id])
+  user        User?             @relation("ACTIVITY_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([userId])
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([createdAt])
+  @@index([reasonOrder])
+}
+
+model Airbrushing {
+  id          String            @id @default(uuid())
+  startDate   DateTime?
+  finishDate  DateTime?
+  price       Float?
+  status      AirbrushingStatus @default(PENDING)
+  statusOrder Int               @default(1)
+  taskId      String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  task        Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  artworks    File[]            @relation("AIRBRUSHING_ARTWORKS")
+  nfes        File[]            @relation("AIRBRUSHING_NFES")
+  receipts    File[]            @relation("AIRBRUSHING_RECEIPTS")
+
+  @@index([statusOrder])
+}
+
+model Borrow {
+  id          String       @id @default(uuid())
+  itemId      String
+  userId      String
+  quantity    Float        @default(1)
+  status      BorrowStatus @default(ACTIVE)
+  statusOrder Int          @default(1)
+  returnedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  item        Item         @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user        User         @relation("USER_BORROW", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([userId])
+  @@index([status, statusOrder])
+}
+
+model ChangeLog {
+  id            String                    @id @default(uuid())
+  entityType    ChangeLogEntityType
+  entityId      String
+  action        ChangeLogAction
+  field         String?
+  oldValue      Json?
+  newValue      Json?
+  reason        String?
+  metadata      Json?
+  userId        String?
+  triggeredBy   ChangeLogTriggeredByType?
+  triggeredById String?
+  createdAt     DateTime                  @default(now())
+  user          User?                     @relation("CHANGELOG_USER", fields: [userId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Bonus {
+  id                     String   @id @default(uuid())
+  userId                 String
+  baseBonus              Decimal  @default(0) @db.Decimal(10, 2)
+  year                   Int
+  month                  Int
+  performanceLevel       Int
+  ponderedTaskCount      Decimal  @default(0) @db.Decimal(10, 4)
+  averageTasksPerUser    Decimal  @default(0) @db.Decimal(10, 4)
+  calculationPeriodStart DateTime @default(now())
+  calculationPeriodEnd   DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Many-to-many: all users receiving bonuses in the same period
+  users User[] @relation("BonusPeriodUsers")
+
+  payroll   Payroll? @relation(fields: [payrollId], references: [id])
+  payrollId String?  @unique
+
+  bonusDiscounts BonusDiscount[]
+  tasks          Task[]          @relation("BonusTasks")
+
+  @@unique([userId, year, month])
+  @@index([userId])
+  @@index([year, month])
+  @@index([calculationPeriodStart, calculationPeriodEnd])
+  @@index([ponderedTaskCount])
+  @@index([averageTasksPerUser])
+}
+
+model Payroll {
+  id               String  @id @default(uuid())
+  baseRemuneration Decimal @db.Decimal(10, 2)
+  year             Int
+  month            Int
+  userId           String
+  positionId       String?
+
+  // Relations
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position  Position?         @relation(fields: [positionId], references: [id])
+  bonus     Bonus?
+  discounts PayrollDiscount[]
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, year, month])
+  @@index([userId])
+  @@index([year, month])
+  @@index([positionId])
+}
+
+model BonusDiscount {
+  id               String   @id @default(uuid())
+  bonusId          String
+  percentage       Decimal? @db.Decimal(5, 2)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  calculationOrder Int      @default(1)
+  reference        String
+  value            Decimal? @db.Decimal(10, 2)
+  bonus            Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
+  suspendedTasks   Task[]
+
+  @@index([bonusId])
+  @@index([calculationOrder])
+}
+
+model PayrollDiscount {
+  id               String   @id @default(uuid())
+  percentage       Decimal? @db.Decimal(5, 2)
+  value            Decimal? @db.Decimal(10, 2)
+  calculationOrder Int      @default(1)
+  reference        String
+
+  // Relations
+  payroll   Payroll @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  payrollId String
+
+  // Audit fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([payrollId])
+  @@index([calculationOrder])
+}
+
+model Customer {
+  id                String   @id @default(uuid())
+  fantasyName       String   @unique
+  cnpj              String?  @unique
+  cpf               String?  @unique
+  corporateName     String?
+  email             String?
+  address           String?
+  addressNumber     String?
+  addressComplement String?
+  neighborhood      String?
+  city              String?
+  state             String?
+  zipCode           String?
+  site              String?
+  phones            String[]
+  tags              String[]
+  logoId            String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  logo              File?    @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
+  tasks             Task[]
+
+  @@index([fantasyName])
+  @@index([cpf])
+  @@index([neighborhood])
+  @@index([zipCode])
+}
+
+model PpeSize {
+  id        String         @id @default(uuid())
+  shirts    ShirtSize?
+  boots     BootSize?
+  pants     PantsSize?
+  sleeves   SleevesSize?
+  mask      MaskSize?
+  gloves    GlovesSize?
+  rainBoots RainBootsSize?
+  userId    String         @unique
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation("USER_PPE_SIZE", fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PpeDelivery {
+  id                 String               @id @default(uuid())
+  userId             String
+  itemId             String
+  status             PpeDeliveryStatus    @default(PENDING)
+  statusOrder        Int                  @default(1)
+  quantity           Int
+  reviewedBy         String?
+  ppeScheduleId      String?
+  scheduledDate      DateTime?
+  actualDeliveryDate DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  item               Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  ppeSchedule        PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id])
+  reviewedByUser     User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
+  user               User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([itemId])
+  @@index([ppeScheduleId])
+  @@index([scheduledDate])
+  @@index([status, statusOrder])
+}
+
+model PpeDeliverySchedule {
+  id                 String                 @id @default(uuid())
+  assignmentType     AssignmentType         @default(ALL)
+  excludedUserIds    String[]               @default([])
+  includedUserIds    String[]               @default([])
+  frequency          ScheduleFrequency
+  frequencyCount     Int                    @default(1)
+  isActive           Boolean                @default(true)
+  ppeItems           Json
+  specificDate       DateTime?
+  dayOfMonth         Int?
+  dayOfWeek          DayOfWeek?
+  month              Month?
+  customMonths       Month[]
+  rescheduleCount    Int                    @default(0)
+  originalDate       DateTime?
+  lastRescheduleDate DateTime?
+  rescheduleReason   RescheduleReason?
+  weeklyConfigId     String?                @unique
+  monthlyConfigId    String?                @unique
+  yearlyConfigId     String?                @unique
+  nextRun            DateTime?
+  lastRun            DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  autoOrders         Order[]                @relation("PPE_AUTO_ORDER")
+  deliveries         PpeDelivery[]          @relation("PPE_DELIVERY_SCHEDULE")
+  monthlyConfig      MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
+  weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
+  yearlyConfig       YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
+
+  @@index([nextRun])
+  @@index([isActive])
+  @@index([assignmentType])
+}
+
+model File {
+  id                         String               @id @default(uuid())
+  filename                   String
+  originalName               String
+  mimetype                   String
+  path                       String
+  size                       Int
+  thumbnailUrl               String?
+  createdAt                  DateTime             @default(now())
+  updatedAt                  DateTime             @updatedAt
+  customerLogo               Customer[]           @relation("CUSTOMER_LOGO")
+  taskCuts                   Cut[]                @relation("TASK_CUTS")
+  externalWithdrawalNfes     ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_NFE")
+  externalWithdrawalReceipts ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_RECEIPT")
+  layoutPhotos               Layout[]             @relation("LAYOUT_PHOTO")
+  orderBudgets               Order[]              @relation("ORDER_BUDGET")
+  orderNfes                  Order[]              @relation("ORDER_NFE")
+  orderReceipts              Order[]              @relation("ORDER_RECEIPT")
+  supplierLogo               Supplier[]           @relation("SUPPLIER_LOGO")
+  taskBudgets                Task[]               @relation("TASK_BUDGET")
+  taskNfes                   Task[]               @relation("TASK_NFE")
+  taskReceipts               Task[]               @relation("TASK_RECEIPT")
+  thumbnailJob               ThumbnailJob?
+  airbrushingArtworks        Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
+  airbrushingNfes            Airbrushing[]        @relation("AIRBRUSHING_NFES")
+  airbrushingReceipts        Airbrushing[]        @relation("AIRBRUSHING_RECEIPTS")
+  warning                    Warning[]            @relation("FileToWarning")
+  observations               Observation[]        @relation("OBSERVATIONS_FILES")
+  tasksArtworks              Task[]               @relation("TASK_FILES")
+
+  @@index([filename])
+  @@index([originalName])
+  @@index([mimetype])
+  @@index([path])
+}
+
+model Price {
+  id        String   @id @default(uuid())
+  value     Float
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id])
+}
+
+model Measure {
+  id          String       @id @default(uuid())
+  value       Float?
+  unit        MeasureUnit?
+  measureType MeasureType
+  itemId      String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  item        Item         @relation("ITEM_MEASURES", fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([measureType])
+}
+
+model PositionRemuneration {
+  id         String   @id @default(uuid())
+  value      Float
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+  positionId String
+  position   Position @relation(fields: [positionId], references: [id])
+
+  @@index([positionId])
+  @@index([createdAt])
+}
+
+model Item {
+  id                             String                   @id @default(uuid())
+  name                           String
+  uniCode                        String?
+  quantity                       Float                    @default(0)
+  maxQuantity                    Float?
+  reorderPoint                   Float?
+  reorderQuantity                Float?
+  boxQuantity                    Int?
+  tax                            Float                    @default(0)
+  totalPrice                     Float?
+  monthlyConsumption             Decimal                  @default(0) @db.Decimal(10, 2)
+  monthlyConsumptionTrendPercent Decimal?                 @db.Decimal(5, 2)
+  barcodes                       String[]                 @default([])
+  shouldAssignToUser             Boolean                  @default(true)
+  abcCategory                    AbcCategory?
+  abcCategoryOrder               Int?
+  xyzCategory                    XyzCategory?
+  xyzCategoryOrder               Int?
+  brandId                        String?
+  categoryId                     String?
+  supplierId                     String?
+  estimatedLeadTime              Int?                     @default(30)
+  isActive                       Boolean                  @default(true)
+  ppeType                        PpeType?
+  ppeCA                          String?
+  ppeDeliveryMode                PpeDeliveryMode?
+  ppeStandardQuantity            Int?
+  ppeAutoOrderMonths             Int?
+  createdAt                      DateTime                 @default(now())
+  updatedAt                      DateTime                 @updatedAt
+  activities                     Activity[]               @relation("ACTIVITY_ITEM")
+  borrows                        Borrow[]
+  externalWithdrawalItems        ExternalWithdrawalItem[]
+  brand                          ItemBrand?               @relation("ITEM_BRAND", fields: [brandId], references: [id])
+  category                       ItemCategory?            @relation("ITEM_CATEGORY", fields: [categoryId], references: [id])
+  supplier                       Supplier?                @relation("ITEM_SUPPLIER", fields: [supplierId], references: [id])
+  maintenance                    Maintenance[]            @relation("MAINTENANCE_ITEM")
+  maintenanceItemsNeeded         MaintenanceItem[]        @relation("MAINTENANCE_ITEM_NEEDED")
+  maintenanceSchedules           MaintenanceSchedule[]    @relation("MAINTENANCE_SCHEDULE_ITEM")
+  measures                       Measure[]                @relation("ITEM_MEASURES")
+  orderItems                     OrderItem[]              @relation("ORDER_ITEM_ITEM")
+  orderRules                     OrderRule[]
+  formulaComponents              PaintFormulaComponent[]
+  ppeDelivery                    PpeDelivery[]            @relation("PPE_DELIVERY_ITEM")
+  prices                         Price[]
+  paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
+  paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
+  relatedItems                   Item[]                   @relation("RelatedItems")
+  relatedTo                      Item[]                   @relation("RelatedItems")
+
+  @@index([shouldAssignToUser])
+  @@index([categoryId, brandId])
+  @@index([name])
+  @@index([isActive])
+  @@index([supplierId])
+  @@index([abcCategory, abcCategoryOrder])
+  @@index([xyzCategory, xyzCategoryOrder])
+  @@index([ppeType])
+  @@index([categoryId, ppeType])
+}
+
+model WeeklyScheduleConfig {
+  id                  String               @id @default(uuid())
+  monday              Boolean              @default(false)
+  tuesday             Boolean              @default(false)
+  wednesday           Boolean              @default(false)
+  thursday            Boolean              @default(false)
+  friday              Boolean              @default(false)
+  saturday            Boolean              @default(false)
+  sunday              Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  maintenanceSchedule MaintenanceSchedule?
+  orderSchedule       OrderSchedule?
+  ppeSchedule         PpeDeliverySchedule?
+}
+
+model MonthlyScheduleConfig {
+  id                  String               @id @default(uuid())
+  dayOfMonth          Int?
+  occurrence          MonthOccurrence?
+  dayOfWeek           DayOfWeek?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  maintenanceSchedule MaintenanceSchedule?
+  orderSchedule       OrderSchedule?
+  ppeSchedule         PpeDeliverySchedule?
+}
+
+model YearlyScheduleConfig {
+  id                  String               @id @default(uuid())
+  month               Month
+  dayOfMonth          Int?
+  occurrence          MonthOccurrence?
+  dayOfWeek           DayOfWeek?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  maintenanceSchedule MaintenanceSchedule?
+  orderSchedule       OrderSchedule?
+  ppeSchedule         PpeDeliverySchedule?
+}
+
+model OrderRule {
+  id               String           @id @default(uuid())
+  itemId           String
+  supplierId       String?
+  isActive         Boolean          @default(true)
+  priority         Int              @default(0)
+  triggerType      OrderTriggerType
+  consumptionDays  Int?
+  safetyStockDays  Int?
+  minOrderQuantity Float?
+  maxOrderQuantity Float?
+  orderMultiple    Float?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  item             Item             @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  supplier         Supplier?        @relation(fields: [supplierId], references: [id])
+
+  @@index([itemId])
+  @@index([supplierId])
+  @@index([isActive])
+}
+
+model ItemBrand {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     Item[]   @relation("ITEM_BRAND")
+}
+
+model ItemCategory {
+  id        String           @id @default(uuid())
+  name      String           @unique
+  type      ItemCategoryType @default(REGULAR)
+  typeOrder Int              @default(1)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  items     Item[]           @relation("ITEM_CATEGORY")
+
+  @@index([type, typeOrder])
+}
+
+model Observation {
+  id          String   @id @default(uuid())
+  description String
+  taskId      String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  task        Task     @relation("OBSERVATION_TO_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  files       File[]   @relation("OBSERVATIONS_FILES")
+}
+
+model ExternalWithdrawal {
+  id             String                   @id @default(uuid())
+  withdrawerName String
+  willReturn     Boolean                  @default(true)
+  status         ExternalWithdrawalStatus @default(PENDING)
+  statusOrder    Int                      @default(1)
+  nfeId          String?
+  receiptId      String?
+  notes          String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  nfe            File?                    @relation("EXTERNAL_WITHDRAWAL_NFE", fields: [nfeId], references: [id])
+  receipt        File?                    @relation("EXTERNAL_WITHDRAWAL_RECEIPT", fields: [receiptId], references: [id])
+  items          ExternalWithdrawalItem[]
+
+  @@index([withdrawerName])
+  @@index([status, statusOrder])
+  @@index([willReturn])
+  @@index([createdAt])
+}
+
+model ExternalWithdrawalItem {
+  id                   String             @id @default(uuid())
+  externalWithdrawalId String
+  itemId               String
+  withdrawedQuantity   Float
+  returnedQuantity     Float              @default(0)
+  price                Float?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  externalWithdrawal   ExternalWithdrawal @relation(fields: [externalWithdrawalId], references: [id], onDelete: Cascade)
+  item                 Item               @relation(fields: [itemId], references: [id])
+
+  @@index([externalWithdrawalId])
+  @@index([itemId])
+}
+
+model Maintenance {
+  id                    String               @id @default(uuid())
+  name                  String
+  description           String?
+  status                MaintenanceStatus    @default(PENDING)
+  statusOrder           Int                  @default(1)
+  itemId                String
+  maintenanceScheduleId String?
+  scheduledFor          DateTime?
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  timeTaken             Int?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  item                  Item                 @relation("MAINTENANCE_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  maintenanceSchedule   MaintenanceSchedule? @relation("MAINTENANCE_FROM_SCHEDULE", fields: [maintenanceScheduleId], references: [id])
+  itemsNeeded           MaintenanceItem[]
+
+  @@index([itemId])
+  @@index([status])
+  @@index([statusOrder])
+  @@index([maintenanceScheduleId])
+  @@index([scheduledFor])
+}
+
+model MaintenanceItem {
+  id            String      @id @default(uuid())
+  maintenanceId String
+  itemId        String
+  quantity      Float       @default(1)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  item          Item        @relation("MAINTENANCE_ITEM_NEEDED", fields: [itemId], references: [id])
+  maintenance   Maintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+
+  @@index([maintenanceId])
+  @@index([itemId])
+}
+
+model MaintenanceSchedule {
+  id                     String                    @id @default(uuid())
+  name                   String
+  description            String?
+  itemId                 String?
+  frequency              ScheduleFrequency
+  frequencyCount         Int                       @default(1)
+  isActive               Boolean                   @default(true)
+  status                 MaintenanceScheduleStatus @default(PENDING)
+  statusOrder            Int                       @default(1)
+  maintenanceItemsConfig Json?
+  specificDate           DateTime?
+  dayOfMonth             Int?
+  dayOfWeek              DayOfWeek?
+  month                  Month?
+  customMonths           Month[]
+  rescheduleCount        Int                       @default(0)
+  originalDate           DateTime?
+  lastRescheduleDate     DateTime?
+  rescheduleReason       RescheduleReason?
+  weeklyConfigId         String?                   @unique
+  monthlyConfigId        String?                   @unique
+  yearlyConfigId         String?                   @unique
+  nextRun                DateTime?
+  lastRun                DateTime?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  finishedAt             DateTime?
+  lastRunId              String?
+  originalScheduleId     String?
+  maintenances           Maintenance[]             @relation("MAINTENANCE_FROM_SCHEDULE")
+  item                   Item?                     @relation("MAINTENANCE_SCHEDULE_ITEM", fields: [itemId], references: [id])
+  monthlyConfig          MonthlyScheduleConfig?    @relation(fields: [monthlyConfigId], references: [id])
+  weeklyConfig           WeeklyScheduleConfig?     @relation(fields: [weeklyConfigId], references: [id])
+  yearlyConfig           YearlyScheduleConfig?     @relation(fields: [yearlyConfigId], references: [id])
+
+  @@index([itemId])
+  @@index([nextRun])
+  @@index([status, statusOrder])
+  @@index([lastRunId])
+  @@index([originalScheduleId])
+}
+
+model Order {
+  id              String               @id @default(uuid())
+  description     String
+  forecast        DateTime?
+  status          OrderStatus          @default(CREATED)
+  statusOrder     Int                  @default(1)
+  budgetId        String?
+  nfeId           String?
+  receiptId       String?
+  supplierId      String?
+  orderScheduleId String?              @unique
+  orderRuleId     String?
+  ppeScheduleId   String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  activities      Activity[]           @relation("ACTIVITY_ORDER")
+  budget          File?                @relation("ORDER_BUDGET", fields: [budgetId], references: [id])
+  nfe             File?                @relation("ORDER_NFE", fields: [nfeId], references: [id])
+  orderSchedule   OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
+  ppeSchedule     PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
+  receipt         File?                @relation("ORDER_RECEIPT", fields: [receiptId], references: [id])
+  supplier        Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
+  items           OrderItem[]
+
+  @@index([status])
+  @@index([statusOrder])
+  @@index([supplierId])
+  @@index([createdAt])
+  @@index([ppeScheduleId])
+}
+
+model OrderItem {
+  id               String     @id @default(uuid())
+  orderId          String
+  itemId           String
+  orderedQuantity  Float
+  receivedQuantity Float      @default(0)
+  price            Float
+  tax              Float
+  isCritical       Boolean    @default(false)
+  receivedAt       DateTime?
+  fulfilledAt      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  activities       Activity[] @relation("ACTIVITY_ORDER_ITEM")
+  item             Item       @relation("ORDER_ITEM_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  order            Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([itemId])
+}
+
+model OrderSchedule {
+  id                 String                 @id @default(uuid())
+  frequency          ScheduleFrequency
+  frequencyCount     Int                    @default(1)
+  isActive           Boolean                @default(true)
+  items              String[]
+  specificDate       DateTime?
+  dayOfMonth         Int?
+  dayOfWeek          DayOfWeek?
+  month              Month?
+  customMonths       Month[]
+  rescheduleCount    Int                    @default(0)
+  originalDate       DateTime?
+  lastRescheduleDate DateTime?
+  rescheduleReason   RescheduleReason?
+  weeklyConfigId     String?                @unique
+  monthlyConfigId    String?                @unique
+  yearlyConfigId     String?                @unique
+  nextRun            DateTime?
+  lastRun            DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  finishedAt         DateTime?
+  lastRunId          String?
+  originalScheduleId String?
+  order              Order?                 @relation("ORDER_TO_SCHEDULE")
+  monthlyConfig      MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
+  weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
+  yearlyConfig       YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
+
+  @@index([nextRun])
+  @@index([lastRunId])
+  @@index([originalScheduleId])
+}
+
+model PaintProduction {
+  id           String       @id @default(uuid())
+  volumeLiters Float
+  formulaId    String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  formula      PaintFormula @relation(fields: [formulaId], references: [id])
+
+  @@index([formulaId])
+}
+
+model Paint {
+  id               String             @id @default(uuid())
+  name             String
+  hex              String
+  finish           PaintFinish
+  manufacturer     TruckManufacturer?
+  tags             String[]
+  palette          ColorPalette       @default(BLACK)
+  paletteOrder     Int                @default(1)
+  paintTypeId      String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  code             String?
+  paintBrandId     String?
+  paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
+  paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
+  formulas         PaintFormula[]
+  groundPaintFor   PaintGround[]      @relation("GROUND_PAINT_FOR")
+  paintGrounds     PaintGround[]      @relation("PAINT_REQUIRES_GROUND")
+  generalPaintings Task[]             @relation("TASK_GENERAL_PAINTING")
+  relatedPaints    Paint[]            @relation("RelatedPaints")
+  relatedTo        Paint[]            @relation("RelatedPaints")
+  logoTasks        Task[]             @relation("TASK_LOGO_PAINT")
+
+  @@index([name])
+  @@index([paintTypeId])
+  @@index([paintBrandId])
+  @@index([paintTypeId, paintBrandId])
+  @@index([palette, paletteOrder])
+}
+
+model PaintBrand {
+  id             String   @id @default(uuid())
+  name           String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  paints         Paint[]
+  componentItems Item[]   @relation("PAINT_BRAND_COMPONENT_ITEMS")
+
+  @@index([name])
+}
+
+model PaintType {
+  id             String   @id @default(uuid())
+  name           String   @unique
+  needGround     Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  paints         Paint[]
+  componentItems Item[]   @relation("PAINT_TYPE_COMPONENT_ITEMS")
+
+  @@index([name])
+}
+
+model PaintGround {
+  id            String   @id @default(uuid())
+  paintId       String
+  groundPaintId String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  groundPaint   Paint    @relation("GROUND_PAINT_FOR", fields: [groundPaintId], references: [id], onDelete: Cascade)
+  paint         Paint    @relation("PAINT_REQUIRES_GROUND", fields: [paintId], references: [id], onDelete: Cascade)
+
+  @@unique([paintId, groundPaintId])
+  @@index([paintId])
+  @@index([groundPaintId])
+}
+
+model PaintFormula {
+  id              String                  @id @default(uuid())
+  description     String                  @default("Cor criada.")
+  paintId         String
+  density         Decimal                 @default(1.0)
+  pricePerLiter   Decimal                 @default(0)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  paint           Paint                   @relation(fields: [paintId], references: [id], onDelete: Cascade)
+  components      PaintFormulaComponent[]
+  paintProduction PaintProduction[]
+
+  @@index([paintId])
+}
+
+model PaintFormulaComponent {
+  id             String       @id @default(uuid())
+  ratio          Float
+  itemId         String
+  formulaPaintId String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  formula        PaintFormula @relation(fields: [formulaPaintId], references: [id], onDelete: Cascade)
+  item           Item         @relation(fields: [itemId], references: [id])
+
+  @@index([itemId])
+  @@index([formulaPaintId])
+}
+
+model Position {
+  id            String                 @id @default(uuid())
+  name          String                 @unique
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  bonifiable    Boolean                @default(true)
+  remunerations PositionRemuneration[]
+  users         User[]                 @relation("USER_POSITION")
+  payrolls      Payroll[]
+
+  @@index([name])
+}
+
+model Warning {
+  id             String          @id @default(uuid())
+  description    String?
+  collaboratorId String
+  supervisorId   String
+  category       WarningCategory
+  severity       WarningSeverity
+  severityOrder  Int             @default(1)
+  reason         String
+  isActive       Boolean         @default(true)
+  hrNotes        String?
+  followUpDate   DateTime
+  resolvedAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  collaborator   User            @relation("COLLABORATOR_WARNING", fields: [collaboratorId], references: [id])
+  supervisor     User            @relation("SUPERVISOR_WARNING", fields: [supervisorId], references: [id])
+  attachments    File[]          @relation("FileToWarning")
+  witness        User[]          @relation("WITNESS_WARNING")
+
+  @@index([collaboratorId])
+  @@index([severityOrder])
+}
+
+model Sector {
+  id             String           @id @default(uuid())
+  name           String
+  privileges     SectorPrivileges @default(BASIC)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  tasks          Task[]
+  managedByUsers User[]           @relation("USER_MANAGED_SECTOR")
+  users          User[]
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  description String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ServiceOrder {
+  id          String             @id @default(uuid())
+  status      ServiceOrderStatus @default(PENDING)
+  statusOrder Int                @default(1)
+  description String
+  taskId      String
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  task        Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([statusOrder])
+}
+
+model Supplier {
+  id                String      @id @default(uuid())
+  fantasyName       String      @unique
+  cnpj              String?     @unique
+  corporateName     String?
+  email             String?
+  address           String?
+  addressNumber     String?
+  addressComplement String?
+  neighborhood      String?
+  city              String?
+  state             String?
+  zipCode           String?
+  site              String?
+  phones            String[]
+  logoId            String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  items             Item[]      @relation("ITEM_SUPPLIER")
+  orders            Order[]     @relation("ORDER_SUPPLIER")
+  orderRules        OrderRule[]
+  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
+
+  @@index([fantasyName])
+  @@index([cnpj])
+  @@index([state])
+  @@index([city])
+}
+
+model Task {
+  id              String           @id @default(uuid())
+  name            String
+  status          TaskStatus       @default(PENDING)
+  statusOrder     Int              @default(1)
+  serialNumber    String?          @unique
+  plate           String?          @unique
+  details         String?
+  entryDate       DateTime?
+  term            DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  paintId         String?
+  customerId      String?
+  sectorId        String?
+  commission      CommissionStatus
+  budgetId        String?
+  nfeId           String?
+  receiptId       String?
+  price           Decimal?         @db.Decimal(10, 2)
+  createdById     String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  airbrushing     Airbrushing[]    @relation("AIRBRUSHING")
+  cuts            Cut[]            @relation("CUT_TASK")
+  observation     Observation?     @relation("OBSERVATION_TO_TASK")
+  services        ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
+  budget          File?            @relation("TASK_BUDGET", fields: [budgetId], references: [id])
+  createdBy       User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer        Customer?        @relation(fields: [customerId], references: [id])
+  nfe             File?            @relation("TASK_NFE", fields: [nfeId], references: [id])
+  generalPainting Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  receipt         File?            @relation("TASK_RECEIPT", fields: [receiptId], references: [id])
+  sector          Sector?          @relation(fields: [sectorId], references: [id])
+  truck           Truck?
+  bonuses         Bonus[]          @relation("BonusTasks")
+  bonusDiscount   BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
+  bonusDiscountId String?
+  relatedTasks    Task[]           @relation("RelatedTasks")
+  relatedTo       Task[]           @relation("RelatedTasks")
+  artworks        File[]           @relation("TASK_FILES")
+  logoPaints      Paint[]          @relation("TASK_LOGO_PAINT")
+
+  @@index([status, sectorId])
+  @@index([statusOrder])
+  @@index([term])
+  @@index([createdAt])
+  @@index([customerId])
+  @@index([createdById])
+}
+
+model Cut {
+  id          String            @id @default(uuid())
+  fileId      String
+  type        CutType
+  taskId      String?
+  origin      CutOrigin         @default(PLAN)
+  reason      CutRequestReason?
+  parentCutId String?
+  status      CutStatus         @default(PENDING)
+  statusOrder Int               @default(1)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  file        File              @relation("TASK_CUTS", fields: [fileId], references: [id])
+  parentCut   Cut?              @relation("CUT_PARENT", fields: [parentCutId], references: [id])
+  childCuts   Cut[]             @relation("CUT_PARENT")
+  task        Task?             @relation("CUT_TASK", fields: [taskId], references: [id])
+
+  @@index([status])
+  @@index([statusOrder])
+  @@index([taskId])
+  @@index([parentCutId])
+  @@index([origin])
+}
+
+model Truck {
+  id                String   @id @default(uuid())
+  xPosition         Float?
+  yPosition         Float?
+  taskId            String   @unique
+  garageId          String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  backSideLayoutId  String?  @unique
+  leftSideLayoutId  String?  @unique
+  rightSideLayoutId String?  @unique
+  backSideLayout    Layout?  @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
+  garage            Garage?  @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
+  leftSideLayout    Layout?  @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
+  rightSideLayout   Layout?  @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  task              Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Layout {
+  id             String          @id @default(uuid())
+  height         Float
+  sections       Json?
+  photoId        String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  photo          File?           @relation("LAYOUT_PHOTO", fields: [photoId], references: [id])
+  layoutSections LayoutSection[] @relation("LayoutSections")
+  truckBackSide  Truck?          @relation("TRUCK_BACK_SIDE")
+  truckLeftSide  Truck?          @relation("TRUCK_LEFT_SIDE")
+  truckRightSide Truck?          @relation("TRUCK_RIGHT_SIDE")
+}
+
+model LayoutSection {
+  id         String   @id @default(uuid())
+  layoutId   String
+  width      Float
+  isDoor     Boolean  @default(false)
+  doorOffset Float?
+  position   Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  layout     Layout   @relation("LayoutSections", fields: [layoutId], references: [id], onDelete: Cascade)
+
+  @@index([layoutId, position])
+}
+
+model Garage {
+  id        String       @id @default(uuid())
+  name      String
+  width     Float        @default(25)
+  length    Float        @default(45)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  lanes     GarageLane[]
+  trucks    Truck[]      @relation("TRUCK_GARAGE")
+}
+
+model GarageLane {
+  id           String        @id @default(uuid())
+  width        Float
+  length       Float
+  xPosition    Float
+  yPosition    Float
+  garageId     String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  garage       Garage        @relation(fields: [garageId], references: [id], onDelete: Cascade)
+  parkingSpots ParkingSpot[]
+
+  @@index([garageId])
+}
+
+model ParkingSpot {
+  id           String     @id @default(uuid())
+  name         String
+  length       Float      @default(12.5)
+  garageLaneId String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  garageLane   GarageLane @relation(fields: [garageLaneId], references: [id], onDelete: Cascade)
+
+  @@index([garageLaneId])
+}
+
+model SecullumToken {
+  id           String   @id @default(uuid())
+  accessToken  String
+  refreshToken String?
+  tokenType    String   @default("Bearer")
+  expiresIn    Int
+  expiresAt    DateTime
+  scope        String?
+  identifier   String   @unique @default("default")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@index([identifier])
+}
+
+model User {
+  id                    String             @id @default(uuid())
+  email                 String?            @unique
+  payrollNumber         Int?
+  name                  String
+  status                UserStatus         @default(EXPERIENCE_PERIOD_1)
+  statusOrder           Int                @default(1)
+  phone                 String?            @unique
+  password              String?
+  positionId            String?
+  preferenceId          String?            @unique
+  pis                   String?            @unique
+  cpf                   String?            @unique
+  address               String?
+  addressNumber         String?
+  addressComplement     String?
+  neighborhood          String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  site                  String?
+  birth                 DateTime
+  verified              Boolean            @default(false)
+  admissional           DateTime
+  dismissal             DateTime?
+  sectorId              String?
+  managedSectorId       String?
+  requirePasswordChange Boolean            @default(false)
+  lastLoginAt           DateTime?
+  verificationCode      String?
+  verificationExpiresAt DateTime?
+  verificationType      VerificationType?
+  sessionToken          String?            @unique
+  secullumId            String?            @unique @map("secullum_id")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  performanceLevel      Int                @default(0)
+  activities            Activity[]         @relation("ACTIVITY_USER")
+  bonuses               Bonus[]            @relation("UserBonus")
+  bonusesInPeriod       Bonus[]            @relation("BonusPeriodUsers")
+  borrows               Borrow[]           @relation("USER_BORROW")
+  payrolls              Payroll[]
+  changeLogs            ChangeLog[]        @relation("CHANGELOG_USER")
+  notifications         Notification[]     @relation("NOTIFICATION_CREATED_BY")
+  ppeDeliveriesReviewed PpeDelivery[]      @relation("PPE_DELIVERY_REVIEWED_BY")
+  ppeDeliveries         PpeDelivery[]      @relation("PPE_DELIVERY_USER")
+  ppeSize               PpeSize?           @relation("USER_PPE_SIZE")
+  preference            Preferences?       @relation("USER_PREFERENCES")
+  seenNotification      SeenNotification[]
+  createdTasks          Task[]             @relation("TASK_CREATED_BY")
+  managedSector         Sector?            @relation("USER_MANAGED_SECTOR", fields: [managedSectorId], references: [id])
+  position              Position?          @relation("USER_POSITION", fields: [positionId], references: [id])
+  sector                Sector?            @relation(fields: [sectorId], references: [id])
+  vacations             Vacation[]
+  warningsCollaborator  Warning[]          @relation("COLLABORATOR_WARNING")
+  warningsSupervisor    Warning[]          @relation("SUPERVISOR_WARNING")
+  warningsWitness       Warning[]          @relation("WITNESS_WARNING")
+  deployments           Deployment[]       @relation("DEPLOYMENT_USER")
+
+  @@index([status, sectorId])
+  @@index([statusOrder])
+  @@index([admissional])
+  @@index([dismissal])
+  @@index([email])
+  @@index([phone])
+  @@index([email, phone])
+  @@index([verificationCode])
+  @@index([verificationExpiresAt])
+  @@index([verificationType])
+  @@index([sessionToken])
+  @@index([verified])
+}
+
+model Vacation {
+  id           String         @id @default(uuid())
+  userId       String?
+  startAt      DateTime
+  endAt        DateTime
+  isCollective Boolean        @default(false)
+  status       VacationStatus @default(PENDING)
+  statusOrder  Int            @default(1)
+  type         VacationType   @default(COLLECTIVE)
+  typeOrder    Int            @default(2)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User?          @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([startAt, endAt])
+  @@index([statusOrder])
+}
+
+model Preferences {
+  id            String                   @id @default(uuid())
+  userId        String                   @unique
+  colorSchema   ColorSchema              @default(LIGHT)
+  favorites     String[]                 @default([])
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  user          User                     @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+  notifications NotificationPreference[] @relation("NotificationPreferenceToPreferences")
+}
+
+model NotificationPreference {
+  id               String                 @id @default(uuid())
+  notificationType String
+  enabled          Boolean
+  channels         NotificationChannel[]
+  importance       NotificationImportance
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  preferences      Preferences[]          @relation("NotificationPreferenceToPreferences")
+}
+
+model Notification {
+  id          String                  @id @default(uuid())
+  userId      String?
+  title       String
+  body        String
+  type        NotificationType
+  channel     NotificationChannel[]
+  importance  NotificationImportance  @default(NORMAL)
+  actionType  NotificationActionType?
+  actionUrl   String?
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  user        User?                   @relation("NOTIFICATION_CREATED_BY", fields: [userId], references: [id])
+  seenBy      SeenNotification[]
+
+  @@index([userId])
+  @@index([scheduledAt])
+}
+
+model SeenNotification {
+  id             String       @id @default(uuid())
+  userId         String
+  notificationId String
+  seenAt         DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationId])
+}
+
+model ThumbnailJob {
+  id          String    @id @default(uuid())
+  fileId      String    @unique @map("file_id")
+  jobId       String?   @map("job_id")
+  status      String
+  error       String?
+  progress    Int?      @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+  file        File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@map("thumbnail_jobs")
+}
+
+model Deployment {
+  id                String                @id @default(uuid())
+  environment       DeploymentEnvironment
+  commitSha         String                @map("commit_sha")
+  branch            String
+  tag               String?
+  status            DeploymentStatus      @default(PENDING)
+  statusOrder       Int                   @default(2) @map("status_order")
+  triggeredBy       DeploymentTrigger     @default(MANUAL) @map("triggered_by")
+  deployedBy        String?               @map("deployed_by")
+  version           String?
+  previousCommit    String?               @map("previous_commit")
+  commitMessage     String?               @map("commit_message")
+  commitAuthor      String?               @map("commit_author")
+  buildNumber       Int?                  @map("build_number")
+  duration          Int?                  // Duration in seconds
+  rollbackData      Json?                 @map("rollback_data")
+  deploymentLog     String?               @db.Text @map("deployment_log")
+  errorMessage      String?               @db.Text @map("error_message")
+  healthCheckUrl    String?               @map("health_check_url")
+  healthCheckStatus String?               @map("health_check_status")
+  workflowRunId     String?               @map("workflow_run_id") // GitHub Actions run ID
+  startedAt         DateTime?             @map("started_at")
+  completedAt       DateTime?             @map("completed_at")
+  rolledBackAt      DateTime?             @map("rolled_back_at")
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+  user              User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
+
+  @@index([environment, status])
+  @@index([commitSha])
+  @@index([createdAt])
+  @@index([statusOrder])
+  @@index([triggeredBy])
+  @@index([branch])
+  @@map("deployments")
+}
+
+enum UserStatus {
+  EXPERIENCE_PERIOD_1
+  EXPERIENCE_PERIOD_2
+  CONTRACTED
+  DISMISSED
+}
+
+enum CutType {
+  VINYL
+  STENCIL
+}
+
+enum CutRequestReason {
+  WRONG_APPLY
+  LOST
+  WRONG
+}
+
+enum CutOrigin {
+  PLAN
+  REQUEST
+}
+
+enum PpeType {
+  SHIRT
+  PANTS
+  BOOTS
+  SLEEVES
+  MASK
+  GLOVES
+  RAIN_BOOTS
+}
+
+enum PpeDeliveryMode {
+  SCHEDULED
+  ON_DEMAND
+  BOTH
+}
+
+enum ShirtSize {
+  P
+  M
+  G
+  GG
+  XG
+}
+
+enum PantsSize {
+  SIZE_36
+  SIZE_38
+  SIZE_40
+  SIZE_42
+  SIZE_44
+  SIZE_46
+  SIZE_48
+}
+
+enum BootSize {
+  SIZE_36
+  SIZE_38
+  SIZE_40
+  SIZE_42
+  SIZE_44
+  SIZE_46
+  SIZE_48
+}
+
+enum SleevesSize {
+  P
+  M
+  G
+  GG
+  XG
+}
+
+enum MaskSize {
+  P
+  M
+}
+
+enum GlovesSize {
+  P
+  M
+  G
+}
+
+enum RainBootsSize {
+  SIZE_36
+  SIZE_38
+  SIZE_40
+  SIZE_42
+  SIZE_44
+  SIZE_46
+}
+
+enum PpeSizeEnum {
+  P
+  M
+  G
+  GG
+  XG
+  SIZE_36
+  SIZE_38
+  SIZE_40
+  SIZE_42
+  SIZE_44
+  SIZE_46
+  SIZE_48
+}
+
+enum PpeDeliveryStatus {
+  PENDING
+  APPROVED
+  DELIVERED
+  REPROVED
+}
+
+enum ActivityReason {
+  ORDER_RECEIVED
+  PRODUCTION_USAGE
+  PPE_DELIVERY
+  BORROW
+  RETURN
+  EXTERNAL_WITHDRAWAL
+  EXTERNAL_WITHDRAWAL_RETURN
+  INVENTORY_COUNT
+  MANUAL_ADJUSTMENT
+  MAINTENANCE
+  DAMAGE
+  LOSS
+  PAINT_PRODUCTION
+  OTHER
+}
+
+enum OrderStatus {
+  CREATED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  OVERDUE
+  PARTIALLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum MaintenanceScheduleStatus {
+  PENDING
+  FINISHED
+  CANCELLED
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PRODUCTION
+  COMPLETED
+  CANCELLED
+  ON_HOLD
+}
+
+enum ServiceOrderStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum AirbrushingStatus {
+  PENDING
+  IN_PRODUCTION
+  COMPLETED
+  CANCELLED
+}
+
+enum CutStatus {
+  PENDING
+  CUTTING
+  COMPLETED
+}
+
+enum MaintenanceStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  OVERDUE
+}
+
+enum AbsenceStatus {
+  PENDING_JUSTIFICATION
+  JUSTIFICATION_SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum VacationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum PpeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELIVERED
+  CANCELLED
+}
+
+enum BorrowStatus {
+  ACTIVE
+  RETURNED
+  LOST
+}
+
+enum ExternalWithdrawalStatus {
+  PENDING
+  PARTIALLY_RETURNED
+  FULLY_RETURNED
+  CHARGED
+  CANCELLED
+}
+
+enum VacationType {
+  ANNUAL
+  COLLECTIVE
+  MEDICAL
+  MATERNITY
+  PATERNITY
+  EMERGENCY
+  STUDY
+  UNPAID
+  OTHER
+}
+
+enum PaintFinish {
+  SOLID
+  METALLIC
+  PEARL
+  MATTE
+  SATIN
+}
+
+enum PaintBaseType {
+  TRANSPARENT
+  WHITE
+  ALUMINUM
+  BLACK
+  MIXING
+}
+
+enum ColorPalette {
+  BLACK
+  GRAY
+  WHITE
+  SILVER
+  GOLDEN
+  YELLOW
+  ORANGE
+  BROWN
+  RED
+  PINK
+  PURPLE
+  BLUE
+  GREEN
+  BEIGE
+}
+
+enum TruckManufacturer {
+  SCANIA
+  VOLVO
+  DAF
+  VOLKSWAGEN
+  IVECO
+  MERCEDES_BENZ
+}
+
+enum WarningSeverity {
+  VERBAL
+  WRITTEN
+  SUSPENSION
+  FINAL_WARNING
+}
+
+enum WarningCategory {
+  SAFETY
+  MISCONDUCT
+  INSUBORDINATION
+  POLICY_VIOLATION
+  ATTENDANCE
+  PERFORMANCE
+  BEHAVIOR
+  OTHER
+}
+
+enum NotificationType {
+  SYSTEM
+  TASK
+  ORDER
+  PPE
+  VACATION
+  WARNING
+  STOCK
+  GENERAL
+}
+
+enum NotificationImportance {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum ColorSchema {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum VerificationType {
+  EMAIL
+  PHONE
+  PASSWORD_RESET
+}
+
+enum MeasureUnit {
+  KILOGRAM
+  GRAM
+  MILLILITER
+  LITER
+  CUBIC_METER
+  CUBIC_CENTIMETER
+  MILLIMETER
+  CENTIMETER
+  METER
+  INCHES
+  INCH_1_8
+  INCH_1_4
+  INCH_3_8
+  INCH_1_2
+  INCH_5_8
+  INCH_3_4
+  INCH_7_8
+  INCH_1
+  INCH_1_1_4
+  INCH_1_1_2
+  INCH_2
+  THREAD_MM
+  THREAD_TPI
+  WATT
+  VOLT
+  AMPERE
+  SQUARE_CENTIMETER
+  SQUARE_METER
+  UNIT
+  PAIR
+  DOZEN
+  HUNDRED
+  THOUSAND
+  PACKAGE
+  BOX
+  ROLL
+  SHEET
+  SET
+  SACK
+  P
+  M
+  G
+  GG
+  XG
+}
+
+enum MeasureType {
+  WEIGHT
+  VOLUME
+  LENGTH
+  AREA
+  COUNT
+  DIAMETER
+  THREAD
+  ELECTRICAL
+  SIZE
+}
+
+enum SectorPrivileges {
+  BASIC
+  PRODUCTION
+  LEADER
+  MAINTENANCE
+  WAREHOUSE
+  ADMIN
+  HUMAN_RESOURCES
+  EXTERNAL
+}
+
+enum ScheduleFrequency {
+  ONCE
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  BIMONTHLY
+  QUARTERLY
+  TRIANNUAL
+  QUADRIMESTRAL
+  SEMI_ANNUAL
+  ANNUAL
+  CUSTOM
+}
+
+enum AssignmentType {
+  ALL
+  ALL_EXCEPT
+  SPECIFIC
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum Month {
+  JANUARY
+  FEBRUARY
+  MARCH
+  APRIL
+  MAY
+  JUNE
+  JULY
+  AUGUST
+  SEPTEMBER
+  OCTOBER
+  NOVEMBER
+  DECEMBER
+}
+
+enum MonthOccurrence {
+  FIRST
+  SECOND
+  THIRD
+  FOURTH
+  LAST
+}
+
+enum OrderTriggerType {
+  STOCK_LEVEL
+  CONSUMPTION_RATE
+  SCHEDULED
+}
+
+enum ChangeLogTriggeredByType {
+  TASK_CREATE
+  TASK_UPDATE
+  USER_ACTION
+  BATCH_CREATE
+  BATCH_UPDATE
+  BATCH_DELETE
+  BATCH_OPERATION
+  SYSTEM
+  USER
+  EXTERNAL_WITHDRAWAL
+  EXTERNAL_WITHDRAWAL_DELETE
+  EXTERNAL_WITHDRAWAL_RETURN
+  EXTERNAL_WITHDRAWAL_SYNC
+  EXTERNAL_WITHDRAWAL_ITEM
+  EXTERNAL_WITHDRAWAL_ITEM_UPDATE
+  EXTERNAL_WITHDRAWAL_ITEM_DELETE
+  PAINT_FORMULA_COMPONENT_CREATE
+  PAINT_FORMULA_COMPONENT_UPDATE
+  PAINT_FORMULA_COMPONENT_DELETE
+  PAINT_FORMULA_COMPONENT_BATCH_CREATE
+  PAINT_FORMULA_COMPONENT_BATCH_UPDATE
+  PAINT_FORMULA_COMPONENT_BATCH_DELETE
+  PAINT_PRODUCTION_CREATE
+  PAINT_PRODUCTION_UPDATE
+  PAINT_PRODUCTION_DELETE
+  PAINT_PRODUCTION_BATCH_CREATE
+  PAINT_PRODUCTION_BATCH_UPDATE
+  PAINT_PRODUCTION_BATCH_DELETE
+  PAINT_CREATE
+  PAINT_UPDATE
+  PAINT_DELETE
+  PAINT_BATCH_CREATE
+  PAINT_BATCH_UPDATE
+  PAINT_BATCH_DELETE
+  PAINT_FORMULA_CREATE
+  PAINT_FORMULA_UPDATE
+  PAINT_FORMULA_DELETE
+  PAINT_FORMULA_BATCH_CREATE
+  PAINT_FORMULA_BATCH_UPDATE
+  PAINT_FORMULA_BATCH_DELETE
+  PAINT_TYPE_CREATE
+  PAINT_TYPE_UPDATE
+  PAINT_TYPE_DELETE
+  PAINT_TYPE_BATCH_CREATE
+  PAINT_TYPE_BATCH_UPDATE
+  PAINT_TYPE_BATCH_DELETE
+  PAINT_GROUND_CREATE
+  PAINT_GROUND_UPDATE
+  PAINT_GROUND_DELETE
+  PAINT_GROUND_BATCH_CREATE
+  PAINT_GROUND_BATCH_UPDATE
+  PAINT_GROUND_BATCH_DELETE
+  ORDER_UPDATE
+  ORDER_CREATE
+  ORDER_STATUS_CHANGE
+  ORDER_CANCEL
+  ORDER_ITEM_UPDATE
+  ORDER_ITEM_RECEIVED
+  ORDER_ITEM_SYNC
+  SCHEDULE
+  ACTIVITY_CREATE
+  ACTIVITY_UPDATE
+  ACTIVITY_DELETE
+  ACTIVITY_SYNC
+  INVENTORY_ADJUSTMENT
+  ITEM_MONTHLY_CONSUMPTION_UPDATE
+  AUTOMATIC_MIN_MAX_UPDATE
+}
+
+enum ChangeLogEntityType {
+  ABSENCE
+  ACTIVITY
+  AIRBRUSHING
+  BORROW
+  CALCULATION
+  CALCULATION_DETAIL
+  CALCULATION_DECOMPOSITION
+  CATEGORY
+  COLLECTION
+  CUSTOMER
+  CUT
+  CUT_ITEM
+  CUT_PLAN
+  CUT_REQUEST
+  DELIVERY
+  PPE_DELIVERY
+  PPE_DELIVERY_ITEM
+  PPE_REQUEST
+  PPE_DELIVERY_SCHEDULE
+  PPE_SIZE
+  EXTERNAL_WITHDRAWAL
+  EXTERNAL_WITHDRAWAL_ITEM
+  FILE
+  ITEM
+  ITEM_BRAND
+  ITEM_CATEGORY
+  MAINTENANCE
+  MAINTENANCE_SCHEDULE
+  NOTIFICATION
+  ORDER
+  ORDER_ITEM
+  ORDER_RULE
+  ORDER_SCHEDULE
+  PAINT
+  PAINT_TYPE
+  SERVICE
+  PAINT_GROUND
+  PAINT_FORMULA
+  PAINT_FORMULA_COMPONENT
+  PAINT_PRODUCTION
+  PIECE
+  POSITION
+  PRODUCTION
+  PURCHASE
+  WARNING
+  SECTOR
+  SERVICE_ORDER
+  SUPPLIER
+  TASK
+  TRUCK
+  LAYOUT
+  USER
+  VACATION
+}
+
+enum ChangeLogAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  ARCHIVE
+  UNARCHIVE
+  ACTIVATE
+  DEACTIVATE
+  APPROVE
+  REJECT
+  CANCEL
+  COMPLETE
+  ROLLBACK
+  RESCHEDULE
+  BATCH_CREATE
+  BATCH_UPDATE
+  BATCH_DELETE
+}
+
+enum NotificationActionType {
+  VIEW_DETAILS
+  APPROVE_REQUEST
+  REJECT_REQUEST
+  COMPLETE_TASK
+  VIEW_ORDER
+  VIEW_REPORT
+  ACKNOWLEDGE
+  DISMISS
+}
+
+enum RescheduleReason {
+  LOW_FUNDS
+  SUPPLIER_DELAY
+  OPERATIONAL_ISSUE
+  PRIORITY_CHANGE
+  SEASONAL_ADJUSTMENT
+  EMERGENCY
+  OTHER
+}
+
+enum ActivityOperation {
+  INBOUND
+  OUTBOUND
+}
+
+enum AbcCategory {
+  A
+  B
+  C
+}
+
+enum XyzCategory {
+  X
+  Y
+  Z
+}
+
+enum ItemCategoryType {
+  REGULAR
+  TOOL
+  PPE
+}
+
+enum BonusStatus {
+  DRAFT
+  CONFIRMED
+}
+
+enum CommissionStatus {
+  PARTIAL_COMMISSION
+  NO_COMMISSION
+  FULL_COMMISSION
+  SUSPENDED_COMMISSION
+}
+
+enum DeploymentEnvironment {
+  DEVELOPMENT
+  STAGING
+  PRODUCTION
+}
+
+enum DeploymentStatus {
+  PENDING
+  IN_PROGRESS
+  BUILDING
+  TESTING
+  DEPLOYING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+  CANCELLED
+}
+
+enum DeploymentTrigger {
+  MANUAL
+  AUTO
+  PUSH
+  PULL_REQUEST
+  TAG
+  SCHEDULE
+  WEBHOOK
+  ROLLBACK
+  API
+}

@@ -1,0 +1,422 @@
+// repositories/paint-prisma.repository.ts
+
+import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { Paint } from '../../../../types';
+import {
+  PaintCreateFormData,
+  PaintUpdateFormData,
+  PaintInclude,
+  PaintOrderBy,
+  PaintWhere,
+} from '../../../../schemas/paint';
+import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
+import { PaintRepository } from './paint.repository';
+import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
+import { PrismaTransaction } from '@modules/common/base/base.repository';
+import {
+  ColorPalette,
+  PaintBrand,
+  PaintFinish,
+  Prisma,
+  Paint as PrismaPaint,
+  TruckManufacturer,
+} from '@prisma/client';
+import { COLOR_PALETTE } from '../../../../constants/enums';
+import { getColorPaletteOrder } from '../../../../utils';
+
+@Injectable()
+export class PaintPrismaRepository
+  extends BaseStringPrismaRepository<
+    Paint,
+    PaintCreateFormData,
+    PaintUpdateFormData,
+    PaintInclude,
+    PaintOrderBy,
+    PaintWhere,
+    PrismaPaint,
+    Prisma.PaintCreateInput,
+    Prisma.PaintUpdateInput,
+    Prisma.PaintInclude,
+    Prisma.PaintOrderByWithRelationInput,
+    Prisma.PaintWhereInput
+  >
+  implements PaintRepository
+{
+  protected readonly logger = new Logger(PaintPrismaRepository.name);
+
+  constructor(protected readonly prisma: PrismaService) {
+    super(prisma);
+  }
+
+  // Abstract method implementations from BaseStringPrismaRepository
+  protected mapDatabaseEntityToEntity(databaseEntity: PrismaPaint): Paint {
+    // Direct mapping - no field name changes needed now
+    return databaseEntity as Paint;
+  }
+
+  protected mapCreateFormDataToDatabaseCreateInput(
+    formData: PaintCreateFormData,
+  ): Prisma.PaintCreateInput {
+    const { groundIds, ...restFormData } = formData;
+
+    const createInput: Prisma.PaintCreateInput = {
+      name: restFormData.name,
+      hex: restFormData.hex,
+      finish: restFormData.finish as PaintFinish,
+      paintBrand: restFormData.paintBrandId
+        ? {
+            connect: { id: restFormData.paintBrandId },
+          }
+        : undefined,
+      manufacturer: (restFormData.manufacturer as TruckManufacturer) || null,
+      tags: restFormData.tags || [],
+      palette: restFormData.palette as ColorPalette,
+      paletteOrder: getColorPaletteOrder(restFormData.palette || COLOR_PALETTE.BLACK),
+      paintType: {
+        connect: { id: restFormData.paintTypeId },
+      },
+    };
+
+    // Handle ground paints connection
+    if (groundIds && groundIds.length > 0) {
+      createInput.paintGrounds = {
+        create: groundIds.map(groundPaintId => ({
+          groundPaintId,
+        })),
+      };
+    }
+
+    return createInput;
+  }
+
+  protected mapUpdateFormDataToDatabaseUpdateInput(
+    formData: PaintUpdateFormData,
+  ): Prisma.PaintUpdateInput {
+    const { groundIds, ...restFormData } = formData;
+    const updateInput: Prisma.PaintUpdateInput = {};
+
+    // Only include defined fields to avoid undefined enum casting
+    if (restFormData.name !== undefined) {
+      updateInput.name = restFormData.name;
+    }
+
+    if (restFormData.hex !== undefined) {
+      updateInput.hex = restFormData.hex;
+    }
+
+    if (restFormData.finish !== undefined) {
+      updateInput.finish = restFormData.finish as PaintFinish;
+    }
+
+    if (restFormData.paintBrandId !== undefined) {
+      updateInput.paintBrand = restFormData.paintBrandId
+        ? {
+            connect: { id: restFormData.paintBrandId },
+          }
+        : {
+            disconnect: true,
+          };
+    }
+
+    if (restFormData.manufacturer !== undefined) {
+      updateInput.manufacturer = (restFormData.manufacturer as TruckManufacturer) || null;
+    }
+
+    if (restFormData.tags !== undefined) {
+      updateInput.tags = restFormData.tags;
+    }
+
+    if (restFormData.palette !== undefined) {
+      updateInput.palette = restFormData.palette as ColorPalette;
+      updateInput.paletteOrder = getColorPaletteOrder(restFormData.palette);
+    }
+
+    if (restFormData.paletteOrder !== undefined) {
+      updateInput.paletteOrder = restFormData.paletteOrder;
+    }
+
+    if (restFormData.paintTypeId !== undefined) {
+      updateInput.paintType = {
+        connect: { id: restFormData.paintTypeId },
+      };
+    }
+
+    // Handle ground paints update - delete all existing and recreate
+    if (groundIds !== undefined) {
+      updateInput.paintGrounds = {
+        deleteMany: {}, // Delete all existing ground relationships
+        create: groundIds.map(groundPaintId => ({
+          groundPaintId,
+        })),
+      };
+    }
+
+    return updateInput;
+  }
+
+  protected mapIncludeToDatabaseInclude(include?: PaintInclude): Prisma.PaintInclude | undefined {
+    if (!include) return undefined;
+
+    const mappedInclude: any = {};
+
+    // Map each property, converting interface names to database names
+    if (include.paintType !== undefined) {
+      mappedInclude.paintType = include.paintType;
+    }
+
+    if (include.paintBrand !== undefined) {
+      mappedInclude.paintBrand = include.paintBrand;
+    }
+
+    if (include.formulas !== undefined) {
+      mappedInclude.formulas = include.formulas;
+    }
+
+    // Handle Task relations - map 'user' to 'createdBy' in nested includes
+    if (include.generalPaintings !== undefined) {
+      mappedInclude.generalPaintings = this.mapTaskInclude(include.generalPaintings);
+    }
+
+    if (include.logoTasks !== undefined) {
+      mappedInclude.logoTasks = this.mapTaskInclude(include.logoTasks);
+    }
+
+    // Direct mapping - no field name changes needed
+    if (include.relatedPaints !== undefined) {
+      mappedInclude.relatedPaints = include.relatedPaints;
+    }
+
+    if (include.relatedTo !== undefined) {
+      mappedInclude.relatedTo = include.relatedTo;
+    }
+
+    if (include.paintGrounds !== undefined) {
+      mappedInclude.paintGrounds = include.paintGrounds;
+    }
+
+    if (include.groundPaintFor !== undefined) {
+      mappedInclude.groundPaintFor = include.groundPaintFor;
+    }
+
+    return mappedInclude as Prisma.PaintInclude;
+  }
+
+  /**
+   * Maps Task includes, converting 'user' to 'createdBy'
+   */
+  private mapTaskInclude(taskInclude: boolean | any): any {
+    if (typeof taskInclude === 'boolean') {
+      return taskInclude;
+    }
+
+    if (taskInclude && typeof taskInclude === 'object' && taskInclude.include) {
+      const mappedTaskInclude = { ...taskInclude };
+      const nestedInclude = { ...taskInclude.include };
+
+      // Map 'user' to 'createdBy' for Task relations
+      if ('user' in nestedInclude) {
+        nestedInclude.createdBy = nestedInclude.user;
+        delete nestedInclude.user;
+      }
+
+      mappedTaskInclude.include = nestedInclude;
+      return mappedTaskInclude;
+    }
+
+    return taskInclude;
+  }
+
+  protected mapOrderByToDatabaseOrderBy(
+    orderBy?: PaintOrderBy,
+  ): Prisma.PaintOrderByWithRelationInput | undefined {
+    return orderBy as Prisma.PaintOrderByWithRelationInput | undefined;
+  }
+
+  protected mapWhereToDatabaseWhere(where?: PaintWhere): Prisma.PaintWhereInput | undefined {
+    return where as Prisma.PaintWhereInput | undefined;
+  }
+
+  protected getDefaultInclude(): Prisma.PaintInclude {
+    return {
+      paintType: true,
+      formulas: {
+        orderBy: { createdAt: 'desc' },
+        include: {
+          components: {
+            include: {
+              item: true,
+            },
+          },
+        },
+      },
+      paintGrounds: {
+        include: {
+          groundPaint: true,
+        },
+      },
+      groundPaintFor: {
+        include: {
+          paint: true,
+        },
+      },
+    };
+  }
+
+  // WithTransaction method implementations
+  async createWithTransaction(
+    transaction: PrismaTransaction,
+    data: PaintCreateFormData,
+    options?: CreateOptions<PaintInclude>,
+  ): Promise<Paint> {
+    try {
+      const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+      const result = await transaction.paint.create({
+        data: createInput,
+        include: includeInput,
+      });
+
+      return this.mapDatabaseEntityToEntity(result);
+    } catch (error) {
+      this.logError('criar tinta', error, { data });
+      throw error;
+    }
+  }
+
+  async findByIdWithTransaction(
+    transaction: PrismaTransaction,
+    id: string,
+    options?: CreateOptions<PaintInclude>,
+  ): Promise<Paint | null> {
+    try {
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+      const result = await transaction.paint.findUnique({
+        where: { id },
+        include: includeInput,
+      });
+
+      return result ? this.mapDatabaseEntityToEntity(result) : null;
+    } catch (error) {
+      this.logError(`buscar tinta por ID ${id}`, error);
+      throw error;
+    }
+  }
+
+  async findByIdsWithTransaction(
+    transaction: PrismaTransaction,
+    ids: string[],
+    options?: CreateOptions<PaintInclude>,
+  ): Promise<Paint[]> {
+    try {
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+      const results = await transaction.paint.findMany({
+        where: { id: { in: ids } },
+        include: includeInput,
+      });
+
+      return results.map(result => this.mapDatabaseEntityToEntity(result));
+    } catch (error) {
+      this.logError('buscar tintas por IDs', error, { ids });
+      throw error;
+    }
+  }
+
+  async findManyWithTransaction(
+    transaction: PrismaTransaction,
+    options?: FindManyOptions<PaintOrderBy, PaintWhere, PaintInclude>,
+  ): Promise<FindManyResult<Paint>> {
+    // Map 'limit' to 'take' for compatibility with schema
+
+    const optionsWithTake = options
+      ? { ...options, take: (options as any).limit || options.take }
+      : {};
+
+    const {
+      where,
+      orderBy,
+      page = 1,
+      take = 20,
+      include,
+    } = optionsWithTake as {
+      where?: PaintWhere;
+      orderBy?: PaintOrderBy;
+      page?: number;
+      take?: number;
+      include?: PaintInclude;
+    };
+    const skip = Math.max(0, (page - 1) * take);
+
+    const [total, paints] = await Promise.all([
+      transaction.paint.count({
+        where: this.mapWhereToDatabaseWhere(where),
+      }),
+      transaction.paint.findMany({
+        where: this.mapWhereToDatabaseWhere(where),
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
+        skip,
+        take,
+        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+      }),
+    ]);
+
+    return {
+      data: paints.map(paint => this.mapDatabaseEntityToEntity(paint)),
+      meta: this.calculatePagination(total, page, take),
+    };
+  }
+
+  async updateWithTransaction(
+    transaction: PrismaTransaction,
+    id: string,
+    data: PaintUpdateFormData,
+    options?: UpdateOptions<PaintInclude>,
+  ): Promise<Paint> {
+    try {
+      const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+      const result = await transaction.paint.update({
+        where: { id },
+        data: updateInput,
+        include: includeInput,
+      });
+
+      return this.mapDatabaseEntityToEntity(result);
+    } catch (error) {
+      this.logError(`atualizar tinta ${id}`, error, { data });
+      throw error;
+    }
+  }
+
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Paint> {
+    try {
+      const result = await transaction.paint.delete({
+        where: { id },
+        include: this.getDefaultInclude(),
+      });
+
+      return this.mapDatabaseEntityToEntity(result);
+    } catch (error) {
+      this.logError(`deletar tinta ${id}`, error);
+      throw error;
+    }
+  }
+
+  async countWithTransaction(transaction: PrismaTransaction, where?: PaintWhere): Promise<number> {
+    try {
+      const whereInput = this.mapWhereToDatabaseWhere(where);
+      return await transaction.paint.count({ where: whereInput });
+    } catch (error) {
+      this.logError('contar tintas', error, { where });
+      throw error;
+    }
+  }
+}

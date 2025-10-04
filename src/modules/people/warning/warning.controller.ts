@@ -1,0 +1,172 @@
+// warning.controller.ts
+
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  HttpCode,
+  HttpStatus,
+  ParseUUIDPipe,
+} from '@nestjs/common';
+import { WarningService } from './warning.service';
+import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants';
+import {
+  ZodValidationPipe,
+  ZodQueryValidationPipe,
+} from '@modules/common/pipes/zod-validation.pipe';
+import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
+import type {
+  WarningBatchCreateResponse,
+  WarningBatchDeleteResponse,
+  WarningBatchUpdateResponse,
+  WarningCreateResponse,
+  WarningDeleteResponse,
+  WarningGetManyResponse,
+  WarningGetUniqueResponse,
+  WarningUpdateResponse,
+  Warning,
+} from '../../../types';
+import type {
+  WarningCreateFormData,
+  WarningUpdateFormData,
+  WarningGetManyFormData,
+  WarningBatchCreateFormData,
+  WarningBatchUpdateFormData,
+  WarningBatchDeleteFormData,
+  WarningQueryFormData,
+  WarningGetByIdFormData,
+  WarningBatchQueryFormData,
+} from '../../../schemas';
+import {
+  warningCreateSchema,
+  warningBatchCreateSchema,
+  warningBatchDeleteSchema,
+  warningBatchUpdateSchema,
+  warningGetManySchema,
+  warningUpdateSchema,
+  warningGetByIdSchema,
+  warningQuerySchema,
+  warningBatchQuerySchema,
+} from '../../../schemas';
+
+@Controller('warnings')
+export class WarningController {
+  constructor(private readonly warningService: WarningService) {}
+
+  // Basic CRUD Operations
+  @Get()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async findMany(
+    @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
+  ): Promise<WarningGetManyResponse> {
+    return this.warningService.findMany(query);
+  }
+
+  // User-specific endpoint (must be before dynamic :id route)
+  @Get('my-warnings')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+  )
+  async getMyWarnings(
+    @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
+    @UserId() userId: string,
+  ): Promise<WarningGetManyResponse> {
+    // Users can only see warnings where they are the collaborator
+    const filteredQuery: WarningGetManyFormData = {
+      ...query,
+      where: {
+        ...query.where,
+        collaboratorId: userId,
+      },
+    };
+    return this.warningService.findMany(filteredQuery);
+  }
+
+  @Post()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async create(
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(warningCreateSchema))
+    data: WarningCreateFormData,
+    @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
+    @UserId() userId: string,
+  ): Promise<WarningCreateResponse> {
+    return this.warningService.create(data, query.include, userId);
+  }
+
+  // Batch Operations (must come before dynamic routes)
+  @Post('batch')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  async batchCreate(
+    @Body(new ZodValidationPipe(warningBatchCreateSchema)) data: WarningBatchCreateFormData,
+    @Query(new ZodQueryValidationPipe(warningBatchQuerySchema)) query: WarningBatchQueryFormData,
+    @UserId() userId: string,
+  ): Promise<WarningBatchCreateResponse<WarningCreateFormData>> {
+    return this.warningService.batchCreate(data, query.include, userId);
+  }
+
+  @Put('batch')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async batchUpdate(
+    @Body(new ZodValidationPipe(warningBatchUpdateSchema)) data: WarningBatchUpdateFormData,
+    @Query(new ZodQueryValidationPipe(warningBatchQuerySchema)) query: WarningBatchQueryFormData,
+    @UserId() userId: string,
+  ): Promise<WarningBatchUpdateResponse<WarningUpdateFormData>> {
+    return this.warningService.batchUpdate(data, query.include, userId);
+  }
+
+  @Delete('batch')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async batchDelete(
+    @Body(new ZodValidationPipe(warningBatchDeleteSchema)) data: WarningBatchDeleteFormData,
+    @Query(new ZodQueryValidationPipe(warningBatchQuerySchema)) query: WarningBatchQueryFormData,
+    @UserId() userId: string,
+  ): Promise<WarningBatchDeleteResponse> {
+    return this.warningService.batchDelete(data, userId);
+  }
+
+  // Dynamic routes (must come after static routes)
+  @Get(':id')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async findById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
+  ): Promise<WarningGetUniqueResponse> {
+    return this.warningService.findById(id, query.include);
+  }
+
+  @Put(':id')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(warningUpdateSchema))
+    data: WarningUpdateFormData,
+    @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
+    @UserId() userId: string,
+  ): Promise<WarningUpdateResponse> {
+    return this.warningService.update(id, data, query.include, userId);
+  }
+
+  @Delete(':id')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<WarningDeleteResponse> {
+    return this.warningService.delete(id, userId);
+  }
+}

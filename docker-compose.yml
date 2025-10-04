@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: 'bitnami/postgresql:latest'
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRESQL_USER=kennedycampos
+      - POSTGRESQL_PASSWORD=
+      - POSTGRESQL_DB=ankaa
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - pools_pg_data:/bitnami/postgresql
+
+  # Uncomment this section when deploying the API service
+  # api:
+  #   build: .
+  #   ports:
+  #     - "3030:3030"
+  #   environment:
+  #     - NODE_ENV=production
+  #   volumes:
+  #     - uploads_data:/app/uploads
+  #   depends_on:
+  #     - postgres
+
+volumes:
+  pools_pg_data:
+  uploads_data:
