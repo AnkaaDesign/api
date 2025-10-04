@@ -21,7 +21,7 @@ import { DeploymentService } from './deployment.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
-import { SECTOR_PRIVILEGES, DEPLOYMENT_ENVIRONMENT } from '../../../constants';
+import { SECTOR_PRIVILEGES, DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_APPLICATION } from '../../../constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -60,6 +60,7 @@ export class DeploymentController {
 
   // Basic CRUD Operations
   @Get()
+  @Public()
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(deploymentGetManySchema)) query: DeploymentGetManyFormData,
@@ -70,6 +71,7 @@ export class DeploymentController {
 
   @Post()
   @Public()
+  @NoRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(deploymentCreateSchema)) data: DeploymentCreateFormData,
@@ -113,6 +115,48 @@ export class DeploymentController {
     return this.deploymentService.batchDelete(data, userId);
   }
 
+  // New Deployment Workflow Endpoints (specific routes must come before dynamic routes)
+
+  /**
+   * Get current deployment for application and environment
+   */
+  @Get('current/:application/:environment')
+  @Public()
+  @NoRateLimit()
+  async getCurrentDeployment(
+    @Param('application') application: DEPLOYMENT_APPLICATION,
+    @Param('environment') environment: DEPLOYMENT_ENVIRONMENT,
+    @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
+  ): Promise<DeploymentGetUniqueResponse> {
+    return this.deploymentService.getCurrentDeployment(application, environment, query.include);
+  }
+
+  /**
+   * Get available commits for deployment
+   */
+  @Get('commits/list')
+  @Public()
+  @NoRateLimit()
+  async getAvailableCommits(@Query('limit') limit?: number) {
+    return this.deploymentService.getAvailableCommits(limit ? parseInt(limit.toString()) : 50);
+  }
+
+  /**
+   * Create and trigger a new deployment
+   */
+  @Post('deploy/:application/:environment/:commitHash')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @NoRateLimit()
+  @HttpCode(HttpStatus.CREATED)
+  async createDeployment(
+    @Param('application') application: DEPLOYMENT_APPLICATION,
+    @Param('environment') environment: DEPLOYMENT_ENVIRONMENT,
+    @Param('commitHash') commitHash: string,
+    @UserId() userId: string,
+  ): Promise<DeploymentCreateResponse> {
+    return this.deploymentService.createDeployment(application, commitHash, environment, userId);
+  }
+
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
@@ -127,6 +171,7 @@ export class DeploymentController {
 
   @Put(':id')
   @Public()
+  @NoRateLimit()
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(deploymentUpdateSchema)) data: DeploymentUpdateFormData,
@@ -146,44 +191,6 @@ export class DeploymentController {
     @UserId() userId: string,
   ): Promise<DeploymentDeleteResponse> {
     return this.deploymentService.delete(id, userId);
-  }
-
-  // New Deployment Workflow Endpoints
-
-  /**
-   * Create and trigger a new deployment
-   */
-  @Post('deploy/:commitHash')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.CREATED)
-  async createDeployment(
-    @Param('commitHash') commitHash: string,
-    @Body('environment') environment: DEPLOYMENT_ENVIRONMENT,
-    @UserId() userId: string,
-  ): Promise<DeploymentCreateResponse> {
-    return this.deploymentService.createDeployment(commitHash, environment, userId);
-  }
-
-  /**
-   * Get current deployment for environment
-   */
-  @Get('current/:environment')
-  @ReadRateLimit()
-  async getCurrentDeployment(
-    @Param('environment') environment: DEPLOYMENT_ENVIRONMENT,
-    @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
-  ): Promise<DeploymentGetUniqueResponse> {
-    return this.deploymentService.getCurrentDeployment(environment, query.include);
-  }
-
-  /**
-   * Get available commits for deployment
-   */
-  @Get('commits/list')
-  @ReadRateLimit()
-  async getAvailableCommits(@Query('limit') limit?: number) {
-    return this.deploymentService.getAvailableCommits(limit ? parseInt(limit.toString()) : 50);
   }
 
   /**
