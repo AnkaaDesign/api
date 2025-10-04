@@ -36,3 +36,9 @@ export enum DEPLOYMENT_TYPE {
   HOTFIX = "HOTFIX",
   ROLLBACK = "ROLLBACK",
 }
+
+export enum DEPLOYMENT_APPLICATION {
+  API = "API",
+  WEB = "WEB",
+  MOBILE = "MOBILE",
+}

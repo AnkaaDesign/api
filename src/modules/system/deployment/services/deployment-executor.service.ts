@@ -3,7 +3,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_STATUS } from '../../../../constants';
+import { DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_STATUS, DEPLOYMENT_APPLICATION } from '../../../../constants';
 import { DeploymentRepository } from '../repositories/deployment.repository';
 import { GitService } from './git.service';
 
@@ -11,6 +11,7 @@ const execAsync = promisify(exec);
 
 export interface DeploymentExecutionContext {
   deploymentId: string;
+  application: DEPLOYMENT_APPLICATION;
   environment: DEPLOYMENT_ENVIRONMENT;
   commitHash: string;
   branch: string;
@@ -258,9 +259,7 @@ export class DeploymentExecutorService {
    */
   async restartServices(context: DeploymentExecutionContext): Promise<void> {
     try {
-      const appName = context.environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION
-        ? 'ankaa-api'
-        : 'ankaa-test-api';
+      const appName = this.getAppName(context.application, context.environment);
 
       this.logger.log(`Restarting PM2 service: ${appName}`);
 
@@ -282,8 +281,13 @@ export class DeploymentExecutorService {
    */
   async performHealthCheck(context: DeploymentExecutionContext): Promise<boolean> {
     try {
-      const port = context.environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? 3030 : 3031;
-      const healthUrl = `http://localhost:${port}/api/health`;
+      const healthUrl = this.getHealthCheckUrl(context.application, context.environment);
+
+      // Skip health check for mobile (no API endpoint)
+      if (!healthUrl) {
+        this.addLog(context.deploymentId, 'Health check não disponível para este aplicativo');
+        return true;
+      }
 
       this.logger.log(`Performing health check: ${healthUrl}`);
 
@@ -310,6 +314,45 @@ export class DeploymentExecutorService {
     } catch (error) {
       this.logger.error(`Health check error: ${error.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Get PM2 app name for application and environment
+   */
+  private getAppName(application: DEPLOYMENT_APPLICATION, environment: DEPLOYMENT_ENVIRONMENT): string {
+    const envSuffix = environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? '' : '-test';
+
+    switch (application) {
+      case DEPLOYMENT_APPLICATION.API:
+        return `ankaa-api${envSuffix}`;
+      case DEPLOYMENT_APPLICATION.WEB:
+        return `ankaa-web${envSuffix}`;
+      case DEPLOYMENT_APPLICATION.MOBILE:
+        return `ankaa-mobile${envSuffix}`;
+      default:
+        return `ankaa-api${envSuffix}`;
+    }
+  }
+
+  /**
+   * Get health check URL for application and environment
+   */
+  private getHealthCheckUrl(application: DEPLOYMENT_APPLICATION, environment: DEPLOYMENT_ENVIRONMENT): string | null {
+    switch (application) {
+      case DEPLOYMENT_APPLICATION.API: {
+        const port = environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? 3030 : 3031;
+        return `http://localhost:${port}/api/health`;
+      }
+      case DEPLOYMENT_APPLICATION.WEB: {
+        const port = environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? 3000 : 3001;
+        return `http://localhost:${port}/`;
+      }
+      case DEPLOYMENT_APPLICATION.MOBILE:
+        // No health check for mobile
+        return null;
+      default:
+        return null;
     }
   }
 

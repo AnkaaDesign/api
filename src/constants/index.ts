@@ -6,5 +6,6 @@ export * from "./brazil";
 export * from "./navigation";
 export * from "./stock-thresholds";
 export * from "./badge-colors";
+// Deployment enums are already exported from "./enums"
 export * from "./deployment-labels";
 export * from "./deployment-sort-orders";

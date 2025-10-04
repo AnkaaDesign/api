@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
   Logger,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { DeploymentRepository, PrismaTransaction } from './repositories/deployment.repository';
@@ -37,13 +38,37 @@ import {
   DEPLOYMENT_STATUS,
   DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_TRIGGER,
+  DEPLOYMENT_APPLICATION,
   ENTITY_TYPE,
   CHANGE_ACTION,
 } from '../../../constants';
 import { DEPLOYMENT_STATUS_ORDER } from '../../../constants';
 import { GitService, GitCommitInfo } from './services/git.service';
 import { DeploymentExecutorService } from './services/deployment-executor.service';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import * as crypto from 'crypto';
+import { DeploymentApplication, DeploymentEnvironment, DeploymentStatus, DeploymentTrigger, Prisma } from '@prisma/client';
+
+const execAsync = promisify(exec);
+
+interface GitCommit {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  message: string;
+  branch: string;
+}
+
+interface DeploymentConfig {
+  application: DeploymentApplication;
+  environment: DeploymentEnvironment;
+  repoPath: string;
+  deployScript: string;
+  port: number;
+  pm2Name: string;
+}
 
 @Injectable()
 export class DeploymentService {
@@ -462,6 +487,7 @@ export class DeploymentService {
    * Create deployment and trigger execution
    */
   async createDeployment(
+    application: DEPLOYMENT_APPLICATION,
     commitHash: string,
     environment: DEPLOYMENT_ENVIRONMENT,
     userId?: string,
@@ -473,6 +499,7 @@ export class DeploymentService {
 
       // Create deployment record
       const deploymentData: DeploymentCreateFormData = {
+        application,
         environment,
         commitSha: commitInfo.hash,
         branch: commitInfo.branch || 'main',
@@ -497,7 +524,7 @@ export class DeploymentService {
       }
 
       // Trigger deployment execution asynchronously
-      this.executeDeploymentAsync(deployment.id, environment, commitInfo.hash, commitInfo.branch || 'main');
+      this.executeDeploymentAsync(deployment.id, application, environment, commitInfo.hash, commitInfo.branch || 'main');
 
       return {
         success: true,
@@ -511,15 +538,17 @@ export class DeploymentService {
   }
 
   /**
-   * Get current deployment for environment
+   * Get current deployment for application and environment
    */
   async getCurrentDeployment(
+    application: DEPLOYMENT_APPLICATION,
     environment: DEPLOYMENT_ENVIRONMENT,
     include?: DeploymentInclude,
   ): Promise<DeploymentGetUniqueResponse> {
     try {
       const deployment = await this.deploymentRepository.findMany({
         where: {
+          application,
           environment,
           status: DEPLOYMENT_STATUS.COMPLETED,
         },
@@ -529,7 +558,11 @@ export class DeploymentService {
       });
 
       if (!deployment.data || deployment.data.length === 0) {
-        throw new NotFoundException('Nenhum deployment encontrado para este ambiente.');
+        return {
+          success: true,
+          message: 'Nenhum deployment encontrado para esta aplicação e ambiente.',
+          data: null,
+        };
       }
 
       return {
@@ -646,8 +679,13 @@ export class DeploymentService {
       // Get latest commit
       const latestCommit = commits[commits.length - 1];
 
+      // Determine application based on repository or default to API
+      // TODO: Make this configurable based on webhook payload
+      const application = DEPLOYMENT_APPLICATION.API;
+
       // Create deployment for STAGING environment (auto-deploy to test)
       await this.createDeployment(
+        application,
         latestCommit.id,
         DEPLOYMENT_ENVIRONMENT.STAGING, // This is the test environment
         undefined, // No user ID for webhook
@@ -687,6 +725,7 @@ export class DeploymentService {
    */
   private executeDeploymentAsync(
     deploymentId: string,
+    application: DEPLOYMENT_APPLICATION,
     environment: DEPLOYMENT_ENVIRONMENT,
     commitHash: string,
     branch: string,
@@ -695,6 +734,7 @@ export class DeploymentService {
     this.deploymentExecutor
       .executeDeployment({
         deploymentId,
+        application,
         environment,
         commitHash,
         branch,

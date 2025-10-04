@@ -264,6 +264,12 @@ export const securityConfig = {
       'content-disposition',
       'content-length',
     ],
+    exposedHeaders: [
+      'x-request-id',
+      'x-ratelimit-limit',
+      'x-ratelimit-remaining',
+      'x-ratelimit-reset',
+    ],
     credentials: true,
     maxAge: 86400, // 24 hours
     optionsSuccessStatus: 200, // Some legacy browsers choke on 204

@@ -1270,6 +1270,7 @@ model ThumbnailJob {
 
 model Deployment {
   id                String                @id @default(uuid())
+  application       DeploymentApplication
   environment       DeploymentEnvironment
   commitSha         String                @map("commit_sha")
   branch            String
@@ -1297,8 +1298,9 @@ model Deployment {
   updatedAt         DateTime              @updatedAt @map("updated_at")
   user              User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
 
-  @@index([environment, status])
+  @@index([application, environment, status])
   @@index([commitSha])
+  @@index([application, environment])
   @@index([createdAt])
   @@index([statusOrder])
   @@index([triggeredBy])
@@ -1999,4 +2001,10 @@ enum DeploymentTrigger {
   WEBHOOK
   ROLLBACK
   API
+}
+
+enum DeploymentApplication {
+  API
+  WEB
+  MOBILE
 }

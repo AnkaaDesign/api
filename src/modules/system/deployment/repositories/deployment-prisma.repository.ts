@@ -48,12 +48,13 @@ export class DeploymentPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: DeploymentCreateFormData,
   ): Prisma.DeploymentCreateInput {
-    const { environment, commitSha, branch, ...rest } = formData;
+    const { application, environment, commitSha, branch, ...rest } = formData;
 
     // Calculate statusOrder based on default status (PENDING)
     const statusOrder = DEPLOYMENT_STATUS_ORDER['PENDING'] || 2;
 
     const createInput: Prisma.DeploymentCreateInput = {
+      application,
       environment,
       commitSha,
       branch,

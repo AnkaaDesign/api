@@ -26,6 +26,7 @@
     "noFallthroughCasesInSwitch": false,
     "esModuleInterop": true,
     "paths": {
+      "@/*": ["./src/*"],
       "@modules/*": ["./src/modules/*"],
       "@constants": ["./src/constants/index"],
       "@constants/*": ["./src/constants/*"],
@@ -36,7 +37,21 @@
       "@schemas": ["./src/schemas/index"],
       "@schemas/*": ["./src/schemas/*"],
       "@common/*": ["./src/common/*"],
-      "@config/*": ["./src/config/*"]
+      "@config/*": ["./src/config/*"],
+      "@decorators": ["./src/common/decorators/index"],
+      "@decorators/*": ["./src/common/decorators/*"],
+      "@auth-decorators/*": ["./src/modules/common/auth/decorators/*"],
+      "@guards/*": ["./src/modules/common/auth/guards/*"],
+      "@middleware/*": ["./src/common/middleware/*"],
+      "@templates/*": ["./src/templates/*"],
+      "@domain/*": ["./src/modules/domain/*"],
+      "@inventory/*": ["./src/modules/inventory/*"],
+      "@production/*": ["./src/modules/production/*"],
+      "@people/*": ["./src/modules/people/*"],
+      "@paint/*": ["./src/modules/paint/*"],
+      "@system/*": ["./src/modules/system/*"],
+      "@integrations/*": ["./src/modules/integrations/*"],
+      "@human-resources/*": ["./src/modules/human-resources/*"]
     }
   },
   "include": ["src/**/*", "test/**/*"],

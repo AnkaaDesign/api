@@ -5,6 +5,7 @@ import {
   DEPLOYMENT_STATUS,
   DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_TRIGGER,
+  DEPLOYMENT_APPLICATION,
 } from '@constants';
 import {
   orderByDirectionSchema,
@@ -49,6 +50,16 @@ export const deploymentWhereSchema: z.ZodType<any> = z.lazy(() =>
 
       // Field filters
       id: z.union([z.string(), z.object({ in: z.array(z.string()) })]).optional(),
+
+      application: z
+        .union([
+          z.nativeEnum(DEPLOYMENT_APPLICATION),
+          z.object({
+            in: z.array(z.nativeEnum(DEPLOYMENT_APPLICATION)).optional(),
+            notIn: z.array(z.nativeEnum(DEPLOYMENT_APPLICATION)).optional(),
+          }),
+        ])
+        .optional(),
 
       commitSha: z
         .union([
@@ -135,6 +146,7 @@ export const deploymentOrderBySchema = z
   .union([
     z.object({
       id: orderByDirectionSchema.optional(),
+      application: orderByDirectionSchema.optional(),
       environment: orderByDirectionSchema.optional(),
       commitSha: orderByDirectionSchema.optional(),
       branch: orderByDirectionSchema.optional(),
@@ -151,6 +163,7 @@ export const deploymentOrderBySchema = z
     z.array(
       z.object({
         id: orderByDirectionSchema.optional(),
+        application: orderByDirectionSchema.optional(),
         environment: orderByDirectionSchema.optional(),
         commitSha: orderByDirectionSchema.optional(),
         branch: orderByDirectionSchema.optional(),
@@ -175,6 +188,10 @@ export type DeploymentOrderBy = z.infer<typeof deploymentOrderBySchema>;
 // =====================
 
 export const deploymentCreateSchema = z.object({
+  application: z.nativeEnum(DEPLOYMENT_APPLICATION, {
+    errorMap: () => ({ message: "Aplicação inválida" }),
+  }),
+
   environment: z.nativeEnum(DEPLOYMENT_ENVIRONMENT, {
     errorMap: () => ({ message: "Ambiente inválido" }),
   }),

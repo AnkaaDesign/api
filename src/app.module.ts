@@ -50,6 +50,7 @@ import { ServerModule } from './modules/common/server/server.module';
 import { BackupModule } from './modules/common/backup/backup.module';
 import { HumanResourcesModule } from './modules/human-resources/human-resources.module';
 import { DeploymentModule } from './modules/system/deployment/deployment.module';
+import { SystemThrottlerModule } from './modules/system/throttler/throttler.module';
 
 @Module({
   imports: [
@@ -104,6 +105,7 @@ import { DeploymentModule } from './modules/system/deployment/deployment.module'
     ServerModule,
     BackupModule,
     DeploymentModule,
+    SystemThrottlerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1960,7 +1960,14 @@ export enum DEPLOYMENT_TRIGGER {
   API = "API",
 }
 
+export enum DEPLOYMENT_APPLICATION {
+  API = "API",
+  WEB = "WEB",
+  MOBILE = "MOBILE",
+}
+
 // Aliases for Prisma compatibility
 export { DEPLOYMENT_ENVIRONMENT as DeploymentEnvironment };
 export { DEPLOYMENT_STATUS as DeploymentStatus };
 export { DEPLOYMENT_TRIGGER as DeploymentTrigger };
+export { DEPLOYMENT_APPLICATION as DeploymentApplication };
