@@ -51,6 +51,9 @@ import { BackupModule } from './modules/common/backup/backup.module';
 import { HumanResourcesModule } from './modules/human-resources/human-resources.module';
 import { DeploymentModule } from './modules/system/deployment/deployment.module';
 import { SystemThrottlerModule } from './modules/system/throttler/throttler.module';
+import { RepositoryModule } from './modules/system/repository/repository.module';
+import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
+import { AppsModule } from './modules/system/app/app.module';
 
 @Module({
   imports: [
@@ -106,6 +109,9 @@ import { SystemThrottlerModule } from './modules/system/throttler/throttler.modu
     BackupModule,
     DeploymentModule,
     SystemThrottlerModule,
+    RepositoryModule,
+    GitCommitModule,
+    AppsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -61,7 +61,6 @@ export class DeploymentExecutorService {
 
       // Step 1: Pull latest code
       this.addLog(deploymentId, `[${new Date().toISOString()}] Atualizando código...`);
-      await this.updateDeploymentStatus(deploymentId, DEPLOYMENT_STATUS.IN_PROGRESS);
 
       const pullResult = await this.gitService.pullLatestCode(context.branch);
       this.addLog(deploymentId, `[${new Date().toISOString()}] Código atualizado: ${pullResult.summary.changes} alterações`);
@@ -137,6 +136,7 @@ export class DeploymentExecutorService {
         DEPLOYMENT_STATUS.FAILED,
         new Date(),
         error.message,
+        error.stack,
       );
 
       throw error;
@@ -432,19 +432,46 @@ export class DeploymentExecutorService {
     status: DEPLOYMENT_STATUS,
     completedAt?: Date,
     error?: string,
+    errorStack?: string,
   ): Promise<void> {
     const updateData: any = { status };
 
+    // Set startedAt when transitioning to IN_PROGRESS
     if (status === DEPLOYMENT_STATUS.IN_PROGRESS && !completedAt) {
       updateData.startedAt = new Date();
     }
 
-    if (completedAt) {
+    // Terminal statuses that should set completedAt
+    const terminalStatuses = [
+      DEPLOYMENT_STATUS.COMPLETED,
+      DEPLOYMENT_STATUS.FAILED,
+      DEPLOYMENT_STATUS.CANCELLED,
+      DEPLOYMENT_STATUS.ROLLED_BACK,
+    ];
+
+    // Auto-set completedAt for terminal statuses if not provided
+    if (terminalStatuses.includes(status)) {
+      if (!completedAt) {
+        updateData.completedAt = new Date();
+      } else {
+        updateData.completedAt = completedAt;
+      }
+
+      // Persist logs to database when deployment completes or fails
+      const logs = this.logsMap.get(deploymentId) || [];
+      if (logs.length > 0) {
+        updateData.deploymentLog = logs.join('\n');
+      }
+    } else if (completedAt) {
       updateData.completedAt = completedAt;
     }
 
+    // Save error details
     if (error) {
-      updateData.error = error;
+      updateData.errorMessage = error;
+    }
+    if (errorStack) {
+      updateData.errorStack = errorStack;
     }
 
     await this.deploymentRepository.update(deploymentId, updateData);

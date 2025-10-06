@@ -1268,44 +1268,153 @@ model ThumbnailJob {
   @@map("thumbnail_jobs")
 }
 
-model Deployment {
-  id                String                @id @default(uuid())
-  application       DeploymentApplication
-  environment       DeploymentEnvironment
-  commitSha         String                @map("commit_sha")
-  branch            String
-  tag               String?
-  status            DeploymentStatus      @default(PENDING)
-  statusOrder       Int                   @default(2) @map("status_order")
-  triggeredBy       DeploymentTrigger     @default(MANUAL) @map("triggered_by")
-  deployedBy        String?               @map("deployed_by")
-  version           String?
-  previousCommit    String?               @map("previous_commit")
-  commitMessage     String?               @map("commit_message")
-  commitAuthor      String?               @map("commit_author")
-  buildNumber       Int?                  @map("build_number")
-  duration          Int?                  // Duration in seconds
-  rollbackData      Json?                 @map("rollback_data")
-  deploymentLog     String?               @db.Text @map("deployment_log")
-  errorMessage      String?               @db.Text @map("error_message")
-  healthCheckUrl    String?               @map("health_check_url")
-  healthCheckStatus String?               @map("health_check_status")
-  workflowRunId     String?               @map("workflow_run_id") // GitHub Actions run ID
-  startedAt         DateTime?             @map("started_at")
-  completedAt       DateTime?             @map("completed_at")
-  rolledBackAt      DateTime?             @map("rolled_back_at")
-  createdAt         DateTime              @default(now()) @map("created_at")
-  updatedAt         DateTime              @updatedAt @map("updated_at")
-  user              User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
+// Git Repository Model
+model Repository {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  gitUrl      String      @map("git_url")
+  branch      String      @default("main")
+  isActive    Boolean     @default(true) @map("is_active")
+  description String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+  commits     GitCommit[]
+  apps        App[]
 
-  @@index([application, environment, status])
-  @@index([commitSha])
-  @@index([application, environment])
+  @@map("repositories")
+}
+
+// Git Commit Model
+model GitCommit {
+  id           String       @id @default(uuid())
+  repositoryId String       @map("repository_id")
+  hash         String
+  shortHash    String       @map("short_hash")
+  message      String       @db.Text
+  author       String
+  authorEmail  String       @map("author_email")
+  committedAt  DateTime     @map("committed_at")
+  branch       String
+  tags         String[]     @default([])
+  filesChanged Int          @default(0) @map("files_changed")
+  insertions   Int          @default(0)
+  deletions    Int          @default(0)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  deployments  Deployment[]
+
+  @@unique([repositoryId, hash])
+  @@index([repositoryId])
+  @@index([committedAt])
+  @@index([branch])
+  @@map("git_commits")
+}
+
+// App Model
+model App {
+  id              String       @id @default(uuid())
+  repositoryId    String       @map("repository_id")
+  name            String       @unique
+  displayName     String       @map("display_name")
+  appType         AppType      @map("app_type")
+  buildCommand    String?      @db.Text @map("build_command")
+  deployCommand   String?      @db.Text @map("deploy_command")
+  healthCheckUrl  String?      @map("health_check_url")
+  environmentVars Json?        @map("environment_vars")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  repository      Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  deployments     Deployment[]
+
+  @@index([repositoryId])
+  @@index([appType])
+  @@map("apps")
+}
+
+// Deployment Model
+model Deployment {
+  id                   String                @id @default(uuid())
+  appId                String                @map("app_id")
+  gitCommitId          String                @map("git_commit_id")
+  environment          DeploymentEnvironment
+  status               DeploymentStatus      @default(PENDING)
+  statusOrder          Int                   @default(2) @map("status_order")
+  triggeredBy          DeploymentTrigger     @default(MANUAL) @map("triggered_by")
+  deployedBy           String?               @map("deployed_by")
+  version              String?
+  buildNumber          Int?                  @map("build_number")
+  previousDeploymentId String?               @unique @map("previous_deployment_id")
+  workflowRunId        String?               @map("workflow_run_id")
+  workflowUrl          String?               @map("workflow_url")
+  duration             Int?
+  deploymentLog        String?               @map("deployment_log") @db.Text
+  buildLog             String?               @map("build_log") @db.Text
+  errorMessage         String?               @map("error_message") @db.Text
+  errorStack           String?               @map("error_stack") @db.Text
+  healthCheckUrl       String?               @map("health_check_url")
+  healthCheckStatus    String?               @map("health_check_status")
+  healthCheckLog       String?               @map("health_check_log") @db.Text
+  rollbackData         Json?                 @map("rollback_data")
+  canRollback          Boolean               @default(true) @map("can_rollback")
+  rollbackReason       String?               @map("rollback_reason") @db.Text
+  startedAt            DateTime?             @map("started_at")
+  completedAt          DateTime?             @map("completed_at")
+  rolledBackAt         DateTime?             @map("rolled_back_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  app                  App                   @relation(fields: [appId], references: [id], onDelete: Cascade)
+  gitCommit            GitCommit             @relation(fields: [gitCommitId], references: [id])
+  user                 User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
+  previousDeployment   Deployment?           @relation("DeploymentRollback", fields: [previousDeploymentId], references: [id])
+  rollbackedDeployment Deployment?           @relation("DeploymentRollback")
+  logs                 DeploymentLog[]
+  metrics              DeploymentMetric[]
+
+  @@index([appId, environment, status])
+  @@index([gitCommitId])
+  @@index([appId, environment])
   @@index([createdAt])
   @@index([statusOrder])
   @@index([triggeredBy])
-  @@index([branch])
   @@map("deployments")
+}
+
+// Deployment Log Model
+model DeploymentLog {
+  id           String             @id @default(uuid())
+  deploymentId String             @map("deployment_id")
+  level        DeploymentLogLevel
+  phase        DeploymentPhase
+  message      String             @db.Text
+  details      Json?
+  stackTrace   String?            @map("stack_trace") @db.Text
+  source       String?
+  duration     Int?
+  createdAt    DateTime           @default(now()) @map("created_at")
+  deployment   Deployment         @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId])
+  @@index([deploymentId, phase])
+  @@index([level])
+  @@index([createdAt])
+  @@map("deployment_logs")
+}
+
+// Deployment Metric Model
+model DeploymentMetric {
+  id           String     @id @default(uuid())
+  deploymentId String     @map("deployment_id")
+  metricType   String     @map("metric_type")
+  value        Float
+  unit         String
+  createdAt    DateTime   @default(now()) @map("created_at")
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@index([deploymentId])
+  @@index([metricType])
+  @@map("deployment_metrics")
 }
 
 enum UserStatus {
@@ -1857,6 +1966,7 @@ enum ChangeLogEntityType {
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
+  DEPLOYMENT
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
   PPE_REQUEST
@@ -1991,6 +2101,34 @@ enum DeploymentStatus {
   CANCELLED
 }
 
+enum AppType {
+  API
+  WEB
+  MOBILE
+  WORKER
+  CRON
+}
+
+enum DeploymentLogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}
+
+enum DeploymentPhase {
+  INITIALIZATION
+  FETCH_CODE
+  BUILD
+  TEST
+  DEPLOY
+  HEALTH_CHECK
+  CLEANUP
+  ROLLBACK
+  COMPLETED
+}
+
 enum DeploymentTrigger {
   MANUAL
   AUTO
@@ -2003,8 +2141,3 @@ enum DeploymentTrigger {
   API
 }
 
-enum DeploymentApplication {
-  API
-  WEB
-  MOBILE
-}

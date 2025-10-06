@@ -76,7 +76,8 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       }
 
       // Increment the counter
-      const result = await this.redis.multi().incr(throttlerKey).expire(throttlerKey, ttl).exec();
+      const ttlInSeconds = Math.floor(ttl / 1000);
+      const result = await this.redis.multi().incr(throttlerKey).expire(throttlerKey, ttlInSeconds).exec();
 
       if (!result) {
         throw new Error('Redis operation failed');
@@ -95,8 +96,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       if (currentHits > limit) {
         // Block the key for the specified duration
         if (blockDuration > 0) {
-          await this.redis.set(blockedKey, '1', 'EX', blockDuration);
-          console.log(`[RedisThrottlerStorage] Blocking key ${key} for ${blockDuration} seconds`);
+          const blockDurationInSeconds = Math.floor(blockDuration / 1000);
+          await this.redis.set(blockedKey, '1', 'EX', blockDurationInSeconds);
+          console.log(`[RedisThrottlerStorage] Blocking key ${key} for ${blockDurationInSeconds} seconds (${blockDuration}ms)`);
         }
 
         return {
@@ -154,7 +156,8 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   }
 
   async addRecord(key: string, ttl: number): Promise<void> {
-    await this.redis.set(key, 1, 'EX', ttl);
+    const ttlInSeconds = Math.floor(ttl / 1000);
+    await this.redis.set(key, 1, 'EX', ttlInSeconds);
   }
 
   async clearThrottlerKeys(pattern?: string): Promise<number> {

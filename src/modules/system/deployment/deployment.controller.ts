@@ -21,7 +21,7 @@ import { DeploymentService } from './deployment.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
-import { SECTOR_PRIVILEGES, DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_APPLICATION } from '../../../constants';
+import { SECTOR_PRIVILEGES, DEPLOYMENT_ENVIRONMENT } from '../../../constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -118,48 +118,54 @@ export class DeploymentController {
   // New Deployment Workflow Endpoints (specific routes must come before dynamic routes)
 
   /**
-   * Get current deployment for application and environment
-   */
-  @Get('current/:application/:environment')
-  @Public()
-  @NoRateLimit()
-  async getCurrentDeployment(
-    @Param('application') application: DEPLOYMENT_APPLICATION,
-    @Param('environment') environment: DEPLOYMENT_ENVIRONMENT,
-    @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
-  ): Promise<DeploymentGetUniqueResponse> {
-    return this.deploymentService.getCurrentDeployment(application, environment, query.include);
-  }
-
-  /**
    * Get available commits for deployment
    */
   @Get('commits/list')
   @Public()
-  @NoRateLimit()
-  async getAvailableCommits(@Query('limit') limit?: number) {
-    return this.deploymentService.getAvailableCommits(limit ? parseInt(limit.toString()) : 50);
+  @ReadRateLimit()
+  async getAvailableCommits(
+    @Query('limit') limit?: string,
+    @Query('repository') repository?: string,
+  ): Promise<{ success: boolean; message: string; data: any[] }> {
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    return this.deploymentService.getAvailableCommits(parsedLimit, repository);
   }
 
   /**
-   * Create and trigger a new deployment
+   * Get current deployment for app and environment
+   */
+  @Get('current/:appName/:environment')
+  @Public()
+  @NoRateLimit()
+  async getCurrentDeployment(
+    @Param('appName') appName: string,
+    @Param('environment') environment: string,
+    @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
+  ): Promise<DeploymentGetUniqueResponse> {
+    return this.deploymentService.getCurrentDeployment(appName, environment as DEPLOYMENT_ENVIRONMENT, query.include);
+  }
+
+  /**
+   * Create and trigger deployment
    */
   @Post('deploy/:application/:environment/:commitHash')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Public()
   @NoRateLimit()
   @HttpCode(HttpStatus.CREATED)
   async createDeployment(
-    @Param('application') application: DEPLOYMENT_APPLICATION,
-    @Param('environment') environment: DEPLOYMENT_ENVIRONMENT,
+    @Param('application') application: string,
+    @Param('environment') environment: string,
     @Param('commitHash') commitHash: string,
+    @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
     @UserId() userId: string,
   ): Promise<DeploymentCreateResponse> {
-    return this.deploymentService.createDeployment(application, commitHash, environment, userId);
+    // Pass userId as-is (can be null/undefined for public deployments)
+    return this.deploymentService.createDeployment(application, commitHash, environment as DEPLOYMENT_ENVIRONMENT, userId, query.include);
   }
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Public()
   @ReadRateLimit()
   async findById(
     @Param('id', ParseUUIDPipe) id: string,

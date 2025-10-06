@@ -6,7 +6,7 @@ export * from "./statistics/data-transformers";
 export * from "./statistics/export-formatters";
 export * from "./analyticsEnumGetters";
 export * from "./auth";
-export * from "./batch-toast";
+// export * from "./batch-toast"; // Frontend-only utility, uses sonner
 export * from "./bonus";
 export * from "./borrow";
 export * from "./changelog";
@@ -23,7 +23,7 @@ export * from "./ppe-size-mapping";
 export * from "./eventEnumGetters";
 export * from "./favorites";
 export * from "./favorite-pages";
-export * from "./page-icons";
+// export * from "./page-icons"; // Frontend-only utility, uses @tabler/icons-react
 export * from "./file";
 export * from "./file-relationship";
 // Browser-only modules - these contain DOM API usage and should not be used server-side

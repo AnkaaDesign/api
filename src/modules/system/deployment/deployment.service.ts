@@ -48,7 +48,7 @@ import { DeploymentExecutorService } from './services/deployment-executor.servic
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as crypto from 'crypto';
-import { DeploymentApplication, DeploymentEnvironment, DeploymentStatus, DeploymentTrigger, Prisma } from '@prisma/client';
+import { DeploymentEnvironment, DeploymentStatus, DeploymentTrigger, Prisma } from '@prisma/client';
 
 const execAsync = promisify(exec);
 
@@ -62,7 +62,7 @@ interface GitCommit {
 }
 
 interface DeploymentConfig {
-  application: DeploymentApplication;
+  appId: string;
   environment: DeploymentEnvironment;
   repoPath: string;
   deployScript: string;
@@ -97,15 +97,60 @@ export class DeploymentService {
       if (!data.environment) {
         throw new BadRequestException('Ambiente é obrigatório.');
       }
-      if (!data.commitSha) {
-        throw new BadRequestException('Commit SHA é obrigatório.');
+      if (!data.commitSha && !data.gitCommitId) {
+        throw new BadRequestException('Commit SHA ou Git Commit ID é obrigatório.');
       }
-      if (!data.branch) {
-        throw new BadRequestException('Branch é obrigatório.');
+      if (!data.branch && !data.gitCommitId) {
+        throw new BadRequestException('Branch é obrigatório (ou use gitCommitId).');
+      }
+
+      // Check for duplicate deployments (appId + gitCommitId + environment)
+      if (data.appId && data.gitCommitId && data.environment) {
+        const existingDeployment = await this.deploymentRepository.findMany({
+          where: {
+            appId: data.appId,
+            gitCommitId: data.gitCommitId,
+            environment: data.environment,
+            status: {
+              notIn: [
+                DEPLOYMENT_STATUS.FAILED,
+                DEPLOYMENT_STATUS.CANCELLED,
+                DEPLOYMENT_STATUS.ROLLED_BACK,
+              ],
+            },
+          },
+          take: 1,
+        });
+
+        if (existingDeployment.data && existingDeployment.data.length > 0) {
+          throw new BadRequestException(
+            `Já existe um deployment ativo para este commit neste ambiente. ID: ${existingDeployment.data[0].id}`,
+          );
+        }
+      }
+
+      // Check for duplicate workflow runs
+      if (data.workflowRunId) {
+        const existingWorkflow = await this.deploymentRepository.findMany({
+          where: {
+            workflowRunId: data.workflowRunId,
+          },
+          take: 1,
+        });
+
+        if (existingWorkflow.data && existingWorkflow.data.length > 0) {
+          this.logger.warn(
+            `Duplicate workflow run detected: ${data.workflowRunId}. Returning existing deployment.`,
+          );
+          // Return the existing deployment instead of creating duplicate
+          throw new BadRequestException(
+            `Deployment já existe para este workflow run. ID: ${existingWorkflow.data[0].id}`,
+          );
+        }
       }
     }
 
-    // Validar formato do commitSha
+    // Validar formato do commitSha (legacy field)
     if (data.commitSha !== undefined) {
       if (data.commitSha.length < 7) {
         throw new BadRequestException('Commit SHA deve ter pelo menos 7 caracteres.');
@@ -115,7 +160,7 @@ export class DeploymentService {
       }
     }
 
-    // Validar branch
+    // Validar branch (legacy field)
     if (data.branch !== undefined) {
       if (data.branch.trim().length === 0) {
         throw new BadRequestException('Branch não pode ser vazio.');
@@ -487,28 +532,60 @@ export class DeploymentService {
    * Create deployment and trigger execution
    */
   async createDeployment(
-    application: DEPLOYMENT_APPLICATION,
+    appName: string,
     commitHash: string,
     environment: DEPLOYMENT_ENVIRONMENT,
     userId?: string,
+    include?: DeploymentInclude,
     trigger: DEPLOYMENT_TRIGGER = DEPLOYMENT_TRIGGER.MANUAL,
   ): Promise<DeploymentCreateResponse> {
     try {
-      // Get commit details
+      // Find the app by name
+      const app = await this.prisma.app.findUnique({
+        where: { name: appName },
+        include: { repository: true },
+      });
+
+      if (!app) {
+        throw new NotFoundException(`Aplicação '${appName}' não encontrada.`);
+      }
+
+      // Get commit details from git
       const commitInfo = await this.gitService.getCommitDetails(commitHash);
 
-      // Create deployment record
-      const deploymentData: DeploymentCreateFormData = {
-        application,
-        environment,
-        commitSha: commitInfo.hash,
-        branch: commitInfo.branch || 'main',
-        triggeredBy: trigger,
-        commitMessage: commitInfo.message,
-        commitAuthor: commitInfo.author,
-      };
+      // Find or create GitCommit record
+      let gitCommit = await this.prisma.gitCommit.findFirst({
+        where: {
+          repositoryId: app.repositoryId,
+          hash: commitInfo.hash,
+        },
+      });
 
-      const deployment = await this.deploymentRepository.create(deploymentData);
+      if (!gitCommit) {
+        gitCommit = await this.prisma.gitCommit.create({
+          data: {
+            repositoryId: app.repositoryId,
+            hash: commitInfo.hash,
+            shortHash: commitInfo.shortHash,
+            message: commitInfo.message,
+            author: commitInfo.author,
+            authorEmail: commitInfo.author, // GitService doesn't return email separately
+            committedAt: new Date(commitInfo.date),
+            branch: commitInfo.branch || 'main',
+          },
+        });
+      }
+
+      // Create deployment record
+      const deployment = await this.deploymentRepository.create(
+        {
+          appId: app.id,
+          gitCommitId: gitCommit.id,
+          environment,
+          triggeredBy: trigger,
+        },
+        { include },
+      );
 
       // Log creation
       if (userId) {
@@ -524,7 +601,13 @@ export class DeploymentService {
       }
 
       // Trigger deployment execution asynchronously
-      this.executeDeploymentAsync(deployment.id, application, environment, commitInfo.hash, commitInfo.branch || 'main');
+      this.executeDeploymentAsync(
+        deployment.id,
+        appName as any, // Convert string to DEPLOYMENT_APPLICATION enum
+        environment,
+        commitInfo.hash,
+        commitInfo.branch || 'main',
+      );
 
       return {
         success: true,
@@ -538,17 +621,30 @@ export class DeploymentService {
   }
 
   /**
-   * Get current deployment for application and environment
+   * Get current deployment for app and environment
    */
   async getCurrentDeployment(
-    application: DEPLOYMENT_APPLICATION,
+    appName: string,
     environment: DEPLOYMENT_ENVIRONMENT,
     include?: DeploymentInclude,
   ): Promise<DeploymentGetUniqueResponse> {
     try {
+      // Look up the app by name to get its ID
+      const app = await this.prisma.app.findUnique({
+        where: { name: appName },
+      });
+
+      if (!app) {
+        return {
+          success: true,
+          message: 'Aplicação não encontrada.',
+          data: null,
+        };
+      }
+
       const deployment = await this.deploymentRepository.findMany({
         where: {
-          application,
+          appId: app.id,
           environment,
           status: DEPLOYMENT_STATUS.COMPLETED,
         },
@@ -579,14 +675,61 @@ export class DeploymentService {
   /**
    * Get available commits for deployment
    */
-  async getAvailableCommits(limit: number = 50): Promise<{ success: boolean; message: string; data: GitCommitInfo[] }> {
+  async getAvailableCommits(
+    limit: number = 50,
+    repositoryName?: string,
+  ): Promise<{ success: boolean; message: string; data: any[] }> {
     try {
-      const commits = await this.gitService.getLatestCommits(limit);
+      // Query commits from database with repository information
+      const where: any = {};
+
+      // If repository name is provided, filter by it
+      if (repositoryName) {
+        where.repository = {
+          name: repositoryName,
+        };
+      }
+
+      const commits = await this.prisma.gitCommit.findMany({
+        where,
+        take: limit,
+        orderBy: {
+          committedAt: 'desc',
+        },
+        include: {
+          repository: {
+            select: {
+              id: true,
+              name: true,
+              gitUrl: true,
+              branch: true,
+            },
+          },
+        },
+      });
+
+      // Format the response
+      const formattedCommits = commits.map((commit) => ({
+        hash: commit.hash,
+        shortHash: commit.shortHash,
+        author: commit.author,
+        email: commit.authorEmail,
+        date: commit.committedAt,
+        message: commit.message,
+        body: '', // Not stored in DB currently
+        branch: commit.branch,
+        repository: {
+          id: commit.repository.id,
+          name: commit.repository.name,
+          gitUrl: commit.repository.gitUrl,
+          branch: commit.repository.branch,
+        },
+      }));
 
       return {
         success: true,
         message: 'Commits encontrados com sucesso.',
-        data: commits,
+        data: formattedCommits,
       };
     } catch (error) {
       this.logger.error(`Erro ao buscar commits: ${error.message}`, error.stack);
@@ -653,7 +796,9 @@ export class DeploymentService {
 
   /**
    * Handle GitHub webhook
+   * TODO: Reimplement for multi-repository system
    */
+  /* COMMENTED OUT - Needs rewrite for new multi-repo schema
   async handleWebhook(payload: any): Promise<{ success: boolean; message: string }> {
     try {
       this.logger.log('Received webhook payload');
@@ -700,6 +845,16 @@ export class DeploymentService {
       this.logger.error(`Webhook handling error: ${error.message}`, error.stack);
       throw error;
     }
+  }
+  */
+
+  async handleWebhook(payload: any): Promise<{ success: boolean; message: string }> {
+    // Temporary stub until rewrite for multi-repo system
+    this.logger.warn('handleWebhook called but not yet implemented for multi-repo system');
+    return {
+      success: true,
+      message: 'Webhook handling temporarily disabled - pending multi-repo implementation',
+    };
   }
 
   /**

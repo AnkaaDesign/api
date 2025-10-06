@@ -2172,7 +2172,7 @@ export class ItemService {
           createdAt: { gte: cutoffDate },
         },
         orderBy: { createdAt: 'desc' },
-      })) as any as import('@ankaa/types').Activity[];
+      })) as any as import('@types').Activity[];
 
       // Group activities by item
       const activitiesByItem = new Map<string, typeof activities>();
@@ -2291,7 +2291,7 @@ export class ItemService {
           createdAt: { gte: cutoffDate },
         },
         orderBy: { createdAt: 'desc' },
-      })) as any as import('@ankaa/types').Activity[];
+      })) as any as import('@types').Activity[];
 
       // Group activities by item
       const activitiesByItem = new Map<string, typeof activities>();

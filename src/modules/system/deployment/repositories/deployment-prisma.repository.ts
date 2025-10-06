@@ -48,16 +48,15 @@ export class DeploymentPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: DeploymentCreateFormData,
   ): Prisma.DeploymentCreateInput {
-    const { application, environment, commitSha, branch, ...rest } = formData;
+    const { appId, gitCommitId, environment, ...rest } = formData;
 
     // Calculate statusOrder based on default status (PENDING)
     const statusOrder = DEPLOYMENT_STATUS_ORDER['PENDING'] || 2;
 
     const createInput: Prisma.DeploymentCreateInput = {
-      application,
+      app: { connect: { id: appId } },
+      gitCommit: { connect: { id: gitCommitId } },
       environment,
-      commitSha,
-      branch,
       status: 'PENDING',
       statusOrder,
       startedAt: new Date(),
@@ -170,7 +169,42 @@ export class DeploymentPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.DeploymentInclude | undefined {
-    return undefined;
+    return {
+      app: {
+        select: {
+          id: true,
+          name: true,
+          displayName: true,
+          appType: true,
+          repository: {
+            select: {
+              id: true,
+              name: true,
+              gitUrl: true,
+              branch: true,
+            },
+          },
+        },
+      },
+      gitCommit: {
+        select: {
+          id: true,
+          hash: true,
+          shortHash: true,
+          message: true,
+          author: true,
+          authorEmail: true,
+          committedAt: true,
+          branch: true,
+          repository: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    };
   }
 
   async createWithTransaction(
@@ -337,10 +371,11 @@ export class DeploymentPrismaRepository
   }
 
   // Deployment-specific methods
-  async findByCommitSha(commitSha: string, tx?: PrismaTransaction): Promise<Deployment | null> {
+  async findByGitCommit(gitCommitId: string, tx?: PrismaTransaction): Promise<Deployment | null> {
     const delegate = this.getModelDelegate(tx);
     const deployment = await delegate.findFirst({
-      where: { commitSha },
+      where: { gitCommitId },
+      include: { app: true, gitCommit: true },
     });
 
     return deployment ? this.mapDatabaseEntityToEntity(deployment) : null;

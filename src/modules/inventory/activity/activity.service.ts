@@ -2015,7 +2015,7 @@ export class ActivityService {
         orderBy: {
           createdAt: 'desc',
         },
-      })) as any as import('@ankaa/types').Activity[];
+      })) as any as import('@types').Activity[];
 
       // Calculate monthly consumption
       const monthlyConsumption = calculateMonthlyConsumption(activities, lookbackDays);

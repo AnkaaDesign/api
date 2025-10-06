@@ -15,6 +15,22 @@ export class ThrottlerService {
     });
   }
 
+  private formatTTL(seconds: number): string {
+    if (seconds <= 0) return 'expired';
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m`;
+    }
+    if (minutes > 0) {
+      return `${minutes}m ${secs}s`;
+    }
+    return `${secs}s`;
+  }
+
   async getStats() {
     const allKeys = await this.scanKeys('*');
     const blockedKeys = allKeys.filter(k => k.includes(':blocked'));
@@ -47,7 +63,7 @@ export class ThrottlerService {
         return {
           key: baseKey,
           ttl,
-          expiresIn: ttl > 0 ? `${Math.floor(ttl / 60)}m ${ttl % 60}s` : 'expired',
+          expiresIn: this.formatTTL(ttl),
         };
       })
     );
@@ -76,19 +92,33 @@ export class ThrottlerService {
 
         // Parse the key
         const isBlocked = keyWithoutPrefix.includes(':blocked');
-        const baseKey = keyWithoutPrefix.replace(':blocked', '');
-        const parts = baseKey.split(':')[0].split('-');
+        const withoutBlocked = keyWithoutPrefix.replace(':blocked', '');
 
-        let controller = '';
-        let method = '';
-        let throttlerName = '';
-        let identifier = '';
+        // Key format: throttlerName:ControllerName-endpointName-throttlerName-identifier
+        // Example: medium:ServerController-getMetrics-medium-ip:::ffff:127.0.0.1
+        // We need to be careful with the identifier as it can contain colons (IPv6) and hyphens
 
-        if (parts.length >= 4) {
-          controller = parts[0];
-          method = parts[1];
-          throttlerName = parts[2];
-          identifier = parts.slice(3).join('-');
+        let controller = '-';
+        let method = '-';
+        let throttlerName = '-';
+        let identifier = '-';
+
+        // Split by the first colon to get throttler name
+        const colonIndex = withoutBlocked.indexOf(':');
+        if (colonIndex > 0) {
+          throttlerName = withoutBlocked.substring(0, colonIndex);
+          const remainder = withoutBlocked.substring(colonIndex + 1);
+
+          // Now split the remainder by hyphens, but only take the first 3 parts
+          // ControllerName-endpointName-throttlerName-identifier
+          const parts = remainder.split('-');
+          if (parts.length >= 4) {
+            controller = parts[0];
+            method = parts[1];
+            // parts[2] is redundant throttlerName
+            // Everything from parts[3] onwards is the identifier (rejoin with hyphens)
+            identifier = parts.slice(3).join('-');
+          }
         }
 
         return {
@@ -100,7 +130,7 @@ export class ThrottlerService {
           isBlocked,
           hits: isBlocked ? null : parseInt(value || '0'),
           ttl,
-          expiresIn: ttl > 0 ? `${Math.floor(ttl / 60)}m ${ttl % 60}s` : 'expired',
+          expiresIn: this.formatTTL(ttl),
         };
       })
     );
@@ -125,7 +155,14 @@ export class ThrottlerService {
   }
 
   async clearSpecificKey(key: string): Promise<boolean> {
-    const result = await this.redis.del(key);
+    // Try deleting the key with prefix
+    const keyWithPrefix = `${this.keyPrefix}${key}`;
+    const result = await this.redis.del(keyWithPrefix);
+
+    // Also try deleting the blocked version
+    const blockedKeyWithPrefix = `${this.keyPrefix}${key}:blocked`;
+    await this.redis.del(blockedKeyWithPrefix);
+
     return result > 0;
   }
 
@@ -150,19 +187,36 @@ export class ThrottlerService {
     const blockedDetails = await Promise.all(
       blockedKeys.map(async (key) => {
         const ttl = await this.redis.ttl(key);
-        const baseKey = key.replace(':blocked', '').replace(this.keyPrefix, '');
-        const parts = baseKey.split(':')[0].split('-');
+        // Remove prefix and :blocked suffix
+        // Key format: throttler:throttlerName:ControllerName-endpointName-throttlerName-identifier:blocked
+        const withoutPrefix = key.replace(this.keyPrefix, '');
+        const withoutBlocked = withoutPrefix.replace(':blocked', '');
 
-        let controller = '';
-        let method = '';
-        let throttlerName = '';
-        let identifier = '';
+        // Key format: throttlerName:ControllerName-endpointName-throttlerName-identifier
+        // Example: medium:ServerController-getMetrics-medium-ip:::ffff:127.0.0.1
+        // We need to be careful with the identifier as it can contain colons (IPv6) and hyphens
 
-        if (parts.length >= 4) {
-          controller = parts[0];
-          method = parts[1];
-          throttlerName = parts[2];
-          identifier = parts.slice(3).join('-');
+        let controller = '-';
+        let method = '-';
+        let throttlerName = '-';
+        let identifier = '-';
+
+        // Split by the first colon to get throttler name
+        const colonIndex = withoutBlocked.indexOf(':');
+        if (colonIndex > 0) {
+          throttlerName = withoutBlocked.substring(0, colonIndex);
+          const remainder = withoutBlocked.substring(colonIndex + 1);
+
+          // Now split the remainder by hyphens, but only take the first 3 parts
+          // ControllerName-endpointName-throttlerName-identifier
+          const parts = remainder.split('-');
+          if (parts.length >= 4) {
+            controller = parts[0];
+            method = parts[1];
+            // parts[2] is redundant throttlerName
+            // Everything from parts[3] onwards is the identifier (rejoin with hyphens)
+            identifier = parts.slice(3).join('-');
+          }
         }
 
         // Try to determine if it's a user or IP
@@ -173,14 +227,14 @@ export class ThrottlerService {
           .replace('ip:', '');
 
         return {
-          key: baseKey,
+          key: withoutBlocked,
           controller,
           method,
           throttlerName,
           identifierType: isUser ? 'user' : isIp ? 'ip' : 'unknown',
           identifier: cleanIdentifier,
           ttl,
-          expiresIn: ttl > 0 ? `${Math.floor(ttl / 60)}m ${ttl % 60}s` : 'expired',
+          expiresIn: this.formatTTL(ttl),
         };
       })
     );

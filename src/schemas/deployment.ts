@@ -5,7 +5,6 @@ import {
   DEPLOYMENT_STATUS,
   DEPLOYMENT_ENVIRONMENT,
   DEPLOYMENT_TRIGGER,
-  DEPLOYMENT_APPLICATION,
 } from '@constants';
 import {
   orderByDirectionSchema,
@@ -51,34 +50,20 @@ export const deploymentWhereSchema: z.ZodType<any> = z.lazy(() =>
       // Field filters
       id: z.union([z.string(), z.object({ in: z.array(z.string()) })]).optional(),
 
-      application: z
-        .union([
-          z.nativeEnum(DEPLOYMENT_APPLICATION),
-          z.object({
-            in: z.array(z.nativeEnum(DEPLOYMENT_APPLICATION)).optional(),
-            notIn: z.array(z.nativeEnum(DEPLOYMENT_APPLICATION)).optional(),
-          }),
-        ])
-        .optional(),
-
-      commitSha: z
-        .union([
-          z.string(),
-          z.object({
-            contains: z.string().optional(),
-            startsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
-          }),
-        ])
-        .optional(),
-
-      branch: z
+      appId: z
         .union([
           z.string(),
           z.object({
             in: z.array(z.string()).optional(),
-            contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+          }),
+        ])
+        .optional(),
+
+      gitCommitId: z
+        .union([
+          z.string(),
+          z.object({
+            in: z.array(z.string()).optional(),
           }),
         ])
         .optional(),
@@ -146,10 +131,9 @@ export const deploymentOrderBySchema = z
   .union([
     z.object({
       id: orderByDirectionSchema.optional(),
-      application: orderByDirectionSchema.optional(),
+      appId: orderByDirectionSchema.optional(),
+      gitCommitId: orderByDirectionSchema.optional(),
       environment: orderByDirectionSchema.optional(),
-      commitSha: orderByDirectionSchema.optional(),
-      branch: orderByDirectionSchema.optional(),
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
       deployedBy: orderByDirectionSchema.optional(),
@@ -163,10 +147,9 @@ export const deploymentOrderBySchema = z
     z.array(
       z.object({
         id: orderByDirectionSchema.optional(),
-        application: orderByDirectionSchema.optional(),
+        appId: orderByDirectionSchema.optional(),
+        gitCommitId: orderByDirectionSchema.optional(),
         environment: orderByDirectionSchema.optional(),
-        commitSha: orderByDirectionSchema.optional(),
-        branch: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         deployedBy: orderByDirectionSchema.optional(),
@@ -188,35 +171,17 @@ export type DeploymentOrderBy = z.infer<typeof deploymentOrderBySchema>;
 // =====================
 
 export const deploymentCreateSchema = z.object({
-  application: z.nativeEnum(DEPLOYMENT_APPLICATION, {
-    errorMap: () => ({ message: "Aplicação inválida" }),
-  }),
+  appId: z
+    .string()
+    .uuid("ID do app inválido"),
+
+  gitCommitId: z
+    .string()
+    .uuid("ID do commit inválido"),
 
   environment: z.nativeEnum(DEPLOYMENT_ENVIRONMENT, {
     errorMap: () => ({ message: "Ambiente inválido" }),
   }),
-
-  commitSha: z
-    .string()
-    .min(7, "Hash do commit deve ter pelo menos 7 caracteres")
-    .max(255, "Hash do commit deve ter no máximo 255 caracteres"),
-
-  commitMessage: z
-    .string()
-    .max(1000, "Mensagem do commit deve ter no máximo 1000 caracteres")
-    .optional()
-    .nullable(),
-
-  commitAuthor: z
-    .string()
-    .max(255, "Autor do commit deve ter no máximo 255 caracteres")
-    .optional()
-    .nullable(),
-
-  branch: z
-    .string()
-    .min(1, "Branch é obrigatório")
-    .max(255, "Branch deve ter no máximo 255 caracteres"),
 
   triggeredBy: z.nativeEnum(DEPLOYMENT_TRIGGER, {
     errorMap: () => ({ message: "Tipo de gatilho inválido" }),
@@ -231,7 +196,6 @@ export const deploymentCreateSchema = z.object({
   startedAt: z.coerce.date().optional().nullable(),
 
   version: z.string().max(255).optional().nullable(),
-  previousCommit: z.string().max(255).optional().nullable(),
   rollbackData: z.any().optional().nullable(),
   deploymentLog: z.string().optional().nullable(),
   healthCheckUrl: z.string().url("URL inválida").optional().nullable(),
@@ -280,8 +244,8 @@ export const deploymentGetManySchema = z
       data.where = {
         ...data.where,
         OR: [
-          { commitSha: { contains: data.searchingFor, mode: "insensitive" } },
-          { branch: { contains: data.searchingFor, mode: "insensitive" } },
+          { appId: { contains: data.searchingFor, mode: "insensitive" } },
+          { gitCommitId: { contains: data.searchingFor, mode: "insensitive" } },
           { version: { contains: data.searchingFor, mode: "insensitive" } },
         ],
       };
