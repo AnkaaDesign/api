@@ -55,7 +55,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
     if (process.env.NODE_ENV === 'development') {
       console.log(
-        `[CustomThrottlerGuard] canActivate - Controller: ${controllerName}, Endpoint: ${endpoint}, User: ${request.user?.id}`,
+        `[CustomThrottlerGuard] canActivate - Controller: ${controllerName}, Endpoint: ${endpoint}, User: ${request.user?.sub || request.user?.id}`,
       );
     }
 
@@ -144,7 +144,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
           limit,
           ttl,
           blockDuration,
-          userId: request.user?.id,
+          userId: request.user?.sub || request.user?.id,
           ip: request.ip,
           isFileOperation,
         },
@@ -273,8 +273,16 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Use user ID if authenticated, otherwise use IP
-    const identifier = user ? `user:${user.id}` : `ip:${suffix}`;
+    // JWT payload uses 'sub' for user ID, but some guards might set 'id'
+    const userId = user?.sub || user?.id;
+    const ipAddress = suffix || 'unknown';
+
+    // Always include both user and IP information
+    // Format: user:{userId}-ip:{ipAddress} or user:anonymous-ip:{ipAddress}
+    const userPart = userId ? `user:${userId}` : 'user:anonymous';
+    const ipPart = `ip:${ipAddress}`;
+    const identifier = `${userPart}-${ipPart}`;
+
     const prefix = `${context.getClass().name}-${context.getHandler().name}`;
 
     return `${prefix}-${name}-${identifier}`;
@@ -327,7 +335,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
         `[CustomThrottlerGuard] Throttler applied: ${throttlerName}, Endpoint: ${endpoint}`,
         {
           throttlerLimitDetail,
-          userId: request.user?.id,
+          userId: request.user?.sub || request.user?.id,
           ip: request.ip,
         },
       );

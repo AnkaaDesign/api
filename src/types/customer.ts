@@ -1,7 +1,7 @@
 // packages/interfaces/src/customer.ts
 
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
 import type { File, FileIncludes } from "./file";
 import type { Task, TaskIncludes } from "./task";
 
@@ -92,6 +92,7 @@ export interface CustomerGetManyResponse extends BaseGetManyResponse<Customer> {
 export interface CustomerCreateResponse extends BaseCreateResponse<Customer> {}
 export interface CustomerUpdateResponse extends BaseUpdateResponse<Customer> {}
 export interface CustomerDeleteResponse extends BaseDeleteResponse {}
+export interface CustomerMergeResponse extends BaseMergeResponse<Customer> {}
 
 // =====================
 // Batch Operation Responses

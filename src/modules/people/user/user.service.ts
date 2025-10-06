@@ -699,6 +699,7 @@ export class UserService {
           'positionId',
           'performanceLevel',
           'sectorId',
+          'managedSectorId',
           'verified',
           'requirePasswordChange',
           'hireDate',
@@ -710,6 +711,15 @@ export class UserService {
           'verificationType',
           'sessionToken',
           'lastLoginAt',
+          'address',
+          'addressNumber',
+          'addressComplement',
+          'neighborhood',
+          'city',
+          'state',
+          'zipCode',
+          'site',
+          'secullumId',
         ];
 
         // Track regular fields
@@ -1101,12 +1111,22 @@ export class UserService {
                 'positionId',
                 'performanceLevel',
                 'sectorId',
+                'managedSectorId',
                 'verified',
                 'requirePasswordChange',
                 'hireDate',
                 'birthDate',
                 'admissional',
                 'dismissal',
+                'address',
+                'addressNumber',
+                'addressComplement',
+                'neighborhood',
+                'city',
+                'state',
+                'zipCode',
+                'site',
+                'secullumId',
               ];
 
               await trackAndLogFieldChanges({

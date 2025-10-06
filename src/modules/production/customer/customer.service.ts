@@ -23,6 +23,7 @@ import type {
   CustomerGetManyResponse,
   CustomerGetUniqueResponse,
   CustomerUpdateResponse,
+  CustomerMergeResponse,
 } from '../../../types';
 import { Customer } from '../../../types';
 import type {
@@ -34,6 +35,7 @@ import type {
   CustomerBatchUpdateFormData,
   CustomerBatchDeleteFormData,
   CustomerInclude,
+  CustomerMergeFormData,
 } from '../../../schemas/customer';
 import { isValidCNPJ, isValidCPF, isValidPhone } from '../../../utils';
 
@@ -699,6 +701,127 @@ export class CustomerService {
       this.logger.error('Erro na exclusão em lote:', error);
       throw new InternalServerErrorException(
         'Erro interno do servidor na exclusão em lote. Tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Merge multiple customers into one
+   */
+  async merge(
+    data: CustomerMergeFormData,
+    include?: CustomerInclude,
+    userId?: string,
+  ): Promise<CustomerMergeResponse> {
+    try {
+      const mergedCustomer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // 1. Fetch target customer and source customers
+        const targetCustomer = await tx.customer.findUnique({
+          where: { id: data.targetCustomerId },
+          include: {
+            tasks: true,
+            logo: true,
+          },
+        });
+
+        if (!targetCustomer) {
+          throw new NotFoundException(`Cliente alvo com ID ${data.targetCustomerId} não encontrado`);
+        }
+
+        const sourceCustomers = await tx.customer.findMany({
+          where: { id: { in: data.sourceCustomerIds } },
+          include: {
+            tasks: true,
+            logo: true,
+          },
+        });
+
+        if (sourceCustomers.length !== data.sourceCustomerIds.length) {
+          const foundIds = sourceCustomers.map(c => c.id);
+          const missingIds = data.sourceCustomerIds.filter(id => !foundIds.includes(id));
+          throw new NotFoundException(`Clientes de origem não encontrados: ${missingIds.join(', ')}`);
+        }
+
+        // 2. Apply conflict resolutions if provided
+        const updateData: Partial<Customer> = {};
+        if (data.conflictResolutions) {
+          Object.keys(data.conflictResolutions).forEach(field => {
+            (updateData as any)[field] = data.conflictResolutions![field];
+          });
+        }
+
+        // Update target customer with resolved conflicts
+        if (Object.keys(updateData).length > 0) {
+          await tx.customer.update({
+            where: { id: data.targetCustomerId },
+            data: updateData,
+          });
+        }
+
+        // 3. Merge tasks - move all tasks from source customers to target
+        for (const sourceCustomer of sourceCustomers) {
+          if (sourceCustomer.tasks.length > 0) {
+            await tx.task.updateMany({
+              where: { customerId: sourceCustomer.id },
+              data: { customerId: data.targetCustomerId },
+            });
+          }
+        }
+
+        // 4. Log the merge operation
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.CUSTOMER,
+          entityId: data.targetCustomerId,
+          action: CHANGE_ACTION.UPDATE,
+          entity: targetCustomer,
+          reason: `Cliente mesclado com ${sourceCustomers.length} outro(s) cliente(s): ${sourceCustomers.map(c => c.fantasyName).join(', ')}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          userId: userId || null,
+          transaction: tx,
+        });
+
+        // 5. Delete source customers
+        for (const sourceCustomer of sourceCustomers) {
+          await logEntityChange({
+            changeLogService: this.changeLogService,
+            entityType: ENTITY_TYPE.CUSTOMER,
+            entityId: sourceCustomer.id,
+            action: CHANGE_ACTION.DELETE,
+            oldEntity: sourceCustomer,
+            reason: `Cliente removido após mesclagem com ${targetCustomer.fantasyName}`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            userId: userId || null,
+            transaction: tx,
+          });
+
+          await tx.customer.delete({
+            where: { id: sourceCustomer.id },
+          });
+        }
+
+        // 6. Return the merged customer
+        const mergedCustomer = await this.customerRepository.findByIdWithTransaction(
+          tx,
+          data.targetCustomerId,
+          { include },
+        );
+
+        return mergedCustomer;
+      });
+
+      return {
+        success: true,
+        message: `${data.sourceCustomerIds.length + 1} clientes mesclados com sucesso.`,
+        data: mergedCustomer,
+      };
+    } catch (error: unknown) {
+      this.logger.error('Erro ao mesclar clientes:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Erro ao mesclar clientes. Por favor, tente novamente.',
       );
     }
   }

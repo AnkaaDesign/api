@@ -26,6 +26,7 @@ import {
   customerBatchDeleteSchema,
   customerQuerySchema,
   customerBatchQuerySchema,
+  customerMergeSchema,
 } from '../../../schemas/customer';
 import type {
   CustomerGetManyFormData,
@@ -38,6 +39,7 @@ import type {
   CustomerBatchDeleteFormData,
   CustomerQueryFormData,
   CustomerBatchQueryFormData,
+  CustomerMergeFormData,
 } from '../../../schemas/customer';
 import type {
   CustomerCreateResponse,
@@ -48,6 +50,7 @@ import type {
   CustomerBatchCreateResponse,
   CustomerBatchUpdateResponse,
   CustomerBatchDeleteResponse,
+  CustomerMergeResponse,
   Customer,
 } from '../../../types';
 
@@ -112,6 +115,16 @@ export class CustomerController {
     @UserId() userId: string,
   ): Promise<CustomerBatchDeleteResponse> {
     return this.customerService.batchDelete(data, userId);
+  }
+
+  @Post('merge')
+  @HttpCode(HttpStatus.OK)
+  async merge(
+    @Body(new ZodValidationPipe(customerMergeSchema)) data: CustomerMergeFormData,
+    @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
+    @UserId() userId: string,
+  ): Promise<CustomerMergeResponse> {
+    return this.customerService.merge(data, query.include, userId);
   }
 
   // Dynamic routes (must come after static routes)

@@ -297,6 +297,12 @@ export class TaskService {
           'plate',
           'term',
           'entryDate',
+          'priority',
+          'statusOrder',
+          'budgetId',
+          'nfeId',
+          'receiptId',
+          'createdById',
         ];
 
         await trackAndLogFieldChanges({
@@ -312,53 +318,33 @@ export class TaskService {
         });
 
         // Track services array changes
-        // NOTE: Services are always deleted and recreated during update, so we must compare
-        // by description rather than ID to avoid false positive changelogs
-        if (data.services) {
+        if (data.services !== undefined) {
           const oldServices = existingTask.services || [];
           const newServices = updatedTask?.services || [];
 
-          // Compare services by their descriptions (normalized for comparison)
-          const normalizeDescription = (desc: string) => desc?.trim().toLowerCase() || '';
+          // Serialize services for changelog - store full data for rollback support
+          const serializeServices = (services: any[]) => {
+            return services.map((s: any) => ({
+              description: s.description,
+              status: s.status,
+              ...(s.startedAt && { startedAt: s.startedAt }),
+              ...(s.finishedAt && { finishedAt: s.finishedAt }),
+            }));
+          };
 
-          const oldServiceDescriptions = oldServices.map((s: any) => normalizeDescription(s.description));
-          const newServiceDescriptions = newServices.map((s: any) => normalizeDescription(s.description));
+          const oldServicesSerialized = JSON.stringify(serializeServices(oldServices));
+          const newServicesSerialized = JSON.stringify(serializeServices(newServices));
 
-          // Find truly added services (descriptions that didn't exist before)
-          const addedServices = newServices.filter(
-            (s: any) => !oldServiceDescriptions.includes(normalizeDescription(s.description)),
-          );
-
-          // Find truly removed services (descriptions that no longer exist)
-          const removedServices = oldServices.filter(
-            (s: any) => !newServiceDescriptions.includes(normalizeDescription(s.description)),
-          );
-
-          if (addedServices.length > 0) {
+          // Only create changelog if services actually changed
+          if (oldServicesSerialized !== newServicesSerialized) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
               field: 'services',
-              oldValue: null,
-              newValue: addedServices.map((s: any) => ({ description: s.description })),
-              reason: `${addedServices.length} serviço(s) adicionado(s)`,
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
-          }
-
-          if (removedServices.length > 0) {
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'services',
-              oldValue: removedServices.map((s: any) => ({ description: s.description })),
-              newValue: null,
-              reason: `${removedServices.length} serviço(s) removido(s)`,
+              oldValue: serializeServices(oldServices),
+              newValue: serializeServices(newServices),
+              reason: `Serviços alterados de ${oldServices.length} para ${newServices.length}`,
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
               userId: userId || '',
@@ -411,7 +397,7 @@ export class TaskService {
           }
         }
 
-        // Track paintIds array changes
+        // Track logoPaints array changes (paintIds)
         if (data.paintIds) {
           const oldPaintIds = existingTask.logoPaints?.map((p: any) => p.id) || [];
           const newPaintIds = data.paintIds || [];
@@ -424,7 +410,7 @@ export class TaskService {
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'paintIds',
+              field: 'logoPaints',
               oldValue: null,
               newValue: addedPaintIds,
               reason: `${addedPaintIds.length} tinta(s) adicionada(s)`,
@@ -440,10 +426,95 @@ export class TaskService {
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'paintIds',
+              field: 'logoPaints',
               oldValue: removedPaintIds,
               newValue: null,
               reason: `${removedPaintIds.length} tinta(s) removida(s)`,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+          }
+        }
+
+        // Track cuts array changes (CRITICAL - user reported this missing)
+        if (data.cuts !== undefined) {
+          const oldCuts = existingTask.cuts || [];
+          const newCuts = updatedTask?.cuts || [];
+
+          // Serialize cuts for changelog - store full data for rollback support
+          // Count how many cuts have the same fileId+type+origin to determine quantity
+          const serializeCuts = (cuts: any[]) => {
+            const grouped = new Map<string, any>();
+
+            cuts.forEach((c: any) => {
+              const key = `${c.type}-${c.fileId || c.file?.id}-${c.origin}-${c.reason || 'none'}-${c.parentCutId || 'none'}`;
+
+              if (grouped.has(key)) {
+                grouped.get(key).quantity += 1;
+              } else {
+                grouped.set(key, {
+                  fileId: c.fileId || c.file?.id || null,
+                  type: c.type,
+                  origin: c.origin,
+                  quantity: 1,
+                  ...(c.reason && { reason: c.reason }),
+                  ...(c.parentCutId && { parentCutId: c.parentCutId }),
+                });
+              }
+            });
+
+            return Array.from(grouped.values());
+          };
+
+          const oldCutsSerialized = JSON.stringify(serializeCuts(oldCuts));
+          const newCutsSerialized = JSON.stringify(serializeCuts(newCuts));
+
+          // Only create changelog if cuts actually changed
+          if (oldCutsSerialized !== newCutsSerialized) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'cuts',
+              oldValue: serializeCuts(oldCuts),
+              newValue: serializeCuts(newCuts),
+              reason: `Recortes alterados de ${oldCuts.length} para ${newCuts.length}`,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+          }
+        }
+
+        // Track airbrushings array changes
+        if (data.airbrushings !== undefined) {
+          const oldAirbrushings = existingTask.airbrushings || [];
+          const newAirbrushings = updatedTask?.airbrushings || [];
+
+          // Serialize airbrushings for comparison
+          const serializeAirbrushings = (airbrushings: any[]) => {
+            return airbrushings.map((a: any) => ({
+              description: a.description,
+              status: a.status,
+            }));
+          };
+
+          const oldAirbrushingsSerialized = JSON.stringify(serializeAirbrushings(oldAirbrushings));
+          const newAirbrushingsSerialized = JSON.stringify(serializeAirbrushings(newAirbrushings));
+
+          // Only create changelog if airbrushings actually changed
+          if (oldAirbrushingsSerialized !== newAirbrushingsSerialized) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'airbrushings',
+              oldValue: serializeAirbrushings(oldAirbrushings),
+              newValue: serializeAirbrushings(newAirbrushings),
+              reason: `Aerografias alteradas de ${oldAirbrushings.length} para ${newAirbrushings.length}`,
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
               userId: userId || '',

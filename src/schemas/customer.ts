@@ -684,6 +684,28 @@ export type CustomerOrderBy = z.infer<typeof customerOrderBySchema>;
 export type CustomerWhere = z.infer<typeof customerWhereSchema>;
 
 // =====================
+// Merge Schema
+// =====================
+
+export const customerMergeConflictsSchema = z
+  .object({
+    // Conflict resolution fields
+  })
+  .optional();
+
+export const customerMergeSchema = z.object({
+  targetCustomerId: z.string().uuid({ message: "ID do cliente principal inválido" }),
+  sourceCustomerIds: z
+    .array(z.string().uuid({ message: "ID de cliente inválido" }))
+    .min(1, { message: "É necessário selecionar pelo menos 1 cliente para mesclar" })
+    .max(10, { message: "Máximo de 10 clientes podem ser mesclados por vez" }),
+  conflictResolutions: z.record(z.any()).optional(),
+});
+
+export type CustomerMergeConflicts = z.infer<typeof customerMergeConflictsSchema>;
+export type CustomerMergeFormData = z.infer<typeof customerMergeSchema>;
+
+// =====================
 // Helper Functions
 // =====================
 
