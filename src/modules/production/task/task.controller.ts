@@ -10,7 +10,13 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
+import { FileService } from '@modules/common/file/file.service';
 import { TaskService } from './task.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -55,7 +61,10 @@ import type { SuccessResponse } from '../../../types';
 
 @Controller('tasks')
 export class TaskController {
-  constructor(private readonly tasksService: TaskService) {}
+  constructor(
+    private readonly tasksService: TaskService,
+    private readonly fileService: FileService,
+  ) {}
 
   // Basic CRUD Operations (static routes first)
   @Get()
@@ -210,5 +219,150 @@ export class TaskController {
     @UserId() userId: string,
   ): Promise<TaskDeleteResponse> {
     return this.tasksService.delete(id, userId);
+  }
+
+  // File Upload Endpoints
+  @Post(':id/upload/budgets')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadBudget(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'taskBudgets',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/invoices')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'taskNfes',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/receipts')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'taskReceipts',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/reimbursements')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'taskReembolsos',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/reimbursement-invoices')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursementInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'taskNfeReembolsos',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/artworks')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadArtwork(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const task = await this.tasksService.findById(id, { include: { customer: true } });
+    const customerName = task.data.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'tasksArtworks',
+      entityId: id,
+      entityType: 'task',
+      customerName,
+    });
   }
 }

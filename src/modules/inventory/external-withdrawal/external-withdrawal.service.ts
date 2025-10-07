@@ -117,15 +117,19 @@ export class ExternalWithdrawalService {
     }
 
     // Validate file references with enhanced logging
-    const fileValidations = [
-      { id: data.nfeId, type: 'nota fiscal', field: 'nfeId' },
-      { id: data.receiptId, type: 'recibo', field: 'receiptId' },
-    ];
+    const fileIds: string[] = [];
 
-    for (const fileValidation of fileValidations) {
-      if (fileValidation.id) {
+    if (data.invoiceIds && data.invoiceIds.length > 0) {
+      fileIds.push(...data.invoiceIds);
+    }
+    if (data.receiptIds && data.receiptIds.length > 0) {
+      fileIds.push(...data.receiptIds);
+    }
+
+    for (const fileId of fileIds) {
+      if (fileId) {
         const file = await transaction.file.findUnique({
-          where: { id: fileValidation.id },
+          where: { id: fileId },
           select: { id: true, filename: true },
         });
 
@@ -136,17 +140,17 @@ export class ExternalWithdrawalService {
               entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
               entityId: existingId,
               action: CHANGE_ACTION.UPDATE,
-              field: fileValidation.field,
+              field: 'fileIds',
               oldValue: null,
-              newValue: fileValidation.id,
-              reason: `Falha na validação: Arquivo de ${fileValidation.type} não encontrado (ID: ${fileValidation.id})`,
+              newValue: fileId,
+              reason: `Falha na validação: Arquivo não encontrado (ID: ${fileId})`,
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: existingId,
               transaction: tx,
               userId: null,
             });
           }
-          throw new NotFoundException(`Arquivo de ${fileValidation.type} não encontrado`);
+          throw new NotFoundException(`Arquivo não encontrado (ID: ${fileId})`);
         } else {
           // Log successful file attachment validation
           if (existingId) {
@@ -154,10 +158,10 @@ export class ExternalWithdrawalService {
               entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
               entityId: existingId,
               action: CHANGE_ACTION.UPDATE,
-              field: fileValidation.field,
+              field: 'fileIds',
               oldValue: null,
               newValue: { id: file.id, filename: file.filename },
-              reason: `Arquivo de ${fileValidation.type} validado: ${file.filename}`,
+              reason: `Arquivo validado: ${file.filename}`,
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: existingId,
               transaction: tx,

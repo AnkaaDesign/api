@@ -51,7 +51,7 @@ export class AirbrushingPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: AirbrushingCreateFormData,
   ): Prisma.AirbrushingCreateInput {
-    const { taskId, receiptIds, nfeIds, artworkIds, ...rest } = formData;
+    const { taskId, budgetIds, invoiceIds, receiptIds, reimbursementIds, reimbursementInvoiceIds, artworkIds, ...rest } = formData;
 
     const createInput: Prisma.AirbrushingCreateInput = {
       ...rest,
@@ -61,15 +61,33 @@ export class AirbrushingPrismaRepository
     };
 
     // Handle file attachments
+    if (budgetIds && budgetIds.length > 0) {
+      createInput.budgets = {
+        connect: budgetIds.map(id => ({ id })),
+      };
+    }
+
+    if (invoiceIds && invoiceIds.length > 0) {
+      createInput.nfes = {
+        connect: invoiceIds.map(id => ({ id })),
+      };
+    }
+
     if (receiptIds && receiptIds.length > 0) {
       createInput.receipts = {
         connect: receiptIds.map(id => ({ id })),
       };
     }
 
-    if (nfeIds && nfeIds.length > 0) {
-      createInput.nfes = {
-        connect: nfeIds.map(id => ({ id })),
+    if (reimbursementIds && reimbursementIds.length > 0) {
+      createInput.reembolsos = {
+        connect: reimbursementIds.map(id => ({ id })),
+      };
+    }
+
+    if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
+      createInput.nfeReembolsos = {
+        connect: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }
 
@@ -85,7 +103,7 @@ export class AirbrushingPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: AirbrushingUpdateFormData,
   ): Prisma.AirbrushingUpdateInput {
-    const { taskId, status, receiptIds, nfeIds, artworkIds, ...rest } = formData;
+    const { taskId, status, budgetIds, invoiceIds, receiptIds, reimbursementIds, reimbursementInvoiceIds, artworkIds, ...rest } = formData;
 
     const updateData: Prisma.AirbrushingUpdateInput = {
       ...rest,
@@ -103,15 +121,33 @@ export class AirbrushingPrismaRepository
     }
 
     // Handle file attachments - use set to replace all connections
+    if (budgetIds !== undefined) {
+      updateData.budgets = {
+        set: budgetIds.map(id => ({ id })),
+      };
+    }
+
+    if (invoiceIds !== undefined) {
+      updateData.nfes = {
+        set: invoiceIds.map(id => ({ id })),
+      };
+    }
+
     if (receiptIds !== undefined) {
       updateData.receipts = {
         set: receiptIds.map(id => ({ id })),
       };
     }
 
-    if (nfeIds !== undefined) {
-      updateData.nfes = {
-        set: nfeIds.map(id => ({ id })),
+    if (reimbursementIds !== undefined) {
+      updateData.reembolsos = {
+        set: reimbursementIds.map(id => ({ id })),
+      };
+    }
+
+    if (reimbursementInvoiceIds !== undefined) {
+      updateData.nfeReembolsos = {
+        set: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }
 

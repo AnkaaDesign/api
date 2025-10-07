@@ -32,9 +32,11 @@ export interface Task extends BaseEntity {
   paintId: string | null;
   customerId: string | null;
   sectorId: string | null;
-  budgetId: string | null;
-  nfeId: string | null;
-  receiptId: string | null;
+  budgetIds?: string[];
+  invoiceIds?: string[];
+  receiptIds?: string[];
+  reimbursementIds?: string[];
+  reimbursementInvoiceIds?: string[];
   price: number | null;
   createdById: string | null;
   priority?: string | null;
@@ -42,9 +44,11 @@ export interface Task extends BaseEntity {
   // Relations
   sector?: Sector;
   customer?: Customer;
-  budget?: File;
-  nfe?: File;
-  receipt?: File;
+  budgets?: File[];
+  nfes?: File[];
+  receipts?: File[];
+  reembolsos?: File[];
+  nfeReembolsos?: File[];
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
@@ -73,17 +77,27 @@ export interface TaskIncludes {
     | {
         include?: CustomerIncludes;
       };
-  budget?:
+  budgets?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  nfe?:
+  nfes?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  receipt?:
+  receipts?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  reembolsos?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  nfeReembolsos?:
     | boolean
     | {
         include?: FileIncludes;
@@ -165,9 +179,6 @@ export interface TaskOrderBy {
   paintId?: ORDER_BY_DIRECTION;
   customerId?: ORDER_BY_DIRECTION;
   sectorId?: ORDER_BY_DIRECTION;
-  budgetId?: ORDER_BY_DIRECTION;
-  nfeId?: ORDER_BY_DIRECTION;
-  receiptId?: ORDER_BY_DIRECTION;
   price?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;

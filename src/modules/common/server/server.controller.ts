@@ -405,4 +405,46 @@ export class ServerController {
       };
     }
   }
+
+  @Post('database/sync')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async triggerDatabaseSync(@UserId() userId: string) {
+    try {
+      const result = await this.serverService.triggerDatabaseSync();
+      return {
+        success: result.success,
+        message: result.message,
+        data: { jobId: result.jobId },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Falha ao iniciar sincronização do banco de dados',
+        data: null,
+      };
+    }
+  }
+
+  @Get('database/sync-status')
+  @ReadRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async getDatabaseSyncStatus(@UserId() userId: string) {
+    try {
+      const status = await this.serverService.getSyncStatus();
+      return {
+        success: true,
+        message: 'Status da sincronização obtido com sucesso',
+        data: status,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Falha ao obter status da sincronização: ' + error.message,
+        data: {
+          isRunning: false,
+        },
+      };
+    }
+  }
 }

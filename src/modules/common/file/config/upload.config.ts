@@ -15,7 +15,7 @@ export const UPLOAD_CONFIG = {
 
   // WebDAV configuration
   useWebDAV: process.env.USE_WEBDAV === 'true' || true, // Enable WebDAV by default
-  webdavRoot: process.env.WEBDAV_ROOT || '/srv/samba/shares',
+  webdavRoot: process.env.WEBDAV_ROOT || '/srv/webdav',
 
   // Allowed file types (MIME types)
   allowedMimeTypes: [

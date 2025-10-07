@@ -13,12 +13,14 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
+  Req,
   Res,
   BadRequestException,
   UseGuards,
+  Options,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { FileService } from './file.service';
 import { WebDAVService } from './services/webdav.service';
 import { multerConfig } from './config/upload.config';
@@ -139,6 +141,19 @@ export class FileController {
   }
 
   // File Serving Endpoints - Public (no auth required)
+
+  // OPTIONS handlers for CORS preflight
+  @Options('serve/:id')
+  @Public()
+  @FileOperationBypass()
+  async serveFileOptions(@Res() res: Response): Promise<void> {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.status(204).send();
+  }
+
   @Get('serve/:id')
   @Public()
   @FileOperationBypass() // Completely bypass ALL throttlers for file serving
@@ -146,11 +161,33 @@ export class FileController {
     await this.fileService.serveFileById(id, res);
   }
 
+  @Options(':id/download')
+  @Public()
+  @FileOperationBypass()
+  async downloadFileOptions(@Res() res: Response): Promise<void> {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.status(204).send();
+  }
+
   @Get(':id/download')
   @Public()
   @FileOperationBypass() // Completely bypass ALL throttlers for file downloads
   async downloadFile(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response): Promise<void> {
     await this.fileService.downloadFileById(id, res);
+  }
+
+  @Options('thumbnail/:id')
+  @Public()
+  @NoRateLimit()
+  async serveThumbnailOptions(@Res() res: Response): Promise<void> {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    res.status(204).send();
   }
 
   @Get('thumbnail/:id')
@@ -218,12 +255,26 @@ export class FileController {
 
   // Dynamic routes last
   @Get(':id')
+  @Public()
   @FileOperationBypass() // Completely bypass ALL throttlers for file reads
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query: FileQueryFormData,
-  ): Promise<FileGetUniqueResponse> {
-    return this.fileService.findById(id, query.include);
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<FileGetUniqueResponse | void> {
+    // If request accepts HTML/image (likely from img tag or browser), serve the thumbnail
+    const accept = req.headers['accept'] || '';
+    const isImageRequest = accept.includes('image/') || accept.includes('*/*') && !accept.includes('application/json');
+
+    if (isImageRequest) {
+      // Redirect to thumbnail endpoint for image requests
+      return res.redirect(307, `/files/thumbnail/${id}`);
+    }
+
+    // Return JSON metadata for API requests
+    const result = await this.fileService.findById(id, query.include);
+    res.json(result);
   }
 
   @Put(':id')

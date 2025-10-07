@@ -1307,10 +1307,13 @@ export const orderCreateSchema = z
     orderScheduleId: z.string().uuid({ message: "Cronograma inválido" }).optional(),
     orderRuleId: z.string().uuid({ message: "Regra de pedido inválida" }).optional(),
     ppeScheduleId: z.string().uuid({ message: "Agendamento EPI inválido" }).optional(),
-    budgetId: z.string().uuid({ message: "Orçamento inválido" }).optional(),
-    nfeId: z.string().uuid({ message: "NFe inválida" }).optional(),
-    receiptId: z.string().uuid({ message: "Recibo inválido" }).optional(),
     notes: z.string().optional(),
+    // File arrays
+    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
     items: z
       .array(
         z.object({
@@ -1353,10 +1356,13 @@ export const orderUpdateSchema = z
     orderScheduleId: z.string().uuid({ message: "Cronograma inválido" }).optional(),
     orderRuleId: z.string().uuid({ message: "Regra de pedido inválida" }).optional(),
     ppeScheduleId: z.string().uuid({ message: "Agendamento EPI inválido" }).optional(),
-    budgetId: z.string().uuid({ message: "Orçamento inválido" }).optional(),
-    nfeId: z.string().uuid({ message: "NFe inválida" }).optional(),
-    receiptId: z.string().uuid({ message: "Recibo inválido" }).optional(),
     notes: z.string().optional(),
+    // File arrays
+    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
   })
   .transform(toFormData);
 
@@ -1728,9 +1734,11 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
   status: order.status as ORDER_STATUS,
   supplierId: order.supplierId || undefined,
   orderScheduleId: order.orderScheduleId || undefined,
-  budgetId: order.budgetId || undefined,
-  nfeId: order.nfeId || undefined,
-  receiptId: order.receiptId || undefined,
+  budgetIds: order.budgets?.map((budget) => budget.id),
+  invoiceIds: order.nfes?.map((nfe) => nfe.id),
+  receiptIds: order.receipts?.map((receipt) => receipt.id),
+  reimbursementIds: order.reembolsos?.map((reimbursement) => reimbursement.id),
+  reimbursementInvoiceIds: order.nfeReembolsos?.map((reimbursementInvoice) => reimbursementInvoice.id),
   notes: order.notes || undefined,
 }));
 

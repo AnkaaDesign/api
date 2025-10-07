@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { config } from 'dotenv';
-import { join } from 'path';
 
-// Load environment variables from .env file
-config({ path: join(__dirname, '../../../.env') });
+// Load environment variables from .env file (if not already loaded by PM2/runtime)
+// PM2 startup scripts load .env.production or .env.staging
+config();
 
 /**
  * Environment variable validation schema
@@ -11,7 +11,7 @@ config({ path: join(__dirname, '../../../.env') });
  */
 export const envSchema = z.object({
   // Environment
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test', 'staging']).default('development'),
 
   // Server Configuration
   PORT: z.string().regex(/^\d+$/).transform(Number).default('3030'),

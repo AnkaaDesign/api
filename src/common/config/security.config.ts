@@ -215,14 +215,14 @@ export const securityConfig = {
   // CORS security configuration
   cors: {
     origin:
-      process.env.NODE_ENV === 'production'
+      process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
         ? [
             'https://ankaa.live',
             'https://www.ankaa.live',
-            'https://test.ankaa.live',
+            'https://staging.ankaa.live',
             'http://ankaa.live',
             'http://www.ankaa.live',
-            'http://test.ankaa.live',
+            'http://staging.ankaa.live',
             ...(process.env.CLIENT_HOST ? [process.env.CLIENT_HOST] : []),
           ]
         : [
@@ -232,19 +232,17 @@ export const securityConfig = {
             'http://localhost:5174',
             'http://localhost:5175',
             'http://localhost:5176',
-            'http://localhost:5177', // Added localhost:5177
+            'http://localhost:5177',
             'https://ankaa.live',
-            'https://test.ankaa.live',
+            'https://staging.ankaa.live',
             'http://192.168.0.13:3000',
             'http://192.168.0.13:5174',
             'http://192.168.0.13:5175',
             'http://192.168.0.13:5176',
-            'http://192.168.0.13:5177', // Added 192.168.0.10:5177
-            // Allow network IP for mobile app development
-            'http://192.168.0.13:8081', // Expo development server
-            'http://192.168.0.13:19000', // Expo Metro bundler
-            'http://192.168.0.13:19006', // Expo web
-            // Allow any localhost port in dev for flexibility
+            'http://192.168.0.13:5177',
+            'http://192.168.0.13:8081',
+            'http://192.168.0.13:19000',
+            'http://192.168.0.13:19006',
             ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : []),
           ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

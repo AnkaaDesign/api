@@ -905,7 +905,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getOrdersWithoutNfe(limit: number): Promise<DashboardListItem[]> {
     const orders = await this.prisma.order.findMany({
       where: {
-        nfeId: null,
+        nfes: { none: {} },
         status: { not: ORDER_STATUS.CANCELLED as any },
       },
       include: {
@@ -925,7 +925,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksWithoutNfe(limit: number): Promise<DashboardListItem[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
-        nfeId: null,
+        nfes: { none: {} },
         price: { not: null },
         status: TASK_STATUS.COMPLETED as any,
       },
@@ -949,10 +949,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const [ordersWithNfe, tasksWithNfe] = await Promise.all([
       this.prisma.order.count({
-        where: { nfeId: { not: null } },
+        where: { nfes: { some: {} } },
       }),
       this.prisma.task.count({
-        where: { nfeId: { not: null } },
+        where: { nfes: { some: {} } },
       }),
     ]);
 
@@ -1245,13 +1245,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const [ordersWithoutNfe, tasksWithoutNfe] = await Promise.all([
       this.prisma.order.count({
         where: {
-          nfeId: null,
+          nfes: { none: {} },
           status: { not: ORDER_STATUS.CANCELLED as any },
         },
       }),
       this.prisma.task.count({
         where: {
-          nfeId: null,
+          nfes: { none: {} },
           price: { not: null },
           status: TASK_STATUS.COMPLETED as any,
         },

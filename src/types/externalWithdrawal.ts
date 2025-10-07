@@ -14,14 +14,14 @@ export interface ExternalWithdrawal extends BaseEntity {
   willReturn: boolean;
   status: EXTERNAL_WITHDRAWAL_STATUS;
   statusOrder: number;
-  nfeId: string | null;
-  receiptId: string | null;
+  invoiceIds?: string[];
+  receiptIds?: string[];
   notes: string | null;
   totalPrice?: number;
 
   // Relations (optional, populated based on query)
-  nfe?: File;
-  receipt?: File;
+  nfes?: File[];
+  receipts?: File[];
   items?: ExternalWithdrawalItem[];
 }
 
@@ -43,12 +43,12 @@ export interface ExternalWithdrawalItem extends BaseEntity {
 // =====================
 
 export interface ExternalWithdrawalIncludes {
-  nfe?:
+  nfes?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  receipt?:
+  receipts?:
     | boolean
     | {
         include?: FileIncludes;

@@ -10,7 +10,13 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
+import { FileService } from '@modules/common/file/file.service';
 import { OrderService } from './order.service';
 import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
@@ -101,6 +107,7 @@ export class OrderController {
     private readonly orderService: OrderService,
     private readonly orderItemService: OrderItemService,
     private readonly orderScheduleService: OrderScheduleService,
+    private readonly fileService: FileService,
   ) {}
 
   // =====================
@@ -199,6 +206,127 @@ export class OrderController {
     @UserId() userId: string,
   ): Promise<OrderDeleteResponse> {
     return this.orderService.delete(id, userId);
+  }
+
+  // File Upload Endpoints
+  @Post(':id/upload/budgets')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadBudget(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const order = await this.orderService.findById(id, { supplier: true });
+    const supplierName = order.data.supplier?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'orderBudgets',
+      entityId: id,
+      entityType: 'order',
+      supplierName,
+    });
+  }
+
+  @Post(':id/upload/invoices')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const order = await this.orderService.findById(id, { supplier: true });
+    const supplierName = order.data.supplier?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'orderNfes',
+      entityId: id,
+      entityType: 'order',
+      supplierName,
+    });
+  }
+
+  @Post(':id/upload/receipts')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const order = await this.orderService.findById(id, { supplier: true });
+    const supplierName = order.data.supplier?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'orderReceipts',
+      entityId: id,
+      entityType: 'order',
+      supplierName,
+    });
+  }
+
+  @Post(':id/upload/reimbursements')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const order = await this.orderService.findById(id, { supplier: true });
+    const supplierName = order.data.supplier?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'orderReembolsos',
+      entityId: id,
+      entityType: 'order',
+      supplierName,
+    });
+  }
+
+  @Post(':id/upload/reimbursement-invoices')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursementInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const order = await this.orderService.findById(id, { supplier: true });
+    const supplierName = order.data.supplier?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'orderNfeReembolsos',
+      entityId: id,
+      entityType: 'order',
+      supplierName,
+    });
   }
 }
 

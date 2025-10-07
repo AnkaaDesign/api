@@ -743,10 +743,10 @@ export class CustomerService {
         }
 
         // 2. Apply conflict resolutions if provided
-        const updateData: Partial<Customer> = {};
+        const updateData: any = {};
         if (data.conflictResolutions) {
           Object.keys(data.conflictResolutions).forEach(field => {
-            (updateData as any)[field] = data.conflictResolutions![field];
+            updateData[field] = data.conflictResolutions![field];
           });
         }
 

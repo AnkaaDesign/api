@@ -299,9 +299,6 @@ export class TaskService {
           'entryDate',
           'priority',
           'statusOrder',
-          'budgetId',
-          'nfeId',
-          'receiptId',
           'createdById',
         ];
 

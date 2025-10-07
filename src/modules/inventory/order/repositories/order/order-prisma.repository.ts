@@ -22,7 +22,7 @@ import { getOrderStatusOrder, mapOrderStatusToPrisma, mapWhereClause } from '../
 
 // Default include for order repository
 const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
-  budget: {
+  budgets: {
     select: {
       id: true,
       filename: true,
@@ -32,7 +32,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  nfe: {
+  nfes: {
     select: {
       id: true,
       filename: true,
@@ -42,7 +42,27 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  receipt: {
+  receipts: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  reembolsos: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  nfeReembolsos: {
     select: {
       id: true,
       filename: true,
@@ -124,17 +144,25 @@ export class OrderPrismaRepository
     if (orderData.orderScheduleId) {
       createData.orderSchedule = { connect: { id: orderData.orderScheduleId } };
     }
-    if (orderData.budgetId) {
-      createData.budget = { connect: { id: orderData.budgetId } };
-    }
-    if (orderData.nfeId) {
-      createData.nfe = { connect: { id: orderData.nfeId } };
-    }
-    if (orderData.receiptId) {
-      createData.receipt = { connect: { id: orderData.receiptId } };
-    }
     if (orderData.ppeScheduleId) {
       createData.ppeSchedule = { connect: { id: orderData.ppeScheduleId } };
+    }
+
+    // Handle many-to-many file relations
+    if (orderData.budgetIds && orderData.budgetIds.length > 0) {
+      createData.budgets = { connect: orderData.budgetIds.map(id => ({ id })) };
+    }
+    if (orderData.invoiceIds && orderData.invoiceIds.length > 0) {
+      createData.nfes = { connect: orderData.invoiceIds.map(id => ({ id })) };
+    }
+    if (orderData.receiptIds && orderData.receiptIds.length > 0) {
+      createData.receipts = { connect: orderData.receiptIds.map(id => ({ id })) };
+    }
+    if (orderData.reimbursementIds && orderData.reimbursementIds.length > 0) {
+      createData.reembolsos = { connect: orderData.reimbursementIds.map(id => ({ id })) };
+    }
+    if (orderData.reimbursementInvoiceIds && orderData.reimbursementInvoiceIds.length > 0) {
+      createData.nfeReembolsos = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
 
     // Handle nested items creation
@@ -181,18 +209,22 @@ export class OrderPrismaRepository
         ? { connect: { id: formData.orderScheduleId } }
         : { disconnect: true };
     }
-    if (formData.budgetId !== undefined) {
-      updateData.budget = formData.budgetId
-        ? { connect: { id: formData.budgetId } }
-        : { disconnect: true };
+
+    // Handle many-to-many file relations with set operation
+    if (formData.budgetIds !== undefined) {
+      updateData.budgets = { set: formData.budgetIds.map(id => ({ id })) };
     }
-    if (formData.nfeId !== undefined) {
-      updateData.nfe = formData.nfeId ? { connect: { id: formData.nfeId } } : { disconnect: true };
+    if (formData.invoiceIds !== undefined) {
+      updateData.nfes = { set: formData.invoiceIds.map(id => ({ id })) };
     }
-    if (formData.receiptId !== undefined) {
-      updateData.receipt = formData.receiptId
-        ? { connect: { id: formData.receiptId } }
-        : { disconnect: true };
+    if (formData.receiptIds !== undefined) {
+      updateData.receipts = { set: formData.receiptIds.map(id => ({ id })) };
+    }
+    if (formData.reimbursementIds !== undefined) {
+      updateData.reembolsos = { set: formData.reimbursementIds.map(id => ({ id })) };
+    }
+    if (formData.reimbursementInvoiceIds !== undefined) {
+      updateData.nfeReembolsos = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (formData.ppeScheduleId !== undefined) {
       updateData.ppeSchedule = formData.ppeScheduleId
@@ -425,17 +457,21 @@ export class OrderPrismaRepository
       forecast: databaseOrder.forecast,
       status: databaseOrder.status as ORDER_STATUS,
       statusOrder: databaseOrder.statusOrder,
-      budgetId: databaseOrder.budgetId,
-      nfeId: databaseOrder.nfeId,
-      receiptId: databaseOrder.receiptId,
+      budgetIds: (databaseOrder.budgets as any)?.map((budget: any) => budget.id),
+      invoiceIds: (databaseOrder.nfes as any)?.map((nfe: any) => nfe.id),
+      receiptIds: (databaseOrder.receipts as any)?.map((receipt: any) => receipt.id),
+      reimbursementIds: (databaseOrder.reembolsos as any)?.map((reimbursement: any) => reimbursement.id),
+      reimbursementInvoiceIds: (databaseOrder.nfeReembolsos as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
       supplierId: databaseOrder.supplierId,
       orderScheduleId: databaseOrder.orderScheduleId,
       orderRuleId: databaseOrder.orderRuleId,
       ppeScheduleId: databaseOrder.ppeScheduleId,
       notes: databaseOrder.notes,
-      budget: databaseOrder.budget as any,
-      nfe: databaseOrder.nfe as any,
-      receipt: databaseOrder.receipt as any,
+      budgets: databaseOrder.budgets as any,
+      nfes: databaseOrder.nfes as any,
+      receipts: databaseOrder.receipts as any,
+      reembolsos: databaseOrder.reembolsos as any,
+      nfeReembolsos: databaseOrder.nfeReembolsos as any,
       supplier: databaseOrder.supplier as any,
       orderSchedule: databaseOrder.orderSchedule as any,
       ppeSchedule: databaseOrder.ppeSchedule as any,

@@ -1162,12 +1162,14 @@ export const taskCreateSchema = z
     paintId: z.string().uuid("Tinta inválida").nullable().optional(),
     customerId: z.string().uuid("Cliente inválido").min(1, "Cliente é obrigatório"),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    budgetId: z.string().uuid("Orçamento inválido").nullable().optional(),
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     price: moneySchema.nullable().optional(),
 
-    // Relations
+    // Relations - File arrays
+    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
     artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
@@ -1257,12 +1259,14 @@ export const taskUpdateSchema = z
     paintId: z.string().uuid("Tinta inválida").nullable().optional(),
     customerId: z.string().uuid("Cliente inválido").nullable().optional(),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    budgetId: z.string().uuid("Orçamento inválido").nullable().optional(),
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     price: moneySchema.nullable().optional(),
 
-    // Relations
+    // Relations - File arrays
+    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
     artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
@@ -1408,11 +1412,13 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   paintId: task.paintId,
   customerId: task.customerId,
   sectorId: task.sectorId,
-  budgetId: task.budgetId,
-  nfeId: task.nfeId,
-  receiptId: task.receiptId,
   price: task.price,
-  // Relations
+  // Relations - File arrays
+  budgetIds: task.budgets?.map((budget) => budget.id),
+  invoiceIds: task.nfes?.map((nfe) => nfe.id),
+  receiptIds: task.receipts?.map((receipt) => receipt.id),
+  reimbursementIds: task.reembolsos?.map((reimbursement) => reimbursement.id),
+  reimbursementInvoiceIds: task.nfeReembolsos?.map((reimbursementInvoice) => reimbursementInvoice.id),
   artworkIds: task.artworks?.map((artwork) => artwork.id),
   paintIds: task.logoPaints?.map((paint) => paint.id),
   generalPaintingId: task.generalPainting?.id,

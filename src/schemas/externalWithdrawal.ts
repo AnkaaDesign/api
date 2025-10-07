@@ -411,8 +411,8 @@ export const externalWithdrawalCompleteFormSchema = z
 
     // Optional fields for complete form
     status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).default(EXTERNAL_WITHDRAWAL_STATUS.PENDING).optional(),
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
   })
   // Conditional validation: if willReturn is false (items NOT returned), all items must have price
   .refine(
@@ -442,9 +442,10 @@ export const externalWithdrawalCreateSchema = z
     withdrawerName: createNameSchema(2, 200, "Nome do retirador"),
     willReturn: z.boolean().default(true),
     status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).default(EXTERNAL_WITHDRAWAL_STATUS.PENDING).optional(),
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+    // File arrays
+    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
     items: z
       .array(
         z.object({
@@ -477,9 +478,10 @@ export const externalWithdrawalUpdateSchema = z.object({
     .optional(),
   willReturn: z.boolean().optional(),
   status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).optional(),
-  nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-  receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
   notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+  // File arrays
+  invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
+  receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
 });
 
 // Batch Schemas
@@ -942,8 +944,8 @@ export const mapExternalWithdrawalToCompleteFormData = createMapToFormDataHelper
         price: item.price,
       })) || [],
     status: externalWithdrawal.status,
-    nfeId: externalWithdrawal.nfeId,
-    receiptId: externalWithdrawal.receiptId,
+    invoiceIds: externalWithdrawal.nfes?.map((nfe) => nfe.id) || [],
+    receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id) || [],
   }),
 );
 
@@ -952,8 +954,8 @@ export const mapExternalWithdrawalToFormData = createMapToFormDataHelper<Externa
   withdrawerName: externalWithdrawal.withdrawerName,
   willReturn: externalWithdrawal.willReturn,
   status: externalWithdrawal.status,
-  nfeId: externalWithdrawal.nfeId,
-  receiptId: externalWithdrawal.receiptId,
+  invoiceIds: externalWithdrawal.nfes?.map((nfe) => nfe.id),
+  receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id),
   notes: externalWithdrawal.notes,
 }));
 
@@ -982,16 +984,16 @@ export const combineFormStages = (
   stage2Data: ExternalWithdrawalStage2FormData,
   additionalData?: {
     status?: EXTERNAL_WITHDRAWAL_STATUS;
-    nfeId?: string | null;
-    receiptId?: string | null;
+    invoiceIds?: string[];
+    receiptIds?: string[];
   },
 ): ExternalWithdrawalCompleteFormData => {
   return {
     ...stage1Data,
     ...stage2Data,
     status: additionalData?.status || EXTERNAL_WITHDRAWAL_STATUS.PENDING,
-    nfeId: additionalData?.nfeId || null,
-    receiptId: additionalData?.receiptId || null,
+    invoiceIds: additionalData?.invoiceIds || [],
+    receiptIds: additionalData?.receiptIds || [],
   };
 };
 
@@ -1007,7 +1009,7 @@ export const convertCompleteFormToCreateData = (completeData: ExternalWithdrawal
       price: item.price,
     })),
     status: completeData.status,
-    nfeId: completeData.nfeId,
-    receiptId: completeData.receiptId,
+    invoiceIds: completeData.invoiceIds,
+    receiptIds: completeData.receiptIds,
   };
 };

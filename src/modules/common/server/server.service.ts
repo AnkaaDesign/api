@@ -351,6 +351,9 @@ export class ServerService {
         this.logger.warn('WebDAV service is not running properly');
       }
 
+      // WebDAV-exclusive folders (not served via API, only accessible via WebDAV)
+      const webdavOnlyFolders = ['Rascunhos', 'Fotos', 'Auxiliares', 'Artes'];
+
       // Get all subdirectories in the WebDAV root
       const { stdout: lsOutput } = await execPromise(`ls -la "${webdavRoot}"`);
       const lines = lsOutput.split('\n').slice(1); // Skip the "total" line
@@ -358,14 +361,20 @@ export class ServerService {
       const folderPromises = lines
         .filter(line => {
           const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('d')) return false; // Must be a directory
+
+          const parts = trimmed.split(/\s+/);
+          if (parts.length < 9) return false;
+
+          const folderName = parts.slice(8).join(' ');
+
           return (
-            trimmed &&
-            trimmed.startsWith('d') && // Directory
             !trimmed.endsWith(' .') && // Skip current directory
             !trimmed.endsWith(' ..') && // Skip parent directory
             !trimmed.endsWith(' .DS_Store') && // Skip macOS files
-            !trimmed.endsWith(' .recycle')
-          ); // Skip recycle bin
+            !trimmed.endsWith(' .recycle') && // Skip recycle bin
+            !webdavOnlyFolders.includes(folderName) // Skip WebDAV-exclusive folders
+          );
         })
         .map(async line => {
           try {
@@ -2068,5 +2077,137 @@ export class ServerService {
       failedArrays,
       rebuildingArrays,
     };
+  }
+
+  // =====================
+  // Database Sync Methods
+  // =====================
+
+  async triggerDatabaseSync(): Promise<{ success: boolean; message: string; jobId?: string }> {
+    try {
+      // Check if NODE_ENV is production to prevent syncing from test
+      if (process.env.NODE_ENV !== 'production') {
+        throw new Error('Database sync can only be triggered from production environment');
+      }
+
+      // Check if a sync is already running
+      const isRunning = await this.isSyncRunning();
+      if (isRunning) {
+        return {
+          success: false,
+          message: 'A database sync is already in progress',
+        };
+      }
+
+      // Execute the sync script in the background
+      const scriptPath = '/home/kennedy/repositories/sync-prod-to-test.sh';
+
+      // Use spawn to run in background and don't wait for completion
+      const { spawn } = require('child_process');
+      const syncProcess = spawn(scriptPath, [], {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      syncProcess.unref(); // Allow parent process to exit independently
+
+      this.logger.log('Database sync triggered successfully');
+
+      return {
+        success: true,
+        message: 'Database sync initiated successfully',
+        jobId: `sync-${Date.now()}`,
+      };
+    } catch (error) {
+      this.logger.error('Failed to trigger database sync', error);
+      throw new Error(`Failed to trigger database sync: ${error.message}`);
+    }
+  }
+
+  async getSyncStatus(): Promise<{
+    lastSync?: Date;
+    isRunning: boolean;
+    lastSyncSuccess?: boolean;
+    nextScheduledSync?: Date;
+    recentLogs?: string;
+  }> {
+    try {
+      const logFile = '/home/kennedy/repositories/sync.log';
+      const isRunning = await this.isSyncRunning();
+
+      let lastSync: Date | undefined;
+      let lastSyncSuccess: boolean | undefined;
+      let recentLogs: string | undefined;
+
+      // Read the last few lines of the log file
+      try {
+        const { stdout } = await execPromise(`tail -n 100 "${logFile}" 2>/dev/null || echo ""`);
+        recentLogs = stdout;
+
+        // Extract last sync time from logs
+        const successMatch = stdout.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*✅ Sync completed successfully/);
+        if (successMatch) {
+          lastSync = new Date(successMatch[1]);
+          lastSyncSuccess = true;
+        } else {
+          const errorMatch = stdout.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*ERROR/);
+          if (errorMatch) {
+            lastSync = new Date(errorMatch[1]);
+            lastSyncSuccess = false;
+          }
+        }
+      } catch (error) {
+        this.logger.debug('Could not read sync log file', error);
+      }
+
+      // Calculate next scheduled sync (00:00 or 12:00)
+      const now = new Date();
+      const nextSync = new Date(now);
+
+      if (now.getHours() < 12) {
+        nextSync.setHours(12, 0, 0, 0);
+      } else {
+        nextSync.setDate(nextSync.getDate() + 1);
+        nextSync.setHours(0, 0, 0, 0);
+      }
+
+      return {
+        lastSync,
+        isRunning,
+        lastSyncSuccess,
+        nextScheduledSync: nextSync,
+        recentLogs,
+      };
+    } catch (error) {
+      this.logger.error('Failed to get sync status', error);
+      throw new Error(`Failed to get sync status: ${error.message}`);
+    }
+  }
+
+  private async isSyncRunning(): Promise<boolean> {
+    try {
+      const lockFile = '/tmp/db-sync.lock';
+
+      // Check if lock file exists
+      if (!fs.existsSync(lockFile)) {
+        return false;
+      }
+
+      // Read PID from lock file
+      const pid = fs.readFileSync(lockFile, 'utf8').trim();
+
+      // Check if process is actually running
+      try {
+        await execPromise(`ps -p ${pid} > /dev/null 2>&1`);
+        return true; // Process exists
+      } catch {
+        // Lock file exists but process doesn't - remove stale lock file
+        fs.unlinkSync(lockFile);
+        return false;
+      }
+    } catch (error) {
+      this.logger.debug('Error checking if sync is running', error);
+      return false;
+    }
   }
 }

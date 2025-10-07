@@ -12,22 +12,44 @@ import { environmentConfig } from '../../../../common/config/environment.config'
  * WebDAV folder mapping for different file types and contexts
  */
 export interface WebDAVFolderMapping {
-  // Entity-specific folders
+  // Entity-specific folders - Tasks
   tasksArtworks: string; // Artwork files for tasks
   taskBudgets: string; // Budget documents for tasks
   taskNfes: string; // Invoice files for tasks
   taskReceipts: string; // Receipt files for tasks
+  taskReembolsos: string; // Refund receipts for tasks
+  taskNfeReembolsos: string; // Refund NFEs for tasks
+
+  // Entity-specific folders - Orders
   orderBudgets: string; // Budget documents for orders
   orderNfes: string; // Invoice files for orders
   orderReceipts: string; // Receipt files for orders
-  customerLogo: string; // Customer logo files
-  supplierLogo: string; // Supplier logo files
-  observations: string; // Observation files
-  warning: string; // Warning files
-  airbrushingNfes: string; // Airbrushing invoice files
-  airbrushingReceipts: string; // Airbrushing receipt files
+  orderReembolsos: string; // Refund receipts for orders
+  orderNfeReembolsos: string; // Refund NFEs for orders
+
+  // Entity-specific folders - Airbrushing
+  airbrushingArtworks: string; // Artwork files for airbrushing
+  airbrushingBudgets: string; // Budget documents for airbrushing
+  airbrushingNfes: string; // Invoice files for airbrushing
+  airbrushingReceipts: string; // Receipt files for airbrushing
+  airbrushingReembolsos: string; // Refund receipts for airbrushing
+  airbrushingNfeReembolsos: string; // Refund NFEs for airbrushing
+
+  // Entity-specific folders - External Withdrawal
   externalWithdrawalNfes: string; // External withdrawal invoices
   externalWithdrawalReceipts: string; // External withdrawal receipts
+  externalWithdrawalReembolsos: string; // External withdrawal refund receipts
+  externalWithdrawalNfeReembolsos: string; // External withdrawal refund NFEs
+
+  // Entity-specific folders - Logos
+  customerLogo: string; // Customer logo files
+  supplierLogo: string; // Supplier logo files
+
+  // Entity-specific folders - Other
+  observations: string; // Observation files
+  warning: string; // Warning files
+  plotterVinil: string; // Vinyl plotter files
+  plotterEspelho: string; // Stencil plotter files
 
   // General folders
   general: string; // General files
@@ -62,26 +84,49 @@ export class WebDAVService {
 
   /**
    * WebDAV folder structure mapping - matches physical folder structure
+   * Customer/supplier name-based organization is added dynamically in getWebDAVFolderPath
    */
   private readonly folderMapping: WebDAVFolderMapping = {
-    // Entity-specific folders (match actual physical structure)
-    tasksArtworks: 'Artes',
+    // Task folders (will be organized by customer name)
+    tasksArtworks: 'Projetos', // Changed from 'Artes' to 'Projetos' for customer organization
     taskBudgets: 'Orcamentos/Tarefas',
-    taskNfes: 'NFs/Entradas',
-    taskReceipts: 'Comprovantes',
+    taskNfes: 'NFs/Entradas/Tarefas',
+    taskReceipts: 'Comprovantes/Tarefas',
+    taskReembolsos: 'Comprovantes/Tarefas',
+    taskNfeReembolsos: 'NFs/Entradas/Tarefas',
+
+    // Order folders (will be organized by supplier name)
     orderBudgets: 'Orcamentos/Pedidos',
-    orderNfes: 'NFs/Saidas',
+    orderNfes: 'NFs/Saidas/Pedidos',
     orderReceipts: 'Comprovantes/Pedidos',
-    customerLogo: 'Logo/Clientes',
-    supplierLogo: 'Logo/Fornecedores',
-    observations: 'Observacoes',
-    warning: 'Observacoes',
-    airbrushingNfes: 'NFs/Entradas',
+    orderReembolsos: 'Comprovantes/Pedidos',
+    orderNfeReembolsos: 'NFs/Saidas/Pedidos',
+
+    // Airbrushing folders (will be organized by customer name via task)
+    airbrushingArtworks: 'Projetos',
+    airbrushingBudgets: 'Orcamentos/Aerografia',
+    airbrushingNfes: 'NFs/Entradas/Aerografia',
     airbrushingReceipts: 'Comprovantes/Aerografia',
+    airbrushingReembolsos: 'Comprovantes/Aerografia',
+    airbrushingNfeReembolsos: 'NFs/Entradas/Aerografia',
+
+    // External Withdrawal folders
     externalWithdrawalNfes: 'NFs/Saidas',
     externalWithdrawalReceipts: 'Comprovantes',
+    externalWithdrawalReembolsos: 'Comprovantes',
+    externalWithdrawalNfeReembolsos: 'NFs/Saidas',
 
-    // General folders (aligned with physical structure)
+    // Logo folders
+    customerLogo: 'Logo/Clientes',
+    supplierLogo: 'Logo/Fornecedores',
+
+    // Other entity folders
+    observations: 'Observacoes',
+    warning: 'Observacoes',
+    plotterVinil: 'Plotter/Vinil',
+    plotterEspelho: 'Plotter/Espelho',
+
+    // General folders (WebDAV exclusive - will NOT be served via API)
     general: 'Auxiliares',
     images: 'Fotos',
     documents: 'Auxiliares',
@@ -142,7 +187,7 @@ export class WebDAVService {
   };
 
   /**
-   * Get WebDAV folder path based on file context and relationships with project support
+   * Get WebDAV folder path based on file context with customer/supplier name-based organization
    */
   getWebDAVFolderPath(
     fileContext: keyof WebDAVFolderMapping | null,
@@ -151,6 +196,8 @@ export class WebDAVService {
     entityType?: string,
     projectId?: string,
     projectName?: string,
+    customerName?: string, // Customer fantasy name for organization
+    supplierName?: string, // Supplier fantasy name for organization
   ): string {
     let folderPath: string;
 
@@ -180,24 +227,26 @@ export class WebDAVService {
       }
     }
 
-    // Add project-specific subfolder if provided
-    if (projectId && projectName) {
-      const sanitizedProjectName = this.sanitizeFileName(projectName);
-      const sanitizedProjectId = this.sanitizeFileName(projectId.substring(0, 8)); // First 8 chars of UUID
-      folderPath = join(folderPath, 'Projetos', `${sanitizedProjectName}_${sanitizedProjectId}`);
+    // Add customer-based organization for task/airbrushing files
+    if (customerName && fileContext) {
+      const sanitizedCustomerName = this.sanitizeFileName(customerName);
 
-      // Add entity subfolder within project if provided
-      if (entityId && entityType) {
-        const sanitizedEntityType = this.sanitizeFileName(entityType);
-        const sanitizedEntityId = this.sanitizeFileName(entityId.substring(0, 8));
-        folderPath = join(folderPath, sanitizedEntityType, sanitizedEntityId);
+      // Task files organized by customer
+      if (fileContext.startsWith('task') || fileContext.startsWith('airbrushing')) {
+        folderPath = join(folderPath, sanitizedCustomerName);
       }
     }
-    // Add entity-specific subfolder if provided (but no project)
-    else if (entityId && entityType) {
-      const sanitizedEntityType = this.sanitizeFileName(entityType);
-      const sanitizedEntityId = this.sanitizeFileName(entityId.substring(0, 8)); // First 8 chars of UUID
-      folderPath = join(folderPath, sanitizedEntityType, sanitizedEntityId);
+
+    // Add supplier-based organization for order files
+    if (supplierName && fileContext?.startsWith('order')) {
+      const sanitizedSupplierName = this.sanitizeFileName(supplierName);
+      folderPath = join(folderPath, sanitizedSupplierName);
+    }
+
+    // Add project-specific subfolder if provided (for artwork organization)
+    if (projectId && projectName) {
+      const sanitizedProjectName = this.sanitizeFileName(projectName);
+      folderPath = join(folderPath, sanitizedProjectName);
     }
 
     return join(this.webdavRoot, folderPath);
@@ -226,7 +275,7 @@ export class WebDAVService {
   }
 
   /**
-   * Generate WebDAV file path with unique filename and project support
+   * Generate WebDAV file path with unique filename and customer/supplier support
    */
   generateWebDAVFilePath(
     originalFilename: string,
@@ -236,6 +285,8 @@ export class WebDAVService {
     entityType?: string,
     projectId?: string,
     projectName?: string,
+    customerName?: string,
+    supplierName?: string,
   ): string {
     const folderPath = this.getWebDAVFolderPath(
       fileContext,
@@ -244,6 +295,8 @@ export class WebDAVService {
       entityType,
       projectId,
       projectName,
+      customerName,
+      supplierName,
     );
 
     // Generate unique filename while preserving extension
@@ -412,14 +465,40 @@ export class WebDAVService {
     }
 
     const entityContextMap: Record<string, Array<keyof WebDAVFolderMapping>> = {
-      task: ['tasksArtworks', 'taskBudgets', 'taskNfes', 'taskReceipts'],
-      order: ['orderBudgets', 'orderNfes', 'orderReceipts'],
+      task: [
+        'tasksArtworks',
+        'taskBudgets',
+        'taskNfes',
+        'taskReceipts',
+        'taskReembolsos',
+        'taskNfeReembolsos',
+      ],
+      order: [
+        'orderBudgets',
+        'orderNfes',
+        'orderReceipts',
+        'orderReembolsos',
+        'orderNfeReembolsos',
+      ],
       customer: ['customerLogo'],
       supplier: ['supplierLogo'],
       observation: ['observations'],
       warning: ['warning'],
-      airbrushing: ['airbrushingNfes', 'airbrushingReceipts'],
-      externalWithdrawal: ['externalWithdrawalNfes', 'externalWithdrawalReceipts'],
+      airbrushing: [
+        'airbrushingArtworks',
+        'airbrushingBudgets',
+        'airbrushingNfes',
+        'airbrushingReceipts',
+        'airbrushingReembolsos',
+        'airbrushingNfeReembolsos',
+      ],
+      externalWithdrawal: [
+        'externalWithdrawalNfes',
+        'externalWithdrawalReceipts',
+        'externalWithdrawalReembolsos',
+        'externalWithdrawalNfeReembolsos',
+      ],
+      cut: ['plotterVinil', 'plotterEspelho'],
     };
 
     return entityContextMap[entityType.toLowerCase()] || ['general'];

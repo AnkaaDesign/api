@@ -13,9 +13,10 @@ import { OrderSchedulePrismaRepository } from './repositories/order-schedule/ord
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ItemModule } from '../item/item.module';
 import { ActivityModule } from '../activity/activity.module';
+import { FileModule } from '@modules/common/file/file.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule],
+  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FileModule],
   controllers: [OrderController, OrderItemController, OrderScheduleController],
   providers: [
     OrderService,

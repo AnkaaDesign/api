@@ -59,14 +59,14 @@ export class ExternalWithdrawalPrismaRepository
       willReturn: databaseEntity.willReturn,
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
-      nfeId: databaseEntity.nfeId,
-      receiptId: databaseEntity.receiptId,
+      invoiceIds: databaseEntity.nfes?.map((nfe: any) => nfe.id),
+      receiptIds: databaseEntity.receipts?.map((receipt: any) => receipt.id),
       notes: databaseEntity.notes,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
-      nfe: databaseEntity.nfe,
-      receipt: databaseEntity.receipt,
+      nfes: databaseEntity.nfes,
+      receipts: databaseEntity.receipts,
       items: databaseEntity.items,
     };
   }
@@ -74,7 +74,7 @@ export class ExternalWithdrawalPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ExternalWithdrawalCreateFormData,
   ): Prisma.ExternalWithdrawalCreateInput {
-    const { nfeId, receiptId, items, status, ...rest } = formData;
+    const { invoiceIds, receiptIds, items, status, ...rest } = formData;
 
     // Validate required fields
     if (!formData.withdrawerName) {
@@ -91,12 +91,13 @@ export class ExternalWithdrawalPrismaRepository
         EXTERNAL_WITHDRAWAL_STATUS_ORDER[status || EXTERNAL_WITHDRAWAL_STATUS.PENDING] || 1,
     };
 
-    if (nfeId) {
-      createInput.nfe = { connect: { id: nfeId } };
+    // Handle file arrays
+    if (invoiceIds && invoiceIds.length > 0) {
+      createInput.nfes = { connect: invoiceIds.map(id => ({ id })) };
     }
 
-    if (receiptId) {
-      createInput.receipt = { connect: { id: receiptId } };
+    if (receiptIds && receiptIds.length > 0) {
+      createInput.receipts = { connect: receiptIds.map(id => ({ id })) };
     }
 
     if (items && items.length > 0) {
@@ -116,7 +117,7 @@ export class ExternalWithdrawalPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: ExternalWithdrawalUpdateFormData,
   ): Prisma.ExternalWithdrawalUpdateInput {
-    const { nfeId, receiptId, status, ...rest } = formData;
+    const { invoiceIds, receiptIds, status, ...rest } = formData;
 
     const updateInput: Prisma.ExternalWithdrawalUpdateInput = {
       ...rest,
@@ -128,12 +129,13 @@ export class ExternalWithdrawalPrismaRepository
       updateInput.statusOrder = EXTERNAL_WITHDRAWAL_STATUS_ORDER[status] || 1;
     }
 
-    if (nfeId !== undefined) {
-      updateInput.nfe = nfeId ? { connect: { id: nfeId } } : { disconnect: true };
+    // Handle file arrays with set operation
+    if (invoiceIds !== undefined) {
+      updateInput.nfes = { set: invoiceIds.map(id => ({ id })) };
     }
 
-    if (receiptId !== undefined) {
-      updateInput.receipt = receiptId ? { connect: { id: receiptId } } : { disconnect: true };
+    if (receiptIds !== undefined) {
+      updateInput.receipts = { set: receiptIds.map(id => ({ id })) };
     }
 
     return updateInput;
@@ -162,8 +164,8 @@ export class ExternalWithdrawalPrismaRepository
           item: true,
         },
       },
-      nfe: true,
-      receipt: true,
+      nfes: true,
+      receipts: true,
     };
   }
 

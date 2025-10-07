@@ -31,7 +31,7 @@ import {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
-  budget: {
+  budgets: {
     select: {
       id: true,
       filename: true,
@@ -41,7 +41,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  nfe: {
+  nfes: {
     select: {
       id: true,
       filename: true,
@@ -51,7 +51,27 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  receipt: {
+  receipts: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  reembolsos: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  nfeReembolsos: {
     select: {
       id: true,
       filename: true,
@@ -179,11 +199,13 @@ export class TaskPrismaRepository
       customerId,
       sectorId,
       commission,
-      budgetId,
-      nfeId,
-      receiptId,
       price,
-      // Extended properties
+      // Extended properties - File arrays
+      budgetIds,
+      invoiceIds,
+      receiptIds,
+      reimbursementIds,
+      reimbursementInvoiceIds,
       fileIds,
       paintIds,
       services,
@@ -215,11 +237,23 @@ export class TaskPrismaRepository
     if (customerId) taskData.customer = { connect: { id: customerId } };
     if (paintId) taskData.generalPainting = { connect: { id: paintId } };
     if (sectorId) taskData.sector = { connect: { id: sectorId } };
-    if (budgetId) taskData.budget = { connect: { id: budgetId } };
-    if (nfeId) taskData.nfe = { connect: { id: nfeId } };
-    if (receiptId) taskData.receipt = { connect: { id: receiptId } };
 
-    // Handle many-to-many relations
+    // Handle many-to-many file relations
+    if (budgetIds && budgetIds.length > 0) {
+      taskData.budgets = { connect: budgetIds.map(id => ({ id })) };
+    }
+    if (invoiceIds && invoiceIds.length > 0) {
+      taskData.nfes = { connect: invoiceIds.map(id => ({ id })) };
+    }
+    if (receiptIds && receiptIds.length > 0) {
+      taskData.receipts = { connect: receiptIds.map(id => ({ id })) };
+    }
+    if (reimbursementIds && reimbursementIds.length > 0) {
+      taskData.reembolsos = { connect: reimbursementIds.map(id => ({ id })) };
+    }
+    if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
+      taskData.nfeReembolsos = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
+    }
     if (fileIds && fileIds.length > 0) {
       taskData.artworks = { connect: fileIds.map(id => ({ id })) };
     }
@@ -366,11 +400,13 @@ export class TaskPrismaRepository
       customerId,
       sectorId,
       commission,
-      budgetId,
-      nfeId,
-      receiptId,
       price,
-      // Extended properties
+      // Extended properties - File arrays
+      budgetIds,
+      invoiceIds,
+      receiptIds,
+      reimbursementIds,
+      reimbursementInvoiceIds,
       fileIds,
       paintIds,
       services,
@@ -411,17 +447,23 @@ export class TaskPrismaRepository
     if (sectorId !== undefined) {
       updateData.sector = sectorId ? { connect: { id: sectorId } } : { disconnect: true };
     }
-    if (budgetId !== undefined) {
-      updateData.budget = budgetId ? { connect: { id: budgetId } } : { disconnect: true };
-    }
-    if (nfeId !== undefined) {
-      updateData.nfe = nfeId ? { connect: { id: nfeId } } : { disconnect: true };
-    }
-    if (receiptId !== undefined) {
-      updateData.receipt = receiptId ? { connect: { id: receiptId } } : { disconnect: true };
-    }
 
-    // Handle many-to-many relations with set operation
+    // Handle many-to-many file relations with set operation
+    if (budgetIds !== undefined) {
+      updateData.budgets = { set: budgetIds.map(id => ({ id })) };
+    }
+    if (invoiceIds !== undefined) {
+      updateData.nfes = { set: invoiceIds.map(id => ({ id })) };
+    }
+    if (receiptIds !== undefined) {
+      updateData.receipts = { set: receiptIds.map(id => ({ id })) };
+    }
+    if (reimbursementIds !== undefined) {
+      updateData.reembolsos = { set: reimbursementIds.map(id => ({ id })) };
+    }
+    if (reimbursementInvoiceIds !== undefined) {
+      updateData.nfeReembolsos = { set: reimbursementInvoiceIds.map(id => ({ id })) };
+    }
     if (fileIds !== undefined) {
       updateData.artworks = { set: fileIds.map(id => ({ id })) };
     }

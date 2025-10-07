@@ -10,7 +10,13 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
+import { FileService } from '@modules/common/file/file.service';
 import { AirbrushingService } from './airbrushing.service';
 import {
   ZodValidationPipe,
@@ -51,7 +57,10 @@ import { UserId } from '@modules/common/auth/decorators/user.decorator';
 
 @Controller('airbrushings')
 export class AirbrushingController {
-  constructor(private readonly airbrushingService: AirbrushingService) {}
+  constructor(
+    private readonly airbrushingService: AirbrushingService,
+    private readonly fileService: FileService,
+  ) {}
 
   @Get()
   async findMany(
@@ -124,5 +133,156 @@ export class AirbrushingController {
     @UserId() userId: string,
   ): Promise<AirbrushingDeleteResponse> {
     return this.airbrushingService.delete(id, userId);
+  }
+
+  // File Upload Endpoints
+  @Post(':id/upload/budgets')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadBudget(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingBudgets',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/invoices')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingNfes',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/receipts')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingReceipts',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/reimbursements')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursement(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingReembolsos',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/reimbursement-invoices')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadReimbursementInvoice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingNfeReembolsos',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
+  }
+
+  @Post(':id/upload/artworks')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
+  async uploadArtwork(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @UserId() userId: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    const airbrushing = await this.airbrushingService.findById(id, {
+      task: { include: { customer: true } }
+    });
+    const customerName = airbrushing.data.task?.customer?.fantasyName;
+
+    return this.fileService.createFromUpload(file, undefined, userId, {
+      fileContext: 'airbrushingArtworks',
+      entityId: id,
+      entityType: 'airbrushing',
+      customerName,
+    });
   }
 }

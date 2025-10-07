@@ -69,11 +69,12 @@ export class FileService {
     let url: string;
 
     if (isWebDAVFile) {
-      // Generate WebDAV URL
+      // Generate WebDAV URL for files in WebDAV
       url = this.webdavService.getWebDAVUrl(file.path);
     } else {
-      // Generate traditional file URL
-      url = generateFileUrl(file.filename, file.path);
+      // For local files (temp uploads, etc.), use the file serving endpoint
+      const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
+      url = `${baseUrl}/files/serve/${file.id}`;
     }
 
     return {
@@ -216,12 +217,32 @@ export class FileService {
       // Add CORS headers for cross-origin image loading
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // Stream the file
-      // Use absolute path directly since file.path contains the full path
-      res.sendFile(resolve(file.path));
+      // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
+      const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+      const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+
+      let nginxInternalPath: string;
+
+      // Check if file is in WebDAV or local uploads
+      if (file.path.startsWith(webdavRoot)) {
+        // WebDAV file: Map /srv/webdav/... to /internal-files/...
+        const relativePath = file.path.replace(webdavRoot, '');
+        nginxInternalPath = `/internal-files${relativePath}`;
+      } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+        // Local upload file: Map uploads/... to /internal-uploads/...
+        const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
+        nginxInternalPath = `/internal-uploads/${relativePath}`;
+      } else {
+        // Fallback: assume it's a relative path in uploads
+        nginxInternalPath = `/internal-uploads/${file.path}`;
+      }
+
+      // Set X-Accel-Redirect header - nginx will intercept and serve the file
+      res.setHeader('X-Accel-Redirect', nginxInternalPath);
+      res.end();
     } catch (error: any) {
       this.logger.error(`Erro ao servir arquivo ${id}:`, error);
       if (error instanceof NotFoundException) {
@@ -254,10 +275,32 @@ export class FileService {
       // Add CORS headers
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-      // Stream the file
-      res.sendFile(resolve(file.path));
+
+      // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
+      const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+      const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+
+      let nginxInternalPath: string;
+
+      // Check if file is in WebDAV or local uploads
+      if (file.path.startsWith(webdavRoot)) {
+        // WebDAV file: Map /srv/webdav/... to /internal-files/...
+        const relativePath = file.path.replace(webdavRoot, '');
+        nginxInternalPath = `/internal-files${relativePath}`;
+      } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+        // Local upload file: Map uploads/... to /internal-uploads/...
+        const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
+        nginxInternalPath = `/internal-uploads/${relativePath}`;
+      } else {
+        // Fallback: assume it's a relative path in uploads
+        nginxInternalPath = `/internal-uploads/${file.path}`;
+      }
+
+      // Set X-Accel-Redirect header - nginx will intercept and serve the file
+      res.setHeader('X-Accel-Redirect', nginxInternalPath);
+      res.end();
     } catch (error: any) {
       this.logger.error(`Erro ao baixar arquivo ${id}:`, error);
       if (error instanceof NotFoundException) {
@@ -278,8 +321,14 @@ export class FileService {
         throw new NotFoundException('Arquivo não encontrado.');
       }
 
-      if (!file.thumbnailUrl) {
-        throw new NotFoundException('Thumbnail não disponível para este arquivo.');
+      // Check if file type supports thumbnails
+      const isImage = file.mimetype.startsWith('image/');
+      const isPdf = file.mimetype === 'application/pdf';
+      const isEps = file.mimetype === 'application/postscript';
+      const supportsThumbnails = isImage || isPdf || isEps;
+
+      if (!supportsThumbnails) {
+        throw new NotFoundException('Este tipo de arquivo não suporta thumbnails.');
       }
 
       // Get the appropriate thumbnail size
@@ -308,7 +357,43 @@ export class FileService {
           contentType = 'image/jpeg';
 
           if (!existsSync(actualPath)) {
-            throw new NotFoundException('Arquivo de thumbnail não encontrado no servidor.');
+            // Thumbnail doesn't exist - try to generate it on-demand
+            this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
+            try {
+              // Resolve file path to absolute if it's relative
+              const absoluteFilePath = file.path.startsWith('/')
+                ? file.path
+                : resolve(file.path);
+
+              this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
+
+              const result = await this.thumbnailService.generateThumbnail(
+                absoluteFilePath,
+                file.mimetype,
+                file.id,
+                { format: 'webp', quality: 80 },
+              );
+
+              this.logger.log(`Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`);
+
+              if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+                actualPath = result.thumbnailPath;
+                contentType = 'image/webp';
+                this.logger.log(`On-demand thumbnail generated successfully for ${file.id}`);
+
+                // Update database with thumbnailUrl if it wasn't set
+                if (!file.thumbnailUrl && result.thumbnailUrl) {
+                  await this.fileRepository.update(file.id, { thumbnailUrl: result.thumbnailUrl }, {});
+                  this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
+                }
+              } else {
+                this.logger.error(`Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`);
+                throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
+              }
+            } catch (genError: any) {
+              this.logger.error(`Failed to generate thumbnail on-demand: ${genError.message}`, genError.stack);
+              throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
+            }
           }
         }
       }
@@ -325,10 +410,20 @@ export class FileService {
       // Add CORS headers for cross-origin image loading
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      res.sendFile(resolve(actualPath));
+      // Use X-Accel-Redirect for nginx to serve the thumbnail (10x faster than Node.js streaming)
+      // Map ./uploads/thumbnails/... to /internal-thumbnails/...
+      const uploadsDir = resolve(environmentConfig.upload.uploadDir);
+      const thumbnailsDir = join(uploadsDir, 'thumbnails');
+      const absolutePath = resolve(actualPath);
+      const relativePath = absolutePath.replace(thumbnailsDir, '');
+      const nginxInternalPath = `/internal-thumbnails${relativePath}`;
+
+      // Set X-Accel-Redirect header - nginx will intercept and serve the file
+      res.setHeader('X-Accel-Redirect', nginxInternalPath);
+      res.end();
     } catch (error: any) {
       this.logger.error(`Erro ao servir thumbnail ${id}:`, error);
       if (error instanceof NotFoundException) {
@@ -1141,6 +1236,8 @@ export class FileService {
     entityType?: string;
     projectId?: string;
     projectName?: string;
+    customerName?: string;
+    supplierName?: string;
   } {
     // Priority 1: Explicit context from query parameters
     if (queryParams?.fileContext) {
@@ -1150,6 +1247,8 @@ export class FileService {
         entityType: queryParams.entityType,
         projectId: queryParams.projectId,
         projectName: queryParams.projectName,
+        customerName: queryParams.customerName,
+        supplierName: queryParams.supplierName,
       };
     }
 
@@ -1167,6 +1266,8 @@ export class FileService {
             entityType: mapping.entityType,
             projectId: queryParams?.projectId,
             projectName: queryParams?.projectName,
+            customerName: queryParams?.customerName,
+            supplierName: queryParams?.supplierName,
           };
         }
       }
@@ -1187,6 +1288,8 @@ export class FileService {
       context: bestContext,
       projectId: queryParams?.projectId,
       projectName: queryParams?.projectName,
+      customerName: queryParams?.customerName,
+      supplierName: queryParams?.supplierName,
     };
   }
 
@@ -1200,6 +1303,8 @@ export class FileService {
     entityType?: string,
     projectId?: string,
     projectName?: string,
+    customerName?: string,
+    supplierName?: string,
   ): Promise<string> {
     if (!UPLOAD_CONFIG.useWebDAV) {
       this.logger.log('WebDAV disabled, keeping file in upload directory');
@@ -1207,7 +1312,7 @@ export class FileService {
     }
 
     try {
-      // Generate WebDAV path with project support
+      // Generate WebDAV path with project support and customer/supplier names
       const webdavPath = this.webdavService.generateWebDAVFilePath(
         file.filename,
         fileContext,
@@ -1216,6 +1321,8 @@ export class FileService {
         entityType,
         projectId,
         projectName,
+        customerName,
+        supplierName,
       );
 
       this.logger.log(`Moving file to WebDAV: ${file.path} → ${webdavPath}`, {
@@ -1224,6 +1331,8 @@ export class FileService {
         entityType,
         projectId,
         projectName,
+        customerName,
+        supplierName,
       });
 
       // Move file to WebDAV
@@ -1249,7 +1358,7 @@ export class FileService {
     try {
       // Detect file context for WebDAV routing with project support
       const enrichedParams = { ...queryParams, mimetype: file.mimetype };
-      const { context, entityId, entityType, projectId, projectName } =
+      const { context, entityId, entityType, projectId, projectName, customerName, supplierName } =
         this.detectFileContext(enrichedParams);
 
       this.logger.log(`Processing upload for file: ${file.originalname}`, {
@@ -1258,6 +1367,8 @@ export class FileService {
         entityType,
         projectId,
         projectName,
+        customerName,
+        supplierName,
         useWebDAV: UPLOAD_CONFIG.useWebDAV,
       });
 
@@ -1307,6 +1418,8 @@ export class FileService {
         entityType,
         projectId,
         projectName,
+        customerName,
+        supplierName,
       );
 
       // Update file record with final WebDAV path if it changed

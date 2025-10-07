@@ -114,9 +114,11 @@ export interface Order extends BaseEntity {
   forecast: Date | null;
   status: ORDER_STATUS;
   statusOrder: number; // Status numeric order for sorting: 1=Created, 2=PartiallyFulfilled, 3=Fulfilled, 4=Overdue, 5=PartiallyReceived, 6=Received, 7=Cancelled
-  budgetId: string | null;
-  nfeId: string | null;
-  receiptId: string | null;
+  budgetIds?: string[];
+  invoiceIds?: string[];
+  receiptIds?: string[];
+  reimbursementIds?: string[];
+  reimbursementInvoiceIds?: string[];
   supplierId: string | null;
   orderScheduleId: string | null;
   orderRuleId: string | null;
@@ -124,9 +126,11 @@ export interface Order extends BaseEntity {
   notes: string | null;
 
   // Relations (optional, populated based on query)
-  budget?: File;
-  nfe?: File;
-  receipt?: File;
+  budgets?: File[];
+  nfes?: File[];
+  receipts?: File[];
+  reembolsos?: File[];
+  nfeReembolsos?: File[];
   supplier?: Supplier;
   orderSchedule?: OrderSchedule;
   ppeSchedule?: PpeDeliverySchedule;
@@ -139,17 +143,27 @@ export interface Order extends BaseEntity {
 // =====================
 
 export interface OrderIncludes {
-  budget?:
+  budgets?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  nfe?:
+  nfes?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  receipt?:
+  receipts?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  reembolsos?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  nfeReembolsos?:
     | boolean
     | {
         include?: FileIncludes;

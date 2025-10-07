@@ -16,11 +16,20 @@ export interface Airbrushing extends BaseEntity {
   status: AIRBRUSHING_STATUS; // "Pendente", "Em Andamento", "Finalizado"
   statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Finalizado
   taskId: string;
+  budgetIds?: string[];
+  invoiceIds?: string[];
+  receiptIds?: string[];
+  reimbursementIds?: string[];
+  reimbursementInvoiceIds?: string[];
+  artworkIds?: string[];
 
   // Relations (optional, populated based on query)
   task?: Task;
-  receipts?: File[];
+  budgets?: File[];
   nfes?: File[];
+  receipts?: File[];
+  reembolsos?: File[];
+  nfeReembolsos?: File[];
   artworks?: File[];
 }
 
@@ -34,12 +43,27 @@ export interface AirbrushingIncludes {
     | {
         include?: TaskIncludes;
       };
-  receipts?:
+  budgets?:
     | boolean
     | {
         include?: FileIncludes;
       };
   nfes?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  receipts?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  reembolsos?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  nfeReembolsos?:
     | boolean
     | {
         include?: FileIncludes;
