@@ -742,23 +742,7 @@ export class CustomerService {
           throw new NotFoundException(`Clientes de origem não encontrados: ${missingIds.join(', ')}`);
         }
 
-        // 2. Apply conflict resolutions if provided
-        const updateData: any = {};
-        if (data.conflictResolutions) {
-          Object.keys(data.conflictResolutions).forEach(field => {
-            updateData[field] = data.conflictResolutions![field];
-          });
-        }
-
-        // Update target customer with resolved conflicts
-        if (Object.keys(updateData).length > 0) {
-          await tx.customer.update({
-            where: { id: data.targetCustomerId },
-            data: updateData,
-          });
-        }
-
-        // 3. Merge tasks - move all tasks from source customers to target
+        // 2. Merge tasks - move all tasks from source customers to target
         for (const sourceCustomer of sourceCustomers) {
           if (sourceCustomer.tasks.length > 0) {
             await tx.task.updateMany({
@@ -768,20 +752,7 @@ export class CustomerService {
           }
         }
 
-        // 4. Log the merge operation
-        await logEntityChange({
-          changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.CUSTOMER,
-          entityId: data.targetCustomerId,
-          action: CHANGE_ACTION.UPDATE,
-          entity: targetCustomer,
-          reason: `Cliente mesclado com ${sourceCustomers.length} outro(s) cliente(s): ${sourceCustomers.map(c => c.fantasyName).join(', ')}`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          userId: userId || null,
-          transaction: tx,
-        });
-
-        // 5. Delete source customers
+        // 3. Delete source customers BEFORE updating target to avoid unique constraint conflicts
         for (const sourceCustomer of sourceCustomers) {
           await logEntityChange({
             changeLogService: this.changeLogService,
@@ -799,6 +770,35 @@ export class CustomerService {
             where: { id: sourceCustomer.id },
           });
         }
+
+        // 4. Apply conflict resolutions to target customer (after source deletion to avoid unique constraints)
+        const updateData: any = {};
+        if (data.conflictResolutions) {
+          Object.keys(data.conflictResolutions).forEach(field => {
+            updateData[field] = data.conflictResolutions![field];
+          });
+        }
+
+        // Update target customer with resolved conflicts
+        if (Object.keys(updateData).length > 0) {
+          await tx.customer.update({
+            where: { id: data.targetCustomerId },
+            data: updateData,
+          });
+        }
+
+        // 5. Log the merge operation
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.CUSTOMER,
+          entityId: data.targetCustomerId,
+          action: CHANGE_ACTION.UPDATE,
+          entity: targetCustomer,
+          reason: `Cliente mesclado com ${sourceCustomers.length} outro(s) cliente(s): ${sourceCustomers.map(c => c.fantasyName).join(', ')}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          userId: userId || null,
+          transaction: tx,
+        });
 
         // 6. Return the merged customer
         const mergedCustomer = await this.customerRepository.findByIdWithTransaction(
