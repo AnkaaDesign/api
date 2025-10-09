@@ -61,7 +61,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  reembolsos: {
+  reimbursements: {
     select: {
       id: true,
       filename: true,
@@ -71,7 +71,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  nfeReembolsos: {
+  reimbursementInvoices: {
     select: {
       id: true,
       filename: true,
@@ -249,10 +249,10 @@ export class TaskPrismaRepository
       taskData.receipts = { connect: receiptIds.map(id => ({ id })) };
     }
     if (reimbursementIds && reimbursementIds.length > 0) {
-      taskData.reembolsos = { connect: reimbursementIds.map(id => ({ id })) };
+      taskData.reimbursements = { connect: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      taskData.nfeReembolsos = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
+      taskData.reimbursementInvoices = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds && fileIds.length > 0) {
       taskData.artworks = { connect: fileIds.map(id => ({ id })) };
@@ -459,10 +459,10 @@ export class TaskPrismaRepository
       updateData.receipts = { set: receiptIds.map(id => ({ id })) };
     }
     if (reimbursementIds !== undefined) {
-      updateData.reembolsos = { set: reimbursementIds.map(id => ({ id })) };
+      updateData.reimbursements = { set: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReembolsos = { set: reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.reimbursementInvoices = { set: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds !== undefined) {
       updateData.artworks = { set: fileIds.map(id => ({ id })) };
@@ -628,15 +628,41 @@ export class TaskPrismaRepository
       const value = include[key as keyof TaskInclude];
 
       if (typeof value === 'boolean') {
-        // Handle the paints mapping to logoPaints
+        // Handle field name mappings for backwards compatibility
+        // Frontend might use old singular/Portuguese names, map them to new plural English names
         if (key === 'paints') {
           databaseInclude.logoPaints = value;
+        } else if (key === 'nfe') {
+          databaseInclude.nfes = value;
+        } else if (key === 'receipt') {
+          databaseInclude.receipts = value;
+        } else if (key === 'budget') {
+          databaseInclude.budgets = value;
+        } else if (key === 'airbrushings') {
+          databaseInclude.airbrushing = value;
+        } else if (key === 'reembolsos') {
+          databaseInclude.reimbursements = value;
+        } else if (key === 'nfeReembolsos') {
+          databaseInclude.reimbursementInvoices = value;
         } else {
           databaseInclude[key] = value;
         }
       } else if (typeof value === 'object' && value !== null && 'include' in value) {
+        // Handle nested includes with field name mappings
         if (key === 'paints') {
           databaseInclude.logoPaints = { include: value.include };
+        } else if (key === 'nfe') {
+          databaseInclude.nfes = { include: value.include };
+        } else if (key === 'receipt') {
+          databaseInclude.receipts = { include: value.include };
+        } else if (key === 'budget') {
+          databaseInclude.budgets = { include: value.include };
+        } else if (key === 'airbrushings') {
+          databaseInclude.airbrushing = { include: value.include, orderBy: (value as any).orderBy };
+        } else if (key === 'reembolsos') {
+          databaseInclude.reimbursements = { include: value.include };
+        } else if (key === 'nfeReembolsos') {
+          databaseInclude.reimbursementInvoices = { include: value.include };
         } else {
           databaseInclude[key] = { include: value.include };
         }

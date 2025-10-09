@@ -44,20 +44,17 @@ export class PositionPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Position {
     const position = databaseEntity as Position;
 
-    // Add virtual remuneration field from latest monetary value or remuneration record
-    // Priority: 1. monetaryValues (current=true), 2. remunerations (deprecated), 3. default to 0
-    if (position.monetaryValues && position.monetaryValues.length > 0) {
+    // Add virtual remuneration field from latest monetary value
+    // Priority: 1. remunerations[current=true], 2. most recent remuneration, 3. default to 0
+    if (position.remunerations && position.remunerations.length > 0) {
       // Find the current monetary value or use the most recent one
-      const currentValue = position.monetaryValues.find((mv: any) => mv.current === true);
+      const currentValue = position.remunerations.find((mv: any) => mv.current === true);
       if (currentValue) {
         position.remuneration = currentValue.value;
       } else {
         // Fallback to the first (most recent) monetary value
-        position.remuneration = position.monetaryValues[0].value;
+        position.remuneration = position.remunerations[0].value;
       }
-    } else if (position.remunerations && position.remunerations.length > 0) {
-      // Fallback to deprecated remunerations for backwards compatibility
-      position.remuneration = position.remunerations[0].value;
     } else {
       position.remuneration = 0; // Explicitly set to 0
     }
@@ -129,23 +126,17 @@ export class PositionPrismaRepository
           sector: true,
         },
       },
-      // Fetch monetary values (new approach) ordered by current=true first, then by most recent
-      monetaryValues: {
+      // Fetch monetary values ordered by current=true first, then by most recent
+      remunerations: {
         orderBy: [
           { current: 'desc' as const },
           { createdAt: 'desc' as const }
         ],
         take: 5, // Get a few recent values for history
       },
-      // Also fetch deprecated remunerations for backwards compatibility
-      remunerations: {
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
       _count: {
         select: {
           users: true,
-          monetaryValues: true,
           remunerations: true,
         },
       },

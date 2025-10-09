@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema } from "./common";
-import type { Position, PositionRemuneration } from '@types';
+import type { Position } from '@types';
 
 // =====================
 // Include Schemas (Second Level Only)
@@ -46,7 +46,7 @@ export const positionIncludeSchema = z
         }),
       ])
       .optional(),
-    monetaryValues: z
+    remunerations: z
       .union([
         z.boolean(),
         z.object({
@@ -54,37 +54,7 @@ export const positionIncludeSchema = z
         }),
       ])
       .optional(),
-    remunerations: z  // DEPRECATED: use monetaryValues
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              position: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
     _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
-  })
-  .partial();
-
-export const positionRemunerationIncludeSchema = z
-  .object({
-    position: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              users: z.boolean().optional(),
-              remunerations: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
   })
   .partial();
 
@@ -112,28 +82,6 @@ export const positionOrderBySchema = z.union([
         name: orderByDirectionSchema.optional(),
         hierarchy: orderByDirectionSchema.optional(),
         remuneration: orderByDirectionSchema.optional(),
-        createdAt: orderByDirectionSchema.optional(),
-        updatedAt: orderByDirectionSchema.optional(),
-      })
-      .partial(),
-  ),
-]);
-
-export const positionRemunerationOrderBySchema = z.union([
-  z
-    .object({
-      id: orderByDirectionSchema.optional(),
-      value: orderByDirectionSchema.optional(),
-      createdAt: orderByDirectionSchema.optional(),
-      updatedAt: orderByDirectionSchema.optional(),
-      position: positionOrderBySchema.optional(),
-    })
-    .partial(),
-  z.array(
-    z
-      .object({
-        id: orderByDirectionSchema.optional(),
-        value: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -277,93 +225,6 @@ export const positionWhereSchema: z.ZodType<any> = z
   })
   .partial();
 
-// PositionRemuneration Where Schema
-export const positionRemunerationWhereSchema: z.ZodType<any> = z
-  .object({
-    AND: z.union([z.lazy(() => positionRemunerationWhereSchema), z.array(z.lazy(() => positionRemunerationWhereSchema))]).optional(),
-    OR: z.array(z.lazy(() => positionRemunerationWhereSchema)).optional(),
-    NOT: z.lazy(() => positionRemunerationWhereSchema).optional(),
-
-    id: z
-      .union([
-        z.string(),
-        z.object({
-          equals: z.string().optional(),
-          not: z.string().optional(),
-          in: z.array(z.string()).optional(),
-          notIn: z.array(z.string()).optional(),
-          contains: z.string().optional(),
-          startsWith: z.string().optional(),
-          endsWith: z.string().optional(),
-        }),
-      ])
-      .optional(),
-
-    value: z
-      .union([
-        z.number(),
-        z.object({
-          equals: z.number().optional(),
-          not: z.number().optional(),
-          in: z.array(z.number()).optional(),
-          notIn: z.array(z.number()).optional(),
-          lt: z.number().optional(),
-          lte: z.number().optional(),
-          gt: z.number().optional(),
-          gte: z.number().optional(),
-        }),
-      ])
-      .optional(),
-
-    positionId: z
-      .union([
-        z.string(),
-        z.object({
-          equals: z.string().optional(),
-          not: z.string().optional(),
-          in: z.array(z.string()).optional(),
-          notIn: z.array(z.string()).optional(),
-        }),
-      ])
-      .optional(),
-
-    createdAt: z
-      .union([
-        z.date(),
-        z.object({
-          equals: z.date().optional(),
-          not: z.date().optional(),
-          in: z.array(z.date()).optional(),
-          notIn: z.array(z.date()).optional(),
-          lt: z.coerce.date().optional(),
-          lte: z.coerce.date().optional(),
-          gt: z.coerce.date().optional(),
-          gte: z.coerce.date().optional(),
-        }),
-      ])
-      .optional(),
-
-    updatedAt: z
-      .union([
-        z.date(),
-        z.object({
-          equals: z.date().optional(),
-          not: z.date().optional(),
-          in: z.array(z.date()).optional(),
-          notIn: z.array(z.date()).optional(),
-          lt: z.coerce.date().optional(),
-          lte: z.coerce.date().optional(),
-          gt: z.coerce.date().optional(),
-          gte: z.coerce.date().optional(),
-        }),
-      ])
-      .optional(),
-
-    // Relations
-    position: z.lazy(() => positionWhereSchema).optional(),
-  })
-  .partial();
-
 // =====================
 // Position Filters and Transform
 // =====================
@@ -481,11 +342,6 @@ export const positionGetByIdSchema = z.object({
   id: z.string().uuid("Cargo inválido"),
 });
 
-export const positionRemunerationGetByIdSchema = z.object({
-  include: positionRemunerationIncludeSchema.optional(),
-  id: z.string().uuid("Remuneração inválida"),
-});
-
 // =====================
 // CRUD Schemas
 // =====================
@@ -539,144 +395,6 @@ export const positionQuerySchema = z.object({
 });
 
 // =====================
-// Position Remuneration Schemas
-// =====================
-
-const positionRemunerationFilters = {
-  searchingFor: z.string().optional(),
-  positionIds: z.array(z.string()).optional(),
-  valueRange: z
-    .object({
-      min: z.number().optional(),
-      max: z.number().optional(),
-    })
-    .optional(),
-};
-
-const positionRemunerationTransform = (data: any) => {
-  // Normalize orderBy to Prisma format
-  if (data.orderBy) {
-    data.orderBy = normalizeOrderBy(data.orderBy);
-  }
-
-  // Handle take/limit alias
-  if (data.take && !data.limit) {
-    data.limit = data.take;
-  }
-  delete data.take;
-
-  const andConditions: any[] = [];
-
-  if (data.searchingFor) {
-    andConditions.push({
-      position: { name: { contains: data.searchingFor, mode: "insensitive" } },
-    });
-    delete data.searchingFor;
-  }
-
-  if (data.positionIds) {
-    andConditions.push({ positionId: { in: data.positionIds } });
-    delete data.positionIds;
-  }
-
-  if (data.valueRange) {
-    const valueCondition: any = {};
-    if (data.valueRange.min !== undefined) valueCondition.gte = data.valueRange.min;
-    if (data.valueRange.max !== undefined) valueCondition.lte = data.valueRange.max;
-    andConditions.push({ value: valueCondition });
-    delete data.valueRange;
-  }
-
-  if (data.createdAt) {
-    andConditions.push({ createdAt: data.createdAt });
-    delete data.createdAt;
-  }
-
-  if (data.updatedAt) {
-    andConditions.push({ updatedAt: data.updatedAt });
-    delete data.updatedAt;
-  }
-
-  if (andConditions.length > 0) {
-    if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
-    } else {
-      data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
-    }
-  }
-
-  return data;
-};
-
-export const positionRemunerationGetManySchema = z
-  .object({
-    page: z.coerce.number().int().min(0).default(1).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
-    take: z.coerce.number().int().positive().max(100).optional(),
-    skip: z.coerce.number().int().min(0).optional(),
-    where: positionRemunerationWhereSchema.optional(),
-    orderBy: positionRemunerationOrderBySchema.optional(),
-    include: positionRemunerationIncludeSchema.optional(),
-    ...positionRemunerationFilters,
-    createdAt: z
-      .object({
-        gte: z.coerce.date().optional(),
-        lte: z.coerce.date().optional(),
-      })
-      .optional(),
-    updatedAt: z
-      .object({
-        gte: z.coerce.date().optional(),
-        lte: z.coerce.date().optional(),
-      })
-      .optional(),
-  })
-  .transform(positionRemunerationTransform);
-
-export const positionRemunerationCreateSchema = z
-  .object({
-    value: z.number().min(0, "Valor deve ser maior ou igual a zero").max(999999.99, "Valor deve ser menor que R$ 1.000.000,00"),
-    positionId: z.string().uuid("Cargo inválido"),
-  })
-  .transform(toFormData);
-
-export const positionRemunerationUpdateSchema = z
-  .object({
-    value: z.number().min(0, "Valor deve ser maior ou igual a zero").max(999999.99, "Valor deve ser menor que R$ 1.000.000,00").optional(),
-    positionId: z.string().uuid("Cargo inválido").optional(),
-  })
-  .transform(toFormData);
-
-export const positionRemunerationBatchCreateSchema = z.object({
-  positionRemunerations: z.array(positionRemunerationCreateSchema).min(1, "Pelo menos uma remuneração de cargo deve ser fornecida"),
-});
-
-export const positionRemunerationBatchUpdateSchema = z.object({
-  positionRemunerations: z
-    .array(
-      z.object({
-        id: z.string().uuid("Remuneração inválida"),
-        data: positionRemunerationUpdateSchema,
-      }),
-    )
-    .min(1, "Pelo menos uma atualização é necessária"),
-});
-
-export const positionRemunerationBatchDeleteSchema = z.object({
-  positionRemunerationIds: z.array(z.string().uuid("Remuneração inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
-});
-
-// Query schema for include parameter
-export const positionRemunerationQuerySchema = z.object({
-  include: positionRemunerationIncludeSchema.optional(),
-});
-
-// Batch query schema for include parameter
-export const positionRemunerationBatchQuerySchema = z.object({
-  include: positionRemunerationIncludeSchema.optional(),
-});
-
-// =====================
 // Inferred Types
 // =====================
 
@@ -696,25 +414,6 @@ export type PositionInclude = z.infer<typeof positionIncludeSchema>;
 export type PositionOrderBy = z.infer<typeof positionOrderBySchema>;
 export type PositionWhere = z.infer<typeof positionWhereSchema>;
 
-// Position Remuneration types
-export type PositionRemunerationGetManyFormData = z.infer<typeof positionRemunerationGetManySchema>;
-export type PositionRemunerationGetByIdFormData = z.infer<typeof positionRemunerationGetByIdSchema>;
-export type PositionRemunerationQueryFormData = z.infer<typeof positionRemunerationQuerySchema>;
-export type PositionRemunerationBatchQueryFormData = z.infer<typeof positionRemunerationBatchQuerySchema>;
-
-export type PositionRemunerationCreateFormData = z.infer<typeof positionRemunerationCreateSchema>;
-export type PositionRemunerationUpdateFormData = z.infer<typeof positionRemunerationUpdateSchema>;
-
-export type PositionRemunerationBatchCreateFormData = z.infer<typeof positionRemunerationBatchCreateSchema>;
-export type PositionRemunerationBatchUpdateFormData = z.infer<typeof positionRemunerationBatchUpdateSchema>;
-export type PositionRemunerationBatchDeleteFormData = z.infer<typeof positionRemunerationBatchDeleteSchema>;
-
-export type PositionRemunerationInclude = z.infer<typeof positionRemunerationIncludeSchema>;
-export type PositionRemunerationOrderBy = z.infer<typeof positionRemunerationOrderBySchema>;
-export type PositionRemunerationWhere = z.infer<typeof positionRemunerationWhereSchema>;
-
-// Include and other types
-
 // =====================
 // Helper Functions
 // =====================
@@ -724,9 +423,4 @@ export const mapPositionToFormData = createMapToFormDataHelper<Position, Positio
   hierarchy: position.hierarchy,
   remuneration: position.remuneration,
   bonifiable: position.bonifiable,
-}));
-
-export const mapPositionRemunerationToFormData = createMapToFormDataHelper<PositionRemuneration, PositionRemunerationUpdateFormData>((remuneration) => ({
-  value: remuneration.value,
-  positionId: remuneration.positionId,
 }));

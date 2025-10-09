@@ -390,7 +390,7 @@ export const externalWithdrawalStage1Schema = z.object({
 export const externalWithdrawalItemSelectionSchema = z.object({
   itemId: z.string().uuid("Item inválido"),
   withdrawedQuantity: z.number().positive("Quantidade deve ser positiva"),
-  // Price is required only if willReturn is false - validated at form level
+  // Monetary value is required only if willReturn is false - validated at form level
   price: z.number().min(0, "Preço não pode ser negativo").nullable().optional(),
 });
 

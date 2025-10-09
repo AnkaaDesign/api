@@ -98,6 +98,20 @@ export const supplierIncludeSchema = z
         }),
       ])
       .optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              items: z.boolean().optional(),
+              orders: z.boolean().optional(),
+              orderRules: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
   .partial();
 

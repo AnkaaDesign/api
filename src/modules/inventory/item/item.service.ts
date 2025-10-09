@@ -789,9 +789,9 @@ export class ItemService {
       }
 
       await this.prisma.$transaction(async tx => {
-        // Delete prices first
+        // Delete monetary values (prices) first
         if (existing.prices && existing.prices.length > 0) {
-          await tx.price.deleteMany({ where: { itemId: id } });
+          await tx.monetaryValue.deleteMany({ where: { itemId: id } });
         }
 
         await this.itemRepository.deleteWithTransaction(tx, id);
@@ -1805,8 +1805,8 @@ export class ItemService {
               );
             }
 
-            // Excluir preços primeiro
-            await tx.price.deleteMany({ where: { itemId } });
+            // Excluir valores monetários (preços) primeiro
+            await tx.monetaryValue.deleteMany({ where: { itemId } });
 
             // Excluir o item
             await this.itemRepository.deleteWithTransaction(tx, itemId);
@@ -2359,16 +2359,11 @@ export class ItemService {
           id: { in: itemIds },
         },
         include: {
-          monetaryValues: {
+          prices: {
             orderBy: [
               { current: 'desc' as const },
               { createdAt: 'desc' as const }
             ],
-            take: 1,
-          },
-          // Also include deprecated prices for backwards compatibility
-          prices: {
-            orderBy: { createdAt: 'desc' },
             take: 1,
           },
         },
@@ -2398,11 +2393,9 @@ export class ItemService {
           const itemIdentifier = item.uniCode ? `${item.uniCode} - ${item.name}` : item.name;
 
           try {
-            // Get current price from monetaryValues or fallback to deprecated prices
+            // Get current price from monetary values
             let currentPrice = 0;
-            if (item.monetaryValues && item.monetaryValues.length > 0) {
-              currentPrice = item.monetaryValues[0].value;
-            } else if (item.prices && item.prices.length > 0) {
+            if (item.prices && item.prices.length > 0) {
               currentPrice = item.prices[0].value;
             }
 
@@ -2623,10 +2616,10 @@ export class ItemService {
       });
       mergeDetails.totalQuantityMerged = totalSourceQuantity;
 
-      // 4. Merge price history - move all price records to target
+      // 4. Merge price history - move all monetary value (price) records to target
       for (const sourceItem of sourceItems) {
         if (sourceItem.prices.length > 0) {
-          await tx.price.updateMany({
+          await tx.monetaryValue.updateMany({
             where: { itemId: sourceItem.id },
             data: { itemId: data.targetItemId },
           });

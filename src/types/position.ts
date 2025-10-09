@@ -26,8 +26,7 @@ export interface Position extends BaseEntity {
 
   // Relations (optional, populated based on query)
   users?: User[];
-  monetaryValues?: MonetaryValue[];
-  remunerations?: PositionRemuneration[]; // DEPRECATED: use monetaryValues
+  remunerations?: MonetaryValue[];
 
   // Virtual field (computed from latest/current monetary value)
   remuneration?: number;
@@ -35,18 +34,8 @@ export interface Position extends BaseEntity {
   // Count fields (when included)
   _count?: {
     users?: number;
-    monetaryValues?: number;
-    remunerations?: number; // DEPRECATED
+    remunerations?: number;
   };
-}
-
-// DEPRECATED: Use MonetaryValue instead
-export interface PositionRemuneration extends BaseEntity {
-  value: number;
-  positionId: string;
-
-  // Relations (optional, populated based on query)
-  position?: Position;
 }
 
 // =====================
@@ -64,23 +53,10 @@ export interface PositionIncludes {
     | {
         include?: UserIncludes;
       };
-  monetaryValues?:
+  remunerations?:
     | boolean
     | {
         include?: MonetaryValueIncludes;
-      };
-  remunerations?:  // DEPRECATED: use monetaryValues
-    | boolean
-    | {
-        include?: PositionRemunerationIncludes;
-      };
-}
-
-export interface PositionRemunerationIncludes {
-  position?:
-    | boolean
-    | {
-        include?: PositionIncludes;
       };
 }
 
@@ -98,14 +74,6 @@ export interface PositionOrderBy {
   updatedAt?: ORDER_BY_DIRECTION;
 }
 
-export interface PositionRemunerationOrderBy {
-  id?: ORDER_BY_DIRECTION;
-  value?: ORDER_BY_DIRECTION;
-  createdAt?: ORDER_BY_DIRECTION;
-  updatedAt?: ORDER_BY_DIRECTION;
-  position?: PositionOrderBy;
-}
-
 // =====================
 // Response Interfaces
 // =====================
@@ -117,13 +85,6 @@ export interface PositionCreateResponse extends BaseCreateResponse<Position> {}
 export interface PositionUpdateResponse extends BaseUpdateResponse<Position> {}
 export interface PositionDeleteResponse extends BaseDeleteResponse {}
 
-// PositionRemuneration responses
-export interface PositionRemunerationGetUniqueResponse extends BaseGetUniqueResponse<PositionRemuneration> {}
-export interface PositionRemunerationGetManyResponse extends BaseGetManyResponse<PositionRemuneration> {}
-export interface PositionRemunerationCreateResponse extends BaseCreateResponse<PositionRemuneration> {}
-export interface PositionRemunerationUpdateResponse extends BaseUpdateResponse<PositionRemuneration> {}
-export interface PositionRemunerationDeleteResponse extends BaseDeleteResponse {}
-
 // =====================
 // Batch Operation Responses
 // =====================
@@ -132,8 +93,3 @@ export interface PositionRemunerationDeleteResponse extends BaseDeleteResponse {
 export interface PositionBatchCreateResponse<T = any> extends BaseBatchResponse<Position, T> {}
 export interface PositionBatchUpdateResponse<T = any> extends BaseBatchResponse<Position, T> {}
 export interface PositionBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
-
-// PositionRemuneration batch operations
-export interface PositionRemunerationBatchCreateResponse<T = any> extends BaseBatchResponse<PositionRemuneration, T> {}
-export interface PositionRemunerationBatchUpdateResponse<T = any> extends BaseBatchResponse<PositionRemuneration, T> {}
-export interface PositionRemunerationBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

@@ -9,7 +9,6 @@ import { ItemUnifiedController } from './item.controller';
 import { ItemService } from './item.service';
 import { ItemBrandService } from './item-brand.service';
 import { ItemCategoryService } from './item-category.service';
-import { ItemPriceService } from './item-price.service';
 
 // Repositories
 import { ItemRepository } from './repositories/item/item.repository';
@@ -18,8 +17,6 @@ import { ItemBrandRepository } from './repositories/item-brand/item-brand.reposi
 import { ItemBrandPrismaRepository } from './repositories/item-brand/item-brand-prisma.repository';
 import { ItemCategoryRepository } from './repositories/item-category/item-category.repository';
 import { ItemCategoryPrismaRepository } from './repositories/item-category/item-category-prisma.repository';
-import { ItemPriceRepository } from './repositories/item-price/item-price.repository';
-import { ItemPricePrismaRepository } from './repositories/item-price/item-price-prisma.repository';
 
 @Module({
   imports: [PrismaModule, ChangeLogModule],
@@ -29,7 +26,6 @@ import { ItemPricePrismaRepository } from './repositories/item-price/item-price-
     ItemService,
     ItemBrandService,
     ItemCategoryService,
-    ItemPriceService,
     // Repositories
     {
       provide: ItemRepository,
@@ -43,11 +39,7 @@ import { ItemPricePrismaRepository } from './repositories/item-price/item-price-
       provide: ItemCategoryRepository,
       useClass: ItemCategoryPrismaRepository,
     },
-    {
-      provide: ItemPriceRepository,
-      useClass: ItemPricePrismaRepository,
-    },
   ],
-  exports: [ItemService, ItemBrandService, ItemCategoryService, ItemPriceService, ItemRepository],
+  exports: [ItemService, ItemBrandService, ItemCategoryService, ItemRepository],
 })
 export class ItemModule {}

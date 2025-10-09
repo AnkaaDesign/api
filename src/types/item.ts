@@ -8,7 +8,7 @@ import type { Borrow, BorrowIncludes } from "./borrow";
 import type { OrderItem, OrderItemIncludes } from "./order";
 import type { PpeDelivery, PpeDeliveryIncludes, PpeDeliverySchedule, PpeDeliveryScheduleIncludes } from "./ppe";
 import type { Measure, MeasureIncludes } from "./measure";
-import type { MonetaryValue } from "./position";
+import type { MonetaryValue, MonetaryValueIncludes } from "./position";
 
 // Re-export MonetaryValue for convenience
 export type { MonetaryValue };
@@ -32,15 +32,6 @@ export interface ItemCategory extends BaseEntity {
 
   // Relations
   items?: Item[];
-}
-
-// DEPRECATED: Use MonetaryValue instead
-export interface Price extends BaseEntity {
-  value: number;
-  itemId: string;
-
-  // Relations
-  item?: Item;
 }
 
 export interface Item extends BaseEntity {
@@ -84,8 +75,7 @@ export interface Item extends BaseEntity {
   brand?: ItemBrand;
   category?: ItemCategory;
   supplier?: Supplier;
-  monetaryValues?: MonetaryValue[];
-  prices?: Price[]; // DEPRECATED: use monetaryValues
+  prices?: MonetaryValue[];
   measures?: Measure[];
   activities?: Activity[];
   borrows?: Borrow[];
@@ -119,14 +109,6 @@ export interface ItemCategoryIncludes {
       };
 }
 
-export interface PriceIncludes {
-  item?:
-    | boolean
-    | {
-        include?: ItemIncludes;
-      };
-}
-
 export interface ItemIncludes {
   brand?:
     | boolean
@@ -146,7 +128,7 @@ export interface ItemIncludes {
   prices?:
     | boolean
     | {
-        include?: PriceIncludes;
+        include?: MonetaryValueIncludes;
       };
   measures?:
     | boolean
@@ -296,25 +278,6 @@ export interface ItemCategoryWhere {
   updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
 }
 
-export interface PriceWhere {
-  // Logical operators
-  AND?: PriceWhere | PriceWhere[];
-  OR?: PriceWhere[];
-  NOT?: PriceWhere | PriceWhere[];
-
-  // Fields
-  id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  value?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-
-  // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-
-  // Relations
-  item?: ItemIncludes;
-}
-
 // =====================
 // Order By Types
 // =====================
@@ -333,14 +296,6 @@ export interface ItemCategoryOrderBy {
   typeOrder?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
-}
-
-export interface PriceOrderBy {
-  id?: ORDER_BY_DIRECTION;
-  value?: ORDER_BY_DIRECTION;
-  createdAt?: ORDER_BY_DIRECTION;
-  updatedAt?: ORDER_BY_DIRECTION;
-  item?: ItemOrderBy;
 }
 
 export interface ItemOrderBy {
@@ -396,13 +351,6 @@ export interface ItemCategoryCreateResponse extends BaseCreateResponse<ItemCateg
 export interface ItemCategoryUpdateResponse extends BaseUpdateResponse<ItemCategory> {}
 export interface ItemCategoryDeleteResponse extends BaseDeleteResponse {}
 
-// Price responses
-export interface PriceGetUniqueResponse extends BaseGetUniqueResponse<Price> {}
-export interface PriceGetManyResponse extends BaseGetManyResponse<Price> {}
-export interface PriceCreateResponse extends BaseCreateResponse<Price> {}
-export interface PriceUpdateResponse extends BaseUpdateResponse<Price> {}
-export interface PriceDeleteResponse extends BaseDeleteResponse {}
-
 // =====================
 // API Request Types
 // =====================
@@ -446,18 +394,6 @@ export interface ItemCategoryGetByIdParams {
   include?: ItemCategoryIncludes;
 }
 
-export interface PriceGetManyParams {
-  where?: PriceWhere;
-  include?: PriceIncludes;
-  orderBy?: PriceOrderBy | PriceOrderBy[];
-  skip?: number;
-  take?: number;
-}
-
-export interface PriceGetByIdParams {
-  include?: PriceIncludes;
-}
-
 // =====================
 // Batch Operation Responses
 // =====================
@@ -476,11 +412,6 @@ export interface ItemBrandBatchDeleteResponse extends BaseBatchResponse<{ id: st
 export interface ItemCategoryBatchCreateResponse<T> extends BaseBatchResponse<ItemCategory, T> {}
 export interface ItemCategoryBatchUpdateResponse<T> extends BaseBatchResponse<ItemCategory, T & { id: string }> {}
 export interface ItemCategoryBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
-
-// Price batch operations
-export interface PriceBatchCreateResponse<T> extends BaseBatchResponse<Price, T> {}
-export interface PriceBatchUpdateResponse<T> extends BaseBatchResponse<Price, T & { id: string }> {}
-export interface PriceBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // =====================
 // Stock Management Response Types

@@ -73,35 +73,6 @@ export {
   type OrderItemWhere,
 } from "./order";
 export * from "./paint";
-export {
-  physicalPersonIncludeSchema,
-  physicalPersonOrderBySchema,
-  physicalPersonWhereSchema,
-  physicalPersonGetManySchema,
-  physicalPersonGetByIdSchema,
-  physicalPersonCreateSchema,
-  physicalPersonQuickCreateSchema,
-  physicalPersonUpdateSchema,
-  physicalPersonBatchCreateSchema,
-  physicalPersonBatchUpdateSchema,
-  physicalPersonBatchDeleteSchema,
-  physicalPersonQuerySchema,
-  physicalPersonBatchQuerySchema,
-  mapPhysicalPersonToFormData,
-  type PhysicalPersonGetManyFormData,
-  type PhysicalPersonGetByIdFormData,
-  type PhysicalPersonQueryFormData,
-  type PhysicalPersonBatchQueryFormData,
-  type PhysicalPersonCreateFormData,
-  type PhysicalPersonQuickCreateFormData,
-  type PhysicalPersonUpdateFormData,
-  type PhysicalPersonBatchCreateFormData,
-  type PhysicalPersonBatchUpdateFormData,
-  type PhysicalPersonBatchDeleteFormData,
-  type PhysicalPersonInclude,
-  type PhysicalPersonOrderBy,
-  type PhysicalPersonWhere,
-} from "./physical-person";
 export * from "./position";
 export * from "./preferences";
 export * from "./secullum";
@@ -166,4 +137,3 @@ export {
 } from "./discount";
 export * from "./statistics";
 export * from "./deployment";
-// export * from "./driver"; // Disabled - not currently used

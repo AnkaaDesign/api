@@ -216,13 +216,14 @@ export class UserService {
       // Convert empty string to null to avoid unique constraint issues
       if (data.phone === '' || data.phone === null) {
         data.phone = null;
+        // Skip uniqueness check for null values - multiple users can have null phone
       } else {
         // Validar formato do telefone
         if (!isValidPhone(data.phone)) {
           throw new BadRequestException('Telefone inválido.');
         }
 
-        // Validar unicidade do telefone
+        // Validar unicidade do telefone (only for non-null values)
         const existingPhone = await this.userRepository.findByPhone(data.phone, tx);
         if (existingPhone && existingPhone.id !== existingId) {
           throw new BadRequestException('Telefone já está em uso.');

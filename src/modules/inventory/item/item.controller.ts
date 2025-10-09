@@ -21,7 +21,6 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { ItemService } from './item.service';
 import { ItemBrandService } from './item-brand.service';
 import { ItemCategoryService } from './item-category.service';
-import { ItemPriceService } from './item-price.service';
 import {
   // Item schemas
   itemGetManySchema,
@@ -53,16 +52,6 @@ import {
   itemCategoryBatchUpdateSchema,
   itemCategoryBatchDeleteSchema,
   itemCategoryQuerySchema,
-
-  // Price schemas
-  priceGetManySchema,
-  priceGetByIdSchema,
-  priceCreateSchema,
-  priceUpdateSchema,
-  priceBatchCreateSchema,
-  priceBatchUpdateSchema,
-  priceBatchDeleteSchema,
-  priceQuerySchema,
 } from '../../../schemas/item';
 import type {
   // Item types
@@ -95,16 +84,6 @@ import type {
   ItemCategoryBatchUpdateFormData,
   ItemCategoryBatchDeleteFormData,
   ItemCategoryQueryFormData,
-
-  // Price types
-  PriceGetManyFormData,
-  PriceGetByIdFormData,
-  PriceCreateFormData,
-  PriceUpdateFormData,
-  PriceBatchCreateFormData,
-  PriceBatchUpdateFormData,
-  PriceBatchDeleteFormData,
-  PriceQueryFormData,
 } from '../../../schemas/item';
 import type {
   ItemGetManyResponse,
@@ -132,14 +111,6 @@ import type {
   ItemCategoryBatchCreateResponse,
   ItemCategoryBatchUpdateResponse,
   ItemCategoryBatchDeleteResponse,
-  PriceGetManyResponse,
-  PriceGetUniqueResponse,
-  PriceCreateResponse,
-  PriceUpdateResponse,
-  PriceDeleteResponse,
-  PriceBatchCreateResponse,
-  PriceBatchUpdateResponse,
-  PriceBatchDeleteResponse,
 } from '../../../types';
 
 @Controller('items')
@@ -148,7 +119,6 @@ export class ItemUnifiedController {
     private readonly itemService: ItemService,
     private readonly itemBrandService: ItemBrandService,
     private readonly itemCategoryService: ItemCategoryService,
-    private readonly itemPriceService: ItemPriceService,
   ) {}
 
   // =====================
@@ -386,88 +356,6 @@ export class ItemUnifiedController {
     @UserId() userId: string,
   ): Promise<ItemCategoryBatchDeleteResponse> {
     return this.itemCategoryService.batchDelete(data, userId);
-  }
-
-  // =====================
-  // ITEM PRICE OPERATIONS
-  // =====================
-
-  @Get('prices')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async getItemPrices(
-    @Query(new ZodQueryValidationPipe(priceGetManySchema)) query: PriceGetManyFormData,
-  ): Promise<PriceGetManyResponse> {
-    return this.itemPriceService.findMany(query);
-  }
-
-  @Get('prices/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async getItemPriceById(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(priceQuerySchema)) query: PriceQueryFormData,
-  ): Promise<PriceGetUniqueResponse> {
-    return this.itemPriceService.findById(id, query.include);
-  }
-
-  @Post('prices')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async createItemPrice(
-    @Body(new ZodValidationPipe(priceCreateSchema)) data: PriceCreateFormData,
-    @Query(new ZodQueryValidationPipe(priceQuerySchema)) query: PriceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PriceCreateResponse> {
-    return this.itemPriceService.create(data, query.include, userId);
-  }
-
-  @Put('prices/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async updateItemPrice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(priceUpdateSchema)) data: PriceUpdateFormData,
-    @Query(new ZodQueryValidationPipe(priceQuerySchema)) query: PriceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PriceUpdateResponse> {
-    return this.itemPriceService.update(id, data, query.include, userId);
-  }
-
-  @Delete('prices/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async deleteItemPrice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<PriceDeleteResponse> {
-    return this.itemPriceService.delete(id, userId);
-  }
-
-  @Post('prices/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async batchCreateItemPrices(
-    @Body(new ZodValidationPipe(priceBatchCreateSchema)) data: PriceBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(priceQuerySchema)) query: PriceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PriceBatchCreateResponse<PriceCreateFormData>> {
-    return this.itemPriceService.batchCreate(data, query.include, userId);
-  }
-
-  @Put('prices/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async batchUpdateItemPrices(
-    @Body(new ZodValidationPipe(priceBatchUpdateSchema)) data: PriceBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(priceQuerySchema)) query: PriceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PriceBatchUpdateResponse<PriceUpdateFormData>> {
-    return this.itemPriceService.batchUpdate(data, query.include, userId);
-  }
-
-  @Delete('prices/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async batchDeleteItemPrices(
-    @Body(new ZodValidationPipe(priceBatchDeleteSchema)) data: PriceBatchDeleteFormData,
-    @UserId() userId: string,
-  ): Promise<PriceBatchDeleteResponse> {
-    return this.itemPriceService.batchDelete(data, userId);
   }
 
   // =====================

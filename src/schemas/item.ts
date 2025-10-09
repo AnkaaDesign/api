@@ -2,11 +2,12 @@
 
 import { z } from "zod";
 import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableString, createNameSchema, optionalNonNegativeNumber, optionalPositiveNumber } from "./common";
-import type { Item, ItemBrand, ItemCategory, Price } from '@types';
+import type { Item, ItemBrand, ItemCategory } from '@types';
 import { MEASURE_UNIT, MEASURE_TYPE, ABC_CATEGORY, XYZ_CATEGORY, PPE_TYPE, PPE_SIZE, PPE_DELIVERY_MODE, STOCK_LEVEL, ITEM_CATEGORY_TYPE } from '@constants';
 import { activityIncludeSchema, activityWhereSchema, activityOrderBySchema } from "./activity";
 import { borrowIncludeSchema, borrowWhereSchema, borrowOrderBySchema } from "./borrow";
 import { ppeDeliveryIncludeSchema, ppeDeliveryWhereSchema, ppeDeliveryOrderBySchema } from "./epi";
+import { monetaryValueIncludeSchema } from "./position";
 
 // =====================
 // Import Measure Schemas
@@ -32,9 +33,9 @@ export const itemBrandIncludeSchema = z
                 .union([
                   z.boolean(),
                   z.object({
-                    include: z.lazy(() => priceIncludeSchema).optional(),
-                    where: z.lazy(() => priceWhereSchema).optional(),
-                    orderBy: z.lazy(() => priceOrderBySchema).optional(),
+                    include: monetaryValueIncludeSchema.optional(),
+                    where: z.any().optional(),
+                    orderBy: z.any().optional(),
                     take: z.coerce.number().optional(),
                     skip: z.coerce.number().optional(),
                   }),
@@ -207,9 +208,9 @@ export const itemCategoryIncludeSchema = z
                 .union([
                   z.boolean(),
                   z.object({
-                    include: z.lazy(() => priceIncludeSchema).optional(),
-                    where: z.lazy(() => priceWhereSchema).optional(),
-                    orderBy: z.lazy(() => priceOrderBySchema).optional(),
+                    include: monetaryValueIncludeSchema.optional(),
+                    where: z.any().optional(),
+                    orderBy: z.any().optional(),
                     take: z.coerce.number().optional(),
                     skip: z.coerce.number().optional(),
                   }),
@@ -398,133 +399,6 @@ export const itemCategoryWhereSchema: z.ZodSchema = z.lazy(() =>
 );
 
 // =====================
-// Price Schemas
-// =====================
-
-export const priceIncludeSchema = z
-  .object({
-    item: z.boolean().optional(),
-    _count: z
-      .union([
-        z.boolean(),
-        z.object({
-          select: z
-            .object({
-              item: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-  })
-  .optional();
-
-export const priceOrderBySchema = z
-  .union([
-    z
-      .object({
-        id: orderByDirectionSchema.optional(),
-        value: orderByDirectionSchema.optional(),
-        itemId: orderByDirectionSchema.optional(),
-        createdAt: orderByDirectionSchema.optional(),
-        updatedAt: orderByDirectionSchema.optional(),
-      })
-      .partial(),
-    z.array(
-      z
-        .object({
-          id: orderByDirectionSchema.optional(),
-          value: orderByDirectionSchema.optional(),
-          createdAt: orderByDirectionSchema.optional(),
-          updatedAt: orderByDirectionSchema.optional(),
-        })
-        .partial(),
-    ),
-  ])
-  .optional();
-
-export const priceWhereSchema: z.ZodSchema = z.lazy(() =>
-  z
-    .object({
-      // Boolean operators
-      AND: z.union([priceWhereSchema, z.array(priceWhereSchema)]).optional(),
-      OR: z.array(priceWhereSchema).optional(),
-      NOT: z.union([priceWhereSchema, z.array(priceWhereSchema)]).optional(),
-
-      // Fields
-      id: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            not: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-          }),
-        ])
-        .optional(),
-
-      itemId: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            not: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-          }),
-        ])
-        .optional(),
-
-      value: z
-        .union([
-          z.number(),
-          z.object({
-            equals: z.number().optional(),
-            not: z.number().optional(),
-            lt: z.number().optional(),
-            lte: z.number().optional(),
-            gt: z.number().optional(),
-            gte: z.number().optional(),
-          }),
-        ])
-        .optional(),
-
-      createdAt: z
-        .union([
-          z.date(),
-          z.object({
-            equals: z.date().optional(),
-            not: z.date().optional(),
-            lt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            gte: z.coerce.date().optional(),
-          }),
-        ])
-        .optional(),
-
-      updatedAt: z
-        .union([
-          z.date(),
-          z.object({
-            equals: z.date().optional(),
-            not: z.date().optional(),
-            lt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            gte: z.coerce.date().optional(),
-          }),
-        ])
-        .optional(),
-
-      // Relations
-      item: z.any().optional(),
-    })
-    .partial(),
-);
-
-// =====================
 // Item Schemas
 // =====================
 
@@ -551,9 +425,9 @@ export const itemIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
-          include: priceIncludeSchema.optional(),
-          where: priceWhereSchema.optional(),
-          orderBy: priceOrderBySchema.optional(),
+          include: monetaryValueIncludeSchema.optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),
@@ -1168,9 +1042,9 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
       supplier: z.any().optional(),
       prices: z
         .object({
-          some: z.lazy(() => priceWhereSchema).optional(),
-          every: z.lazy(() => priceWhereSchema).optional(),
-          none: z.lazy(() => priceWhereSchema).optional(),
+          some: z.any().optional(),
+          every: z.any().optional(),
+          none: z.any().optional(),
         })
         .optional(),
       activities: z
@@ -1347,16 +1221,6 @@ const itemCategoryFilters = {
   isPpe: z.boolean().optional(), // Backwards compatibility
   type: z.nativeEnum(ITEM_CATEGORY_TYPE).optional(),
   hasItems: z.boolean().optional(),
-};
-
-const priceFilters = {
-  itemIds: z.array(z.string()).optional(),
-  valueRange: z
-    .object({
-      min: z.number().optional(),
-      max: z.number().optional(),
-    })
-    .optional(),
 };
 
 // =====================
@@ -1854,54 +1718,6 @@ const itemCategoryTransform = (data: any) => {
   return data;
 };
 
-const priceTransform = (data: any) => {
-  // Normalize orderBy to Prisma format
-  if (data.orderBy) {
-    data.orderBy = normalizeOrderBy(data.orderBy);
-  }
-
-  const andConditions: any[] = [];
-
-  if (data.itemIds && Array.isArray(data.itemIds) && data.itemIds.length > 0) {
-    andConditions.push({ itemId: { in: data.itemIds } });
-    delete data.itemIds;
-  }
-
-  if (data.valueRange && typeof data.valueRange === "object") {
-    const valueCondition: any = {};
-    if (typeof data.valueRange.min === "number") valueCondition.gte = data.valueRange.min;
-    if (typeof data.valueRange.max === "number") valueCondition.lte = data.valueRange.max;
-    if (Object.keys(valueCondition).length > 0) {
-      andConditions.push({ value: valueCondition });
-    }
-    delete data.valueRange;
-  }
-
-  if (data.createdAt) {
-    andConditions.push({ createdAt: data.createdAt });
-    delete data.createdAt;
-  }
-
-  if (data.updatedAt) {
-    andConditions.push({ updatedAt: data.updatedAt });
-    delete data.updatedAt;
-  }
-
-  if (andConditions.length > 0) {
-    if (data.where) {
-      if (data.where.AND && Array.isArray(data.where.AND)) {
-        data.where.AND = [...data.where.AND, ...andConditions];
-      } else {
-        data.where = { AND: [data.where, ...andConditions] };
-      }
-    } else {
-      data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
-    }
-  }
-
-  return data;
-};
-
 // =====================
 // Query Schemas
 // =====================
@@ -1997,36 +1813,6 @@ export const itemCategoryGetManySchema = z
       .optional(),
   })
   .transform(itemCategoryTransform);
-
-export const priceGetManySchema = z
-  .object({
-    // Pagination
-    page: z.coerce.number().int().min(0).default(1).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
-
-    // Direct Prisma clauses
-    where: priceWhereSchema.optional(),
-    orderBy: priceOrderBySchema.optional(),
-    include: priceIncludeSchema.optional(),
-
-    // Convenience filters
-    ...priceFilters,
-
-    // Date filters
-    createdAt: z
-      .object({
-        gte: z.coerce.date().optional(),
-        lte: z.coerce.date().optional(),
-      })
-      .optional(),
-    updatedAt: z
-      .object({
-        gte: z.coerce.date().optional(),
-        lte: z.coerce.date().optional(),
-      })
-      .optional(),
-  })
-  .transform(priceTransform);
 
 // =====================
 // CRUD Schemas
@@ -2241,20 +2027,6 @@ export const itemCategoryUpdateSchema = z
   })
   .transform(toFormData);
 
-// Price CRUD
-export const priceCreateSchema = z
-  .object({
-    value: z.number().min(0, "Valor deve ser maior ou igual a zero"),
-    itemId: z.string().uuid({ message: "Item inválido" }),
-  })
-  .transform(toFormData);
-
-export const priceUpdateSchema = z
-  .object({
-    value: z.number().min(0, "Valor deve ser maior ou igual a zero").optional(),
-  })
-  .transform(toFormData);
-
 // =====================
 // GetById Schemas
 // =====================
@@ -2269,10 +2041,6 @@ export const itemBrandGetByIdSchema = z.object({
 
 export const itemCategoryGetByIdSchema = z.object({
   include: itemCategoryIncludeSchema.optional(),
-});
-
-export const priceGetByIdSchema = z.object({
-  include: priceIncludeSchema.optional(),
 });
 
 // =====================
@@ -2354,31 +2122,6 @@ export const itemCategoryQuerySchema = z.object({
   include: itemCategoryIncludeSchema.optional(),
 });
 
-// Price batch operations
-export const priceBatchCreateSchema = z.object({
-  prices: z.array(priceCreateSchema),
-});
-
-export const priceBatchUpdateSchema = z.object({
-  prices: z
-    .array(
-      z.object({
-        id: z.string().uuid({ message: "Preço inválido" }),
-        data: priceUpdateSchema,
-      }),
-    )
-    .min(1, "Pelo menos uma atualização é necessária"),
-});
-
-export const priceBatchDeleteSchema = z.object({
-  priceIds: z.array(z.string().uuid({ message: "Preço inválido" })).min(1, "Pelo menos um ID deve ser fornecido"),
-});
-
-// Query schema for include parameter
-export const priceQuerySchema = z.object({
-  include: priceIncludeSchema.optional(),
-});
-
 // =====================
 // Type Inference (FormData types)
 // =====================
@@ -2433,22 +2176,6 @@ export type ItemCategoryInclude = z.infer<typeof itemCategoryIncludeSchema>;
 export type ItemCategoryOrderBy = z.infer<typeof itemCategoryOrderBySchema>;
 export type ItemCategoryWhere = z.infer<typeof itemCategoryWhereSchema>;
 
-// Price types
-export type PriceGetManyFormData = z.infer<typeof priceGetManySchema>;
-export type PriceGetByIdFormData = z.infer<typeof priceGetByIdSchema>;
-export type PriceQueryFormData = z.infer<typeof priceQuerySchema>;
-
-export type PriceCreateFormData = z.infer<typeof priceCreateSchema>;
-export type PriceUpdateFormData = z.infer<typeof priceUpdateSchema>;
-
-export type PriceBatchCreateFormData = z.infer<typeof priceBatchCreateSchema>;
-export type PriceBatchUpdateFormData = z.infer<typeof priceBatchUpdateSchema>;
-export type PriceBatchDeleteFormData = z.infer<typeof priceBatchDeleteSchema>;
-
-export type PriceInclude = z.infer<typeof priceIncludeSchema>;
-export type PriceOrderBy = z.infer<typeof priceOrderBySchema>;
-export type PriceWhere = z.infer<typeof priceWhereSchema>;
-
 // =====================
 // Helper Functions
 // =====================
@@ -2492,10 +2219,6 @@ export const mapItemBrandToFormData = createMapToFormDataHelper<ItemBrand, ItemB
 export const mapItemCategoryToFormData = createMapToFormDataHelper<ItemCategory, ItemCategoryUpdateFormData>((category) => ({
   name: category.name,
   type: category.type,
-}));
-
-export const mapPriceToFormData = createMapToFormDataHelper<Price, PriceUpdateFormData>((price) => ({
-  value: price.value,
 }));
 
 // =====================

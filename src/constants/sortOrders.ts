@@ -103,10 +103,6 @@ import {
   SLEEVES_SIZE,
   PPE_SIZE,
   DAY_OF_WEEK,
-  DRIVER_STATUS,
-  CNH_CATEGORY,
-  LICENSE_TYPE,
-  BLOOD_TYPE,
   DISCOUNT_TYPE,
   PAYROLL_STATUS,
   STATISTICS_GROUP_BY,
@@ -1317,46 +1313,6 @@ export const VERIFICATION_PURPOSE_ORDER: Record<string, number> = {
   [VERIFICATION_PURPOSE.LOGIN_VERIFICATION]: 4,
   [VERIFICATION_PURPOSE.TWO_FACTOR_AUTH]: 5,
   [VERIFICATION_PURPOSE.PASSWORD_RESET]: 6,
-};
-
-// =====================
-// Driver Management Sort Orders
-// =====================
-
-export const DRIVER_STATUS_ORDER: Record<string, number> = {
-  [DRIVER_STATUS.ACTIVE]: 1,
-  [DRIVER_STATUS.SUSPENDED]: 2,
-  [DRIVER_STATUS.LICENSE_EXPIRED]: 3,
-  [DRIVER_STATUS.INACTIVE]: 4,
-};
-
-export const CNH_CATEGORY_ORDER: Record<string, number> = {
-  [CNH_CATEGORY.A]: 1,
-  [CNH_CATEGORY.B]: 2,
-  [CNH_CATEGORY.AB]: 3,
-  [CNH_CATEGORY.C]: 4,
-  [CNH_CATEGORY.AC]: 5,
-  [CNH_CATEGORY.D]: 6,
-  [CNH_CATEGORY.AD]: 7,
-  [CNH_CATEGORY.E]: 8,
-  [CNH_CATEGORY.AE]: 9,
-};
-
-export const LICENSE_TYPE_ORDER: Record<string, number> = {
-  [LICENSE_TYPE.DEFINITIVE]: 1,
-  [LICENSE_TYPE.PROVISIONAL]: 2,
-  [LICENSE_TYPE.INTERNATIONAL]: 3,
-};
-
-export const BLOOD_TYPE_ORDER: Record<string, number> = {
-  [BLOOD_TYPE.O_POSITIVE]: 1,
-  [BLOOD_TYPE.O_NEGATIVE]: 2,
-  [BLOOD_TYPE.A_POSITIVE]: 3,
-  [BLOOD_TYPE.A_NEGATIVE]: 4,
-  [BLOOD_TYPE.B_POSITIVE]: 5,
-  [BLOOD_TYPE.B_NEGATIVE]: 6,
-  [BLOOD_TYPE.AB_POSITIVE]: 7,
-  [BLOOD_TYPE.AB_NEGATIVE]: 8,
 };
 
 export const BONUS_STATUS_ORDER: Record<string, number> = {

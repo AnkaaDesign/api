@@ -1,4 +1,4 @@
-import type { Item, Price } from '@types';
+import type { Item, MonetaryValue } from '@types';
 import { dateUtils } from "./date";
 import { numberUtils } from "./number";
 import { MEASURE_UNIT_LABELS, STOCK_LEVEL_LABELS, ITEM_ISSUE_TYPE_LABELS } from '@constants';
@@ -163,7 +163,7 @@ export function getItemTotalCost(item: Item): number {
 /**
  * Get price history sorted by date
  */
-export function getPriceHistory(item: Item): Price[] {
+export function getPriceHistory(item: Item): MonetaryValue[] {
   if (!item.prices) return [];
 
   return item.prices.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());

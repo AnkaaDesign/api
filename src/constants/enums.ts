@@ -1657,46 +1657,6 @@ export enum ITEM_CATEGORY_TYPE {
 // =====================
 
 // =====================
-// Fleet & Driver Management
-// =====================
-
-export enum DRIVER_STATUS {
-  ACTIVE = "ACTIVE",
-  INACTIVE = "INACTIVE",
-  SUSPENDED = "SUSPENDED",
-  LICENSE_EXPIRED = "LICENSE_EXPIRED",
-}
-
-export enum CNH_CATEGORY {
-  A = "A",
-  B = "B",
-  C = "C",
-  D = "D",
-  E = "E",
-  AB = "AB",
-  AC = "AC",
-  AD = "AD",
-  AE = "AE",
-}
-
-export enum LICENSE_TYPE {
-  DEFINITIVE = "DEFINITIVE",
-  PROVISIONAL = "PROVISIONAL",
-  INTERNATIONAL = "INTERNATIONAL",
-}
-
-export enum BLOOD_TYPE {
-  A_POSITIVE = "A_POSITIVE",
-  A_NEGATIVE = "A_NEGATIVE",
-  B_POSITIVE = "B_POSITIVE",
-  B_NEGATIVE = "B_NEGATIVE",
-  AB_POSITIVE = "AB_POSITIVE",
-  AB_NEGATIVE = "AB_NEGATIVE",
-  O_POSITIVE = "O_POSITIVE",
-  O_NEGATIVE = "O_NEGATIVE",
-}
-
-// =====================
 // Favorite Pages
 // =====================
 

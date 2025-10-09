@@ -5,7 +5,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ExactBonusCalculationService } from '../../bonus/exact-bonus-calculation.service';
 import { USER_STATUS, TASK_STATUS, COMMISSION_STATUS, BONUS_STATUS, ACTIVE_USER_STATUSES } from '../../../../constants';
-import type { Position, PositionRemuneration, User, Payroll, Discount } from '../../../../types';
+import type { Position, MonetaryValue, User, Payroll, Discount } from '../../../../types';
 import { roundAverage, roundCurrency } from '../../../../utils/currency-precision.util';
 
 /**
@@ -26,7 +26,7 @@ export interface PayrollPeriod {
 export interface PayrollCalculationData {
   user: User & {
     position?: Position & {
-      remunerations?: PositionRemuneration[];
+      remunerations?: MonetaryValue[];
     };
   };
   payroll?: Payroll & {
@@ -158,7 +158,7 @@ export class PayrollCalculatorService {
    * @param position - Position with remunerations
    * @returns Base salary amount or 0 if no remuneration found
    */
-  calculateBaseSalary(position?: Position & { remunerations?: PositionRemuneration[] }): number {
+  calculateBaseSalary(position?: Position & { remunerations?: MonetaryValue[] }): number {
     if (!position || !position.remunerations || position.remunerations.length === 0) {
       this.logger.warn('No position or remunerations found for base salary calculation');
       return 0;

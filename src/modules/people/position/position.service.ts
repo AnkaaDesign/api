@@ -10,7 +10,6 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { PositionRepository } from './repositories/position/position.repository';
-import { PositionRemunerationRepository } from './repositories/position-remuneration/position-remuneration.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import type {
   Position,
@@ -48,7 +47,6 @@ export class PositionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly positionRepository: PositionRepository,
-    private readonly positionRemunerationRepository: PositionRemunerationRepository,
     private readonly changeLogService: ChangeLogService,
   ) {}
 
@@ -381,14 +379,17 @@ export class PositionService {
           { include },
         );
 
-        // Criar registros de remuneração para cargos criados com sucesso
+        // Criar registros de remuneração (MonetaryValue) para cargos criados com sucesso
         for (let i = 0; i < batchResult.success.length; i++) {
           const position = batchResult.success[i];
           const originalData = data.positions.find(p => p.name === position.name);
           if (originalData && originalData.remuneration) {
-            await this.positionRemunerationRepository.createWithTransaction(tx, {
-              positionId: position.id,
-              value: originalData.remuneration,
+            await tx.monetaryValue.create({
+              data: {
+                value: originalData.remuneration,
+                current: true,
+                positionId: position.id,
+              },
             });
           }
 
@@ -516,9 +517,19 @@ export class PositionService {
                 : existing.remuneration || 0;
 
             if (updateData.data.remuneration !== currentRemuneration) {
-              await this.positionRemunerationRepository.createWithTransaction(tx, {
-                positionId: position.id,
-                value: updateData.data.remuneration,
+              // Mark existing monetary values as not current
+              await tx.monetaryValue.updateMany({
+                where: { positionId: position.id, current: true },
+                data: { current: false },
+              });
+
+              // Create new monetary value marked as current
+              await tx.monetaryValue.create({
+                data: {
+                  value: updateData.data.remuneration,
+                  current: true,
+                  positionId: position.id,
+                },
               });
 
               // Registrar mudança de remuneração
@@ -631,18 +642,12 @@ export class PositionService {
           );
         }
 
-        // Deletar registros de remuneração para todos os cargos
+        // Deletar registros de valores monetários (remunerações) para todos os cargos
         for (const position of positions) {
-          // Delete all remunerations for this position
-          const remunerations = await tx.positionRemuneration.findMany({
+          // Delete all monetary values (remunerations) for this position
+          await tx.monetaryValue.deleteMany({
             where: { positionId: position.id },
           });
-
-          for (const remuneration of remunerations) {
-            await tx.positionRemuneration.delete({
-              where: { id: remuneration.id },
-            });
-          }
         }
 
         // Deletar cargos em lote

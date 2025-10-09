@@ -114,11 +114,7 @@ import {
   DOCUMENT_CATEGORY,
   LINK_TYPE,
   FAVORITE_PAGES,
-  DRIVER_STATUS,
-  CNH_CATEGORY,
   LAYOUT_SIDE,
-  LICENSE_TYPE,
-  BLOOD_TYPE,
   BONUS_DISCOUNT_REASON,
   BONUS_STATUS,
   DISCOUNT_TYPE,
@@ -1545,46 +1541,6 @@ export const LINK_TYPE_LABELS: Record<LINK_TYPE, string> = {
   [LINK_TYPE.SUPPLIER]: "Fornecedor",
   [LINK_TYPE.INTERNAL]: "Recurso Interno",
   [LINK_TYPE.OTHER]: "Outro",
-};
-
-// =====================
-// Driver Management Labels
-// =====================
-
-export const DRIVER_STATUS_LABELS: Record<DRIVER_STATUS, string> = {
-  [DRIVER_STATUS.ACTIVE]: "Ativo",
-  [DRIVER_STATUS.INACTIVE]: "Inativo",
-  [DRIVER_STATUS.SUSPENDED]: "Suspenso",
-  [DRIVER_STATUS.LICENSE_EXPIRED]: "CNH Vencida",
-};
-
-export const CNH_CATEGORY_LABELS: Record<CNH_CATEGORY, string> = {
-  [CNH_CATEGORY.A]: "Categoria A - Motocicleta",
-  [CNH_CATEGORY.B]: "Categoria B - Carro",
-  [CNH_CATEGORY.C]: "Categoria C - Caminhão",
-  [CNH_CATEGORY.D]: "Categoria D - Micro-ônibus",
-  [CNH_CATEGORY.E]: "Categoria E - Carreta",
-  [CNH_CATEGORY.AB]: "Categoria AB - A + B",
-  [CNH_CATEGORY.AC]: "Categoria AC - A + C",
-  [CNH_CATEGORY.AD]: "Categoria AD - A + D",
-  [CNH_CATEGORY.AE]: "Categoria AE - A + E",
-};
-
-export const LICENSE_TYPE_LABELS: Record<LICENSE_TYPE, string> = {
-  [LICENSE_TYPE.DEFINITIVE]: "Definitiva",
-  [LICENSE_TYPE.PROVISIONAL]: "Provisória",
-  [LICENSE_TYPE.INTERNATIONAL]: "Internacional",
-};
-
-export const BLOOD_TYPE_LABELS: Record<BLOOD_TYPE, string> = {
-  [BLOOD_TYPE.A_POSITIVE]: "A+",
-  [BLOOD_TYPE.A_NEGATIVE]: "A-",
-  [BLOOD_TYPE.B_POSITIVE]: "B+",
-  [BLOOD_TYPE.B_NEGATIVE]: "B-",
-  [BLOOD_TYPE.AB_POSITIVE]: "AB+",
-  [BLOOD_TYPE.AB_NEGATIVE]: "AB-",
-  [BLOOD_TYPE.O_POSITIVE]: "O+",
-  [BLOOD_TYPE.O_NEGATIVE]: "O-",
 };
 
 // =====================

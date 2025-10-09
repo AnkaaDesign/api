@@ -372,7 +372,7 @@ export class StatisticsCacheService {
     }
   }
 
-  async invalidateByEntityType(entityType: 'item' | 'activity' | 'order' | 'user' | 'sector' | 'price' | 'category' | 'brand'): Promise<void> {
+  async invalidateByEntityType(entityType: 'item' | 'activity' | 'order' | 'user' | 'sector' | 'price' | 'monetaryValue' | 'category' | 'brand'): Promise<void> {
     try {
       // Different entity types affect different statistics
       const patternsToInvalidate: string[] = [];
@@ -400,7 +400,8 @@ export class StatisticsCacheService {
           );
           break;
         case 'price':
-          // Price changes affect item overview and stock metrics
+        case 'monetaryValue':
+          // Price/monetary value changes affect item overview and stock metrics
           patternsToInvalidate.push(
             `${StatisticsCacheKeyBuilder['PREFIX']}:overview:*`,
             `${StatisticsCacheKeyBuilder['PREFIX']}:stock-metrics:*`

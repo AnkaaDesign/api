@@ -219,6 +219,7 @@ export const userOrderBySchema = z.union([
         .object({
           id: orderByWithNullsSchema.optional(),
           name: orderByWithNullsSchema.optional(),
+          hierarchy: orderByWithNullsSchema.optional(),
           createdAt: orderByWithNullsSchema.optional(),
           updatedAt: orderByWithNullsSchema.optional(),
         })
@@ -279,6 +280,7 @@ export const userOrderBySchema = z.union([
           .object({
             id: orderByWithNullsSchema.optional(),
             name: orderByWithNullsSchema.optional(),
+            hierarchy: orderByWithNullsSchema.optional(),
             createdAt: orderByWithNullsSchema.optional(),
             updatedAt: orderByWithNullsSchema.optional(),
           })
@@ -995,13 +997,13 @@ export const userGetManySchema = z
 
 // PPE Size nested creation schema
 const ppeSizeCreateNestedSchema = z.object({
-  shirts: z.string().optional(),
-  boots: z.string().optional(),
-  pants: z.string().optional(),
-  sleeves: z.string().optional(),
-  mask: z.string().optional(),
-  gloves: z.string().optional(),
-  rainBoots: z.string().optional(),
+  shirts: z.string().nullish(),
+  boots: z.string().nullish(),
+  pants: z.string().nullish(),
+  sleeves: z.string().nullish(),
+  mask: z.string().nullish(),
+  gloves: z.string().nullish(),
+  rainBoots: z.string().nullish(),
 });
 
 // Notification preferences nested creation schema

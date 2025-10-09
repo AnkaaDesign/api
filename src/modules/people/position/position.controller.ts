@@ -15,7 +15,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PositionService } from './position.service';
-import { PositionRemunerationService } from './position-remuneration.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
@@ -34,15 +33,6 @@ import type {
   PositionGetManyResponse,
   PositionGetUniqueResponse,
   PositionUpdateResponse,
-  PositionRemuneration,
-  PositionRemunerationBatchCreateResponse,
-  PositionRemunerationBatchDeleteResponse,
-  PositionRemunerationBatchUpdateResponse,
-  PositionRemunerationCreateResponse,
-  PositionRemunerationDeleteResponse,
-  PositionRemunerationGetManyResponse,
-  PositionRemunerationGetUniqueResponse,
-  PositionRemunerationUpdateResponse,
 } from '../../../types';
 import type {
   PositionCreateFormData,
@@ -52,14 +42,6 @@ import type {
   PositionBatchUpdateFormData,
   PositionBatchDeleteFormData,
   PositionQueryFormData,
-  PositionRemunerationCreateFormData,
-  PositionRemunerationUpdateFormData,
-  PositionRemunerationGetManyFormData,
-  PositionRemunerationBatchCreateFormData,
-  PositionRemunerationBatchUpdateFormData,
-  PositionRemunerationBatchDeleteFormData,
-  PositionRemunerationQueryFormData,
-  PositionRemunerationBatchQueryFormData,
 } from '../../../schemas/position';
 import {
   positionCreateSchema,
@@ -70,15 +52,6 @@ import {
   positionUpdateSchema,
   positionGetByIdSchema,
   positionQuerySchema,
-  positionRemunerationCreateSchema,
-  positionRemunerationBatchCreateSchema,
-  positionRemunerationBatchDeleteSchema,
-  positionRemunerationBatchUpdateSchema,
-  positionRemunerationGetManySchema,
-  positionRemunerationUpdateSchema,
-  positionRemunerationQuerySchema,
-  positionRemunerationBatchQuerySchema,
-  positionRemunerationGetByIdSchema,
 } from '../../../schemas/position';
 
 @Controller('positions')
@@ -172,101 +145,4 @@ export class PositionController {
 
   // Note: Users should get their position information through the user endpoints
   // This is just for HR/Admin to manage positions
-}
-
-@Controller('position-remunerations')
-export class PositionRemunerationController {
-  constructor(private readonly positionRemunerationService: PositionRemunerationService) {}
-
-  // Basic CRUD Operations
-  @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async findMany(
-    @Query(new ZodQueryValidationPipe(positionRemunerationGetManySchema))
-    query: PositionRemunerationGetManyFormData,
-  ): Promise<PositionRemunerationGetManyResponse> {
-    return this.positionRemunerationService.findMany(query);
-  }
-
-  // Batch Operations (before dynamic routes)
-  @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async batchCreate(
-    @Body(new ZodValidationPipe(positionRemunerationBatchCreateSchema))
-    data: PositionRemunerationBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(positionRemunerationBatchQuerySchema))
-    query: PositionRemunerationBatchQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationBatchCreateResponse<PositionRemunerationCreateFormData>> {
-    return this.positionRemunerationService.batchCreate(data, query.include, userId);
-  }
-
-  @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async batchUpdate(
-    @Body(new ZodValidationPipe(positionRemunerationBatchUpdateSchema))
-    data: PositionRemunerationBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(positionRemunerationBatchQuerySchema))
-    query: PositionRemunerationBatchQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationBatchUpdateResponse<PositionRemunerationUpdateFormData>> {
-    return this.positionRemunerationService.batchUpdate(data, query.include, userId);
-  }
-
-  @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async batchDelete(
-    @Body(new ZodValidationPipe(positionRemunerationBatchDeleteSchema))
-    data: PositionRemunerationBatchDeleteFormData,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationBatchDeleteResponse> {
-    return this.positionRemunerationService.batchDelete(data, userId);
-  }
-
-  @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async findById(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(positionRemunerationQuerySchema))
-    query: PositionRemunerationQueryFormData,
-  ): Promise<PositionRemunerationGetUniqueResponse> {
-    return this.positionRemunerationService.findById(id, query.include);
-  }
-
-  @Post()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body(new ZodValidationPipe(positionRemunerationCreateSchema))
-    data: PositionRemunerationCreateFormData,
-    @Query(new ZodQueryValidationPipe(positionRemunerationQuerySchema))
-    query: PositionRemunerationQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationCreateResponse> {
-    return this.positionRemunerationService.create(data, query.include, userId);
-  }
-
-  @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(positionRemunerationUpdateSchema))
-    data: PositionRemunerationUpdateFormData,
-    @Query(new ZodQueryValidationPipe(positionRemunerationQuerySchema))
-    query: PositionRemunerationQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationUpdateResponse> {
-    return this.positionRemunerationService.update(id, data, query.include, userId);
-  }
-
-  @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<PositionRemunerationDeleteResponse> {
-    return this.positionRemunerationService.delete(id, userId);
-  }
 }

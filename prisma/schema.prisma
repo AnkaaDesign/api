@@ -335,14 +335,6 @@ model File {
   @@index([path])
 }
 
-model Price {
-  id        String   @id @default(uuid())
-  value     Float
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-  itemId    String
-  item      Item     @relation(fields: [itemId], references: [id])
-}
 
 model MonetaryValue {
   id         String    @id @default(uuid())
@@ -376,17 +368,6 @@ model Measure {
   @@index([measureType])
 }
 
-model PositionRemuneration {
-  id         String   @id @default(uuid())
-  value      Float
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
-  positionId String
-  position   Position @relation("PositionRemunerations", fields: [positionId], references: [id])
-
-  @@index([positionId])
-  @@index([createdAt])
-}
 
 model Item {
   id                             String                   @id @default(uuid())
@@ -433,8 +414,7 @@ model Item {
   orderRules                     OrderRule[]
   formulaComponents              PaintFormulaComponent[]
   ppeDelivery                    PpeDelivery[]            @relation("PPE_DELIVERY_ITEM")
-  prices                         Price[]
-  monetaryValues                 MonetaryValue[]
+  prices                         MonetaryValue[]
   paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
   paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
   relatedItems                   Item[]                   @relation("RelatedItems")
@@ -859,16 +839,15 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id             String                  @id @default(uuid())
-  name           String                  @unique
-  createdAt      DateTime                @default(now())
-  updatedAt      DateTime                @updatedAt
-  bonifiable     Boolean                 @default(true)
-  hierarchy      Int?
-  remunerations  PositionRemuneration[]  @relation("PositionRemunerations")
-  monetaryValues MonetaryValue[]
-  users          User[]                  @relation("USER_POSITION")
-  payrolls       Payroll[]
+  id            String            @id @default(uuid())
+  name          String            @unique
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  bonifiable    Boolean           @default(true)
+  hierarchy     Int?
+  remunerations MonetaryValue[]
+  users         User[]            @relation("USER_POSITION")
+  payrolls      Payroll[]
 
   @@index([name])
   @@index([hierarchy])
