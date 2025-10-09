@@ -2359,6 +2359,14 @@ export class ItemService {
           id: { in: itemIds },
         },
         include: {
+          monetaryValues: {
+            orderBy: [
+              { current: 'desc' as const },
+              { createdAt: 'desc' as const }
+            ],
+            take: 1,
+          },
+          // Also include deprecated prices for backwards compatibility
           prices: {
             orderBy: { createdAt: 'desc' },
             take: 1,
@@ -2390,7 +2398,13 @@ export class ItemService {
           const itemIdentifier = item.uniCode ? `${item.uniCode} - ${item.name}` : item.name;
 
           try {
-            const currentPrice = item.prices[0]?.value || 0;
+            // Get current price from monetaryValues or fallback to deprecated prices
+            let currentPrice = 0;
+            if (item.monetaryValues && item.monetaryValues.length > 0) {
+              currentPrice = item.monetaryValues[0].value;
+            } else if (item.prices && item.prices.length > 0) {
+              currentPrice = item.prices[0].value;
+            }
 
             if (currentPrice === 0) {
               batchResults.push({
@@ -2416,12 +2430,18 @@ export class ItemService {
               continue;
             }
 
-            // Create new price record
-            await tx.price.create({
+            // Mark all existing monetary values as not current
+            await tx.monetaryValue.updateMany({
+              where: { itemId: item.id, current: true },
+              data: { current: false },
+            });
+
+            // Create new monetary value record marked as current
+            await tx.monetaryValue.create({
               data: {
                 itemId: item.id,
                 value: newPrice,
-                createdAt: new Date(),
+                current: true,
               },
             });
 

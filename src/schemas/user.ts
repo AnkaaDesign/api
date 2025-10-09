@@ -1,7 +1,7 @@
 // packages/schemas/src/user.ts
 
 import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, emailSchema, phoneSchema, cpfSchema, pisSchema, createNameSchema, nullableDate } from "./common";
+import { createMapToFormDataHelper, orderByDirectionSchema, orderByWithNullsSchema, normalizeOrderBy, emailSchema, phoneSchema, cpfSchema, pisSchema, createNameSchema, nullableDate } from "./common";
 import type { User } from '@types';
 import { USER_STATUS, VERIFICATION_TYPE } from '@constants';
 
@@ -198,9 +198,16 @@ export const userOrderBySchema = z.union([
       pis: orderByDirectionSchema.optional(),
       cpf: orderByDirectionSchema.optional(),
       verified: orderByDirectionSchema.optional(),
+      payrollNumber: orderByDirectionSchema.optional(),
       admissional: orderByDirectionSchema.optional(),
       birth: orderByDirectionSchema.optional(),
       dismissal: orderByDirectionSchema.optional(),
+      contractedAt: orderByDirectionSchema.optional(),
+      exp1StartAt: orderByDirectionSchema.optional(),
+      exp1EndAt: orderByDirectionSchema.optional(),
+      exp2StartAt: orderByDirectionSchema.optional(),
+      exp2EndAt: orderByDirectionSchema.optional(),
+      dismissedAt: orderByDirectionSchema.optional(),
       performanceLevel: orderByDirectionSchema.optional(),
       sectorId: orderByDirectionSchema.optional(),
       managedSectorId: orderByDirectionSchema.optional(),
@@ -210,28 +217,28 @@ export const userOrderBySchema = z.union([
       // Nested relation ordering
       position: z
         .object({
-          id: orderByDirectionSchema.optional(),
-          name: orderByDirectionSchema.optional(),
-          createdAt: orderByDirectionSchema.optional(),
-          updatedAt: orderByDirectionSchema.optional(),
+          id: orderByWithNullsSchema.optional(),
+          name: orderByWithNullsSchema.optional(),
+          createdAt: orderByWithNullsSchema.optional(),
+          updatedAt: orderByWithNullsSchema.optional(),
         })
         .optional(),
 
       sector: z
         .object({
-          id: orderByDirectionSchema.optional(),
-          name: orderByDirectionSchema.optional(),
-          createdAt: orderByDirectionSchema.optional(),
-          updatedAt: orderByDirectionSchema.optional(),
+          id: orderByWithNullsSchema.optional(),
+          name: orderByWithNullsSchema.optional(),
+          createdAt: orderByWithNullsSchema.optional(),
+          updatedAt: orderByWithNullsSchema.optional(),
         })
         .optional(),
 
       managedSector: z
         .object({
-          id: orderByDirectionSchema.optional(),
-          name: orderByDirectionSchema.optional(),
-          createdAt: orderByDirectionSchema.optional(),
-          updatedAt: orderByDirectionSchema.optional(),
+          id: orderByWithNullsSchema.optional(),
+          name: orderByWithNullsSchema.optional(),
+          createdAt: orderByWithNullsSchema.optional(),
+          updatedAt: orderByWithNullsSchema.optional(),
         })
         .optional(),
     })
@@ -251,14 +258,49 @@ export const userOrderBySchema = z.union([
         pis: orderByDirectionSchema.optional(),
         cpf: orderByDirectionSchema.optional(),
         verified: orderByDirectionSchema.optional(),
+        payrollNumber: orderByDirectionSchema.optional(),
         admissional: orderByDirectionSchema.optional(),
         birth: orderByDirectionSchema.optional(),
         dismissal: orderByDirectionSchema.optional(),
+        contractedAt: orderByDirectionSchema.optional(),
+        exp1StartAt: orderByDirectionSchema.optional(),
+        exp1EndAt: orderByDirectionSchema.optional(),
+        exp2StartAt: orderByDirectionSchema.optional(),
+        exp2EndAt: orderByDirectionSchema.optional(),
+        dismissedAt: orderByDirectionSchema.optional(),
         performanceLevel: orderByDirectionSchema.optional(),
         sectorId: orderByDirectionSchema.optional(),
         managedSectorId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
+
+        // Nested relation ordering
+        position: z
+          .object({
+            id: orderByWithNullsSchema.optional(),
+            name: orderByWithNullsSchema.optional(),
+            createdAt: orderByWithNullsSchema.optional(),
+            updatedAt: orderByWithNullsSchema.optional(),
+          })
+          .optional(),
+
+        sector: z
+          .object({
+            id: orderByWithNullsSchema.optional(),
+            name: orderByWithNullsSchema.optional(),
+            createdAt: orderByWithNullsSchema.optional(),
+            updatedAt: orderByWithNullsSchema.optional(),
+          })
+          .optional(),
+
+        managedSector: z
+          .object({
+            id: orderByWithNullsSchema.optional(),
+            name: orderByWithNullsSchema.optional(),
+            createdAt: orderByWithNullsSchema.optional(),
+            updatedAt: orderByWithNullsSchema.optional(),
+          })
+          .optional(),
       })
       .partial(),
   ),
@@ -424,6 +466,96 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
 
       dismissal: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      contractedAt: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      exp1StartAt: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      exp1EndAt: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      exp2StartAt: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      exp2EndAt: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      dismissedAt: z
         .union([
           z.date(),
           z.null(),
@@ -868,6 +1000,8 @@ const ppeSizeCreateNestedSchema = z.object({
   pants: z.string().optional(),
   sleeves: z.string().optional(),
   mask: z.string().optional(),
+  gloves: z.string().optional(),
+  rainBoots: z.string().optional(),
 });
 
 // Notification preferences nested creation schema
@@ -892,18 +1026,18 @@ export const userCreateSchema = z
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().default(false),
-    admissional: nullableDate.optional(),
+    admissional: z.coerce.date({ required_error: "Data de admissão é obrigatória", invalid_type_error: "Data de admissão inválida" }),
     performanceLevel: z.number().int().min(0).max(5).default(0),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
     managedSectorId: z.string().uuid("Setor gerenciado inválido").nullable().optional(),
     password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres").nullable().optional(),
 
     // Address fields
-    address: z.string().min(1, "Endereço é obrigatório").nullable().optional(),
-    addressNumber: z.string().min(1, "Número é obrigatório").nullable().optional(),
+    address: z.string().nullable().optional(),
+    addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
-    neighborhood: z.string().min(1, "Bairro é obrigatório").nullable().optional(),
-    city: z.string().min(1, "Cidade é obrigatória").nullable().optional(),
+    neighborhood: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
     state: z.string().length(2, "Estado deve ter 2 caracteres").nullable().optional(),
     zipCode: z.string().nullable().optional(),
     site: z.string().url("URL inválida").nullable().optional(),
@@ -920,6 +1054,14 @@ export const userCreateSchema = z
         { message: "O colaborador deve ter pelo menos 18 anos" }
       ),
     dismissal: nullableDate.optional(),
+
+    // Status timestamp tracking
+    contractedAt: nullableDate.optional(),
+    exp1StartAt: nullableDate.optional(),
+    exp1EndAt: nullableDate.optional(),
+    exp2StartAt: nullableDate.optional(),
+    exp2EndAt: nullableDate.optional(),
+    dismissedAt: nullableDate.optional(),
 
     // Payroll info
     payrollNumber: z.number().int().positive("Número da folha deve ser positivo").nullable().optional(),
@@ -980,6 +1122,14 @@ export const userUpdateSchema = z
       .optional(),
     dismissal: nullableDate.optional(),
 
+    // Status timestamp tracking
+    contractedAt: nullableDate.optional(),
+    exp1StartAt: nullableDate.optional(),
+    exp1EndAt: nullableDate.optional(),
+    exp2StartAt: nullableDate.optional(),
+    exp2EndAt: nullableDate.optional(),
+    dismissedAt: nullableDate.optional(),
+
     // Payroll info
     payrollNumber: z.number().int().positive("Número da folha deve ser positivo").nullable().optional(),
     secullumId: z.string().nullable().optional(),
@@ -997,6 +1147,8 @@ export const userUpdateSchema = z
     // Required for changelog tracking
     userId: z.string().optional(),
     preferences: z.record(z.any()).optional(),
+    // PPE Size update
+    ppeSize: ppeSizeCreateNestedSchema.optional(),
     // Store current status for validation (used by backend)
     currentStatus: z.nativeEnum(USER_STATUS).optional(),
   })

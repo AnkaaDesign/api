@@ -8,24 +8,39 @@ import type { User, UserIncludes, UserOrderBy } from "./user";
 // Main Entity Interfaces
 // =====================
 
+export interface MonetaryValue extends BaseEntity {
+  value: number;
+  current: boolean;
+  itemId: string | null;
+  positionId: string | null;
+
+  // Relations (optional, populated based on query)
+  item?: any; // Item type
+  position?: Position;
+}
+
 export interface Position extends BaseEntity {
   name: string;
+  hierarchy: number | null;
   bonifiable: boolean;
 
   // Relations (optional, populated based on query)
   users?: User[];
-  remunerations?: PositionRemuneration[];
+  monetaryValues?: MonetaryValue[];
+  remunerations?: PositionRemuneration[]; // DEPRECATED: use monetaryValues
 
-  // Virtual field (computed from latest remuneration)
+  // Virtual field (computed from latest/current monetary value)
   remuneration?: number;
 
   // Count fields (when included)
   _count?: {
     users?: number;
-    remunerations?: number;
+    monetaryValues?: number;
+    remunerations?: number; // DEPRECATED
   };
 }
 
+// DEPRECATED: Use MonetaryValue instead
 export interface PositionRemuneration extends BaseEntity {
   value: number;
   positionId: string;
@@ -38,13 +53,23 @@ export interface PositionRemuneration extends BaseEntity {
 // Include Types
 // =====================
 
+export interface MonetaryValueIncludes {
+  item?: boolean | { include?: any };
+  position?: boolean | { include?: PositionIncludes };
+}
+
 export interface PositionIncludes {
   users?:
     | boolean
     | {
         include?: UserIncludes;
       };
-  remunerations?:
+  monetaryValues?:
+    | boolean
+    | {
+        include?: MonetaryValueIncludes;
+      };
+  remunerations?:  // DEPRECATED: use monetaryValues
     | boolean
     | {
         include?: PositionRemunerationIncludes;
@@ -66,6 +91,7 @@ export interface PositionRemunerationIncludes {
 export interface PositionOrderBy {
   id?: ORDER_BY_DIRECTION;
   name?: ORDER_BY_DIRECTION;
+  hierarchy?: ORDER_BY_DIRECTION;
   remuneration?: ORDER_BY_DIRECTION;
   user?: UserOrderBy;
   createdAt?: ORDER_BY_DIRECTION;

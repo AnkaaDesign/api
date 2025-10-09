@@ -142,11 +142,16 @@ export class PositionService {
           include,
         });
 
-        // Criar registro de remuneração inicial
-        await this.positionRemunerationRepository.createWithTransaction(tx, {
-          positionId: newPosition.id,
-          value: data.remuneration,
-        });
+        // Criar registro de remuneração inicial usando MonetaryValue
+        if (data.remuneration && data.remuneration > 0) {
+          await tx.monetaryValue.create({
+            data: {
+              value: data.remuneration,
+              current: true, // Mark as current value
+              positionId: newPosition.id,
+            },
+          });
+        }
 
         // Registrar no changelog
         await logEntityChange({
@@ -230,15 +235,22 @@ export class PositionService {
         });
 
         // Special handling for remuneration changes
-        const currentRemuneration =
-          existingPosition.remunerations && existingPosition.remunerations.length > 0
-            ? existingPosition.remunerations[0].value
-            : existingPosition.remuneration || 0;
+        const currentRemuneration = existingPosition.remuneration || 0;
 
         if (data.remuneration && data.remuneration !== currentRemuneration) {
-          await this.positionRemunerationRepository.createWithTransaction(tx, {
-            positionId: id,
-            value: data.remuneration,
+          // Mark all existing monetary values as not current
+          await tx.monetaryValue.updateMany({
+            where: { positionId: id, current: true },
+            data: { current: false },
+          });
+
+          // Create new monetary value marked as current
+          await tx.monetaryValue.create({
+            data: {
+              value: data.remuneration,
+              current: true,
+              positionId: id,
+            },
           });
 
           // Log remuneration change with additional context

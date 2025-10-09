@@ -82,8 +82,31 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       switch (exception.code) {
         case 'P2002':
           status = HttpStatus.CONFLICT;
-          errorResponse.message = 'Registro duplicado. Verifique os dados únicos.';
           errorResponse.error = 'UNIQUE_CONSTRAINT_VIOLATION';
+
+          // Extract field name from Prisma meta
+          const target = exception.meta?.target;
+          let fieldName = 'campo';
+
+          if (Array.isArray(target) && target.length > 0) {
+            fieldName = target[0];
+          } else if (typeof target === 'string') {
+            fieldName = target;
+          }
+
+          // Provide specific Portuguese error messages for each unique field
+          const uniqueFieldMessages: Record<string, string> = {
+            'email': 'Este email já está em uso.',
+            'phone': 'Este telefone já está em uso.',
+            'cpf': 'Este CPF já está cadastrado.',
+            'pis': 'Este PIS já está cadastrado.',
+            'payrollNumber': 'Este número da folha de pagamento já está em uso.',
+            'secullumId': 'Este ID Secullum já está cadastrado.',
+            'sessionToken': 'Este token de sessão já está em uso.',
+            'preferenceId': 'Esta preferência já está cadastrada.',
+          };
+
+          errorResponse.message = uniqueFieldMessages[fieldName] || 'Este valor já está em uso no sistema.';
           break;
         case 'P2003':
           status = HttpStatus.BAD_REQUEST;

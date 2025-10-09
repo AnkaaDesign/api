@@ -42,8 +42,7 @@ export class ItemPrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Item {
-    // Convert Decimal fields to numbers
-    return {
+    const item = {
       ...databaseEntity,
       monthlyConsumption: databaseEntity.monthlyConsumption
         ? Number(databaseEntity.monthlyConsumption)
@@ -52,6 +51,26 @@ export class ItemPrismaRepository
         ? Number(databaseEntity.monthlyConsumptionTrendPercent)
         : null,
     } as Item;
+
+    // Add virtual price field from latest monetary value or price record
+    // Priority: 1. monetaryValues (current=true), 2. prices (deprecated), 3. default to 0
+    if (item.monetaryValues && item.monetaryValues.length > 0) {
+      // Find the current monetary value or use the most recent one
+      const currentValue = item.monetaryValues.find((mv: any) => mv.current === true);
+      if (currentValue) {
+        item.price = currentValue.value;
+      } else {
+        // Fallback to the first (most recent) monetary value
+        item.price = item.monetaryValues[0].value;
+      }
+    } else if (item.prices && item.prices.length > 0) {
+      // Fallback to deprecated prices for backwards compatibility
+      item.price = item.prices[0].value;
+    } else {
+      item.price = 0; // Explicitly set to 0
+    }
+
+    return item;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
@@ -347,11 +366,26 @@ export class ItemPrismaRepository
       brand: true,
       category: true,
       supplier: true,
+      // Fetch monetary values (new approach) ordered by current=true first, then by most recent
+      monetaryValues: {
+        orderBy: [
+          { current: 'desc' as const },
+          { createdAt: 'desc' as const }
+        ],
+        take: 5, // Get a few recent values for history
+      },
+      // Also fetch deprecated prices for backwards compatibility
       prices: {
         orderBy: {
           updatedAt: 'desc',
         },
         take: 1,
+      },
+      _count: {
+        select: {
+          monetaryValues: true,
+          prices: true,
+        },
       },
     };
   }

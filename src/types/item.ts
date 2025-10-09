@@ -8,6 +8,10 @@ import type { Borrow, BorrowIncludes } from "./borrow";
 import type { OrderItem, OrderItemIncludes } from "./order";
 import type { PpeDelivery, PpeDeliveryIncludes, PpeDeliverySchedule, PpeDeliveryScheduleIncludes } from "./ppe";
 import type { Measure, MeasureIncludes } from "./measure";
+import type { MonetaryValue } from "./position";
+
+// Re-export MonetaryValue for convenience
+export type { MonetaryValue };
 
 // =====================
 // Main Entity Interfaces
@@ -30,6 +34,7 @@ export interface ItemCategory extends BaseEntity {
   items?: Item[];
 }
 
+// DEPRECATED: Use MonetaryValue instead
 export interface Price extends BaseEntity {
   value: number;
   itemId: string;
@@ -79,7 +84,8 @@ export interface Item extends BaseEntity {
   brand?: ItemBrand;
   category?: ItemCategory;
   supplier?: Supplier;
-  prices?: Price[];
+  monetaryValues?: MonetaryValue[];
+  prices?: Price[]; // DEPRECATED: use monetaryValues
   measures?: Measure[];
   activities?: Activity[];
   borrows?: Borrow[];
@@ -88,6 +94,9 @@ export interface Item extends BaseEntity {
   ppeSchedules?: PpeDeliverySchedule[];
   relatedItems?: Item[];
   relatedTo?: Item[];
+
+  // Virtual field (computed from latest/current monetary value)
+  price?: number;
 }
 
 // =====================

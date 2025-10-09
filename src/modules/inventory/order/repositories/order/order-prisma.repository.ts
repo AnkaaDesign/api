@@ -81,6 +81,12 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
     },
   },
   activities: true,
+  _count: {
+    select: {
+      items: true,
+      activities: true,
+    },
+  },
 };
 
 @Injectable()
@@ -173,7 +179,6 @@ export class OrderPrismaRepository
           receivedQuantity: 0,
           price: item.price,
           tax: item.tax || 0,
-          isCritical: item.isCritical || false,
           item: { connect: { id: item.itemId } },
         })),
       };
@@ -498,7 +503,6 @@ export class OrderPrismaRepository
       receivedQuantity: databaseOrderItem.receivedQuantity,
       price: databaseOrderItem.price,
       tax: databaseOrderItem.tax,
-      isCritical: databaseOrderItem.isCritical,
       receivedAt: databaseOrderItem.receivedAt,
       item: databaseOrderItem.item,
       order: databaseOrderItem.order,

@@ -8,6 +8,13 @@ import type { Position, PositionRemuneration } from '@types';
 // Include Schemas (Second Level Only)
 // =====================
 
+export const monetaryValueIncludeSchema = z
+  .object({
+    item: z.boolean().optional(),
+    position: z.boolean().optional(),
+  })
+  .partial();
+
 export const positionIncludeSchema = z
   .object({
     users: z
@@ -39,7 +46,15 @@ export const positionIncludeSchema = z
         }),
       ])
       .optional(),
-    remunerations: z
+    monetaryValues: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: monetaryValueIncludeSchema.optional(),
+        }),
+      ])
+      .optional(),
+    remunerations: z  // DEPRECATED: use monetaryValues
       .union([
         z.boolean(),
         z.object({
@@ -83,6 +98,7 @@ export const positionOrderBySchema = z.union([
     .object({
       id: orderByDirectionSchema.optional(),
       name: orderByDirectionSchema.optional(),
+      hierarchy: orderByDirectionSchema.optional(),
       remuneration: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
@@ -94,6 +110,7 @@ export const positionOrderBySchema = z.union([
       .object({
         id: orderByDirectionSchema.optional(),
         name: orderByDirectionSchema.optional(),
+        hierarchy: orderByDirectionSchema.optional(),
         remuneration: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
@@ -166,6 +183,22 @@ export const positionWhereSchema: z.ZodType<any> = z
 
     // Numeric fields
     remuneration: z
+      .union([
+        z.number(),
+        z.object({
+          equals: z.number().optional(),
+          not: z.number().optional(),
+          in: z.array(z.number()).optional(),
+          notIn: z.array(z.number()).optional(),
+          lt: z.number().optional(),
+          lte: z.number().optional(),
+          gt: z.number().optional(),
+          gte: z.number().optional(),
+        }),
+      ])
+      .optional(),
+
+    hierarchy: z
       .union([
         z.number(),
         z.object({
@@ -462,6 +495,7 @@ const toFormData = <T>(data: T) => data;
 export const positionCreateSchema = z
   .object({
     name: createNameSchema(1, 100, "Nome do cargo"),
+    hierarchy: z.number().int("Hierarquia deve ser um número inteiro").min(0, "Hierarquia deve ser maior ou igual a zero").max(999, "Hierarquia deve ser menor que 1000").optional().nullable(),
     remuneration: z.number().min(0, "Remuneração deve ser maior ou igual a zero").max(999999.99, "Remuneração deve ser menor que R$ 1.000.000,00"),
     bonifiable: z.boolean().optional(),
   })
@@ -470,6 +504,7 @@ export const positionCreateSchema = z
 export const positionUpdateSchema = z
   .object({
     name: createNameSchema(1, 100, "Nome do cargo").optional(),
+    hierarchy: z.number().int("Hierarquia deve ser um número inteiro").min(0, "Hierarquia deve ser maior ou igual a zero").max(999, "Hierarquia deve ser menor que 1000").optional().nullable(),
     remuneration: z.number().min(0, "Remuneração deve ser maior ou igual a zero").max(999999.99, "Remuneração deve ser menor que R$ 1.000.000,00").optional(),
     bonifiable: z.boolean().optional(),
   })
@@ -686,6 +721,7 @@ export type PositionRemunerationWhere = z.infer<typeof positionRemunerationWhere
 
 export const mapPositionToFormData = createMapToFormDataHelper<Position, PositionUpdateFormData>((position) => ({
   name: position.name,
+  hierarchy: position.hierarchy,
   remuneration: position.remuneration,
   bonifiable: position.bonifiable,
 }));

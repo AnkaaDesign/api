@@ -198,12 +198,6 @@ export class OrderService {
       throw new NotFoundException(`Item com ID ${item.itemId} não encontrado.`);
     }
 
-    if (!catalogItem.isActive) {
-      throw new BadRequestException(
-        `Item "${catalogItem.name}" está inativo e não pode ser pedido.`,
-      );
-    }
-
     // Removed supplier validation - items can be ordered from any supplier
 
     // Validar quantidade positiva
@@ -1292,7 +1286,6 @@ export class OrderService {
             orderedQuantity: data.orderedQuantity,
             price: data.price !== undefined ? data.price : existingItem.price,
             tax: data.tax !== undefined ? data.tax : existingItem.tax,
-            isCritical: existingItem.isCritical,
           };
 
           // Validar o item com a nova quantidade
@@ -1316,7 +1309,6 @@ export class OrderService {
                     : existingItem.orderedQuantity,
                 price: data.price !== undefined ? data.price : existingItem.price,
                 tax: data.tax !== undefined ? data.tax : existingItem.tax,
-                isCritical: existingItem.isCritical,
               },
             ],
             tx,
@@ -1411,7 +1403,6 @@ export class OrderService {
           'receivedQuantity',
           'price',
           'tax',
-          'isCritical',
           'receivedAt',
         ];
 

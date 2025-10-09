@@ -126,7 +126,7 @@ export const phoneSchema = z
     // Don't transform if the value is already valid
     // This preserves existing phone numbers that might be in different formats
     if (!val || val.trim() === "") {
-      return "";
+      return null;
     }
 
     // If it's already a valid phone format, keep it as is
@@ -146,13 +146,14 @@ export const phoneSchema = z
   })
   .refine(
     (val) => {
-      // Allow empty strings (for optional phones)
-      if (!val || val.trim() === "") return true;
+      // Allow null/empty values (for optional phones)
+      if (!val || val === null) return true;
       // Otherwise must be valid
       return isValidPhone(val);
     },
     { message: "Número de telefone inválido" },
-  );
+  )
+  .nullable();
 
 export const pisSchema = z.string().transform(cleanPIS).refine(isValidPIS, { message: "PIS inválido" });
 
@@ -241,6 +242,16 @@ export const createDescriptionSchema = (minLength = 3, maxLength = 1000, require
 // =====================
 
 export const orderByDirectionSchema = z.enum(["asc", "desc"]);
+
+// Schema for orderBy with nulls handling (Prisma 4+ format)
+// Supports both simple direction and object with sort + nulls
+export const orderByWithNullsSchema = z.union([
+  orderByDirectionSchema,
+  z.object({
+    sort: orderByDirectionSchema,
+    nulls: z.enum(["first", "last"]).optional(),
+  }),
+]);
 
 /**
  * Normalizes orderBy to Prisma format.

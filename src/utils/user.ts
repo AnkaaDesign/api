@@ -2,7 +2,7 @@ import type { User } from '@types';
 import { USER_STATUS, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
 import { getSectorPrivilegeLevel } from "./privilege";
 import { dateUtils } from "./date";
-import type { UserStatus, VerificationType, ShirtSize, BootSize, PantsSize, SleevesSize, MaskSize } from "@prisma/client";
+import type { UserStatus, VerificationType, ShirtSize, BootSize, PantsSize, SleevesSize, MaskSize, GlovesSize, RainBootsSize } from "@prisma/client";
 
 /**
  * Map USER_STATUS enum to Prisma UserStatus enum
@@ -42,6 +42,14 @@ export function mapSleevesSizeToPrisma(size: string | null | undefined): Sleeves
 
 export function mapMaskSizeToPrisma(size: string | null | undefined): MaskSize | null | undefined {
   return size as MaskSize | null | undefined;
+}
+
+export function mapGlovesSizeToPrisma(size: string | null | undefined): GlovesSize | null | undefined {
+  return size as GlovesSize | null | undefined;
+}
+
+export function mapRainBootsSizeToPrisma(size: string | null | undefined): RainBootsSize | null | undefined {
+  return size as RainBootsSize | null | undefined;
 }
 
 /**

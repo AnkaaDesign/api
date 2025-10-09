@@ -72,6 +72,7 @@ export const observationOrderBySchema = z
         // Observation direct fields (matching Prisma model)
         id: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
+        reason: orderByDirectionSchema.optional(),
         description: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
@@ -97,6 +98,7 @@ export const observationOrderBySchema = z
         .object({
           id: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
+          reason: orderByDirectionSchema.optional(),
           description: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
@@ -143,6 +145,18 @@ export const observationWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
 
       taskId: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+            not: z.string().optional(),
+          }),
+        ])
+        .optional(),
+
+      reason: z
         .union([
           z.string(),
           z.object({
@@ -329,6 +343,7 @@ const toFormData = <T>(data: T) => data;
 
 export const observationCreateSchema = z
   .object({
+    reason: z.string().min(1, "Motivo é obrigatório"),
     description: z.string().min(1, "Descrição é obrigatória"),
     taskId: z.string().uuid("Tarefa inválida"),
     fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
@@ -337,6 +352,7 @@ export const observationCreateSchema = z
 
 export const observationUpdateSchema = z
   .object({
+    reason: z.string().optional(),
     description: z.string().min(1, "Descrição é obrigatória").optional(),
     taskId: z.string().uuid("Tarefa inválida").optional(),
     fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
@@ -395,6 +411,7 @@ export type ObservationWhere = z.infer<typeof observationWhereSchema>;
 // =====================
 
 export const mapObservationToFormData = createMapToFormDataHelper<Observation, ObservationUpdateFormData>((observation) => ({
+  reason: observation.reason,
   description: observation.description,
   taskId: observation.taskId,
   fileIds: observation.files?.map((file) => file.id),

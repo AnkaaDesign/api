@@ -95,7 +95,6 @@ export interface OrderItem extends BaseEntity {
   price: number;
   unitPrice?: number;
   tax: number;
-  isCritical: boolean;
   receivedAt: Date | null;
   fulfilledAt: Date | null;
 
@@ -136,6 +135,12 @@ export interface Order extends BaseEntity {
   ppeSchedule?: PpeDeliverySchedule;
   items?: OrderItem[];
   activities?: Activity[];
+
+  // Prisma count fields
+  _count?: {
+    items?: number;
+    activities?: number;
+  };
 }
 
 // =====================
@@ -294,7 +299,6 @@ export interface OrderItemWhere {
   receivedQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   price?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   tax?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  isCritical?: boolean | { equals?: boolean; not?: boolean };
   receivedAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   fulfilledAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
@@ -353,7 +357,6 @@ export interface OrderItemOrderBy {
   receivedQuantity?: ORDER_BY_DIRECTION;
   price?: ORDER_BY_DIRECTION;
   tax?: ORDER_BY_DIRECTION;
-  isCritical?: ORDER_BY_DIRECTION;
   receivedAt?: ORDER_BY_DIRECTION;
   fulfilledAt?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;

@@ -44,10 +44,19 @@ export class PositionPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Position {
     const position = databaseEntity as Position;
 
-
-    // Add virtual remuneration field from latest remuneration record
-    if (position.remunerations && position.remunerations.length > 0) {
-      // Assuming remunerations are ordered by createdAt desc
+    // Add virtual remuneration field from latest monetary value or remuneration record
+    // Priority: 1. monetaryValues (current=true), 2. remunerations (deprecated), 3. default to 0
+    if (position.monetaryValues && position.monetaryValues.length > 0) {
+      // Find the current monetary value or use the most recent one
+      const currentValue = position.monetaryValues.find((mv: any) => mv.current === true);
+      if (currentValue) {
+        position.remuneration = currentValue.value;
+      } else {
+        // Fallback to the first (most recent) monetary value
+        position.remuneration = position.monetaryValues[0].value;
+      }
+    } else if (position.remunerations && position.remunerations.length > 0) {
+      // Fallback to deprecated remunerations for backwards compatibility
       position.remuneration = position.remunerations[0].value;
     } else {
       position.remuneration = 0; // Explicitly set to 0
@@ -59,9 +68,11 @@ export class PositionPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: PositionCreateFormData,
   ): Prisma.PositionCreateInput {
-    // Note: remuneration is handled separately in the service layer
+    // Note: remuneration is handled separately in the service layer via MonetaryValue
     return {
       name: formData.name,
+      hierarchy: formData.hierarchy !== undefined ? formData.hierarchy : null,
+      bonifiable: formData.bonifiable !== undefined ? formData.bonifiable : true,
     };
   }
 
@@ -74,7 +85,15 @@ export class PositionPrismaRepository
       updateInput.name = formData.name;
     }
 
-    // Note: remuneration is handled separately in the service layer
+    if (formData.hierarchy !== undefined) {
+      updateInput.hierarchy = formData.hierarchy;
+    }
+
+    if (formData.bonifiable !== undefined) {
+      updateInput.bonifiable = formData.bonifiable;
+    }
+
+    // Note: remuneration is handled separately in the service layer via MonetaryValue
 
     return updateInput;
   }
@@ -88,6 +107,14 @@ export class PositionPrismaRepository
   protected mapOrderByToDatabaseOrderBy(
     orderBy?: PositionOrderBy,
   ): Prisma.PositionOrderByWithRelationInput | undefined {
+    if (!orderBy) return undefined;
+
+    // If it's an array, take the first element to satisfy type requirements
+    // Prisma supports both single object and array of objects for orderBy at runtime
+    if (Array.isArray(orderBy)) {
+      return orderBy[0] as Prisma.PositionOrderByWithRelationInput;
+    }
+
     return orderBy as Prisma.PositionOrderByWithRelationInput;
   }
 
@@ -102,6 +129,15 @@ export class PositionPrismaRepository
           sector: true,
         },
       },
+      // Fetch monetary values (new approach) ordered by current=true first, then by most recent
+      monetaryValues: {
+        orderBy: [
+          { current: 'desc' as const },
+          { createdAt: 'desc' as const }
+        ],
+        take: 5, // Get a few recent values for history
+      },
+      // Also fetch deprecated remunerations for backwards compatibility
       remunerations: {
         orderBy: { createdAt: 'desc' },
         take: 1,
@@ -109,6 +145,7 @@ export class PositionPrismaRepository
       _count: {
         select: {
           users: true,
+          monetaryValues: true,
           remunerations: true,
         },
       },

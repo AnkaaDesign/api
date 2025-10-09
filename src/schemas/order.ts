@@ -311,7 +311,6 @@ export const orderItemOrderBySchema = z.union([
       receivedQuantity: orderByDirectionSchema.optional(),
       price: orderByDirectionSchema.optional(),
       tax: orderByDirectionSchema.optional(),
-      isCritical: orderByDirectionSchema.optional(),
       receivedAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
@@ -581,17 +580,6 @@ export const orderItemWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      // Boolean fields
-      isCritical: z
-        .union([
-          z.boolean(),
-          z.object({
-            equals: z.boolean().optional(),
-            not: z.boolean().optional(),
-          }),
-        ])
-        .optional(),
-
       // Number fields
       orderedQuantity: z
         .union([
@@ -807,7 +795,6 @@ const orderItemFilters = {
   orderIds: z.array(z.string()).optional(),
   itemIds: z.array(z.string()).optional(),
   isReceived: z.boolean().optional(),
-  isCritical: z.boolean().optional(),
   quantityRange: z
     .object({
       min: z.number().optional(),
@@ -1009,12 +996,6 @@ const orderItemTransform = (data: any) => {
       andConditions.push({ receivedAt: null });
     }
     delete data.isReceived;
-  }
-
-  // Handle isCritical filter
-  if (typeof data.isCritical === "boolean") {
-    andConditions.push({ isCritical: data.isCritical });
-    delete data.isCritical;
   }
 
   // Handle quantityRange filter
@@ -1326,7 +1307,6 @@ export const orderCreateSchema = z
             .max(100, "Taxa deve ser menor ou igual a 100")
             .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
             .default(0),
-          isCritical: z.boolean().default(false),
         }),
       )
       .refine(
@@ -1382,7 +1362,6 @@ export const orderItemCreateSchema = z
       .max(100, "Taxa deve ser menor ou igual a 100")
       .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
       .default(0),
-    isCritical: z.boolean().default(false),
   })
   .transform(toFormData);
 
@@ -1397,7 +1376,6 @@ export const orderItemUpdateSchema = z
       .max(100, "Taxa deve ser menor ou igual a 100")
       .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
       .optional(),
-    isCritical: z.boolean().optional(),
     receivedAt: z.coerce.date().optional(),
     fulfilledAt: z.coerce.date().optional(),
   })
@@ -1747,7 +1725,6 @@ export const mapOrderItemToFormData = createMapToFormDataHelper<OrderItem, Order
   receivedQuantity: orderItem.receivedQuantity,
   price: orderItem.price,
   tax: orderItem.tax,
-  isCritical: orderItem.isCritical,
   receivedAt: orderItem.receivedAt || undefined,
 }));
 

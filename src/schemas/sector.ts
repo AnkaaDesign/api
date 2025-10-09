@@ -33,6 +33,27 @@ export const sectorIncludeSchema = z
         }),
       ])
       .optional(),
+    managedByUsers: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              ppeSize: z.boolean().optional(),
+              preference: z.boolean().optional(),
+              position: z.boolean().optional(),
+              sector: z.boolean().optional(),
+              activities: z.boolean().optional(),
+              borrows: z.boolean().optional(),
+              notifications: z.boolean().optional(),
+              tasks: z.boolean().optional(),
+              vacations: z.boolean().optional(),
+              commissions: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     tasks: z
       .union([
         z.boolean(),
@@ -60,7 +81,19 @@ export const sectorIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              users: z.boolean().optional(),
+              tasks: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
   .optional();
 

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema, createDescriptionSchema, nullableDate, moneySchema } from "./common";
 import type { Task } from '@types';
-import { TASK_STATUS, SERVICE_ORDER_STATUS } from '@constants';
+import { TASK_STATUS, SERVICE_ORDER_STATUS, COMMISSION_STATUS } from '@constants';
 import { cutCreateNestedSchema } from "./cut";
 import { airbrushingCreateNestedSchema } from "./airbrushing";
 
@@ -1163,6 +1163,11 @@ export const taskCreateSchema = z
     customerId: z.string().uuid("Cliente inválido").min(1, "Cliente é obrigatório"),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
     price: moneySchema.nullable().optional(),
+    commission: z
+      .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: "Status de comissão inválido" }),
+      })
+      .default(COMMISSION_STATUS.FULL_COMMISSION),
 
     // Relations - File arrays
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
@@ -1260,6 +1265,11 @@ export const taskUpdateSchema = z
     customerId: z.string().uuid("Cliente inválido").nullable().optional(),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
     price: moneySchema.nullable().optional(),
+    commission: z
+      .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
+        errorMap: () => ({ message: "Status de comissão inválido" }),
+      })
+      .optional(),
 
     // Relations - File arrays
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),

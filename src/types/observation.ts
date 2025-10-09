@@ -10,6 +10,7 @@ import type { Task, TaskIncludes, TaskOrderBy } from "./task";
 // =====================
 
 export interface Observation extends BaseEntity {
+  reason: string; // TASK_OBSERVATION_TYPE enum value
   description: string;
   taskId: string;
 
@@ -45,6 +46,7 @@ export interface ObservationIncludes {
 
 export interface ObservationOrderBy {
   id?: ORDER_BY_DIRECTION;
+  reason?: ORDER_BY_DIRECTION;
   description?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;

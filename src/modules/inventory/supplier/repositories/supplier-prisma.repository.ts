@@ -140,7 +140,7 @@ export class SupplierPrismaRepository
   protected getDefaultInclude(): Prisma.SupplierInclude {
     return {
       logo: true,
-      items: true,
+      // Don't load items by default, use _count instead for better performance
       orders: {
         take: 5,
         orderBy: { createdAt: 'desc' },

@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  HttpException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
@@ -399,11 +400,6 @@ export class ExternalWithdrawalService {
       throw new NotFoundException(`Item não encontrado`);
     }
 
-    // Check if item is active
-    if (!item.isActive) {
-      throw new BadRequestException(`Item "${item.name}" não está ativo e não pode ser retirado`);
-    }
-
     // Calculate available quantity considering:
     // 1. Current stock
     // 2. Pending borrows
@@ -674,8 +670,13 @@ export class ExternalWithdrawalService {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      // Preserve the original error message for better debugging
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao criar retirada externa';
       throw new InternalServerErrorException(
-        'Erro ao criar retirada externa. Por favor, tente novamente',
+        `Erro ao criar retirada externa: ${errorMessage}`,
       );
     }
   }
@@ -873,11 +874,16 @@ export class ExternalWithdrawalService {
       };
     } catch (error) {
       this.logger.error('Erro ao atualizar retirada externa:', error);
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      // Preserve the original error message for better debugging
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao atualizar retirada externa';
       throw new InternalServerErrorException(
-        'Erro ao atualizar retirada externa. Por favor, tente novamente',
+        `Erro ao atualizar retirada externa: ${errorMessage}`,
       );
     }
   }

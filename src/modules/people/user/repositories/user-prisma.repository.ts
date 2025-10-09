@@ -22,6 +22,8 @@ import {
   mapPantsSizeToPrisma,
   mapSleevesSizeToPrisma,
   mapMaskSizeToPrisma,
+  mapGlovesSizeToPrisma,
+  mapRainBootsSizeToPrisma,
 } from '../../../../utils';
 
 @Injectable()
@@ -50,7 +52,7 @@ export class UserPrismaRepository
 
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): User {
-    const { birth, admissional, ...restUser } = databaseEntity;
+    const { birth, admissional, dismissal, ...restUser } = databaseEntity;
 
     const user = {
       ...restUser,
@@ -58,6 +60,14 @@ export class UserPrismaRepository
       birthDate: birth || null,
       hireDate: admissional || null,
       admissional: admissional || null,
+      dismissal: dismissal || null,
+      // Ensure status timestamp fields are properly mapped
+      contractedAt: restUser.contractedAt || null,
+      exp1StartAt: restUser.exp1StartAt || null,
+      exp1EndAt: restUser.exp1EndAt || null,
+      exp2StartAt: restUser.exp2StartAt || null,
+      exp2EndAt: restUser.exp2EndAt || null,
+      dismissedAt: restUser.dismissedAt || null,
     } as User;
 
 
@@ -100,6 +110,13 @@ export class UserPrismaRepository
       admissional: admissional || null,
       birth: birth || null,
       dismissal: dismissal || null,
+      // Include status timestamp fields if they're in rest (from service layer)
+      ...((rest as any).contractedAt !== undefined && { contractedAt: (rest as any).contractedAt }),
+      ...((rest as any).exp1StartAt !== undefined && { exp1StartAt: (rest as any).exp1StartAt }),
+      ...((rest as any).exp1EndAt !== undefined && { exp1EndAt: (rest as any).exp1EndAt }),
+      ...((rest as any).exp2StartAt !== undefined && { exp2StartAt: (rest as any).exp2StartAt }),
+      ...((rest as any).exp2EndAt !== undefined && { exp2EndAt: (rest as any).exp2EndAt }),
+      ...((rest as any).dismissedAt !== undefined && { dismissedAt: (rest as any).dismissedAt }),
     };
 
     if (positionId) {
@@ -123,6 +140,8 @@ export class UserPrismaRepository
           pants: mapPantsSizeToPrisma(ppeSize.pants),
           sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
           mask: mapMaskSizeToPrisma(ppeSize.mask),
+          gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+          rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
         },
       };
     }
@@ -150,6 +169,7 @@ export class UserPrismaRepository
       admissional,
       birth,
       dismissal,
+      ppeSize,
       ...rest
     } = formData;
 
@@ -168,6 +188,13 @@ export class UserPrismaRepository
       ...(admissional !== undefined && { admissional }),
       ...(birth !== undefined && { birth }),
       ...(dismissal !== undefined && { dismissal }),
+      // Include status timestamp fields if they're in rest (from service layer)
+      ...((rest as any).contractedAt !== undefined && { contractedAt: (rest as any).contractedAt }),
+      ...((rest as any).exp1StartAt !== undefined && { exp1StartAt: (rest as any).exp1StartAt }),
+      ...((rest as any).exp1EndAt !== undefined && { exp1EndAt: (rest as any).exp1EndAt }),
+      ...((rest as any).exp2StartAt !== undefined && { exp2StartAt: (rest as any).exp2StartAt }),
+      ...((rest as any).exp2EndAt !== undefined && { exp2EndAt: (rest as any).exp2EndAt }),
+      ...((rest as any).dismissedAt !== undefined && { dismissedAt: (rest as any).dismissedAt }),
     };
 
     if (positionId !== undefined) {
@@ -187,6 +214,32 @@ export class UserPrismaRepository
     // Handle preferences update
     if (preferences) {
       updateInput.preference = { update: preferences };
+    }
+
+    // Handle PPE size update (upsert - create if doesn't exist, update if it does)
+    if (ppeSize) {
+      updateInput.ppeSize = {
+        upsert: {
+          create: {
+            shirts: mapShirtSizeToPrisma(ppeSize.shirts),
+            boots: mapBootSizeToPrisma(ppeSize.boots),
+            pants: mapPantsSizeToPrisma(ppeSize.pants),
+            sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
+            mask: mapMaskSizeToPrisma(ppeSize.mask),
+            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
+          },
+          update: {
+            shirts: mapShirtSizeToPrisma(ppeSize.shirts),
+            boots: mapBootSizeToPrisma(ppeSize.boots),
+            pants: mapPantsSizeToPrisma(ppeSize.pants),
+            sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
+            mask: mapMaskSizeToPrisma(ppeSize.mask),
+            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
+          },
+        },
+      };
     }
 
     return updateInput;
@@ -211,12 +264,12 @@ export class UserPrismaRepository
   ): Prisma.UserOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
 
-    // If orderBy is an array, take the first element
+    // If it's an array, take the first element to satisfy type requirements
+    // Prisma supports both single object and array of objects for orderBy at runtime
     if (Array.isArray(orderBy)) {
       return orderBy[0] as Prisma.UserOrderByWithRelationInput;
     }
 
-    // Return as is for object
     return orderBy as Prisma.UserOrderByWithRelationInput;
   }
 
@@ -478,6 +531,21 @@ export class UserPrismaRepository
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
       this.logError(`buscar usuário por telefone ${phone}`, error);
+      throw error;
+    }
+  }
+
+  async findByPayrollNumber(payrollNumber: number, tx?: PrismaTransaction): Promise<User | null> {
+    try {
+      const transaction = tx || this.prisma;
+      const result = await transaction.user.findFirst({
+        where: { payrollNumber },
+        include: this.getDefaultInclude(),
+      });
+
+      return result ? this.mapDatabaseEntityToEntity(result) : null;
+    } catch (error) {
+      this.logError(`buscar usuário por número de folha ${payrollNumber}`, error);
       throw error;
     }
   }

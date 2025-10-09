@@ -88,6 +88,11 @@ export class SectorPrismaRepository
       mappedInclude.tasks = include.tasks as any;
     }
 
+    // Handle managedByUsers relation
+    if (include.managedByUsers !== undefined) {
+      mappedInclude.managedByUsers = include.managedByUsers as any;
+    }
+
     // Handle _count field - must use select syntax
     if (include._count) {
       if (include._count === true) {

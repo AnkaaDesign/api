@@ -59,86 +59,6 @@ export class UserService {
   ) {}
 
   /**
-   * Calculate status-specific dates based on exp1StartAt
-   * Each experience period is 45 days
-   */
-  private calculateStatusDates(data: Partial<UserCreateFormData | UserUpdateFormData>): void {
-    // If exp1StartAt is provided, calculate the experience period dates
-    if (data.exp1StartAt) {
-      const exp1Start = new Date(data.exp1StartAt);
-
-      // Calculate exp1EndAt (45 days after start) if not provided
-      if (!data.exp1EndAt) {
-        const exp1End = new Date(exp1Start);
-        exp1End.setDate(exp1End.getDate() + 45);
-        (data as any).exp1EndAt = exp1End;
-      }
-
-      // Calculate exp2StartAt (day after exp1 ends) if not provided
-      if (!data.exp2StartAt) {
-        const exp2Start = new Date(exp1Start);
-        exp2Start.setDate(exp2Start.getDate() + 46); // Day after exp1 ends
-        (data as any).exp2StartAt = exp2Start;
-      }
-
-      // Calculate exp2EndAt (45 days after exp2 starts) if not provided
-      if (!data.exp2EndAt) {
-        const exp2End = new Date(exp1Start);
-        exp2End.setDate(exp2End.getDate() + 90); // 45 days for exp1 + 45 for exp2
-        (data as any).exp2EndAt = exp2End;
-      }
-    }
-  }
-
-  /**
-   * Set initial status timestamps for new users
-   */
-  private setInitialStatusTimestamps(
-    data: Partial<UserCreateFormData | UserUpdateFormData>,
-    status: USER_STATUS,
-  ): void {
-    const now = new Date();
-
-    switch (status) {
-      case USER_STATUS.EXPERIENCE_PERIOD_1:
-        // Set exp1StartAt if not provided
-        if (!data.exp1StartAt) {
-          (data as any).exp1StartAt = now;
-        }
-        // Calculate all experience dates based on exp1StartAt
-        this.calculateStatusDates(data);
-        break;
-
-      case USER_STATUS.EXPERIENCE_PERIOD_2:
-        // If exp2StartAt is not provided, set it to now
-        if (!data.exp2StartAt) {
-          (data as any).exp2StartAt = now;
-        }
-        // If exp2EndAt is not provided, calculate it (45 days from exp2StartAt)
-        if (!data.exp2EndAt) {
-          const exp2End = new Date(data.exp2StartAt || now);
-          exp2End.setDate(exp2End.getDate() + 45);
-          (data as any).exp2EndAt = exp2End;
-        }
-        break;
-
-      case USER_STATUS.CONTRACTED:
-        // Set contractedAt if not provided
-        if (!data.contractedAt) {
-          (data as any).contractedAt = now;
-        }
-        break;
-
-      case USER_STATUS.DISMISSED:
-        // Set dismissedAt if not provided
-        if (!data.dismissedAt) {
-          (data as any).dismissedAt = now;
-        }
-        break;
-    }
-  }
-
-  /**
    * Validar usuário completo
    */
   private async userValidation(
@@ -658,8 +578,33 @@ export class UserService {
         const status = (data.status as USER_STATUS) || USER_STATUS.EXPERIENCE_PERIOD_1;
         (data as any).statusOrder = USER_STATUS_ORDER[status];
 
-        // Set initial status timestamps and calculate dates
-        this.setInitialStatusTimestamps(data, status);
+        // Set initial status timestamps
+        const now = new Date();
+        switch (status) {
+          case USER_STATUS.EXPERIENCE_PERIOD_1:
+            (data as any).exp1StartAt = now;
+            // Set exp1EndAt to 45 days from now
+            const exp1End = new Date(now);
+            exp1End.setDate(exp1End.getDate() + 45);
+            (data as any).exp1EndAt = exp1End;
+            break;
+
+          case USER_STATUS.EXPERIENCE_PERIOD_2:
+            (data as any).exp2StartAt = now;
+            // Set exp2EndAt to 45 days from now
+            const exp2End = new Date(now);
+            exp2End.setDate(exp2End.getDate() + 45);
+            (data as any).exp2EndAt = exp2End;
+            break;
+
+          case USER_STATUS.CONTRACTED:
+            (data as any).contractedAt = now;
+            break;
+
+          case USER_STATUS.DISMISSED:
+            (data as any).dismissedAt = now;
+            break;
+        }
 
         // Criar o usuário
         const newUser = await this.userRepository.createWithTransaction(tx, data, { include });
@@ -785,11 +730,37 @@ export class UserService {
         // Set statusOrder when status changes
         if (data.status && data.status !== existingUser.status) {
           (data as any).statusOrder = USER_STATUS_ORDER[data.status as USER_STATUS];
-          // Track status timestamps when status changes
-          this.setInitialStatusTimestamps(data, data.status as USER_STATUS);
-        } else if (data.exp1StartAt) {
-          // If exp1StartAt is being updated without status change, recalculate dates
-          this.calculateStatusDates(data);
+        }
+
+        // Track status timestamps when status changes
+        if (data.status && data.status !== existingUser.status) {
+          const now = new Date();
+
+          switch (data.status) {
+            case USER_STATUS.EXPERIENCE_PERIOD_1:
+              (data as any).exp1StartAt = now;
+              // Set exp1EndAt to 45 days from now
+              const exp1End = new Date(now);
+              exp1End.setDate(exp1End.getDate() + 45);
+              (data as any).exp1EndAt = exp1End;
+              break;
+
+            case USER_STATUS.EXPERIENCE_PERIOD_2:
+              (data as any).exp2StartAt = now;
+              // Set exp2EndAt to 45 days from now
+              const exp2End = new Date(now);
+              exp2End.setDate(exp2End.getDate() + 45);
+              (data as any).exp2EndAt = exp2End;
+              break;
+
+            case USER_STATUS.CONTRACTED:
+              (data as any).contractedAt = now;
+              break;
+
+            case USER_STATUS.DISMISSED:
+              (data as any).dismissedAt = now;
+              break;
+          }
         }
 
         // Clear sessionToken when sectorId changes to force re-authentication with new privileges

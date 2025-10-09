@@ -923,15 +923,23 @@ export const maintenanceCreateSchema = z
       .default(MAINTENANCE_STATUS.PENDING),
     itemId: z.string().uuid("Item inválido"),
     maintenanceScheduleId: z.string().uuid("Cronograma de manutenção inválido").optional(),
-    scheduledFor: z.coerce.date({ required_error: "Data agendada é obrigatória", invalid_type_error: "Data inválida" }),
+    scheduledFor: z.coerce.date({ invalid_type_error: "Data inválida" }).optional().nullable(),
     itemsNeeded: z
       .array(
         z.object({
-          itemId: z.string().uuid("Item inválido"),
+          itemId: z.string().min(1, "Item é obrigatório"),
           quantity: z.number().positive("Quantidade deve ser positiva").default(1),
         }),
       )
-      .optional(),
+      .optional()
+      .nullable()
+      .default([])
+      .transform((items) => {
+        // Handle null/undefined
+        if (!items || items.length === 0) return [];
+        // Filter out items with empty or invalid itemId
+        return items.filter((item) => item.itemId && item.itemId.trim() !== "");
+      }),
     // Auto-creation field
     originalMaintenanceId: z.string().uuid("Manutenção original inválida").optional(),
   })
@@ -1579,17 +1587,24 @@ export const maintenanceScheduleCreateSchema = z
   .refine(
     (data) => {
       // Validate frequency-specific requirements
+      // nextRun is sufficient for most frequencies if other specific fields are not provided
       switch (data.frequency) {
         case SCHEDULE_FREQUENCY.ONCE:
           return !!data.specificDate;
         case SCHEDULE_FREQUENCY.WEEKLY:
-          return !!data.dayOfWeek || !!data.weeklyConfigId;
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
+          return !!data.dayOfWeek || !!data.weeklyConfigId || !!data.nextRun;
         case SCHEDULE_FREQUENCY.MONTHLY:
-          return !!data.dayOfMonth || !!data.monthlyConfigId;
+        case SCHEDULE_FREQUENCY.BIMONTHLY:
+        case SCHEDULE_FREQUENCY.QUARTERLY:
+        case SCHEDULE_FREQUENCY.TRIANNUAL:
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+          return !!data.dayOfMonth || !!data.monthlyConfigId || !!data.nextRun;
         case SCHEDULE_FREQUENCY.ANNUAL:
-          return (!!data.dayOfMonth && !!data.month) || !!data.yearlyConfigId;
+          return (!!data.dayOfMonth && !!data.month) || !!data.yearlyConfigId || !!data.nextRun;
         case SCHEDULE_FREQUENCY.CUSTOM:
-          return !!data.customMonths && data.customMonths.length > 0;
+          return (!!data.customMonths && data.customMonths.length > 0) || !!data.nextRun;
         default:
           return true;
       }

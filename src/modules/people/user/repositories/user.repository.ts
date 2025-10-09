@@ -25,4 +25,5 @@ export abstract class UserRepository extends BaseStringRepository<
   abstract findByCpf(cpf: string, tx?: PrismaTransaction): Promise<User | null>;
   abstract findByEmail(email: string, tx?: PrismaTransaction): Promise<User | null>;
   abstract findByPhone(phone: string, tx?: PrismaTransaction): Promise<User | null>;
+  abstract findByPayrollNumber(payrollNumber: number, tx?: PrismaTransaction): Promise<User | null>;
 }

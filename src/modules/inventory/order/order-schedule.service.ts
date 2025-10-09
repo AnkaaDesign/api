@@ -1098,7 +1098,6 @@ export class OrderScheduleService {
           orderedQuantity: calc.quantity,
           price: currentPrice,
           tax: item.tax || 0,
-          isCritical: calc.quantity > 0 && item.quantity <= (item.reorderPoint || 0),
         };
       });
 

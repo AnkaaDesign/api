@@ -53,7 +53,6 @@ export class OrderItemPrismaRepository
       receivedQuantity: databaseEntity.receivedQuantity,
       price: databaseEntity.price,
       tax: databaseEntity.tax,
-      isCritical: databaseEntity.isCritical,
       receivedAt: databaseEntity.receivedAt,
       fulfilledAt: databaseEntity.fulfilledAt,
       createdAt: databaseEntity.createdAt,
@@ -92,7 +91,6 @@ export class OrderItemPrismaRepository
       receivedQuantity: 0,
       price: formData.price,
       tax: formData.tax,
-      isCritical: formData.isCritical,
       order: { connect: { id: formData.orderId } },
       item: { connect: { id: formData.itemId } },
     };

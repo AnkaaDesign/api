@@ -343,7 +343,7 @@ export class PpeController {
     @UserId() userId: string,
     @Body('deliveryDate') deliveryDate?: Date,
   ): Promise<PpeDeliveryUpdateResponse> {
-    return this.ppeDeliveryService.markAsDelivered(id, userId, deliveryDate, userId);
+    return this.ppeDeliveryService.markAsDelivered(id, userId, deliveryDate);
   }
 
   @Post('deliveries/finish-and-schedule-next/:id')
