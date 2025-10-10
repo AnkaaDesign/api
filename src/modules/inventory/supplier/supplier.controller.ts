@@ -12,7 +12,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { SupplierService } from './supplier.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -70,13 +74,17 @@ export class SupplierController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileInterceptor('logo', multerConfig)
+  )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(supplierCreateSchema))
     data: SupplierCreateFormData,
+    @UploadedFile() logo: Express.Multer.File | undefined,
     @Query(new ZodQueryValidationPipe(supplierQuerySchema)) query: SupplierQueryFormData,
     @UserId() userId: string,
   ): Promise<SupplierCreateResponse> {
-    return this.supplierService.create(data, query.include, userId);
+    return this.supplierService.create(data, query.include, userId, logo);
   }
 
   // Batch Operations - Must come before dynamic routes
@@ -124,14 +132,18 @@ export class SupplierController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileInterceptor('logo', multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(supplierUpdateSchema))
     data: SupplierUpdateFormData,
+    @UploadedFile() logo: Express.Multer.File | undefined,
     @Query(new ZodQueryValidationPipe(supplierQuerySchema)) query: SupplierQueryFormData,
     @UserId() userId: string,
   ): Promise<SupplierUpdateResponse> {
-    return this.supplierService.update(id, data, query.include, userId);
+    return this.supplierService.update(id, data, query.include, userId, logo);
   }
 
   @Delete(':id')

@@ -7,8 +7,8 @@ import type { WebDAVFolderMapping } from '../services/webdav.service';
 
 // Upload configuration
 export const UPLOAD_CONFIG = {
-  // Maximum file size (default: 500MB)
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '524288000'), // 500MB in bytes
+  // Maximum file size (default: 100MB)
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB in bytes
 
   // Upload directory (temporary staging before WebDAV)
   uploadDir: process.env.UPLOAD_DIR || './uploads',

@@ -80,13 +80,13 @@ export class AirbrushingPrismaRepository
     }
 
     if (reimbursementIds && reimbursementIds.length > 0) {
-      createInput.reembolsos = {
+      createInput.reimbursements = {
         connect: reimbursementIds.map(id => ({ id })),
       };
     }
 
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      createInput.nfeReembolsos = {
+      createInput.nfeReimbursements = {
         connect: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }
@@ -140,13 +140,13 @@ export class AirbrushingPrismaRepository
     }
 
     if (reimbursementIds !== undefined) {
-      updateData.reembolsos = {
+      updateData.reimbursements = {
         set: reimbursementIds.map(id => ({ id })),
       };
     }
 
     if (reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReembolsos = {
+      updateData.nfeReimbursements = {
         set: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }

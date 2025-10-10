@@ -23,6 +23,21 @@ export class ArrayFixPipe implements PipeTransform {
       return obj.map(item => this.fixArrays(item));
     }
 
+    // Handle JSON strings (from FormData)
+    if (typeof obj === 'string') {
+      try {
+        const parsed = JSON.parse(obj);
+        // Only process if it's an object or array
+        if (typeof parsed === 'object' && parsed !== null) {
+          return this.fixArrays(parsed);
+        }
+      } catch (e) {
+        // Not JSON, return as-is
+        return obj;
+      }
+      return obj;
+    }
+
     if (typeof obj !== 'object') {
       return obj;
     }

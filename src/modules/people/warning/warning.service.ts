@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { WarningRepository, PrismaTransaction } from './repositories/warning.repository';
+import { FileService } from '@modules/common/file/file.service';
+import { unlinkSync, existsSync } from 'fs';
 import {
   WarningBatchCreateResponse,
   WarningBatchDeleteResponse,
@@ -51,6 +53,7 @@ export class WarningService {
     private readonly prisma: PrismaService,
     private readonly warningRepository: WarningRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -148,12 +151,44 @@ export class WarningService {
   }
 
   /**
+   * Process attachment files for warning
+   */
+  private async processAttachmentFiles(
+    attachments: Express.Multer.File[],
+    warningId: string,
+    employeeName: string,
+    tx: PrismaTransaction,
+    userId?: string,
+  ): Promise<void> {
+    try {
+      for (const file of attachments) {
+        await this.fileService.createFromUploadWithTransaction(
+          tx,
+          file,
+          'warning',
+          userId,
+          {
+            entityId: warningId,
+            entityType: 'WARNING',
+            userName: employeeName,
+          },
+        );
+      }
+      this.logger.log(`${attachments.length} attachment file(s) processed for warning ${warningId}`);
+    } catch (error: any) {
+      this.logger.error(`Failed to process attachment files: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Criar uma nova advertência
    */
   async create(
     data: WarningCreateFormData,
     include?: WarningInclude,
     userId?: string,
+    attachments?: Express.Multer.File[],
   ): Promise<WarningCreateResponse> {
     try {
       const warning = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -178,6 +213,36 @@ export class WarningService {
           transaction: tx,
         });
 
+        // Process attachment files if provided
+        if (attachments && attachments.length > 0) {
+          // Get collaborator info for file context
+          const collaborator = await tx.user.findUnique({
+            where: { id: data.collaboratorId },
+            select: { name: true },
+          });
+
+          const employeeName = collaborator?.name || 'Unknown';
+
+          try {
+            await this.processAttachmentFiles(
+              attachments,
+              newWarning.id,
+              employeeName,
+              tx,
+              userId,
+            );
+          } catch (fileError: any) {
+            this.logger.error(`Attachment file processing failed: ${fileError.message}`);
+            // Clean up temp files
+            attachments.forEach(file => {
+              if (existsSync(file.path)) {
+                unlinkSync(file.path);
+              }
+            });
+            throw new BadRequestException('Erro ao processar arquivos anexos.');
+          }
+        }
+
         return newWarning;
       });
 
@@ -187,6 +252,19 @@ export class WarningService {
         data: warning,
       };
     } catch (error: any) {
+      // Clean up uploaded files on error
+      if (attachments && attachments.length > 0) {
+        attachments.forEach(file => {
+          if (existsSync(file.path)) {
+            try {
+              unlinkSync(file.path);
+            } catch (cleanupError) {
+              this.logger.warn(`Failed to cleanup uploaded file: ${file.path}`);
+            }
+          }
+        });
+      }
+
       this.logger.error('Erro ao criar advertência:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
@@ -205,6 +283,7 @@ export class WarningService {
     data: WarningUpdateFormData,
     include?: WarningInclude,
     userId?: string,
+    attachments?: Express.Multer.File[],
   ): Promise<WarningUpdateResponse> {
     try {
       const updatedWarning = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -265,6 +344,37 @@ export class WarningService {
           });
         }
 
+        // Process attachment files if provided (add new attachments)
+        if (attachments && attachments.length > 0) {
+          // Get collaborator info for file context
+          const collaboratorId = data.collaboratorId || existingWarning.collaboratorId;
+          const collaborator = await tx.user.findUnique({
+            where: { id: collaboratorId },
+            select: { name: true },
+          });
+
+          const employeeName = collaborator?.name || 'Unknown';
+
+          try {
+            await this.processAttachmentFiles(
+              attachments,
+              id,
+              employeeName,
+              tx,
+              userId,
+            );
+          } catch (fileError: any) {
+            this.logger.error(`Attachment file processing failed: ${fileError.message}`);
+            // Clean up temp files
+            attachments.forEach(file => {
+              if (existsSync(file.path)) {
+                unlinkSync(file.path);
+              }
+            });
+            throw new BadRequestException('Erro ao processar arquivos anexos.');
+          }
+        }
+
         return updatedWarning;
       });
 
@@ -274,6 +384,19 @@ export class WarningService {
         data: updatedWarning,
       };
     } catch (error: any) {
+      // Clean up uploaded files on error
+      if (attachments && attachments.length > 0) {
+        attachments.forEach(file => {
+          if (existsSync(file.path)) {
+            try {
+              unlinkSync(file.path);
+            } catch (cleanupError) {
+              this.logger.warn(`Failed to cleanup uploaded file: ${file.path}`);
+            }
+          }
+        });
+      }
+
       this.logger.error('Erro ao atualizar advertência:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;

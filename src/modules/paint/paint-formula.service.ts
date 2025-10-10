@@ -170,6 +170,7 @@ export class PaintFormulaService {
         // Calculate ratios, density and price if components are provided
         let calculatedDensity = 1.0;
         let calculatedPricePerLiter = 0;
+        let totalWeight = 0;
 
         if (data.components && data.components.length > 0) {
           // Get items for component validation and calculation
@@ -182,16 +183,18 @@ export class PaintFormulaService {
             },
           });
 
-          // Validate total ratio equals 100%
-          const totalRatio = data.components.reduce((sum, comp) => sum + comp.ratio, 0);
-          if (Math.abs(totalRatio - 100) > 0.01) {
-            // Allow small floating point error
+          // Calculate total weight for ratio calculation
+          totalWeight = data.components.reduce((sum, comp) => sum + comp.weightInGrams, 0);
+
+          if (totalWeight === 0) {
             throw new BadRequestException(
-              `A soma das proporções deve ser igual a 100% (atual: ${totalRatio.toFixed(2)}%)`,
+              'O peso total dos componentes deve ser maior que zero',
             );
           }
 
-          // Validate each component exists
+          // Validate each component exists and calculate cost
+          let totalWeightInGrams = 0;
+          let totalVolumeInMl = 0;
           let totalCost = 0;
 
           for (const componentData of data.components) {
@@ -229,41 +232,55 @@ export class PaintFormulaService {
               );
             }
 
-            // Calculate actual cost based on item price and weight needed
+            // Calculate component contribution
+            totalWeightInGrams += componentData.weightInGrams;
+
+            // Calculate volume based on item density
+            const itemDensity = weightValue / volumeValue; // g/ml
+            const componentVolume = componentData.weightInGrams / itemDensity;
+            totalVolumeInMl += componentVolume;
+
+            // Calculate cost
             const itemPrice = item.prices?.[0]?.value || 0;
-
-            // Convert weightValue to grams if needed
-            let weightPerUnitInGrams = weightValue; // Weight in grams per unit
-            if (weightMeasure.unit === 'KILOGRAM') {
-              weightPerUnitInGrams = weightValue * 1000; // Convert kg to grams
-            }
-
-            const pricePerGram = weightPerUnitInGrams > 0 ? itemPrice / weightPerUnitInGrams : 0;
-
-            // For 1 liter of formula with default density of 1.0 g/ml = 1000g/L
-            const componentWeightFor1L = 1000 * (componentData.ratio / 100);
-            const componentCost = pricePerGram * componentWeightFor1L;
-
-            totalCost += componentCost;
+            const costPerGram = itemPrice / weightValue;
+            totalCost += costPerGram * componentData.weightInGrams;
           }
 
-          // Set default density (1.0 g/ml) and calculate price per liter
-          calculatedDensity = 1.0; // Default density
-          calculatedPricePerLiter = totalCost; // Assuming totalCost is already per liter
+          // Calculate formula density
+          if (totalVolumeInMl > 0) {
+            calculatedDensity = totalWeightInGrams / totalVolumeInMl; // g/ml
+          }
+
+          // Calculate price per liter
+          if (totalWeightInGrams > 0) {
+            // Convert total cost to cost per liter
+            const costPerGram = totalCost / totalWeightInGrams;
+            calculatedPricePerLiter = costPerGram * calculatedDensity * 1000; // R$/L
+          }
         }
 
         // Log component details
         this.logger.log(`Creating formula with ${data.components?.length || 0} components`);
+        this.logger.log(`Total weight: ${totalWeight}g`);
 
         if (data.components) {
           data.components.forEach(comp => {
-            this.logger.log(`Component ${comp.itemId}: ${comp.ratio.toFixed(2)}%`);
+            const ratio = totalWeight > 0 ? (comp.weightInGrams / totalWeight) * 100 : 0;
+            this.logger.log(`Component ${comp.itemId}: ${comp.weightInGrams}g = ${ratio.toFixed(2)}%`);
           });
         }
+
+        // Convert components from weightInGrams to ratio for database storage
+        const componentsWithRatio = data.components?.map(comp => ({
+          itemId: comp.itemId,
+          formulaPaintId: comp.formulaPaintId,
+          ratio: totalWeight > 0 ? (comp.weightInGrams / totalWeight) * 100 : 0,
+        }));
 
         // Create formula with calculated values
         const formulaData = {
           ...data,
+          components: componentsWithRatio,
           density: new Prisma.Decimal(calculatedDensity),
           pricePerLiter: new Prisma.Decimal(calculatedPricePerLiter),
         };

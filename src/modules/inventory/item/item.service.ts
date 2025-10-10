@@ -2360,10 +2360,9 @@ export class ItemService {
         },
         include: {
           prices: {
-            orderBy: [
-              { current: 'desc' as const },
-              { createdAt: 'desc' as const }
-            ],
+            orderBy: {
+              createdAt: 'desc' as const
+            },
             take: 1,
           },
         },

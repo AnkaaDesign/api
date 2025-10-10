@@ -128,8 +128,8 @@ export interface Order extends BaseEntity {
   budgets?: File[];
   nfes?: File[];
   receipts?: File[];
-  reembolsos?: File[];
-  nfeReembolsos?: File[];
+  reimbursements?: File[];
+  nfeReimbursements?: File[];
   supplier?: Supplier;
   orderSchedule?: OrderSchedule;
   ppeSchedule?: PpeDeliverySchedule;
@@ -163,12 +163,12 @@ export interface OrderIncludes {
     | {
         include?: FileIncludes;
       };
-  reembolsos?:
+  reimbursements?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  nfeReembolsos?:
+  nfeReimbursements?:
     | boolean
     | {
         include?: FileIncludes;

@@ -158,7 +158,7 @@ export class ThumbnailProcessorService {
               resolve({
                 success: true,
                 thumbnailPath,
-                thumbnailUrl: `/api/files/thumbnail/${fileId}`,
+                thumbnailUrl: `/files/thumbnail/${fileId}`,
               });
             } catch (sharpError: any) {
               this.logger.error(

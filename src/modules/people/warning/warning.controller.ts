@@ -12,7 +12,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { WarningService } from './warning.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -97,13 +101,15 @@ export class WarningController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FilesInterceptor('attachments', 10, multerConfig))
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(warningCreateSchema))
     data: WarningCreateFormData,
     @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() attachments?: Express.Multer.File[],
   ): Promise<WarningCreateResponse> {
-    return this.warningService.create(data, query.include, userId);
+    return this.warningService.create(data, query.include, userId, attachments);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -151,14 +157,16 @@ export class WarningController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(FilesInterceptor('attachments', 10, multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(warningUpdateSchema))
     data: WarningUpdateFormData,
     @Query(new ZodQueryValidationPipe(warningQuerySchema)) query: WarningQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() attachments?: Express.Multer.File[],
   ): Promise<WarningUpdateResponse> {
-    return this.warningService.update(id, data, query.include, userId);
+    return this.warningService.update(id, data, query.include, userId, attachments);
   }
 
   @Delete(':id')

@@ -12,9 +12,10 @@ import {
   ParseUUIDPipe,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { TaskService } from './task.service';
@@ -84,12 +85,26 @@ export class TaskController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budget', maxCount: 1 },
+      { name: 'nfe', maxCount: 1 },
+      { name: 'receipt', maxCount: 1 },
+      { name: 'artworks', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budget?: Express.Multer.File[],
+      nfe?: Express.Multer.File[],
+      receipt?: Express.Multer.File[],
+      artworks?: Express.Multer.File[]
+    },
   ): Promise<TaskCreateResponse> {
-    return this.tasksService.create(data, query.include, userId);
+    return this.tasksService.create(data, query.include, userId, files);
   }
 
   // Batch Operations
@@ -203,13 +218,39 @@ export class TaskController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budget', maxCount: 1 },
+      { name: 'nfe', maxCount: 1 },
+      { name: 'receipt', maxCount: 1 },
+      { name: 'artworks', maxCount: 10 },
+    ], multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema)) data: TaskUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budget?: Express.Multer.File[],
+      nfe?: Express.Multer.File[],
+      receipt?: Express.Multer.File[],
+      artworks?: Express.Multer.File[]
+    },
   ): Promise<TaskUpdateResponse> {
-    return this.tasksService.update(id, data, query.include, userId);
+    // Debug logging for file upload
+    console.log('[TaskController.update] Files received:', {
+      hasBudget: !!files?.budget && files.budget.length > 0,
+      hasNfe: !!files?.nfe && files.nfe.length > 0,
+      hasReceipt: !!files?.receipt && files.receipt.length > 0,
+      hasArtworks: !!files?.artworks && files.artworks.length > 0,
+      budgetCount: files?.budget?.length || 0,
+      nfeCount: files?.nfe?.length || 0,
+      receiptCount: files?.receipt?.length || 0,
+      artworksCount: files?.artworks?.length || 0,
+    });
+
+    return this.tasksService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')
@@ -221,148 +262,69 @@ export class TaskController {
     return this.tasksService.delete(id, userId);
   }
 
-  // File Upload Endpoints
+  // =====================
+  // DEPRECATED FILE UPLOAD ENDPOINTS
+  // =====================
+  // These endpoints are obsolete. Files should be submitted WITH the task form (POST /tasks or PUT /tasks/:id)
+  // using FormData with the file fields directly in the request body
+
   @Post(':id/upload/budgets')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadBudget(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskBudgets',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadBudget() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo "budget".'
+    );
   }
 
   @Post(':id/upload/invoices')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadInvoice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskNfes',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadInvoice() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo "nfe".'
+    );
   }
 
   @Post(':id/upload/receipts')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReceipt(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskReceipts',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadReceipt() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo "receipt".'
+    );
   }
 
   @Post(':id/upload/reimbursements')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReimbursement(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskReembolsos',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadReimbursement() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo apropriado.'
+    );
   }
 
   @Post(':id/upload/reimbursement-invoices')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReimbursementInvoice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskNfeReembolsos',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadReimbursementInvoice() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo apropriado.'
+    );
   }
 
   @Post(':id/upload/artworks')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadArtwork(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const task = await this.tasksService.findById(id, { include: { customer: true } });
-    const customerName = task.data.customer?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'tasksArtworks',
-      entityId: id,
-      entityType: 'task',
-      customerName,
-    });
+  async uploadArtwork() {
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
+      'Use PUT /tasks/:id com FormData incluindo o campo "artworks".'
+    );
   }
 }

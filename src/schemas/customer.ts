@@ -398,6 +398,9 @@ const customerFilters = {
   cities: z.array(z.string()).optional(),
   states: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  taskStatus: z.string().optional(),
+  taskStatuses: z.array(z.string()).optional(),
+  taskCreatedBy: z.string().optional(),
 };
 
 // =====================
@@ -417,7 +420,17 @@ const customerTransform = (data: any) => {
   delete data.take;
 
   // Extract convenience filters
-  const { searchingFor, hasTasks, hasLogo, cities, states, tags } = data;
+  const {
+    searchingFor,
+    hasTasks,
+    hasLogo,
+    cities,
+    states,
+    tags,
+    taskStatus,
+    taskStatuses,
+    taskCreatedBy,
+  } = data;
 
   // Build where conditions
   const andConditions: any[] = [];
@@ -435,6 +448,8 @@ const customerTransform = (data: any) => {
         { state: { contains: searchingFor, mode: "insensitive" } },
         { neighborhood: { contains: searchingFor, mode: "insensitive" } },
         { address: { contains: searchingFor, mode: "insensitive" } },
+        { tasks: { some: { plate: { contains: searchingFor, mode: "insensitive" } } } },
+        { tasks: { some: { serialNumber: { contains: searchingFor, mode: "insensitive" } } } },
       ],
     });
   }
@@ -472,6 +487,39 @@ const customerTransform = (data: any) => {
     andConditions.push({ tags: { hasSome: tags } });
   }
 
+  // Task status filter (single status)
+  if (taskStatus) {
+    andConditions.push({
+      tasks: {
+        some: {
+          status: taskStatus
+        }
+      }
+    });
+  }
+
+  // Task statuses filter (multiple statuses)
+  if (taskStatuses?.length) {
+    andConditions.push({
+      tasks: {
+        some: {
+          status: { in: taskStatuses }
+        }
+      }
+    });
+  }
+
+  // Filter customers by task creator
+  if (taskCreatedBy) {
+    andConditions.push({
+      tasks: {
+        some: {
+          createdById: taskCreatedBy
+        }
+      }
+    });
+  }
+
   // Date range filter
   if (data.createdAt) {
     const dateCondition: any = {};
@@ -490,6 +538,17 @@ const customerTransform = (data: any) => {
       andConditions.push({ updatedAt: dateCondition });
     }
   }
+
+  // Clean up convenience filter fields from data
+  delete data.searchingFor;
+  delete data.hasTasks;
+  delete data.hasLogo;
+  delete data.cities;
+  delete data.states;
+  delete data.tags;
+  delete data.taskStatus;
+  delete data.taskStatuses;
+  delete data.taskCreatedBy;
 
   // Apply conditions to where clause
   if (andConditions.length > 0) {

@@ -97,9 +97,12 @@ export class PaintService {
 
   /**
    * Get available components for a paint based on brand and paint type
+   * Returns intersection of components from both paint type and paint brand
    */
-  async getAvailableComponents(paintBrand: string, paintTypeId: string): Promise<any[]> {
+  async getAvailableComponents(paintBrandIdOrName: string, paintTypeId: string): Promise<any[]> {
     try {
+      this.logger.log(`=== getAvailableComponents called with paintBrandIdOrName: "${paintBrandIdOrName}", paintTypeId: "${paintTypeId}"`);
+
       // Get paint type with component items
       const paintType = await this.prisma.paintType.findUnique({
         where: { id: paintTypeId },
@@ -115,13 +118,64 @@ export class PaintService {
       });
 
       if (!paintType) {
+        this.logger.error(`Paint type with ID "${paintTypeId}" not found`);
         throw new NotFoundException('Tipo de tinta não encontrado');
       }
 
-      // Filter components that are compatible with the paint brand
-      // For now, we return all components from the paint type
-      // This can be extended later with brand-specific filtering logic
-      const availableComponents = paintType.componentItems || [];
+      this.logger.log(`Paint type "${paintType.name}" found with ${paintType.componentItems.length} components`);
+
+      // Try to find paint brand by ID first, then by name for backward compatibility
+      let paintBrand = await this.prisma.paintBrand.findUnique({
+        where: { id: paintBrandIdOrName },
+        include: {
+          componentItems: {
+            include: {
+              brand: true,
+              category: true,
+              measures: true,
+            },
+          },
+        },
+      });
+
+      // If not found by ID, try by name
+      if (!paintBrand) {
+        this.logger.log(`Paint brand not found by ID, trying by name: "${paintBrandIdOrName}"`);
+        paintBrand = await this.prisma.paintBrand.findFirst({
+          where: { name: paintBrandIdOrName },
+          include: {
+            componentItems: {
+              include: {
+                brand: true,
+                category: true,
+                measures: true,
+              },
+            },
+          },
+        });
+      }
+
+      if (!paintBrand) {
+        this.logger.error(`Paint brand with ID or name "${paintBrandIdOrName}" not found`);
+        throw new NotFoundException(`Marca de tinta "${paintBrandIdOrName}" não encontrada`);
+      }
+
+      this.logger.log(`Paint brand "${paintBrand.name}" (ID: ${paintBrand.id}) found with ${paintBrand.componentItems.length} components`);
+
+      // Get intersection of components (items that exist in both paint type AND paint brand)
+      const paintTypeComponentIds = new Set(paintType.componentItems.map(item => item.id));
+      const availableComponents = paintBrand.componentItems.filter(item =>
+        paintTypeComponentIds.has(item.id),
+      );
+
+      this.logger.log(
+        `Found ${availableComponents.length} common components between paint type "${paintType.name}" (${paintType.componentItems.length} total) and paint brand "${paintBrand.name}" (${paintBrand.componentItems.length} total)`,
+      );
+
+      if (availableComponents.length === 0) {
+        this.logger.warn(`NO INTERSECTION! Paint type component IDs: [${Array.from(paintTypeComponentIds).join(', ')}]`);
+        this.logger.warn(`Paint brand component IDs: [${paintBrand.componentItems.map(i => i.id).join(', ')}]`);
+      }
 
       return availableComponents;
     } catch (error: any) {
@@ -140,10 +194,11 @@ export class PaintService {
    */
   async validateComponentCompatibility(
     componentId: string,
-    paintBrand: string,
+    paintBrandId: string,
     paintTypeId: string,
   ): Promise<boolean> {
     try {
+      // Check if component exists in paint type
       const paintType = await this.prisma.paintType.findUnique({
         where: { id: paintTypeId },
         include: {
@@ -153,19 +208,31 @@ export class PaintService {
         },
       });
 
-      if (!paintType) {
+      if (!paintType || paintType.componentItems.length === 0) {
+        this.logger.warn(
+          `Component ${componentId} not found in paint type ${paintTypeId}`,
+        );
         return false;
       }
 
-      // Check if component is in the paint type's allowed components
-      const componentExists = paintType.componentItems.some(item => item.id === componentId);
+      // Check if component also exists in paint brand
+      const paintBrand = await this.prisma.paintBrand.findUnique({
+        where: { id: paintBrandId },
+        include: {
+          componentItems: {
+            where: { id: componentId },
+          },
+        },
+      });
 
-      if (!componentExists) {
+      if (!paintBrand || paintBrand.componentItems.length === 0) {
+        this.logger.warn(
+          `Component ${componentId} not found in paint brand ${paintBrandId}`,
+        );
         return false;
       }
 
-      // Additional brand-specific compatibility logic can be added here
-      // For now, we consider all components in the paint type as compatible
+      // Component must exist in BOTH paint type AND paint brand
       return true;
     } catch (error: any) {
       this.logger.error('Erro ao validar compatibilidade do componente:', error);

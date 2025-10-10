@@ -47,8 +47,8 @@ export interface Task extends BaseEntity {
   budgets?: File[];
   nfes?: File[];
   receipts?: File[];
-  reembolsos?: File[];
-  nfeReembolsos?: File[];
+  reimbursements?: File[];
+  nfeReimbursements?: File[];
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
@@ -92,12 +92,12 @@ export interface TaskIncludes {
     | {
         include?: FileIncludes;
       };
-  reembolsos?:
+  reimbursements?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  nfeReembolsos?:
+  nfeReimbursements?:
     | boolean
     | {
         include?: FileIncludes;

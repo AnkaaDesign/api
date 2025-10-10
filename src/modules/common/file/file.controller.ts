@@ -94,20 +94,10 @@ export class FileController {
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileCreateResponse> {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    // Pass context parameters for WebDAV routing with project information
-    const contextParams = {
-      fileContext,
-      entityId,
-      entityType,
-      projectId,
-      projectName,
-    };
-
-    return this.fileService.createFromUpload(file, query?.include, userId, contextParams);
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
+      'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.'
+    );
   }
 
   @Post('upload/multiple')
@@ -124,20 +114,10 @@ export class FileController {
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
-    if (!files || files.length === 0) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    // Pass context parameters for WebDAV routing with project information
-    const contextParams = {
-      fileContext,
-      entityId,
-      entityType,
-      projectId,
-      projectName,
-    };
-
-    return this.fileService.createMultipleFromUploads(files, query?.include, userId, contextParams);
+    throw new BadRequestException(
+      'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
+      'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.'
+    );
   }
 
   // File Serving Endpoints - Public (no auth required)

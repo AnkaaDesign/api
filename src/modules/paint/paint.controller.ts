@@ -331,9 +331,8 @@ export class PaintUnifiedController {
   @Post('types/batch')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UsePipes(new ZodValidationPipe(paintTypeBatchCreateSchema))
   async batchCreatePaintTypes(
-    @Body() data: PaintTypeBatchCreateFormData,
+    @Body(new ZodValidationPipe(paintTypeBatchCreateSchema)) data: PaintTypeBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(paintTypeQuerySchema)) query: PaintTypeQueryFormData,
     @UserId() userId: string,
   ): Promise<PaintTypeBatchCreateResponse<PaintTypeCreateFormData>> {
@@ -342,9 +341,8 @@ export class PaintUnifiedController {
 
   @Put('types/batch')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @UsePipes(new ZodValidationPipe(paintTypeBatchUpdateSchema))
   async batchUpdatePaintTypes(
-    @Body() data: PaintTypeBatchUpdateFormData,
+    @Body(new ZodValidationPipe(paintTypeBatchUpdateSchema)) data: PaintTypeBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(paintTypeQuerySchema)) query: PaintTypeQueryFormData,
     @UserId() userId: string,
   ): Promise<PaintTypeBatchUpdateResponse<PaintTypeUpdateFormData>> {
@@ -353,9 +351,8 @@ export class PaintUnifiedController {
 
   @Delete('types/batch')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @UsePipes(new ZodValidationPipe(paintTypeBatchDeleteSchema))
   async batchDeletePaintTypes(
-    @Body() data: PaintTypeBatchDeleteFormData,
+    @Body(new ZodValidationPipe(paintTypeBatchDeleteSchema)) data: PaintTypeBatchDeleteFormData,
     @UserId() userId: string,
   ): Promise<PaintTypeBatchDeleteResponse> {
     return this.paintTypeService.batchDelete(data, userId);
@@ -842,25 +839,45 @@ export class PaintUnifiedController {
     });
   }
 
-  @Get('components/available/:paintBrand/:paintTypeId')
+  @Get('components/available/:paintBrandId/:paintTypeId')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async getAvailableComponents(
+    @Param('paintBrandId') paintBrandId: string,
+    @Param('paintTypeId') paintTypeId: string,
+  ) {
+    const components = await this.paintService.getAvailableComponents(paintBrandId, paintTypeId);
+    return {
+      success: true,
+      message: `Encontrados ${components.length} componentes compatíveis`,
+      data: components,
+    };
+  }
+
+  // Backward compatibility - also support brand name
+  @Get('components/available-by-brand/:paintBrand/:paintTypeId')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async getAvailableComponentsByBrand(
     @Param('paintBrand') paintBrand: string,
     @Param('paintTypeId') paintTypeId: string,
   ) {
-    return this.paintService.getAvailableComponents(paintBrand, paintTypeId);
+    const components = await this.paintService.getAvailableComponents(paintBrand, paintTypeId);
+    return {
+      success: true,
+      message: `Encontrados ${components.length} componentes compatíveis`,
+      data: components,
+    };
   }
 
-  @Get('components/validate/:componentId/:paintBrand/:paintTypeId')
+  @Get('components/validate/:componentId/:paintBrandId/:paintTypeId')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async validateComponentCompatibility(
     @Param('componentId') componentId: string,
-    @Param('paintBrand') paintBrand: string,
+    @Param('paintBrandId') paintBrandId: string,
     @Param('paintTypeId') paintTypeId: string,
   ) {
     const validation = await this.paintCompatibilityService.validateComponentCompatibility(
       componentId,
-      paintBrand as any,
+      paintBrandId,
       paintTypeId,
     );
     return {
@@ -883,15 +900,15 @@ export class PaintUnifiedController {
     };
   }
 
-  @Get('components/suggested/:paintBrand/:paintTypeId')
+  @Get('components/suggested/:paintBrandId/:paintTypeId')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async getSuggestedComponents(
-    @Param('paintBrand') paintBrand: string,
+    @Param('paintBrandId') paintBrandId: string,
     @Param('paintTypeId') paintTypeId: string,
     @Query('limit') limit?: string,
   ) {
     const components = await this.paintCompatibilityService.getSuggestedComponents(
-      paintBrand as any,
+      paintBrandId,
       paintTypeId,
       limit ? parseInt(limit) : 20,
     );

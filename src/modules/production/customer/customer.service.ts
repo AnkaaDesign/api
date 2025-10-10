@@ -14,6 +14,8 @@ import {
   trackAndLogFieldChanges,
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
+import { FileService } from '@modules/common/file/file.service';
+import { unlinkSync, existsSync } from 'fs';
 import type {
   CustomerBatchCreateResponse,
   CustomerBatchDeleteResponse,
@@ -67,6 +69,7 @@ export class CustomerService {
     private readonly prisma: PrismaService,
     private readonly customerRepository: CustomerRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -165,6 +168,36 @@ export class CustomerService {
   }
 
   /**
+   * Process logo file upload
+   */
+  private async processLogoFile(
+    logoFile: Express.Multer.File,
+    customerId: string,
+    customerName: string,
+    tx: PrismaTransaction,
+    userId?: string,
+  ): Promise<string> {
+    try {
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        logoFile,
+        'customerLogo',
+        userId,
+        {
+          entityId: customerId,
+          entityType: 'CUSTOMER',
+          customerName,
+        },
+      );
+      this.logger.log(`Logo file created and moved to WebDAV: ${fileRecord.path}`);
+      return fileRecord.id;
+    } catch (error: any) {
+      this.logger.error(`Failed to process logo file: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Buscar muitos clientes com filtros
    */
   async findMany(query: CustomerGetManyFormData): Promise<CustomerGetManyResponse> {
@@ -213,16 +246,35 @@ export class CustomerService {
     data: CustomerCreateFormData,
     include?: CustomerInclude,
     userId?: string,
+    logoFile?: Express.Multer.File,
   ): Promise<CustomerCreateResponse> {
     try {
       const customer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar cliente completo
         await this.validateCustomer(data, undefined, tx);
 
+        // Process logo file if provided
+        let logoId: string | null = data.logoId || null;
+        if (logoFile) {
+          try {
+            logoId = await this.processLogoFile(logoFile, '', data.fantasyName, tx, userId);
+          } catch (fileError: any) {
+            this.logger.error(`Logo file processing failed: ${fileError.message}`);
+            if (existsSync(logoFile.path)) {
+              unlinkSync(logoFile.path);
+            }
+            throw new BadRequestException('Erro ao processar arquivo de logo.');
+          }
+        }
+
         // Criar o cliente
-        const newCustomer = await this.customerRepository.createWithTransaction(tx, data, {
-          include,
-        });
+        const newCustomer = await this.customerRepository.createWithTransaction(
+          tx,
+          { ...data, logoId },
+          {
+            include,
+          },
+        );
 
         // Registrar no changelog usando o helper
         await logEntityChange({
@@ -246,6 +298,15 @@ export class CustomerService {
         data: customer,
       };
     } catch (error: unknown) {
+      // Clean up uploaded file on error
+      if (logoFile && existsSync(logoFile.path)) {
+        try {
+          unlinkSync(logoFile.path);
+        } catch (cleanupError) {
+          this.logger.warn(`Failed to cleanup uploaded file: ${logoFile.path}`);
+        }
+      }
+
       this.logger.error('Erro ao criar cliente:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
@@ -337,6 +398,7 @@ export class CustomerService {
     data: CustomerUpdateFormData,
     include?: CustomerInclude,
     userId?: string,
+    logoFile?: Express.Multer.File,
   ): Promise<CustomerUpdateResponse> {
     try {
       const updatedCustomer = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -350,8 +412,34 @@ export class CustomerService {
         // Validar cliente completo
         await this.validateCustomer(data, id, tx);
 
-        // Atualizar o cliente
-        const updatedCustomer = await this.customerRepository.updateWithTransaction(tx, id, data, {
+        // Process logo file if provided
+        let logoId: string | null | undefined = data.logoId;
+        if (logoFile) {
+          try {
+            // Delete old logo file before uploading new one
+            if (existingCustomer.logoId) {
+              try {
+                await this.fileService.delete(existingCustomer.logoId, userId);
+                this.logger.log(`Deleted old logo file: ${existingCustomer.logoId}`);
+              } catch (deleteError: any) {
+                this.logger.warn(`Failed to delete old logo: ${deleteError.message}`);
+              }
+            }
+
+            // Process new logo file
+            logoId = await this.processLogoFile(logoFile, id, existingCustomer.fantasyName, tx, userId);
+          } catch (fileError: any) {
+            this.logger.error(`Logo file processing failed: ${fileError.message}`);
+            if (existsSync(logoFile.path)) {
+              unlinkSync(logoFile.path);
+            }
+            throw new BadRequestException('Erro ao processar arquivo de logo.');
+          }
+        }
+
+        // Update customer with logo ID if new file was uploaded
+        const updateData = logoFile ? { ...data, logoId } : data;
+        const updatedCustomer = await this.customerRepository.updateWithTransaction(tx, id, updateData, {
           include,
         });
 
@@ -377,6 +465,15 @@ export class CustomerService {
         data: updatedCustomer,
       };
     } catch (error: unknown) {
+      // Clean up uploaded file on error
+      if (logoFile && existsSync(logoFile.path)) {
+        try {
+          unlinkSync(logoFile.path);
+        } catch (cleanupError) {
+          this.logger.warn(`Failed to cleanup uploaded file: ${logoFile.path}`);
+        }
+      }
+
       this.logger.error('Erro ao atualizar cliente:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;

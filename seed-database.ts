@@ -7,31 +7,34 @@ const csv = require('csv-parser');
 import { createReadStream } from 'fs';
 import * as bcrypt from 'bcrypt';
 
-// Import enums and sort orders from constants package
+// Import enums and sort orders from constants (ADAPTED: using local constants instead of package)
 import {
   USER_STATUS,
-  USER_STATUS_ORDER,
   SECTOR_PRIVILEGES,
   ORDER_STATUS,
-  ORDER_STATUS_ORDER,
   TASK_STATUS,
-  TASK_STATUS_ORDER,
   COMMISSION_STATUS,
   BORROW_STATUS,
-  BORROW_STATUS_ORDER,
   SERVICE_ORDER_STATUS,
-  SERVICE_ORDER_STATUS_ORDER,
   ACTIVITY_REASON,
-  ACTIVITY_REASON_ORDER,
   ABC_CATEGORY,
-  ABC_CATEGORY_ORDER,
   XYZ_CATEGORY,
-  XYZ_CATEGORY_ORDER,
   ITEM_CATEGORY_TYPE,
-  ITEM_CATEGORY_TYPE_ORDER,
   BONUS_STATUS,
+} from './src/constants/enums';
+
+import {
+  USER_STATUS_ORDER,
+  ORDER_STATUS_ORDER,
+  TASK_STATUS_ORDER,
+  BORROW_STATUS_ORDER,
+  SERVICE_ORDER_STATUS_ORDER,
+  ACTIVITY_REASON_ORDER,
+  ABC_CATEGORY_ORDER,
+  XYZ_CATEGORY_ORDER,
+  ITEM_CATEGORY_TYPE_ORDER,
   BONUS_STATUS_ORDER,
-} from './src/constants';
+} from './src/constants/sortOrders';
 
 const prisma = new PrismaClient();
 
@@ -286,7 +289,7 @@ function cleanTruckBrandName(brandName: string): string {
 // Read CSV file with improved error handling
 // Returns empty array if file not found or parsing fails
 async function readCSV(filename: string): Promise<CSVRow[]> {
-  const filePath = path.join(process.cwd(), '../../ankaa_db', filename);
+  const filePath = path.join('/srv/webdav/Observacoes', filename);
   const results: CSVRow[] = [];
 
   return new Promise((resolve, reject) => {
@@ -324,42 +327,24 @@ async function migratePositions() {
   console.log('\n🔄 Migrating Positions...');
   const positions = await readCSV('positions.csv');
 
+  // ADAPTED: Load existing positions from database instead of creating
+  const existingPositions = await prisma.position.findMany({
+    include: { remunerations: { where: { current: true } } }
+  });
+
   for (const pos of positions) {
-    try {
-      const remuneration = parseFloatValue(pos.remuneration) || 0;
-      const level = calculateLevel(remuneration);
-      const positionName = formatNameToTitleCase(pos.name) || pos.name;
-
-      // Check if position should be bonifiable
-      // Junior, Pleno, or Senior positions with levels 1-4 are bonifiable
-      const isBonifiable = level >= 1 && level <= 4 &&
-        /junior|pleno|senior/i.test(positionName);
-
-      const created = await prisma.position.create({
-        data: {
-          name: positionName,
-          bonifiable: isBonifiable,
-        },
-      });
-
-      // Create position remuneration
-      if (remuneration > 0) {
-        await prisma.positionRemuneration.create({
-          data: {
-            positionId: created.id,
-            value: remuneration,
-          },
-        });
-      }
-
-      idMappings.positions[pos._id] = created.id;
-
-      // Store level for later use with users
+    const positionName = formatNameToTitleCase(pos.name) || pos.name;
+    const existing = existingPositions.find(p => p.name.toLowerCase() === positionName.toLowerCase());
+    
+    if (existing) {
+      idMappings.positions[pos._id] = existing.id;
+      // Calculate level from remuneration for backward compatibility
+      const remuneration = existing.remunerations[0]?.value || 0;
+      const level = calculateLevel(Number(remuneration));
       idMappings.positions[`${pos._id}_level`] = String(level);
-
-      console.log(`  ✅ Position: ${pos.name}${isBonifiable ? ' (Bonifiable)' : ''}`);
-    } catch (error) {
-      console.error(`  ❌ Failed to migrate position ${pos.name}:`, error);
+      console.log(`  ✅ Loaded existing Position: ${existing.name}`);
+    } else {
+      console.log(`  ⚠️  Position not found in database: ${positionName}`);
     }
   }
 }
@@ -378,19 +363,16 @@ async function migrateSectors() {
     { name: 'Serviços Gerais', privilege: SECTOR_PRIVILEGES.MAINTENANCE },
   ];
 
+  // ADAPTED: Load existing sectors from database instead of creating
+  const existingSectors = await prisma.sector.findMany();
+  
   for (const sector of sectors) {
-    try {
-      const created = await prisma.sector.create({
-        data: {
-          name: sector.name,
-          privileges: sector.privilege as any, // Cast to any to avoid TS error
-        },
-      });
-
-      idMappings.sectors[sector.name] = created.id;
-      console.log(`  ✅ Sector: ${sector.name}`);
-    } catch (error) {
-      console.error(`  ❌ Failed to create sector ${sector.name}:`, error);
+    const existing = existingSectors.find(s => s.name === sector.name);
+    if (existing) {
+      idMappings.sectors[sector.name] = existing.id;
+      console.log(`  ✅ Loaded existing Sector: ${sector.name}`);
+    } else {
+      console.log(`  ⚠️  Sector not found in database: ${sector.name}`);
     }
   }
 }
@@ -410,6 +392,15 @@ function getPrivilegeOrder(privilege: string): number {
 }
 
 async function migrateUsers() {
+  // ADAPTED: Load existing users from database and map CSV IDs to database IDs
+  console.log("\n🔄 Loading existing users from database...");
+  const existingUsers = await prisma.user.findMany({
+    include: { position: true, sector: true }
+  });
+  console.log(`  📊 Found ${existingUsers.length} existing users in database`);
+
+  // ADAPTED: Skip user creation, just map CSV users to existing database users
+  const skipUserCreation = true;
   console.log('\n🔄 Migrating Users...');
   const users = await readCSV('users.csv');
   const employees = await readCSV('employees.csv');
@@ -454,6 +445,8 @@ async function migrateUsers() {
     }
   }
 
+    if (!skipUserCreation) {
+    // Original user creation logic (DISABLED in adapted version)
   // Second pass: actually process users
   for (const user of users) {
     try {
@@ -639,6 +632,10 @@ async function migrateUsers() {
         ? new Date(employee.admissional)
         : new Date(2015 + Math.floor(Math.random() * 10), Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1);
 
+      // ADAPTED: Calculate status timestamp fields based on status
+      const isDismissed = employee?.status === 'DESLIGADO';
+      const userStatus = isDismissed ? USER_STATUS.DISMISSED : USER_STATUS.CONTRACTED;
+
       const created = await prisma.user.create({
         data: {
           name: formatNameToTitleCase(user.name) || user.name,
@@ -652,11 +649,13 @@ async function migrateUsers() {
           positionId: employee?.position ? idMappings.positions[employee.position] : null,
           performanceLevel,
           sectorId,
-          status: employee?.status === 'DESLIGADO' ? USER_STATUS.DISMISSED : USER_STATUS.CONTRACTED,
-          statusOrder:
-            employee?.status === 'DESLIGADO'
-              ? USER_STATUS_ORDER[USER_STATUS.DISMISSED]
-              : USER_STATUS_ORDER[USER_STATUS.CONTRACTED],
+          status: userStatus,
+          statusOrder: isDismissed
+            ? USER_STATUS_ORDER[USER_STATUS.DISMISSED]
+            : USER_STATUS_ORDER[USER_STATUS.CONTRACTED],
+          // ADAPTED: Set status timestamp fields based on user status
+          contractedAt: userStatus === USER_STATUS.CONTRACTED ? admissional : null,
+          dismissedAt: isDismissed && employee?.dismissal ? new Date(employee.dismissal) : null,
         },
       });
 
@@ -712,6 +711,32 @@ async function migrateUsers() {
       console.log(`  ✅ User: ${user.name}`);
     } catch (error) {
       console.error(`  ❌ Failed to migrate user ${user.name}:`, error);
+    }
+  }
+
+  } // End of skipUserCreation conditional
+
+  // ADAPTED: Map CSV users to existing database users by email or name
+  console.log("\n🔗 Mapping CSV users to existing database users...");
+  for (const user of users) {
+    const userEmail = user.email?.toLowerCase();
+    const userName = formatNameToTitleCase(user.name) || user.name;
+    
+    // Find matching user in database
+    const dbUser = existingUsers.find(u => 
+      (u.email && userEmail && u.email.toLowerCase() === userEmail) ||
+      (u.name.toLowerCase() === userName.toLowerCase())
+    );
+    
+    if (dbUser) {
+      idMappings.users[user._id] = dbUser.id;
+      const employee = userEmployeeMap.get(user._id);
+      if (employee) {
+        idMappings.users[employee._id] = dbUser.id;
+      }
+      console.log(`  ✅ Mapped CSV user "${userName}" to DB user "${dbUser.name}"`);
+    } else {
+      console.log(`  ⚠️  No matching user found for "${userName}" (${userEmail || "no email"})`);
     }
   }
 
@@ -1718,9 +1743,9 @@ async function migrateItems() {
           name: formatItemName(item.name) || item.name,
           uniCode: actualUniCode, // Use the cleaned uni_code (null if it was just measurements)
           barcodes: barcode ? [barcode] : [],
-          brandId: brandId,
-          categoryId: categoryId || undefined,
-          supplierId: supplierId || undefined,
+          brandId: brandId || null,
+          categoryId: categoryId || null,
+          supplierId: supplierId || null,
           quantity,
           maxQuantity,
           reorderPoint,
@@ -1737,14 +1762,14 @@ async function migrateItems() {
           xyzCategory: analysis.xyzCategory || null,
           xyzCategoryOrder: analysis.xyzCategoryOrder || null,
           // PPE configuration
-          ppeType: (ppeType as any) || undefined,
-          ppeDeliveryMode: ppeType ? 'ON_DEMAND' : undefined,
+          ppeType: (ppeType as any) || null,
+          ppeDeliveryMode: ppeType ? 'ON_DEMAND' : null,
         },
       });
 
       // Create price record
       if (parseFloatValue(item.price) > 0) {
-        await prisma.price.create({
+        await prisma.monetaryValue.create({
           data: {
             value: parseFloatValue(item.price),
             itemId: created.id,
@@ -2521,7 +2546,7 @@ async function mergeDuplicateItems() {
     // Find all items grouped by normalized name
     const allItems = await prisma.item.findMany({
       include: {
-        prices: true,
+        prices: { where: { current: true } },
         measures: true,
         activities: true,
         borrows: true,
@@ -2577,8 +2602,8 @@ async function mergeDuplicateItems() {
               data: { itemId: primaryItem.id },
             });
 
-            // Update prices
-            await tx.price.updateMany({
+            // Update prices (ADAPTED: price → monetaryValue)
+            await tx.monetaryValue.updateMany({
               where: { itemId: duplicate.id },
               data: { itemId: primaryItem.id },
             });
@@ -4522,43 +4547,40 @@ async function main() {
   console.log('🚀 Starting Database Migration from CSV files...\n');
 
   try {
-    // Clear existing data in development
-    if (process.env.NODE_ENV === 'development') {
-      console.log('⚠️  Clearing existing data in development mode...');
+    // ADAPTED: Clear existing data but PRESERVE Users, Positions, and Sectors
+    console.log('⚠️  Clearing existing data (preserving Users, Positions, Sectors)...');
 
-      // Delete in reverse dependency order - each with its own try/catch
-      const deletions = [
-        { name: 'BonusDiscount', fn: () => prisma.bonusDiscount.deleteMany({}) },
-        { name: 'Bonus', fn: () => prisma.bonus.deleteMany({}) },
-        { name: 'Payroll', fn: () => prisma.payroll.deleteMany({}) },
-        { name: 'PaintProduction', fn: () => prisma.paintProduction.deleteMany({}) },
-        { name: 'PaintFormulaComponent', fn: () => prisma.paintFormulaComponent.deleteMany({}) },
-        { name: 'PaintFormula', fn: () => prisma.paintFormula.deleteMany({}) },
-        { name: 'Paint', fn: () => prisma.paint.deleteMany({}) },
-        { name: 'PaintType', fn: () => prisma.paintType.deleteMany({}) },
-        { name: 'PaintBrand', fn: () => prisma.paintBrand.deleteMany({}) },
-        { name: 'Borrow', fn: () => prisma.borrow.deleteMany({}) },
-        { name: 'Activity', fn: () => prisma.activity.deleteMany({}) },
-        { name: 'OrderItem', fn: () => prisma.orderItem.deleteMany({}) },
-        { name: 'Order', fn: () => prisma.order.deleteMany({}) },
-        { name: 'ServiceOrder', fn: () => prisma.serviceOrder.deleteMany({}) },
-        { name: 'Service', fn: () => prisma.service.deleteMany({}) },
-        { name: 'Task', fn: () => prisma.task.deleteMany({}) },
-        { name: 'Truck', fn: () => prisma.truck.deleteMany({}) },
-        { name: 'Measure', fn: () => prisma.measure.deleteMany({}) },
-        { name: 'Price', fn: () => prisma.price.deleteMany({}) },
-        { name: 'Item', fn: () => prisma.item.deleteMany({}) },
-        { name: 'ItemBrand', fn: () => prisma.itemBrand.deleteMany({}) },
-        { name: 'ItemCategory', fn: () => prisma.itemCategory.deleteMany({}) },
-        { name: 'Customer', fn: () => prisma.customer.deleteMany({}) },
-        { name: 'Supplier', fn: () => prisma.supplier.deleteMany({}) },
-        { name: 'User', fn: () => prisma.user.deleteMany({}) },
-        { name: 'PositionRemuneration', fn: () => prisma.positionRemuneration.deleteMany({}) },
-        { name: 'Sector', fn: () => prisma.sector.deleteMany({}) },
-        { name: 'Position', fn: () => prisma.position.deleteMany({}) },
-      ];
+    // Delete in reverse dependency order - each with its own try/catch
+    // IMPORTANT: Users, Positions, and Sectors are NOT deleted - they exist from backup restore
+    const deletions = [
+      { name: 'BonusDiscount', fn: () => prisma.bonusDiscount.deleteMany({}) },
+      { name: 'Bonus', fn: () => prisma.bonus.deleteMany({}) },
+      { name: 'Payroll', fn: () => prisma.payroll.deleteMany({}) },
+      { name: 'PaintProduction', fn: () => prisma.paintProduction.deleteMany({}) },
+      { name: 'PaintFormulaComponent', fn: () => prisma.paintFormulaComponent.deleteMany({}) },
+      { name: 'PaintFormula', fn: () => prisma.paintFormula.deleteMany({}) },
+      { name: 'Paint', fn: () => prisma.paint.deleteMany({}) },
+      { name: 'PaintType', fn: () => prisma.paintType.deleteMany({}) },
+      { name: 'PaintBrand', fn: () => prisma.paintBrand.deleteMany({}) },
+      { name: 'Borrow', fn: () => prisma.borrow.deleteMany({}) },
+      { name: 'Activity', fn: () => prisma.activity.deleteMany({}) },
+      { name: 'OrderItem', fn: () => prisma.orderItem.deleteMany({}) },
+      { name: 'Order', fn: () => prisma.order.deleteMany({}) },
+      { name: 'ServiceOrder', fn: () => prisma.serviceOrder.deleteMany({}) },
+      { name: 'Service', fn: () => prisma.service.deleteMany({}) },
+      { name: 'Task', fn: () => prisma.task.deleteMany({}) },
+      { name: 'Truck', fn: () => prisma.truck.deleteMany({}) },
+      { name: 'Measure', fn: () => prisma.measure.deleteMany({}) },
+      { name: 'MonetaryValue (Items)', fn: () => prisma.monetaryValue.deleteMany({ where: { itemId: { not: null } } }) },
+      { name: 'Item', fn: () => prisma.item.deleteMany({}) },
+      { name: 'ItemBrand', fn: () => prisma.itemBrand.deleteMany({}) },
+      { name: 'ItemCategory', fn: () => prisma.itemCategory.deleteMany({}) },
+      { name: 'Customer', fn: () => prisma.customer.deleteMany({}) },
+      { name: 'Supplier', fn: () => prisma.supplier.deleteMany({}) },
+      // ADAPTED: DO NOT DELETE Users, Positions, Sectors - they are preserved from backup
+    ];
 
-      for (const { name, fn } of deletions) {
+    for (const { name, fn } of deletions) {
         try {
           const result = await fn();
           if (result.count > 0) {
@@ -4572,10 +4594,8 @@ async function main() {
             console.log(`  ❌ Error clearing ${name}:`, error.message);
           }
         }
-      }
-
-      console.log('✅ Data clearing complete');
     }
+    console.log("✅ Data clearing complete");
 
     // Run migrations in correct order
     await migratePositions();

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, hexColorSchema } from "./common";
 import type { Paint, PaintType, PaintFormula, PaintFormulaComponent, PaintProduction, PaintGround, PaintBrand } from '@types';
 import { PAINT_FINISH, COLOR_PALETTE, PAINT_BRAND, TRUCK_MANUFACTURER } from '@constants';
+import { taskWhereSchema } from "./task";
+import { customerWhereSchema } from "./customer";
 
 // =====================
 // Include Schemas (Second Level Only)
@@ -814,16 +816,16 @@ export const paintWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       generalPaintings: z
         .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
+          some: z.lazy(() => taskWhereSchema).optional(),
+          every: z.lazy(() => taskWhereSchema).optional(),
+          none: z.lazy(() => taskWhereSchema).optional(),
         })
         .optional(),
       logoTasks: z
         .object({
-          some: z.any().optional(),
-          every: z.any().optional(),
-          none: z.any().optional(),
+          some: z.lazy(() => taskWhereSchema).optional(),
+          every: z.lazy(() => taskWhereSchema).optional(),
+          none: z.lazy(() => taskWhereSchema).optional(),
         })
         .optional(),
       relatedPaints: z
@@ -947,7 +949,11 @@ const paintTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  // searchingFor is handled entirely by the service layer for more sophisticated search including tags
+  // searchingFor is handled entirely by the service layer for comprehensive search including:
+  // - Paint direct fields: name, code, hex
+  // - Tags (array field search)
+  // - Task fields: name, serialNumber, plate (through generalPaintings and logoTasks relations)
+  // - Customer fields: fantasyName, corporateName, cnpj, cpf (through task relations)
   // Pass it through to the service without processing here
   // Note: We keep searchingFor in the data object so it gets passed to the service
 
@@ -1481,17 +1487,28 @@ export const paintFormulaCreateSchema = z
     components: z
       .array(
         z.object({
-          ratio: z.number().positive("Proporção deve ser positiva").min(0.1, "Proporção mínima é 0.1%").max(100, "Proporção máxima é 100%"),
+          ratio: z.number().positive("Proporção deve ser positiva").min(0.1, "Proporção mínima é 0.1%").max(100, "Proporção máxima é 100%").optional(),
+          weightInGrams: z.number().positive("Peso deve ser positivo").min(0.1, "Peso mínimo é 0.1g").optional(),
           itemId: z.string().uuid("Item inválido"),
-        }),
+          formulaPaintId: z.string().uuid("Fórmula inválida").optional(),
+        }).refine(
+          (data) => data.ratio !== undefined || data.weightInGrams !== undefined,
+          {
+            message: "ratio ou weightInGrams deve ser fornecido para cada componente",
+          }
+        ),
       )
       .min(1, "Fórmula deve ter pelo menos um componente"),
   })
   .refine(
     (data) => {
-      // Ensure total ratio equals 100%
-      const totalRatio = data.components.reduce((sum, comp) => sum + comp.ratio, 0);
-      return Math.abs(totalRatio - 100) < 0.01; // Allow small floating point error
+      // Ensure total ratio equals 100% if ratios are provided
+      const ratioComponents = data.components.filter(comp => comp.ratio !== undefined);
+      if (ratioComponents.length > 0) {
+        const totalRatio = ratioComponents.reduce((sum, comp) => sum + (comp.ratio || 0), 0);
+        return Math.abs(totalRatio - 100) < 0.01; // Allow small floating point error
+      }
+      return true;
     },
     {
       message: "A soma das proporções deve ser igual a 100%",
@@ -1701,14 +1718,14 @@ export const paintFormulaComponentGetManySchema = z
   .transform(paintFormulaComponentTransform);
 
 export const paintFormulaComponentCreateSchema = z.object({
-  ratio: z.number().positive("Proporção deve ser positiva").min(0.1, "Proporção mínima é 0.1%").max(100, "Proporção máxima é 100%"),
+  ratio: z.number().positive("Proporção deve ser positiva").max(100, "Proporção máxima é 100%"),
   itemId: z.string().uuid("Item inválido"),
   formulaPaintId: z.string().uuid("Fórmula inválida"),
 });
 
 export const paintFormulaComponentUpdateSchema = z
   .object({
-    ratio: z.number().positive("Proporção deve ser positiva").min(0.1, "Proporção mínima é 0.1%").max(100, "Proporção máxima é 100%").optional(),
+    ratio: z.number().positive("Proporção deve ser positiva").max(100, "Proporção máxima é 100%").optional(),
     itemId: z.string().uuid("Item inválido").optional(),
     formulaPaintId: z.string().uuid("Fórmula inválida").optional(),
   })

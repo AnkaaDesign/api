@@ -543,6 +543,10 @@ const maintenanceFilters = {
     )
     .optional(),
   itemIds: z.array(z.string()).optional(),
+  brandIds: z.array(z.string()).optional(),
+  categoryIds: z.array(z.string()).optional(),
+  supplierIds: z.array(z.string()).optional(),
+  maintenanceScheduleIds: z.array(z.string()).optional(),
   isPending: z.boolean().optional(),
   isLate: z.boolean().optional(),
   isActive: z.boolean().optional(),
@@ -590,6 +594,9 @@ const maintenanceTransform = (data: any): any => {
         { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { description: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { item: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { item: { brand: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { item: { category: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { item: { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
       ],
     });
     delete data.searchingFor;
@@ -611,6 +618,30 @@ const maintenanceTransform = (data: any): any => {
   if (data.itemIds && Array.isArray(data.itemIds) && data.itemIds.length > 0) {
     andConditions.push({ itemId: { in: data.itemIds } });
     delete data.itemIds;
+  }
+
+  // Handle brandIds filter
+  if (data.brandIds && Array.isArray(data.brandIds) && data.brandIds.length > 0) {
+    andConditions.push({ item: { brandId: { in: data.brandIds } } });
+    delete data.brandIds;
+  }
+
+  // Handle categoryIds filter
+  if (data.categoryIds && Array.isArray(data.categoryIds) && data.categoryIds.length > 0) {
+    andConditions.push({ item: { categoryId: { in: data.categoryIds } } });
+    delete data.categoryIds;
+  }
+
+  // Handle supplierIds filter
+  if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
+    andConditions.push({ item: { supplierId: { in: data.supplierIds } } });
+    delete data.supplierIds;
+  }
+
+  // Handle maintenanceScheduleIds filter
+  if (data.maintenanceScheduleIds && Array.isArray(data.maintenanceScheduleIds) && data.maintenanceScheduleIds.length > 0) {
+    andConditions.push({ maintenanceScheduleId: { in: data.maintenanceScheduleIds } });
+    delete data.maintenanceScheduleIds;
   }
 
   // Handle isPending filter

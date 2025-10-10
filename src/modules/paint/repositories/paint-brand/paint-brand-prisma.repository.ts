@@ -50,6 +50,13 @@ export class PaintBrandPrismaRepository
       name: formData.name,
     };
 
+    // Handle componentItemIds relationship
+    if (formData.componentItemIds !== undefined && formData.componentItemIds.length > 0) {
+      createInput.componentItems = {
+        connect: formData.componentItemIds.map(id => ({ id })),
+      };
+    }
+
     return createInput;
   }
 
@@ -57,8 +64,15 @@ export class PaintBrandPrismaRepository
     formData: PaintBrandUpdateFormData,
   ): Prisma.PaintBrandUpdateInput {
     const updateInput: Prisma.PaintBrandUpdateInput = {
-      ...formData,
+      name: formData.name,
     };
+
+    // Handle componentItemIds relationship
+    if (formData.componentItemIds !== undefined) {
+      updateInput.componentItems = {
+        set: formData.componentItemIds.map(id => ({ id })),
+      };
+    }
 
     return updateInput;
   }

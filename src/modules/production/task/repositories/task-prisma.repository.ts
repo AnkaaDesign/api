@@ -61,26 +61,26 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  reimbursements: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
-  reimbursementInvoices: {
-    select: {
-      id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
-    },
-  },
+  // reimbursements: {
+  //   select: {
+  //     id: true,
+  //     filename: true,
+  //     path: true,
+  //     mimetype: true,
+  //     size: true,
+  //     thumbnailUrl: true,
+  //   },
+  // },
+  // reimbursementInvoices: {
+  //   select: {
+  //     id: true,
+  //     filename: true,
+  //     path: true,
+  //     mimetype: true,
+  //     size: true,
+  //     thumbnailUrl: true,
+  //   },
+  // },
   observation: {
     include: {
       files: {
@@ -252,7 +252,7 @@ export class TaskPrismaRepository
       taskData.reimbursements = { connect: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      taskData.reimbursementInvoices = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
+      taskData.nfeReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds && fileIds.length > 0) {
       taskData.artworks = { connect: fileIds.map(id => ({ id })) };
@@ -409,12 +409,16 @@ export class TaskPrismaRepository
       reimbursementInvoiceIds,
       fileIds,
       paintIds,
+      // Single file IDs (convert to arrays for compatibility)
+      budgetId,
+      nfeId,
+      receiptId,
       services,
       observation,
       truck,
       cut,
       cuts,
-    } = extendedData;
+    } = extendedData as any;
 
     const updateData: Prisma.TaskUpdateInput = {};
 
@@ -449,20 +453,30 @@ export class TaskPrismaRepository
     }
 
     // Handle many-to-many file relations with set operation
+    // Support both array format (budgetIds) and single ID format (budgetId)
     if (budgetIds !== undefined) {
       updateData.budgets = { set: budgetIds.map(id => ({ id })) };
+    } else if (budgetId !== undefined) {
+      updateData.budgets = budgetId ? { set: [{ id: budgetId }] } : { set: [] };
     }
+
     if (invoiceIds !== undefined) {
       updateData.nfes = { set: invoiceIds.map(id => ({ id })) };
+    } else if (nfeId !== undefined) {
+      updateData.nfes = nfeId ? { set: [{ id: nfeId }] } : { set: [] };
     }
+
     if (receiptIds !== undefined) {
       updateData.receipts = { set: receiptIds.map(id => ({ id })) };
+    } else if (receiptId !== undefined) {
+      updateData.receipts = receiptId ? { set: [{ id: receiptId }] } : { set: [] };
     }
+
     if (reimbursementIds !== undefined) {
       updateData.reimbursements = { set: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds !== undefined) {
-      updateData.reimbursementInvoices = { set: reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.nfeReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds !== undefined) {
       updateData.artworks = { set: fileIds.map(id => ({ id })) };
@@ -640,10 +654,10 @@ export class TaskPrismaRepository
           databaseInclude.budgets = value;
         } else if (key === 'airbrushings') {
           databaseInclude.airbrushing = value;
-        } else if (key === 'reembolsos') {
+        } else if (key === 'reimbursements') {
           databaseInclude.reimbursements = value;
-        } else if (key === 'nfeReembolsos') {
-          databaseInclude.reimbursementInvoices = value;
+        } else if (key === 'nfeReimbursements') {
+          databaseInclude.nfeReimbursements = value;
         } else {
           databaseInclude[key] = value;
         }
@@ -659,10 +673,10 @@ export class TaskPrismaRepository
           databaseInclude.budgets = { include: value.include };
         } else if (key === 'airbrushings') {
           databaseInclude.airbrushing = { include: value.include, orderBy: (value as any).orderBy };
-        } else if (key === 'reembolsos') {
+        } else if (key === 'reimbursements') {
           databaseInclude.reimbursements = { include: value.include };
-        } else if (key === 'nfeReembolsos') {
-          databaseInclude.reimbursementInvoices = { include: value.include };
+        } else if (key === 'nfeReimbursements') {
+          databaseInclude.nfeReimbursements = { include: value.include };
         } else {
           databaseInclude[key] = { include: value.include };
         }

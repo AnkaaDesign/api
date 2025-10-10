@@ -500,7 +500,7 @@ export class ItemPrismaRepository
     }
 
     // Use normal Prisma sorting for totalPrice and other fields
-    const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { createdAt: 'desc' };
+    const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };
 
     const defaultInclude = this.getDefaultInclude();
     const mappedInclude = this.mapIncludeToDatabaseInclude(include);

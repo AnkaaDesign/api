@@ -12,9 +12,10 @@ import {
   ParseUUIDPipe,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { OrderService } from './order.service';
@@ -130,12 +131,28 @@ export class OrderController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
+      { name: 'reimbursements', maxCount: 10 },
+      { name: 'reimbursementInvoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ZodValidationPipe(orderCreateSchema)) data: OrderCreateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
   ): Promise<OrderCreateResponse> {
-    return this.orderService.create(data, query.include, userId);
+    return this.orderService.create(data, query.include, userId, files);
   }
 
   // =====================
@@ -190,13 +207,29 @@ export class OrderController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
+      { name: 'reimbursements', maxCount: 10 },
+      { name: 'reimbursementInvoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(orderUpdateSchema)) data: OrderUpdateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
   ): Promise<OrderUpdateResponse> {
-    return this.orderService.update(id, data, query.include, userId);
+    return this.orderService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')
@@ -208,125 +241,49 @@ export class OrderController {
     return this.orderService.delete(id, userId);
   }
 
-  // File Upload Endpoints
+  // =====================
+  // DEPRECATED File Upload Endpoints
+  // =====================
+  // These endpoints are deprecated. Use PUT /orders/:id with file fields instead.
+
   @Post(':id/upload/budgets')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadBudget(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const order = await this.orderService.findById(id, { supplier: true });
-    const supplierName = order.data.supplier?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderBudgets',
-      entityId: id,
-      entityType: 'order',
-      supplierName,
-    });
+  async uploadBudget() {
+    throw new BadRequestException(
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "budgets" para enviar arquivos.'
+    );
   }
 
   @Post(':id/upload/invoices')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadInvoice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const order = await this.orderService.findById(id, { supplier: true });
-    const supplierName = order.data.supplier?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderNfes',
-      entityId: id,
-      entityType: 'order',
-      supplierName,
-    });
+  async uploadInvoice() {
+    throw new BadRequestException(
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "invoices" para enviar arquivos.'
+    );
   }
 
   @Post(':id/upload/receipts')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReceipt(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const order = await this.orderService.findById(id, { supplier: true });
-    const supplierName = order.data.supplier?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderReceipts',
-      entityId: id,
-      entityType: 'order',
-      supplierName,
-    });
+  async uploadReceipt() {
+    throw new BadRequestException(
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "receipts" para enviar arquivos.'
+    );
   }
 
   @Post(':id/upload/reimbursements')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReimbursement(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const order = await this.orderService.findById(id, { supplier: true });
-    const supplierName = order.data.supplier?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderReembolsos',
-      entityId: id,
-      entityType: 'order',
-      supplierName,
-    });
+  async uploadReimbursement() {
+    throw new BadRequestException(
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursements" para enviar arquivos.'
+    );
   }
 
   @Post(':id/upload/reimbursement-invoices')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FileInterceptor('file', multerConfig))
-  async uploadReimbursementInvoice(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UploadedFile() file: Express.Multer.File,
-    @UserId() userId: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('Nenhum arquivo foi enviado');
-    }
-
-    const order = await this.orderService.findById(id, { supplier: true });
-    const supplierName = order.data.supplier?.fantasyName;
-
-    return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderNfeReembolsos',
-      entityId: id,
-      entityType: 'order',
-      supplierName,
-    });
+  async uploadReimbursementInvoice() {
+    throw new BadRequestException(
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursementInvoices" para enviar arquivos.'
+    );
   }
 }
 

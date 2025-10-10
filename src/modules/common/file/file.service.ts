@@ -21,6 +21,7 @@ import {
 import { Response } from 'express';
 import { environmentConfig } from '../../../common/config/environment.config';
 import { generateFileUrl, validateFileSize, UPLOAD_CONFIG } from './config/upload.config';
+import { validateFileLimit } from './config/file-limits.config';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueService, ThumbnailJobData } from './thumbnail-queue.service';
 import { WebDAVService, type WebDAVFolderMapping } from './services/webdav.service';
@@ -220,29 +221,47 @@ export class FileService {
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-      const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
-      const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+      // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
+      const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
 
-      let nginxInternalPath: string;
+      if (useXAccelRedirect) {
+        // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
+        const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+        const uploadsDir = process.env.UPLOAD_DIR || './uploads';
 
-      // Check if file is in WebDAV or local uploads
-      if (file.path.startsWith(webdavRoot)) {
-        // WebDAV file: Map /srv/webdav/... to /internal-files/...
-        const relativePath = file.path.replace(webdavRoot, '');
-        nginxInternalPath = `/internal-files${relativePath}`;
-      } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
-        // Local upload file: Map uploads/... to /internal-uploads/...
-        const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
-        nginxInternalPath = `/internal-uploads/${relativePath}`;
+        let nginxInternalPath: string;
+
+        // Check if file is in WebDAV or local uploads
+        if (file.path.startsWith(webdavRoot)) {
+          // WebDAV file: Map /srv/webdav/... to /internal-files/...
+          const relativePath = file.path.replace(webdavRoot, '');
+          nginxInternalPath = `/internal-files${relativePath}`;
+        } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+          // Local upload file: Map uploads/... to /internal-uploads/...
+          const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
+          nginxInternalPath = `/internal-uploads/${relativePath}`;
+        } else {
+          // Fallback: assume it's a relative path in uploads
+          nginxInternalPath = `/internal-uploads/${file.path}`;
+        }
+
+        // Set X-Accel-Redirect header - nginx will intercept and serve the file
+        res.setHeader('X-Accel-Redirect', nginxInternalPath);
+        res.end();
       } else {
-        // Fallback: assume it's a relative path in uploads
-        nginxInternalPath = `/internal-uploads/${file.path}`;
-      }
+        // Development mode: Stream file directly without nginx
+        const { createReadStream } = await import('fs');
+        const fileStream = createReadStream(file.path);
 
-      // Set X-Accel-Redirect header - nginx will intercept and serve the file
-      res.setHeader('X-Accel-Redirect', nginxInternalPath);
-      res.end();
+        fileStream.on('error', (error: any) => {
+          this.logger.error(`Error streaming file ${file.id}:`, error);
+          if (!res.headersSent) {
+            res.status(500).send('Error streaming file');
+          }
+        });
+
+        fileStream.pipe(res);
+      }
     } catch (error: any) {
       this.logger.error(`Erro ao servir arquivo ${id}:`, error);
       if (error instanceof NotFoundException) {
@@ -278,29 +297,47 @@ export class FileService {
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-      const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
-      const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+      // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
+      const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
 
-      let nginxInternalPath: string;
+      if (useXAccelRedirect) {
+        // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
+        const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+        const uploadsDir = process.env.UPLOAD_DIR || './uploads';
 
-      // Check if file is in WebDAV or local uploads
-      if (file.path.startsWith(webdavRoot)) {
-        // WebDAV file: Map /srv/webdav/... to /internal-files/...
-        const relativePath = file.path.replace(webdavRoot, '');
-        nginxInternalPath = `/internal-files${relativePath}`;
-      } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
-        // Local upload file: Map uploads/... to /internal-uploads/...
-        const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
-        nginxInternalPath = `/internal-uploads/${relativePath}`;
+        let nginxInternalPath: string;
+
+        // Check if file is in WebDAV or local uploads
+        if (file.path.startsWith(webdavRoot)) {
+          // WebDAV file: Map /srv/webdav/... to /internal-files/...
+          const relativePath = file.path.replace(webdavRoot, '');
+          nginxInternalPath = `/internal-files${relativePath}`;
+        } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+          // Local upload file: Map uploads/... to /internal-uploads/...
+          const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
+          nginxInternalPath = `/internal-uploads/${relativePath}`;
+        } else {
+          // Fallback: assume it's a relative path in uploads
+          nginxInternalPath = `/internal-uploads/${file.path}`;
+        }
+
+        // Set X-Accel-Redirect header - nginx will intercept and serve the file
+        res.setHeader('X-Accel-Redirect', nginxInternalPath);
+        res.end();
       } else {
-        // Fallback: assume it's a relative path in uploads
-        nginxInternalPath = `/internal-uploads/${file.path}`;
-      }
+        // Development mode: Stream file directly without nginx
+        const { createReadStream } = await import('fs');
+        const fileStream = createReadStream(file.path);
 
-      // Set X-Accel-Redirect header - nginx will intercept and serve the file
-      res.setHeader('X-Accel-Redirect', nginxInternalPath);
-      res.end();
+        fileStream.on('error', (error: any) => {
+          this.logger.error(`Error streaming file download ${file.id}:`, error);
+          if (!res.headersSent) {
+            res.status(500).send('Error streaming file');
+          }
+        });
+
+        fileStream.pipe(res);
+      }
     } catch (error: any) {
       this.logger.error(`Erro ao baixar arquivo ${id}:`, error);
       if (error instanceof NotFoundException) {
@@ -539,6 +576,54 @@ export class FileService {
     } catch (error: any) {
       this.logger.warn(`Falha ao remover arquivo físico ${filePath}: ${error.message}`);
       // Don't throw - we still want to delete the database record
+    }
+  }
+
+  /**
+   * Validate file attachment limits for an entity relationship
+   * This method should be called before attaching files to entities
+   * @param relationshipField - The relationship field (e.g., 'taskArtworks', 'orderBudgets')
+   * @param entityId - The ID of the entity
+   * @param newFileIds - Array of file IDs being attached
+   * @param tx - Optional transaction
+   * @throws BadRequestException if the file limit would be exceeded
+   */
+  async validateFileLimitForEntity(
+    relationshipField: string,
+    entityId: string,
+    newFileIds: string[],
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    const transaction = tx || this.prisma;
+
+    // Get current file count for this relationship
+    let currentFileCount = 0;
+
+    try {
+      // Query the file count based on relationship field
+      // This is a generic approach that works for all relationship types
+      const countQuery = {
+        where: {
+          [relationshipField]: {
+            some: {
+              id: entityId,
+            },
+          },
+        },
+      };
+
+      currentFileCount = await transaction.file.count(countQuery);
+    } catch (error: any) {
+      this.logger.warn(`Could not count files for ${relationshipField}: ${error.message}`);
+      // If we can't count, we'll skip validation rather than blocking the operation
+      return;
+    }
+
+    // Validate using the file limits config
+    const validation = validateFileLimit(relationshipField, currentFileCount, newFileIds.length);
+
+    if (!validation.valid) {
+      throw new BadRequestException(validation.message);
     }
   }
 
@@ -1224,240 +1309,143 @@ export class FileService {
     );
   }
 
-  /**
-   * Detect WebDAV folder context from request or file relationships with project support
-   */
-  private detectFileContext(
-    queryParams?: any,
-    fileRelationships?: any,
-  ): {
-    context: keyof WebDAVFolderMapping | null;
-    entityId?: string;
-    entityType?: string;
-    projectId?: string;
-    projectName?: string;
-    customerName?: string;
-    supplierName?: string;
-  } {
-    // Priority 1: Explicit context from query parameters
-    if (queryParams?.fileContext) {
-      return {
-        context: queryParams.fileContext as keyof WebDAVFolderMapping,
-        entityId: queryParams.entityId,
-        entityType: queryParams.entityType,
-        projectId: queryParams.projectId,
-        projectName: queryParams.projectName,
-        customerName: queryParams.customerName,
-        supplierName: queryParams.supplierName,
-      };
-    }
-
-    // Priority 2: Detect from file relationships
-    if (fileRelationships) {
-      for (const [field, mapping] of Object.entries(FILE_RELATIONSHIP_MAP)) {
-        if (fileRelationships[field] && fileRelationships[field].length > 0) {
-          const entityId = Array.isArray(fileRelationships[field])
-            ? fileRelationships[field][0]?.id || fileRelationships[field][0]
-            : fileRelationships[field]?.id || fileRelationships[field];
-
-          return {
-            context: field as keyof WebDAVFolderMapping,
-            entityId: entityId,
-            entityType: mapping.entityType,
-            projectId: queryParams?.projectId,
-            projectName: queryParams?.projectName,
-            customerName: queryParams?.customerName,
-            supplierName: queryParams?.supplierName,
-          };
-        }
-      }
-    }
-
-    // No specific context detected, but may have project info
-    // Try to get a best default context if we have entity information
-    let bestContext = null;
-    if (queryParams?.entityType || queryParams?.mimetype) {
-      bestContext = this.webdavService.getBestDefaultContext(
-        queryParams?.mimetype,
-        queryParams?.entityType,
-        queryParams?.entityId,
-      );
-    }
-
-    return {
-      context: bestContext,
-      projectId: queryParams?.projectId,
-      projectName: queryParams?.projectName,
-      customerName: queryParams?.customerName,
-      supplierName: queryParams?.supplierName,
-    };
-  }
 
   /**
-   * Move uploaded file to WebDAV folder structure with project support
+   * Create file from uploaded file within an existing transaction
+   * This method is used when files need to be created as part of entity creation
+   * to ensure atomicity - if entity creation fails, files are not created
    */
-  private async moveFileToWebDAV(
-    file: File,
+  async createFromUploadWithTransaction(
+    tx: PrismaTransaction,
+    file: Express.Multer.File,
     fileContext: keyof WebDAVFolderMapping | null,
-    entityId?: string,
-    entityType?: string,
-    projectId?: string,
-    projectName?: string,
-    customerName?: string,
-    supplierName?: string,
-  ): Promise<string> {
-    if (!UPLOAD_CONFIG.useWebDAV) {
-      this.logger.log('WebDAV disabled, keeping file in upload directory');
-      return file.path;
-    }
-
+    userId?: string,
+    contextData?: {
+      entityId?: string;
+      entityType?: string;
+      customerName?: string;
+      supplierName?: string;
+      userName?: string;
+      projectId?: string;
+      projectName?: string;
+      cutType?: string;
+    },
+    include?: FileInclude,
+  ): Promise<File> {
     try {
-      // Generate WebDAV path with project support and customer/supplier names
+      this.logger.log(`Processing transactional upload for file: ${file.originalname} with context: ${fileContext}`);
+
+      // Validate source file exists before processing
+      if (!existsSync(file.path)) {
+        throw new BadRequestException(`Arquivo de origem não encontrado: ${file.path}`);
+      }
+
+      // Generate proper WebDAV path based on context
       const webdavPath = this.webdavService.generateWebDAVFilePath(
-        file.filename,
+        file.originalname,
         fileContext,
         file.mimetype,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
+        contextData?.entityId,
+        contextData?.entityType,
+        contextData?.projectId,
+        contextData?.projectName,
+        contextData?.customerName,
+        contextData?.supplierName,
+        contextData?.userName,
+        contextData?.cutType,
       );
 
-      this.logger.log(`Moving file to WebDAV: ${file.path} → ${webdavPath}`, {
-        context: fileContext,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-      });
-
-      // Move file to WebDAV
-      await this.webdavService.moveToWebDAV(file.path, webdavPath);
-
-      return webdavPath;
-    } catch (error: any) {
-      this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
-      // Return original path if WebDAV operation fails
-      return file.path;
-    }
-  }
-
-  /**
-   * Create file from uploaded file with WebDAV integration
-   */
-  async createFromUpload(
-    file: Express.Multer.File,
-    include?: FileInclude,
-    userId?: string,
-    queryParams?: any,
-  ): Promise<FileCreateResponse> {
-    try {
-      // Detect file context for WebDAV routing with project support
-      const enrichedParams = { ...queryParams, mimetype: file.mimetype };
-      const { context, entityId, entityType, projectId, projectName, customerName, supplierName } =
-        this.detectFileContext(enrichedParams);
-
-      this.logger.log(`Processing upload for file: ${file.originalname}`, {
-        context,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-        useWebDAV: UPLOAD_CONFIG.useWebDAV,
-      });
-
-      // Create the file record first (without thumbnail generation in transaction)
-      const fileData = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Create file data with initial path (will be updated after WebDAV move)
-        const createData: FileCreateFormData = {
-          filename: file.originalname, // Keep original name for display
-          originalName: file.originalname,
-          mimetype: file.mimetype,
-          path: file.path, // Initial staging path
-          size: file.size,
-        };
-
-        // Validate file data
-        await this.validateFileUpload(createData, undefined, tx);
-
-        // Create the file record
-        const newFile = await this.fileRepository.createWithTransaction(tx, createData, {
-          include,
-        });
-
-        // Log the file upload with essential fields
-        const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
-        const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
-
-        await logEntityChange({
-          changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.FILE,
-          entityId: newFile.id,
-          action: CHANGE_ACTION.CREATE,
-          entity: fileForLog,
-          reason: `Novo arquivo enviado: "${file.originalname}"`,
-          userId: userId || null,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          transaction: tx,
-        });
-
-        return newFile;
-      });
-
-      // Move file to WebDAV after successful database creation
-      const webdavPath = await this.moveFileToWebDAV(
-        fileData,
-        context,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-      );
-
-      // Update file record with final WebDAV path if it changed
-      let finalFileData = fileData;
-      if (webdavPath !== fileData.path) {
-        finalFileData = await this.fileRepository.update(
-          fileData.id,
-          {
-            path: webdavPath,
-          },
-          { include },
-        );
-
-        this.logger.log(`Updated file path in database: ${fileData.path} → ${webdavPath}`);
-      }
-
-      // Queue thumbnail generation for supported file types
-      // This is done OUTSIDE the transaction to avoid timeouts
-      await this.queueThumbnailGeneration(finalFileData);
-
-      return {
-        success: true,
-        message: `Arquivo "${file.originalname}" enviado com sucesso.`,
-        data: this.transformFileWithUrl(finalFileData),
+      // Create file data with WebDAV path (file will be moved there after validation)
+      const createData: FileCreateFormData = {
+        filename: file.originalname,
+        originalName: file.originalname,
+        mimetype: file.mimetype,
+        path: webdavPath, // Use final WebDAV path
+        size: file.size,
       };
-    } catch (error: any) {
-      // Clean up uploaded file if database operation failed
-      if (file && file.path) {
-        try {
-          unlinkSync(file.path);
-        } catch (cleanupError) {
-          this.logger.warn(`Failed to cleanup uploaded file: ${file.path}`);
-        }
+
+      // Validate file metadata (but skip path validation since file isn't moved yet)
+      await this.validateFile(createData, undefined, tx);
+
+      // Create the file record within the transaction
+      const newFile = await this.fileRepository.createWithTransaction(tx, createData, {
+        include,
+      });
+
+      // Log the file upload with essential fields
+      const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
+      const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
+
+      await logEntityChange({
+        changeLogService: this.changeLogService,
+        entityType: ENTITY_TYPE.FILE,
+        entityId: newFile.id,
+        action: CHANGE_ACTION.CREATE,
+        entity: fileForLog,
+        reason: `Arquivo enviado com entidade: "${file.originalname}"`,
+        userId: userId || null,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        transaction: tx,
+      });
+
+      // Move file to WebDAV (this happens after transaction but before commit)
+      // If this fails, the transaction will roll back
+      try {
+        await this.webdavService.moveToWebDAV(file.path, webdavPath);
+        this.logger.log(`Moved file to WebDAV: ${file.path} → ${webdavPath}`);
+      } catch (error: any) {
+        this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
+        throw new InternalServerErrorException(`Falha ao mover arquivo para WebDAV: ${error.message}`);
       }
 
-      this.logger.error('Erro ao processar arquivo enviado:', error);
+      // For images, generate thumbnail synchronously so it's ready immediately
+      // For videos/PDFs, use async queue (slow to process)
+      const isImage = file.mimetype.startsWith('image/') && !file.mimetype.includes('eps');
 
-      if (error instanceof BadRequestException) {
+      if (isImage) {
+        try {
+          this.logger.log(`Generating thumbnail synchronously for image ${newFile.id}`);
+          const thumbnailResult = await this.thumbnailService.generateThumbnail(
+            webdavPath,
+            file.mimetype,
+            newFile.id,
+            {
+              width: 300,
+              height: 300,
+              quality: 85,
+              format: 'webp',
+              fit: 'contain',
+            }
+          );
+
+          if (thumbnailResult.success && thumbnailResult.thumbnailUrl) {
+            // Update file record with thumbnail URL within transaction
+            const updatedFile = await tx.file.update({
+              where: { id: newFile.id },
+              data: { thumbnailUrl: thumbnailResult.thumbnailUrl },
+              include,
+            });
+            this.logger.log(`Thumbnail generated and saved for ${newFile.id}: ${thumbnailResult.thumbnailUrl}`);
+            return updatedFile as unknown as File;
+          } else {
+            this.logger.warn(`Thumbnail generation failed for ${newFile.id}: ${thumbnailResult.error}`);
+          }
+        } catch (error: any) {
+          // Don't fail the transaction if thumbnail generation fails
+          this.logger.warn(`Error generating thumbnail for ${newFile.id}: ${error.message}`);
+        }
+      } else {
+        // Queue thumbnail generation for videos/PDFs (fire-and-forget)
+        this.queueThumbnailGeneration(newFile).catch(err => {
+          this.logger.warn(`Failed to queue thumbnail generation for ${newFile.id}: ${err.message}`);
+        });
+      }
+
+      return newFile;
+    } catch (error: any) {
+      this.logger.error('Erro ao processar arquivo enviado com transação:', error);
+
+      if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
         throw error;
       }
 
@@ -1467,147 +1455,81 @@ export class FileService {
     }
   }
 
+
   /**
-   * Create multiple files from uploaded files with WebDAV integration
+   * Create file from uploaded file (convenience wrapper that creates its own transaction)
+   *
+   * @deprecated Use createFromUploadWithTransaction within entity create/update transactions instead.
+   * This method is kept for backward compatibility with standalone upload endpoints.
    */
-  async createMultipleFromUploads(
-    files: Express.Multer.File[],
+  async createFromUpload(
+    file: Express.Multer.File,
     include?: FileInclude,
     userId?: string,
-    queryParams?: any,
-  ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
-    const successfulUploads: File[] = [];
-    const failedUploads: any[] = [];
-
+    contextData?: {
+      fileContext?: keyof WebDAVFolderMapping;
+      entityId?: string;
+      entityType?: string;
+      customerName?: string;
+      supplierName?: string;
+      userName?: string;
+      projectId?: string;
+      projectName?: string;
+      cutType?: string;
+    },
+  ): Promise<FileCreateResponse> {
     try {
-      for (let index = 0; index < files.length; index++) {
-        const file = files[index];
-        try {
-          const result = await this.createFromUpload(file, include, userId, queryParams);
-          if (result.data) {
-            successfulUploads.push(result.data);
-          }
-        } catch (error: any) {
-          failedUploads.push({
-            index,
-            error: error.message || 'Erro ao processar arquivo.',
-            errorCode: error.name || 'UPLOAD_ERROR',
-            data: {
-              originalName: file.originalname,
-              filename: file.filename,
-              mimetype: file.mimetype,
-              size: file.size,
-            },
-          });
-        }
-      }
+      this.logger.warn(
+        `[DEPRECATED] createFromUpload called for file ${file.originalname}. ` +
+        `Consider using createFromUploadWithTransaction within entity transactions instead.`
+      );
 
-      const successMessage =
-        successfulUploads.length === 1
-          ? '1 arquivo enviado com sucesso'
-          : `${successfulUploads.length} arquivos enviados com sucesso`;
-      const failureMessage = failedUploads.length > 0 ? `, ${failedUploads.length} falharam` : '';
-
-      // Convert to expected format
-      const batchOperationResult = {
-        success: successfulUploads,
-        failed: failedUploads.map((error: any, index: number) => ({
-          index: error.index || index,
-          id: error.id,
-          error: error.error,
-          errorCode: error.errorCode,
-          data: error.data,
-        })),
-        totalProcessed: successfulUploads.length + failedUploads.length,
-        totalSuccess: successfulUploads.length,
-        totalFailed: failedUploads.length,
-      };
+      // Create file within its own transaction
+      const newFile = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        return await this.createFromUploadWithTransaction(
+          tx,
+          file,
+          contextData?.fileContext || null,
+          userId,
+          {
+            entityId: contextData?.entityId,
+            entityType: contextData?.entityType,
+            customerName: contextData?.customerName,
+            supplierName: contextData?.supplierName,
+            userName: contextData?.userName,
+            projectId: contextData?.projectId,
+            projectName: contextData?.projectName,
+            cutType: contextData?.cutType,
+          },
+          include,
+        );
+      });
 
       return {
         success: true,
-        message: `${successMessage}${failureMessage}`,
-        data: batchOperationResult,
+        message: 'Arquivo criado com sucesso.',
+        data: newFile,
       };
     } catch (error: any) {
-      // Clean up all uploaded files if batch operation failed
-      for (const file of files) {
-        if (file && file.path) {
-          try {
-            unlinkSync(file.path);
-          } catch (cleanupError) {
-            this.logger.warn(`Failed to cleanup uploaded file: ${file.path}`);
-          }
+      this.logger.error('Erro ao processar arquivo enviado:', error);
+
+      // Clean up uploaded file if processing failed
+      try {
+        if (existsSync(file.path)) {
+          unlinkSync(file.path);
+          this.logger.log(`Cleaned up failed upload: ${file.path}`);
         }
+      } catch (cleanupError: any) {
+        this.logger.warn(`Failed to cleanup file ${file.path}: ${cleanupError.message}`);
       }
 
-      this.logger.error('Erro no envio em lote:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+
       throw new InternalServerErrorException(
-        'Erro ao processar arquivos enviados. Por favor, tente novamente.',
+        'Erro ao processar arquivo enviado. Por favor, tente novamente.',
       );
-    }
-  }
-
-  /**
-   * Enhanced file validation for uploads
-   */
-  private async validateFileUpload(
-    data: Partial<FileCreateFormData | FileUpdateFormData>,
-    existingId?: string,
-    tx?: PrismaTransaction,
-  ): Promise<void> {
-    const transaction = tx || this.prisma;
-
-    // Original validation logic...
-    if (data.filename) {
-      if (data.filename.length < 1 || data.filename.length > 255) {
-        throw new BadRequestException('Nome do arquivo deve ter entre 1 e 255 caracteres.');
-      }
-
-      const invalidChars = /[<>:"|?*\x00-\x1f]/;
-      if (invalidChars.test(data.filename)) {
-        throw new BadRequestException('Nome do arquivo contém caracteres inválidos.');
-      }
-
-      if (data.filename.includes('../') || data.filename.includes('..\\')) {
-        throw new BadRequestException('Nome do arquivo contém tentativas de directory traversal.');
-      }
-    }
-
-    // Enhanced MIME type validation
-    if (data.mimetype) {
-      if (data.mimetype.length < 1 || data.mimetype.length > 255) {
-        throw new BadRequestException('Tipo MIME deve ter entre 1 e 255 caracteres.');
-      }
-
-      const mimetypeRegex =
-        /^[a-zA-Z0-9][a-zA-Z0-9!#$&^_+-]{0,126}\/[a-zA-Z0-9][a-zA-Z0-9!#$&^_+-]{0,126}$/;
-      if (!mimetypeRegex.test(data.mimetype)) {
-        throw new BadRequestException('Tipo MIME inválido.');
-      }
-    }
-
-    // Path validation for uploads
-    if (data.path) {
-      if (!existsSync(data.path)) {
-        throw new BadRequestException('Arquivo físico não encontrado no servidor.');
-      }
-
-      const stats = statSync(data.path);
-      if (!stats.isFile()) {
-        throw new BadRequestException('Caminho não aponta para um arquivo válido.');
-      }
-
-      // Validate file size matches
-      if (data.size && stats.size !== data.size) {
-        throw new BadRequestException('Tamanho do arquivo não confere com o arquivo físico.');
-      }
-    }
-
-    // Enhanced size validation
-    if (data.size !== undefined) {
-      if (!validateFileSize(data.size)) {
-        throw new BadRequestException('Tamanho do arquivo inválido ou excede o limite permitido.');
-      }
     }
   }
 
@@ -1669,7 +1591,7 @@ export class FileService {
         action: CHANGE_ACTION.UPDATE,
         field: 'thumbnailUrl',
         oldValue: file.thumbnailUrl,
-        newValue: `${process.env.API_BASE_URL || 'http://localhost:3030'}/api/files/thumbnail/${file.id}`,
+        newValue: `${process.env.API_BASE_URL || 'http://localhost:3030'}/files/thumbnail/${file.id}`,
         reason: 'Thumbnail regenerado',
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         triggeredById: file.id,

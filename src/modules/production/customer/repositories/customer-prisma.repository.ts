@@ -282,7 +282,7 @@ export class CustomerPrismaRepository
       }),
       transaction.customer.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { fantasyName: 'asc' },
         skip,
         take,
         include:

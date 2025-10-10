@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { FileService } from '@modules/common/file/file.service';
 import type {
   Task,
   TaskBatchCreateResponse,
@@ -64,25 +65,32 @@ export class TaskService {
     private readonly prisma: PrismaService,
     private readonly tasksRepository: TaskRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
 
   /**
-   * Create a new task with complete changelog tracking
+   * Create a new task with complete changelog tracking and file uploads
    */
   async create(
     data: TaskCreateFormData,
     include?: TaskInclude,
     userId?: string,
+    files?: {
+      budget?: Express.Multer.File[],
+      nfe?: Express.Multer.File[],
+      receipt?: Express.Multer.File[],
+      artworks?: Express.Multer.File[]
+    },
   ): Promise<TaskCreateResponse> {
     try {
+      // Create task within transaction with file uploads
       const task = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validate task data
         await this.validateTask(data, undefined, tx);
 
-        // Create the task with initial history
+        // Create the task first WITHOUT files
         const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
-
 
         // Log task creation
         await logEntityChange({
@@ -100,16 +108,124 @@ export class TaskService {
           transaction: tx,
         });
 
+        // Process and save files WITHIN the transaction
+        // This ensures files are only created if the task creation succeeds
+        if (files) {
+          const fileUpdates: any = {};
+          const customerName = newTask.customer?.fantasyName;
+
+          // Budget file
+          if (files.budget && files.budget.length > 0) {
+            const budgetFile = files.budget[0];
+            const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              budgetFile,
+              'taskBudgets',
+              userId,
+              {
+                entityId: newTask.id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.budgets = { connect: [{ id: budgetRecord.id }] };
+          }
+
+          // NFe file
+          if (files.nfe && files.nfe.length > 0) {
+            const nfeFile = files.nfe[0];
+            const nfeRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              nfeFile,
+              'taskNfes',
+              userId,
+              {
+                entityId: newTask.id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.nfes = { connect: [{ id: nfeRecord.id }] };
+          }
+
+          // Receipt file
+          if (files.receipt && files.receipt.length > 0) {
+            const receiptFile = files.receipt[0];
+            const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              receiptFile,
+              'taskReceipts',
+              userId,
+              {
+                entityId: newTask.id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.receipts = { connect: [{ id: receiptRecord.id }] };
+          }
+
+          // Artwork files
+          if (files.artworks && files.artworks.length > 0) {
+            const artworkIds: string[] = [];
+            for (const artworkFile of files.artworks) {
+              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                artworkFile,
+                'tasksArtworks',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              artworkIds.push(artworkRecord.id);
+            }
+            fileUpdates.artworks = { connect: artworkIds.map(id => ({ id })) };
+          }
+
+          // Update task with file IDs if any files were uploaded
+          if (Object.keys(fileUpdates).length > 0) {
+            const updatedTask = await tx.task.update({
+              where: { id: newTask.id },
+              data: fileUpdates,
+              include: include,
+            });
+            return updatedTask;
+          }
+        }
+
         return newTask!;
       });
 
       return {
         success: true,
         message: 'Tarefa criada com sucesso.',
-        data: task,
+        data: task as Task,
       };
     } catch (error) {
       this.logger.error('Erro ao criar tarefa:', error);
+
+      // Clean up uploaded files if task creation failed
+      if (files) {
+        const allFiles = [
+          ...(files.budget || []),
+          ...(files.nfe || []),
+          ...(files.receipt || []),
+          ...(files.artworks || []),
+        ];
+
+        for (const file of allFiles) {
+          try {
+            const fs = await import('fs');
+            fs.unlinkSync(file.path);
+          } catch (cleanupError) {
+            this.logger.warn(`Failed to cleanup temp file: ${file.path}`);
+          }
+        }
+      }
+
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -213,13 +329,19 @@ export class TaskService {
   }
 
   /**
-   * Update an existing task with comprehensive changelog tracking
+   * Update an existing task with comprehensive changelog tracking and file uploads
    */
   async update(
     id: string,
     data: TaskUpdateFormData,
     include?: TaskInclude,
     userId?: string,
+    files?: {
+      budget?: Express.Multer.File[],
+      nfe?: Express.Multer.File[],
+      receipt?: Express.Multer.File[],
+      artworks?: Express.Multer.File[]
+    },
   ): Promise<TaskUpdateResponse> {
     try {
       const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -276,10 +398,96 @@ export class TaskService {
         };
 
         // Update the task
-        const updatedTask = await this.tasksRepository.updateWithTransaction(tx, id, updateData, {
+        let updatedTask = await this.tasksRepository.updateWithTransaction(tx, id, updateData, {
           include,
         });
 
+        // Process and save files WITHIN the transaction
+        // This ensures files are only created if the task update succeeds
+        if (files) {
+          const fileUpdates: any = {};
+          const customerName = updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
+
+          // Budget file
+          if (files.budget && files.budget.length > 0) {
+            const budgetFile = files.budget[0];
+            const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              budgetFile,
+              'taskBudgets',
+              userId,
+              {
+                entityId: id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.budgets = { connect: [{ id: budgetRecord.id }] };
+          }
+
+          // NFe file
+          if (files.nfe && files.nfe.length > 0) {
+            const nfeFile = files.nfe[0];
+            const nfeRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              nfeFile,
+              'taskNfes',
+              userId,
+              {
+                entityId: id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.nfes = { connect: [{ id: nfeRecord.id }] };
+          }
+
+          // Receipt file
+          if (files.receipt && files.receipt.length > 0) {
+            const receiptFile = files.receipt[0];
+            const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              receiptFile,
+              'taskReceipts',
+              userId,
+              {
+                entityId: id,
+                entityType: 'TASK',
+                customerName,
+              },
+            );
+            fileUpdates.receipts = { connect: [{ id: receiptRecord.id }] };
+          }
+
+          // Artwork files
+          if (files.artworks && files.artworks.length > 0) {
+            const artworkIds: string[] = data.artworkIds ? [...data.artworkIds] : (existingTask.artworks?.map((a: any) => a.id) || []);
+            for (const artworkFile of files.artworks) {
+              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                artworkFile,
+                'tasksArtworks',
+                userId,
+                {
+                  entityId: id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              artworkIds.push(artworkRecord.id);
+            }
+            fileUpdates.artworks = { connect: artworkIds.map(id => ({ id })) };
+          }
+
+          // Update task with file IDs if any files were uploaded
+          if (Object.keys(fileUpdates).length > 0) {
+            updatedTask = await tx.task.update({
+              where: { id },
+              data: fileUpdates,
+              include: include,
+            }) as any;
+          }
+        }
 
         // Track individual field changes
         const fieldsToTrack = [
@@ -530,6 +738,26 @@ export class TaskService {
       };
     } catch (error) {
       this.logger.error('Erro ao atualizar tarefa:', error);
+
+      // Clean up uploaded files if task update failed
+      if (files) {
+        const allFiles = [
+          ...(files.budget || []),
+          ...(files.nfe || []),
+          ...(files.receipt || []),
+          ...(files.artworks || []),
+        ];
+
+        for (const file of allFiles) {
+          try {
+            const fs = await import('fs');
+            fs.unlinkSync(file.path);
+          } catch (cleanupError) {
+            this.logger.warn(`Failed to cleanup temp file: ${file.path}`);
+          }
+        }
+      }
+
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }

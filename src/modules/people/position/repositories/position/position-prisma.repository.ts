@@ -44,17 +44,11 @@ export class PositionPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Position {
     const position = databaseEntity as Position;
 
-    // Add virtual remuneration field from latest monetary value
-    // Priority: 1. remunerations[current=true], 2. most recent remuneration, 3. default to 0
+
+    // Add virtual remuneration field from current MonetaryValue
     if (position.remunerations && position.remunerations.length > 0) {
-      // Find the current monetary value or use the most recent one
-      const currentValue = position.remunerations.find((mv: any) => mv.current === true);
-      if (currentValue) {
-        position.remuneration = currentValue.value;
-      } else {
-        // Fallback to the first (most recent) monetary value
-        position.remuneration = position.remunerations[0].value;
-      }
+      // Filtered by current: true in getDefaultInclude
+      position.remuneration = position.remunerations[0].value;
     } else {
       position.remuneration = 0; // Explicitly set to 0
     }
@@ -65,11 +59,9 @@ export class PositionPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: PositionCreateFormData,
   ): Prisma.PositionCreateInput {
-    // Note: remuneration is handled separately in the service layer via MonetaryValue
+    // Note: remuneration is handled separately in the service layer
     return {
       name: formData.name,
-      hierarchy: formData.hierarchy !== undefined ? formData.hierarchy : null,
-      bonifiable: formData.bonifiable !== undefined ? formData.bonifiable : true,
     };
   }
 
@@ -82,15 +74,7 @@ export class PositionPrismaRepository
       updateInput.name = formData.name;
     }
 
-    if (formData.hierarchy !== undefined) {
-      updateInput.hierarchy = formData.hierarchy;
-    }
-
-    if (formData.bonifiable !== undefined) {
-      updateInput.bonifiable = formData.bonifiable;
-    }
-
-    // Note: remuneration is handled separately in the service layer via MonetaryValue
+    // Note: remuneration is handled separately in the service layer
 
     return updateInput;
   }
@@ -106,10 +90,28 @@ export class PositionPrismaRepository
   ): Prisma.PositionOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
 
-    // If it's an array, take the first element to satisfy type requirements
-    // Prisma supports both single object and array of objects for orderBy at runtime
+    // Handle array of orderBy objects
     if (Array.isArray(orderBy)) {
-      return orderBy[0] as Prisma.PositionOrderByWithRelationInput;
+      // Check if any orderBy contains 'remuneration' (virtual field)
+      const hasRemunerationSort = orderBy.some(
+        (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+      );
+
+      if (hasRemunerationSort) {
+        // Return undefined to trigger memory sorting in findManyWithTransaction
+        return undefined;
+      }
+
+      return orderBy as Prisma.PositionOrderByWithRelationInput;
+    }
+
+    // Handle single orderBy object
+    if (typeof orderBy === 'object' && orderBy !== null) {
+      // Check if orderBy contains 'remuneration' (virtual field)
+      if ('remuneration' in orderBy) {
+        // Return undefined to trigger memory sorting in findManyWithTransaction
+        return undefined;
+      }
     }
 
     return orderBy as Prisma.PositionOrderByWithRelationInput;
@@ -126,13 +128,9 @@ export class PositionPrismaRepository
           sector: true,
         },
       },
-      // Fetch monetary values ordered by current=true first, then by most recent
       remunerations: {
-        orderBy: [
-          { current: 'desc' as const },
-          { createdAt: 'desc' as const }
-        ],
-        take: 5, // Get a few recent values for history
+        where: { current: true },
+        take: 1,
       },
       _count: {
         select: {
@@ -215,6 +213,34 @@ export class PositionPrismaRepository
     const { where, orderBy, page = 1, take = 20, include } = options || {};
     const skip = Math.max(0, (page - 1) * take);
 
+    // Check if sorting by remuneration (virtual field)
+    const needsRemunerationSort = this.needsRemunerationSort(orderBy);
+
+    if (needsRemunerationSort) {
+      // Fetch all positions and sort in memory
+      const [total, allPositions] = await Promise.all([
+        transaction.position.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.position.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        }),
+      ]);
+
+      // Sort by remuneration
+      const sortedPositions = this.sortByRemuneration(allPositions, orderBy);
+
+      // Apply pagination
+      const paginatedPositions = sortedPositions.slice(skip, skip + take);
+
+      return {
+        data: paginatedPositions.map(position => this.mapDatabaseEntityToEntity(position)),
+        meta: this.calculatePagination(total, page, take),
+      };
+    }
+
+    // Normal database sorting
     const [total, positions] = await Promise.all([
       transaction.position.count({
         where: this.mapWhereToDatabaseWhere(where),
@@ -232,6 +258,40 @@ export class PositionPrismaRepository
       data: positions.map(position => this.mapDatabaseEntityToEntity(position)),
       meta: this.calculatePagination(total, page, take),
     };
+  }
+
+  private needsRemunerationSort(orderBy?: PositionOrderBy): boolean {
+    if (!orderBy) return false;
+
+    if (Array.isArray(orderBy)) {
+      return orderBy.some(
+        (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+      );
+    }
+
+    return typeof orderBy === 'object' && orderBy !== null && 'remuneration' in orderBy;
+  }
+
+  private sortByRemuneration(positions: any[], orderBy?: PositionOrderBy): any[] {
+    if (!orderBy) return positions;
+
+    const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
+    const remunerationOrder = orderByArray.find(
+      (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+    );
+
+    if (!remunerationOrder || typeof remunerationOrder !== 'object') return positions;
+
+    const direction = (remunerationOrder as any).remuneration === 'desc' ? -1 : 1;
+
+    return [...positions].sort((a, b) => {
+      const aValue =
+        a.remunerations && a.remunerations.length > 0 ? a.remunerations[0].value : 0;
+      const bValue =
+        b.remunerations && b.remunerations.length > 0 ? b.remunerations[0].value : 0;
+
+      return (aValue - bValue) * direction;
+    });
   }
 
   async updateWithTransaction(

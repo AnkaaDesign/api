@@ -10,7 +10,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { CustomerService } from './customer.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
@@ -69,13 +73,15 @@ export class CustomerController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('logo', multerConfig))
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(customerCreateSchema))
     data: CustomerCreateFormData,
     @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() logo?: Express.Multer.File,
   ): Promise<CustomerCreateResponse> {
-    return this.customerService.create(data, query.include, userId);
+    return this.customerService.create(data, query.include, userId, logo);
   }
 
   @Post('quick')
@@ -138,14 +144,16 @@ export class CustomerController {
   }
 
   @Put(':id')
+  @UseInterceptors(FileInterceptor('logo', multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(customerUpdateSchema))
     data: CustomerUpdateFormData,
     @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() logo?: Express.Multer.File,
   ): Promise<CustomerUpdateResponse> {
-    return this.customerService.update(id, data, query.include, userId);
+    return this.customerService.update(id, data, query.include, userId, logo);
   }
 
   @Delete(':id')
