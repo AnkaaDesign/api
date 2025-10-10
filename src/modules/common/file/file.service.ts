@@ -1227,10 +1227,162 @@ export class FileService {
   /**
    * Detect WebDAV folder context from request or file relationships with project support
    */
-  private detectFileContext(
+  /**
+   * Fetch entity data from database to enrich file context
+   */
+  private async fetchEntityContext(
+    entityId?: string,
+    entityType?: string,
+    fileContext?: string,
+  ): Promise<{
+    customerName?: string;
+    supplierName?: string;
+    userName?: string;
+    cutType?: string;
+  }> {
+    const result: any = {};
+
+    try {
+      // Fetch customer fantasy name if uploading customer logo
+      if (fileContext === 'customerLogo' && entityId) {
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: entityId },
+          select: { fantasyName: true },
+        });
+        if (customer?.fantasyName) {
+          result.customerName = customer.fantasyName;
+        }
+      }
+
+      // Fetch supplier fantasy name if uploading supplier logo
+      if (fileContext === 'supplierLogo' && entityId) {
+        const supplier = await this.prisma.supplier.findUnique({
+          where: { id: entityId },
+          select: { fantasyName: true },
+        });
+        if (supplier?.fantasyName) {
+          result.supplierName = supplier.fantasyName;
+        }
+      }
+
+      // Fetch customer name for task artworks
+      if (fileContext === 'tasksArtworks' && entityId) {
+        const task = await this.prisma.task.findUnique({
+          where: { id: entityId },
+          select: {
+            customer: {
+              select: { fantasyName: true },
+            },
+          },
+        });
+        if (task?.customer?.fantasyName) {
+          result.customerName = task.customer.fantasyName;
+        }
+      }
+
+      // Fetch customer name for observations
+      if (fileContext === 'observations' && entityId) {
+        const task = await this.prisma.task.findUnique({
+          where: { id: entityId },
+          select: {
+            customer: {
+              select: { fantasyName: true },
+            },
+          },
+        });
+        if (task?.customer?.fantasyName) {
+          result.customerName = task.customer.fantasyName;
+        }
+      }
+
+      // Fetch customer name and cut type for plotter files
+      if ((fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') && entityId) {
+        const cut = await this.prisma.cut.findUnique({
+          where: { id: entityId },
+          select: {
+            type: true,
+            task: {
+              select: {
+                customer: {
+                  select: { fantasyName: true },
+                },
+              },
+            },
+          },
+        });
+        if (cut) {
+          result.cutType = cut.type;
+          if (cut.task?.customer?.fantasyName) {
+            result.customerName = cut.task.customer.fantasyName;
+          }
+        }
+      }
+
+      // Fetch user name for warnings
+      if (fileContext === 'warning' && entityId) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: entityId },
+          select: { name: true },
+        });
+        if (user?.name) {
+          result.userName = user.name;
+        }
+      }
+
+      // Fetch customer name for airbrushing artworks
+      if (fileContext === 'airbrushingArtworks' && entityId) {
+        const airbrushing = await this.prisma.airbrushing.findUnique({
+          where: { id: entityId },
+          select: {
+            task: {
+              select: {
+                customer: {
+                  select: { fantasyName: true },
+                },
+              },
+            },
+          },
+        });
+        if (airbrushing?.task?.customer?.fantasyName) {
+          result.customerName = airbrushing.task.customer.fantasyName;
+        }
+      }
+
+      // Fetch customer name for order-related files
+      if (
+        (fileContext === 'orderBudgets' ||
+          fileContext === 'orderNfes' ||
+          fileContext === 'orderReceipts' ||
+          fileContext === 'orderReimbursements' ||
+          fileContext === 'orderNfeReimbursements') &&
+        entityId
+      ) {
+        const order = await this.prisma.order.findUnique({
+          where: { id: entityId },
+          select: {
+            supplier: {
+              select: { fantasyName: true },
+            },
+          },
+        });
+        if (order?.supplier?.fantasyName) {
+          result.supplierName = order.supplier.fantasyName;
+        }
+      }
+
+      // Note: ExternalWithdrawal doesn't have supplier relation
+      // Files go to general folders without supplier organization
+    } catch (error) {
+      this.logger.warn(`Failed to fetch entity context: ${error.message}`);
+    }
+
+    return result;
+  }
+
+  private async detectFileContext(
     queryParams?: any,
     fileRelationships?: any,
-  ): {
+  ): Promise<{
     context: keyof WebDAVFolderMapping | null;
     entityId?: string;
     entityType?: string;
@@ -1238,17 +1390,30 @@ export class FileService {
     projectName?: string;
     customerName?: string;
     supplierName?: string;
-  } {
+    userName?: string;
+    cutType?: string;
+    thumbnailSize?: string;
+  }> {
     // Priority 1: Explicit context from query parameters
     if (queryParams?.fileContext) {
+      // Fetch entity data from database if not provided
+      const entityContext = await this.fetchEntityContext(
+        queryParams.entityId,
+        queryParams.entityType,
+        queryParams.fileContext,
+      );
+
       return {
         context: queryParams.fileContext as keyof WebDAVFolderMapping,
         entityId: queryParams.entityId,
         entityType: queryParams.entityType,
         projectId: queryParams.projectId,
         projectName: queryParams.projectName,
-        customerName: queryParams.customerName,
-        supplierName: queryParams.supplierName,
+        customerName: queryParams.customerName || entityContext.customerName,
+        supplierName: queryParams.supplierName || entityContext.supplierName,
+        userName: queryParams.userName || entityContext.userName,
+        cutType: queryParams.cutType || entityContext.cutType,
+        thumbnailSize: queryParams.thumbnailSize,
       };
     }
 
@@ -1260,14 +1425,20 @@ export class FileService {
             ? fileRelationships[field][0]?.id || fileRelationships[field][0]
             : fileRelationships[field]?.id || fileRelationships[field];
 
+          // Fetch entity data from database
+          const entityContext = await this.fetchEntityContext(entityId, mapping.entityType, field);
+
           return {
             context: field as keyof WebDAVFolderMapping,
             entityId: entityId,
             entityType: mapping.entityType,
             projectId: queryParams?.projectId,
             projectName: queryParams?.projectName,
-            customerName: queryParams?.customerName,
-            supplierName: queryParams?.supplierName,
+            customerName: queryParams?.customerName || entityContext.customerName,
+            supplierName: queryParams?.supplierName || entityContext.supplierName,
+            userName: queryParams?.userName || entityContext.userName,
+            cutType: queryParams?.cutType || entityContext.cutType,
+            thumbnailSize: queryParams?.thumbnailSize,
           };
         }
       }
@@ -1290,58 +1461,39 @@ export class FileService {
       projectName: queryParams?.projectName,
       customerName: queryParams?.customerName,
       supplierName: queryParams?.supplierName,
+      userName: queryParams?.userName,
+      cutType: queryParams?.cutType,
+      thumbnailSize: queryParams?.thumbnailSize,
     };
   }
 
   /**
-   * Move uploaded file to WebDAV folder structure with project support
+   * Move uploaded file to temp directory (Rascunhos)
+   * File organization service will later move it to the correct location
    */
-  private async moveFileToWebDAV(
-    file: File,
-    fileContext: keyof WebDAVFolderMapping | null,
-    entityId?: string,
-    entityType?: string,
-    projectId?: string,
-    projectName?: string,
-    customerName?: string,
-    supplierName?: string,
-  ): Promise<string> {
+  private async moveFileToTempDirectory(file: File): Promise<string> {
     if (!UPLOAD_CONFIG.useWebDAV) {
       this.logger.log('WebDAV disabled, keeping file in upload directory');
       return file.path;
     }
 
     try {
-      // Generate WebDAV path with project support and customer/supplier names
-      const webdavPath = this.webdavService.generateWebDAVFilePath(
+      // Generate temp path in Rascunhos directory
+      const tempPath = this.webdavService.generateWebDAVFilePath(
         file.filename,
-        fileContext,
+        'temp', // Use temp context to go to Rascunhos
         file.mimetype,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
       );
 
-      this.logger.log(`Moving file to WebDAV: ${file.path} → ${webdavPath}`, {
-        context: fileContext,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-      });
+      this.logger.log(`Moving file to temp directory: ${file.path} → ${tempPath}`);
 
-      // Move file to WebDAV
-      await this.webdavService.moveToWebDAV(file.path, webdavPath);
+      // Move file to WebDAV temp directory
+      await this.webdavService.moveToWebDAV(file.path, tempPath);
 
-      return webdavPath;
+      return tempPath;
     } catch (error: any) {
-      this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
-      // Return original path if WebDAV operation fails
+      this.logger.error(`Failed to move file to temp directory: ${error.message}`);
+      // Return original path if operation fails
       return file.path;
     }
   }
@@ -1356,21 +1508,7 @@ export class FileService {
     queryParams?: any,
   ): Promise<FileCreateResponse> {
     try {
-      // Detect file context for WebDAV routing with project support
-      const enrichedParams = { ...queryParams, mimetype: file.mimetype };
-      const { context, entityId, entityType, projectId, projectName, customerName, supplierName } =
-        this.detectFileContext(enrichedParams);
-
-      this.logger.log(`Processing upload for file: ${file.originalname}`, {
-        context,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-        useWebDAV: UPLOAD_CONFIG.useWebDAV,
-      });
+      this.logger.log(`Processing upload for file: ${file.originalname}`);
 
       // Create the file record first (without thumbnail generation in transaction)
       const fileData = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -1410,30 +1548,22 @@ export class FileService {
         return newFile;
       });
 
-      // Move file to WebDAV after successful database creation
-      const webdavPath = await this.moveFileToWebDAV(
-        fileData,
-        context,
-        entityId,
-        entityType,
-        projectId,
-        projectName,
-        customerName,
-        supplierName,
-      );
+      // Move file to temp directory (Rascunhos) in WebDAV
+      // The file organization service will move it to the correct location later
+      const tempPath = await this.moveFileToTempDirectory(fileData);
 
-      // Update file record with final WebDAV path if it changed
+      // Update file record with temp path if it changed
       let finalFileData = fileData;
-      if (webdavPath !== fileData.path) {
+      if (tempPath !== fileData.path) {
         finalFileData = await this.fileRepository.update(
           fileData.id,
           {
-            path: webdavPath,
+            path: tempPath,
           },
           { include },
         );
 
-        this.logger.log(`Updated file path in database: ${fileData.path} → ${webdavPath}`);
+        this.logger.log(`Moved file to temp directory: ${fileData.path} → ${tempPath}`);
       }
 
       // Queue thumbnail generation for supported file types
@@ -1543,6 +1673,146 @@ export class FileService {
       this.logger.error('Erro no envio em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao processar arquivos enviados. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Create file from uploaded file within an existing transaction
+   * This method is used when files need to be created as part of entity creation
+   * to ensure atomicity - if entity creation fails, files are not created
+   */
+  async createFromUploadWithTransaction(
+    tx: PrismaTransaction,
+    file: Express.Multer.File,
+    fileContext: keyof WebDAVFolderMapping | null,
+    userId?: string,
+    contextData?: {
+      entityId?: string;
+      entityType?: string;
+      customerName?: string;
+      supplierName?: string;
+      userName?: string;
+      projectId?: string;
+      projectName?: string;
+      cutType?: string;
+    },
+    include?: FileInclude,
+  ): Promise<File> {
+    try {
+      this.logger.log(`Processing transactional upload for file: ${file.originalname} with context: ${fileContext}`);
+
+      // Generate proper WebDAV path based on context
+      const webdavPath = this.webdavService.generateWebDAVFilePath(
+        file.originalname,
+        fileContext,
+        file.mimetype,
+        contextData?.entityId,
+        contextData?.entityType,
+        contextData?.projectId,
+        contextData?.projectName,
+        contextData?.customerName,
+        contextData?.supplierName,
+        contextData?.userName,
+        contextData?.cutType,
+      );
+
+      // Create file data
+      const createData: FileCreateFormData = {
+        filename: file.originalname,
+        originalName: file.originalname,
+        mimetype: file.mimetype,
+        path: webdavPath, // Use final WebDAV path directly
+        size: file.size,
+      };
+
+      // Validate file data
+      await this.validateFileUpload(createData, undefined, tx);
+
+      // Create the file record within the transaction
+      const newFile = await this.fileRepository.createWithTransaction(tx, createData, {
+        include,
+      });
+
+      // Log the file upload with essential fields
+      const essentialFields = getEssentialFields(ENTITY_TYPE.FILE);
+      const fileForLog = extractEssentialFields(newFile, essentialFields as (keyof File)[]);
+
+      await logEntityChange({
+        changeLogService: this.changeLogService,
+        entityType: ENTITY_TYPE.FILE,
+        entityId: newFile.id,
+        action: CHANGE_ACTION.CREATE,
+        entity: fileForLog,
+        reason: `Arquivo enviado com entidade: "${file.originalname}"`,
+        userId: userId || null,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        transaction: tx,
+      });
+
+      // Move file to WebDAV (this happens after transaction but before commit)
+      // If this fails, the transaction will roll back
+      try {
+        await this.webdavService.moveToWebDAV(file.path, webdavPath);
+        this.logger.log(`Moved file to WebDAV: ${file.path} → ${webdavPath}`);
+      } catch (error: any) {
+        this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
+        throw new InternalServerErrorException(`Falha ao mover arquivo para WebDAV: ${error.message}`);
+      }
+
+      // For images, generate thumbnail synchronously so it's ready immediately
+      // For videos/PDFs, use async queue (slow to process)
+      const isImage = file.mimetype.startsWith('image/') && !file.mimetype.includes('eps');
+
+      if (isImage) {
+        try {
+          this.logger.log(`Generating thumbnail synchronously for image ${newFile.id}`);
+          const thumbnailResult = await this.thumbnailService.generateThumbnail(
+            webdavPath,
+            file.mimetype,
+            newFile.id,
+            {
+              width: 300,
+              height: 300,
+              quality: 85,
+              format: 'webp',
+              fit: 'contain',
+            }
+          );
+
+          if (thumbnailResult.success && thumbnailResult.thumbnailUrl) {
+            // Update file record with thumbnail URL within transaction
+            const updatedFile = await tx.file.update({
+              where: { id: newFile.id },
+              data: { thumbnailUrl: thumbnailResult.thumbnailUrl },
+              include,
+            });
+            this.logger.log(`Thumbnail generated and saved for ${newFile.id}: ${thumbnailResult.thumbnailUrl}`);
+            return updatedFile as unknown as File;
+          } else {
+            this.logger.warn(`Thumbnail generation failed for ${newFile.id}: ${thumbnailResult.error}`);
+          }
+        } catch (error: any) {
+          // Don't fail the transaction if thumbnail generation fails
+          this.logger.warn(`Error generating thumbnail for ${newFile.id}: ${error.message}`);
+        }
+      } else {
+        // Queue thumbnail generation for videos/PDFs (fire-and-forget)
+        this.queueThumbnailGeneration(newFile).catch(err => {
+          this.logger.warn(`Failed to queue thumbnail generation for ${newFile.id}: ${err.message}`);
+        });
+      }
+
+      return newFile;
+    } catch (error: any) {
+      this.logger.error('Erro ao processar arquivo enviado com transação:', error);
+
+      if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        'Erro ao processar arquivo enviado. Por favor, tente novamente.',
       );
     }
   }

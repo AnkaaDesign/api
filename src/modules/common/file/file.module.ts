@@ -16,7 +16,7 @@ import { EnsureUploadDirMiddleware } from './middleware/upload.middleware';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueModule } from './thumbnail-queue.module';
 import { ThumbnailMonitoringController } from './thumbnail-monitoring.controller';
-import { WebDAVService } from './services/webdav.service';
+import { WebDAVModule } from './services/webdav.module';
 import { UPLOAD_CONFIG, fileFilter } from './config/upload.config';
 
 // Ensure upload directory exists
@@ -30,6 +30,7 @@ if (!existsSync(uploadDir)) {
     PrismaModule,
     ChangeLogModule,
     UserModule,
+    WebDAVModule,
     ThumbnailQueueModule,
     MulterModule.register({
       storage: diskStorage({
@@ -54,13 +55,12 @@ if (!existsSync(uploadDir)) {
   providers: [
     FileService,
     ThumbnailService,
-    WebDAVService,
     {
       provide: FileRepository,
       useClass: FilePrismaRepository,
     },
   ],
-  exports: [FileService, FileRepository, WebDAVService],
+  exports: [FileService, FileRepository],
 })
 export class FileModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

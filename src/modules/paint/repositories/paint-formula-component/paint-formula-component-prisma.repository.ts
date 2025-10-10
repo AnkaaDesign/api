@@ -48,11 +48,10 @@ export class PaintFormulaComponentPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: PaintFormulaComponentCreateFormData,
   ): Prisma.PaintFormulaComponentCreateInput {
-    const { itemId, formulaPaintId, ...rest } = formData;
+    const { itemId, formulaPaintId, ratio } = formData;
 
     return {
-      ...rest,
-      ratio: formData.ratio || 0, // Ensure ratio is provided
+      ratio,
       item: { connect: { id: itemId } },
       formula: { connect: { id: formulaPaintId } },
     };
@@ -61,16 +60,16 @@ export class PaintFormulaComponentPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: PaintFormulaComponentUpdateFormData,
   ): Prisma.PaintFormulaComponentUpdateInput {
-    const { itemId, formulaPaintId, ...rest } = formData;
+    const { itemId, formulaPaintId, ratio } = formData;
 
-    const updateInput: Prisma.PaintFormulaComponentUpdateInput = {
-      ...rest,
-    };
+    const updateInput: Prisma.PaintFormulaComponentUpdateInput = {};
 
+    if (ratio !== undefined) {
+      updateInput.ratio = ratio;
+    }
     if (itemId !== undefined) {
       updateInput.item = { connect: { id: itemId } };
     }
-
     if (formulaPaintId !== undefined) {
       updateInput.formula = { connect: { id: formulaPaintId } };
     }

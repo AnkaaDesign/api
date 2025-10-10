@@ -33,22 +33,22 @@ model Activity {
 }
 
 model Airbrushing {
-  id            String            @id @default(uuid())
-  startDate     DateTime?
-  finishDate    DateTime?
-  price         Float?
-  status        AirbrushingStatus @default(PENDING)
-  statusOrder   Int               @default(1)
-  taskId        String
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  task          Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
-  artworks      File[]            @relation("AIRBRUSHING_ARTWORKS")
-  budgets       File[]            @relation("AIRBRUSHING_BUDGETS")
-  nfes          File[]            @relation("AIRBRUSHING_NFES")
-  receipts      File[]            @relation("AIRBRUSHING_RECEIPTS")
-  reembolsos    File[]            @relation("AIRBRUSHING_REEMBOLSOS")
-  nfeReembolsos File[]            @relation("AIRBRUSHING_NFE_REEMBOLSOS")
+  id               String            @id @default(uuid())
+  startDate        DateTime?
+  finishDate       DateTime?
+  price            Float?
+  status           AirbrushingStatus @default(PENDING)
+  statusOrder      Int               @default(1)
+  taskId           String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  task             Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  artworks         File[]            @relation("AIRBRUSHING_ARTWORKS")
+  budgets          File[]            @relation("AIRBRUSHING_BUDGETS")
+  nfes             File[]            @relation("AIRBRUSHING_NFES")
+  receipts         File[]            @relation("AIRBRUSHING_RECEIPTS")
+  reimbursements   File[]            @relation("AIRBRUSHING_REIMBURSEMENTS")
+  nfeReimbursements File[]           @relation("AIRBRUSHING_NFE_REIMBURSEMENTS")
 
   @@index([statusOrder])
 }
@@ -291,43 +291,43 @@ model PpeDeliverySchedule {
 }
 
 model File {
-  id                              String               @id @default(uuid())
-  filename                        String
-  originalName                    String
-  mimetype                        String
-  path                            String
-  size                            Int
-  thumbnailUrl                    String?
-  createdAt                       DateTime             @default(now())
-  updatedAt                       DateTime             @updatedAt
-  customerLogo                    Customer[]           @relation("CUSTOMER_LOGO")
-  taskCuts                        Cut[]                @relation("TASK_CUTS")
-  externalWithdrawalNfes          ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_NFES")
-  externalWithdrawalReceipts      ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
-  externalWithdrawalReembolsos    ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_REEMBOLSOS")
-  externalWithdrawalNfeReembolsos ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_NFE_REEMBOLSOS")
-  layoutPhotos                    Layout[]             @relation("LAYOUT_PHOTO")
-  orderBudgets                    Order[]              @relation("ORDER_BUDGETS")
-  orderNfes                       Order[]              @relation("ORDER_NFES")
-  orderReceipts                   Order[]              @relation("ORDER_RECEIPTS")
-  orderReembolsos                 Order[]              @relation("ORDER_REEMBOLSOS")
-  orderNfeReembolsos              Order[]              @relation("ORDER_NFE_REEMBOLSOS")
-  supplierLogo                    Supplier[]           @relation("SUPPLIER_LOGO")
-  taskBudgets                     Task[]               @relation("TASK_BUDGETS")
-  taskNfes                        Task[]               @relation("TASK_NFES")
-  taskReceipts                    Task[]               @relation("TASK_RECEIPTS")
-  taskReembolsos                  Task[]               @relation("TASK_REEMBOLSOS")
-  taskNfeReembolsos               Task[]               @relation("TASK_NFE_REEMBOLSOS")
-  thumbnailJob                    ThumbnailJob?
-  airbrushingArtworks             Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
-  airbrushingBudgets              Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
-  airbrushingNfes                 Airbrushing[]        @relation("AIRBRUSHING_NFES")
-  airbrushingReceipts             Airbrushing[]        @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingReembolsos           Airbrushing[]        @relation("AIRBRUSHING_REEMBOLSOS")
-  airbrushingNfeReembolsos        Airbrushing[]        @relation("AIRBRUSHING_NFE_REEMBOLSOS")
-  warning                         Warning[]            @relation("FileToWarning")
-  observations                    Observation[]        @relation("OBSERVATIONS_FILES")
-  tasksArtworks                   Task[]               @relation("TASK_FILES")
+  id                                  String               @id @default(uuid())
+  filename                            String
+  originalName                        String
+  mimetype                            String
+  path                                String
+  size                                Int
+  thumbnailUrl                        String?
+  createdAt                           DateTime             @default(now())
+  updatedAt                           DateTime             @updatedAt
+  customerLogo                        Customer[]           @relation("CUSTOMER_LOGO")
+  taskCuts                            Cut[]                @relation("TASK_CUTS")
+  externalWithdrawalNfes              ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_NFES")
+  externalWithdrawalReceipts          ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
+  externalWithdrawalReimbursements    ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
+  externalWithdrawalNfeReimbursements ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_NFE_REIMBURSEMENTS")
+  layoutPhotos                        Layout[]             @relation("LAYOUT_PHOTO")
+  orderBudgets                        Order[]              @relation("ORDER_BUDGETS")
+  orderNfes                           Order[]              @relation("ORDER_NFES")
+  orderReceipts                       Order[]              @relation("ORDER_RECEIPTS")
+  orderReimbursements                 Order[]              @relation("ORDER_REIMBURSEMENTS")
+  orderNfeReimbursements              Order[]              @relation("ORDER_NFE_REIMBURSEMENTS")
+  supplierLogo                        Supplier[]           @relation("SUPPLIER_LOGO")
+  taskBudgets                         Task[]               @relation("TASK_BUDGETS")
+  taskNfes                            Task[]               @relation("TASK_NFES")
+  taskReceipts                        Task[]               @relation("TASK_RECEIPTS")
+  taskReimbursements                  Task[]               @relation("TASK_REIMBURSEMENTS")
+  taskNfeReimbursements               Task[]               @relation("TASK_NFE_REIMBURSEMENTS")
+  thumbnailJob                        ThumbnailJob?
+  airbrushingArtworks                 Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
+  airbrushingBudgets                  Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
+  airbrushingNfes                     Airbrushing[]        @relation("AIRBRUSHING_NFES")
+  airbrushingReceipts                 Airbrushing[]        @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingReimbursements           Airbrushing[]        @relation("AIRBRUSHING_REIMBURSEMENTS")
+  airbrushingNfeReimbursements        Airbrushing[]        @relation("AIRBRUSHING_NFE_REIMBURSEMENTS")
+  warning                             Warning[]            @relation("FileToWarning")
+  observations                        Observation[]        @relation("OBSERVATIONS_FILES")
+  tasksArtworks                       Task[]               @relation("TASK_FILES")
 
   @@index([filename])
   @@index([originalName])
@@ -522,22 +522,25 @@ model Observation {
   updatedAt   DateTime @updatedAt
   task        Task     @relation("OBSERVATION_TO_TASK", fields: [taskId], references: [id], onDelete: Cascade)
   files       File[]   @relation("OBSERVATIONS_FILES")
+
+  @@index([taskId])
+  @@index([createdAt])
 }
 
 model ExternalWithdrawal {
-  id             String                   @id @default(uuid())
-  withdrawerName String
-  willReturn     Boolean                  @default(true)
-  status         ExternalWithdrawalStatus @default(PENDING)
-  statusOrder    Int                      @default(1)
-  notes          String?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
-  nfes           File[]                   @relation("EXTERNAL_WITHDRAWAL_NFES")
-  receipts       File[]                   @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
-  reembolsos     File[]                   @relation("EXTERNAL_WITHDRAWAL_REEMBOLSOS")
-  nfeReembolsos  File[]                   @relation("EXTERNAL_WITHDRAWAL_NFE_REEMBOLSOS")
-  items          ExternalWithdrawalItem[]
+  id                String                   @id @default(uuid())
+  withdrawerName    String
+  willReturn        Boolean                  @default(true)
+  status            ExternalWithdrawalStatus @default(PENDING)
+  statusOrder       Int                      @default(1)
+  notes             String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  nfes              File[]                   @relation("EXTERNAL_WITHDRAWAL_NFES")
+  receipts          File[]                   @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
+  reimbursements    File[]                   @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
+  nfeReimbursements File[]                   @relation("EXTERNAL_WITHDRAWAL_NFE_REIMBURSEMENTS")
+  items             ExternalWithdrawalItem[]
 
   @@index([withdrawerName])
   @@index([status, statusOrder])
@@ -644,28 +647,28 @@ model MaintenanceSchedule {
 }
 
 model Order {
-  id              String               @id @default(uuid())
-  description     String
-  forecast        DateTime?
-  status          OrderStatus          @default(CREATED)
-  statusOrder     Int                  @default(1)
-  supplierId      String?
-  orderScheduleId String?              @unique
-  orderRuleId     String?
-  ppeScheduleId   String?
-  notes           String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  activities      Activity[]           @relation("ACTIVITY_ORDER")
-  budgets         File[]               @relation("ORDER_BUDGETS")
-  nfes            File[]               @relation("ORDER_NFES")
-  receipts        File[]               @relation("ORDER_RECEIPTS")
-  reembolsos      File[]               @relation("ORDER_REEMBOLSOS")
-  nfeReembolsos   File[]               @relation("ORDER_NFE_REEMBOLSOS")
-  orderSchedule   OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
-  ppeSchedule     PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
-  supplier        Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
-  items           OrderItem[]
+  id                String               @id @default(uuid())
+  description       String
+  forecast          DateTime?
+  status            OrderStatus          @default(CREATED)
+  statusOrder       Int                  @default(1)
+  supplierId        String?
+  orderScheduleId   String?              @unique
+  orderRuleId       String?
+  ppeScheduleId     String?
+  notes             String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  activities        Activity[]           @relation("ACTIVITY_ORDER")
+  budgets           File[]               @relation("ORDER_BUDGETS")
+  nfes              File[]               @relation("ORDER_NFES")
+  receipts          File[]               @relation("ORDER_RECEIPTS")
+  reimbursements    File[]               @relation("ORDER_REIMBURSEMENTS")
+  nfeReimbursements File[]               @relation("ORDER_NFE_REIMBURSEMENTS")
+  orderSchedule     OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
+  ppeSchedule       PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
+  supplier          Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
+  items             OrderItem[]
 
   @@index([status])
   @@index([statusOrder])
@@ -941,46 +944,46 @@ model Supplier {
 }
 
 model Task {
-  id              String           @id @default(uuid())
-  name            String
-  status          TaskStatus       @default(PENDING)
-  statusOrder     Int              @default(1)
-  serialNumber    String?          @unique
-  plate           String?          @unique
-  details         String?
-  entryDate       DateTime?
-  term            DateTime?
-  startedAt       DateTime?
-  finishedAt      DateTime?
-  paintId         String?
-  customerId      String?
-  sectorId        String?
-  commission      CommissionStatus
-  price           Decimal?         @db.Decimal(10, 2)
-  createdById     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  airbrushing     Airbrushing[]    @relation("AIRBRUSHING")
-  cuts            Cut[]            @relation("CUT_TASK")
-  observation     Observation?     @relation("OBSERVATION_TO_TASK")
-  services        ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
-  budgets         File[]           @relation("TASK_BUDGETS")
-  nfes            File[]           @relation("TASK_NFES")
-  receipts        File[]           @relation("TASK_RECEIPTS")
-  reembolsos      File[]           @relation("TASK_REEMBOLSOS")
-  nfeReembolsos   File[]           @relation("TASK_NFE_REEMBOLSOS")
-  createdBy       User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
-  customer        Customer?        @relation(fields: [customerId], references: [id])
-  generalPainting Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  sector          Sector?          @relation(fields: [sectorId], references: [id])
-  truck           Truck?
-  bonuses         Bonus[]          @relation("BonusTasks")
-  bonusDiscount   BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
-  bonusDiscountId String?
-  relatedTasks    Task[]           @relation("RelatedTasks")
-  relatedTo       Task[]           @relation("RelatedTasks")
-  artworks        File[]           @relation("TASK_FILES")
-  logoPaints      Paint[]          @relation("TASK_LOGO_PAINT")
+  id                String           @id @default(uuid())
+  name              String
+  status            TaskStatus       @default(PENDING)
+  statusOrder       Int              @default(1)
+  serialNumber      String?          @unique
+  plate             String?          @unique
+  details           String?
+  entryDate         DateTime?
+  term              DateTime?
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  paintId           String?
+  customerId        String?
+  sectorId          String?
+  commission        CommissionStatus
+  price             Decimal?         @db.Decimal(10, 2)
+  createdById       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  airbrushing       Airbrushing[]    @relation("AIRBRUSHING")
+  cuts              Cut[]            @relation("CUT_TASK")
+  observation       Observation?     @relation("OBSERVATION_TO_TASK")
+  services          ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
+  budgets           File[]           @relation("TASK_BUDGETS")
+  nfes              File[]           @relation("TASK_NFES")
+  receipts          File[]           @relation("TASK_RECEIPTS")
+  reimbursements    File[]           @relation("TASK_REIMBURSEMENTS")
+  nfeReimbursements File[]           @relation("TASK_NFE_REIMBURSEMENTS")
+  createdBy         User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer          Customer?        @relation(fields: [customerId], references: [id])
+  generalPainting   Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  sector            Sector?          @relation(fields: [sectorId], references: [id])
+  truck             Truck?
+  bonuses           Bonus[]          @relation("BonusTasks")
+  bonusDiscount     BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
+  bonusDiscountId   String?
+  relatedTasks      Task[]           @relation("RelatedTasks")
+  relatedTo         Task[]           @relation("RelatedTasks")
+  artworks          File[]           @relation("TASK_FILES")
+  logoPaints        Paint[]          @relation("TASK_LOGO_PAINT")
 
   @@index([status, sectorId])
   @@index([statusOrder])

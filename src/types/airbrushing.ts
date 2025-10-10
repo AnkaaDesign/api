@@ -28,8 +28,8 @@ export interface Airbrushing extends BaseEntity {
   budgets?: File[];
   nfes?: File[];
   receipts?: File[];
-  reembolsos?: File[];
-  nfeReembolsos?: File[];
+  reimbursements?: File[];
+  nfeReimbursements?: File[];
   artworks?: File[];
 }
 
@@ -58,12 +58,12 @@ export interface AirbrushingIncludes {
     | {
         include?: FileIncludes;
       };
-  reembolsos?:
+  reimbursements?:
     | boolean
     | {
         include?: FileIncludes;
       };
-  nfeReembolsos?:
+  nfeReimbursements?:
     | boolean
     | {
         include?: FileIncludes;

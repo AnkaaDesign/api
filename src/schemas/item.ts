@@ -1248,6 +1248,9 @@ const itemTransform = (data: any) => {
         { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { uniCode: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { barcodes: { has: data.searchingFor.trim() } },
+        { brand: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { category: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
       ],
     });
     delete data.searchingFor;

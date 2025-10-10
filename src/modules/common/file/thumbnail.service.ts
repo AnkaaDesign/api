@@ -5,6 +5,7 @@ const sharp = require('sharp');
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
+import { WebDAVService } from './services/webdav.service';
 
 const execAsync = promisify(exec);
 
@@ -56,7 +57,7 @@ export class ThumbnailService {
     inkscape: false,
   };
 
-  constructor() {
+  constructor(private readonly webdavService: WebDAVService) {
     this.checkAvailableTools();
   }
 
@@ -754,86 +755,79 @@ export class ThumbnailService {
     fileId: string,
     options: Required<ThumbnailOptions>,
   ): Promise<string> {
-    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
-    const thumbnailDir = join(uploadsDir, 'thumbnails');
+    // Generate thumbnail size string (e.g., "150x150", "300x300", "600x600")
+    const thumbnailSize = `${options.width}x${options.height}`;
 
-    // Ensure thumbnail directory exists
-    await this.ensureDirectory(thumbnailDir);
+    // Generate thumbnail filename (without timestamp for consistent caching)
+    const thumbnailFilename = `${fileId}_${thumbnailSize}.${options.format}`;
 
-    // Create size-specific subdirectory
-    const sizeDir = join(thumbnailDir, `${options.width}x${options.height}`);
-    await this.ensureDirectory(sizeDir);
+    // Use WebDAVService to get the folder path for thumbnails
+    const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+      'thumbnails',
+      'image/webp', // Default MIME type for thumbnails
+      undefined, // entityId
+      undefined, // entityType
+      undefined, // projectId
+      undefined, // projectName
+      undefined, // customerName
+      undefined, // supplierName
+      undefined, // userName
+      undefined, // cutType
+      thumbnailSize, // thumbnailSize parameter
+    );
 
-    // Generate thumbnail filename
-    const thumbnailFilename = `${fileId}_${options.width}x${options.height}.${options.format}`;
+    // Ensure the WebDAV directory exists
+    await this.webdavService.ensureWebDAVDirectory(thumbnailFolder);
 
-    return join(sizeDir, thumbnailFilename);
+    // Construct the full path manually (without timestamp)
+    const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
+
+    return thumbnailPath;
   }
 
   /**
    * Generate public URL for thumbnail
    */
   private generateThumbnailUrl(thumbnailPath: string, fileId?: string): string {
-    // If we have a fileId, return the API URL
-    if (fileId) {
-      return `/api/files/thumbnail/${fileId}`;
-    }
-
-    // Otherwise return the relative path
-    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
-
-    // Return the path relative to the uploads directory
-    const relativePath = thumbnailPath.replace(uploadsDir, 'uploads').replace(/\\/g, '/');
-
-    return relativePath;
-  }
-
-  /**
-   * Ensure directory exists
-   */
-  private async ensureDirectory(dirPath: string): Promise<void> {
-    try {
-      await fs.access(dirPath);
-    } catch (error: any) {
-      if (error.code === 'ENOENT') {
-        await fs.mkdir(dirPath, { recursive: true });
-        this.logger.log(`Diretório criado: ${dirPath}`);
-      } else {
-        throw error;
-      }
-    }
+    // Use WebDAVService to generate the public URL
+    return this.webdavService.getWebDAVUrl(thumbnailPath);
   }
 
   /**
    * Delete thumbnail files
    */
   async deleteThumbnails(fileId: string): Promise<void> {
-    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
-    const thumbnailDir = join(uploadsDir, 'thumbnails');
-
     try {
-      // Delete thumbnails from all size directories
+      // Delete thumbnails from all size directories in WebDAV
       for (const [size, dimensions] of Object.entries(this.thumbnailSizes)) {
-        const sizeDir = join(thumbnailDir, `${dimensions.width}x${dimensions.height}`);
+        const thumbnailSize = `${dimensions.width}x${dimensions.height}`;
 
         // Find and delete thumbnails with different formats
         const formats = ['png', 'jpg', 'webp'];
         for (const format of formats) {
-          const thumbnailPath = join(
-            sizeDir,
-            `${fileId}_${dimensions.width}x${dimensions.height}.${format}`,
+          const thumbnailFilename = `${fileId}_${thumbnailSize}.${format}`;
+
+          // Get WebDAV folder path for thumbnails
+          const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+            'thumbnails',
+            'image/webp',
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            thumbnailSize,
           );
 
-          try {
-            await fs.access(thumbnailPath);
-            await fs.unlink(thumbnailPath);
-            this.logger.log(`Thumbnail removido: ${thumbnailPath}`);
-          } catch (error: any) {
-            // Ignore if file doesn't exist
-            if (error.code !== 'ENOENT') {
-              this.logger.warn(`Falha ao remover thumbnail ${thumbnailPath}:`, error);
-            }
-          }
+          // Construct the full path
+          const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
+
+          // Use WebDAVService to delete the file
+          await this.webdavService.deleteFromWebDAV(thumbnailPath);
+          this.logger.log(`Thumbnail removido: ${thumbnailPath}`);
         }
       }
     } catch (error: any) {

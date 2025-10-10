@@ -772,6 +772,9 @@ const userTransform = (data: any) => {
         { phone: { contains: data.searchingFor.trim() } },
         { cpf: { contains: data.searchingFor.trim() } },
         { pis: { contains: data.searchingFor.trim() } },
+        { position: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { sector: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { managedSector: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
       ],
     });
     delete data.searchingFor;

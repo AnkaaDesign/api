@@ -51,12 +51,17 @@ export const positionIncludeSchema = z
         z.boolean(),
         z.object({
           include: monetaryValueIncludeSchema.optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+          where: z.any().optional(),
         }),
       ])
       .optional(),
     _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
   })
-  .partial();
+  .partial()
+  .strip();
 
 // =====================
 // OrderBy Schemas

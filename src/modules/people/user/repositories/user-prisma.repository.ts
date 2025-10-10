@@ -428,7 +428,7 @@ export class UserPrismaRepository
       }),
       transaction.user.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
         skip,
         take,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),

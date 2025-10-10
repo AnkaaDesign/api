@@ -770,6 +770,7 @@ const orderFilters = {
     )
     .optional(),
   supplierIds: z.array(z.string()).optional(),
+  itemIds: z.array(z.string()).optional(),
   forecastRange: z
     .object({
       gte: z.coerce.date().optional(),
@@ -859,12 +860,28 @@ const orderTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  // Handle searchingFor
+  // Handle searchingFor - comprehensive search across order and related entities
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+    const searchTerm = data.searchingFor.trim();
+
     andConditions.push({
       OR: [
-        { description: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        // Direct order fields
+        { description: { contains: searchTerm, mode: "insensitive" } },
+        { notes: { contains: searchTerm, mode: "insensitive" } },
+
+        // Supplier search
+        { supplier: { fantasyName: { contains: searchTerm, mode: "insensitive" } } },
+        { supplier: { corporateName: { contains: searchTerm, mode: "insensitive" } } },
+
+        // Search by item name through order items
+        { items: { some: { item: { name: { contains: searchTerm, mode: "insensitive" } } } } },
+
+        // Search by item brand through order items
+        { items: { some: { item: { brand: { name: { contains: searchTerm, mode: "insensitive" } } } } } },
+
+        // Search by item category through order items
+        { items: { some: { item: { category: { name: { contains: searchTerm, mode: "insensitive" } } } } } },
       ],
     });
     delete data.searchingFor;
@@ -900,6 +917,12 @@ const orderTransform = (data: any) => {
   if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
     andConditions.push({ supplierId: { in: data.supplierIds } });
     delete data.supplierIds;
+  }
+
+  // Handle itemIds filter - search for orders containing specific items
+  if (data.itemIds && Array.isArray(data.itemIds) && data.itemIds.length > 0) {
+    andConditions.push({ items: { some: { itemId: { in: data.itemIds } } } });
+    delete data.itemIds;
   }
 
   // Handle forecastRange filter
@@ -1293,8 +1316,8 @@ export const orderCreateSchema = z
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
     invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
     receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
     items: z
       .array(
         z.object({
@@ -1341,8 +1364,8 @@ export const orderUpdateSchema = z
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
     invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
     receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
   })
   .transform(toFormData);
 
@@ -1715,8 +1738,8 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
   budgetIds: order.budgets?.map((budget) => budget.id),
   invoiceIds: order.nfes?.map((nfe) => nfe.id),
   receiptIds: order.receipts?.map((receipt) => receipt.id),
-  reimbursementIds: order.reembolsos?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: order.nfeReembolsos?.map((reimbursementInvoice) => reimbursementInvoice.id),
+  reimbursementIds: order.reimbursements?.map((reimbursement) => reimbursement.id),
+  reimbursementInvoiceIds: order.nfeReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
   notes: order.notes || undefined,
 }));
 

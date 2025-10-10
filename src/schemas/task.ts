@@ -461,13 +461,20 @@ const taskTransform = (data: any): any => {
         // Related entities
         { customer: { fantasyName: { contains: searchTerm, mode: "insensitive" } } },
         { customer: { corporateName: { contains: searchTerm, mode: "insensitive" } } },
+        { customer: { cpf: { contains: searchTerm, mode: "insensitive" } } },
+        { customer: { cnpj: { contains: searchTerm, mode: "insensitive" } } },
         { sector: { name: { contains: searchTerm, mode: "insensitive" } } },
         { createdBy: { name: { contains: searchTerm, mode: "insensitive" } } },
-        // Note: Truck model doesn't have a model or plate field - removed invalid search
         { observation: { description: { contains: searchTerm, mode: "insensitive" } } },
         // ServiceOrder only has description field, no name field
         { services: { some: { description: { contains: searchTerm, mode: "insensitive" } } } },
+        // Paint relations - search by paint name
         { generalPainting: { name: { contains: searchTerm, mode: "insensitive" } } },
+        { generalPainting: { code: { contains: searchTerm, mode: "insensitive" } } },
+        { logoPaints: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { logoPaints: { some: { code: { contains: searchTerm, mode: "insensitive" } } } },
+        // Truck garage search
+        { truck: { garage: { name: { contains: searchTerm, mode: "insensitive" } } } },
       ],
     });
     delete data.searchingFor;
@@ -594,6 +601,38 @@ const taskTransform = (data: any): any => {
     delete data.hasAssignee;
   }
 
+  if (data.hasPaint === true) {
+    andConditions.push({ paintId: { not: null } });
+    delete data.hasPaint;
+  } else if (data.hasPaint === false) {
+    andConditions.push({ paintId: null });
+    delete data.hasPaint;
+  }
+
+  if (data.hasLogoPaints === true) {
+    andConditions.push({ logoPaints: { some: {} } });
+    delete data.hasLogoPaints;
+  } else if (data.hasLogoPaints === false) {
+    andConditions.push({ logoPaints: { none: {} } });
+    delete data.hasLogoPaints;
+  }
+
+  if (data.hasCuts === true) {
+    andConditions.push({ cuts: { some: {} } });
+    delete data.hasCuts;
+  } else if (data.hasCuts === false) {
+    andConditions.push({ cuts: { none: {} } });
+    delete data.hasCuts;
+  }
+
+  if (data.hasRelatedTasks === true) {
+    andConditions.push({ relatedTasks: { some: {} } });
+    delete data.hasRelatedTasks;
+  } else if (data.hasRelatedTasks === false) {
+    andConditions.push({ relatedTasks: { none: {} } });
+    delete data.hasRelatedTasks;
+  }
+
   // Boolean is* filters
   if (data.isOverdue === true) {
     andConditions.push({
@@ -681,6 +720,21 @@ const taskTransform = (data: any): any => {
   if (data.truckIds && Array.isArray(data.truckIds) && data.truckIds.length > 0) {
     andConditions.push({ truck: { id: { in: data.truckIds } } });
     delete data.truckIds;
+  }
+
+  if (data.paintIds && Array.isArray(data.paintIds) && data.paintIds.length > 0) {
+    andConditions.push({ paintId: { in: data.paintIds } });
+    delete data.paintIds;
+  }
+
+  if (data.logoPaintIds && Array.isArray(data.logoPaintIds) && data.logoPaintIds.length > 0) {
+    andConditions.push({ logoPaints: { some: { id: { in: data.logoPaintIds } } } });
+    delete data.logoPaintIds;
+  }
+
+  if (data.garageIds && Array.isArray(data.garageIds) && data.garageIds.length > 0) {
+    andConditions.push({ truck: { garageId: { in: data.garageIds } } });
+    delete data.garageIds;
   }
 
 
@@ -899,6 +953,10 @@ export const taskGetManySchema = z
     hasBudget: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
+    hasPaint: z.boolean().optional(), // Filter by whether task has a general painting/paint assigned
+    hasLogoPaints: z.boolean().optional(), // Filter by whether task has logo paints
+    hasCuts: z.boolean().optional(), // Filter by whether task has cut requests/plans
+    hasRelatedTasks: z.boolean().optional(), // Filter by whether task has related tasks
     // Boolean status convenience filters
     isOverdue: z.boolean().optional(),
     isActive: z.boolean().optional(),
@@ -913,6 +971,9 @@ export const taskGetManySchema = z
     assigneeIds: z.array(z.string()).optional(),
     createdByIds: z.array(z.string()).optional(),
     truckIds: z.array(z.string()).optional(),
+    paintIds: z.array(z.string()).optional(), // Filter by general painting/paint ID
+    logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
+    garageIds: z.array(z.string()).optional(), // Filter tasks by truck garage location
     // Numeric range filters
     priceRange: z
       .object({
@@ -1169,14 +1230,18 @@ export const taskCreateSchema = z
       })
       .default(COMMISSION_STATUS.FULL_COMMISSION),
 
-    // Relations - File arrays
+    // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
     invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
     receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
     artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
+    // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
+    budgetId: z.string().uuid("Orçamento inválido").nullable().optional(),
+    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
+    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).min(1, "Pelo menos um serviço é obrigatório"),
     truck: taskTruckCreateSchema.nullable().optional(),
@@ -1275,8 +1340,8 @@ export const taskUpdateSchema = z
     budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
     invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
     receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reembolso inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reembolso inválida")).optional(),
+    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
     artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
@@ -1427,8 +1492,8 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   budgetIds: task.budgets?.map((budget) => budget.id),
   invoiceIds: task.nfes?.map((nfe) => nfe.id),
   receiptIds: task.receipts?.map((receipt) => receipt.id),
-  reimbursementIds: task.reembolsos?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: task.nfeReembolsos?.map((reimbursementInvoice) => reimbursementInvoice.id),
+  reimbursementIds: task.reimbursements?.map((reimbursement) => reimbursement.id),
+  reimbursementInvoiceIds: task.nfeReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
   artworkIds: task.artworks?.map((artwork) => artwork.id),
   paintIds: task.logoPaints?.map((paint) => paint.id),
   generalPaintingId: task.generalPainting?.id,

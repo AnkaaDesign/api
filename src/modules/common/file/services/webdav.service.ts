@@ -17,29 +17,29 @@ export interface WebDAVFolderMapping {
   taskBudgets: string; // Budget documents for tasks
   taskNfes: string; // Invoice files for tasks
   taskReceipts: string; // Receipt files for tasks
-  taskReembolsos: string; // Refund receipts for tasks
-  taskNfeReembolsos: string; // Refund NFEs for tasks
+  taskReimbursements: string; // Reimbursement receipts for tasks
+  taskNfeReimbursements: string; // Reimbursement NFEs for tasks
 
   // Entity-specific folders - Orders
   orderBudgets: string; // Budget documents for orders
   orderNfes: string; // Invoice files for orders
   orderReceipts: string; // Receipt files for orders
-  orderReembolsos: string; // Refund receipts for orders
-  orderNfeReembolsos: string; // Refund NFEs for orders
+  orderReimbursements: string; // Reimbursement receipts for orders
+  orderNfeReimbursements: string; // Reimbursement NFEs for orders
 
   // Entity-specific folders - Airbrushing
   airbrushingArtworks: string; // Artwork files for airbrushing
   airbrushingBudgets: string; // Budget documents for airbrushing
   airbrushingNfes: string; // Invoice files for airbrushing
   airbrushingReceipts: string; // Receipt files for airbrushing
-  airbrushingReembolsos: string; // Refund receipts for airbrushing
-  airbrushingNfeReembolsos: string; // Refund NFEs for airbrushing
+  airbrushingReimbursements: string; // Reimbursement receipts for airbrushing
+  airbrushingNfeReimbursements: string; // Reimbursement NFEs for airbrushing
 
   // Entity-specific folders - External Withdrawal
   externalWithdrawalNfes: string; // External withdrawal invoices
   externalWithdrawalReceipts: string; // External withdrawal receipts
-  externalWithdrawalReembolsos: string; // External withdrawal refund receipts
-  externalWithdrawalNfeReembolsos: string; // External withdrawal refund NFEs
+  externalWithdrawalReimbursements: string; // External withdrawal reimbursement receipts
+  externalWithdrawalNfeReimbursements: string; // External withdrawal reimbursement NFEs
 
   // Entity-specific folders - Logos
   customerLogo: string; // Customer logo files
@@ -48,8 +48,10 @@ export interface WebDAVFolderMapping {
   // Entity-specific folders - Other
   observations: string; // Observation files
   warning: string; // Warning files
-  plotterVinil: string; // Vinyl plotter files
-  plotterEspelho: string; // Stencil plotter files
+  layoutPhotos: string; // Layout photo files
+  plotterEspovo: string; // Stencil (Espovo) plotter files
+  plotterAdesivo: string; // Vinyl (Adesivo) plotter files
+  thumbnails: string; // Thumbnail files
 
   // General folders
   general: string; // General files
@@ -80,58 +82,60 @@ export enum FileTypeCategory {
 @Injectable()
 export class WebDAVService {
   private readonly logger = new Logger(WebDAVService.name);
-  private readonly webdavRoot = '/srv/webdav';
+  private readonly webdavRoot = process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
 
   /**
    * WebDAV folder structure mapping - matches physical folder structure
    * Customer/supplier name-based organization is added dynamically in getWebDAVFolderPath
    */
   private readonly folderMapping: WebDAVFolderMapping = {
-    // Task folders (will be organized by customer name)
-    tasksArtworks: 'Projetos', // Changed from 'Artes' to 'Projetos' for customer organization
+    // Task folders (organized by customer fantasyName)
+    tasksArtworks: 'Projetos', // Task artworks -> Projetos/{customerFantasyName}/Imagens or /PDFs
     taskBudgets: 'Orcamentos/Tarefas',
-    taskNfes: 'NFs/Entradas/Tarefas',
-    taskReceipts: 'Comprovantes/Tarefas',
-    taskReembolsos: 'Comprovantes/Tarefas',
-    taskNfeReembolsos: 'NFs/Entradas/Tarefas',
+    taskNfes: 'NFs/Tarefas',
+    taskReceipts: 'Comprovantes/Tarefas/Comprovantes',
+    taskReimbursements: 'Comprovantes/Tarefas/Reembolsos',
+    taskNfeReimbursements: 'NFs/Tarefas/Reembolsos',
 
-    // Order folders (will be organized by supplier name)
+    // Order folders (organized by supplier fantasyName for some)
     orderBudgets: 'Orcamentos/Pedidos',
-    orderNfes: 'NFs/Saidas/Pedidos',
-    orderReceipts: 'Comprovantes/Pedidos',
-    orderReembolsos: 'Comprovantes/Pedidos',
-    orderNfeReembolsos: 'NFs/Saidas/Pedidos',
+    orderNfes: 'NFs/Pedidos',
+    orderReceipts: 'Comprovantes/Pedidos/Comprovantes',
+    orderReimbursements: 'Comprovantes/Pedidos/Reembolsos',
+    orderNfeReimbursements: 'NFs/Pedidos/Reembolsos',
 
-    // Airbrushing folders (will be organized by customer name via task)
-    airbrushingArtworks: 'Projetos',
+    // Airbrushing folders
+    airbrushingArtworks: 'Auxiliares/Aerografia/Artes',
     airbrushingBudgets: 'Orcamentos/Aerografia',
-    airbrushingNfes: 'NFs/Entradas/Aerografia',
-    airbrushingReceipts: 'Comprovantes/Aerografia',
-    airbrushingReembolsos: 'Comprovantes/Aerografia',
-    airbrushingNfeReembolsos: 'NFs/Entradas/Aerografia',
+    airbrushingNfes: 'NFs/Aerografia',
+    airbrushingReceipts: 'Comprovantes/Aerografia/Comprovantes',
+    airbrushingReimbursements: 'Comprovantes/Aerografia/Reembolsos',
+    airbrushingNfeReimbursements: 'NFs/Aerografia/Reembolsos',
 
     // External Withdrawal folders
-    externalWithdrawalNfes: 'NFs/Saidas',
-    externalWithdrawalReceipts: 'Comprovantes',
-    externalWithdrawalReembolsos: 'Comprovantes',
-    externalWithdrawalNfeReembolsos: 'NFs/Saidas',
+    externalWithdrawalNfes: 'NFs/Retiradas',
+    externalWithdrawalReceipts: 'Comprovantes/Retiradas/Comprovantes',
+    externalWithdrawalReimbursements: 'Comprovantes/Retiradas/Reembolsos',
+    externalWithdrawalNfeReimbursements: 'NFs/Retiradas/Reembolsos',
 
-    // Logo folders
-    customerLogo: 'Logo/Clientes',
-    supplierLogo: 'Logo/Fornecedores',
+    // Logo folders (organized by customer/supplier fantasyName)
+    customerLogo: 'Logos/Clientes', // Will add customer folder: Logos/Clientes/{customerFantasyName}/
+    supplierLogo: 'Logos/Fornecedores', // Will add supplier folder: Logos/Fornecedores/{supplierFantasyName}/
 
     // Other entity folders
-    observations: 'Observacoes',
-    warning: 'Observacoes',
-    plotterVinil: 'Plotter/Vinil',
-    plotterEspelho: 'Plotter/Espelho',
+    observations: 'Observacoes', // Will add customer folder: Observacoes/{customerFantasyName}/
+    warning: 'Advertencias', // Will add user folder: Advertencias/{userName}/
+    layoutPhotos: 'Auxiliares/Traseiras/Fotos', // NEW
+    plotterEspovo: 'Plotter', // Will add customer folder + Espovo: Plotter/{customerFantasyName}/Espovo/
+    plotterAdesivo: 'Plotter', // Will add customer folder + Adesivo: Plotter/{customerFantasyName}/Adesivo/
+    thumbnails: 'Thumbnails', // NEW - Will add size folder: Thumbnails/{size}/
 
     // General folders (WebDAV exclusive - will NOT be served via API)
     general: 'Auxiliares',
     images: 'Fotos',
     documents: 'Auxiliares',
     archives: 'Auxiliares',
-    temp: 'Rascunhos',
+    temp: 'Uploads',
   };
 
   /**
@@ -187,7 +191,7 @@ export class WebDAVService {
   };
 
   /**
-   * Get WebDAV folder path based on file context with customer/supplier name-based organization
+   * Get WebDAV folder path based on file context with customer/supplier/user name-based organization
    */
   getWebDAVFolderPath(
     fileContext: keyof WebDAVFolderMapping | null,
@@ -198,6 +202,9 @@ export class WebDAVService {
     projectName?: string,
     customerName?: string, // Customer fantasy name for organization
     supplierName?: string, // Supplier fantasy name for organization
+    userName?: string, // User name for warnings
+    cutType?: string, // Cut type: 'STENCIL' or 'VINYL'
+    thumbnailSize?: string, // Thumbnail size e.g., '300x300'
   ): string {
     let folderPath: string;
 
@@ -227,24 +234,52 @@ export class WebDAVService {
       }
     }
 
-    // Add customer-based organization for task/airbrushing files
-    if (customerName && fileContext) {
-      const sanitizedCustomerName = this.sanitizeFileName(customerName);
-
-      // Task files organized by customer
-      if (fileContext.startsWith('task') || fileContext.startsWith('airbrushing')) {
+    // Handle specific contexts with custom logic
+    if (fileContext) {
+      // PLOTTER: Add customer folder + cut type (Espovo/Adesivo)
+      if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
+        if (customerName) {
+          const sanitizedCustomerName = this.sanitizeFileName(customerName);
+          const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
+          folderPath = join(folderPath, sanitizedCustomerName, cutSubfolder);
+        }
+      }
+      // PROJETOS: Add customer folder for task artworks, then separate by file type (PDFs/Imagens)
+      else if (fileContext === 'tasksArtworks') {
+        if (customerName) {
+          const sanitizedCustomerName = this.sanitizeFileName(customerName);
+          // Determine subfolder based on file type
+          const isPdf = mimetype === 'application/pdf';
+          const subfolder = isPdf ? 'PDFs' : 'Imagens';
+          folderPath = join(folderPath, sanitizedCustomerName, subfolder);
+        }
+      }
+      // LOGOS: Add customer or supplier folder
+      else if (fileContext === 'customerLogo' && customerName) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
         folderPath = join(folderPath, sanitizedCustomerName);
+      } else if (fileContext === 'supplierLogo' && supplierName) {
+        const sanitizedSupplierName = this.sanitizeFileName(supplierName);
+        folderPath = join(folderPath, sanitizedSupplierName);
+      }
+      // OBSERVACOES: Add customer folder (via task)
+      else if (fileContext === 'observations' && customerName) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        folderPath = join(folderPath, sanitizedCustomerName);
+      }
+      // ADVERTENCIAS: Add user folder
+      else if (fileContext === 'warning' && userName) {
+        const sanitizedUserName = this.sanitizeFileName(userName);
+        folderPath = join(folderPath, sanitizedUserName);
+      }
+      // THUMBNAILS: Add size folder
+      else if (fileContext === 'thumbnails' && thumbnailSize) {
+        folderPath = join(folderPath, thumbnailSize);
       }
     }
 
-    // Add supplier-based organization for order files
-    if (supplierName && fileContext?.startsWith('order')) {
-      const sanitizedSupplierName = this.sanitizeFileName(supplierName);
-      folderPath = join(folderPath, sanitizedSupplierName);
-    }
-
     // Add project-specific subfolder if provided (for artwork organization)
-    if (projectId && projectName) {
+    if (projectId && projectName && fileContext === 'tasksArtworks') {
       const sanitizedProjectName = this.sanitizeFileName(projectName);
       folderPath = join(folderPath, sanitizedProjectName);
     }
@@ -275,7 +310,7 @@ export class WebDAVService {
   }
 
   /**
-   * Generate WebDAV file path with unique filename and customer/supplier support
+   * Generate WebDAV file path with unique filename and customer/supplier/user support
    */
   generateWebDAVFilePath(
     originalFilename: string,
@@ -287,6 +322,9 @@ export class WebDAVService {
     projectName?: string,
     customerName?: string,
     supplierName?: string,
+    userName?: string,
+    cutType?: string,
+    thumbnailSize?: string,
   ): string {
     const folderPath = this.getWebDAVFolderPath(
       fileContext,
@@ -297,6 +335,9 @@ export class WebDAVService {
       projectName,
       customerName,
       supplierName,
+      userName,
+      cutType,
+      thumbnailSize,
     );
 
     // Generate unique filename while preserving extension
@@ -470,35 +511,37 @@ export class WebDAVService {
         'taskBudgets',
         'taskNfes',
         'taskReceipts',
-        'taskReembolsos',
-        'taskNfeReembolsos',
+        'taskReimbursements',
+        'taskNfeReimbursements',
       ],
       order: [
         'orderBudgets',
         'orderNfes',
         'orderReceipts',
-        'orderReembolsos',
-        'orderNfeReembolsos',
+        'orderReimbursements',
+        'orderNfeReimbursements',
       ],
       customer: ['customerLogo'],
       supplier: ['supplierLogo'],
       observation: ['observations'],
       warning: ['warning'],
+      layout: ['layoutPhotos'],
       airbrushing: [
         'airbrushingArtworks',
         'airbrushingBudgets',
         'airbrushingNfes',
         'airbrushingReceipts',
-        'airbrushingReembolsos',
-        'airbrushingNfeReembolsos',
+        'airbrushingReimbursements',
+        'airbrushingNfeReimbursements',
       ],
       externalWithdrawal: [
         'externalWithdrawalNfes',
         'externalWithdrawalReceipts',
-        'externalWithdrawalReembolsos',
-        'externalWithdrawalNfeReembolsos',
+        'externalWithdrawalReimbursements',
+        'externalWithdrawalNfeReimbursements',
       ],
-      cut: ['plotterVinil', 'plotterEspelho'],
+      cut: ['plotterEspovo', 'plotterAdesivo'],
+      thumbnail: ['thumbnails'],
     };
 
     return entityContextMap[entityType.toLowerCase()] || ['general'];

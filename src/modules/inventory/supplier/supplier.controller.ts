@@ -12,7 +12,10 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { SupplierService } from './supplier.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -22,6 +25,9 @@ import {
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import type {
   SupplierBatchCreateResponse,
   SupplierBatchDeleteResponse,
@@ -70,13 +76,40 @@ export class SupplierController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileInterceptor('logo', {
+      storage: diskStorage({
+        destination: (req, file, cb) => {
+          const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+          cb(null, uploadsDir);
+        },
+        filename: (req, file, cb) => {
+          const uniqueId = uuidv4();
+          const ext = extname(file.originalname);
+          cb(null, `${uniqueId}${ext}`);
+        },
+      }),
+      limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit for logos
+      },
+      fileFilter: (req, file, cb) => {
+        // Only allow image files
+        if (file.mimetype.startsWith('image/')) {
+          cb(null, true);
+        } else {
+          cb(new Error('Only image files are allowed for logos'), false);
+        }
+      },
+    }),
+  )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(supplierCreateSchema))
     data: SupplierCreateFormData,
+    @UploadedFile() logo: Express.Multer.File | undefined,
     @Query(new ZodQueryValidationPipe(supplierQuerySchema)) query: SupplierQueryFormData,
     @UserId() userId: string,
   ): Promise<SupplierCreateResponse> {
-    return this.supplierService.create(data, query.include, userId);
+    return this.supplierService.create(data, query.include, userId, logo);
   }
 
   // Batch Operations - Must come before dynamic routes

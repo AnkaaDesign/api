@@ -12,9 +12,10 @@ import {
   ParseUUIDPipe,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { TaskService } from './task.service';
@@ -84,12 +85,26 @@ export class TaskController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budget', maxCount: 1 },
+      { name: 'nfe', maxCount: 1 },
+      { name: 'receipt', maxCount: 1 },
+      { name: 'artworks', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budget?: Express.Multer.File[],
+      nfe?: Express.Multer.File[],
+      receipt?: Express.Multer.File[],
+      artworks?: Express.Multer.File[]
+    },
   ): Promise<TaskCreateResponse> {
-    return this.tasksService.create(data, query.include, userId);
+    return this.tasksService.create(data, query.include, userId, files);
   }
 
   // Batch Operations
@@ -311,7 +326,7 @@ export class TaskController {
     const customerName = task.data.customer?.fantasyName;
 
     return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskReembolsos',
+      fileContext: 'taskReimbursements',
       entityId: id,
       entityType: 'task',
       customerName,
@@ -335,7 +350,7 @@ export class TaskController {
     const customerName = task.data.customer?.fantasyName;
 
     return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'taskNfeReembolsos',
+      fileContext: 'taskNfeReimbursements',
       entityId: id,
       entityType: 'task',
       customerName,

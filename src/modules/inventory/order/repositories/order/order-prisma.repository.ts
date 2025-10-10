@@ -52,7 +52,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  reembolsos: {
+  reimbursements: {
     select: {
       id: true,
       filename: true,
@@ -62,7 +62,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  nfeReembolsos: {
+  nfeReimbursements: {
     select: {
       id: true,
       filename: true,
@@ -165,10 +165,10 @@ export class OrderPrismaRepository
       createData.receipts = { connect: orderData.receiptIds.map(id => ({ id })) };
     }
     if (orderData.reimbursementIds && orderData.reimbursementIds.length > 0) {
-      createData.reembolsos = { connect: orderData.reimbursementIds.map(id => ({ id })) };
+      createData.reimbursements = { connect: orderData.reimbursementIds.map(id => ({ id })) };
     }
     if (orderData.reimbursementInvoiceIds && orderData.reimbursementInvoiceIds.length > 0) {
-      createData.nfeReembolsos = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
+      createData.nfeReimbursements = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
 
     // Handle nested items creation
@@ -226,10 +226,10 @@ export class OrderPrismaRepository
       updateData.receipts = { set: formData.receiptIds.map(id => ({ id })) };
     }
     if (formData.reimbursementIds !== undefined) {
-      updateData.reembolsos = { set: formData.reimbursementIds.map(id => ({ id })) };
+      updateData.reimbursements = { set: formData.reimbursementIds.map(id => ({ id })) };
     }
     if (formData.reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReembolsos = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.nfeReimbursements = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (formData.ppeScheduleId !== undefined) {
       updateData.ppeSchedule = formData.ppeScheduleId
@@ -465,8 +465,8 @@ export class OrderPrismaRepository
       budgetIds: (databaseOrder.budgets as any)?.map((budget: any) => budget.id),
       invoiceIds: (databaseOrder.nfes as any)?.map((nfe: any) => nfe.id),
       receiptIds: (databaseOrder.receipts as any)?.map((receipt: any) => receipt.id),
-      reimbursementIds: (databaseOrder.reembolsos as any)?.map((reimbursement: any) => reimbursement.id),
-      reimbursementInvoiceIds: (databaseOrder.nfeReembolsos as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
+      reimbursementIds: (databaseOrder.reimbursements as any)?.map((reimbursement: any) => reimbursement.id),
+      reimbursementInvoiceIds: (databaseOrder.nfeReimbursements as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
       supplierId: databaseOrder.supplierId,
       orderScheduleId: databaseOrder.orderScheduleId,
       orderRuleId: databaseOrder.orderRuleId,
@@ -475,8 +475,8 @@ export class OrderPrismaRepository
       budgets: databaseOrder.budgets as any,
       nfes: databaseOrder.nfes as any,
       receipts: databaseOrder.receipts as any,
-      reembolsos: databaseOrder.reembolsos as any,
-      nfeReembolsos: databaseOrder.nfeReembolsos as any,
+      reimbursements: databaseOrder.reimbursements as any,
+      nfeReimbursements: databaseOrder.nfeReimbursements as any,
       supplier: databaseOrder.supplier as any,
       orderSchedule: databaseOrder.orderSchedule as any,
       ppeSchedule: databaseOrder.ppeSchedule as any,
@@ -487,6 +487,7 @@ export class OrderPrismaRepository
             ) as any)
           : [],
       activities: databaseOrder.activities as any,
+      _count: databaseOrder._count as any,
       createdAt: databaseOrder.createdAt,
       updatedAt: databaseOrder.updatedAt,
     };

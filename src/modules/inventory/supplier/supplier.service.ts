@@ -36,6 +36,8 @@ import {
   trackAndLogFieldChanges,
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
+import { FileService } from '@modules/common/file/file.service';
+import { unlinkSync, existsSync } from 'fs';
 
 @Injectable()
 export class SupplierService {
@@ -68,6 +70,7 @@ export class SupplierService {
     private readonly prisma: PrismaService,
     private readonly supplierRepository: SupplierRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -238,21 +241,83 @@ export class SupplierService {
   }
 
   /**
+   * Process and save logo file to WebDAV
+   */
+  private async processLogoFile(
+    logoFile: Express.Multer.File,
+    supplierId: string,
+    supplierName: string,
+    tx: PrismaTransaction,
+    userId?: string,
+  ): Promise<string> {
+    try {
+      // Use centralized file service to create file with proper transaction handling
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        logoFile,
+        'supplierLogo',
+        userId,
+        {
+          entityId: supplierId,
+          entityType: 'SUPPLIER',
+          supplierName,
+        },
+      );
+
+      this.logger.log(`Logo file created and moved to WebDAV: ${fileRecord.path}`);
+
+      return fileRecord.id;
+    } catch (error: any) {
+      this.logger.error(`Failed to process logo file: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Criar novo fornecedor
    */
   async create(
     data: SupplierCreateFormData,
     include?: SupplierInclude,
     userId?: string,
+    logoFile?: Express.Multer.File,
   ): Promise<SupplierCreateResponse> {
     try {
       const supplier = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar fornecedor completo
         await this.validateSupplier(data, undefined, tx);
-        // Criar o fornecedor
-        const newSupplier = await this.supplierRepository.createWithTransaction(tx, data, {
-          include,
-        });
+
+        // Process logo file if provided
+        let logoId: string | null = data.logoId || null;
+        if (logoFile) {
+          try {
+            logoId = await this.processLogoFile(
+              logoFile,
+              '', // We'll update this after supplier creation
+              data.fantasyName,
+              tx,
+              userId,
+            );
+          } catch (fileError: any) {
+            this.logger.error(`Logo file processing failed: ${fileError.message}`);
+            // Clean up uploaded file
+            if (existsSync(logoFile.path)) {
+              unlinkSync(logoFile.path);
+            }
+            throw new BadRequestException(
+              'Erro ao processar arquivo de logo. Por favor, tente novamente.',
+            );
+          }
+        }
+
+        // Criar o fornecedor with logo ID
+        const newSupplier = await this.supplierRepository.createWithTransaction(
+          tx,
+          { ...data, logoId },
+          {
+            include,
+          },
+        );
 
         // Registrar criação no changelog
         await logEntityChange({
@@ -276,6 +341,15 @@ export class SupplierService {
         data: supplier,
       };
     } catch (error: unknown) {
+      // Clean up uploaded file on error
+      if (logoFile && existsSync(logoFile.path)) {
+        try {
+          unlinkSync(logoFile.path);
+        } catch (cleanupError) {
+          this.logger.warn(`Failed to cleanup uploaded file: ${logoFile.path}`);
+        }
+      }
+
       this.logger.error('Erro ao criar fornecedor:', error);
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;

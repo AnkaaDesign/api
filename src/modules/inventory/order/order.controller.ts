@@ -12,9 +12,10 @@ import {
   ParseUUIDPipe,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { OrderService } from './order.service';
@@ -130,12 +131,28 @@ export class OrderController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
+      { name: 'reimbursements', maxCount: 10 },
+      { name: 'reimbursementInvoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ZodValidationPipe(orderCreateSchema)) data: OrderCreateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
   ): Promise<OrderCreateResponse> {
-    return this.orderService.create(data, query.include, userId);
+    return this.orderService.create(data, query.include, userId, files);
   }
 
   // =====================
@@ -298,7 +315,7 @@ export class OrderController {
     const supplierName = order.data.supplier?.fantasyName;
 
     return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderReembolsos',
+      fileContext: 'orderReimbursements',
       entityId: id,
       entityType: 'order',
       supplierName,
@@ -322,7 +339,7 @@ export class OrderController {
     const supplierName = order.data.supplier?.fantasyName;
 
     return this.fileService.createFromUpload(file, undefined, userId, {
-      fileContext: 'orderNfeReembolsos',
+      fileContext: 'orderNfeReimbursements',
       entityId: id,
       entityType: 'order',
       supplierName,

@@ -22,8 +22,8 @@ export const airbrushingIncludeSchema = z
               budgets: z.boolean().optional(),
               nfes: z.boolean().optional(),
               receipts: z.boolean().optional(),
-              reembolsos: z.boolean().optional(),
-              nfeReembolsos: z.boolean().optional(),
+              reimbursements: z.boolean().optional(),
+              nfeReimbursements: z.boolean().optional(),
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),
@@ -116,7 +116,7 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
-    reembolsos: z
+    reimbursements: z
       .union([
         z.boolean(),
         z.object({
@@ -142,7 +142,7 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
-    nfeReembolsos: z
+    nfeReimbursements: z
       .union([
         z.boolean(),
         z.object({
@@ -688,7 +688,7 @@ export const mapAirbrushingToFormData = createMapToFormDataHelper<Airbrushing, A
   budgetIds: airbrushing.budgets?.map((file) => file.id),
   invoiceIds: airbrushing.nfes?.map((file) => file.id),
   receiptIds: airbrushing.receipts?.map((file) => file.id),
-  reimbursementIds: airbrushing.reembolsos?.map((file) => file.id),
-  reimbursementInvoiceIds: airbrushing.nfeReembolsos?.map((file) => file.id),
+  reimbursementIds: airbrushing.reimbursements?.map((file) => file.id),
+  reimbursementInvoiceIds: airbrushing.nfeReimbursements?.map((file) => file.id),
   artworkIds: airbrushing.artworks?.map((file) => file.id),
 }));

@@ -62,6 +62,8 @@ import {
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { OrderScheduleService } from './order-schedule.service';
+import { FileService } from '@modules/common/file/file.service';
+import { promises as fs } from 'fs';
 
 @Injectable()
 export class OrderService {
@@ -74,6 +76,7 @@ export class OrderService {
     private readonly changeLogService: ChangeLogService,
     private readonly itemService: ItemService,
     private readonly orderScheduleService: OrderScheduleService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -282,6 +285,13 @@ export class OrderService {
     data: OrderCreateFormData,
     include?: OrderInclude,
     userId?: string,
+    files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
   ): Promise<OrderCreateResponse> {
     try {
       const order = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -313,6 +323,11 @@ export class OrderService {
           transaction: tx,
         });
 
+        // Process file uploads if provided
+        if (files) {
+          await this.processOrderFileUploads(newOrder.id, files, userId, tx);
+        }
+
         // If include is specified, fetch the order with included relations
         if (include) {
           const orderWithIncludes = await this.orderRepository.findByIdWithTransaction(
@@ -329,12 +344,218 @@ export class OrderService {
       return { success: true, message: 'Pedido criado com sucesso.', data: order };
     } catch (error) {
       this.logger.error('Erro ao criar pedido:', error);
+
+      // Clean up any uploaded files if order creation failed
+      if (files) {
+        await this.cleanupFailedUploads(files);
+      }
+
       if (error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException(
         'Erro interno do servidor ao criar o pedido. Tente novamente.',
       );
+    }
+  }
+
+  /**
+   * Process file uploads for an order and save to WebDAV
+   */
+  private async processOrderFileUploads(
+    orderId: string,
+    files: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    const transaction = tx || this.prisma;
+
+    try {
+      // Get order with supplier info for folder organization
+      const order = await transaction.order.findUnique({
+        where: { id: orderId },
+        include: { supplier: true },
+      });
+
+      if (!order) {
+        throw new NotFoundException('Pedido não encontrado');
+      }
+
+      const supplierName = order.supplier?.fantasyName;
+
+      // Process budgets
+      if (files.budgets && files.budgets.length > 0) {
+        for (const file of files.budgets) {
+          await this.saveFileToWebDAV(
+            file,
+            'orderBudgets',
+            orderId,
+            'order',
+            supplierName,
+            userId,
+            transaction,
+          );
+        }
+      }
+
+      // Process invoices
+      if (files.invoices && files.invoices.length > 0) {
+        for (const file of files.invoices) {
+          await this.saveFileToWebDAV(
+            file,
+            'orderNfes',
+            orderId,
+            'order',
+            supplierName,
+            userId,
+            transaction,
+          );
+        }
+      }
+
+      // Process receipts
+      if (files.receipts && files.receipts.length > 0) {
+        for (const file of files.receipts) {
+          await this.saveFileToWebDAV(
+            file,
+            'orderReceipts',
+            orderId,
+            'order',
+            supplierName,
+            userId,
+            transaction,
+          );
+        }
+      }
+
+      // Process reimbursements
+      if (files.reimbursements && files.reimbursements.length > 0) {
+        for (const file of files.reimbursements) {
+          await this.saveFileToWebDAV(
+            file,
+            'orderReimbursements',
+            orderId,
+            'order',
+            supplierName,
+            userId,
+            transaction,
+          );
+        }
+      }
+
+      // Process reimbursement invoices
+      if (files.reimbursementInvoices && files.reimbursementInvoices.length > 0) {
+        for (const file of files.reimbursementInvoices) {
+          await this.saveFileToWebDAV(
+            file,
+            'orderNfeReimbursements',
+            orderId,
+            'order',
+            supplierName,
+            userId,
+            transaction,
+          );
+        }
+      }
+
+      this.logger.log(`Successfully processed file uploads for order ${orderId}`);
+    } catch (error) {
+      this.logger.error(`Error processing file uploads for order ${orderId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save a file to WebDAV and create file record
+   */
+  private async saveFileToWebDAV(
+    file: Express.Multer.File,
+    fileContext: string,
+    entityId: string,
+    entityType: string,
+    supplierName?: string,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<any> {
+    if (!tx) {
+      throw new InternalServerErrorException('Transaction is required for file upload');
+    }
+
+    try {
+      // Use centralized file service to create file with proper transaction handling
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        file,
+        fileContext as any,
+        userId,
+        {
+          entityId,
+          entityType,
+          supplierName,
+        },
+      );
+
+      // Now connect the file to the order using the appropriate relation
+      await tx.file.update({
+        where: { id: fileRecord.id },
+        data: {
+          // Connect file to order based on context
+          ...(fileContext === 'orderBudgets' && {
+            orderBudgets: { connect: { id: entityId } },
+          }),
+          ...(fileContext === 'orderNfes' && {
+            orderNfes: { connect: { id: entityId } },
+          }),
+          ...(fileContext === 'orderReceipts' && {
+            orderReceipts: { connect: { id: entityId } },
+          }),
+          ...(fileContext === 'orderReimbursements' && {
+            orderReimbursements: { connect: { id: entityId } },
+          }),
+          ...(fileContext === 'orderNfeReimbursements' && {
+            orderNfeReimbursements: { connect: { id: entityId } },
+          }),
+        },
+      });
+
+      this.logger.log(`Saved and linked file ${file.originalname} to order ${entityId}`);
+      return fileRecord;
+    } catch (error) {
+      this.logger.error(`Error saving file to WebDAV:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up uploaded files if order creation failed
+   */
+  private async cleanupFailedUploads(files: {
+    budgets?: Express.Multer.File[];
+    invoices?: Express.Multer.File[];
+    receipts?: Express.Multer.File[];
+    reimbursements?: Express.Multer.File[];
+    reimbursementInvoices?: Express.Multer.File[];
+  }): Promise<void> {
+    const allFiles = [
+      ...(files.budgets || []),
+      ...(files.invoices || []),
+      ...(files.receipts || []),
+      ...(files.reimbursements || []),
+      ...(files.reimbursementInvoices || []),
+    ];
+
+    for (const file of allFiles) {
+      try {
+        await fs.unlink(file.path);
+      } catch (error) {
+        this.logger.warn(`Failed to cleanup temp file: ${file.path}`);
+      }
     }
   }
 

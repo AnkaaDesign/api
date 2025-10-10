@@ -452,7 +452,7 @@ const supplierTransform = (data: any): any => {
 
   const andConditions: any[] = [];
 
-  // Handle searchingFor - search in fantasyName, corporateName, cnpj, email
+  // Handle searchingFor - search in fantasyName, corporateName, cnpj, email, and item names
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
@@ -460,6 +460,7 @@ const supplierTransform = (data: any): any => {
         { corporateName: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { cnpj: { contains: data.searchingFor.trim(), mode: "insensitive" } },
         { email: { contains: data.searchingFor.trim(), mode: "insensitive" } },
+        { items: { some: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
       ],
     });
     delete data.searchingFor;
@@ -583,6 +584,42 @@ const supplierTransform = (data: any): any => {
     delete data.orderCount;
   }
 
+  // Handle itemCategoryIds filter - filter suppliers by item category
+  if (data.itemCategoryIds && Array.isArray(data.itemCategoryIds) && data.itemCategoryIds.length > 0) {
+    andConditions.push({
+      items: {
+        some: {
+          categoryId: { in: data.itemCategoryIds },
+        },
+      },
+    });
+    delete data.itemCategoryIds;
+  }
+
+  // Handle itemBrandIds filter - filter suppliers by item brand
+  if (data.itemBrandIds && Array.isArray(data.itemBrandIds) && data.itemBrandIds.length > 0) {
+    andConditions.push({
+      items: {
+        some: {
+          brandId: { in: data.itemBrandIds },
+        },
+      },
+    });
+    delete data.itemBrandIds;
+  }
+
+  // Handle orderStatuses filter - filter suppliers by order status
+  if (data.orderStatuses && Array.isArray(data.orderStatuses) && data.orderStatuses.length > 0) {
+    andConditions.push({
+      orders: {
+        some: {
+          status: { in: data.orderStatuses },
+        },
+      },
+    });
+    delete data.orderStatuses;
+  }
+
   // Handle date filters
   if (data.createdAt) {
     andConditions.push({ createdAt: data.createdAt });
@@ -634,6 +671,11 @@ export const supplierGetManySchema = z
     states: z.array(z.string()).optional(),
     phoneContains: z.string().optional(),
     tags: z.array(z.string()).optional(),
+
+    // Relation-based filters (ID-based, not text search)
+    itemCategoryIds: z.array(z.string()).optional(), // Filter by item category
+    itemBrandIds: z.array(z.string()).optional(), // Filter by item brand
+    orderStatuses: z.array(z.string()).optional(), // Filter by order status
     itemCount: z
       .object({
         min: z.number().int().min(0).optional(),
