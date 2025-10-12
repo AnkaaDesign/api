@@ -363,6 +363,7 @@ export class ItemPrismaRepository
       brand: true,
       category: true,
       supplier: true,
+      measures: true, // Used in 95%+ of queries (display, paint formulas, PPE management)
       // Fetch monetary values ordered by current=true first, then by most recent
       prices: {
         orderBy: [

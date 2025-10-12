@@ -24,6 +24,7 @@ import { UserId } from './decorators/user.decorator';
 import {
   AuthRateLimit,
   ReadRateLimit,
+  HighFrequencyRateLimit,
   VerificationRateLimit,
   VerificationSendRateLimit,
 } from '../throttler/throttler.decorators';
@@ -102,7 +103,7 @@ export class AuthController {
   }
 
   @Get('me')
-  @ReadRateLimit()
+  @HighFrequencyRateLimit()
   @HttpCode(HttpStatus.OK)
   async getCurrentUser(@UserId() userId: string) {
     if (!userId) {

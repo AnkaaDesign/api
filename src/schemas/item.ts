@@ -7,7 +7,7 @@ import { MEASURE_UNIT, MEASURE_TYPE, ABC_CATEGORY, XYZ_CATEGORY, PPE_TYPE, PPE_S
 import { activityIncludeSchema, activityWhereSchema, activityOrderBySchema } from "./activity";
 import { borrowIncludeSchema, borrowWhereSchema, borrowOrderBySchema } from "./borrow";
 import { ppeDeliveryIncludeSchema, ppeDeliveryWhereSchema, ppeDeliveryOrderBySchema } from "./epi";
-import { monetaryValueIncludeSchema } from "./position";
+import { monetaryValueIncludeSchema, monetaryValueWhereSchema, monetaryValueOrderBySchema } from "./position";
 
 // =====================
 // Import Measure Schemas
@@ -34,8 +34,8 @@ export const itemBrandIncludeSchema = z
                   z.boolean(),
                   z.object({
                     include: monetaryValueIncludeSchema.optional(),
-                    where: z.any().optional(),
-                    orderBy: z.any().optional(),
+                    where: monetaryValueWhereSchema.optional(),
+                    orderBy: monetaryValueOrderBySchema.optional(),
                     take: z.coerce.number().optional(),
                     skip: z.coerce.number().optional(),
                   }),
@@ -209,8 +209,8 @@ export const itemCategoryIncludeSchema = z
                   z.boolean(),
                   z.object({
                     include: monetaryValueIncludeSchema.optional(),
-                    where: z.any().optional(),
-                    orderBy: z.any().optional(),
+                    where: monetaryValueWhereSchema.optional(),
+                    orderBy: monetaryValueOrderBySchema.optional(),
                     take: z.coerce.number().optional(),
                     skip: z.coerce.number().optional(),
                   }),
@@ -426,8 +426,8 @@ export const itemIncludeSchema = z
         z.boolean(),
         z.object({
           include: monetaryValueIncludeSchema.optional(),
-          where: z.any().optional(),
-          orderBy: z.any().optional(),
+          where: monetaryValueWhereSchema.optional(),
+          orderBy: monetaryValueOrderBySchema.optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),

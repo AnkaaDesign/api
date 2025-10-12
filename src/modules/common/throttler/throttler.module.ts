@@ -34,7 +34,7 @@ import { RedisThrottlerStorage } from './redis-throttler-storage';
             {
               name: 'default',
               ttl: 60000, // 1 minute
-              limit: isDevelopment ? 2000 : 60, // 2000 requests per minute in dev, 60 in production
+              limit: isDevelopment ? 2000 : 300, // 2000 requests per minute in dev, 300 in production (increased from 60)
               blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
             },
             {
@@ -97,6 +97,55 @@ import { RedisThrottlerStorage } from './redis-throttler-storage';
               name: 'custom',
               ttl: 60000, // 1 minute
               limit: isDevelopment ? 2000 : 100, // Very permissive default for custom limits
+              blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
+            },
+            // High-frequency throttlers for commonly accessed endpoints
+            {
+              name: 'high_frequency',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 2000 : 500, // 500 requests per minute in production - for endpoints called on every route change
+              blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
+            },
+            {
+              name: 'thumbnail_serve',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 2000 : 500, // 500 thumbnails per minute - allows 8+ per second for responsive UI
+              blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
+            },
+            {
+              name: 'file_serve',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 1000 : 200, // 200 file serves per minute
+              blockDuration: isDevelopment ? 120000 : 600000, // 2 minutes block in dev, 10 minutes in production
+            },
+            {
+              name: 'file_download',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 500 : 50, // 50 downloads per minute
+              blockDuration: isDevelopment ? 120000 : 600000, // 2 minutes block in dev, 10 minutes in production
+            },
+            {
+              name: 'dashboard',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 100 : 30, // 30 dashboard loads per minute - dashboards are expensive
+              blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
+            },
+            {
+              name: 'dashboard_unified',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 50 : 10, // 10 unified dashboard loads per minute - VERY expensive
+              blockDuration: isDevelopment ? 120000 : 600000, // 2 minutes block in dev, 10 minutes in production
+            },
+            {
+              name: 'statistics_heavy',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 100 : 15, // 15 heavy statistics per minute - complex queries
+              blockDuration: isDevelopment ? 120000 : 600000, // 2 minutes block in dev, 10 minutes in production
+            },
+            {
+              name: 'statistics_moderate',
+              ttl: 60000, // 1 minute
+              limit: isDevelopment ? 200 : 30, // 30 moderate statistics per minute
               blockDuration: isDevelopment ? 60000 : 300000, // 1 minute block in dev, 5 minutes in production
             },
           ],

@@ -507,3 +507,478 @@ export interface InventoryAnalyticsDashboard {
 }
 
 export interface InventoryAnalyticsDashboardResponse extends BaseGetUniqueResponse<InventoryAnalyticsDashboard> {}
+
+// =====================
+// Additional Entity-Specific Statistics Types
+// =====================
+
+/**
+ * Statistics for task entities
+ * Provides task completion rates, time tracking, and performance metrics
+ */
+export interface TaskStatistics {
+  period: STATISTICS_PERIOD;
+  dateRange: {
+    from: Date;
+    to: Date;
+  };
+
+  summary: {
+    totalTasks: number;
+    completedTasks: number;
+    pendingTasks: number;
+    inProductionTasks: number;
+    cancelledTasks: number;
+    onHoldTasks: number;
+    completionRate: number;
+    avgCompletionTime: number; // in hours
+  };
+
+  statusDistribution: Array<{
+    status: string;
+    count: number;
+    percentage: number;
+  }>;
+
+  timeMetrics: {
+    avgCompletionTime: number;
+    medianCompletionTime: number;
+    fastestCompletion: number;
+    slowestCompletion: number;
+  };
+
+  userPerformance: Array<{
+    userId: string;
+    userName: string;
+    tasksCompleted: number;
+    avgCompletionTime: number;
+    onTimeRate: number;
+    efficiencyScore: number;
+  }>;
+
+  customerMetrics: Array<{
+    customerId: string;
+    customerName: string;
+    totalTasks: number;
+    completedTasks: number;
+    avgCompletionTime: number;
+    satisfactionScore?: number;
+  }>;
+
+  trends: {
+    dailyCompletion: Array<{
+      date: string;
+      completed: number;
+      created: number;
+      net: number;
+    }>;
+    growthRate: number;
+    projectedCompletion: number;
+  };
+}
+
+/**
+ * Statistics for order entities
+ * Tracks order fulfillment, delivery times, and supplier performance
+ */
+export interface OrderStatistics {
+  period: STATISTICS_PERIOD;
+  dateRange: {
+    from: Date;
+    to: Date;
+  };
+
+  summary: {
+    totalOrders: number;
+    totalValue: number;
+    avgOrderValue: number;
+    fulfilledOrders: number;
+    pendingOrders: number;
+    overdueOrders: number;
+    fulfillmentRate: number;
+  };
+
+  statusDistribution: Array<{
+    status: string;
+    count: number;
+    percentage: number;
+    totalValue: number;
+  }>;
+
+  supplierPerformance: Array<{
+    supplierId: string;
+    supplierName: string;
+    totalOrders: number;
+    totalValue: number;
+    avgDeliveryTime: number;
+    onTimeDeliveryRate: number;
+    fulfillmentAccuracy: number;
+    qualityScore?: number;
+  }>;
+
+  categoryBreakdown: Array<{
+    categoryId: string;
+    categoryName: string;
+    orderCount: number;
+    totalValue: number;
+    avgLeadTime: number;
+  }>;
+
+  trends: {
+    monthlyOrders: Array<{
+      month: string;
+      orderCount: number;
+      totalValue: number;
+      avgValue: number;
+    }>;
+    valueGrowthRate: number;
+    volumeGrowthRate: number;
+  };
+}
+
+/**
+ * Statistics for user entities
+ * Monitors user activity, productivity, and engagement
+ */
+export interface UserStatistics {
+  period: STATISTICS_PERIOD;
+  dateRange: {
+    from: Date;
+    to: Date;
+  };
+
+  summary: {
+    totalActiveUsers: number;
+    avgActivitiesPerUser: number;
+    totalActivities: number;
+    mostActiveUser: {
+      userId: string;
+      userName: string;
+      activityCount: number;
+    };
+  };
+
+  userRanking: Array<{
+    userId: string;
+    userName: string;
+    sectorName: string;
+    activityCount: number;
+    productivityScore: number;
+    tasksCompleted: number;
+    avgTaskCompletionTime: number;
+    attendanceRate: number;
+  }>;
+
+  sectorComparison: Array<{
+    sectorId: string;
+    sectorName: string;
+    userCount: number;
+    totalActivities: number;
+    avgActivitiesPerUser: number;
+    productivityScore: number;
+  }>;
+
+  activityPatterns: {
+    hourlyDistribution: Array<{
+      hour: number;
+      activityCount: number;
+      userCount: number;
+    }>;
+    weeklyPattern: Array<{
+      dayOfWeek: string;
+      activityCount: number;
+      avgUserCount: number;
+    }>;
+  };
+
+  engagement: {
+    highlyEngaged: number; // users with > threshold activities
+    moderatelyEngaged: number;
+    lowEngagement: number;
+    inactive: number;
+  };
+}
+
+/**
+ * Statistics for paint entities
+ * Tracks paint consumption, formula usage, and production metrics
+ */
+export interface PaintStatistics {
+  period: STATISTICS_PERIOD;
+  dateRange: {
+    from: Date;
+    to: Date;
+  };
+
+  summary: {
+    totalProductions: number;
+    totalVolume: number; // in liters
+    totalValue: number;
+    avgProductionVolume: number;
+    uniqueColors: number;
+  };
+
+  typeDistribution: Array<{
+    typeId: string;
+    typeName: string;
+    productionCount: number;
+    totalVolume: number;
+    percentage: number;
+  }>;
+
+  brandDistribution: Array<{
+    brandId: string;
+    brandName: string;
+    productionCount: number;
+    totalVolume: number;
+    percentage: number;
+  }>;
+
+  finishDistribution: Array<{
+    finish: string;
+    count: number;
+    percentage: number;
+  }>;
+
+  colorAnalysis: {
+    topColors: Array<{
+      paintId: string;
+      colorName: string;
+      colorCode: string;
+      productionCount: number;
+      totalVolume: number;
+    }>;
+    colorFamilies: Array<{
+      family: string;
+      count: number;
+      percentage: number;
+    }>;
+  };
+
+  consumptionTrends: {
+    monthly: Array<{
+      month: string;
+      productionCount: number;
+      totalVolume: number;
+      growthRate: number;
+    }>;
+    seasonal: Array<{
+      season: string;
+      avgVolume: number;
+      pattern: "increasing" | "decreasing" | "stable";
+    }>;
+  };
+}
+
+/**
+ * Statistics for bonus/payroll entities
+ * Analyzes compensation, bonuses, and payroll trends
+ */
+export interface BonusPayrollStatistics {
+  period: STATISTICS_PERIOD;
+  dateRange: {
+    from: Date;
+    to: Date;
+  };
+
+  summary: {
+    totalBonusPaid: number;
+    totalPayroll: number;
+    avgBonusPerUser: number;
+    avgSalary: number;
+    bonusToPayrollRatio: number;
+  };
+
+  bonusDistribution: Array<{
+    userId: string;
+    userName: string;
+    sectorName: string;
+    totalBonus: number;
+    bonusCount: number;
+    avgBonus: number;
+  }>;
+
+  discountAnalysis: {
+    totalDiscounts: number;
+    discountReasons: Array<{
+      reason: string;
+      count: number;
+      totalAmount: number;
+      percentage: number;
+    }>;
+  };
+
+  sectorComparison: Array<{
+    sectorId: string;
+    sectorName: string;
+    userCount: number;
+    totalPayroll: number;
+    totalBonus: number;
+    avgPayrollPerUser: number;
+    avgBonusPerUser: number;
+  }>;
+
+  trends: {
+    monthlyPayroll: Array<{
+      month: string;
+      totalPayroll: number;
+      totalBonus: number;
+      growthRate: number;
+    }>;
+    yearOverYearComparison: {
+      currentYear: number;
+      previousYear: number;
+      growthRate: number;
+    };
+  };
+}
+
+/**
+ * Aggregation types for statistics queries
+ */
+export enum AggregationType {
+  SUM = "SUM",
+  AVG = "AVG",
+  COUNT = "COUNT",
+  MIN = "MIN",
+  MAX = "MAX",
+  MEDIAN = "MEDIAN",
+  MODE = "MODE",
+  STDDEV = "STDDEV",
+}
+
+/**
+ * Filter builder for complex statistics queries
+ */
+export interface FilterBuilder {
+  field: string;
+  operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "in" | "nin" | "contains" | "startsWith" | "endsWith";
+  value: any;
+  logicalOperator?: "AND" | "OR";
+}
+
+/**
+ * Sort configuration for statistics results
+ */
+export interface SortConfig {
+  field: string;
+  direction: "asc" | "desc";
+  nullsFirst?: boolean;
+}
+
+/**
+ * Pagination configuration for statistics results
+ */
+export interface PaginationConfig {
+  page: number;
+  take: number;
+  skip?: number;
+}
+
+/**
+ * Advanced statistics query options
+ */
+export interface AdvancedQueryOptions {
+  filters?: FilterBuilder[];
+  sorts?: SortConfig[];
+  pagination?: PaginationConfig;
+  aggregations?: Array<{
+    field: string;
+    type: AggregationType;
+    alias?: string;
+  }>;
+  groupBy?: string[];
+  having?: FilterBuilder[];
+}
+
+/**
+ * Chart data series for multi-series charts
+ */
+export interface ChartDataSeries {
+  name: string;
+  data: number[];
+  color?: string;
+  type?: CHART_TYPE;
+  yAxisIndex?: number;
+  stack?: string;
+}
+
+/**
+ * Enhanced chart configuration with multiple series support
+ */
+export interface MultiSeriesChartConfig {
+  chartType: CHART_TYPE;
+  series: ChartDataSeries[];
+  labels: string[];
+  colors?: string[];
+
+  xAxis?: {
+    title?: string;
+    type?: "category" | "value" | "time";
+    categories?: string[];
+  };
+
+  yAxis?: Array<{
+    title?: string;
+    type?: "value" | "log";
+    min?: number;
+    max?: number;
+    position?: "left" | "right";
+  }>;
+
+  legend?: {
+    show: boolean;
+    position?: "top" | "bottom" | "left" | "right";
+  };
+
+  tooltip?: {
+    enabled: boolean;
+    format?: string;
+  };
+
+  dataZoom?: {
+    enabled: boolean;
+    start?: number;
+    end?: number;
+  };
+}
+
+/**
+ * Comparative statistics for period-over-period analysis
+ */
+export interface ComparativeStatistics<T> {
+  current: T;
+  previous: T;
+  comparison: {
+    absoluteChange: number;
+    percentageChange: number;
+    trend: "up" | "down" | "stable";
+    isImprovement: boolean;
+  };
+}
+
+/**
+ * Real-time statistics update
+ */
+export interface RealtimeStatisticsUpdate {
+  timestamp: Date;
+  entityType: string;
+  metric: string;
+  value: number;
+  change: number;
+  changePercentage: number;
+}
+
+// =====================
+// Response Types for New Statistics
+// =====================
+
+export interface TaskStatisticsResponse extends BaseGetUniqueResponse<TaskStatistics> {}
+
+export interface OrderStatisticsResponse extends BaseGetUniqueResponse<OrderStatistics> {}
+
+export interface UserStatisticsResponse extends BaseGetUniqueResponse<UserStatistics> {}
+
+export interface PaintStatisticsResponse extends BaseGetUniqueResponse<PaintStatistics> {}
+
+export interface BonusPayrollStatisticsResponse extends BaseGetUniqueResponse<BonusPayrollStatistics> {}

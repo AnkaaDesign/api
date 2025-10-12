@@ -5,9 +5,10 @@ import { PrismaModule } from '../../common/prisma/prisma.module';
 import { CustomerRepository } from './repositories/customer.repository';
 import { CustomerPrismaRepository } from './repositories/customer-prisma.repository';
 import { ChangeLogModule } from '../../common/changelog/changelog.module';
+import { FileModule } from '../../common/file/file.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule],
+  imports: [PrismaModule, ChangeLogModule, FileModule],
   controllers: [CustomerController],
   providers: [
     CustomerService,

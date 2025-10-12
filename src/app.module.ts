@@ -54,6 +54,7 @@ import { SystemThrottlerModule } from './modules/system/throttler/throttler.modu
 import { RepositoryModule } from './modules/system/repository/repository.module';
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
+import { StatisticsModule } from './modules/system/statistics/statistics.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { AppsModule } from './modules/system/app/app.module';
     RepositoryModule,
     GitCommitModule,
     AppsModule,
+    StatisticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

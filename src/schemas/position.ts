@@ -15,6 +15,38 @@ export const monetaryValueIncludeSchema = z
   })
   .partial();
 
+// MonetaryValue Where Schema - defines valid filter fields
+export const monetaryValueWhereSchema = z
+  .object({
+    id: z.union([z.string(), z.object({ in: z.array(z.string()) }).optional()]).optional(),
+    value: z.union([z.number(), z.object({ gte: z.number(), lte: z.number() }).partial()]).optional(),
+    current: z.boolean().optional(),
+    createdAt: z.union([z.date(), z.object({ gte: z.date(), lte: z.date() }).partial()]).optional(),
+    updatedAt: z.union([z.date(), z.object({ gte: z.date(), lte: z.date() }).partial()]).optional(),
+    itemId: z.string().optional(),
+    positionId: z.string().optional(),
+  })
+  .partial()
+  .strict(); // Only allow defined fields - reject unknown fields like 'isActive'
+
+// MonetaryValue OrderBy Schema
+export const monetaryValueOrderBySchema = z.union([
+  z.object({
+    id: orderByDirectionSchema.optional(),
+    value: orderByDirectionSchema.optional(),
+    current: orderByDirectionSchema.optional(),
+    createdAt: orderByDirectionSchema.optional(),
+    updatedAt: orderByDirectionSchema.optional(),
+  }).partial(),
+  z.array(z.object({
+    id: orderByDirectionSchema.optional(),
+    value: orderByDirectionSchema.optional(),
+    current: orderByDirectionSchema.optional(),
+    createdAt: orderByDirectionSchema.optional(),
+    updatedAt: orderByDirectionSchema.optional(),
+  }).partial()),
+]);
+
 export const positionIncludeSchema = z
   .object({
     users: z
@@ -51,10 +83,10 @@ export const positionIncludeSchema = z
         z.boolean(),
         z.object({
           include: monetaryValueIncludeSchema.optional(),
-          orderBy: z.any().optional(),
+          orderBy: monetaryValueOrderBySchema.optional(),
           take: z.number().optional(),
           skip: z.number().optional(),
-          where: z.any().optional(),
+          where: monetaryValueWhereSchema.optional(),
         }),
       ])
       .optional(),

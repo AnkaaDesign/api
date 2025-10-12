@@ -182,18 +182,7 @@ export class MaintenanceScheduleService {
       }
     }
 
-    // Validate that maintenance items config is provided for create operations
-    if (
-      !existingId &&
-      (!data.maintenanceItemsConfig ||
-        !Array.isArray(data.maintenanceItemsConfig) ||
-        data.maintenanceItemsConfig.length === 0)
-    ) {
-      throw new BadRequestException(
-        'Deve especificar pelo menos um item de manutenção para o agendamento.',
-      );
-    }
-
+    // Maintenance items config is optional - can be empty for cleanup-only maintenance
     // Validate maintenance items if provided
     if (data.maintenanceItemsConfig && Array.isArray(data.maintenanceItemsConfig)) {
       for (const itemConfig of data.maintenanceItemsConfig) {

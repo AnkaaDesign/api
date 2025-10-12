@@ -1598,7 +1598,8 @@ export const maintenanceScheduleCreateSchema = z
           quantity: z.number().positive("Quantidade deve ser positiva").default(1),
         }),
       )
-      .min(1, "Deve incluir pelo menos um item de manutenção"),
+      .optional()
+      .default([]),
 
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),

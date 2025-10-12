@@ -9,8 +9,8 @@ module.exports = {
       cwd: '/home/kennedy/repositories/api',
 
       // Instance Configuration
-      instances: 1,
-      exec_mode: 'fork',
+      instances: 2,
+      exec_mode: 'cluster',
 
       // Auto-restart Configuration
       autorestart: true,
@@ -19,7 +19,7 @@ module.exports = {
       restart_delay: 4000,
 
       // Memory Management
-      max_memory_restart: '1G',
+      max_memory_restart: '2G',
 
       // Watch Configuration - DISABLED for production
       watch: false,

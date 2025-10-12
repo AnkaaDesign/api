@@ -89,3 +89,68 @@ export const IpVerificationRateLimit = () =>
       ttl: 3600000,
     },
   });
+
+// High-frequency endpoint rate limiters - for commonly accessed endpoints
+export const HighFrequencyRateLimit = () =>
+  Throttle({
+    high_frequency: {
+      limit: isDevelopment ? 2000 : 500, // 500 per minute in production - for /auth/me and similar
+      ttl: 60000,
+    },
+  });
+
+export const ThumbnailServeRateLimit = () =>
+  Throttle({
+    thumbnail_serve: {
+      limit: isDevelopment ? 2000 : 500, // 500 thumbnails per minute - allows 8+ per second
+      ttl: 60000,
+    },
+  });
+
+export const FileServeRateLimit = () =>
+  Throttle({
+    file_serve: {
+      limit: isDevelopment ? 1000 : 200, // 200 file serves per minute
+      ttl: 60000,
+    },
+  });
+
+export const FileDownloadRateLimit = () =>
+  Throttle({
+    file_download: {
+      limit: isDevelopment ? 500 : 50, // 50 downloads per minute
+      ttl: 60000,
+    },
+  });
+
+export const DashboardRateLimit = () =>
+  Throttle({
+    dashboard: {
+      limit: isDevelopment ? 100 : 30, // 30 dashboard loads per minute
+      ttl: 60000,
+    },
+  });
+
+export const UnifiedDashboardRateLimit = () =>
+  Throttle({
+    dashboard_unified: {
+      limit: isDevelopment ? 50 : 10, // 10 unified dashboard loads per minute - VERY expensive
+      ttl: 60000,
+    },
+  });
+
+export const HeavyStatisticsRateLimit = () =>
+  Throttle({
+    statistics_heavy: {
+      limit: isDevelopment ? 100 : 15, // 15 heavy statistics per minute
+      ttl: 60000,
+    },
+  });
+
+export const ModerateStatisticsRateLimit = () =>
+  Throttle({
+    statistics_moderate: {
+      limit: isDevelopment ? 200 : 30, // 30 moderate statistics per minute
+      ttl: 60000,
+    },
+  });

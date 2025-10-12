@@ -22,6 +22,11 @@ export interface ItemBrand extends BaseEntity {
 
   // Relations
   items?: Item[];
+
+  // Count fields (when included)
+  _count?: {
+    items?: number;
+  };
 }
 
 export interface ItemCategory extends BaseEntity {
@@ -32,6 +37,11 @@ export interface ItemCategory extends BaseEntity {
 
   // Relations
   items?: Item[];
+
+  // Count fields (when included)
+  _count?: {
+    items?: number;
+  };
 }
 
 export interface Item extends BaseEntity {
@@ -84,6 +94,18 @@ export interface Item extends BaseEntity {
   ppeSchedules?: PpeDeliverySchedule[];
   relatedItems?: Item[];
   relatedTo?: Item[];
+
+  // Count fields (when included)
+  _count?: {
+    activities?: number;
+    borrows?: number;
+    prices?: number;
+    measures?: number;
+    orderItems?: number;
+    ppeDeliveries?: number;
+    relatedItems?: number;
+    relatedTo?: number;
+  };
 
   // Virtual field (computed from latest/current monetary value)
   price?: number;

@@ -111,6 +111,14 @@ export class TruckPrismaRepository
           name: true,
           status: true,
           serialNumber: true,
+          plate: true, // Always needed (source of truth for truck plate)
+          customer: {  // Used in 95%+ of queries (list views, search, garage display)
+            select: {
+              id: true,
+              fantasyName: true,
+              corporateName: true,
+            },
+          },
         },
       },
       garage: {

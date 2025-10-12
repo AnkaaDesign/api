@@ -266,10 +266,13 @@ export class OrderService {
 
   /**
    * Calcular total do pedido server-side
+   * Tax is a percentage (0-100), not an absolute value
    */
   private calculateOrderTotal(items: Omit<OrderItemCreateFormData, 'orderId'>[]): number {
     return items.reduce((total, item) => {
-      const itemTotal = item.orderedQuantity * item.price + (item.tax || 0);
+      const subtotal = item.orderedQuantity * item.price;
+      const taxAmount = subtotal * ((item.tax || 0) / 100);
+      const itemTotal = subtotal + taxAmount;
       return total + itemTotal;
     }, 0);
   }
