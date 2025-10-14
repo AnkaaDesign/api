@@ -269,7 +269,8 @@ export class AuthService {
     if (contactMethod) {
       try {
         await this.verificationService.sendVerificationCode(contactMethod, ip);
-        const methodType = isValidPhone(contactMethod) ? 'SMS' : 'email';
+        // Determine message based on what the user actually provided
+        const methodType = phone ? 'SMS' : 'email';
         message = `Cadastro realizado com sucesso. Código de verificação enviado por ${methodType}.`;
       } catch (error) {
         this.logger.error(`Failed to send verification code to ${contactMethod}: ${error.message}`);

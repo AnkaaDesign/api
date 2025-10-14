@@ -1140,9 +1140,9 @@ model User {
   state                 String?
   zipCode               String?
   site                  String?
-  birth                 DateTime
+  birth                 DateTime?
   verified              Boolean            @default(false)
-  admissional           DateTime
+  admissional           DateTime?
   dismissal             DateTime?
   sectorId              String?
   managedSectorId       String?

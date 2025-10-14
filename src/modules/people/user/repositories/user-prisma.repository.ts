@@ -106,10 +106,10 @@ export class UserPrismaRepository
       status: mapUserStatusToPrisma(formData.status),
       verified: formData.verified ?? false,
       performanceLevel: formData.performanceLevel ?? 0,
-      // Map date fields to Prisma model field names
-      admissional: admissional || null,
-      birth: birth || null,
-      dismissal: dismissal || null,
+      // Map date fields to Prisma model field names (all optional)
+      ...(admissional !== undefined && { admissional }),
+      ...(birth !== undefined && { birth }),
+      ...(dismissal !== undefined && { dismissal }),
       // Include status timestamp fields if they're in rest (from service layer)
       ...((rest as any).contractedAt !== undefined && { contractedAt: (rest as any).contractedAt }),
       ...((rest as any).exp1StartAt !== undefined && { exp1StartAt: (rest as any).exp1StartAt }),

@@ -249,7 +249,7 @@ export class VerificationService {
 
     return {
       success: true,
-      message: 'Account verified successfully! You can now log in',
+      message: 'Conta verificada com sucesso! Você já pode fazer login',
       data: {
         verified: true,
         userId: user.id,
