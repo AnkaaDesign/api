@@ -565,7 +565,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.user.count({
         where: {
           ...where,
-          admissional: dateFilter || last30DaysRange,
+          exp1StartAt: dateFilter || last30DaysRange,
         },
       }),
     ]);
@@ -905,7 +905,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getOrdersWithoutNfe(limit: number): Promise<DashboardListItem[]> {
     const orders = await this.prisma.order.findMany({
       where: {
-        nfes: { none: {} },
+        invoices: { none: {} },
         status: { not: ORDER_STATUS.CANCELLED as any },
       },
       include: {
@@ -925,7 +925,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getTasksWithoutNfe(limit: number): Promise<DashboardListItem[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
-        nfes: { none: {} },
+        invoices: { none: {} },
         price: { not: null },
         status: TASK_STATUS.COMPLETED as any,
       },
@@ -949,10 +949,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const [ordersWithNfe, tasksWithNfe] = await Promise.all([
       this.prisma.order.count({
-        where: { nfes: { some: {} } },
+        where: { invoices: { some: {} } },
       }),
       this.prisma.task.count({
-        where: { nfes: { some: {} } },
+        where: { invoices: { some: {} } },
       }),
     ]);
 
@@ -1245,13 +1245,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const [ordersWithoutNfe, tasksWithoutNfe] = await Promise.all([
       this.prisma.order.count({
         where: {
-          nfes: { none: {} },
+          invoices: { none: {} },
           status: { not: ORDER_STATUS.CANCELLED as any },
         },
       }),
       this.prisma.task.count({
         where: {
-          nfes: { none: {} },
+          invoices: { none: {} },
           price: { not: null },
           status: TASK_STATUS.COMPLETED as any,
         },

@@ -34,7 +34,7 @@ export const orderIncludeSchema = z
         }),
       ])
       .optional(),
-    nfe: z
+    invoice: z
       .union([
         z.boolean(),
         z.object({
@@ -50,7 +50,7 @@ export const orderIncludeSchema = z
               observations: z.boolean().optional(),
               warning: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
+              airbrushingInvoices: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -187,7 +187,7 @@ export const orderItemIncludeSchema = z
           include: z
             .object({
               budget: z.boolean().optional(),
-              nfe: z.boolean().optional(),
+              invoice: z.boolean().optional(),
               receipt: z.boolean().optional(),
               supplier: z.boolean().optional(),
               orderSchedule: z.boolean().optional(),
@@ -1736,10 +1736,10 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
   supplierId: order.supplierId || undefined,
   orderScheduleId: order.orderScheduleId || undefined,
   budgetIds: order.budgets?.map((budget) => budget.id),
-  invoiceIds: order.nfes?.map((nfe) => nfe.id),
+  invoiceIds: order.invoices?.map((invoice) => invoice.id),
   receiptIds: order.receipts?.map((receipt) => receipt.id),
   reimbursementIds: order.reimbursements?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: order.nfeReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
+  reimbursementInvoiceIds: order.invoiceReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
   notes: order.notes || undefined,
 }));
 

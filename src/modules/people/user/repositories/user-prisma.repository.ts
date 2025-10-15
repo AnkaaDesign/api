@@ -52,14 +52,12 @@ export class UserPrismaRepository
 
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): User {
-    const { birth, admissional, dismissal, ...restUser } = databaseEntity;
+    const { birth, dismissal, ...restUser } = databaseEntity;
 
     const user = {
       ...restUser,
       // Map database field names to entity field names
-      birthDate: birth || null,
-      hireDate: admissional || null,
-      admissional: admissional || null,
+      birth: birth || null,
       dismissal: dismissal || null,
       // Ensure status timestamp fields are properly mapped
       contractedAt: restUser.contractedAt || null,
@@ -92,7 +90,6 @@ export class UserPrismaRepository
       ppeSize,
       notificationPreferences,
       userId,
-      admissional,
       birth,
       dismissal,
       ...rest
@@ -107,7 +104,6 @@ export class UserPrismaRepository
       verified: formData.verified ?? false,
       performanceLevel: formData.performanceLevel ?? 0,
       // Map date fields to Prisma model field names (all optional)
-      ...(admissional !== undefined && { admissional }),
       ...(birth !== undefined && { birth }),
       ...(dismissal !== undefined && { dismissal }),
       // Include status timestamp fields if they're in rest (from service layer)
@@ -166,7 +162,6 @@ export class UserPrismaRepository
       verificationCode,
       verificationExpiresAt,
       requirePasswordChange,
-      admissional,
       birth,
       dismissal,
       ppeSize,
@@ -185,7 +180,6 @@ export class UserPrismaRepository
       ...(verificationExpiresAt !== undefined && { verificationExpiresAt }),
       ...(requirePasswordChange !== undefined && { requirePasswordChange }),
       // Map date fields to Prisma model field names
-      ...(admissional !== undefined && { admissional }),
       ...(birth !== undefined && { birth }),
       ...(dismissal !== undefined && { dismissal }),
       // Include status timestamp fields if they're in rest (from service layer)

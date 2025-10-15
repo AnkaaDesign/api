@@ -8,7 +8,7 @@ import {
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Reflector } from '@nestjs/core';
-import { StatisticsCacheService } from './statistics-cache.service';
+// import { StatisticsCacheService } from './statistics-cache.service';
 
 // =====================
 // Cache Invalidation Decorators
@@ -51,7 +51,8 @@ export const InvalidateStatisticsCache = (config: CacheInvalidationConfig) => {
 // =====================
 // Automatic Cache Invalidation Interceptor
 // =====================
-
+// TODO: Re-enable when StatisticsCacheService is implemented
+/*
 @Injectable()
 export class CacheInvalidationInterceptor implements NestInterceptor {
   private readonly logger = new Logger(CacheInvalidationInterceptor.name);
@@ -135,6 +136,7 @@ export class CacheInvalidationInterceptor implements NestInterceptor {
     }
   }
 }
+*/
 
 // =====================
 // Method-level Decorators for Common Scenarios
@@ -239,7 +241,8 @@ export const WarmStatisticsCache = (config: CacheWarmingConfig) => {
 // =====================
 // Cache Warming Interceptor
 // =====================
-
+// TODO: Re-enable when StatisticsCacheService is implemented
+/*
 @Injectable()
 export class CacheWarmingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(CacheWarmingInterceptor.name);
@@ -290,6 +293,7 @@ export class CacheWarmingInterceptor implements NestInterceptor {
     }
   }
 }
+*/
 
 // =====================
 // Usage Examples and Helper Functions

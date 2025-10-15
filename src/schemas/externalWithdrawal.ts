@@ -12,7 +12,7 @@ import { EXTERNAL_WITHDRAWAL_STATUS } from '@constants';
 // Include Schema
 export const externalWithdrawalIncludeSchema = z
   .object({
-    nfe: z
+    invoice: z
       .union([
         z.boolean(),
         z.object({
@@ -195,7 +195,7 @@ export const externalWithdrawalWhereSchema: z.ZodType<any> = z
       ])
       .optional(),
 
-    nfeId: z
+    invoiceId: z
       .union([
         z.string().nullable(),
         z.object({
@@ -270,7 +270,7 @@ const externalWithdrawalFilters = {
   withdrawerNames: z.array(z.string()).optional(),
   statuses: z.array(z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS)).optional(),
   willReturn: z.boolean().optional(),
-  hasNfe: z.boolean().optional(),
+  hasInvoice: z.boolean().optional(),
   hasReceipt: z.boolean().optional(),
   hasItems: z.boolean().optional(),
   searchingFor: z.string().optional(),
@@ -306,9 +306,9 @@ const externalWithdrawalTransform = (data: any) => {
     delete data.willReturn;
   }
 
-  if (data.hasNfe !== undefined) {
-    andConditions.push({ nfeId: data.hasNfe ? { not: null } : null });
-    delete data.hasNfe;
+  if (data.hasInvoice !== undefined) {
+    andConditions.push({ invoiceId: data.hasInvoice ? { not: null } : null });
+    delete data.hasInvoice;
   }
 
   if (data.hasReceipt !== undefined) {
@@ -527,7 +527,7 @@ export const externalWithdrawalItemIncludeSchema = z
         z.object({
           include: z
             .object({
-              nfe: z.boolean().optional(),
+              invoice: z.boolean().optional(),
               receipt: z.boolean().optional(),
               items: z.boolean().optional(),
             })
@@ -944,7 +944,7 @@ export const mapExternalWithdrawalToCompleteFormData = createMapToFormDataHelper
         price: item.price,
       })) || [],
     status: externalWithdrawal.status,
-    invoiceIds: externalWithdrawal.nfes?.map((nfe) => nfe.id) || [],
+    invoiceIds: externalWithdrawal.invoices?.map((invoice) => invoice.id) || [],
     receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id) || [],
   }),
 );
@@ -954,7 +954,7 @@ export const mapExternalWithdrawalToFormData = createMapToFormDataHelper<Externa
   withdrawerName: externalWithdrawal.withdrawerName,
   willReturn: externalWithdrawal.willReturn,
   status: externalWithdrawal.status,
-  invoiceIds: externalWithdrawal.nfes?.map((nfe) => nfe.id),
+  invoiceIds: externalWithdrawal.invoices?.map((invoice) => invoice.id),
   receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id),
   notes: externalWithdrawal.notes,
 }));

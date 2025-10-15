@@ -135,5 +135,5 @@ export {
   type DiscountOrderBy,
   type DiscountWhere,
 } from "./discount";
-export * from "./statistics";
+// export * from "./statistics"; // TODO: Re-enable when statistics module is implemented
 export * from "./deployment";

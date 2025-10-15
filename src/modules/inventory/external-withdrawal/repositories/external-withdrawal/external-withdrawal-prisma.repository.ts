@@ -59,13 +59,13 @@ export class ExternalWithdrawalPrismaRepository
       willReturn: databaseEntity.willReturn,
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
-      invoiceIds: databaseEntity.nfes?.map((nfe: any) => nfe.id),
+      invoiceIds: databaseEntity.invoices?.map((invoice: any) => invoice.id),
       receiptIds: databaseEntity.receipts?.map((receipt: any) => receipt.id),
       notes: databaseEntity.notes,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
-      nfes: databaseEntity.nfes,
+      invoices: databaseEntity.invoices,
       receipts: databaseEntity.receipts,
       items: databaseEntity.items,
     };
@@ -93,7 +93,7 @@ export class ExternalWithdrawalPrismaRepository
 
     // Handle file arrays
     if (invoiceIds && invoiceIds.length > 0) {
-      createInput.nfes = { connect: invoiceIds.map(id => ({ id })) };
+      createInput.invoices = { connect: invoiceIds.map(id => ({ id })) };
     }
 
     if (receiptIds && receiptIds.length > 0) {
@@ -131,7 +131,7 @@ export class ExternalWithdrawalPrismaRepository
 
     // Handle file arrays with set operation
     if (invoiceIds !== undefined) {
-      updateInput.nfes = { set: invoiceIds.map(id => ({ id })) };
+      updateInput.invoices = { set: invoiceIds.map(id => ({ id })) };
     }
 
     if (receiptIds !== undefined) {
@@ -164,7 +164,7 @@ export class ExternalWithdrawalPrismaRepository
           item: true,
         },
       },
-      nfes: true,
+      invoices: true,
       receipts: true,
     };
   }

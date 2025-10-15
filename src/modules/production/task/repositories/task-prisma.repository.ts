@@ -41,7 +41,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
-  nfes: {
+  invoices: {
     select: {
       id: true,
       filename: true,
@@ -243,7 +243,7 @@ export class TaskPrismaRepository
       taskData.budgets = { connect: budgetIds.map(id => ({ id })) };
     }
     if (invoiceIds && invoiceIds.length > 0) {
-      taskData.nfes = { connect: invoiceIds.map(id => ({ id })) };
+      taskData.invoices = { connect: invoiceIds.map(id => ({ id })) };
     }
     if (receiptIds && receiptIds.length > 0) {
       taskData.receipts = { connect: receiptIds.map(id => ({ id })) };
@@ -252,7 +252,7 @@ export class TaskPrismaRepository
       taskData.reimbursements = { connect: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      taskData.nfeReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
+      taskData.invoiceReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds && fileIds.length > 0) {
       taskData.artworks = { connect: fileIds.map(id => ({ id })) };
@@ -461,9 +461,9 @@ export class TaskPrismaRepository
     }
 
     if (invoiceIds !== undefined) {
-      updateData.nfes = { set: invoiceIds.map(id => ({ id })) };
+      updateData.invoices = { set: invoiceIds.map(id => ({ id })) };
     } else if (nfeId !== undefined) {
-      updateData.nfes = nfeId ? { set: [{ id: nfeId }] } : { set: [] };
+      updateData.invoices = nfeId ? { set: [{ id: nfeId }] } : { set: [] };
     }
 
     if (receiptIds !== undefined) {
@@ -476,7 +476,7 @@ export class TaskPrismaRepository
       updateData.reimbursements = { set: reimbursementIds.map(id => ({ id })) };
     }
     if (reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.invoiceReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (fileIds !== undefined) {
       updateData.artworks = { set: fileIds.map(id => ({ id })) };
@@ -646,18 +646,12 @@ export class TaskPrismaRepository
         // Frontend might use old singular/Portuguese names, map them to new plural English names
         if (key === 'paints') {
           databaseInclude.logoPaints = value;
-        } else if (key === 'nfe') {
-          databaseInclude.nfes = value;
-        } else if (key === 'receipt') {
-          databaseInclude.receipts = value;
-        } else if (key === 'budget') {
-          databaseInclude.budgets = value;
         } else if (key === 'airbrushings') {
           databaseInclude.airbrushing = value;
         } else if (key === 'reimbursements') {
           databaseInclude.reimbursements = value;
         } else if (key === 'nfeReimbursements') {
-          databaseInclude.nfeReimbursements = value;
+          databaseInclude.invoiceReimbursements = value;
         } else {
           databaseInclude[key] = value;
         }
@@ -665,18 +659,12 @@ export class TaskPrismaRepository
         // Handle nested includes with field name mappings
         if (key === 'paints') {
           databaseInclude.logoPaints = { include: value.include };
-        } else if (key === 'nfe') {
-          databaseInclude.nfes = { include: value.include };
-        } else if (key === 'receipt') {
-          databaseInclude.receipts = { include: value.include };
-        } else if (key === 'budget') {
-          databaseInclude.budgets = { include: value.include };
         } else if (key === 'airbrushings') {
           databaseInclude.airbrushing = { include: value.include, orderBy: (value as any).orderBy };
         } else if (key === 'reimbursements') {
           databaseInclude.reimbursements = { include: value.include };
         } else if (key === 'nfeReimbursements') {
-          databaseInclude.nfeReimbursements = { include: value.include };
+          databaseInclude.invoiceReimbursements = { include: value.include };
         } else {
           databaseInclude[key] = { include: value.include };
         }

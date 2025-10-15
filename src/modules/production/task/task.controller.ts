@@ -87,9 +87,9 @@ export class TaskController {
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor([
-      { name: 'budget', maxCount: 1 },
-      { name: 'nfe', maxCount: 1 },
-      { name: 'receipt', maxCount: 1 },
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
     ], multerConfig)
   )
@@ -98,9 +98,9 @@ export class TaskController {
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: {
-      budget?: Express.Multer.File[],
-      nfe?: Express.Multer.File[],
-      receipt?: Express.Multer.File[],
+      budgets?: Express.Multer.File[],
+      invoices?: Express.Multer.File[],
+      receipts?: Express.Multer.File[],
       artworks?: Express.Multer.File[]
     },
   ): Promise<TaskCreateResponse> {
@@ -220,33 +220,39 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
     FileFieldsInterceptor([
-      { name: 'budget', maxCount: 1 },
-      { name: 'nfe', maxCount: 1 },
-      { name: 'receipt', maxCount: 1 },
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
     ], multerConfig)
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema)) data: TaskUpdateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema)) data: TaskUpdateFormData = {} as TaskUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: {
-      budget?: Express.Multer.File[],
-      nfe?: Express.Multer.File[],
-      receipt?: Express.Multer.File[],
+      budgets?: Express.Multer.File[],
+      invoices?: Express.Multer.File[],
+      receipts?: Express.Multer.File[],
       artworks?: Express.Multer.File[]
     },
   ): Promise<TaskUpdateResponse> {
+    // Debug logging - FIRST LINE to see if controller is reached
+    console.log('[TaskController.update] ========== REQUEST RECEIVED ==========');
+    console.log('[TaskController.update] Task ID:', id);
+    console.log('[TaskController.update] Body keys:', Object.keys(data || {}));
+    console.log('[TaskController.update] Body:', JSON.stringify(data).substring(0, 200));
+
     // Debug logging for file upload
     console.log('[TaskController.update] Files received:', {
-      hasBudget: !!files?.budget && files.budget.length > 0,
-      hasNfe: !!files?.nfe && files.nfe.length > 0,
-      hasReceipt: !!files?.receipt && files.receipt.length > 0,
+      hasBudgets: !!files?.budgets && files.budgets.length > 0,
+      hasNfes: !!files?.invoices && files.invoices.length > 0,
+      hasReceipts: !!files?.receipts && files.receipts.length > 0,
       hasArtworks: !!files?.artworks && files.artworks.length > 0,
-      budgetCount: files?.budget?.length || 0,
-      nfeCount: files?.nfe?.length || 0,
-      receiptCount: files?.receipt?.length || 0,
+      budgetsCount: files?.budgets?.length || 0,
+      invoicesCount: files?.invoices?.length || 0,
+      receiptsCount: files?.receipts?.length || 0,
       artworksCount: files?.artworks?.length || 0,
     });
 
@@ -274,7 +280,7 @@ export class TaskController {
   async uploadBudget() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "budget".'
+      'Use PUT /tasks/:id com FormData incluindo o campo "budgets".'
     );
   }
 
@@ -284,7 +290,7 @@ export class TaskController {
   async uploadInvoice() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "nfe".'
+      'Use PUT /tasks/:id com FormData incluindo o campo "invoices".'
     );
   }
 
@@ -294,7 +300,7 @@ export class TaskController {
   async uploadReceipt() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "receipt".'
+      'Use PUT /tasks/:id com FormData incluindo o campo "receipts".'
     );
   }
 

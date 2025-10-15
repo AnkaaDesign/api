@@ -7,7 +7,17 @@ import { PipeTransform, Injectable, ArgumentMetadata } from '@nestjs/common';
 @Injectable()
 export class ArrayFixPipe implements PipeTransform {
   transform(value: any, metadata: ArgumentMetadata) {
-    if (metadata.type !== 'body' || !value || typeof value !== 'object') {
+    if (metadata.type !== 'body') {
+      return value;
+    }
+
+    // When body is undefined/null (e.g., file-only FormData), return empty object
+    // This allows validation to pass with all-optional schemas
+    if (!value) {
+      return {};
+    }
+
+    if (typeof value !== 'object') {
       return value;
     }
 

@@ -24,7 +24,6 @@ import { ExternalWithdrawalModule } from './modules/inventory/external-withdrawa
 import { FileModule } from './modules/common/file/file.module';
 import { GarageModule } from './modules/production/garage/garage.module';
 import { ItemModule } from './modules/inventory/item/item.module';
-import { InventoryStatisticsModule } from './modules/inventory/statistics/inventory-statistics.module';
 import { MailerModule } from './modules/common/mailer/mailer.module';
 import { MaintenanceModule } from './modules/inventory/maintenance/maintenance.module';
 import { NotificationModule } from './modules/common/notification/notification.module';
@@ -54,7 +53,6 @@ import { SystemThrottlerModule } from './modules/system/throttler/throttler.modu
 import { RepositoryModule } from './modules/system/repository/repository.module';
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
-import { StatisticsModule } from './modules/system/statistics/statistics.module';
 
 @Module({
   imports: [
@@ -85,7 +83,6 @@ import { StatisticsModule } from './modules/system/statistics/statistics.module'
     FileModule,
     GarageModule,
     ItemModule,
-    InventoryStatisticsModule,
     MailerModule,
     MaintenanceModule,
     NotificationModule,
@@ -113,7 +110,6 @@ import { StatisticsModule } from './modules/system/statistics/statistics.module'
     RepositoryModule,
     GitCommitModule,
     AppsModule,
-    StatisticsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

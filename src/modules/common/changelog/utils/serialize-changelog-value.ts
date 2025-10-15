@@ -70,12 +70,37 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
 }
 
 /**
+ * Normalize value for comparison
+ * Handles numeric strings and numbers to prevent false positives
+ */
+function normalizeValue(value: any): any {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  // Convert numeric strings to numbers for comparison
+  // This prevents "0" (string) from being different than 0 (number)
+  if (typeof value === 'string' && value.trim() !== '') {
+    const numValue = Number(value);
+    if (!isNaN(numValue) && String(numValue) === value) {
+      return numValue;
+    }
+  }
+
+  return value;
+}
+
+/**
  * Compare two values for changelog purposes
  * Returns true if values are different
  */
 export function hasValueChanged(oldValue: any, newValue: any): boolean {
-  const serializedOld = serializeChangelogValue(oldValue);
-  const serializedNew = serializeChangelogValue(newValue);
+  // Normalize both values before serialization to handle type coercion
+  const normalizedOld = normalizeValue(oldValue);
+  const normalizedNew = normalizeValue(newValue);
+
+  const serializedOld = serializeChangelogValue(normalizedOld);
+  const serializedNew = serializeChangelogValue(normalizedNew);
 
   return JSON.stringify(serializedOld) !== JSON.stringify(serializedNew);
 }

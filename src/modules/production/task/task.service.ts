@@ -77,9 +77,9 @@ export class TaskService {
     include?: TaskInclude,
     userId?: string,
     files?: {
-      budget?: Express.Multer.File[],
-      nfe?: Express.Multer.File[],
-      receipt?: Express.Multer.File[],
+      budgets?: Express.Multer.File[],
+      invoices?: Express.Multer.File[],
+      receipts?: Express.Multer.File[],
       artworks?: Express.Multer.File[]
     },
   ): Promise<TaskCreateResponse> {
@@ -114,55 +114,64 @@ export class TaskService {
           const fileUpdates: any = {};
           const customerName = newTask.customer?.fantasyName;
 
-          // Budget file
-          if (files.budget && files.budget.length > 0) {
-            const budgetFile = files.budget[0];
-            const budgetRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              budgetFile,
-              'taskBudgets',
-              userId,
-              {
-                entityId: newTask.id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.budgets = { connect: [{ id: budgetRecord.id }] };
+          // Budget files (multiple)
+          if (files.budgets && files.budgets.length > 0) {
+            const budgetIds: string[] = [];
+            for (const budgetFile of files.budgets) {
+              const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                budgetFile,
+                'taskBudgets',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              budgetIds.push(budgetRecord.id);
+            }
+            fileUpdates.budgets = { connect: budgetIds.map(id => ({ id })) };
           }
 
-          // NFe file
-          if (files.nfe && files.nfe.length > 0) {
-            const nfeFile = files.nfe[0];
-            const nfeRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              nfeFile,
-              'taskNfes',
-              userId,
-              {
-                entityId: newTask.id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.nfes = { connect: [{ id: nfeRecord.id }] };
+          // NFe files (multiple)
+          if (files.invoices && files.invoices.length > 0) {
+            const nfeIds: string[] = [];
+            for (const nfeFile of files.invoices) {
+              const nfeRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                nfeFile,
+                'taskNfes',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              nfeIds.push(nfeRecord.id);
+            }
+            fileUpdates.invoices = { connect: nfeIds.map(id => ({ id })) };
           }
 
-          // Receipt file
-          if (files.receipt && files.receipt.length > 0) {
-            const receiptFile = files.receipt[0];
-            const receiptRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              receiptFile,
-              'taskReceipts',
-              userId,
-              {
-                entityId: newTask.id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.receipts = { connect: [{ id: receiptRecord.id }] };
+          // Receipt files (multiple)
+          if (files.receipts && files.receipts.length > 0) {
+            const receiptIds: string[] = [];
+            for (const receiptFile of files.receipts) {
+              const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                receiptFile,
+                'taskReceipts',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              receiptIds.push(receiptRecord.id);
+            }
+            fileUpdates.receipts = { connect: receiptIds.map(id => ({ id })) };
           }
 
           // Artwork files
@@ -210,9 +219,9 @@ export class TaskService {
       // Clean up uploaded files if task creation failed
       if (files) {
         const allFiles = [
-          ...(files.budget || []),
-          ...(files.nfe || []),
-          ...(files.receipt || []),
+          ...(files.budgets || []),
+          ...(files.invoices || []),
+          ...(files.receipts || []),
           ...(files.artworks || []),
         ];
 
@@ -337,9 +346,9 @@ export class TaskService {
     include?: TaskInclude,
     userId?: string,
     files?: {
-      budget?: Express.Multer.File[],
-      nfe?: Express.Multer.File[],
-      receipt?: Express.Multer.File[],
+      budgets?: Express.Multer.File[],
+      invoices?: Express.Multer.File[],
+      receipts?: Express.Multer.File[],
       artworks?: Express.Multer.File[]
     },
   ): Promise<TaskUpdateResponse> {
@@ -408,55 +417,64 @@ export class TaskService {
           const fileUpdates: any = {};
           const customerName = updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
 
-          // Budget file
-          if (files.budget && files.budget.length > 0) {
-            const budgetFile = files.budget[0];
-            const budgetRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              budgetFile,
-              'taskBudgets',
-              userId,
-              {
-                entityId: id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.budgets = { connect: [{ id: budgetRecord.id }] };
+          // Budget files (multiple)
+          if (files.budgets && files.budgets.length > 0) {
+            const budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : (existingTask.budgets?.map((b: any) => b.id) || []);
+            for (const budgetFile of files.budgets) {
+              const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                budgetFile,
+                'taskBudgets',
+                userId,
+                {
+                  entityId: id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              budgetIds.push(budgetRecord.id);
+            }
+            fileUpdates.budgets = { connect: budgetIds.map(id => ({ id })) };
           }
 
-          // NFe file
-          if (files.nfe && files.nfe.length > 0) {
-            const nfeFile = files.nfe[0];
-            const nfeRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              nfeFile,
-              'taskNfes',
-              userId,
-              {
-                entityId: id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.nfes = { connect: [{ id: nfeRecord.id }] };
+          // NFe files (multiple)
+          if (files.invoices && files.invoices.length > 0) {
+            const nfeIds: string[] = data.nfeIds ? [...data.nfeIds] : (existingTask.invoices?.map((n: any) => n.id) || []);
+            for (const nfeFile of files.invoices) {
+              const nfeRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                nfeFile,
+                'taskNfes',
+                userId,
+                {
+                  entityId: id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              nfeIds.push(nfeRecord.id);
+            }
+            fileUpdates.invoices = { connect: nfeIds.map(id => ({ id })) };
           }
 
-          // Receipt file
-          if (files.receipt && files.receipt.length > 0) {
-            const receiptFile = files.receipt[0];
-            const receiptRecord = await this.fileService.createFromUploadWithTransaction(
-              tx,
-              receiptFile,
-              'taskReceipts',
-              userId,
-              {
-                entityId: id,
-                entityType: 'TASK',
-                customerName,
-              },
-            );
-            fileUpdates.receipts = { connect: [{ id: receiptRecord.id }] };
+          // Receipt files (multiple)
+          if (files.receipts && files.receipts.length > 0) {
+            const receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : (existingTask.receipts?.map((r: any) => r.id) || []);
+            for (const receiptFile of files.receipts) {
+              const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                receiptFile,
+                'taskReceipts',
+                userId,
+                {
+                  entityId: id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              receiptIds.push(receiptRecord.id);
+            }
+            fileUpdates.receipts = { connect: receiptIds.map(id => ({ id })) };
           }
 
           // Artwork files
@@ -742,9 +760,9 @@ export class TaskService {
       // Clean up uploaded files if task update failed
       if (files) {
         const allFiles = [
-          ...(files.budget || []),
-          ...(files.nfe || []),
-          ...(files.receipt || []),
+          ...(files.budgets || []),
+          ...(files.invoices || []),
+          ...(files.receipts || []),
           ...(files.artworks || []),
         ];
 

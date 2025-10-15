@@ -817,14 +817,14 @@ export class FileService {
             observations: { take: 1 },
             warning: { take: 1 },
             taskBudgets: { take: 1 },
-            taskNfes: { take: 1 },
+            taskInvoices: { take: 1 },
             taskReceipts: { take: 1 },
             orderBudgets: { take: 1 },
-            orderNfes: { take: 1 },
+            orderInvoices: { take: 1 },
             orderReceipts: { take: 1 },
             airbrushingReceipts: { take: 1 },
-            airbrushingNfes: { take: 1 },
-            externalWithdrawalNfes: { take: 1 },
+            airbrushingInvoices: { take: 1 },
+            externalWithdrawalInvoices: { take: 1 },
             externalWithdrawalReceipts: { take: 1 },
           },
         });
@@ -837,14 +837,14 @@ export class FileService {
             associations.observations.length > 0 ||
             (associations.warning?.length || 0) > 0 ||
             associations.taskBudgets.length > 0 ||
-            associations.taskNfes.length > 0 ||
+            associations.taskInvoices.length > 0 ||
             associations.taskReceipts.length > 0 ||
             associations.orderBudgets.length > 0 ||
-            associations.orderNfes.length > 0 ||
+            associations.orderInvoices.length > 0 ||
             associations.orderReceipts.length > 0 ||
             associations.airbrushingReceipts.length > 0 ||
-            associations.airbrushingNfes.length > 0 ||
-            associations.externalWithdrawalNfes.length > 0 ||
+            associations.airbrushingInvoices.length > 0 ||
+            associations.externalWithdrawalInvoices.length > 0 ||
             associations.externalWithdrawalReceipts.length > 0;
 
           if (hasAssociations) {
@@ -1126,14 +1126,14 @@ export class FileService {
               observations: { take: 1 },
               warning: { take: 1 },
               taskBudgets: { take: 1 },
-              taskNfes: { take: 1 },
+              taskInvoices: { take: 1 },
               taskReceipts: { take: 1 },
               orderBudgets: { take: 1 },
-              orderNfes: { take: 1 },
+              orderInvoices: { take: 1 },
               orderReceipts: { take: 1 },
               airbrushingReceipts: { take: 1 },
-              airbrushingNfes: { take: 1 },
-              externalWithdrawalNfes: { take: 1 },
+              airbrushingInvoices: { take: 1 },
+              externalWithdrawalInvoices: { take: 1 },
               externalWithdrawalReceipts: { take: 1 },
             },
           });
@@ -1146,14 +1146,14 @@ export class FileService {
               (associations.observations?.length || 0) > 0 ||
               (associations.warning?.length || 0) > 0 ||
               (associations.taskBudgets?.length || 0) > 0 ||
-              (associations.taskNfes?.length || 0) > 0 ||
+              (associations.taskInvoices?.length || 0) > 0 ||
               (associations.taskReceipts?.length || 0) > 0 ||
               (associations.orderBudgets?.length || 0) > 0 ||
-              (associations.orderNfes?.length || 0) > 0 ||
+              (associations.orderInvoices?.length || 0) > 0 ||
               (associations.orderReceipts?.length || 0) > 0 ||
               (associations.airbrushingReceipts?.length || 0) > 0 ||
-              (associations.airbrushingNfes?.length || 0) > 0 ||
-              (associations.externalWithdrawalNfes?.length || 0) > 0 ||
+              (associations.airbrushingInvoices?.length || 0) > 0 ||
+              (associations.externalWithdrawalInvoices?.length || 0) > 0 ||
               (associations.externalWithdrawalReceipts?.length || 0) > 0;
 
             if (hasAssociations) {

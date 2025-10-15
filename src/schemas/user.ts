@@ -199,7 +199,6 @@ export const userOrderBySchema = z.union([
       cpf: orderByDirectionSchema.optional(),
       verified: orderByDirectionSchema.optional(),
       payrollNumber: orderByDirectionSchema.optional(),
-      admissional: orderByDirectionSchema.optional(),
       birth: orderByDirectionSchema.optional(),
       dismissal: orderByDirectionSchema.optional(),
       contractedAt: orderByDirectionSchema.optional(),
@@ -260,7 +259,6 @@ export const userOrderBySchema = z.union([
         cpf: orderByDirectionSchema.optional(),
         verified: orderByDirectionSchema.optional(),
         payrollNumber: orderByDirectionSchema.optional(),
-        admissional: orderByDirectionSchema.optional(),
         birth: orderByDirectionSchema.optional(),
         dismissal: orderByDirectionSchema.optional(),
         contractedAt: orderByDirectionSchema.optional(),
@@ -434,21 +432,6 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             equals: z.boolean().optional(),
             not: z.boolean().optional(),
-          }),
-        ])
-        .optional(),
-
-      admissional: z
-        .union([
-          z.date(),
-          z.null(),
-          z.object({
-            equals: z.union([z.date(), z.null()]).optional(),
-            not: z.union([z.date(), z.null()]).optional(),
-            gte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            lt: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -737,12 +720,6 @@ const userFilters = {
       max: z.number().optional(),
     })
     .optional(),
-  admissionalRange: z
-    .object({
-      gte: z.coerce.date().optional(),
-      lte: z.coerce.date().optional(),
-    })
-    .optional(),
 };
 
 // =====================
@@ -902,31 +879,6 @@ const userTransform = (data: any) => {
     delete data.performanceLevelRange;
   }
 
-  // Handle admissionalRange filter
-  if (data.admissionalRange && typeof data.admissionalRange === "object") {
-    const dateCondition: any = {};
-    if (data.admissionalRange.gte) {
-      const fromDate = data.admissionalRange.gte instanceof Date
-        ? data.admissionalRange.gte
-        : new Date(data.admissionalRange.gte);
-      // Set to start of day (00:00:00)
-      fromDate.setHours(0, 0, 0, 0);
-      dateCondition.gte = fromDate;
-    }
-    if (data.admissionalRange.lte) {
-      const toDate = data.admissionalRange.lte instanceof Date
-        ? data.admissionalRange.lte
-        : new Date(data.admissionalRange.lte);
-      // Set to end of day (23:59:59.999)
-      toDate.setHours(23, 59, 59, 999);
-      dateCondition.lte = toDate;
-    }
-    if (Object.keys(dateCondition).length > 0) {
-      andConditions.push({ admissional: dateCondition });
-    }
-    delete data.admissionalRange;
-  }
-
   // Handle date filters
   if (data.createdAt) {
     andConditions.push({ createdAt: data.createdAt });
@@ -1031,7 +983,6 @@ export const userCreateSchema = z
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().default(false),
-    admissional: z.coerce.date({ required_error: "Data de admissão é obrigatória", invalid_type_error: "Data de admissão inválida" }),
     performanceLevel: z.number().int().min(0).max(5).default(0),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
     managedSectorId: z.string().uuid("Setor gerenciado inválido").nullable().optional(),
@@ -1047,7 +998,7 @@ export const userCreateSchema = z
     zipCode: z.string().nullable().optional(),
     site: z.string().url("URL inválida").nullable().optional(),
 
-    // Additional dates - birth and admissional are required
+    // Additional dates - birth is required
     birth: z.coerce
       .date()
       .refine(
@@ -1097,7 +1048,6 @@ export const userUpdateSchema = z
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().optional(),
-    admissional: nullableDate.optional(),
     performanceLevel: z.number().int().min(0).max(5).optional(),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
     managedSectorId: z.string().uuid("Setor gerenciado inválido").nullable().optional(),
@@ -1198,21 +1148,6 @@ export const userUpdateSchema = z
     {
       message: "Colaboradores CONTRATADOS não podem ser alterados para períodos de experiência",
       path: ["status"],
-    }
-  )
-  .refine(
-    (data) => {
-      // Validate dismissal date is not before admissional date
-      if (data.dismissal && data.admissional) {
-        const dismissalDate = data.dismissal instanceof Date ? data.dismissal : new Date(data.dismissal);
-        const admissionalDate = data.admissional instanceof Date ? data.admissional : new Date(data.admissional);
-        return dismissalDate >= admissionalDate;
-      }
-      return true;
-    },
-    {
-      message: "Data de demissão não pode ser anterior à data de admissão",
-      path: ["dismissal"],
     }
   )
   .refine(
@@ -1368,7 +1303,6 @@ export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormD
   pis: user.pis || undefined,
   cpf: user.cpf || undefined,
   verified: user.verified,
-  admissional: user.admissional || undefined,
   performanceLevel: user.performanceLevel,
   sectorId: user.sectorId || undefined,
   managedSectorId: user.managedSectorId || undefined,
@@ -1384,7 +1318,7 @@ export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormD
   zipCode: user.zipCode || undefined,
   // site: user.site || undefined,
 
-  // Additional dates - use birth instead of birthDate, admissional and dismissal
+  // Additional dates - use birth and dismissal
   birth: user.birth,
   dismissal: user.dismissal || undefined,
 

@@ -20,7 +20,7 @@ export interface ExternalWithdrawal extends BaseEntity {
   totalPrice?: number;
 
   // Relations (optional, populated based on query)
-  nfes?: File[];
+  invoices?: File[];
   receipts?: File[];
   items?: ExternalWithdrawalItem[];
 }
@@ -43,7 +43,7 @@ export interface ExternalWithdrawalItem extends BaseEntity {
 // =====================
 
 export interface ExternalWithdrawalIncludes {
-  nfes?:
+  invoices?:
     | boolean
     | {
         include?: FileIncludes;

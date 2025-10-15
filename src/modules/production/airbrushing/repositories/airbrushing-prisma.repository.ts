@@ -68,7 +68,7 @@ export class AirbrushingPrismaRepository
     }
 
     if (invoiceIds && invoiceIds.length > 0) {
-      createInput.nfes = {
+      createInput.invoices = {
         connect: invoiceIds.map(id => ({ id })),
       };
     }
@@ -86,7 +86,7 @@ export class AirbrushingPrismaRepository
     }
 
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
-      createInput.nfeReimbursements = {
+      createInput.invoiceReimbursements = {
         connect: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }
@@ -128,7 +128,7 @@ export class AirbrushingPrismaRepository
     }
 
     if (invoiceIds !== undefined) {
-      updateData.nfes = {
+      updateData.invoices = {
         set: invoiceIds.map(id => ({ id })),
       };
     }
@@ -146,7 +146,7 @@ export class AirbrushingPrismaRepository
     }
 
     if (reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReimbursements = {
+      updateData.invoiceReimbursements = {
         set: reimbursementInvoiceIds.map(id => ({ id })),
       };
     }
@@ -183,7 +183,7 @@ export class AirbrushingPrismaRepository
     return {
       task: true,
       receipts: true,
-      nfes: true,
+      invoices: true,
       artworks: true,
     };
   }

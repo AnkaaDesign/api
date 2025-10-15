@@ -32,7 +32,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  nfes: {
+  invoices: {
     select: {
       id: true,
       filename: true,
@@ -62,7 +62,7 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
       thumbnailUrl: true,
     },
   },
-  nfeReimbursements: {
+  invoiceReimbursements: {
     select: {
       id: true,
       filename: true,
@@ -159,7 +159,7 @@ export class OrderPrismaRepository
       createData.budgets = { connect: orderData.budgetIds.map(id => ({ id })) };
     }
     if (orderData.invoiceIds && orderData.invoiceIds.length > 0) {
-      createData.nfes = { connect: orderData.invoiceIds.map(id => ({ id })) };
+      createData.invoices = { connect: orderData.invoiceIds.map(id => ({ id })) };
     }
     if (orderData.receiptIds && orderData.receiptIds.length > 0) {
       createData.receipts = { connect: orderData.receiptIds.map(id => ({ id })) };
@@ -168,7 +168,7 @@ export class OrderPrismaRepository
       createData.reimbursements = { connect: orderData.reimbursementIds.map(id => ({ id })) };
     }
     if (orderData.reimbursementInvoiceIds && orderData.reimbursementInvoiceIds.length > 0) {
-      createData.nfeReimbursements = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
+      createData.invoiceReimbursements = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
 
     // Handle nested items creation
@@ -220,7 +220,7 @@ export class OrderPrismaRepository
       updateData.budgets = { set: formData.budgetIds.map(id => ({ id })) };
     }
     if (formData.invoiceIds !== undefined) {
-      updateData.nfes = { set: formData.invoiceIds.map(id => ({ id })) };
+      updateData.invoices = { set: formData.invoiceIds.map(id => ({ id })) };
     }
     if (formData.receiptIds !== undefined) {
       updateData.receipts = { set: formData.receiptIds.map(id => ({ id })) };
@@ -229,7 +229,7 @@ export class OrderPrismaRepository
       updateData.reimbursements = { set: formData.reimbursementIds.map(id => ({ id })) };
     }
     if (formData.reimbursementInvoiceIds !== undefined) {
-      updateData.nfeReimbursements = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.invoiceReimbursements = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
     }
     if (formData.ppeScheduleId !== undefined) {
       updateData.ppeSchedule = formData.ppeScheduleId
@@ -463,20 +463,20 @@ export class OrderPrismaRepository
       status: databaseOrder.status as ORDER_STATUS,
       statusOrder: databaseOrder.statusOrder,
       budgetIds: (databaseOrder.budgets as any)?.map((budget: any) => budget.id),
-      invoiceIds: (databaseOrder.nfes as any)?.map((nfe: any) => nfe.id),
+      invoiceIds: (databaseOrder.invoices as any)?.map((invoice: any) => invoice.id),
       receiptIds: (databaseOrder.receipts as any)?.map((receipt: any) => receipt.id),
       reimbursementIds: (databaseOrder.reimbursements as any)?.map((reimbursement: any) => reimbursement.id),
-      reimbursementInvoiceIds: (databaseOrder.nfeReimbursements as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
+      reimbursementInvoiceIds: (databaseOrder.invoiceReimbursements as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
       supplierId: databaseOrder.supplierId,
       orderScheduleId: databaseOrder.orderScheduleId,
       orderRuleId: databaseOrder.orderRuleId,
       ppeScheduleId: databaseOrder.ppeScheduleId,
       notes: databaseOrder.notes,
       budgets: databaseOrder.budgets as any,
-      nfes: databaseOrder.nfes as any,
+      invoices: databaseOrder.invoices as any,
       receipts: databaseOrder.receipts as any,
       reimbursements: databaseOrder.reimbursements as any,
-      nfeReimbursements: databaseOrder.nfeReimbursements as any,
+      invoiceReimbursements: databaseOrder.invoiceReimbursements as any,
       supplier: databaseOrder.supplier as any,
       orderSchedule: databaseOrder.orderSchedule as any,
       ppeSchedule: databaseOrder.ppeSchedule as any,

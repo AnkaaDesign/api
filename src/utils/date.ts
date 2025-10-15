@@ -11,6 +11,12 @@ export const formatDate = (date: Date | string | null | undefined, _locale: stri
   const d = typeof date === "string" ? new Date(date) : date;
   if (isNaN(d.getTime())) return "Data inválida";
 
+  // Fix dates with malformed years (e.g., year 2 instead of 2025)
+  // This handles corrupted data where the year was truncated
+  if (d.getFullYear() < 100) {
+    d.setFullYear(d.getFullYear() + 2000);
+  }
+
   return new Intl.DateTimeFormat(_locale, {
     day: "2-digit",
     month: "2-digit",

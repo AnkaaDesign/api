@@ -45,10 +45,10 @@ export interface Task extends BaseEntity {
   sector?: Sector;
   customer?: Customer;
   budgets?: File[];
-  nfes?: File[];
+  invoices?: File[];
   receipts?: File[];
   reimbursements?: File[];
-  nfeReimbursements?: File[];
+  invoiceReimbursements?: File[];
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
@@ -82,7 +82,7 @@ export interface TaskIncludes {
     | {
         include?: FileIncludes;
       };
-  nfes?:
+  invoices?:
     | boolean
     | {
         include?: FileIncludes;
@@ -97,7 +97,7 @@ export interface TaskIncludes {
     | {
         include?: FileIncludes;
       };
-  nfeReimbursements?:
+  invoiceReimbursements?:
     | boolean
     | {
         include?: FileIncludes;

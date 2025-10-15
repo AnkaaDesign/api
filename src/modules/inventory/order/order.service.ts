@@ -579,7 +579,7 @@ export class OrderService {
             items: true,
             supplier: true,
             budget: true,
-            nfe: true,
+            invoice: true,
           },
         });
 
@@ -1128,7 +1128,7 @@ export class OrderService {
                   items: true,
                   supplier: true,
                   budget: true,
-                  nfe: true,
+                  invoice: true,
                 },
               },
             );

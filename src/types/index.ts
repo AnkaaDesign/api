@@ -31,7 +31,7 @@ export * from "./preferences";
 export * from "./sector";
 export * from "./service";
 export * from "./serviceOrder";
-export * from "./statistics";
+// export * from "./statistics"; // TODO: Re-enable when statistics module is implemented
 export * from "./summary";
 export * from "./supplier";
 export * from "./task";

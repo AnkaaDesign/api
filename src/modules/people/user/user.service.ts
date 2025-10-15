@@ -252,26 +252,6 @@ export class UserService {
       }
     }
 
-    // Validar data de contratação
-    if ('admissional' in data && data.admissional !== undefined && data.admissional !== null) {
-      const admissional = new Date(data.admissional);
-      const now = new Date();
-
-      // Verificar se é uma data válida
-      if (isNaN(admissional.getTime())) {
-        throw new BadRequestException('Data de contratação inválida.');
-      }
-
-      // Verificar se não é muito no futuro (permitir até 30 dias no futuro para pré-contratações)
-      const maxFutureDate = new Date();
-      maxFutureDate.setDate(maxFutureDate.getDate() + 30);
-      if (admissional > maxFutureDate) {
-        throw new BadRequestException(
-          'Data de contratação não pode ser mais de 30 dias no futuro.',
-        );
-      }
-    }
-
     // Validar nível de desempenho
     if (data.performanceLevel !== undefined) {
       if (!Number.isInteger(data.performanceLevel)) {
@@ -499,19 +479,6 @@ export class UserService {
         }
       }
 
-      if (filters.hireDateRange) {
-        const dateWhere: any = {};
-        if (filters.hireDateRange.gte !== undefined) {
-          dateWhere.gte = filters.hireDateRange.gte;
-        }
-        if (filters.hireDateRange.lte !== undefined) {
-          dateWhere.lte = filters.hireDateRange.lte;
-        }
-        if (Object.keys(dateWhere).length > 0) {
-          finalWhere.hireDate = dateWhere;
-        }
-      }
-
       if (filters.birthDateRange) {
         const dateWhere: any = {};
         if (filters.birthDateRange.gte !== undefined) {
@@ -521,7 +488,7 @@ export class UserService {
           dateWhere.lte = filters.birthDateRange.lte;
         }
         if (Object.keys(dateWhere).length > 0) {
-          finalWhere.birthDate = dateWhere;
+          finalWhere.birth = dateWhere;
         }
       }
 
@@ -643,11 +610,6 @@ export class UserService {
         // Set default status to EXPERIENCE_PERIOD_1 if not provided (Brazilian CLT standard)
         if (!data.status) {
           (data as any).status = USER_STATUS.EXPERIENCE_PERIOD_1;
-        }
-
-        // Validate required dates for new users
-        if (!data.admissional) {
-          throw new BadRequestException('Data de admissão é obrigatória para novos usuários.');
         }
 
         // Hash da senha se fornecida
@@ -832,9 +794,7 @@ export class UserService {
           'managedSectorId',
           'verified',
           'requirePasswordChange',
-          'hireDate',
-          'birthDate',
-          'admissional',
+          'birth',
           'dismissal', // Track dismissal date changes
           'verificationCode',
           'verificationExpiresAt',
@@ -1347,9 +1307,7 @@ export class UserService {
                 'managedSectorId',
                 'verified',
                 'requirePasswordChange',
-                'hireDate',
-                'birthDate',
-                'admissional',
+                'birth',
                 'dismissal',
                 'address',
                 'addressNumber',

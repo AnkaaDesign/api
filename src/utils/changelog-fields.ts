@@ -150,9 +150,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     statusOrder: "Ordem do Status",
     verified: "Verificado",
     requirePasswordChange: "Requer Mudança de Senha",
-    hireDate: "Data de Contratação",
-    birthDate: "Data de Nascimento",
-    admissional: "Data de Admissão",
+    birth: "Data de Nascimento",
     dismissal: "Data de Demissão",
     verificationCode: "Código de Verificação",
     verificationExpiresAt: "Expiração da Verificação",
@@ -1552,8 +1550,7 @@ export function formatFieldValue(value: ComplexFieldValue, field?: string | null
     field === "actualDeliveryDate" ||
     field === "nextRun" ||
     field === "lastRun" ||
-    field === "hireDate" ||
-    field === "birthDate" ||
+    field === "birth" ||
     field === "verificationExpiresAt" ||
     field === "lastLoginAt" ||
     field === "startAt" ||

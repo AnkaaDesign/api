@@ -20,10 +20,10 @@ export const airbrushingIncludeSchema = z
               sector: z.boolean().optional(),
               customer: z.boolean().optional(),
               budgets: z.boolean().optional(),
-              nfes: z.boolean().optional(),
+              invoices: z.boolean().optional(),
               receipts: z.boolean().optional(),
               reimbursements: z.boolean().optional(),
-              nfeReimbursements: z.boolean().optional(),
+              invoiceReimbursements: z.boolean().optional(),
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),
@@ -64,7 +64,7 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
-    nfes: z
+    invoices: z
       .union([
         z.boolean(),
         z.object({
@@ -80,7 +80,7 @@ export const airbrushingIncludeSchema = z
               orderReceipt: z.boolean().optional(),
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
+              airbrushingInvoices: z.boolean().optional(),
               vacation: z.boolean().optional(),
               externalWithdrawalBudget: z.boolean().optional(),
               externalWithdrawalNfe: z.boolean().optional(),
@@ -142,7 +142,7 @@ export const airbrushingIncludeSchema = z
         }),
       ])
       .optional(),
-    nfeReimbursements: z
+    invoiceReimbursements: z
       .union([
         z.boolean(),
         z.object({
@@ -158,7 +158,7 @@ export const airbrushingIncludeSchema = z
               orderReceipt: z.boolean().optional(),
               observations: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
+              airbrushingInvoices: z.boolean().optional(),
               vacation: z.boolean().optional(),
               externalWithdrawalBudget: z.boolean().optional(),
               externalWithdrawalNfe: z.boolean().optional(),
@@ -686,9 +686,9 @@ export const mapAirbrushingToFormData = createMapToFormDataHelper<Airbrushing, A
   status: airbrushing.status,
   taskId: airbrushing.taskId,
   budgetIds: airbrushing.budgets?.map((file) => file.id),
-  invoiceIds: airbrushing.nfes?.map((file) => file.id),
+  invoiceIds: airbrushing.invoices?.map((file) => file.id),
   receiptIds: airbrushing.receipts?.map((file) => file.id),
   reimbursementIds: airbrushing.reimbursements?.map((file) => file.id),
-  reimbursementInvoiceIds: airbrushing.nfeReimbursements?.map((file) => file.id),
+  reimbursementInvoiceIds: airbrushing.invoiceReimbursements?.map((file) => file.id),
   artworkIds: airbrushing.artworks?.map((file) => file.id),
 }));

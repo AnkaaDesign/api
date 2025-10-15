@@ -52,7 +52,6 @@ export interface User extends BaseEntity {
   sessionToken: string | null;
   secullumId: string | null;
   payrollNumber: number | null;
-  admissional: Date; // Admission date (required)
   dismissal: Date | null; // Dismissal date (optional)
 
   // Status timestamp tracking
@@ -229,9 +228,7 @@ export interface UserOrderBy {
   cpf?: ORDER_BY_DIRECTION;
   verified?: ORDER_BY_DIRECTION;
   payrollNumber?: ORDER_BY_DIRECTION;
-  hireDate?: ORDER_BY_DIRECTION;
   birth?: ORDER_BY_DIRECTION;
-  admissional?: ORDER_BY_DIRECTION;
   dismissal?: ORDER_BY_DIRECTION;
   contractedAt?: ORDER_BY_DIRECTION;
   exp1StartAt?: ORDER_BY_DIRECTION;

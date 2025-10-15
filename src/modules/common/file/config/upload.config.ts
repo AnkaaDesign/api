@@ -208,8 +208,13 @@ export const multerConfig = {
   storage: storageConfig,
   fileFilter: fileFilter,
   limits: {
-    fileSize: UPLOAD_CONFIG.maxFileSize,
+    fileSize: UPLOAD_CONFIG.maxFileSize, // 100MB per file
     files: 10, // Maximum 10 files at once
+    fields: 100, // Maximum number of non-file fields
+    fieldNameSize: 100, // Maximum field name size in bytes
+    fieldSize: 1024 * 1024, // Maximum field value size: 1MB (for JSON strings)
+    parts: 1000, // Maximum number of parts (fields + files)
+    headerPairs: 2000, // Maximum number of header key-value pairs
   },
 };
 

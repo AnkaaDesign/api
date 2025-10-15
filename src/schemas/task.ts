@@ -40,7 +40,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      budget: z
+      budgets: z
         .union([
           z.boolean(),
           z.object({
@@ -66,7 +66,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      nfe: z
+      invoices: z
         .union([
           z.boolean(),
           z.object({
@@ -92,7 +92,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      receipt: z
+      receipts: z
         .union([
           z.boolean(),
           z.object({
@@ -259,7 +259,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 task: z.boolean().optional(),
                 receipts: z.boolean().optional(),
-                nfes: z.boolean().optional(),
+                invoices: z.boolean().optional(),
               })
               .optional(),
             orderBy: z
@@ -368,9 +368,9 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       // Relations
       sector: z.any().optional(),
       customer: z.any().optional(),
-      budget: z.any().optional(),
-      nfe: z.any().optional(),
-      receipt: z.any().optional(),
+      budgets: z.any().optional(),
+      invoices: z.any().optional(),
+      receipts: z.any().optional(),
       observation: z.any().optional(),
       generalPainting: z.any().optional(),
       createdBy: z.any().optional(),
@@ -1490,10 +1490,10 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   price: task.price,
   // Relations - File arrays
   budgetIds: task.budgets?.map((budget) => budget.id),
-  invoiceIds: task.nfes?.map((nfe) => nfe.id),
+  invoiceIds: task.invoices?.map((invoice) => invoice.id),
   receiptIds: task.receipts?.map((receipt) => receipt.id),
   reimbursementIds: task.reimbursements?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: task.nfeReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
+  reimbursementInvoiceIds: task.invoiceReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
   artworkIds: task.artworks?.map((artwork) => artwork.id),
   paintIds: task.logoPaints?.map((paint) => paint.id),
   generalPaintingId: task.generalPainting?.id,

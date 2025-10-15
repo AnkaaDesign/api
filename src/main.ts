@@ -73,8 +73,15 @@ async function bootstrap() {
     }
   });
 
-  // Regular JSON parser for all other routes
-  app.use(express.json());
+  // Regular JSON parser for all other routes (skip for multipart/form-data)
+  app.use((req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    // Skip JSON parsing for multipart/form-data (handled by multer)
+    if (contentType.includes('multipart/form-data')) {
+      return next();
+    }
+    return express.json()(req, res, next);
+  });
 
   // Security headers with Helmet
   // Temporarily disable some security features for debugging

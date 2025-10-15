@@ -217,6 +217,8 @@ export class PositionService {
           'privileges',
           'commissionEligible',
           'maxAllowedVacationDays',
+          'hierarchy',
+          'bonifiable',
         ];
 
         // Track field-level changes (excluding remuneration which has special handling)
