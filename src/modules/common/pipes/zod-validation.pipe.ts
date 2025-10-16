@@ -444,7 +444,7 @@ export class ZodValidationPipe implements PipeTransform {
     return stringOnlyFields.some(field => fieldName.toLowerCase().includes(field.toLowerCase()));
   }
 
-  private fixArrays(obj: any): any {
+  protected fixArrays(obj: any): any {
     if (obj === null || obj === undefined) {
       return obj;
     }
@@ -491,7 +491,7 @@ export class ZodValidationPipe implements PipeTransform {
     return fixed;
   }
 
-  private isSerializedArray(obj: any): boolean {
+  protected isSerializedArray(obj: any): boolean {
     const keys = Object.keys(obj);
     if (keys.length === 0) return false;
 
@@ -503,7 +503,7 @@ export class ZodValidationPipe implements PipeTransform {
     return numericKeys.every((key, index) => key === index);
   }
 
-  private convertToArray(obj: any): any[] {
+  protected convertToArray(obj: any): any[] {
     const keys = Object.keys(obj)
       .map(k => parseInt(k, 10))
       .sort((a, b) => a - b);
