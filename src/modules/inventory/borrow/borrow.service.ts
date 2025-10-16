@@ -192,16 +192,16 @@ export class BorrowService {
           throw new BadRequestException('Data de devolução não pode ser mais de 1 dia no futuro');
         }
 
-        // Se está marcando como devolvido, verificar se já não estava devolvido
+        // Se está marcando como devolvido, log the action
         if (!existingBorrow.returnedAt && data.returnedAt) {
           // Está devolvendo - validações específicas de devolução
           console.log(
             `Devolução do empréstimo ${excludeId} - Item: ${item.name}, Usuário: ${user.name}`,
           );
         } else if (existingBorrow.returnedAt && !data.returnedAt) {
-          // Está desfazendo uma devolução - precisa validar estoque novamente
-          throw new BadRequestException(
-            'Não é permitido desfazer uma devolução. Crie um novo empréstimo.',
+          // Está desfazendo uma devolução - permitir a mudança
+          console.log(
+            `Desfazendo devolução do empréstimo ${excludeId} - Item: ${item.name}, Usuário: ${user.name}`,
           );
         }
       } else {
@@ -214,8 +214,13 @@ export class BorrowService {
     const isReturned = isUpdate && existingBorrow?.returnedAt;
     const willBeReturned =
       'returnedAt' in data && data.returnedAt !== null && data.returnedAt !== undefined;
+    const isUnreturning = isUpdate && existingBorrow?.returnedAt && !willBeReturned;
+    const willBeLost = 'status' in data && data.status === BORROW_STATUS.LOST;
 
-    if (!isReturned && !willBeReturned) {
+    // Validate stock if:
+    // 1. Item is not returned and will not be returned (normal active borrow)
+    // 2. Item is being unreturned to ACTIVE status (not LOST)
+    if ((!isReturned && !willBeReturned) || (isUnreturning && !willBeLost)) {
       // Calcular quantidade total não devolvida para o item (excluindo o empréstimo atual se for atualização)
       // Não incluir empréstimos com status RETURNED ou LOST
       const unreturnedBorrows = await tx.borrow.findMany({

@@ -771,7 +771,11 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
       const cleanParsed = this.removeUndefinedValues(parsed);
       console.log('[ZodQueryValidationPipe] cleanParsed:', JSON.stringify(cleanParsed, null, 2));
 
-      const result = super.transform(cleanParsed, metadata);
+      // Fix arrays that were serialized as objects with numeric keys (e.g., status[0]=COMPLETED)
+      const fixedParsed = this.fixArrays(cleanParsed);
+      console.log('[ZodQueryValidationPipe] fixedParsed:', JSON.stringify(fixedParsed, null, 2));
+
+      const result = super.transform(fixedParsed, metadata);
       console.log('[ZodQueryValidationPipe] Final result:', JSON.stringify(result, null, 2));
       return result;
     }

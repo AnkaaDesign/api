@@ -942,6 +942,9 @@ export class ItemService {
         isActive: true,
         ...(roughStockConditions.length > 0 ? { OR: roughStockConditions } : {}),
       },
+      // Ensure stable ordering to prevent duplicates when paginating
+      // Use the query's orderBy if provided, otherwise default to 'id' for consistency
+      orderBy: dbQuery.orderBy || { id: 'asc' as const },
       // Fetch more items than needed to account for post-filtering
       // We'll fetch 3x the requested limit to ensure we have enough after filtering
       take: (query.limit || 20) * 3,
@@ -1060,6 +1063,17 @@ export class ItemService {
 
       totalFilteredCount = finalItems.length;
     }
+
+    // Deduplicate items by ID (in case any duplicates slipped through)
+    const seenIds = new Set<string>();
+    finalItems = finalItems.filter(item => {
+      if (seenIds.has(item.id)) {
+        return false;
+      }
+      seenIds.add(item.id);
+      return true;
+    });
+    totalFilteredCount = finalItems.length;
 
     // Apply pagination to the filtered results
     const paginatedItems = finalItems.slice(startIndex, startIndex + limit);
