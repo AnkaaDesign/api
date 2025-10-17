@@ -229,7 +229,7 @@ export class OrderController {
       reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderUpdateResponse> {
-    return this.orderService.update(id, data, query.include, userId);
+    return this.orderService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')

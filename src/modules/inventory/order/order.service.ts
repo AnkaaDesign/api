@@ -412,7 +412,7 @@ export class OrderService {
         for (const file of files.invoices) {
           await this.saveFileToWebDAV(
             file,
-            'orderNfes',
+            'orderInvoices',
             orderId,
             'order',
             supplierName,
@@ -512,8 +512,8 @@ export class OrderService {
           ...(fileContext === 'orderBudgets' && {
             orderBudgets: { connect: { id: entityId } },
           }),
-          ...(fileContext === 'orderNfes' && {
-            orderNfes: { connect: { id: entityId } },
+          ...(fileContext === 'orderInvoices' && {
+            orderInvoices: { connect: { id: entityId } },
           }),
           ...(fileContext === 'orderReceipts' && {
             orderReceipts: { connect: { id: entityId } },
@@ -570,6 +570,13 @@ export class OrderService {
     data: OrderUpdateFormData,
     include?: OrderInclude,
     userId?: string,
+    files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      reimbursements?: Express.Multer.File[];
+      reimbursementInvoices?: Express.Multer.File[];
+    },
   ): Promise<OrderUpdateResponse> {
     try {
       const updatedOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -578,8 +585,8 @@ export class OrderService {
           include: {
             items: true,
             supplier: true,
-            budget: true,
-            invoice: true,
+            budgets: true,
+            invoices: true,
           },
         });
 
@@ -691,6 +698,73 @@ export class OrderService {
           actualUpdateData,
         );
 
+        // Handle items updates if provided
+        if (actualUpdateData.items !== undefined) {
+          const requestedItems = actualUpdateData.items || [];
+          const existingItems = existingOrder.items || [];
+
+          // Create maps for easier lookup
+          const requestedItemsMap = new Map(
+            requestedItems.map(item => [item.itemId, item])
+          );
+          const existingItemsMap = new Map(
+            existingItems.map(item => [item.itemId, item])
+          );
+
+          // Determine items to delete (existing items not in requested items)
+          const itemsToDelete = existingItems.filter(
+            item => !requestedItemsMap.has(item.itemId)
+          );
+
+          // Determine items to add (requested items not in existing items)
+          const itemsToAdd = requestedItems.filter(
+            item => !existingItemsMap.has(item.itemId)
+          );
+
+          // Determine items to update (requested items that exist in both)
+          const itemsToUpdate = requestedItems.filter(
+            item => existingItemsMap.has(item.itemId)
+          );
+
+          // Delete removed items
+          for (const item of itemsToDelete) {
+            await tx.orderItem.delete({
+              where: { id: item.id },
+            });
+            this.logger.log(`Deleted order item ${item.id} (itemId: ${item.itemId})`);
+          }
+
+          // Add new items
+          for (const item of itemsToAdd) {
+            await tx.orderItem.create({
+              data: {
+                orderId: id,
+                itemId: item.itemId,
+                orderedQuantity: item.orderedQuantity,
+                price: item.price,
+                tax: item.tax || 0,
+              },
+            });
+            this.logger.log(`Added order item for itemId: ${item.itemId}`);
+          }
+
+          // Update existing items
+          for (const item of itemsToUpdate) {
+            const existingItem = existingItemsMap.get(item.itemId);
+            if (existingItem) {
+              await tx.orderItem.update({
+                where: { id: existingItem.id },
+                data: {
+                  orderedQuantity: item.orderedQuantity,
+                  price: item.price,
+                  tax: item.tax || 0,
+                },
+              });
+              this.logger.log(`Updated order item ${existingItem.id} (itemId: ${item.itemId})`);
+            }
+          }
+        }
+
         // Log status transition separately with special field name for better UI display
         if (
           actualUpdateData.status &&
@@ -749,6 +823,11 @@ export class OrderService {
 
         return updatedOrder;
       });
+
+      // Handle file uploads after transaction
+      if (files) {
+        await this.processOrderFileUploads(updatedOrder.id, files, userId);
+      }
 
       return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
     } catch (error) {
@@ -1127,8 +1206,8 @@ export class OrderService {
                 include: {
                   items: true,
                   supplier: true,
-                  budget: true,
-                  invoice: true,
+                  budgets: true,
+                  invoices: true,
                 },
               },
             );
