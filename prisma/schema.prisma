@@ -754,7 +754,7 @@ model Paint {
   tags             String[]
   palette          ColorPalette       @default(BLACK)
   paletteOrder     Int                @default(1)
-  colorOrder       Int?
+  colorOrder       Int                @default(0)
   paintTypeId      String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt

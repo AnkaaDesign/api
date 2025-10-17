@@ -6,6 +6,7 @@ import type { Task } from '@types';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, COMMISSION_STATUS } from '@constants';
 import { cutCreateNestedSchema } from "./cut";
 import { airbrushingCreateNestedSchema } from "./airbrushing";
+import { budgetCreateNestedSchema } from "./budget";
 
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
@@ -56,7 +57,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 orderReceipt: z.boolean().optional(),
                 observations: z.boolean().optional(),
                 airbrushingReceipts: z.boolean().optional(),
-                airbrushingNfes: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
                 vacation: z.boolean().optional(),
                 externalWithdrawalBudget: z.boolean().optional(),
                 externalWithdrawalNfe: z.boolean().optional(),
@@ -82,7 +83,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 orderReceipt: z.boolean().optional(),
                 observations: z.boolean().optional(),
                 airbrushingReceipts: z.boolean().optional(),
-                airbrushingNfes: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
                 vacation: z.boolean().optional(),
                 externalWithdrawalBudget: z.boolean().optional(),
                 externalWithdrawalNfe: z.boolean().optional(),
@@ -109,7 +110,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 orderReceipt: z.boolean().optional(),
                 observations: z.boolean().optional(),
                 airbrushingReceipts: z.boolean().optional(),
-                airbrushingNfes: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
                 vacation: z.boolean().optional(),
                 externalWithdrawalBudget: z.boolean().optional(),
                 externalWithdrawalNfe: z.boolean().optional(),
@@ -199,7 +200,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 observations: z.boolean().optional(),
                 reprimand: z.boolean().optional(),
                 airbrushingReceipts: z.boolean().optional(),
-                airbrushingNfes: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
                 vacation: z.boolean().optional(),
                 externalWithdrawalBudget: z.boolean().optional(),
                 externalWithdrawalNfe: z.boolean().optional(),
@@ -227,6 +228,18 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(), // Alias for logoPaints
       services: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                task: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+      budget: z
         .union([
           z.boolean(),
           z.object({
@@ -305,6 +318,7 @@ export const taskOrderBySchema = z
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
       serialNumber: orderByDirectionSchema.optional(),
+      chassisNumber: orderByDirectionSchema.optional(),
       plate: orderByDirectionSchema.optional(),
       entryDate: orderByDirectionSchema.optional(),
       term: orderByDirectionSchema.optional(),
@@ -321,6 +335,7 @@ export const taskOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         serialNumber: orderByDirectionSchema.optional(),
+        chassisNumber: orderByDirectionSchema.optional(),
         plate: orderByDirectionSchema.optional(),
         entryDate: orderByDirectionSchema.optional(),
         term: orderByDirectionSchema.optional(),
@@ -349,6 +364,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       status: z.union([z.nativeEnum(TASK_STATUS), z.object({ in: z.array(z.nativeEnum(TASK_STATUS)).optional() })]).optional(),
       statusOrder: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
+      chassisNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       plate: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       price: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
@@ -435,6 +451,13 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 // =====================
 
 const taskTransform = (data: any): any => {
+  console.log("[TaskTransform] Input data:", {
+    searchingFor: data.searchingFor,
+    hasWhere: !!data.where,
+    whereKeys: data.where ? Object.keys(data.where) : [],
+    status: data.status,
+  });
+
   // Normalize orderBy to Prisma format
   if (data.orderBy) {
     data.orderBy = normalizeOrderBy(data.orderBy);
@@ -451,11 +474,13 @@ const taskTransform = (data: any): any => {
   // Enhanced search filter - search across multiple fields and relations
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
+    console.log("[TaskTransform] Processing search term:", searchTerm);
     andConditions.push({
       OR: [
         // Direct task fields
         { name: { contains: searchTerm, mode: "insensitive" } },
         { serialNumber: { contains: searchTerm, mode: "insensitive" } },
+        { chassisNumber: { contains: searchTerm, mode: "insensitive" } },
         { plate: { contains: searchTerm, mode: "insensitive" } },
         { details: { contains: searchTerm, mode: "insensitive" } },
         // Related entities
@@ -913,6 +938,7 @@ const taskTransform = (data: any): any => {
 
   // Merge with existing where conditions
   if (andConditions.length > 0) {
+    console.log("[TaskTransform] andConditions count:", andConditions.length);
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
         data.where.AND = [...data.where.AND, ...andConditions];
@@ -923,6 +949,13 @@ const taskTransform = (data: any): any => {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
   }
+
+  console.log("[TaskTransform] Final output:", {
+    hasWhere: !!data.where,
+    whereKeys: data.where ? Object.keys(data.where) : [],
+    whereStringified: data.where ? JSON.stringify(data.where).substring(0, 200) : "undefined",
+    searchingFor: data.searchingFor,
+  });
 
   return data;
 };
@@ -1207,6 +1240,11 @@ export const taskCreateSchema = z
       .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
         message: "Número de série deve conter apenas letras maiúsculas, números e hífens",
       }),
+    chassisNumber: z
+      .string()
+      .optional()
+      .nullable()
+      .transform((val) => (val === "" ? null : val)),
     plate: z
       .string()
       .optional()
@@ -1244,6 +1282,7 @@ export const taskCreateSchema = z
     receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).min(1, "Pelo menos um serviço é obrigatório"),
+    budget: z.array(budgetCreateNestedSchema).optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
@@ -1316,6 +1355,10 @@ export const taskUpdateSchema = z
       .regex(/^[A-Z0-9-]+$/, "Número de série deve conter apenas letras maiúsculas, números e hífens")
       .nullable()
       .optional(),
+    chassisNumber: z
+      .string()
+      .nullable()
+      .optional(),
     plate: z
       .string()
       .regex(/^[A-Z0-9-]+$/, "A placa deve conter apenas letras maiúsculas, números e hífens")
@@ -1346,6 +1389,7 @@ export const taskUpdateSchema = z
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).optional(),
+    budget: z.array(budgetCreateNestedSchema).optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
@@ -1478,6 +1522,7 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   status: task.status,
   statusOrder: task.statusOrder || undefined,
   serialNumber: task.serialNumber,
+  chassisNumber: task.chassisNumber,
   plate: task.plate,
   details: task.details,
   entryDate: task.entryDate,

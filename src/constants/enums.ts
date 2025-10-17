@@ -51,6 +51,14 @@ export enum USER_STATUS {
   DISMISSED = "DISMISSED",
 }
 
+export enum REGISTRATION_STATUS {
+  ATIVA = "ATIVA",
+  SUSPENSA = "SUSPENSA",
+  INAPTA = "INAPTA",
+  ATIVA_NAO_REGULAR = "ATIVA_NAO_REGULAR",
+  BAIXADA = "BAIXADA",
+}
+
 // Helper constants for common user status queries
 export const ACTIVE_USER_STATUSES = [
   USER_STATUS.EXPERIENCE_PERIOD_1,
@@ -64,6 +72,8 @@ export enum TASK_STATUS {
   COMPLETED = "COMPLETED",
   CANCELLED = "CANCELLED",
   ON_HOLD = "ON_HOLD",
+  INVOICED = "INVOICED",
+  SETTLED = "SETTLED",
 }
 
 export enum SERVICE_ORDER_STATUS {

@@ -27,7 +27,7 @@ export const observationIncludeSchema = z
               observations: z.boolean().optional(),
               reprimand: z.boolean().optional(),
               airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
+              airbrushingInvoices: z.boolean().optional(),
             })
             .optional(),
         }),

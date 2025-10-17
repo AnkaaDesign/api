@@ -17,7 +17,7 @@ export const FILE_RELATIONSHIP_MAP = {
   // Task relationships
   taskArtworks: { entityType: ENTITY_TYPE.TASK, description: "artes da tarefa" },
   taskBudgets: { entityType: ENTITY_TYPE.TASK, description: "orçamento da tarefa" },
-  taskNfes: { entityType: ENTITY_TYPE.TASK, description: "nota fiscal da tarefa" },
+  taskInvoices: { entityType: ENTITY_TYPE.TASK, description: "nota fiscal da tarefa" },
   taskReceipts: { entityType: ENTITY_TYPE.TASK, description: "recibo da tarefa" },
   taskCuts: { entityType: ENTITY_TYPE.CUT, description: "cortes da tarefa" },
 
@@ -35,16 +35,16 @@ export const FILE_RELATIONSHIP_MAP = {
 
   // Airbrushing relationships
   airbrushingReceipts: { entityType: ENTITY_TYPE.AIRBRUSHING, description: "recibo da aerografia" },
-  airbrushingNfes: { entityType: ENTITY_TYPE.AIRBRUSHING, description: "nota fiscal da aerografia" },
+  airbrushingInvoices: { entityType: ENTITY_TYPE.AIRBRUSHING, description: "nota fiscal da aerografia" },
 
   // Order relationships
   orderBudgets: { entityType: ENTITY_TYPE.ORDER, description: "orçamento do pedido" },
-  orderNfes: { entityType: ENTITY_TYPE.ORDER, description: "nota fiscal do pedido" },
+  orderInvoices: { entityType: ENTITY_TYPE.ORDER, description: "nota fiscal do pedido" },
   orderReceipts: { entityType: ENTITY_TYPE.ORDER, description: "recibo do pedido" },
 
   // External withdrawal relationships
   externalWithdrawalBudgets: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "orçamento da retirada externa" },
-  externalWithdrawalNfes: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "nota fiscal da retirada externa" },
+  externalWithdrawalInvoices: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "nota fiscal da retirada externa" },
   externalWithdrawalReceipts: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "recibo da retirada externa" },
 } as const;
 

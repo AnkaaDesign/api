@@ -12,6 +12,7 @@ import { USER_STATUS, VERIFICATION_TYPE } from '@constants';
 export const userIncludeSchema = z
   .object({
     // Direct User relations
+    avatar: z.boolean().optional(),
     ppeSize: z
       .union([
         z.boolean(),
@@ -191,6 +192,7 @@ export const userOrderBySchema = z.union([
       id: orderByDirectionSchema.optional(),
       email: orderByDirectionSchema.optional(),
       name: orderByDirectionSchema.optional(),
+      avatarId: orderByDirectionSchema.optional(),
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
       phone: orderByDirectionSchema.optional(),
@@ -251,6 +253,7 @@ export const userOrderBySchema = z.union([
         id: orderByDirectionSchema.optional(),
         email: orderByDirectionSchema.optional(),
         name: orderByDirectionSchema.optional(),
+        avatarId: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         phone: orderByDirectionSchema.optional(),
@@ -360,6 +363,19 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      avatarId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.union([z.string(), z.null()]).optional(),
+            not: z.union([z.string(), z.null()]).optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+
       status: z
         .union([
           z.nativeEnum(USER_STATUS),
@@ -422,6 +438,23 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.union([z.string(), z.null()]).optional(),
             not: z.union([z.string(), z.null()]).optional(),
             contains: z.string().optional(),
+          }),
+        ])
+        .optional(),
+
+      payrollNumber: z
+        .union([
+          z.number(),
+          z.null(),
+          z.object({
+            equals: z.union([z.number(), z.null()]).optional(),
+            not: z.union([z.number(), z.null()]).optional(),
+            in: z.array(z.number()).optional(),
+            notIn: z.array(z.number()).optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
           }),
         ])
         .optional(),
@@ -700,6 +733,7 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
 
 const userFilters = {
   searchingFor: z.string().optional(),
+  payrollNumber: z.coerce.number().int().optional(),
   sectorIds: z.array(z.string()).optional(),
   managedSectorIds: z.array(z.string()).optional(),
   positionIds: z.array(z.string()).optional(),
@@ -742,18 +776,33 @@ const userTransform = (data: any) => {
 
   // Handle searchingFor
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
-    andConditions.push({
-      OR: [
-        { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { email: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { phone: { contains: data.searchingFor.trim() } },
-        { cpf: { contains: data.searchingFor.trim() } },
-        { pis: { contains: data.searchingFor.trim() } },
-        { position: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-        { sector: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-        { managedSector: { is: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-      ],
-    });
+    const searchTerm = data.searchingFor.trim();
+    const searchNumber = parseInt(searchTerm, 10);
+    console.log("[UserTransform] Processing searchingFor:", searchTerm);
+    console.log("[UserTransform] Parsed number:", searchNumber, "isNaN:", isNaN(searchNumber), "toString match:", searchNumber.toString() === searchTerm);
+
+    // If the search term is purely numeric, search ONLY in payrollNumber for exact match
+    if (!isNaN(searchNumber) && searchNumber.toString() === searchTerm) {
+      console.log("[UserTransform] Searching ONLY by payrollNumber:", searchNumber);
+      andConditions.push({ payrollNumber: searchNumber });
+    } else {
+      console.log("[UserTransform] Searching text fields");
+
+      // Otherwise, search across text fields
+      const orConditions: any[] = [
+        { name: { contains: searchTerm, mode: "insensitive" } },
+        { email: { contains: searchTerm, mode: "insensitive" } },
+        { phone: { contains: searchTerm } },
+        { cpf: { contains: searchTerm } },
+        { pis: { contains: searchTerm } },
+        { position: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { sector: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { managedSector: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
+      ];
+
+      andConditions.push({ OR: orConditions });
+    }
+
     delete data.searchingFor;
   }
 
@@ -891,6 +940,8 @@ const userTransform = (data: any) => {
   }
 
   // Merge with existing where conditions
+  console.log("[UserTransform] andConditions count:", andConditions.length);
+  console.log("[UserTransform] Existing data.where:", JSON.stringify(data.where || {}).substring(0, 200));
   if (andConditions.length > 0) {
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
@@ -903,6 +954,7 @@ const userTransform = (data: any) => {
     }
   }
 
+  console.log("[UserTransform] Final data.where:", JSON.stringify(data.where || {}).substring(0, 300));
   return data;
 };
 
@@ -973,6 +1025,7 @@ export const userCreateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
     name: createNameSchema(2, 200, "Nome"),
+    avatarId: z.string().uuid("ID de avatar inválido").nullable().optional(),
     status: z
       .enum(Object.values(USER_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: "status inválido" }),
@@ -1038,6 +1091,7 @@ export const userUpdateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
     name: createNameSchema(2, 200, "Nome").optional(),
+    avatarId: z.string().uuid("ID de avatar inválido").nullable().optional(),
     status: z
       .enum(Object.values(USER_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: "status inválido" }),
@@ -1297,6 +1351,7 @@ export function getStatusTransitionError(currentStatus: USER_STATUS | string, ne
 export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormData>((user) => ({
   email: user.email || undefined,
   name: user.name,
+  avatarId: user.avatarId || undefined,
   status: user.status as USER_STATUS,
   phone: user.phone || undefined,
   positionId: user.positionId || undefined,

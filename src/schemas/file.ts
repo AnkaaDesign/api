@@ -17,15 +17,15 @@ export const fileIncludeSchema = z
     observations: z.boolean().optional(),
     warning: z.boolean().optional(),
     airbrushingReceipts: z.boolean().optional(),
-    airbrushingNfes: z.boolean().optional(),
+    airbrushingInvoices: z.boolean().optional(),
     orderBudgets: z.boolean().optional(),
-    orderNfes: z.boolean().optional(),
+    orderInvoices: z.boolean().optional(),
     orderReceipts: z.boolean().optional(),
     taskBudgets: z.boolean().optional(),
-    taskNfes: z.boolean().optional(),
+    taskInvoices: z.boolean().optional(),
     taskReceipts: z.boolean().optional(),
     externalWithdrawalBudgets: z.boolean().optional(),
-    externalWithdrawalNfes: z.boolean().optional(),
+    externalWithdrawalInvoices: z.boolean().optional(),
     externalWithdrawalReceipts: z.boolean().optional(),
   })
   .strict();
@@ -253,7 +253,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      airbrushingNfes: z
+      airbrushingInvoices: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -269,7 +269,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      orderNfes: z
+      orderInvoices: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -293,7 +293,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      taskNfes: z
+      taskInvoices: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -317,7 +317,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
         })
         .optional(),
 
-      externalWithdrawalNfes: z
+      externalWithdrawalInvoices: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -474,15 +474,15 @@ const fileTransform = (data: any) => {
           { observations: { none: {} } },
           { warning: { none: {} } },
           { airbrushingReceipts: { none: {} } },
-          { airbrushingNfes: { none: {} } },
+          { airbrushingInvoices: { none: {} } },
           { orderBudgets: { none: {} } },
-          { orderNfes: { none: {} } },
+          { orderInvoices: { none: {} } },
           { orderReceipts: { none: {} } },
           { taskBudgets: { none: {} } },
-          { taskNfes: { none: {} } },
+          { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
           { externalWithdrawalBudgets: { none: {} } },
-          { externalWithdrawalNfes: { none: {} } },
+          { externalWithdrawalInvoices: { none: {} } },
           { externalWithdrawalReceipts: { none: {} } },
         ],
       });
@@ -496,15 +496,15 @@ const fileTransform = (data: any) => {
           { observations: { some: {} } },
           { warning: { some: {} } },
           { airbrushingReceipts: { some: {} } },
-          { airbrushingNfes: { some: {} } },
+          { airbrushingInvoices: { some: {} } },
           { orderBudgets: { some: {} } },
-          { orderNfes: { some: {} } },
+          { orderInvoices: { some: {} } },
           { orderReceipts: { some: {} } },
           { taskBudgets: { some: {} } },
-          { taskNfes: { some: {} } },
+          { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
           { externalWithdrawalBudgets: { some: {} } },
-          { externalWithdrawalNfes: { some: {} } },
+          { externalWithdrawalInvoices: { some: {} } },
           { externalWithdrawalReceipts: { some: {} } },
         ],
       });
@@ -522,15 +522,15 @@ const fileTransform = (data: any) => {
           { observations: { some: {} } },
           { warning: { some: {} } },
           { airbrushingReceipts: { some: {} } },
-          { airbrushingNfes: { some: {} } },
+          { airbrushingInvoices: { some: {} } },
           { orderBudgets: { some: {} } },
-          { orderNfes: { some: {} } },
+          { orderInvoices: { some: {} } },
           { orderReceipts: { some: {} } },
           { taskBudgets: { some: {} } },
-          { taskNfes: { some: {} } },
+          { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
           { externalWithdrawalBudgets: { some: {} } },
-          { externalWithdrawalNfes: { some: {} } },
+          { externalWithdrawalInvoices: { some: {} } },
           { externalWithdrawalReceipts: { some: {} } },
         ],
       });
@@ -543,15 +543,15 @@ const fileTransform = (data: any) => {
           { observations: { none: {} } },
           { warning: { none: {} } },
           { airbrushingReceipts: { none: {} } },
-          { airbrushingNfes: { none: {} } },
+          { airbrushingInvoices: { none: {} } },
           { orderBudgets: { none: {} } },
-          { orderNfes: { none: {} } },
+          { orderInvoices: { none: {} } },
           { orderReceipts: { none: {} } },
           { taskBudgets: { none: {} } },
-          { taskNfes: { none: {} } },
+          { taskInvoices: { none: {} } },
           { taskReceipts: { none: {} } },
           { externalWithdrawalBudgets: { none: {} } },
-          { externalWithdrawalNfes: { none: {} } },
+          { externalWithdrawalInvoices: { none: {} } },
           { externalWithdrawalReceipts: { none: {} } },
         ],
       });

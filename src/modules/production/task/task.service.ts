@@ -80,7 +80,8 @@ export class TaskService {
       budgets?: Express.Multer.File[],
       invoices?: Express.Multer.File[],
       receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[]
+      artworks?: Express.Multer.File[],
+      cutFiles?: Express.Multer.File[]
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -88,6 +89,29 @@ export class TaskService {
       const task = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validate task data
         await this.validateTask(data, undefined, tx);
+
+        // Process cut files BEFORE creating the task (so fileIds are available for cut creation)
+        if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
+          const customerName = data.customerId ? (await tx.customer.findUnique({ where: { id: data.customerId }, select: { fantasyName: true } }))?.fantasyName : undefined;
+
+          // Upload each cut file and update the corresponding cut with its fileId
+          for (let i = 0; i < Math.min(files.cutFiles.length, data.cuts.length); i++) {
+            const cutFile = files.cutFiles[i];
+            const cutRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              cutFile,
+              'cutFiles',
+              userId,
+              {
+                entityId: '', // Will be updated after task creation
+                entityType: 'CUT',
+                customerName,
+              },
+            );
+            // Update the cut with the uploaded file's ID
+            data.cuts[i].fileId = cutRecord.id;
+          }
+        }
 
         // Create the task first WITHOUT files
         const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
@@ -141,7 +165,7 @@ export class TaskService {
               const nfeRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 nfeFile,
-                'taskNfes',
+                'taskInvoices',
                 userId,
                 {
                   entityId: newTask.id,
@@ -223,6 +247,7 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.artworks || []),
+          ...(files.cutFiles || []),
         ];
 
         for (const file of allFiles) {
@@ -349,7 +374,8 @@ export class TaskService {
       budgets?: Express.Multer.File[],
       invoices?: Express.Multer.File[],
       receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[]
+      artworks?: Express.Multer.File[],
+      cutFiles?: Express.Multer.File[]
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -400,6 +426,29 @@ export class TaskService {
           }
         }
 
+        // Process cut files BEFORE updating the task (so fileIds are available for cut creation)
+        if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
+          const customerName = existingTask.customer?.fantasyName || (data.customerId ? (await tx.customer.findUnique({ where: { id: data.customerId }, select: { fantasyName: true } }))?.fantasyName : undefined);
+
+          // Upload each cut file and update the corresponding cut with its fileId
+          for (let i = 0; i < Math.min(files.cutFiles.length, data.cuts.length); i++) {
+            const cutFile = files.cutFiles[i];
+            const cutRecord = await this.fileService.createFromUploadWithTransaction(
+              tx,
+              cutFile,
+              'cutFiles',
+              userId,
+              {
+                entityId: id,
+                entityType: 'CUT',
+                customerName,
+              },
+            );
+            // Update the cut with the uploaded file's ID
+            data.cuts[i].fileId = cutRecord.id;
+          }
+        }
+
         // Ensure statusOrder is updated when status changes
         const updateData = {
           ...data,
@@ -444,7 +493,7 @@ export class TaskService {
               const nfeRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 nfeFile,
-                'taskNfes',
+                'taskInvoices',
                 userId,
                 {
                   entityId: id,
@@ -764,6 +813,7 @@ export class TaskService {
           ...(files.invoices || []),
           ...(files.receipts || []),
           ...(files.artworks || []),
+          ...(files.cutFiles || []),
         ];
 
         for (const file of allFiles) {
@@ -793,17 +843,26 @@ export class TaskService {
     include?: TaskInclude,
     userId?: string,
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
+    this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
+    this.logger.log(`[batchUpdate] Number of tasks to update: ${data.tasks?.length || 0}`);
+    this.logger.log(`[batchUpdate] Tasks data: ${JSON.stringify(data.tasks?.map(t => ({ id: t.id, data: t.data })))}`);
+    this.logger.log(`[batchUpdate] userId: ${userId}`);
+    this.logger.log(`[batchUpdate] include: ${JSON.stringify(include)}`);
+
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        this.logger.log('[batchUpdate] Inside transaction');
         // Prepare updates with change tracking and validation
         const updatesWithChangeTracking: { id: string; data: TaskUpdateFormData }[] = [];
         const validationErrors: Array<{ id: string; error: string }> = [];
 
         for (const update of data.tasks) {
+          this.logger.log(`[batchUpdate] Processing task ${update.id}`);
           const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
             include,
           });
           if (existingTask) {
+            this.logger.log(`[batchUpdate] Found existing task ${update.id}, validating...`);
             try {
               await this.validateTask(update.data, update.id, tx);
 
@@ -857,10 +916,17 @@ export class TaskService {
                 data: updateData,
               });
             } catch (error) {
+              this.logger.error(`[batchUpdate] Validation error for task ${update.id}:`, error);
               if (error instanceof BadRequestException) {
                 validationErrors.push({ id: update.id, error: error.message });
+              } else {
+                // Log and re-throw unexpected errors
+                this.logger.error(`[batchUpdate] Unexpected error during validation:`, error);
+                throw error;
               }
             }
+          } else {
+            this.logger.warn(`[batchUpdate] Task ${update.id} not found`);
           }
         }
 
@@ -917,9 +983,11 @@ export class TaskService {
           }
         }
 
+        this.logger.log(`[batchUpdate] Transaction complete. Success: ${result.totalUpdated}, Failed: ${result.totalFailed}`);
         return result;
       });
 
+      this.logger.log('[batchUpdate] ========== BATCH UPDATE COMPLETED ==========');
       const successMessage =
         result.totalUpdated === 1
           ? '1 tarefa atualizada com sucesso'
@@ -947,9 +1015,19 @@ export class TaskService {
         data: batchOperationResult,
       };
     } catch (error) {
-      this.logger.error('Erro na atualização em lote:', error);
+      this.logger.error('[batchUpdate] ========== BATCH UPDATE FAILED ==========');
+      this.logger.error('[batchUpdate] Error details:', error);
+      this.logger.error('[batchUpdate] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+
+      // Re-throw BadRequestException and other client errors as-is
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      // For other errors, provide more detailed information
+      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
       throw new InternalServerErrorException(
-        'Erro interno do servidor na atualização em lote. Tente novamente.',
+        `Erro na atualização em lote: ${errorMessage}`,
       );
     }
   }
@@ -1100,6 +1178,15 @@ export class TaskService {
    */
   async findMany(query: TaskGetManyFormData): Promise<TaskGetManyResponse> {
     try {
+      console.log("[TaskService.findMany] Query received:", {
+        hasWhere: !!query.where,
+        whereKeys: query.where ? Object.keys(query.where) : [],
+        whereStringified: query.where ? JSON.stringify(query.where).substring(0, 200) : "undefined",
+        searchingFor: (query as any).searchingFor,
+        page: query.page,
+        limit: query.limit,
+      });
+
       // The schema transform already handles searchingFor and converts it to where clause
       // No need for additional handling here
       const params = {

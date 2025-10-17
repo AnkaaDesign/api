@@ -114,6 +114,11 @@ export class AirbrushingService {
     data: AirbrushingCreateFormData,
     include?: AirbrushingInclude,
     userId?: string,
+    files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+    },
   ): Promise<AirbrushingCreateResponse> {
     try {
       const airbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -167,6 +172,11 @@ export class AirbrushingService {
     data: AirbrushingUpdateFormData,
     include?: AirbrushingInclude,
     userId?: string,
+    files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+    },
   ): Promise<AirbrushingUpdateResponse> {
     try {
       const updatedAirbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {

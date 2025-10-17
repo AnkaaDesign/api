@@ -441,7 +441,9 @@ export class ZodValidationPipe implements PipeTransform {
     ];
 
     // Check if the field name contains any of these string-only field names
-    return stringOnlyFields.some(field => fieldName.toLowerCase().includes(field.toLowerCase()));
+    const result = stringOnlyFields.some(field => fieldName.toLowerCase().includes(field.toLowerCase()));
+    console.log(`[shouldKeepFieldAsString] fieldName: "${fieldName}", result: ${result}`);
+    return result;
   }
 
   protected fixArrays(obj: any): any {
@@ -536,8 +538,10 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
       const parsed: any = {};
 
       // First pass: handle searchingFor field specially to keep it as string
-      if ('searchingFor' in value && typeof value.searchingFor === 'string') {
-        parsed.searchingFor = value.searchingFor;
+      if ('searchingFor' in value) {
+        // Always convert searchingFor to string, even if it arrives as a number
+        parsed.searchingFor = String(value.searchingFor);
+        console.log('[ZodQueryValidationPipe] Converted searchingFor to string:', parsed.searchingFor);
       }
 
       for (const [key, val] of Object.entries(value)) {

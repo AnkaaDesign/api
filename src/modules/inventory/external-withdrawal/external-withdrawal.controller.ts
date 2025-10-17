@@ -13,7 +13,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { ExternalWithdrawalService } from './external-withdrawal.service';
 import { ExternalWithdrawalItemService } from './external-withdrawal-item.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
@@ -95,14 +99,33 @@ export class ExternalWithdrawalController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipts', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ZodValidationPipe(externalWithdrawalCreateSchema))
     data: ExternalWithdrawalCreateFormData,
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+    },
   ): Promise<ExternalWithdrawalCreateResponse> {
-    return this.externalWithdrawalService.create(data, query.include, userId);
+    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] CREATE - Files received:', files ? 'YES' : 'NO');
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        if (fileArray && fileArray.length > 0) {
+          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+        }
+      });
+    }
+    return this.externalWithdrawalService.create(data, query.include, userId, files);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -155,6 +178,12 @@ export class ExternalWithdrawalController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipts', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(externalWithdrawalUpdateSchema))
@@ -162,12 +191,31 @@ export class ExternalWithdrawalController {
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+    },
   ): Promise<ExternalWithdrawalUpdateResponse> {
-    return this.externalWithdrawalService.update(id, data, query.include, userId);
+    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] UPDATE - Files received:', files ? 'YES' : 'NO');
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        if (fileArray && fileArray.length > 0) {
+          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+        }
+      });
+    }
+    return this.externalWithdrawalService.update(id, data, query.include, userId, files);
   }
 
   @Patch(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipts', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+    ], multerConfig)
+  )
   async partialUpdate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(externalWithdrawalUpdateSchema))
@@ -175,8 +223,21 @@ export class ExternalWithdrawalController {
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+    },
   ): Promise<ExternalWithdrawalUpdateResponse> {
-    return this.externalWithdrawalService.update(id, data, query.include, userId);
+    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] PATCH - Files received:', files ? 'YES' : 'NO');
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        if (fileArray && fileArray.length > 0) {
+          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+        }
+      });
+    }
+    return this.externalWithdrawalService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')

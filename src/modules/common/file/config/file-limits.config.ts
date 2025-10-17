@@ -22,7 +22,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 orçamentos por tarefa',
   },
-  taskNfes: {
+  taskInvoices: {
     maxFiles: 10,
     description: 'Máximo de 10 notas fiscais por tarefa',
   },
@@ -60,7 +60,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 recibos por aerografia',
   },
-  airbrushingNfes: {
+  airbrushingInvoices: {
     maxFiles: 10,
     description: 'Máximo de 10 notas fiscais por aerografia',
   },
@@ -74,7 +74,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 orçamentos por pedido',
   },
-  orderNfes: {
+  orderInvoices: {
     maxFiles: 10,
     description: 'Máximo de 10 notas fiscais por pedido',
   },
@@ -88,7 +88,7 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 orçamentos por retirada externa',
   },
-  externalWithdrawalNfes: {
+  externalWithdrawalInvoices: {
     maxFiles: 10,
     description: 'Máximo de 10 notas fiscais por retirada externa',
   },

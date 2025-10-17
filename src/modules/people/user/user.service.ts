@@ -371,22 +371,16 @@ export class UserService {
       let finalWhere = where || {};
 
       // Handle searchingFor transformation
-      if (filters.searchingFor && typeof filters.searchingFor === 'string') {
-        finalWhere = {
-          ...finalWhere,
-          OR: [
-            { name: { contains: filters.searchingFor, mode: 'insensitive' } },
-            { email: { contains: filters.searchingFor, mode: 'insensitive' } },
-            { cpf: { contains: filters.searchingFor } },
-          ],
-        };
-      }
+      // NOTE: This logic is now handled by the frontend schema (user.ts:778-799)
+      // which transforms searchingFor into proper OR conditions including payrollNumber
+      // Removed duplicate backend transformation to prevent conflicts
 
       // Handle other filters
       if (filters.name !== undefined) finalWhere.name = filters.name;
       if (filters.email !== undefined) finalWhere.email = filters.email;
       if (filters.phone !== undefined) finalWhere.phone = filters.phone;
       if (filters.cpf !== undefined) finalWhere.cpf = filters.cpf;
+      if (filters.payrollNumber !== undefined) finalWhere.payrollNumber = filters.payrollNumber;
 
       // Handle status - check if it's an array or single value
       if (filters.status !== undefined) {

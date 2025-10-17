@@ -10,7 +10,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { ObservationService } from './observation.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -72,13 +76,21 @@ export class ObservationController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'files', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(observationCreateSchema))
     data: ObservationCreateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      files?: Express.Multer.File[];
+    },
   ): Promise<ObservationCreateResponse> {
-    return this.observationsService.create(data, query.include, userId);
+    return this.observationsService.create(data, query.include, userId, files);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -130,14 +142,22 @@ export class ObservationController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'files', maxCount: 10 },
+    ], multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(observationUpdateSchema))
     data: ObservationUpdateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      files?: Express.Multer.File[];
+    },
   ): Promise<ObservationUpdateResponse> {
-    return this.observationsService.update(id, data, query.include, userId);
+    return this.observationsService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')

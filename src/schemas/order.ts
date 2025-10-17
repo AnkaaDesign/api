@@ -12,72 +12,11 @@ import { ORDER_STATUS, SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, MONTH_OCCURRENCE } f
 export const orderIncludeSchema = z
   .object({
     // Direct Order relations
-    budget: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              warning: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    invoice: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              warning: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingInvoices: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
-    receipt: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              tasksArtworks: z.boolean().optional(),
-              customerLogo: z.boolean().optional(),
-              taskBudget: z.boolean().optional(),
-              taskNfe: z.boolean().optional(),
-              supplierLogo: z.boolean().optional(),
-              orderNfe: z.boolean().optional(),
-              orderBudget: z.boolean().optional(),
-              observations: z.boolean().optional(),
-              warning: z.boolean().optional(),
-              airbrushingReceipts: z.boolean().optional(),
-              airbrushingNfes: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
+    budgets: z.boolean().optional(),
+    invoices: z.boolean().optional(),
+    invoiceReimbursements: z.boolean().optional(),
+    receipts: z.boolean().optional(),
+    reimbursements: z.boolean().optional(),
     supplier: z
       .union([
         z.boolean(),
@@ -186,9 +125,11 @@ export const orderItemIncludeSchema = z
         z.object({
           include: z
             .object({
-              budget: z.boolean().optional(),
-              invoice: z.boolean().optional(),
-              receipt: z.boolean().optional(),
+              budgets: z.boolean().optional(),
+              invoices: z.boolean().optional(),
+              invoiceReimbursements: z.boolean().optional(),
+              receipts: z.boolean().optional(),
+              reimbursements: z.boolean().optional(),
               supplier: z.boolean().optional(),
               orderSchedule: z.boolean().optional(),
               items: z.boolean().optional(),
@@ -1366,6 +1307,32 @@ export const orderUpdateSchema = z
     receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
     reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
     reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
+    // Items array for updating order items
+    items: z
+      .array(
+        z.object({
+          itemId: z.string().uuid({ message: "Item inválido" }),
+          orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
+          price: moneySchema,
+          tax: z
+            .number()
+            .min(0, "Taxa deve ser maior ou igual a 0")
+            .max(100, "Taxa deve ser menor ou igual a 100")
+            .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
+            .default(0),
+        }),
+      )
+      .refine(
+        (items) => {
+          // Check for duplicate items
+          const itemIds = items.map((item) => item.itemId);
+          return new Set(itemIds).size === itemIds.length;
+        },
+        {
+          message: "Lista não pode conter itens duplicados",
+        },
+      )
+      .optional(),
   })
   .transform(toFormData);
 

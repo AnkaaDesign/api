@@ -529,6 +529,10 @@ export class ExternalWithdrawalService {
     data: ExternalWithdrawalCreateFormData,
     include?: ExternalWithdrawalInclude,
     userId?: string,
+    files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+    },
   ): Promise<ExternalWithdrawalCreateResponse> {
     try {
       const externalWithdrawal = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -689,6 +693,10 @@ export class ExternalWithdrawalService {
     data: ExternalWithdrawalUpdateFormData,
     include?: ExternalWithdrawalInclude,
     userId?: string,
+    files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+    },
   ): Promise<ExternalWithdrawalUpdateResponse> {
     try {
       const updatedWithdrawal = await this.prisma.$transaction(async (tx: PrismaTransaction) => {

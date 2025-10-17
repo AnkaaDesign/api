@@ -352,6 +352,10 @@ export class FileService {
    */
   async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
     try {
+      // Check if WebDAV is configured (used for thumbnail path resolution)
+      const webdavRoot = process.env.WEBDAV_ROOT;
+      const useWebdav = process.env.USE_WEBDAV === 'true';
+
       const file = await this.fileRepository.findById(id);
 
       if (!file) {
@@ -372,9 +376,13 @@ export class FileService {
       const thumbnailSize = this.thumbnailService.getThumbnailSize(size);
 
       // Build thumbnail path based on size and format
+      // Check if WebDAV is configured and use WebDAV path for thumbnails
+      const thumbnailBaseDir = useWebdav && webdavRoot
+        ? join(webdavRoot, 'Thumbnails')
+        : join(environmentConfig.upload.uploadDir, 'thumbnails');
+
       const thumbnailPath = join(
-        environmentConfig.upload.uploadDir,
-        'thumbnails',
+        thumbnailBaseDir,
         `${thumbnailSize.width}x${thumbnailSize.height}`,
         `${file.id}_${thumbnailSize.width}x${thumbnailSize.height}.webp`,
       );
@@ -451,12 +459,22 @@ export class FileService {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
       // Use X-Accel-Redirect for nginx to serve the thumbnail (10x faster than Node.js streaming)
-      // Map ./uploads/thumbnails/... to /internal-thumbnails/...
-      const uploadsDir = resolve(environmentConfig.upload.uploadDir);
-      const thumbnailsDir = join(uploadsDir, 'thumbnails');
-      const absolutePath = resolve(actualPath);
-      const relativePath = absolutePath.replace(thumbnailsDir, '');
-      const nginxInternalPath = `/internal-thumbnails${relativePath}`;
+      // Map thumbnail directory to nginx internal path
+      let nginxInternalPath: string;
+      if (useWebdav && webdavRoot) {
+        // WebDAV: Map /srv/webdav/Thumbnails/... to /internal-thumbnails/...
+        const thumbnailsDir = join(webdavRoot, 'Thumbnails');
+        const absolutePath = resolve(actualPath);
+        const relativePath = absolutePath.replace(thumbnailsDir, '');
+        nginxInternalPath = `/internal-thumbnails${relativePath}`;
+      } else {
+        // Local: Map ./uploads/thumbnails/... to /internal-uploads/thumbnails/...
+        const uploadsDir = resolve(environmentConfig.upload.uploadDir);
+        const thumbnailsDir = join(uploadsDir, 'thumbnails');
+        const absolutePath = resolve(actualPath);
+        const relativePath = absolutePath.replace(uploadsDir, '');
+        nginxInternalPath = `/internal-uploads${relativePath}`;
+      }
 
       // Set X-Accel-Redirect header - nginx will intercept and serve the file
       res.setHeader('X-Accel-Redirect', nginxInternalPath);

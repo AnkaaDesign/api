@@ -30,16 +30,16 @@ export interface File extends BaseEntity {
   observations?: Observation[];
   warning?: Warning[];
   airbrushingReceipts?: Airbrushing[];
-  airbrushingNfes?: Airbrushing[];
+  airbrushingInvoices?: Airbrushing[];
   airbrushingArtworks?: Airbrushing[];
   orderBudgets?: Order[];
-  orderNfes?: Order[];
+  orderInvoices?: Order[];
   orderReceipts?: Order[];
   taskBudgets?: Task[];
-  taskNfes?: Task[];
+  taskInvoices?: Task[];
   taskReceipts?: Task[];
   externalWithdrawalBudgets?: ExternalWithdrawal[];
-  externalWithdrawalNfes?: ExternalWithdrawal[];
+  externalWithdrawalInvoices?: ExternalWithdrawal[];
   externalWithdrawalReceipts?: ExternalWithdrawal[];
 
   // Index signature for FileWithRelationships compatibility
@@ -81,7 +81,7 @@ export interface FileIncludes {
     | {
         include?: AirbrushingIncludes;
       };
-  airbrushingNfes?:
+  airbrushingInvoices?:
     | boolean
     | {
         include?: AirbrushingIncludes;
@@ -96,7 +96,7 @@ export interface FileIncludes {
     | {
         include?: OrderIncludes;
       };
-  orderNfes?:
+  orderInvoices?:
     | boolean
     | {
         include?: OrderIncludes;
@@ -111,7 +111,7 @@ export interface FileIncludes {
     | {
         include?: TaskIncludes;
       };
-  taskNfes?:
+  taskInvoices?:
     | boolean
     | {
         include?: TaskIncludes;
@@ -126,7 +126,7 @@ export interface FileIncludes {
     | {
         include?: ExternalWithdrawalIncludes;
       };
-  externalWithdrawalNfes?:
+  externalWithdrawalInvoices?:
     | boolean
     | {
         include?: ExternalWithdrawalIncludes;

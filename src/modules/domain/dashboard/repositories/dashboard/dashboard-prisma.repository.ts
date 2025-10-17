@@ -2945,10 +2945,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
         ...where,
         OR: [
           { taskBudgets: { some: {} } },
-          { taskNfes: { some: {} } },
+          { taskInvoices: { some: {} } },
           { taskReceipts: { some: {} } },
           { orderBudgets: { some: {} } },
-          { orderNfes: { some: {} } },
+          { orderInvoices: { some: {} } },
           { orderReceipts: { some: {} } },
         ],
       },
@@ -3153,7 +3153,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async countNewWarnings(dateFilter: DateFilter): Promise<number> {
     return this.prisma.warning.count({
       where: {
-        createdAt: dateFilter,
+        ...(dateFilter && Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
       },
     });
   }
@@ -3241,7 +3241,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   async getRecentHRActivities(dateFilter: DateFilter, limit: number): Promise<any[]> {
     return this.prisma.changeLog.findMany({
       where: {
-        createdAt: dateFilter,
+        ...(dateFilter && Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
         entityType: {
           in: ['USER', 'POSITION', 'VACATION', 'WARNING', 'PPE_DELIVERY'],
         },
@@ -3290,7 +3290,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return this.prisma.vacation.count({
       where: {
         status: VACATION_STATUS.APPROVED as any,
-        createdAt: dateFilter,
+        ...(dateFilter && Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
       },
     });
   }

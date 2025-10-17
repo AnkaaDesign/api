@@ -13,7 +13,7 @@ import {
   citySchema,
 } from "./common";
 import type { Supplier } from '@types';
-import { cleanNumeric } from '@utils';
+import { cleanNumeric, cleanCNPJ } from '@utils';
 import { BRAZILIAN_STATES } from '@constants';
 
 // =====================
@@ -454,15 +454,24 @@ const supplierTransform = (data: any): any => {
 
   // Handle searchingFor - search in fantasyName, corporateName, cnpj, email, and item names
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
-    andConditions.push({
-      OR: [
-        { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { corporateName: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { cnpj: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { email: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { items: { some: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-      ],
-    });
+    const searchTerm = data.searchingFor.trim();
+    // Clean the search term to get just numbers for CNPJ searches
+    const cleanedSearch = searchTerm.replace(/\D/g, "");
+
+    const searchConditions: any[] = [
+      { fantasyName: { contains: searchTerm, mode: "insensitive" } },
+      { corporateName: { contains: searchTerm, mode: "insensitive" } },
+      { email: { contains: searchTerm, mode: "insensitive" } },
+      { items: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
+    ];
+
+    // Add CNPJ search conditions - search both with original input and cleaned version
+    if (cleanedSearch.length > 0 && cleanedSearch.length <= 14) {
+      searchConditions.push({ cnpj: { contains: searchTerm } }); // Search with original format
+      searchConditions.push({ cnpj: { contains: cleanedSearch } }); // Search with cleaned numbers only
+    }
+
+    andConditions.push({ OR: searchConditions });
     delete data.searchingFor;
   }
 
@@ -717,6 +726,7 @@ export const supplierCreateSchema = z.object({
   cnpj: cnpjOptionalSchema,
   corporateName: corporateNameSchema,
   email: emailSchema.nullable().optional(),
+  logradouro: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
   address: addressSchema,
   addressNumber: z.string().max(10, "Número deve ter no máximo 10 caracteres").nullable().optional(),
   addressComplement: z.string().max(100, "Complemento deve ter no máximo 100 caracteres").nullable().optional(),
@@ -843,6 +853,7 @@ export const supplierUpdateSchema = z.object({
     .optional(),
   corporateName: corporateNameSchema.optional(),
   email: emailSchema.nullable().optional(),
+  logradouro: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
   address: addressSchema.optional(),
   addressNumber: z.string().max(10, "Número deve ter no máximo 10 caracteres").nullable().optional(),
   addressComplement: z.string().max(100, "Complemento deve ter no máximo 100 caracteres").nullable().optional(),

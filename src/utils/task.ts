@@ -21,7 +21,9 @@ export function isValidTaskStatusTransition(fromStatus: TASK_STATUS, toStatus: T
     [TASK_STATUS.PENDING]: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.ON_HOLD, TASK_STATUS.CANCELLED],
     [TASK_STATUS.IN_PRODUCTION]: [TASK_STATUS.COMPLETED, TASK_STATUS.ON_HOLD, TASK_STATUS.CANCELLED],
     [TASK_STATUS.ON_HOLD]: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.PENDING, TASK_STATUS.CANCELLED],
-    [TASK_STATUS.COMPLETED]: [], // Final state
+    [TASK_STATUS.COMPLETED]: [TASK_STATUS.INVOICED], // Can transition to invoiced
+    [TASK_STATUS.INVOICED]: [TASK_STATUS.SETTLED], // Can transition to settled
+    [TASK_STATUS.SETTLED]: [], // Final state
     [TASK_STATUS.CANCELLED]: [], // Final state
   };
 
@@ -45,6 +47,8 @@ export function getTaskStatusColor(status: TASK_STATUS): string {
     [TASK_STATUS.COMPLETED]: "completed",
     [TASK_STATUS.CANCELLED]: "cancelled",
     [TASK_STATUS.ON_HOLD]: "onHold",
+    [TASK_STATUS.INVOICED]: "invoiced",
+    [TASK_STATUS.SETTLED]: "settled",
   };
   return colors[status] || "default";
 }
@@ -59,6 +63,8 @@ export function getTaskStatusVariant(status: TASK_STATUS): "default" | "secondar
     [TASK_STATUS.COMPLETED]: "secondary",
     [TASK_STATUS.CANCELLED]: "destructive",
     [TASK_STATUS.ON_HOLD]: "outline",
+    [TASK_STATUS.INVOICED]: "secondary",
+    [TASK_STATUS.SETTLED]: "secondary",
   };
   return variants[status] || "default";
 }
@@ -72,7 +78,9 @@ export function getTaskPriority(status: TASK_STATUS): number {
     [TASK_STATUS.PENDING]: 2,
     [TASK_STATUS.ON_HOLD]: 3,
     [TASK_STATUS.COMPLETED]: 4,
-    [TASK_STATUS.CANCELLED]: 5,
+    [TASK_STATUS.INVOICED]: 5,
+    [TASK_STATUS.SETTLED]: 6,
+    [TASK_STATUS.CANCELLED]: 7,
   };
   return priorities[status] || 999;
 }
@@ -86,6 +94,8 @@ export function getTaskProgress(status: TASK_STATUS): number {
     [TASK_STATUS.ON_HOLD]: 10,
     [TASK_STATUS.IN_PRODUCTION]: 50,
     [TASK_STATUS.COMPLETED]: 100,
+    [TASK_STATUS.INVOICED]: 100,
+    [TASK_STATUS.SETTLED]: 100,
     [TASK_STATUS.CANCELLED]: 0,
   };
   return statusProgress[status] || 0;

@@ -79,6 +79,7 @@ export class TaskController {
     @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
+    console.log('[TaskController.findMany] Raw query received:', query);
     return this.tasksService.findMany(query);
   }
 
@@ -91,6 +92,7 @@ export class TaskController {
       { name: 'invoices', maxCount: 10 },
       { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
+      { name: 'cutFiles', maxCount: 20 },
     ], multerConfig)
   )
   async create(
@@ -101,7 +103,8 @@ export class TaskController {
       budgets?: Express.Multer.File[],
       invoices?: Express.Multer.File[],
       receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[]
+      artworks?: Express.Multer.File[],
+      cutFiles?: Express.Multer.File[]
     },
   ): Promise<TaskCreateResponse> {
     return this.tasksService.create(data, query.include, userId, files);
@@ -224,6 +227,7 @@ export class TaskController {
       { name: 'invoices', maxCount: 10 },
       { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
+      { name: 'cutFiles', maxCount: 20 },
     ], multerConfig)
   )
   async update(
@@ -235,7 +239,8 @@ export class TaskController {
       budgets?: Express.Multer.File[],
       invoices?: Express.Multer.File[],
       receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[]
+      artworks?: Express.Multer.File[],
+      cutFiles?: Express.Multer.File[]
     },
   ): Promise<TaskUpdateResponse> {
     // Debug logging - FIRST LINE to see if controller is reached

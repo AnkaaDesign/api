@@ -18,6 +18,7 @@ import { BorrowModule } from './modules/inventory/borrow/borrow.module';
 import { CustomerModule } from './modules/production/customer/customer.module';
 import { CutModule } from './modules/production/cut/cut.module';
 import { DashboardModule } from './modules/domain/dashboard/dashboard.module';
+import { EconomicActivityModule } from './modules/production/economic-activity/economic-activity.module';
 import { PpeModule } from './modules/inventory/ppe/ppe.module';
 import { EventEmitterModule } from './modules/common/event-emitter/event-emitter.module';
 import { ExternalWithdrawalModule } from './modules/inventory/external-withdrawal/external-withdrawal.module';
@@ -41,6 +42,7 @@ import { ObservationModule } from './modules/production/task-observation/observa
 import { TruckModule } from './modules/production/truck/truck.module';
 import { LayoutModule } from './modules/production/layout/layout.module';
 import { UserModule } from './modules/people/user/user.module';
+import { ProfileModule } from './modules/people/profile/profile.module';
 import { VacationModule } from './modules/people/vacation/vacation.module';
 import { ThrottlerModule } from './modules/common/throttler/throttler.module';
 import { SchedulerModule } from './modules/common/scheduler/scheduler.module';
@@ -77,6 +79,7 @@ import { AppsModule } from './modules/system/app/app.module';
     CustomerModule,
     CutModule,
     DashboardModule,
+    EconomicActivityModule,
     PpeModule,
     EventEmitterModule,
     ExternalWithdrawalModule,
@@ -100,6 +103,7 @@ import { AppsModule } from './modules/system/app/app.module';
     TruckModule,
     LayoutModule,
     UserModule,
+    ProfileModule,
     VacationModule,
     SchedulerModule,
     SecullumModule,

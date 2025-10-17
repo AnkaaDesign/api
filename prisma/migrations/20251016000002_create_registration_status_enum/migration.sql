@@ -1,0 +1,2 @@
+-- CreateEnum
+CREATE TYPE "RegistrationStatus" AS ENUM ('ATIVA', 'SUSPENSA', 'INAPTA', 'ATIVA_NAO_REGULAR', 'BAIXADA');

@@ -4,6 +4,7 @@ import type { ORDER_BY_DIRECTION } from '@constants';
 import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
 import type { File, FileIncludes } from "./file";
 import type { Task, TaskIncludes } from "./task";
+import type { EconomicActivity, EconomicActivityIncludes } from "./economic-activity";
 
 // =====================
 // Main Entity Interface
@@ -15,6 +16,7 @@ export interface Customer extends BaseEntity {
   cpf: string | null;
   corporateName: string | null;
   email: string | null;
+  logradouro: string | null;
   address: string | null;
   addressNumber: string | null;
   addressComplement: string | null;
@@ -26,9 +28,12 @@ export interface Customer extends BaseEntity {
   phones: string[];
   tags: string[];
   logoId: string | null;
+  economicActivityId: string | null;
+  situacaoCadastral: string | null;
 
   // Relations
   logo?: File;
+  economicActivity?: EconomicActivity;
   tasks?: Task[];
 
   // Count relations
@@ -48,6 +53,11 @@ export interface CustomerIncludes {
     | boolean
     | {
         include?: FileIncludes;
+      };
+  economicActivity?:
+    | boolean
+    | {
+        include?: EconomicActivityIncludes;
       };
   tasks?:
     | boolean

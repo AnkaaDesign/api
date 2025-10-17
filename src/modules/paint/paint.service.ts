@@ -42,6 +42,7 @@ import {
   translateFieldName,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { hasValueChanged } from '@modules/common/changelog/utils/serialize-changelog-value';
+import { findSimilarColors } from '../../utils/paint';
 
 @Injectable()
 export class PaintService {
@@ -248,6 +249,11 @@ export class PaintService {
       // Debug logging
       this.logger.log('Paint findMany query received:', JSON.stringify(query, null, 2));
 
+      // Extract color similarity parameters before processing
+      const similarColor = (query as any).similarColor as string | undefined;
+      const similarColorThreshold = (query as any).similarColorThreshold as number | undefined;
+      const hasColorSimilarity = similarColor && typeof similarColor === 'string';
+
       // Check if we have a searchingFor parameter that needs special handling
       const searchingFor = (query as any).searchingFor;
       const hasSearchingFor = searchingFor && typeof searchingFor === 'string';
@@ -294,6 +300,8 @@ export class PaintService {
         // Build the modified query with search conditions
         const modifiedQuery = { ...query };
         delete (modifiedQuery as any).searchingFor; // Remove searchingFor before passing to repository
+        delete (modifiedQuery as any).similarColor; // Remove color similarity params before passing to repository
+        delete (modifiedQuery as any).similarColorThreshold;
 
         // Apply search conditions
         if (!modifiedQuery.where) {
@@ -314,8 +322,24 @@ export class PaintService {
 
         this.logger.log('Modified query for search:', JSON.stringify(modifiedQuery, null, 2));
 
-        const result = await this.paintRepository.findMany(modifiedQuery);
+        let result = await this.paintRepository.findMany(modifiedQuery);
         this.logger.log(`Search results: ${result.data.length} paints found`);
+
+        // Apply color similarity filtering if requested
+        if (hasColorSimilarity) {
+          this.logger.log(`Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`);
+          const similarResult = findSimilarColors(result.data as any[], similarColor, similarColorThreshold || 15);
+          result = {
+            data: similarResult.data as any[],
+            meta: {
+              ...result.meta,
+              totalRecords: similarResult.total,
+              totalPages: Math.ceil(similarResult.total / (result.meta?.take || 20)),
+            },
+          };
+          this.logger.log(`Color similarity results: ${similarResult.total} paints found`);
+        }
+
         return {
           success: true,
           data: result.data,
@@ -325,7 +349,27 @@ export class PaintService {
       }
 
       // Normal flow without searching
-      const result = await this.paintRepository.findMany(query);
+      const modifiedQuery = { ...query };
+      delete (modifiedQuery as any).similarColor; // Remove color similarity params before passing to repository
+      delete (modifiedQuery as any).similarColorThreshold;
+
+      let result = await this.paintRepository.findMany(modifiedQuery);
+
+      // Apply color similarity filtering if requested
+      if (hasColorSimilarity) {
+        this.logger.log(`Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`);
+        const similarResult = findSimilarColors(result.data as any[], similarColor, similarColorThreshold || 15);
+        result = {
+          data: similarResult.data as any[],
+          meta: {
+            ...result.meta,
+            totalRecords: similarResult.total,
+            totalPages: Math.ceil(similarResult.total / (result.meta?.take || 20)),
+          },
+        };
+        this.logger.log(`Color similarity results: ${similarResult.total} paints found`);
+      }
+
       return {
         success: true,
         data: result.data,

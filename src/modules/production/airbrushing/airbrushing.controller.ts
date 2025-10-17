@@ -10,7 +10,11 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { AirbrushingService } from './airbrushing.service';
 import {
   ZodValidationPipe,
@@ -64,12 +68,33 @@ export class AirbrushingController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipts', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'artworks', maxCount: 10 },
+    ], multerConfig)
+  )
   async create(
     @Body(new ZodValidationPipe(airbrushingCreateSchema)) data: AirbrushingCreateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+    },
   ): Promise<AirbrushingCreateResponse> {
-    return this.airbrushingService.create(data, query.include, userId);
+    console.log('[AIRBRUSHING CONTROLLER] CREATE - Files received:', files ? 'YES' : 'NO');
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        if (fileArray && fileArray.length > 0) {
+          console.log(`[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+        }
+      });
+    }
+    return this.airbrushingService.create(data, query.include, userId, files);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -111,13 +136,34 @@ export class AirbrushingController {
   }
 
   @Put(':id')
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'receipts', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'artworks', maxCount: 10 },
+    ], multerConfig)
+  )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+    },
   ): Promise<AirbrushingUpdateResponse> {
-    return this.airbrushingService.update(id, data, query.include, userId);
+    console.log('[AIRBRUSHING CONTROLLER] UPDATE - Files received:', files ? 'YES' : 'NO');
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        if (fileArray && fileArray.length > 0) {
+          console.log(`[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+        }
+      });
+    }
+    return this.airbrushingService.update(id, data, query.include, userId, files);
   }
 
   @Delete(':id')

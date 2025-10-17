@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, emailSchema } from "./common";
 import type { Customer } from '@types';
-import { isValidCPF, isValidCNPJ } from '@utils';
+import { isValidCPF, isValidCNPJ, cleanCNPJ, cleanCPF } from '@utils';
 
 // =====================
 // Include Schema Based on Prisma Schema
@@ -12,6 +12,7 @@ import { isValidCPF, isValidCNPJ } from '@utils';
 export const customerIncludeSchema = z
   .object({
     logo: z.boolean().optional(),
+    economicActivity: z.boolean().optional(),
     tasks: z
       .union([
         z.boolean(),
@@ -121,6 +122,18 @@ export const customerWhereSchema: z.ZodType<any> = z
       .optional(),
 
     logoId: z
+      .union([
+        z.string().nullable(),
+        z.object({
+          equals: z.string().nullable().optional(),
+          not: z.string().nullable().optional(),
+          in: z.array(z.string()).optional(),
+          notIn: z.array(z.string()).optional(),
+        }),
+      ])
+      .optional(),
+
+    economicActivityId: z
       .union([
         z.string().nullable(),
         z.object({
@@ -377,6 +390,13 @@ export const customerWhereSchema: z.ZodType<any> = z
       })
       .optional(),
 
+    economicActivity: z
+      .object({
+        is: z.lazy(() => z.any()).optional(),
+        isNot: z.lazy(() => z.any()).optional(),
+      })
+      .optional(),
+
     tasks: z
       .object({
         some: z.lazy(() => z.any()).optional(),
@@ -437,21 +457,40 @@ const customerTransform = (data: any) => {
 
   // Text search (case insensitive)
   if (searchingFor) {
-    andConditions.push({
-      OR: [
-        { fantasyName: { contains: searchingFor, mode: "insensitive" } },
-        { corporateName: { contains: searchingFor, mode: "insensitive" } },
-        { email: { contains: searchingFor, mode: "insensitive" } },
-        { cnpj: { contains: searchingFor } },
-        { cpf: { contains: searchingFor } },
-        { city: { contains: searchingFor, mode: "insensitive" } },
-        { state: { contains: searchingFor, mode: "insensitive" } },
-        { neighborhood: { contains: searchingFor, mode: "insensitive" } },
-        { address: { contains: searchingFor, mode: "insensitive" } },
-        { tasks: { some: { plate: { contains: searchingFor, mode: "insensitive" } } } },
-        { tasks: { some: { serialNumber: { contains: searchingFor, mode: "insensitive" } } } },
-      ],
-    });
+    console.log("[CustomerTransform] Processing searchingFor:", searchingFor);
+    // Clean the search term to get just numbers for document searches
+    const cleanedSearch = searchingFor.replace(/\D/g, "");
+    console.log("[CustomerTransform] Cleaned search (numbers only):", cleanedSearch);
+
+    const searchConditions: any[] = [
+      { fantasyName: { contains: searchingFor, mode: "insensitive" } },
+      { corporateName: { contains: searchingFor, mode: "insensitive" } },
+      { email: { contains: searchingFor, mode: "insensitive" } },
+      { city: { contains: searchingFor, mode: "insensitive" } },
+      { state: { contains: searchingFor, mode: "insensitive" } },
+      { neighborhood: { contains: searchingFor, mode: "insensitive" } },
+      { address: { contains: searchingFor, mode: "insensitive" } },
+      { tasks: { some: { plate: { contains: searchingFor, mode: "insensitive" } } } },
+      { tasks: { some: { serialNumber: { contains: searchingFor, mode: "insensitive" } } } },
+    ];
+
+    // Add CNPJ search conditions - search both with original input and cleaned version
+    if (cleanedSearch.length > 0) {
+      // For CNPJ (14 digits when complete)
+      if (cleanedSearch.length <= 14) {
+        searchConditions.push({ cnpj: { contains: searchingFor } }); // Search with original format
+        searchConditions.push({ cnpj: { contains: cleanedSearch } }); // Search with cleaned numbers
+      }
+
+      // For CPF (11 digits when complete)
+      if (cleanedSearch.length <= 11) {
+        searchConditions.push({ cpf: { contains: searchingFor } }); // Search with original format
+        searchConditions.push({ cpf: { contains: cleanedSearch } }); // Search with cleaned numbers
+      }
+    }
+
+    andConditions.push({ OR: searchConditions });
+    console.log("[CustomerTransform] Added search OR conditions, total searchConditions:", searchConditions.length);
   }
 
   // Has tasks filter
@@ -551,14 +590,25 @@ const customerTransform = (data: any) => {
   delete data.taskCreatedBy;
 
   // Apply conditions to where clause
+  console.log("[CustomerTransform] andConditions count:", andConditions.length);
+  console.log("[CustomerTransform] Existing data.where:", JSON.stringify(data.where || {}).substring(0, 200));
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      // Merge existing where conditions with new andConditions
+      if (data.where.AND && Array.isArray(data.where.AND)) {
+        // If where already has AND, append to it
+        data.where.AND = [...data.where.AND, ...andConditions];
+      } else {
+        // If where doesn't have AND, wrap both existing conditions and new ones in AND
+        data.where = { AND: [data.where, ...andConditions] };
+      }
     } else {
+      // No existing where clause, create new one
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
   }
 
+  console.log("[CustomerTransform] Final data.where:", JSON.stringify(data.where || {}).substring(0, 300));
   return data;
 };
 
@@ -628,6 +678,7 @@ export const customerCreateSchema = z
       .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
+    logradouro: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
@@ -639,6 +690,8 @@ export const customerCreateSchema = z
     phones: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
     logoId: z.string().uuid("Logo inválido").nullable().optional(),
+    economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
+    situacaoCadastral: z.enum(["ATIVA", "SUSPENSA", "INAPTA", "ATIVA_NAO_REGULAR", "BAIXADA"]).nullable().optional(),
   })
   .transform(toFormData)
   .refine(
@@ -674,6 +727,7 @@ export const customerUpdateSchema = z
       .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
+    logradouro: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
@@ -685,6 +739,8 @@ export const customerUpdateSchema = z
     phones: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
     logoId: z.string().uuid("Logo inválido").nullable().optional(),
+    economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
+    situacaoCadastral: z.enum(["ATIVA", "SUSPENSA", "INAPTA", "ATIVA_NAO_REGULAR", "BAIXADA"]).nullable().optional(),
   })
   .transform(toFormData);
 
@@ -774,6 +830,7 @@ export const mapCustomerToFormData = createMapToFormDataHelper<Customer, Custome
   cpf: customer.cpf,
   corporateName: customer.corporateName,
   email: customer.email,
+  logradouro: customer.logradouro as any,
   address: customer.address,
   addressNumber: customer.addressNumber,
   addressComplement: customer.addressComplement,
@@ -785,4 +842,6 @@ export const mapCustomerToFormData = createMapToFormDataHelper<Customer, Custome
   phones: customer.phones,
   tags: customer.tags,
   logoId: customer.logoId,
+  economicActivityId: customer.economicActivityId,
+  situacaoCadastral: customer.situacaoCadastral as "ATIVA" | "SUSPENSA" | "INAPTA" | "ATIVA_NAO_REGULAR" | "BAIXADA" | null,
 }));

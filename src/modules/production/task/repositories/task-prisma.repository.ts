@@ -31,6 +31,7 @@ import {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
+  budget: true, // Budget items (referencia/valor)
   budgets: {
     select: {
       id: true,
@@ -189,6 +190,7 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
+      chassisNumber,
       plate,
       details,
       entryDate,
@@ -213,6 +215,7 @@ export class TaskPrismaRepository
       truck,
       cut,
       cuts,
+      budget,
     } = extendedData;
 
     // Build create input with proper null handling
@@ -225,6 +228,7 @@ export class TaskPrismaRepository
 
     // Add optional scalar fields
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
+    if (chassisNumber !== undefined) taskData.chassisNumber = chassisNumber;
     if (plate !== undefined) taskData.plate = plate;
     if (details !== undefined) taskData.details = details;
     if (entryDate !== undefined) taskData.entryDate = entryDate;
@@ -376,6 +380,17 @@ export class TaskPrismaRepository
       };
     }
 
+    // Handle budget creation (array of budget items)
+    if (budget && Array.isArray(budget) && budget.length > 0) {
+      console.log('✅ Processing budget array:', budget.length, 'items');
+      taskData.budget = {
+        create: budget.map((item: any) => ({
+          referencia: item.referencia,
+          valor: item.valor,
+        })),
+      };
+    }
+
     return taskData;
   }
 
@@ -390,6 +405,7 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
+      chassisNumber,
       plate,
       details,
       entryDate,
@@ -418,6 +434,7 @@ export class TaskPrismaRepository
       truck,
       cut,
       cuts,
+      budget,
     } = extendedData as any;
 
     const updateData: Prisma.TaskUpdateInput = {};
@@ -425,6 +442,7 @@ export class TaskPrismaRepository
     // Handle scalar fields
     if (name !== undefined) updateData.name = name;
     if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
+    if (chassisNumber !== undefined) updateData.chassisNumber = chassisNumber;
     if (plate !== undefined) updateData.plate = plate;
     if (details !== undefined) updateData.details = details;
     if (entryDate !== undefined) updateData.entryDate = entryDate;
@@ -625,6 +643,23 @@ export class TaskPrismaRepository
       ) {
         // Delete all cuts if explicitly set to null or empty array
         updateData.cuts = { deleteMany: {} };
+      }
+    }
+
+    // Handle budget update (array of budget items) - replace all existing budget items
+    if (budget !== undefined) {
+      if (budget === null || (Array.isArray(budget) && budget.length === 0)) {
+        console.log('🗑️ Deleting all budget items');
+        updateData.budget = { deleteMany: {} };
+      } else if (Array.isArray(budget) && budget.length > 0) {
+        console.log('✅ Updating budget array:', budget.length, 'items');
+        updateData.budget = {
+          deleteMany: {}, // Delete all existing budget items
+          create: budget.map((item: any) => ({
+            referencia: item.referencia,
+            valor: item.valor,
+          })),
+        };
       }
     }
 

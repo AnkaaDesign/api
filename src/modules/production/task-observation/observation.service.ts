@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ObservationRepository, PrismaTransaction } from './repositories/observation.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { FileService } from '@modules/common/file/file.service';
 import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
@@ -47,6 +48,7 @@ export class ObservationService {
     private readonly prisma: PrismaService,
     private readonly observationRepository: ObservationRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -143,6 +145,9 @@ export class ObservationService {
     data: ObservationCreateFormData,
     include?: ObservationInclude,
     userId?: string,
+    files?: {
+      files?: Express.Multer.File[];
+    },
   ): Promise<ObservationCreateResponse> {
     try {
       const observation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -166,6 +171,11 @@ export class ObservationService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
           transaction: tx,
         });
+
+        // Process file uploads if provided
+        if (files?.files && files.files.length > 0) {
+          await this.processObservationFileUploads(newObservation.id, files, userId, tx);
+        }
 
         // Registrar anexação de arquivos se houver
         if (data.fileIds && data.fileIds.length > 0) {
@@ -212,6 +222,9 @@ export class ObservationService {
     data: ObservationUpdateFormData,
     include?: ObservationInclude,
     userId?: string,
+    files?: {
+      files?: Express.Multer.File[];
+    },
   ): Promise<ObservationUpdateResponse> {
     try {
       const updatedObservation = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -233,6 +246,11 @@ export class ObservationService {
           include: { files: true },
         });
         const oldFileIds = existingWithFiles?.files?.map(f => f.id) || [];
+
+        // Process file uploads if provided
+        if (files?.files && files.files.length > 0) {
+          await this.processObservationFileUploads(id, files, userId, tx);
+        }
 
         // Atualizar a observação
         const updatedObservation = await this.observationRepository.updateWithTransaction(
@@ -657,6 +675,104 @@ export class ObservationService {
       throw new InternalServerErrorException(
         'Erro interno do servidor na exclusão em lote. Tente novamente.',
       );
+    }
+  }
+
+  /**
+   * Process observation file uploads
+   */
+  private async processObservationFileUploads(
+    observationId: string,
+    files: {
+      files?: Express.Multer.File[];
+    },
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    const transaction = tx || this.prisma;
+
+    try {
+      // Get observation with task and customer info for folder organization
+      const observation = await transaction.observation.findUnique({
+        where: { id: observationId },
+        include: {
+          task: {
+            include: {
+              customer: true,
+            },
+          },
+        },
+      });
+
+      if (!observation) {
+        throw new NotFoundException('Observação não encontrada');
+      }
+
+      const customerName = observation.task?.customer?.fantasyName;
+
+      // Process files
+      if (files.files && files.files.length > 0) {
+        for (const file of files.files) {
+          await this.saveFileToWebDAV(
+            file,
+            'observations',
+            observationId,
+            'observation',
+            customerName,
+            userId,
+            transaction,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error('Erro ao processar upload de arquivos da observação:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save file to WebDAV and link to observation
+   */
+  private async saveFileToWebDAV(
+    file: Express.Multer.File,
+    fileContext: string,
+    entityId: string,
+    entityType: string,
+    customerName?: string,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<any> {
+    if (!tx) {
+      throw new InternalServerErrorException('Transaction is required for file upload');
+    }
+
+    try {
+      // Use centralized file service to create file with proper transaction handling
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        file,
+        fileContext as any,
+        userId,
+        {
+          entityId,
+          entityType,
+          customerName,
+        },
+      );
+
+      // Connect the file to the observation using the 'observations' relation
+      await tx.file.update({
+        where: { id: fileRecord.id },
+        data: {
+          observations: { connect: { id: entityId } },
+        },
+      });
+
+      this.logger.log(`Saved and linked file ${file.originalname} to observation ${entityId}`);
+      return fileRecord;
+    } catch (error) {
+      this.logger.error(`Error saving file to WebDAV:`, error);
+      throw error;
     }
   }
 }

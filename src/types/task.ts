@@ -9,6 +9,7 @@ import type { Observation, ObservationIncludes } from "./observation";
 import type { Paint, PaintIncludes, PaintOrderBy } from "./paint";
 import type { User, UserIncludes, UserOrderBy } from "./user";
 import type { ServiceOrder, ServiceOrderIncludes } from "./serviceOrder";
+import type { Budget, BudgetIncludes } from "./budget";
 import type { Airbrushing, AirbrushingIncludes } from "./airbrushing";
 import type { Cut, CutIncludes } from "./cut";
 import type { Truck, TruckIncludes } from "./truck";
@@ -23,6 +24,7 @@ export interface Task extends BaseEntity {
   statusOrder: number;
   commission: COMMISSION_STATUS;
   serialNumber: string | null;
+  chassisNumber?: string | null;
   plate?: string | null;
   details: string | null;
   entryDate: Date | null;
@@ -55,6 +57,7 @@ export interface Task extends BaseEntity {
   artworks?: File[];
   logoPaints?: Paint[];
   services?: ServiceOrder[];
+  budget?: Budget[];
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;
@@ -132,6 +135,11 @@ export interface TaskIncludes {
     | {
         include?: ServiceOrderIncludes;
       };
+  budget?:
+    | boolean
+    | {
+        include?: BudgetIncludes;
+      };
   airbrushings?:
     | boolean
     | {
@@ -170,6 +178,7 @@ export interface TaskOrderBy {
   statusOrder?: ORDER_BY_DIRECTION;
   commission?: ORDER_BY_DIRECTION;
   serialNumber?: ORDER_BY_DIRECTION;
+  chassisNumber?: ORDER_BY_DIRECTION;
   plate?: ORDER_BY_DIRECTION;
   details?: ORDER_BY_DIRECTION;
   entryDate?: ORDER_BY_DIRECTION;

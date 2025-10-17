@@ -14,6 +14,7 @@ import type { Activity, ActivityIncludes } from "./activity";
 import type { Borrow, BorrowIncludes } from "./borrow";
 import type { ChangeLog, ChangeLogIncludes } from "./changelog";
 import type { Bonus, BonusIncludes } from "./bonus";
+import type { File } from "./file";
 
 // =====================
 // Main Entity Interface
@@ -22,7 +23,7 @@ import type { Bonus, BonusIncludes } from "./bonus";
 export interface User extends BaseEntity {
   email: string | null;
   name: string;
-  avatarUrl?: string | null;
+  avatarId: string | null;
   status: USER_STATUS;
   statusOrder: number; // 1=Ativo, 2=Inativo, 3=Suspenso
   phone: string | null;
@@ -63,6 +64,7 @@ export interface User extends BaseEntity {
   dismissedAt: Date | null; // When user was dismissed/terminated
 
   // Relations
+  avatar?: File;
   ppeSize?: PpeSize;
   preference?: Preferences;
   position?: Position;
@@ -109,6 +111,7 @@ export interface User extends BaseEntity {
 // =====================
 
 export interface UserIncludes {
+  avatar?: boolean;
   ppeSize?:
     | boolean
     | {
@@ -219,6 +222,7 @@ export interface UserOrderBy {
   id?: ORDER_BY_DIRECTION;
   email?: ORDER_BY_DIRECTION;
   name?: ORDER_BY_DIRECTION;
+  avatarId?: ORDER_BY_DIRECTION;
   token?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
