@@ -1095,6 +1095,72 @@ export class PaintService {
     };
   }
 
+  async batchUpdateColorOrder(
+    data: { updates: Array<{ id: string; colorOrder: number }> },
+    userId?: string,
+  ) {
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const updates = await Promise.allSettled(
+          data.updates.map(async (update) => {
+            const paint = await tx.paint.update({
+              where: { id: update.id },
+              data: { colorOrder: update.colorOrder },
+            });
+
+            // Log the change
+            if (userId) {
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.PAINT,
+                entityId: update.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'colorOrder',
+                newValue: update.colorOrder,
+                userId,
+                reason: 'Atualização de ordem de cores',
+                triggeredBy: CHANGE_TRIGGERED_BY.PAINT_BATCH_UPDATE,
+                triggeredById: null,
+              });
+            }
+
+            return paint;
+          }),
+        );
+
+        const successful = updates
+          .filter((r) => r.status === 'fulfilled')
+          .map((r: any) => r.value);
+        const failed = updates
+          .filter((r) => r.status === 'rejected')
+          .map((r: any, index) => ({
+            index,
+            error: r.reason.message || 'Erro desconhecido',
+          }));
+
+        return {
+          success: successful,
+          failed,
+          totalSuccess: successful.length,
+          totalFailed: failed.length,
+        };
+      });
+
+      const message =
+        result.totalFailed > 0
+          ? `${result.totalSuccess} tintas atualizadas, ${result.totalFailed} falharam`
+          : `${result.totalSuccess} tintas atualizadas com sucesso`;
+
+      return {
+        success: true,
+        message,
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error('Erro ao atualizar ordem de cores em lote', error);
+      throw new Error('Erro ao atualizar ordem de cores');
+    }
+  }
+
   /**
    * Merge multiple paints into a target paint
    */

@@ -1315,6 +1315,7 @@ export const paintCreateSchema = z.object({
     })
     .optional(),
   paletteOrder: z.number().int().min(1).max(14).optional(),
+  colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
 });
 
@@ -1342,6 +1343,7 @@ export const paintUpdateSchema = z.object({
     })
     .optional(),
   paletteOrder: z.number().int().min(1).max(14).optional(),
+  colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
 });
 
@@ -1366,6 +1368,17 @@ export const paintBatchUpdateSchema = z.object({
 
 export const paintBatchDeleteSchema = z.object({
   paintIds: z.array(z.string().uuid("Tinta inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+});
+
+export const paintBatchUpdateColorOrderSchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        id: z.string().uuid("Tinta inválida"),
+        colorOrder: z.number().int(),
+      }),
+    )
+    .min(1, "Pelo menos uma atualização é necessária"),
 });
 
 // Query schema for include parameter
@@ -2339,6 +2352,7 @@ export type PaintUpdateFormData = z.infer<typeof paintUpdateSchema>;
 export type PaintBatchCreateFormData = z.infer<typeof paintBatchCreateSchema>;
 export type PaintBatchUpdateFormData = z.infer<typeof paintBatchUpdateSchema>;
 export type PaintBatchDeleteFormData = z.infer<typeof paintBatchDeleteSchema>;
+export type PaintBatchUpdateColorOrderFormData = z.infer<typeof paintBatchUpdateColorOrderSchema>;
 
 export type PaintInclude = z.infer<typeof paintIncludeSchema>;
 export type PaintOrderBy = z.infer<typeof paintOrderBySchema>;

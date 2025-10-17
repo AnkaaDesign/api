@@ -50,9 +50,32 @@ export class PaintPrismaRepository
   }
 
   // Abstract method implementations from BaseStringPrismaRepository
-  protected mapDatabaseEntityToEntity(databaseEntity: PrismaPaint): Paint {
-    // Direct mapping - no field name changes needed now
-    return databaseEntity as Paint;
+  protected mapDatabaseEntityToEntity(databaseEntity: any): Paint {
+    // Map database fields to API fields
+    const mapped: any = { ...databaseEntity };
+
+    // Recursively map nested relations
+    if (mapped.generalPaintings && Array.isArray(mapped.generalPaintings)) {
+      mapped.generalPaintings = mapped.generalPaintings.map((task: any) => {
+        if (task.createdBy) {
+          task.user = task.createdBy;
+          delete task.createdBy;
+        }
+        return task;
+      });
+    }
+
+    if (mapped.logoTasks && Array.isArray(mapped.logoTasks)) {
+      mapped.logoTasks = mapped.logoTasks.map((task: any) => {
+        if (task.createdBy) {
+          task.user = task.createdBy;
+          delete task.createdBy;
+        }
+        return task;
+      });
+    }
+
+    return mapped as Paint;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
@@ -155,51 +178,45 @@ export class PaintPrismaRepository
     return updateInput;
   }
 
-  protected mapIncludeToDatabaseInclude(include?: PaintInclude): Prisma.PaintInclude | undefined {
+  protected mapIncludeToDatabaseInclude(include?: any): Prisma.PaintInclude | undefined {
     if (!include) return undefined;
 
-    const mappedInclude: any = {};
+    // Create a completely new object with ONLY valid Prisma fields
+    const prismaInclude: any = {};
 
-    // Map each property, converting interface names to database names
+    // Only copy fields that are valid for Prisma's Paint model
     if (include.paintType !== undefined) {
-      mappedInclude.paintType = include.paintType;
+      prismaInclude.paintType = include.paintType;
     }
-
     if (include.paintBrand !== undefined) {
-      mappedInclude.paintBrand = include.paintBrand;
+      prismaInclude.paintBrand = include.paintBrand;
     }
-
     if (include.formulas !== undefined) {
-      mappedInclude.formulas = include.formulas;
+      prismaInclude.formulas = include.formulas;
     }
-
-    // Handle Task relations - map 'user' to 'createdBy' in nested includes
     if (include.generalPaintings !== undefined) {
-      mappedInclude.generalPaintings = this.mapTaskInclude(include.generalPaintings);
+      prismaInclude.generalPaintings = this.mapTaskInclude(include.generalPaintings);
     }
-
     if (include.logoTasks !== undefined) {
-      mappedInclude.logoTasks = this.mapTaskInclude(include.logoTasks);
+      prismaInclude.logoTasks = this.mapTaskInclude(include.logoTasks);
     }
-
-    // Direct mapping - no field name changes needed
-    if (include.relatedPaints !== undefined) {
-      mappedInclude.relatedPaints = include.relatedPaints;
-    }
-
-    if (include.relatedTo !== undefined) {
-      mappedInclude.relatedTo = include.relatedTo;
-    }
-
     if (include.paintGrounds !== undefined) {
-      mappedInclude.paintGrounds = include.paintGrounds;
+      prismaInclude.paintGrounds = include.paintGrounds;
     }
-
     if (include.groundPaintFor !== undefined) {
-      mappedInclude.groundPaintFor = include.groundPaintFor;
+      prismaInclude.groundPaintFor = include.groundPaintFor;
     }
 
-    return mappedInclude as Prisma.PaintInclude;
+    // Include related paints
+    if (include.relatedPaints !== undefined) {
+      prismaInclude.relatedPaints = include.relatedPaints === true ? true : include.relatedPaints;
+    }
+    if (include.relatedTo !== undefined) {
+      prismaInclude.relatedTo = include.relatedTo === true ? true : include.relatedTo;
+    }
+
+    // IMPORTANT: Return a new object without any invalid fields
+    return Object.keys(prismaInclude).length > 0 ? prismaInclude : undefined;
   }
 
   /**
@@ -292,8 +309,16 @@ export class PaintPrismaRepository
     options?: CreateOptions<PaintInclude>,
   ): Promise<Paint | null> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      // Fix the include mapping directly here
+      let includeInput = this.getDefaultInclude();
+
+      if (options?.include) {
+        const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
+        if (mappedInclude) {
+          // Ensure we're using the mapped version, not the original
+          includeInput = mappedInclude;
+        }
+      }
 
       const result = await transaction.paint.findUnique({
         where: { id },

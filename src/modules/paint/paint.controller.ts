@@ -37,6 +37,7 @@ import {
   paintBatchCreateSchema,
   paintBatchUpdateSchema,
   paintBatchDeleteSchema,
+  paintBatchUpdateColorOrderSchema,
   paintQuerySchema,
   paintMergeSchema,
 
@@ -99,6 +100,7 @@ import type {
   PaintBatchCreateFormData,
   PaintBatchUpdateFormData,
   PaintBatchDeleteFormData,
+  PaintBatchUpdateColorOrderFormData,
   PaintQueryFormData,
   PaintMergeFormData,
 
@@ -271,6 +273,19 @@ export class PaintUnifiedController {
     @UserId() userId: string,
   ): Promise<PaintBatchDeleteResponse> {
     return this.paintService.batchDelete(data, userId);
+  }
+
+  @Put('batch/color-order')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async batchUpdateColorOrder(
+    @Body(new ZodValidationPipe(paintBatchUpdateColorOrderSchema))
+    data: PaintBatchUpdateColorOrderFormData,
+    @UserId() userId: string,
+  ) {
+    return this.paintService.batchUpdateColorOrder(
+      data as { updates: Array<{ id: string; colorOrder: number }> },
+      userId,
+    );
   }
 
   @Post('merge')

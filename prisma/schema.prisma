@@ -33,22 +33,22 @@ model Activity {
 }
 
 model Airbrushing {
-  id               String            @id @default(uuid())
-  startDate        DateTime?
-  finishDate       DateTime?
-  price            Float?
-  status           AirbrushingStatus @default(PENDING)
-  statusOrder      Int               @default(1)
-  taskId           String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  task             Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
+  id                    String            @id @default(uuid())
+  startDate             DateTime?
+  finishDate            DateTime?
+  price                 Float?
+  status                AirbrushingStatus @default(PENDING)
+  statusOrder           Int               @default(1)
+  taskId                String
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  task                  Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
   artworks              File[]            @relation("AIRBRUSHING_ARTWORKS")
   budgets               File[]            @relation("AIRBRUSHING_BUDGETS")
   invoices              File[]            @relation("AIRBRUSHING_INVOICES")
+  invoiceReimbursements File[]            @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
   receipts              File[]            @relation("AIRBRUSHING_RECEIPTS")
   reimbursements        File[]            @relation("AIRBRUSHING_REIMBURSEMENTS")
-  invoiceReimbursements File[]            @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
 
   @@index([statusOrder])
 }
@@ -92,31 +92,24 @@ model ChangeLog {
 }
 
 model Bonus {
-  id                     String   @id @default(uuid())
+  id                     String          @id @default(uuid())
   userId                 String
-  baseBonus              Decimal  @default(0) @db.Decimal(10, 2)
+  baseBonus              Decimal         @default(0) @db.Decimal(10, 2)
   year                   Int
   month                  Int
   performanceLevel       Int
-  ponderedTaskCount      Decimal  @default(0) @db.Decimal(10, 4)
-  averageTasksPerUser    Decimal  @default(0) @db.Decimal(10, 4)
-  calculationPeriodStart DateTime @default(now())
-  calculationPeriodEnd   DateTime @default(now())
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  user User @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
-
-  // Many-to-many: all users receiving bonuses in the same period
-  users User[] @relation("BonusPeriodUsers")
-
-  payroll   Payroll? @relation(fields: [payrollId], references: [id])
-  payrollId String?  @unique
-
-  bonusDiscounts BonusDiscount[]
-  tasks          Task[]          @relation("BonusTasks")
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+  payrollId              String?         @unique
+  ponderedTaskCount      Decimal         @default(0) @db.Decimal(10, 4)
+  averageTasksPerUser    Decimal         @default(0) @db.Decimal(10, 4)
+  calculationPeriodStart DateTime        @default(now())
+  calculationPeriodEnd   DateTime        @default(now())
+  payroll                Payroll?        @relation(fields: [payrollId], references: [id])
+  user                   User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
+  bonusDiscounts         BonusDiscount[]
+  users                  User[]          @relation("BonusPeriodUsers")
+  tasks                  Task[]          @relation("BonusTasks")
 
   @@unique([userId, year, month])
   @@index([userId])
@@ -127,22 +120,18 @@ model Bonus {
 }
 
 model Payroll {
-  id               String  @id @default(uuid())
-  baseRemuneration Decimal @db.Decimal(10, 2)
+  id               String            @id @default(uuid())
+  baseRemuneration Decimal           @db.Decimal(10, 2)
   year             Int
   month            Int
   userId           String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   positionId       String?
-
-  // Relations
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  position  Position?         @relation(fields: [positionId], references: [id])
-  bonus     Bonus?
-  discounts PayrollDiscount[]
-
-  // Audit fields
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  bonus            Bonus?
+  position         Position?         @relation(fields: [positionId], references: [id])
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  discounts        PayrollDiscount[]
 
   @@unique([userId, year, month])
   @@index([userId])
@@ -172,46 +161,59 @@ model PayrollDiscount {
   value            Decimal? @db.Decimal(10, 2)
   calculationOrder Int      @default(1)
   reference        String
-
-  // Relations
-  payroll   Payroll @relation(fields: [payrollId], references: [id], onDelete: Cascade)
-  payrollId String
-
-  // Audit fields
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  payrollId        String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  payroll          Payroll  @relation(fields: [payrollId], references: [id], onDelete: Cascade)
 
   @@index([payrollId])
   @@index([calculationOrder])
 }
 
+model EconomicActivity {
+  id          String     @id @default(uuid())
+  code        String     @unique
+  description String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  customers   Customer[]
+
+  @@index([code])
+  @@index([description])
+}
+
 model Customer {
-  id                String   @id @default(uuid())
-  fantasyName       String   @unique
-  cnpj              String?  @unique
-  cpf               String?  @unique
-  corporateName     String?
-  email             String?
-  address           String?
-  addressNumber     String?
-  addressComplement String?
-  neighborhood      String?
-  city              String?
-  state             String?
-  zipCode           String?
-  site              String?
-  phones            String[]
-  tags              String[]
-  logoId            String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  logo              File?    @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
-  tasks             Task[]
+  id                   String              @id @default(uuid())
+  fantasyName          String              @unique
+  cnpj                 String?             @unique
+  cpf                  String?             @unique
+  corporateName        String?
+  email                String?
+  logradouro           LogradouroType?
+  address              String?
+  addressNumber        String?
+  addressComplement    String?
+  neighborhood         String?
+  city                 String?
+  state                String?
+  zipCode              String?
+  site                 String?
+  phones               String[]
+  tags                 String[]
+  logoId               String?
+  economicActivityId   String?
+  situacaoCadastral    RegistrationStatus?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  economicActivity     EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  logo                 File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
+  tasks                Task[]
 
   @@index([fantasyName])
   @@index([cpf])
   @@index([neighborhood])
   @@index([zipCode])
+  @@index([economicActivityId])
 }
 
 model PpeSize {
@@ -291,50 +293,50 @@ model PpeDeliverySchedule {
 }
 
 model File {
-  id                                  String               @id @default(uuid())
-  filename                            String
-  originalName                        String
-  mimetype                            String
-  path                                String
-  size                                Int
-  thumbnailUrl                        String?
-  createdAt                           DateTime             @default(now())
-  updatedAt                           DateTime             @updatedAt
-  customerLogo                             Customer[]           @relation("CUSTOMER_LOGO")
-  taskCuts                                 Cut[]                @relation("TASK_CUTS")
-  externalWithdrawalInvoices               ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_INVOICES")
-  externalWithdrawalReceipts               ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
-  externalWithdrawalReimbursements         ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
-  externalWithdrawalInvoiceReimbursements  ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
-  layoutPhotos                             Layout[]             @relation("LAYOUT_PHOTO")
-  orderBudgets                             Order[]              @relation("ORDER_BUDGETS")
-  orderInvoices                            Order[]              @relation("ORDER_INVOICES")
-  orderReceipts                            Order[]              @relation("ORDER_RECEIPTS")
-  orderReimbursements                      Order[]              @relation("ORDER_REIMBURSEMENTS")
-  orderInvoiceReimbursements               Order[]              @relation("ORDER_INVOICE_REIMBURSEMENTS")
-  supplierLogo                             Supplier[]           @relation("SUPPLIER_LOGO")
-  taskBudgets                              Task[]               @relation("TASK_BUDGETS")
-  taskInvoices                             Task[]               @relation("TASK_INVOICES")
-  taskReceipts                             Task[]               @relation("TASK_RECEIPTS")
-  taskReimbursements                       Task[]               @relation("TASK_REIMBURSEMENTS")
-  taskInvoiceReimbursements                Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
-  thumbnailJob                             ThumbnailJob?
-  airbrushingArtworks                      Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
-  airbrushingBudgets                       Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
-  airbrushingInvoices                      Airbrushing[]        @relation("AIRBRUSHING_INVOICES")
-  airbrushingReceipts                      Airbrushing[]        @relation("AIRBRUSHING_RECEIPTS")
-  airbrushingReimbursements                Airbrushing[]        @relation("AIRBRUSHING_REIMBURSEMENTS")
-  airbrushingInvoiceReimbursements         Airbrushing[]        @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
-  warning                             Warning[]            @relation("FileToWarning")
-  observations                        Observation[]        @relation("OBSERVATIONS_FILES")
-  tasksArtworks                       Task[]               @relation("TASK_FILES")
+  id                                      String               @id @default(uuid())
+  filename                                String
+  originalName                            String
+  mimetype                                String
+  path                                    String
+  size                                    Int
+  thumbnailUrl                            String?
+  createdAt                               DateTime             @default(now())
+  updatedAt                               DateTime             @updatedAt
+  customerLogo                            Customer[]           @relation("CUSTOMER_LOGO")
+  taskCuts                                Cut[]                @relation("TASK_CUTS")
+  layoutPhotos                            Layout[]             @relation("LAYOUT_PHOTO")
+  supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
+  thumbnailJob                            ThumbnailJob?
+  airbrushingArtworks                     Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
+  airbrushingBudgets                      Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
+  airbrushingInvoices                     Airbrushing[]        @relation("AIRBRUSHING_INVOICES")
+  airbrushingInvoiceReimbursements        Airbrushing[]        @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
+  airbrushingReceipts                     Airbrushing[]        @relation("AIRBRUSHING_RECEIPTS")
+  airbrushingReimbursements               Airbrushing[]        @relation("AIRBRUSHING_REIMBURSEMENTS")
+  externalWithdrawalInvoices              ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_INVOICES")
+  externalWithdrawalInvoiceReimbursements ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
+  externalWithdrawalReceipts              ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
+  externalWithdrawalReimbursements        ExternalWithdrawal[] @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
+  warning                                 Warning[]            @relation("FileToWarning")
+  observations                            Observation[]        @relation("OBSERVATIONS_FILES")
+  orderBudgets                            Order[]              @relation("ORDER_BUDGETS")
+  orderInvoices                           Order[]              @relation("ORDER_INVOICES")
+  orderInvoiceReimbursements              Order[]              @relation("ORDER_INVOICE_REIMBURSEMENTS")
+  orderReceipts                           Order[]              @relation("ORDER_RECEIPTS")
+  orderReimbursements                     Order[]              @relation("ORDER_REIMBURSEMENTS")
+  taskBudgets                             Task[]               @relation("TASK_BUDGETS")
+  tasksArtworks                           Task[]               @relation("TASK_FILES")
+  taskInvoices                            Task[]               @relation("TASK_INVOICES")
+  taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
+  taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
+  taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
+  userAvatar                              User[]               @relation("USER_AVATAR")
 
   @@index([filename])
   @@index([originalName])
   @@index([mimetype])
   @@index([path])
 }
-
 
 model MonetaryValue {
   id         String    @id @default(uuid())
@@ -367,7 +369,6 @@ model Measure {
   @@index([itemId])
   @@index([measureType])
 }
-
 
 model Item {
   id                             String                   @id @default(uuid())
@@ -410,11 +411,11 @@ model Item {
   maintenanceItemsNeeded         MaintenanceItem[]        @relation("MAINTENANCE_ITEM_NEEDED")
   maintenanceSchedules           MaintenanceSchedule[]    @relation("MAINTENANCE_SCHEDULE_ITEM")
   measures                       Measure[]                @relation("ITEM_MEASURES")
+  prices                         MonetaryValue[]
   orderItems                     OrderItem[]              @relation("ORDER_ITEM_ITEM")
   orderRules                     OrderRule[]
   formulaComponents              PaintFormulaComponent[]
   ppeDelivery                    PpeDelivery[]            @relation("PPE_DELIVERY_ITEM")
-  prices                         MonetaryValue[]
   paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
   paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
   relatedItems                   Item[]                   @relation("RelatedItems")
@@ -528,19 +529,19 @@ model Observation {
 }
 
 model ExternalWithdrawal {
-  id                String                   @id @default(uuid())
-  withdrawerName    String
-  willReturn        Boolean                  @default(true)
+  id                    String                   @id @default(uuid())
+  withdrawerName        String
+  willReturn            Boolean                  @default(true)
   status                ExternalWithdrawalStatus @default(PENDING)
   statusOrder           Int                      @default(1)
   notes                 String?
   createdAt             DateTime                 @default(now())
   updatedAt             DateTime                 @updatedAt
+  items                 ExternalWithdrawalItem[]
   invoices              File[]                   @relation("EXTERNAL_WITHDRAWAL_INVOICES")
+  invoiceReimbursements File[]                   @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
   receipts              File[]                   @relation("EXTERNAL_WITHDRAWAL_RECEIPTS")
   reimbursements        File[]                   @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
-  invoiceReimbursements File[]                   @relation("EXTERNAL_WITHDRAWAL_INVOICE_REIMBURSEMENTS")
-  items                 ExternalWithdrawalItem[]
 
   @@index([withdrawerName])
   @@index([status, statusOrder])
@@ -647,28 +648,28 @@ model MaintenanceSchedule {
 }
 
 model Order {
-  id                String               @id @default(uuid())
-  description       String
-  forecast          DateTime?
-  status            OrderStatus          @default(CREATED)
-  statusOrder       Int                  @default(1)
-  supplierId        String?
-  orderScheduleId   String?              @unique
-  orderRuleId       String?
-  ppeScheduleId     String?
-  notes             String?
+  id                    String               @id @default(uuid())
+  description           String
+  forecast              DateTime?
+  status                OrderStatus          @default(CREATED)
+  statusOrder           Int                  @default(1)
+  supplierId            String?
+  orderScheduleId       String?              @unique
+  orderRuleId           String?
+  ppeScheduleId         String?
+  notes                 String?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   activities            Activity[]           @relation("ACTIVITY_ORDER")
+  orderSchedule         OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
+  ppeSchedule           PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
+  supplier              Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
+  items                 OrderItem[]
   budgets               File[]               @relation("ORDER_BUDGETS")
   invoices              File[]               @relation("ORDER_INVOICES")
+  invoiceReimbursements File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
   receipts              File[]               @relation("ORDER_RECEIPTS")
   reimbursements        File[]               @relation("ORDER_REIMBURSEMENTS")
-  invoiceReimbursements File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
-  orderSchedule         OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
-  ppeSchedule       PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
-  supplier          Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
-  items             OrderItem[]
 
   @@index([status])
   @@index([statusOrder])
@@ -753,6 +754,7 @@ model Paint {
   tags             String[]
   palette          ColorPalette       @default(BLACK)
   paletteOrder     Int                @default(1)
+  colorOrder       Int?
   paintTypeId      String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -773,6 +775,7 @@ model Paint {
   @@index([paintBrandId])
   @@index([paintTypeId, paintBrandId])
   @@index([palette, paletteOrder])
+  @@index([colorOrder])
 }
 
 model PaintBrand {
@@ -842,15 +845,15 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id            String            @id @default(uuid())
-  name          String            @unique
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  bonifiable    Boolean           @default(true)
+  id            String          @id @default(uuid())
+  name          String          @unique
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  bonifiable    Boolean         @default(true)
   hierarchy     Int?
   remunerations MonetaryValue[]
-  users         User[]            @relation("USER_POSITION")
   payrolls      Payroll[]
+  users         User[]          @relation("USER_POSITION")
 
   @@index([name])
   @@index([hierarchy])
@@ -914,12 +917,25 @@ model ServiceOrder {
   @@index([statusOrder])
 }
 
+model Budget {
+  id         String   @id @default(uuid())
+  referencia String
+  valor      Decimal  @db.Decimal(10, 2)
+  taskId     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  task       Task     @relation("BUDGET_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+}
+
 model Supplier {
-  id                String      @id @default(uuid())
-  fantasyName       String      @unique
-  cnpj              String?     @unique
+  id                String          @id @default(uuid())
+  fantasyName       String          @unique
+  cnpj              String?         @unique
   corporateName     String?
   email             String?
+  logradouro        LogradouroType?
   address           String?
   addressNumber     String?
   addressComplement String?
@@ -930,12 +946,12 @@ model Supplier {
   site              String?
   phones            String[]
   logoId            String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  items             Item[]      @relation("ITEM_SUPPLIER")
-  orders            Order[]     @relation("ORDER_SUPPLIER")
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  items             Item[]          @relation("ITEM_SUPPLIER")
+  orders            Order[]         @relation("ORDER_SUPPLIER")
   orderRules        OrderRule[]
-  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
+  logo              File?           @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
   @@index([fantasyName])
   @@index([cnpj])
@@ -944,46 +960,48 @@ model Supplier {
 }
 
 model Task {
-  id                String           @id @default(uuid())
-  name              String
-  status            TaskStatus       @default(PENDING)
-  statusOrder       Int              @default(1)
-  serialNumber      String?          @unique
-  plate             String?          @unique
-  details           String?
-  entryDate         DateTime?
-  term              DateTime?
-  startedAt         DateTime?
-  finishedAt        DateTime?
-  paintId           String?
-  customerId        String?
-  sectorId          String?
-  commission        CommissionStatus
-  price             Decimal?         @db.Decimal(10, 2)
-  createdById       String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  airbrushing       Airbrushing[]    @relation("AIRBRUSHING")
-  cuts              Cut[]            @relation("CUT_TASK")
+  id                    String           @id @default(uuid())
+  name                  String
+  status                TaskStatus       @default(PENDING)
+  statusOrder           Int              @default(1)
+  serialNumber          String?          @unique
+  chassisNumber         String?
+  plate                 String?          @unique
+  details               String?
+  entryDate             DateTime?
+  term                  DateTime?
+  startedAt             DateTime?
+  finishedAt            DateTime?
+  paintId               String?
+  customerId            String?
+  sectorId              String?
+  commission            CommissionStatus
+  price                 Decimal?         @db.Decimal(10, 2)
+  createdById           String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  bonusDiscountId       String?
+  airbrushing           Airbrushing[]    @relation("AIRBRUSHING")
+  cuts                  Cut[]            @relation("CUT_TASK")
   observation           Observation?     @relation("OBSERVATION_TO_TASK")
   services              ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
+  budget                Budget[]         @relation("BUDGET_TASK")
+  bonusDiscount         BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
+  createdBy             User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer              Customer?        @relation(fields: [customerId], references: [id])
+  generalPainting       Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  sector                Sector?          @relation(fields: [sectorId], references: [id])
+  truck                 Truck?
+  bonuses               Bonus[]          @relation("BonusTasks")
+  relatedTasks          Task[]           @relation("RelatedTasks")
+  relatedTo             Task[]           @relation("RelatedTasks")
   budgets               File[]           @relation("TASK_BUDGETS")
+  artworks              File[]           @relation("TASK_FILES")
   invoices              File[]           @relation("TASK_INVOICES")
+  invoiceReimbursements File[]           @relation("TASK_INVOICE_REIMBURSEMENTS")
+  logoPaints            Paint[]          @relation("TASK_LOGO_PAINT")
   receipts              File[]           @relation("TASK_RECEIPTS")
   reimbursements        File[]           @relation("TASK_REIMBURSEMENTS")
-  invoiceReimbursements File[]           @relation("TASK_INVOICE_REIMBURSEMENTS")
-  createdBy             User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
-  customer          Customer?        @relation(fields: [customerId], references: [id])
-  generalPainting   Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  sector            Sector?          @relation(fields: [sectorId], references: [id])
-  truck             Truck?
-  bonuses           Bonus[]          @relation("BonusTasks")
-  bonusDiscount     BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
-  bonusDiscountId   String?
-  relatedTasks      Task[]           @relation("RelatedTasks")
-  relatedTo         Task[]           @relation("RelatedTasks")
-  artworks          File[]           @relation("TASK_FILES")
-  logoPaints        Paint[]          @relation("TASK_LOGO_PAINT")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1156,19 +1174,20 @@ model User {
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   performanceLevel      Int                @default(0)
+  contractedAt          DateTime?
   exp1StartAt           DateTime?
   exp1EndAt             DateTime?
   exp2StartAt           DateTime?
   exp2EndAt             DateTime?
-  contractedAt          DateTime?
   dismissedAt           DateTime?
+  avatarId              String?
+  avatar                File?              @relation("USER_AVATAR", fields: [avatarId], references: [id])
   activities            Activity[]         @relation("ACTIVITY_USER")
   bonuses               Bonus[]            @relation("UserBonus")
-  bonusesInPeriod       Bonus[]            @relation("BonusPeriodUsers")
   borrows               Borrow[]           @relation("USER_BORROW")
-  payrolls              Payroll[]
   changeLogs            ChangeLog[]        @relation("CHANGELOG_USER")
   notifications         Notification[]     @relation("NOTIFICATION_CREATED_BY")
+  payrolls              Payroll[]
   ppeDeliveriesReviewed PpeDelivery[]      @relation("PPE_DELIVERY_REVIEWED_BY")
   ppeDeliveries         PpeDelivery[]      @relation("PPE_DELIVERY_USER")
   ppeSize               PpeSize?           @relation("USER_PPE_SIZE")
@@ -1181,8 +1200,9 @@ model User {
   vacations             Vacation[]
   warningsCollaborator  Warning[]          @relation("COLLABORATOR_WARNING")
   warningsSupervisor    Warning[]          @relation("SUPERVISOR_WARNING")
-  warningsWitness       Warning[]          @relation("WITNESS_WARNING")
   deployments           Deployment[]       @relation("DEPLOYMENT_USER")
+  bonusesInPeriod       Bonus[]            @relation("BonusPeriodUsers")
+  warningsWitness       Warning[]          @relation("WITNESS_WARNING")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1201,6 +1221,7 @@ model User {
   @@index([verificationType])
   @@index([sessionToken])
   @@index([verified])
+  @@index([admissional])
 }
 
 model Vacation {
@@ -1285,16 +1306,15 @@ model ThumbnailJob {
   status      String
   error       String?
   progress    Int?      @default(0)
-  attempts    Int       @default(0)
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
   completedAt DateTime? @map("completed_at")
+  attempts    Int       @default(0)
   file        File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   @@map("thumbnail_jobs")
 }
 
-// Git Repository Model
 model Repository {
   id          String      @id @default(uuid())
   name        String      @unique
@@ -1304,19 +1324,18 @@ model Repository {
   description String?
   createdAt   DateTime    @default(now()) @map("created_at")
   updatedAt   DateTime    @updatedAt @map("updated_at")
-  commits     GitCommit[]
   apps        App[]
+  commits     GitCommit[]
 
   @@map("repositories")
 }
 
-// Git Commit Model
 model GitCommit {
   id           String       @id @default(uuid())
   repositoryId String       @map("repository_id")
   hash         String
   shortHash    String       @map("short_hash")
-  message      String       @db.Text
+  message      String
   author       String
   authorEmail  String       @map("author_email")
   committedAt  DateTime     @map("committed_at")
@@ -1327,8 +1346,8 @@ model GitCommit {
   deletions    Int          @default(0)
   createdAt    DateTime     @default(now()) @map("created_at")
   updatedAt    DateTime     @updatedAt @map("updated_at")
-  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   deployments  Deployment[]
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 
   @@unique([repositoryId, hash])
   @@index([repositoryId])
@@ -1337,15 +1356,14 @@ model GitCommit {
   @@map("git_commits")
 }
 
-// App Model
 model App {
   id              String       @id @default(uuid())
   repositoryId    String       @map("repository_id")
   name            String       @unique
   displayName     String       @map("display_name")
   appType         AppType      @map("app_type")
-  buildCommand    String?      @map("build_command") @db.Text
-  deployCommand   String?      @map("deploy_command") @db.Text
+  buildCommand    String?      @map("build_command")
+  deployCommand   String?      @map("deploy_command")
   healthCheckUrl  String?      @map("health_check_url")
   environmentVars Json?        @map("environment_vars")
   isActive        Boolean      @default(true) @map("is_active")
@@ -1359,44 +1377,43 @@ model App {
   @@map("apps")
 }
 
-// Deployment Model
 model Deployment {
   id                   String                @id @default(uuid())
-  appId                String                @map("app_id")
-  gitCommitId          String                @map("git_commit_id")
   environment          DeploymentEnvironment
   status               DeploymentStatus      @default(PENDING)
   statusOrder          Int                   @default(2) @map("status_order")
-  triggeredBy          DeploymentTrigger     @default(MANUAL) @map("triggered_by")
   deployedBy           String?               @map("deployed_by")
   version              String?
+  rollbackData         Json?                 @map("rollback_data")
+  deploymentLog        String?               @map("deployment_log")
+  healthCheckUrl       String?               @map("health_check_url")
+  healthCheckStatus    String?               @map("health_check_status")
+  completedAt          DateTime?             @map("completed_at")
+  rolledBackAt         DateTime?             @map("rolled_back_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  appId                String                @map("app_id")
+  gitCommitId          String                @map("git_commit_id")
+  triggeredBy          DeploymentTrigger     @default(MANUAL) @map("triggered_by")
   buildNumber          Int?                  @map("build_number")
   previousDeploymentId String?               @unique @map("previous_deployment_id")
   workflowRunId        String?               @map("workflow_run_id")
   workflowUrl          String?               @map("workflow_url")
   duration             Int?
-  deploymentLog        String?               @map("deployment_log") @db.Text
-  buildLog             String?               @map("build_log") @db.Text
-  errorMessage         String?               @map("error_message") @db.Text
-  errorStack           String?               @map("error_stack") @db.Text
-  healthCheckUrl       String?               @map("health_check_url")
-  healthCheckStatus    String?               @map("health_check_status")
-  healthCheckLog       String?               @map("health_check_log") @db.Text
-  rollbackData         Json?                 @map("rollback_data")
+  buildLog             String?               @map("build_log")
+  errorMessage         String?               @map("error_message")
+  errorStack           String?               @map("error_stack")
+  healthCheckLog       String?               @map("health_check_log")
   canRollback          Boolean               @default(true) @map("can_rollback")
-  rollbackReason       String?               @map("rollback_reason") @db.Text
+  rollbackReason       String?               @map("rollback_reason")
   startedAt            DateTime?             @map("started_at")
-  completedAt          DateTime?             @map("completed_at")
-  rolledBackAt         DateTime?             @map("rolled_back_at")
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
-  app                  App                   @relation(fields: [appId], references: [id], onDelete: Cascade)
-  gitCommit            GitCommit             @relation(fields: [gitCommitId], references: [id])
-  user                 User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
-  previousDeployment   Deployment?           @relation("DeploymentRollback", fields: [previousDeploymentId], references: [id])
-  rollbackedDeployment Deployment?           @relation("DeploymentRollback")
   logs                 DeploymentLog[]
   metrics              DeploymentMetric[]
+  app                  App                   @relation(fields: [appId], references: [id], onDelete: Cascade)
+  user                 User?                 @relation("DEPLOYMENT_USER", fields: [deployedBy], references: [id])
+  gitCommit            GitCommit             @relation(fields: [gitCommitId], references: [id])
+  previousDeployment   Deployment?           @relation("DeploymentRollback", fields: [previousDeploymentId], references: [id])
+  rollbackedDeployment Deployment?           @relation("DeploymentRollback")
 
   @@index([appId, environment, status])
   @@index([gitCommitId])
@@ -1407,15 +1424,14 @@ model Deployment {
   @@map("deployments")
 }
 
-// Deployment Log Model
 model DeploymentLog {
   id           String             @id @default(uuid())
   deploymentId String             @map("deployment_id")
   level        DeploymentLogLevel
   phase        DeploymentPhase
-  message      String             @db.Text
+  message      String
   details      Json?
-  stackTrace   String?            @map("stack_trace") @db.Text
+  stackTrace   String?            @map("stack_trace")
   source       String?
   duration     Int?
   createdAt    DateTime           @default(now()) @map("created_at")
@@ -1428,7 +1444,6 @@ model DeploymentLog {
   @@map("deployment_logs")
 }
 
-// Deployment Metric Model
 model DeploymentMetric {
   id           String     @id @default(uuid())
   deploymentId String     @map("deployment_id")
@@ -1441,6 +1456,21 @@ model DeploymentMetric {
   @@index([deploymentId])
   @@index([metricType])
   @@map("deployment_metrics")
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model file_backup {
+  id           String?
+  filename     String?
+  originalName String?
+  mimetype     String?
+  path         String?
+  size         Int?
+  thumbnailUrl String?
+  createdAt    DateTime?
+  updatedAt    DateTime?
+
+  @@ignore
 }
 
 enum UserStatus {
@@ -1599,6 +1629,8 @@ enum TaskStatus {
   COMPLETED
   CANCELLED
   ON_HOLD
+  INVOICED
+  SETTLED
 }
 
 enum ServiceOrderStatus {
@@ -1992,12 +2024,12 @@ enum ChangeLogEntityType {
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
-  DEPLOYMENT
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
   PPE_REQUEST
   PPE_DELIVERY_SCHEDULE
   PPE_SIZE
+  ECONOMIC_ACTIVITY
   EXTERNAL_WITHDRAWAL
   EXTERNAL_WITHDRAWAL_ITEM
   FILE
@@ -2031,6 +2063,7 @@ enum ChangeLogEntityType {
   LAYOUT
   USER
   VACATION
+  DEPLOYMENT
 }
 
 enum ChangeLogAction {
@@ -2110,20 +2143,20 @@ enum CommissionStatus {
 }
 
 enum DeploymentEnvironment {
-  DEVELOPMENT
   STAGING
   PRODUCTION
+  DEVELOPMENT
 }
 
 enum DeploymentStatus {
   PENDING
   IN_PROGRESS
-  BUILDING
-  TESTING
-  DEPLOYING
   COMPLETED
   FAILED
   ROLLED_BACK
+  BUILDING
+  TESTING
+  DEPLOYING
   CANCELLED
 }
 
@@ -2165,4 +2198,40 @@ enum DeploymentTrigger {
   WEBHOOK
   ROLLBACK
   API
+}
+
+enum RegistrationStatus {
+  ATIVA
+  SUSPENSA
+  INAPTA
+  ATIVA_NAO_REGULAR
+  BAIXADA
+}
+
+enum LogradouroType {
+  RUA
+  AVENIDA
+  ALAMEDA
+  TRAVESSA
+  PRACA
+  RODOVIA
+  ESTRADA
+  VIA
+  LARGO
+  VIELA
+  BECO
+  RUELA
+  CAMINHO
+  PASSAGEM
+  JARDIM
+  QUADRA
+  LOTE
+  SITIO
+  PARQUE
+  FAZENDA
+  CHACARA
+  CONDOMINIO
+  CONJUNTO
+  RESIDENCIAL
+  OUTRO
 }
