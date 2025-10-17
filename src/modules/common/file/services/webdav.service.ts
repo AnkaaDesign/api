@@ -15,14 +15,15 @@ export interface WebDAVFolderMapping {
   // Entity-specific folders - Tasks
   tasksArtworks: string; // Artwork files for tasks
   taskBudgets: string; // Budget documents for tasks
-  taskNfes: string; // Invoice files for tasks
+  taskInvoices: string; // Invoice files for tasks
   taskReceipts: string; // Receipt files for tasks
   taskReimbursements: string; // Reimbursement receipts for tasks
   taskNfeReimbursements: string; // Reimbursement NFEs for tasks
+  cutFiles: string; // Cut request/plan files
 
   // Entity-specific folders - Orders
   orderBudgets: string; // Budget documents for orders
-  orderNfes: string; // Invoice files for orders
+  orderInvoices: string; // Invoice files for orders
   orderReceipts: string; // Receipt files for orders
   orderReimbursements: string; // Reimbursement receipts for orders
   orderNfeReimbursements: string; // Reimbursement NFEs for orders
@@ -30,13 +31,13 @@ export interface WebDAVFolderMapping {
   // Entity-specific folders - Airbrushing
   airbrushingArtworks: string; // Artwork files for airbrushing
   airbrushingBudgets: string; // Budget documents for airbrushing
-  airbrushingNfes: string; // Invoice files for airbrushing
+  airbrushingInvoices: string; // Invoice files for airbrushing
   airbrushingReceipts: string; // Receipt files for airbrushing
   airbrushingReimbursements: string; // Reimbursement receipts for airbrushing
   airbrushingNfeReimbursements: string; // Reimbursement NFEs for airbrushing
 
   // Entity-specific folders - External Withdrawal
-  externalWithdrawalNfes: string; // External withdrawal invoices
+  externalWithdrawalInvoices: string; // External withdrawal invoices
   externalWithdrawalReceipts: string; // External withdrawal receipts
   externalWithdrawalReimbursements: string; // External withdrawal reimbursement receipts
   externalWithdrawalNfeReimbursements: string; // External withdrawal reimbursement NFEs
@@ -44,6 +45,9 @@ export interface WebDAVFolderMapping {
   // Entity-specific folders - Logos
   customerLogo: string; // Customer logo files
   supplierLogo: string; // Supplier logo files
+
+  // Entity-specific folders - User
+  userAvatar: string; // User avatar files
 
   // Entity-specific folders - Other
   observations: string; // Observation files
@@ -92,35 +96,39 @@ export class WebDAVService {
     // Task folders (organized by customer fantasyName)
     tasksArtworks: 'Projetos', // Task artworks -> Projetos/{customerFantasyName}/Imagens or /PDFs
     taskBudgets: 'Orcamentos/Tarefas',
-    taskNfes: 'NFs/Tarefas',
-    taskReceipts: 'Comprovantes/Tarefas/Comprovantes',
-    taskReimbursements: 'Comprovantes/Tarefas/Reembolsos',
-    taskNfeReimbursements: 'NFs/Tarefas/Reembolsos',
+    taskInvoices: 'Notas Fiscais/Tarefas',
+    taskReceipts: 'Comprovantes/Tarefas',
+    taskReimbursements: 'Reembolsos/Tarefas',
+    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
+    cutFiles: 'Recortes', // Cut request/plan files -> Recortes/{customerFantasyName}/
 
     // Order folders (organized by supplier fantasyName for some)
     orderBudgets: 'Orcamentos/Pedidos',
-    orderNfes: 'NFs/Pedidos',
-    orderReceipts: 'Comprovantes/Pedidos/Comprovantes',
-    orderReimbursements: 'Comprovantes/Pedidos/Reembolsos',
-    orderNfeReimbursements: 'NFs/Pedidos/Reembolsos',
+    orderInvoices: 'Notas Fiscais/Pedidos',
+    orderReceipts: 'Comprovantes/Pedidos',
+    orderReimbursements: 'Reembolsos/Pedidos',
+    orderNfeReimbursements: 'Notas Fiscais Reembolso/Pedidos',
 
     // Airbrushing folders
-    airbrushingArtworks: 'Auxiliares/Aerografia/Artes',
-    airbrushingBudgets: 'Orcamentos/Aerografia',
-    airbrushingNfes: 'NFs/Aerografia',
-    airbrushingReceipts: 'Comprovantes/Aerografia/Comprovantes',
-    airbrushingReimbursements: 'Comprovantes/Aerografia/Reembolsos',
-    airbrushingNfeReimbursements: 'NFs/Aerografia/Reembolsos',
+    airbrushingArtworks: 'Aerografias',  // Root Aerografias folder with customer subdirs
+    airbrushingBudgets: 'Orcamentos/Aerografias',
+    airbrushingInvoices: 'Notas Fiscais/Aerografias',
+    airbrushingReceipts: 'Comprovantes/Aerografias',
+    airbrushingReimbursements: 'Reembolsos/Aerografias',
+    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias',
 
     // External Withdrawal folders
-    externalWithdrawalNfes: 'NFs/Retiradas',
-    externalWithdrawalReceipts: 'Comprovantes/Retiradas/Comprovantes',
-    externalWithdrawalReimbursements: 'Comprovantes/Retiradas/Reembolsos',
-    externalWithdrawalNfeReimbursements: 'NFs/Retiradas/Reembolsos',
+    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas',
+    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas',
+    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas',
+    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
 
     // Logo folders (organized by customer/supplier fantasyName)
     customerLogo: 'Logos/Clientes', // Will add customer folder: Logos/Clientes/{customerFantasyName}/
     supplierLogo: 'Logos/Fornecedores', // Will add supplier folder: Logos/Fornecedores/{supplierFantasyName}/
+
+    // User folders (organized by user name)
+    userAvatar: 'Colaboradores', // Will add user folder: Colaboradores/{userName}/
 
     // Other entity folders
     observations: 'Observacoes', // Will add customer folder: Observacoes/{customerFantasyName}/
@@ -269,6 +277,23 @@ export class WebDAVService {
       }
       // ADVERTENCIAS: Add user folder
       else if (fileContext === 'warning' && userName) {
+        const sanitizedUserName = this.sanitizeFileName(userName);
+        folderPath = join(folderPath, sanitizedUserName);
+      }
+      // ORDERS: Add supplier folder for order-related files
+      else if (
+        (fileContext === 'orderBudgets' ||
+         fileContext === 'orderInvoices' ||
+         fileContext === 'orderReceipts' ||
+         fileContext === 'orderReimbursements' ||
+         fileContext === 'orderNfeReimbursements') &&
+        supplierName
+      ) {
+        const sanitizedSupplierName = this.sanitizeFileName(supplierName);
+        folderPath = join(folderPath, sanitizedSupplierName);
+      }
+      // USER AVATAR: Add user folder - Colaboradores/{userName}/
+      else if (fileContext === 'userAvatar' && userName) {
         const sanitizedUserName = this.sanitizeFileName(userName);
         folderPath = join(folderPath, sanitizedUserName);
       }
@@ -509,14 +534,14 @@ export class WebDAVService {
       task: [
         'tasksArtworks',
         'taskBudgets',
-        'taskNfes',
+        'taskInvoices',
         'taskReceipts',
         'taskReimbursements',
         'taskNfeReimbursements',
       ],
       order: [
         'orderBudgets',
-        'orderNfes',
+        'orderInvoices',
         'orderReceipts',
         'orderReimbursements',
         'orderNfeReimbursements',
@@ -529,13 +554,13 @@ export class WebDAVService {
       airbrushing: [
         'airbrushingArtworks',
         'airbrushingBudgets',
-        'airbrushingNfes',
+        'airbrushingInvoices',
         'airbrushingReceipts',
         'airbrushingReimbursements',
         'airbrushingNfeReimbursements',
       ],
       externalWithdrawal: [
-        'externalWithdrawalNfes',
+        'externalWithdrawalInvoices',
         'externalWithdrawalReceipts',
         'externalWithdrawalReimbursements',
         'externalWithdrawalNfeReimbursements',
