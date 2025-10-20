@@ -295,7 +295,7 @@ export class PpeController {
   }
 
   @Post('deliveries')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDelivery(
     @Body(new ZodValidationPipe(ppeDeliveryCreateSchema)) data: PpeDeliveryCreateFormData,
@@ -306,7 +306,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchCreateSchema)) data: PpeDeliveryBatchCreateFormData,
@@ -327,7 +327,7 @@ export class PpeController {
   }
 
   @Delete('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async batchDeletePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchDeleteSchema)) data: PpeDeliveryBatchDeleteFormData,
     @UserId() userId: string,
@@ -699,7 +699,7 @@ export class PpeController {
   }
 
   @Post('schedules')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDeliverySchedule(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleCreateSchema))
@@ -712,7 +712,7 @@ export class PpeController {
   }
 
   @Post('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchCreateSchema))
@@ -725,7 +725,7 @@ export class PpeController {
   }
 
   @Put('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchUpdateSchema))
     data: PpeDeliveryScheduleBatchUpdateFormData,
@@ -737,7 +737,7 @@ export class PpeController {
   }
 
   @Delete('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async batchDeletePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchDeleteSchema))
     data: PpeDeliveryScheduleBatchDeleteFormData,
@@ -763,7 +763,7 @@ export class PpeController {
   }
 
   @Put('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async updatePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryScheduleUpdateSchema))
@@ -776,7 +776,7 @@ export class PpeController {
   }
 
   @Delete('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async deletePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -785,7 +785,7 @@ export class PpeController {
   }
 
   @Post('schedules/execute/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async executeScheduleNow(
     @Param('id', ParseUUIDPipe) id: string,
@@ -826,7 +826,7 @@ export class PpeController {
   }
 
   @Post('schedules/toggle-active/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async toggleScheduleActive(
     @Param('id', ParseUUIDPipe) id: string,
@@ -837,7 +837,7 @@ export class PpeController {
   }
 
   @Post('schedules/recalculate-next-run/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async recalculateScheduleNextRun(
     @Param('id', ParseUUIDPipe) id: string,

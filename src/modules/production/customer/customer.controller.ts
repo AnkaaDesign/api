@@ -17,6 +17,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { CustomerService } from './customer.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
+import { Roles } from '../../common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { ArrayFixPipe } from '../../common/pipes/array-fix.pipe';
 import {
@@ -64,6 +66,15 @@ export class CustomerController {
 
   // Basic CRUD Operations
   @Get()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async findMany(
     @Query(new ZodQueryValidationPipe(customerGetManySchema)) query: CustomerGetManyFormData,
     @UserId() userId: string,
@@ -135,6 +146,15 @@ export class CustomerController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(customerQuerySchema)) query: CustomerQueryFormData,

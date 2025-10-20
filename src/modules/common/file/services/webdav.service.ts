@@ -95,11 +95,11 @@ export class WebDAVService {
   private readonly folderMapping: WebDAVFolderMapping = {
     // Task folders (organized by customer fantasyName)
     tasksArtworks: 'Projetos', // Task artworks -> Projetos/{customerFantasyName}/Imagens or /PDFs
-    taskBudgets: 'Orcamentos/Tarefas',
-    taskInvoices: 'Notas Fiscais/Tarefas',
-    taskReceipts: 'Comprovantes/Tarefas',
-    taskReimbursements: 'Reembolsos/Tarefas',
-    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
+    taskBudgets: 'Orcamentos/Tarefas', // -> Orcamentos/Tarefas/{customerFantasyName}/
+    taskInvoices: 'Notas Fiscais/Tarefas', // -> Notas Fiscais/Tarefas/{customerFantasyName}/
+    taskReceipts: 'Comprovantes/Tarefas', // -> Comprovantes/Tarefas/{customerFantasyName}/
+    taskReimbursements: 'Reembolsos/Tarefas', // -> Reembolsos/Tarefas/{customerFantasyName}/
+    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas', // -> Notas Fiscais Reembolso/Tarefas/{customerFantasyName}/
     cutFiles: 'Recortes', // Cut request/plan files -> Recortes/{customerFantasyName}/
 
     // Order folders (organized by supplier fantasyName for some)
@@ -109,19 +109,19 @@ export class WebDAVService {
     orderReimbursements: 'Reembolsos/Pedidos',
     orderNfeReimbursements: 'Notas Fiscais Reembolso/Pedidos',
 
-    // Airbrushing folders
-    airbrushingArtworks: 'Aerografias',  // Root Aerografias folder with customer subdirs
-    airbrushingBudgets: 'Orcamentos/Aerografias',
-    airbrushingInvoices: 'Notas Fiscais/Aerografias',
-    airbrushingReceipts: 'Comprovantes/Aerografias',
-    airbrushingReimbursements: 'Reembolsos/Aerografias',
-    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias',
+    // Airbrushing folders (organized by customer fantasyName)
+    airbrushingArtworks: 'Aerografias', // -> Aerografias/{customerFantasyName}/
+    airbrushingBudgets: 'Orcamentos/Aerografias', // -> Orcamentos/Aerografias/{customerFantasyName}/
+    airbrushingInvoices: 'Notas Fiscais/Aerografias', // -> Notas Fiscais/Aerografias/{customerFantasyName}/
+    airbrushingReceipts: 'Comprovantes/Aerografias', // -> Comprovantes/Aerografias/{customerFantasyName}/
+    airbrushingReimbursements: 'Reembolsos/Aerografias', // -> Reembolsos/Aerografias/{customerFantasyName}/
+    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias', // -> Notas Fiscais Reembolso/Aerografias/{customerFantasyName}/
 
-    // External Withdrawal folders
-    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas',
-    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas',
-    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas',
-    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
+    // External Withdrawal folders (organized by customer fantasyName)
+    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas', // -> Notas Fiscais/RetiradasExternas/{customerFantasyName}/
+    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas', // -> Comprovantes/RetiradasExternas/{customerFantasyName}/
+    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas', // -> Reembolsos/RetiradasExternas/{customerFantasyName}/
+    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas', // -> Notas Fiscais Reembolso/RetiradasExternas/{customerFantasyName}/
 
     // Logo folders (organized by customer/supplier fantasyName)
     customerLogo: 'Logos/Clientes', // Will add customer folder: Logos/Clientes/{customerFantasyName}/
@@ -279,6 +279,47 @@ export class WebDAVService {
       else if (fileContext === 'warning' && userName) {
         const sanitizedUserName = this.sanitizeFileName(userName);
         folderPath = join(folderPath, sanitizedUserName);
+      }
+      // TASKS: Add customer folder for task-related financial files
+      else if (
+        (fileContext === 'taskBudgets' ||
+         fileContext === 'taskInvoices' ||
+         fileContext === 'taskReceipts' ||
+         fileContext === 'taskReimbursements' ||
+         fileContext === 'taskNfeReimbursements') &&
+        customerName
+      ) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        folderPath = join(folderPath, sanitizedCustomerName);
+      }
+      // CUT FILES: Add customer folder
+      else if (fileContext === 'cutFiles' && customerName) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        folderPath = join(folderPath, sanitizedCustomerName);
+      }
+      // AIRBRUSHING: Add customer folder for airbrushing-related files
+      else if (
+        (fileContext === 'airbrushingArtworks' ||
+         fileContext === 'airbrushingBudgets' ||
+         fileContext === 'airbrushingInvoices' ||
+         fileContext === 'airbrushingReceipts' ||
+         fileContext === 'airbrushingReimbursements' ||
+         fileContext === 'airbrushingNfeReimbursements') &&
+        customerName
+      ) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        folderPath = join(folderPath, sanitizedCustomerName);
+      }
+      // EXTERNAL WITHDRAWALS: Add customer folder
+      else if (
+        (fileContext === 'externalWithdrawalInvoices' ||
+         fileContext === 'externalWithdrawalReceipts' ||
+         fileContext === 'externalWithdrawalReimbursements' ||
+         fileContext === 'externalWithdrawalNfeReimbursements') &&
+        customerName
+      ) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        folderPath = join(folderPath, sanitizedCustomerName);
       }
       // ORDERS: Add supplier folder for order-related files
       else if (
@@ -479,8 +520,8 @@ export class WebDAVService {
     return filename
       .replace(/[<>:"|?*\x00-\x1f]/g, '_') // Replace invalid chars
       .replace(/\.\./g, '_') // Remove directory traversal
-      .replace(/\s+/g, '_') // Replace spaces with underscores
-      .replace(/_+/g, '_') // Remove duplicate underscores
+      .replace(/\s+/g, ' ') // Normalize multiple spaces to single space
+      .trim() // Remove leading/trailing spaces
       .substring(0, 100); // Limit length
   }
 

@@ -22,6 +22,7 @@ import {
   ACTIVITY_OPERATION,
   ACTIVITY_REASON,
   ORDER_STATUS,
+  STOCK_LEVEL,
   TASK_STATUS,
   USER_STATUS,
   VACATION_STATUS,
@@ -85,10 +86,75 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return this.prisma.item.count({ where });
   }
 
+  /**
+   * Determines the stock level based on quantity, reorder point, and active order status
+   * This logic matches the frontend determineStockLevel function in web/src/utils/stock-level.ts
+   *
+   * Thresholds:
+   * - CRITICAL: quantity <= 90% of reorder point
+   * - LOW: 90% < quantity <= 110% of reorder point
+   * - OPTIMAL: 110% < quantity <= max quantity (or no max)
+   * - OVERSTOCKED: quantity > max quantity
+   *
+   * When hasActiveOrder is true, thresholds are adjusted by 1.5x to reduce urgency
+   */
+  private determineStockLevel(
+    quantity: number,
+    reorderPoint: number | null,
+    maxQuantity: number | null,
+    hasActiveOrder: boolean,
+  ): STOCK_LEVEL {
+    // Validate input
+    if (!Number.isFinite(quantity)) {
+      return STOCK_LEVEL.OPTIMAL;
+    }
+
+    // Handle negative stock
+    if (quantity < 0) {
+      return STOCK_LEVEL.NEGATIVE_STOCK;
+    }
+
+    // Handle zero stock
+    if (quantity === 0) {
+      return STOCK_LEVEL.OUT_OF_STOCK;
+    }
+
+    // If no reorder point is configured, we can't calculate thresholds
+    if (reorderPoint === null) {
+      return STOCK_LEVEL.OPTIMAL;
+    }
+
+    // Adjust thresholds if there's an active order (less urgency)
+    const adjustmentFactor = hasActiveOrder ? 1.5 : 1;
+    const adjustedCriticalThreshold = reorderPoint * 0.9 * adjustmentFactor;
+    const adjustedLowThreshold = reorderPoint * 1.1 * adjustmentFactor;
+
+    // Check critical level (inclusive boundary)
+    if (quantity <= adjustedCriticalThreshold) {
+      return STOCK_LEVEL.CRITICAL;
+    }
+
+    // Check low level (inclusive boundary)
+    if (quantity <= adjustedLowThreshold) {
+      return STOCK_LEVEL.LOW;
+    }
+
+    // Check overstocked
+    if (maxQuantity !== null && quantity > maxQuantity) {
+      return STOCK_LEVEL.OVERSTOCKED;
+    }
+
+    // Otherwise, stock is optimal
+    return STOCK_LEVEL.OPTIMAL;
+  }
+
   async getItemStatistics(where?: any): Promise<{
     totalValue: number;
+    negativeStockItems: number;
+    outOfStockItems: number;
     criticalItems: number;
     lowStockItems: number;
+    optimalItems: number;
     overstockedItems: number;
     itemsNeedingReorder: number;
   }> {
@@ -103,37 +169,87 @@ export class DashboardPrismaRepository implements DashboardRepository {
           take: 1,
           select: { value: true },
         },
+        orderItems: {
+          select: {
+            order: {
+              select: {
+                status: true,
+              },
+            },
+          },
+        },
       },
     });
 
     let totalValue = 0;
+    let negativeStockItems = 0;
+    let outOfStockItems = 0;
     let criticalItems = 0;
     let lowStockItems = 0;
+    let optimalItems = 0;
     let overstockedItems = 0;
     let itemsNeedingReorder = 0;
+
+    const activeOrderStatuses = [
+      ORDER_STATUS.CREATED,
+      ORDER_STATUS.PARTIALLY_FULFILLED,
+      ORDER_STATUS.FULFILLED,
+      ORDER_STATUS.PARTIALLY_RECEIVED,
+    ];
 
     for (const item of items) {
       const latestPrice = item.prices[0]?.value || 0;
       totalValue += item.quantity * latestPrice;
 
-      if (item.reorderPoint && item.quantity < item.reorderPoint * 0.2) {
-        criticalItems++;
-      }
-      if (item.reorderPoint && item.quantity < item.reorderPoint) {
-        lowStockItems++;
-      }
-      if (item.maxQuantity && item.quantity > item.maxQuantity) {
-        overstockedItems++;
-      }
-      if (item.reorderPoint && item.quantity <= item.reorderPoint) {
-        itemsNeedingReorder++;
+      // Check if item has an active order
+      const hasActiveOrder =
+        item.orderItems?.some(
+          (orderItem) =>
+            orderItem.order && activeOrderStatuses.includes(orderItem.order.status),
+        ) || false;
+
+      // Determine stock level using the unified algorithm
+      const stockLevel = this.determineStockLevel(
+        item.quantity,
+        item.reorderPoint,
+        item.maxQuantity,
+        hasActiveOrder,
+      );
+
+      // Count items by stock level
+      switch (stockLevel) {
+        case STOCK_LEVEL.NEGATIVE_STOCK:
+          negativeStockItems++;
+          itemsNeedingReorder++;
+          break;
+        case STOCK_LEVEL.OUT_OF_STOCK:
+          outOfStockItems++;
+          itemsNeedingReorder++;
+          break;
+        case STOCK_LEVEL.CRITICAL:
+          criticalItems++;
+          itemsNeedingReorder++;
+          break;
+        case STOCK_LEVEL.LOW:
+          lowStockItems++;
+          itemsNeedingReorder++;
+          break;
+        case STOCK_LEVEL.OPTIMAL:
+          optimalItems++;
+          break;
+        case STOCK_LEVEL.OVERSTOCKED:
+          overstockedItems++;
+          break;
       }
     }
 
     return {
       totalValue,
+      negativeStockItems,
+      outOfStockItems,
       criticalItems,
       lowStockItems,
+      optimalItems,
       overstockedItems,
       itemsNeedingReorder,
     };
@@ -926,7 +1042,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const tasks = await this.prisma.task.findMany({
       where: {
         invoices: { none: {} },
-        price: { not: null },
         status: TASK_STATUS.COMPLETED as any,
       },
       include: {
@@ -939,7 +1054,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return tasks.map(t => ({
       id: t.id,
       name: `${t.name} - ${t.customer?.fantasyName || 'Sem cliente'}`,
-      value: Number(t.price) || 0,
+      value: 0,
     }));
   }
 
@@ -1108,25 +1223,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
     totalRevenue: number;
     bySector: DashboardChartData;
   }> {
-    const [total, byStatus, withPrice, tasks, bySector] = await Promise.all([
+    const [total, byStatus, bySector] = await Promise.all([
       this.prisma.task.count({ where }),
       this.prisma.task.groupBy({
         by: ['status'],
         where,
         _count: { id: true },
-      }),
-      this.prisma.task.count({
-        where: {
-          ...where,
-          price: { not: null },
-        },
-      }),
-      this.prisma.task.findMany({
-        where: {
-          ...where,
-          price: { not: null },
-        },
-        select: { price: true },
       }),
       this.prisma.task.groupBy({
         by: ['sectorId'],
@@ -1137,8 +1239,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
         _count: { id: true },
       }),
     ]);
-
-    const totalRevenue = tasks.reduce((sum, t) => sum + Number(t.price || 0), 0);
 
     const sectorIds = bySector.map(s => s.sectorId).filter(id => id !== null) as string[];
     const sectors = await this.prisma.sector.findMany({
@@ -1159,8 +1259,8 @@ export class DashboardPrismaRepository implements DashboardRepository {
           },
         ],
       },
-      withPrice,
-      totalRevenue,
+      withPrice: 0,
+      totalRevenue: 0,
       bySector: {
         labels: bySector.map(s => sectorMap.get(s.sectorId!) || 'Sem setor'),
         datasets: [
@@ -1230,15 +1330,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }
 
   async getTotalRevenue(): Promise<number> {
-    const tasks = await this.prisma.task.findMany({
-      where: {
-        price: { not: null },
-        status: TASK_STATUS.COMPLETED as any,
-      },
-      select: { price: true },
-    });
-
-    return tasks.reduce((sum, t) => sum + Number(t.price || 0), 0);
+    return 0;
   }
 
   async countMissingNfe(): Promise<number> {
@@ -1252,7 +1344,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.task.count({
         where: {
           invoices: { none: {} },
-          price: { not: null },
           status: TASK_STATUS.COMPLETED as any,
         },
       }),
@@ -2209,7 +2300,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     byType: DashboardChartData;
     byCity: DashboardChartData;
   }> {
-    const [customersWithTasks, customersByTasks, customersByRevenue, customers] = await Promise.all(
+    const [customersWithTasks, customersByTasks, customers] = await Promise.all(
       [
         this.prisma.customer.count({
           where: {
@@ -2222,17 +2313,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
           include: {
             _count: { select: { tasks: true } },
             tasks: { select: { id: true } },
-          },
-          orderBy: { tasks: { _count: 'desc' } },
-        }),
-        this.prisma.customer.findMany({
-          take: 10,
-          include: {
-            _count: { select: { tasks: true } },
-            tasks: {
-              select: { price: true },
-              where: { price: { not: null } },
-            },
           },
           orderBy: { tasks: { _count: 'desc' } },
         }),
@@ -2252,16 +2332,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
       value: customer._count.tasks,
     }));
 
-    const topByRevenue = customersByRevenue
-      .map(customer => {
-        const revenue = customer.tasks.reduce((sum, task) => sum + Number(task.price || 0), 0);
-        return {
-          id: customer.id,
-          name: customer.fantasyName || customer.corporateName,
-          value: revenue,
-        };
-      })
-      .sort((a, b) => b.value - a.value);
+    const topByRevenue = customersByTasks.map(customer => ({
+      id: customer.id,
+      name: customer.fantasyName || customer.corporateName,
+      value: 0,
+    }));
 
     const physicalPersons = customers.filter(c => c.cpf).length;
     const legalEntities = customers.filter(c => c.cnpj).length;
@@ -2549,70 +2624,24 @@ export class DashboardPrismaRepository implements DashboardRepository {
     bySector: DashboardChartData;
     byCustomerType: DashboardChartData;
   }> {
-    const [tasks, tasksBySector, tasksByCustomerType] = await Promise.all([
-      this.prisma.task.findMany({
-        where: { ...where, price: { not: null } },
-        select: {
-          price: true,
-          createdAt: true,
-          finishedAt: true,
-        },
-      }),
-      this.prisma.task.findMany({
-        where: { ...where, price: { not: null } },
-        include: {
-          sector: { select: { name: true } },
-        },
-      }),
-      this.prisma.task.findMany({
-        where: { ...where, price: { not: null } },
-        include: {
-          customer: { select: { cnpj: true, cpf: true } },
-        },
-      }),
-    ]);
+    const totalRevenue = 0;
+    const averageTaskValue = 0;
 
-    const totalRevenue = tasks.reduce((sum, task) => sum + Number(task.price || 0), 0);
-    const averageTaskValue = tasks.length > 0 ? totalRevenue / tasks.length : 0;
-
-    // Determine which date field to use for grouping based on the where clause
-    const dateField = where?.finishedAt ? 'finishedAt' : 'createdAt';
-
-    const monthlyRevenue = this.groupByMonth(tasks, monthTasks => ({
-      value: monthTasks.reduce((sum, task) => sum + Number(task.price || 0), 0),
-    }), dateField);
-
-    const byMonth = monthlyRevenue.map(({ month, value }) => ({
-      date: month,
-      value,
-    }));
-
-    const sectorGroups = tasksBySector.reduce(
-      (acc, task) => {
-        const sectorName = task.sector?.name || 'Sem setor';
-        acc[sectorName] = (acc[sectorName] || 0) + Number(task.price || 0);
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
+    const byMonth: TimeSeriesDataPoint[] = [];
 
     const bySector: DashboardChartData = {
-      labels: Object.keys(sectorGroups),
+      labels: [],
       datasets: [
         {
           label: 'Receita por Setor',
-          data: Object.values(sectorGroups),
+          data: [],
         },
       ],
     };
 
-    const physicalPersonRevenue = tasksByCustomerType
-      .filter(t => t.customer?.cpf)
-      .reduce((sum, task) => sum + Number(task.price || 0), 0);
+    const physicalPersonRevenue = 0;
 
-    const legalEntityRevenue = tasksByCustomerType
-      .filter(t => t.customer?.cnpj)
-      .reduce((sum, task) => sum + Number(task.price || 0), 0);
+    const legalEntityRevenue = 0;
 
     const byCustomerType: DashboardChartData = {
       labels: ['Pessoa Física', 'Pessoa Jurídica'],

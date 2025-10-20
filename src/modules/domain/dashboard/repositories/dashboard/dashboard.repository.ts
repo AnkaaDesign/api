@@ -24,8 +24,11 @@ export abstract class DashboardRepository {
   abstract countItems(where?: any): Promise<number>;
   abstract getItemStatistics(where?: any): Promise<{
     totalValue: number;
+    negativeStockItems: number;
+    outOfStockItems: number;
     criticalItems: number;
     lowStockItems: number;
+    optimalItems: number;
     overstockedItems: number;
     itemsNeedingReorder: number;
   }>;

@@ -43,33 +43,35 @@ export interface CreateBackupDto {
 @Injectable()
 export class BackupService {
   private readonly logger = new Logger(BackupService.name);
-  private readonly backupBasePath = '/home/kennedy/ankaa/backups';
+  private readonly backupBasePath = process.env.BACKUP_PATH || './backups';
+  private readonly isDevelopment = process.env.NODE_ENV !== 'production';
+  private readonly productionBasePath = '/home/kennedy/ankaa';
 
-  // RAID-aware and priority-based backup paths
-  private readonly criticalPaths = [
-    '/home/kennedy/ankaa',
-    '/home/kennedy/ankaa/.env',
-    '/home/kennedy/ankaa/apps/api/.env',
+  // RAID-aware and priority-based backup paths (production only)
+  private readonly criticalPaths = this.isDevelopment ? [] : [
+    `${this.productionBasePath}`,
+    `${this.productionBasePath}/.env`,
+    `${this.productionBasePath}/apps/api/.env`,
   ];
 
-  private readonly highPriorityPaths = [
-    '/home/kennedy/ankaa/apps',
-    '/home/kennedy/ankaa/packages',
-    '/home/kennedy/ankaa/scripts',
+  private readonly highPriorityPaths = this.isDevelopment ? [] : [
+    `${this.productionBasePath}/apps`,
+    `${this.productionBasePath}/packages`,
+    `${this.productionBasePath}/scripts`,
     '/etc/nginx',
     '/etc/ssl',
   ];
 
-  private readonly mediumPriorityPaths = [
-    '/home/kennedy/ankaa/docs',
-    '/home/kennedy/ankaa/test-examples',
+  private readonly mediumPriorityPaths = this.isDevelopment ? [] : [
+    `${this.productionBasePath}/docs`,
+    `${this.productionBasePath}/test-examples`,
     '/var/log/nginx',
     '/var/www',
   ];
 
-  private readonly lowPriorityPaths = [
-    '/home/kennedy/ankaa/node_modules',
-    '/home/kennedy/ankaa/.git',
+  private readonly lowPriorityPaths = this.isDevelopment ? [] : [
+    `${this.productionBasePath}/node_modules`,
+    `${this.productionBasePath}/.git`,
     '/tmp',
   ];
 
@@ -339,7 +341,9 @@ export class BackupService {
       const dbBackupPath = await this.performDatabaseBackup(`${backupId}_db`);
 
       // Create files backup for important directories
-      const importantPaths = ['/home/kennedy/ankaa', '/var/www', '/etc/nginx'];
+      const importantPaths = this.isDevelopment
+        ? ['./']
+        : [`${this.productionBasePath}`, '/var/www', '/etc/nginx'];
       const filesBackupPath = await this.performFilesBackup(`${backupId}_files`, importantPaths);
 
       // Combine both backups
@@ -514,12 +518,12 @@ export class BackupService {
     availableBytes: number;
   }> {
     try {
-      const { stdout } = await execAsync('df -h /home/kennedy/ankaa/backups | tail -1');
+      const { stdout } = await execAsync(`df -h ${this.backupBasePath} | tail -1`);
       const parts = stdout.trim().split(/\s+/);
 
       // Get available space in bytes for calculations
       const { stdout: bytesOutput } = await execAsync(
-        'df -B1 /home/kennedy/ankaa/backups | tail -1',
+        `df -B1 ${this.backupBasePath} | tail -1`,
       );
       const bytesParts = bytesOutput.trim().split(/\s+/);
       const availableBytes = parseInt(bytesParts[3]);

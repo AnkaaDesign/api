@@ -50,14 +50,24 @@ export class PaintBrandController {
   // =====================
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintBrandGetManySchema))
   async findMany(@Query() query: PaintBrandGetManyFormData) {
     return this.paintBrandService.findMany(query);
   }
 
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintBrandGetByIdSchema))
   async findById(
     @Param('id', ParseUUIDPipe) id: string,

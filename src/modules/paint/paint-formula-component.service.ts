@@ -14,6 +14,8 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   MEASURE_TYPE,
+  ACTIVITY_OPERATION,
+  ACTIVITY_REASON,
 } from '../../constants/enums';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
@@ -132,8 +134,8 @@ export class PaintFormulaComponentService {
   }
 
   /**
-   * Recalculate ratios for all components in a formula
-   * This is now a simple normalization to ensure ratios sum to 100%
+   * Recalculate ratios for all components in a formula based on weights
+   * Ratios are calculated as: (component.weight / totalWeight) * 100
    */
   private async recalculateFormulaComponentRatios(
     formulaPaintId: string,
@@ -154,38 +156,41 @@ export class PaintFormulaComponentService {
       return;
     }
 
-    // Calculate total ratio
-    const totalRatio = components.reduce((sum, comp) => sum + comp.ratio, 0);
+    // Calculate total weight
+    const totalWeight = components.reduce((sum, comp) => sum + (comp.weight || 0), 0);
 
-    // Normalize ratios to sum to 100%
-    if (totalRatio > 0 && totalRatio !== 100) {
-      for (const component of components) {
-        const originalRatio = component.ratio;
-        const normalizedRatio = (component.ratio / totalRatio) * 100;
-        // Round to 2 decimal places
-        const roundedRatio = Math.round(normalizedRatio * 100) / 100;
+    // If no weights defined, keep current ratios (backward compatibility)
+    if (totalWeight === 0) {
+      return;
+    }
 
-        if (hasValueChanged(originalRatio, roundedRatio)) {
-          await transaction.paintFormulaComponent.update({
-            where: { id: component.id },
-            data: { ratio: roundedRatio },
-          });
+    // Recalculate ratios based on weights
+    for (const component of components) {
+      const originalRatio = component.ratio;
+      const calculatedRatio = ((component.weight || 0) / totalWeight) * 100;
+      // Round to 2 decimal places
+      const roundedRatio = Math.round(calculatedRatio * 100) / 100;
 
-          // Log the ratio recalculation
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.PAINT_FORMULA_COMPONENT,
-            entityId: component.id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'ratio',
-            oldValue: originalRatio,
-            newValue: roundedRatio,
-            reason: `Proporção recalculada automaticamente (${component.item?.name || 'componente'}: ${originalRatio.toFixed(2)}% → ${roundedRatio.toFixed(2)}%)`,
-            triggeredBy: triggeredBy || CHANGE_TRIGGERED_BY.SYSTEM,
-            triggeredById: triggeredById || formulaPaintId,
-            userId: userId || 'system',
-            transaction,
-          });
-        }
+      if (hasValueChanged(originalRatio, roundedRatio)) {
+        await transaction.paintFormulaComponent.update({
+          where: { id: component.id },
+          data: { ratio: roundedRatio },
+        });
+
+        // Log the ratio recalculation
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.PAINT_FORMULA_COMPONENT,
+          entityId: component.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'ratio',
+          oldValue: originalRatio,
+          newValue: roundedRatio,
+          reason: `Proporção recalculada automaticamente com base no peso (${component.item?.name || 'componente'}: ${originalRatio.toFixed(2)}% → ${roundedRatio.toFixed(2)}%)`,
+          triggeredBy: triggeredBy || CHANGE_TRIGGERED_BY.SYSTEM,
+          triggeredById: triggeredById || formulaPaintId,
+          userId: userId || 'system',
+          transaction,
+        });
       }
     }
   }
@@ -210,6 +215,122 @@ export class PaintFormulaComponentService {
     );
   }
 
+  /**
+   * Deduct inventory during formulation testing (on blur event)
+   * This creates OUTBOUND activities without creating a component
+   */
+  async deductForFormulationTest(
+    data: {
+      itemId: string;
+      weight: number; // Weight in grams
+      formulaPaintId?: string; // Optional: for tracking which formula is being tested
+    },
+    userId?: string,
+  ): Promise<{ success: boolean; message: string; data: { unitsDeducted: number; remainingQuantity: number } }> {
+    try {
+      const result = await this.prisma.$transaction(async transaction => {
+        // Get item with measures
+        const item = await transaction.item.findUnique({
+          where: { id: data.itemId },
+          include: { measures: true },
+        });
+
+        if (!item) {
+          throw new NotFoundException('Item não encontrado');
+        }
+
+        const originalQuantity = item.quantity;
+
+        // Calculate units to deduct based on weight
+        let unitsToDeduct = 0;
+        const weightMeasure = item.measures?.find(m => m.measureType === 'WEIGHT');
+
+        if (weightMeasure && weightMeasure.value) {
+          if (weightMeasure.unit === 'KILOGRAM') {
+            const weightPerUnitGrams = weightMeasure.value * 1000;
+            unitsToDeduct = data.weight / weightPerUnitGrams;
+          } else if (weightMeasure.unit === 'GRAM') {
+            unitsToDeduct = data.weight / weightMeasure.value;
+          }
+        } else {
+          // Default: 1 unit = 1kg = 1000g
+          unitsToDeduct = data.weight / 1000;
+          this.logger.warn(
+            `Item ${item.name}: No weight measure defined, using default 1 unit = 1kg`,
+          );
+        }
+
+        unitsToDeduct = Math.max(0, Math.round(unitsToDeduct * 10000) / 10000);
+
+        // Check inventory availability
+        if (item.quantity < unitsToDeduct) {
+          throw new BadRequestException(
+            `Estoque insuficiente para "${item.name}". ` +
+            `Necessário: ${unitsToDeduct.toFixed(4)} unidades (${data.weight.toFixed(2)}g), ` +
+            `Disponível: ${item.quantity.toFixed(4)} unidades`,
+          );
+        }
+
+        // Create OUTBOUND activity
+        await transaction.activity.create({
+          data: {
+            itemId: data.itemId,
+            quantity: unitsToDeduct,
+            operation: ACTIVITY_OPERATION.OUTBOUND,
+            reason: ACTIVITY_REASON.PAINT_PRODUCTION,
+            reasonOrder: 12,
+            userId: userId || null,
+          },
+        });
+
+        // Deduct inventory
+        const newQuantity = originalQuantity - unitsToDeduct;
+        await transaction.item.update({
+          where: { id: data.itemId },
+          data: {
+            quantity: {
+              decrement: unitsToDeduct,
+            },
+          },
+        });
+
+        // Log to changelog
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.ITEM,
+          entityId: data.itemId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'quantity',
+          oldValue: originalQuantity,
+          newValue: newQuantity,
+          reason: `Inventário deduzido para teste de formulação: ${unitsToDeduct.toFixed(4)} unidades para ${data.weight.toFixed(2)}g${data.formulaPaintId ? ` (fórmula: ${data.formulaPaintId})` : ''}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_CREATE,
+          triggeredById: data.formulaPaintId || data.itemId,
+          userId: userId || 'system',
+          transaction,
+        });
+
+        return {
+          unitsDeducted: unitsToDeduct,
+          remainingQuantity: newQuantity,
+        };
+      });
+
+      return {
+        success: true,
+        message: `Inventário deduzido com sucesso: ${result.unitsDeducted.toFixed(4)} unidades`,
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error('Erro ao deduzir inventário para teste de formulação:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Erro ao deduzir inventário. Por favor, tente novamente.',
+      );
+    }
+  }
+
   async create(
     data: PaintFormulaComponentCreateFormData,
     include?: PaintFormulaComponentInclude,
@@ -217,33 +338,31 @@ export class PaintFormulaComponentService {
   ): Promise<PaintFormulaComponentCreateResponse> {
     try {
       const component = await this.prisma.$transaction(async transaction => {
-        // Validate item exists and has required measures
+        // Validate item exists
         const item = await this.validateItemExists(data.itemId, transaction);
 
         // Validate component compatibility with paint brand and type
         await this.validateComponentCompatibility(data.itemId, data.formulaPaintId, transaction);
 
-        // Get all existing components to calculate total weight
+        // Get all existing components to calculate total weight and ratio
         const existingComponents = await transaction.paintFormulaComponent.findMany({
           where: { formulaPaintId: data.formulaPaintId },
         });
 
-        // Validate that total ratio won't exceed 100%
-        const currentTotalRatio = existingComponents.reduce((sum, comp) => sum + comp.ratio, 0);
-        const newTotalRatio = currentTotalRatio + data.ratio;
+        // Calculate total weight (existing + new)
+        const existingTotalWeight = existingComponents.reduce((sum, comp) => sum + (comp.weight || 0), 0);
+        const newTotalWeight = existingTotalWeight + data.weight;
 
-        if (newTotalRatio > 100.01) {
-          // Allow small floating point error
-          throw new BadRequestException(
-            `Soma das proporções não pode exceder 100% (atual: ${currentTotalRatio.toFixed(2)}%, novo: ${data.ratio.toFixed(2)}%)`,
-          );
-        }
+        // Calculate ratio for the new component
+        const calculatedRatio = (data.weight / newTotalWeight) * 100;
 
-        // Create component with provided ratio
+        // Create component with both weight and calculated ratio
+        // Note: Inventory was already deducted during blur/test events
         const componentData = {
           itemId: data.itemId,
           formulaPaintId: data.formulaPaintId,
-          ratio: data.ratio,
+          weight: data.weight,
+          ratio: calculatedRatio,
         };
 
         const created = await this.paintFormulaComponentRepository.createWithTransaction(
@@ -252,7 +371,15 @@ export class PaintFormulaComponentService {
           { include },
         );
 
-        // No need to recalculate ratios since they are provided directly
+        // Recalculate ratios for all components (including the new one)
+        // since adding a new component changes the total weight
+        await this.recalculateFormulaComponentRatios(
+          data.formulaPaintId,
+          transaction,
+          userId,
+          CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_CREATE,
+          created.id,
+        );
 
         // Update formula density and cost
         await this.updateFormulaDensityAndCost(
@@ -275,7 +402,7 @@ export class PaintFormulaComponentService {
               ENTITY_TYPE.PAINT_FORMULA_COMPONENT,
             ) as (keyof PaintFormulaComponent)[],
           ),
-          reason: `Componente criado (${item.name}, ${data.ratio.toFixed(2)}%)`,
+          reason: `Componente criado (${item.name}, ${data.weight.toFixed(2)}g, ${calculatedRatio.toFixed(2)}%)`,
           userId: userId || 'system',
           triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_CREATE,
           transaction,
@@ -292,22 +419,10 @@ export class PaintFormulaComponentService {
             componentId: created.id,
             itemId: data.itemId,
             itemName: item.name,
-            ratio: data.ratio,
+            weight: data.weight,
+            ratio: calculatedRatio,
           },
-          reason: `Componente adicionado: ${item.name} (${data.ratio.toFixed(2)}%)`,
-          triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_CREATE,
-          triggeredById: created.id,
-          userId: userId || 'system',
-          transaction,
-        });
-
-        // Log impact on item inventory
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.ITEM,
-          entityId: data.itemId,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'formulaComponents',
-          reason: 'Item adicionado como componente de fórmula de tinta',
+          reason: `Componente adicionado: ${item.name} (${data.weight.toFixed(2)}g, ${calculatedRatio.toFixed(2)}%)`,
           triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_CREATE,
           triggeredById: created.id,
           userId: userId || 'system',
@@ -363,43 +478,31 @@ export class PaintFormulaComponentService {
       }
 
       const component = await this.prisma.$transaction(async transaction => {
-        // If item changed, validate the new item
+        let updateData: any = {};
+        const changes: string[] = [];
+
+        // Update weight if provided
+        // Note: Inventory was already deducted during blur/test events
+        if (data.weight !== undefined && data.weight !== componentExists.weight) {
+          updateData.weight = data.weight;
+          changes.push(`peso alterado de ${(componentExists.weight || 0).toFixed(2)}g para ${data.weight.toFixed(2)}g`);
+        }
+
+        // Update item if provided
         if (data.itemId && data.itemId !== componentExists.itemId) {
           await this.validateItemExists(data.itemId, transaction);
-          // Validate new component compatibility
           await this.validateComponentCompatibility(
             data.itemId,
             componentExists.formulaPaintId,
             transaction,
           );
-        }
-
-        // Update ratio if provided
-        let updateData: any = {};
-        if (data.ratio !== undefined) {
-          // Validate that total ratio won't exceed 100%
-          const allComponents = await transaction.paintFormulaComponent.findMany({
-            where: { formulaPaintId: componentExists.formulaPaintId },
-          });
-
-          const currentTotalRatio = allComponents
-            .filter(comp => comp.id !== id)
-            .reduce((sum, comp) => sum + comp.ratio, 0);
-          const newTotalRatio = currentTotalRatio + data.ratio;
-
-          if (newTotalRatio > 100.01) {
-            // Allow small floating point error
-            throw new BadRequestException(
-              `Soma das proporções não pode exceder 100% (atual: ${currentTotalRatio.toFixed(2)}%, novo: ${data.ratio.toFixed(2)}%)`,
-            );
-          }
-
-          updateData.ratio = data.ratio;
-        }
-
-        // Add other update fields
-        if (data.itemId !== undefined) {
           updateData.itemId = data.itemId;
+          changes.push(`item alterado`);
+        }
+
+        // Update formula if provided
+        if (data.formulaPaintId !== undefined) {
+          updateData.formulaPaintId = data.formulaPaintId;
         }
 
         const updated = await this.paintFormulaComponentRepository.updateWithTransaction(
@@ -409,7 +512,7 @@ export class PaintFormulaComponentService {
           { include },
         );
 
-        // Recalculate all component ratios
+        // Recalculate all component ratios based on weights
         await this.recalculateFormulaComponentRatios(
           updated.formulaPaintId,
           transaction,
@@ -428,7 +531,7 @@ export class PaintFormulaComponentService {
         );
 
         // Enhanced field tracking
-        const fieldsToTrack = ['itemId', 'ratio', 'formulaPaintId'];
+        const fieldsToTrack = ['itemId', 'weight', 'ratio', 'formulaPaintId'];
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.PAINT_FORMULA_COMPONENT,
@@ -442,14 +545,6 @@ export class PaintFormulaComponentService {
         });
 
         // Log detailed impact on formula
-        const changes: string[] = [];
-        if (data.itemId && data.itemId !== componentExists.itemId) {
-          changes.push(`item alterado para ${data.itemId}`);
-        }
-        if (updateData.ratio && updateData.ratio !== componentExists.ratio) {
-          changes.push(`proporção alterada para ${updateData.ratio.toFixed(2)}%`);
-        }
-
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.PAINT_FORMULA,
           entityId: updated.formulaPaintId,
@@ -461,35 +556,6 @@ export class PaintFormulaComponentService {
           userId: userId || 'system',
           transaction,
         });
-
-        // Log impact on items if item changed
-        if (data.itemId && data.itemId !== componentExists.itemId) {
-          // Log removal from old item
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ITEM,
-            entityId: componentExists.itemId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'formulaComponents',
-            reason: 'Item removido como componente de fórmula de tinta',
-            triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_UPDATE,
-            triggeredById: id,
-            userId: userId || 'system',
-            transaction,
-          });
-
-          // Log addition to new item
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.ITEM,
-            entityId: data.itemId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'formulaComponents',
-            reason: 'Item adicionado como componente de fórmula de tinta',
-            triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_UPDATE,
-            triggeredById: id,
-            userId: userId || 'system',
-            transaction,
-          });
-        }
 
         // Fetch the updated component with correct ratio
         const updatedComponent = await transaction.paintFormulaComponent.findUnique({
@@ -529,6 +595,8 @@ export class PaintFormulaComponentService {
       await this.prisma.$transaction(async transaction => {
         const formulaPaintId = componentExists.formulaPaintId;
 
+        // Delete component
+        // Note: Inventory was already consumed during blur/test events and should not be returned
         await this.paintFormulaComponentRepository.deleteWithTransaction(transaction, id);
 
         // Recalculate remaining component ratios
@@ -561,7 +629,7 @@ export class PaintFormulaComponentService {
               ENTITY_TYPE.PAINT_FORMULA_COMPONENT,
             ) as (keyof PaintFormulaComponent)[],
           ),
-          reason: `Componente excluído (${componentExists.ratio.toFixed(2)}%)`,
+          reason: `Componente excluído (${(componentExists.weight || 0).toFixed(2)}g, ${componentExists.ratio.toFixed(2)}%)`,
           userId: userId || 'system',
           triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_DELETE,
           transaction,
@@ -577,10 +645,11 @@ export class PaintFormulaComponentService {
             action: 'REMOVE_COMPONENT',
             componentId: id,
             itemId: componentExists.itemId,
+            weight: componentExists.weight,
             ratio: componentExists.ratio,
           },
           newValue: null,
-          reason: `Componente removido (${componentExists.ratio.toFixed(2)}%)`,
+          reason: `Componente removido (${(componentExists.weight || 0).toFixed(2)}g, ${componentExists.ratio.toFixed(2)}%)`,
           triggeredBy: CHANGE_TRIGGERED_BY.PAINT_FORMULA_COMPONENT_DELETE,
           triggeredById: id,
           userId: userId || 'system',

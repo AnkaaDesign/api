@@ -120,7 +120,7 @@ export class GarageUnifiedController {
   // =====================
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getGarages(
     @Query(new ZodQueryValidationPipe(garageGetManySchema)) query: GarageGetManyFormData,
   ): Promise<GarageGetManyResponse> {
@@ -129,7 +129,7 @@ export class GarageUnifiedController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async createGarage(
     @Body(new ZodValidationPipe(garageCreateSchema)) data: GarageCreateFormData,
     @Query(new ZodQueryValidationPipe(garageQuerySchema)) query: GarageQueryFormData,
@@ -141,7 +141,7 @@ export class GarageUnifiedController {
   // Batch operations (must come before dynamic routes)
   @Post('batch')
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchCreateGarages(
     @Body(new ZodValidationPipe(garageBatchCreateSchema)) data: GarageBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(garageQuerySchema)) query: GarageQueryFormData,
@@ -155,7 +155,7 @@ export class GarageUnifiedController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdateGarages(
     @Body(new ZodValidationPipe(garageBatchUpdateSchema)) data: GarageBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(garageQuerySchema)) query: GarageQueryFormData,
@@ -172,7 +172,7 @@ export class GarageUnifiedController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteGarages(
     @Body(new ZodValidationPipe(garageBatchDeleteSchema)) data: GarageBatchDeleteFormData,
     @UserId() userId: string,
@@ -182,7 +182,7 @@ export class GarageUnifiedController {
 
   // Dynamic routes (must come after static routes)
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getGarageById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(garageQuerySchema)) query: GarageQueryFormData,
@@ -191,7 +191,7 @@ export class GarageUnifiedController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async updateGarage(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(garageUpdateSchema)) data: GarageUpdateFormData,
@@ -202,7 +202,7 @@ export class GarageUnifiedController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async deleteGarage(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -214,17 +214,46 @@ export class GarageUnifiedController {
   // GARAGE LANE OPERATIONS
   // =====================
 
+  @Get(':garageId/lanes')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  async getLanesByGarageId(
+    @Param('garageId', ParseUUIDPipe) garageId: string,
+    @Query(new ZodQueryValidationPipe(garageLaneGetManySchema)) query: GarageLaneGetManyFormData,
+  ): Promise<GarageLaneGetManyResponse> {
+    // Filter lanes by garageId
+    const queryWithGarage = {
+      ...query,
+      garageIds: [garageId],
+      orderBy: query.orderBy || [{ yPosition: 'asc' as const }],
+    };
+    return this.garageLaneService.findMany(queryWithGarage);
+  }
+
   @Get('lanes')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getGarageLanes(
     @Query(new ZodQueryValidationPipe(garageLaneGetManySchema)) query: GarageLaneGetManyFormData,
   ): Promise<GarageLaneGetManyResponse> {
     return this.garageLaneService.findMany(query);
   }
 
+  @Post(':garageId/lanes')
+  @HttpCode(HttpStatus.CREATED)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  async createLaneForGarage(
+    @Param('garageId', ParseUUIDPipe) garageId: string,
+    @Body(new ZodValidationPipe(garageLaneCreateSchema)) data: GarageLaneCreateFormData,
+    @Query(new ZodQueryValidationPipe(garageLaneQuerySchema)) query: GarageLaneQueryFormData,
+    @UserId() userId: string,
+  ): Promise<GarageLaneCreateResponse> {
+    // Override garageId from body with the one from the URL
+    const laneData = { ...data, garageId };
+    return this.garageLaneService.createWithAutoPositioning(laneData, query.include, userId);
+  }
+
   @Post('lanes')
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async createGarageLane(
     @Body(new ZodValidationPipe(garageLaneCreateSchema)) data: GarageLaneCreateFormData,
     @Query(new ZodQueryValidationPipe(garageLaneQuerySchema)) query: GarageLaneQueryFormData,
@@ -235,7 +264,7 @@ export class GarageUnifiedController {
 
   @Post('lanes/batch')
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchCreateGarageLanes(
     @Body(new ZodValidationPipe(garageLaneBatchCreateSchema)) data: GarageLaneBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(garageLaneQuerySchema)) query: GarageLaneQueryFormData,
@@ -245,7 +274,7 @@ export class GarageUnifiedController {
   }
 
   @Put('lanes/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdateGarageLanes(
     @Body(new ZodValidationPipe(garageLaneBatchUpdateSchema)) data: GarageLaneBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(garageLaneQuerySchema)) query: GarageLaneQueryFormData,
@@ -255,7 +284,7 @@ export class GarageUnifiedController {
   }
 
   @Delete('lanes/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteGarageLanes(
     @Body(new ZodValidationPipe(garageLaneBatchDeleteSchema)) data: GarageLaneBatchDeleteFormData,
     @UserId() userId: string,
@@ -264,7 +293,7 @@ export class GarageUnifiedController {
   }
 
   @Get('lanes/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getGarageLaneById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(garageLaneQuerySchema)) query: GarageLaneQueryFormData,
@@ -273,7 +302,7 @@ export class GarageUnifiedController {
   }
 
   @Put('lanes/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async updateGarageLane(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(garageLaneUpdateSchema)) data: GarageLaneUpdateFormData,
@@ -284,7 +313,7 @@ export class GarageUnifiedController {
   }
 
   @Delete('lanes/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async deleteGarageLane(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -297,7 +326,7 @@ export class GarageUnifiedController {
   // =====================
 
   @Get('parking-spots')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getParkingSpots(
     @Query(new ZodQueryValidationPipe(parkingSpotGetManySchema)) query: ParkingSpotGetManyFormData,
   ): Promise<ParkingSpotGetManyResponse> {
@@ -306,7 +335,7 @@ export class GarageUnifiedController {
 
   @Post('parking-spots')
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async createParkingSpot(
     @Body(new ZodValidationPipe(parkingSpotCreateSchema)) data: ParkingSpotCreateFormData,
     @Query(new ZodQueryValidationPipe(parkingSpotQuerySchema)) query: ParkingSpotQueryFormData,
@@ -317,7 +346,7 @@ export class GarageUnifiedController {
 
   @Post('parking-spots/batch')
   @HttpCode(HttpStatus.CREATED)
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchCreateParkingSpots(
     @Body(new ZodValidationPipe(parkingSpotBatchCreateSchema)) data: ParkingSpotBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(parkingSpotQuerySchema)) query: ParkingSpotQueryFormData,
@@ -327,7 +356,7 @@ export class GarageUnifiedController {
   }
 
   @Put('parking-spots/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdateParkingSpots(
     @Body(new ZodValidationPipe(parkingSpotBatchUpdateSchema)) data: ParkingSpotBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(parkingSpotQuerySchema)) query: ParkingSpotQueryFormData,
@@ -337,7 +366,7 @@ export class GarageUnifiedController {
   }
 
   @Delete('parking-spots/batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchDeleteParkingSpots(
     @Body(new ZodValidationPipe(parkingSpotBatchDeleteSchema)) data: ParkingSpotBatchDeleteFormData,
     @UserId() userId: string,
@@ -346,7 +375,7 @@ export class GarageUnifiedController {
   }
 
   @Get('parking-spots/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async getParkingSpotById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(parkingSpotQuerySchema)) query: ParkingSpotQueryFormData,
@@ -355,7 +384,7 @@ export class GarageUnifiedController {
   }
 
   @Put('parking-spots/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async updateParkingSpot(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(parkingSpotUpdateSchema)) data: ParkingSpotUpdateFormData,
@@ -366,7 +395,7 @@ export class GarageUnifiedController {
   }
 
   @Delete('parking-spots/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async deleteParkingSpot(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

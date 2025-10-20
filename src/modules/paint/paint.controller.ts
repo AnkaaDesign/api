@@ -224,7 +224,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintGetManySchema))
   async getPaints(@Query() query: PaintGetManyFormData): Promise<PaintGetManyResponse> {
     return this.paintService.findMany(query);
@@ -325,7 +330,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('types')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintTypeGetManySchema))
   async getPaintTypes(@Query() query: PaintTypeGetManyFormData): Promise<PaintTypeGetManyResponse> {
     return this.paintTypeService.findMany(query);
@@ -374,7 +384,12 @@ export class PaintUnifiedController {
   }
 
   @Get('types/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintTypeGetByIdSchema))
   async getPaintTypeById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -409,7 +424,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('grounds')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintGroundGetManySchema))
   async getPaintGrounds(
     @Query() query: PaintGroundGetManyFormData,
@@ -463,7 +483,12 @@ export class PaintUnifiedController {
   }
 
   @Get('grounds/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintGroundGetByIdSchema))
   async getPaintGroundById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -498,7 +523,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('formulas')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaGetManySchema))
   async getPaintFormulas(
     @Query() query: PaintFormulaGetManyFormData,
@@ -552,7 +582,12 @@ export class PaintUnifiedController {
   }
 
   @Get('formulas/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaGetByIdSchema))
   async getPaintFormulaById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -587,7 +622,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('formula-components')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaComponentGetManySchema))
   async getPaintFormulaComponents(
     @Query() query: PaintFormulaComponentGetManyFormData,
@@ -606,6 +646,16 @@ export class PaintUnifiedController {
     @UserId() userId: string,
   ): Promise<PaintFormulaComponentCreateResponse> {
     return this.paintFormulaComponentService.create(data, query.include, userId);
+  }
+
+  @Post('formula-components/deduct-for-test')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async deductInventoryForFormulationTest(
+    @Body() data: { itemId: string; weight: number; formulaPaintId?: string },
+    @UserId() userId: string,
+  ) {
+    return this.paintFormulaComponentService.deductForFormulationTest(data, userId);
   }
 
   @Post('formula-components/batch')
@@ -644,7 +694,12 @@ export class PaintUnifiedController {
   }
 
   @Get('formula-components/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaComponentGetByIdSchema))
   async getPaintFormulaComponentById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -680,7 +735,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('productions')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintProductionGetManySchema))
   async getPaintProductions(
     @Query() query: PaintProductionGetManyFormData,
@@ -689,7 +749,12 @@ export class PaintUnifiedController {
   }
 
   @Get('productions/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintProductionGetByIdSchema))
   async getPaintProductionById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -771,7 +836,12 @@ export class PaintUnifiedController {
   // =====================
 
   @Get('brands')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getPaintBrands(
     @Query('includeStats') includeStats?: boolean,
     @Query('take') take?: number,
@@ -785,13 +855,23 @@ export class PaintUnifiedController {
   }
 
   @Get('brands/available')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getAvailablePaintBrands() {
     return this.paintBrandService.findMany({});
   }
 
   @Get('brands/:brand')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getPaintsByBrandName(
     @Param('brand') brand: string,
     @Query('includePaints') includePaints?: boolean,
@@ -814,7 +894,12 @@ export class PaintUnifiedController {
   }
 
   @Get('brands/:brand/paints')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getPaintsByBrand(
     @Param('brand') brand: string,
     @Query('paintTypeId') paintTypeId?: string,
@@ -839,7 +924,12 @@ export class PaintUnifiedController {
   }
 
   @Get('components/filtered')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getComponentsByPaintFilters(
     @Query('paintTypeIds') paintTypeIds?: string,
     @Query('paintBrands') paintBrands?: string,
@@ -855,7 +945,12 @@ export class PaintUnifiedController {
   }
 
   @Get('components/available/:paintBrandId/:paintTypeId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getAvailableComponents(
     @Param('paintBrandId') paintBrandId: string,
     @Param('paintTypeId') paintTypeId: string,
@@ -870,7 +965,12 @@ export class PaintUnifiedController {
 
   // Backward compatibility - also support brand name
   @Get('components/available-by-brand/:paintBrand/:paintTypeId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getAvailableComponentsByBrand(
     @Param('paintBrand') paintBrand: string,
     @Param('paintTypeId') paintTypeId: string,
@@ -884,7 +984,12 @@ export class PaintUnifiedController {
   }
 
   @Get('components/validate/:componentId/:paintBrandId/:paintTypeId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async validateComponentCompatibility(
     @Param('componentId') componentId: string,
     @Param('paintBrandId') paintBrandId: string,
@@ -905,7 +1010,12 @@ export class PaintUnifiedController {
   }
 
   @Get('compatibility/matrix')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getCompatibilityMatrix() {
     const matrix = await this.paintCompatibilityService.getCompatibilityMatrix();
     return {
@@ -916,7 +1026,12 @@ export class PaintUnifiedController {
   }
 
   @Get('components/suggested/:paintBrandId/:paintTypeId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getSuggestedComponents(
     @Param('paintBrandId') paintBrandId: string,
     @Param('paintTypeId') paintTypeId: string,
@@ -936,7 +1051,12 @@ export class PaintUnifiedController {
 
   // Dynamic route for paint by id - must come after all static routes
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(paintGetByIdSchema))
   async getPaintById(
     @Param('id', ParseUUIDPipe) id: string,

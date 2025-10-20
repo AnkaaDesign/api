@@ -236,6 +236,7 @@ export const TABLER_ICONS = {
   revenue: "IconCurrencyDollar",
   profit: "IconTrendingUp",
   cost: "IconCalculator",
+  financial: "IconCurrencyDollar",
 
   // ==================== COMMON ACTIONS ====================
   // CRUD Operations
@@ -457,10 +458,11 @@ export const NAVIGATION_MENU: MenuItem[] = [
         title: "Clientes",
         icon: "users",
         path: "/administracao/clientes",
+        requiredPrivilege: [SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN],
         children: [
-          { id: "clientes-cadastrar", title: "Cadastrar", icon: "plus", path: "/administracao/clientes/cadastrar" },
+          { id: "clientes-cadastrar", title: "Cadastrar", icon: "plus", path: "/administracao/clientes/cadastrar", requiredPrivilege: [SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN] },
           { id: "clientes-detalhes", title: "Detalhes", icon: "eye", path: "/administracao/clientes/detalhes/:id", isDynamic: true },
-          { id: "clientes-editar", title: "Editar", icon: "edit", path: "/administracao/clientes/editar/:id", isDynamic: true },
+          { id: "clientes-editar", title: "Editar", icon: "edit", path: "/administracao/clientes/editar/:id", isDynamic: true, requiredPrivilege: [SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN] },
         ],
       },
 
@@ -522,6 +524,55 @@ export const NAVIGATION_MENU: MenuItem[] = [
     path: "/pintura/catalogo-basico",
     requiredPrivilege: [SECTOR_PRIVILEGES.LEADER],
     children: [{ id: "catalogo-detalhes", title: "Detalhes", icon: "eye", path: "/pintura/catalogo-basico/detalhes/:id", isDynamic: true }],
+  },
+
+  // FINANCEIRO
+  {
+    id: "financeiro",
+    title: "Financeiro",
+    icon: "financial",
+    path: "/financeiro",
+    requiredPrivilege: SECTOR_PRIVILEGES.FINANCIAL,
+    children: [
+      {
+        id: "clientes-financeiro",
+        title: "Clientes",
+        icon: "users",
+        path: "/financeiro/clientes",
+      },
+      {
+        id: "producao-financeiro",
+        title: "Produção",
+        icon: "factory",
+        path: "/financeiro/producao",
+        children: [
+          {
+            id: "aerografia-financeiro",
+            title: "Aerografia",
+            icon: "paintBrush",
+            path: "/financeiro/producao/aerografia",
+          },
+          {
+            id: "cronograma-financeiro",
+            title: "Cronograma",
+            icon: "clock",
+            path: "/financeiro/producao/cronograma",
+          },
+          {
+            id: "em-espera-financeiro",
+            title: "Em Espera",
+            icon: "pause",
+            path: "/financeiro/producao/em-espera",
+          },
+          {
+            id: "historico-tarefas-financeiro",
+            title: "Histórico de Tarefas",
+            icon: "history",
+            path: "/financeiro/producao/historico-tarefas",
+          },
+        ],
+      },
+    ],
   },
 
   // ESTATÍSTICAS
@@ -1031,7 +1082,7 @@ export const NAVIGATION_MENU: MenuItem[] = [
     title: "Produção",
     icon: "factory",
     path: "/producao",
-    requiredPrivilege: [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN],
+    requiredPrivilege: [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN],
     children: [
       {
         id: "aerografia",
@@ -1077,7 +1128,7 @@ export const NAVIGATION_MENU: MenuItem[] = [
             icon: "edit",
             path: "/producao/cronograma/editar/:id",
             isDynamic: true,
-            requiredPrivilege: SECTOR_PRIVILEGES.ADMIN,
+            requiredPrivilege: [SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN],
           },
           {
             id: "cronograma-cadastrar",
@@ -1133,7 +1184,7 @@ export const NAVIGATION_MENU: MenuItem[] = [
         title: "Histórico",
         icon: "history",
         path: "/producao/historico",
-        requiredPrivilege: [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN],
+        requiredPrivilege: [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN],
       },
 
       {

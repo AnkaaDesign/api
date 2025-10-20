@@ -127,10 +127,13 @@ export interface InventoryDashboardData {
   overview: {
     totalItems: DashboardMetric;
     totalValue: DashboardMetric; // sum of quantity * latest price
-    criticalItems: DashboardMetric; // quantity < minQuantity * 0.2
-    lowStockItems: DashboardMetric; // quantity < minQuantity
+    negativeStockItems: DashboardMetric; // quantity < 0
+    outOfStockItems: DashboardMetric; // quantity = 0
+    criticalItems: DashboardMetric; // quantity <= 90% of reorderPoint
+    lowStockItems: DashboardMetric; // 90% < quantity <= 110% of reorderPoint
+    optimalItems: DashboardMetric; // 110% < quantity <= maxQuantity (or no max)
     overstockedItems: DashboardMetric; // quantity > maxQuantity
-    itemsNeedingReorder: DashboardMetric; // quantity <= reorderPoint
+    itemsNeedingReorder: DashboardMetric; // NEGATIVE_STOCK + OUT_OF_STOCK + CRITICAL + LOW
   };
   stockMovements: {
     totalInbound: DashboardMetric;

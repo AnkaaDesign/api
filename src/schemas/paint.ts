@@ -1734,21 +1734,21 @@ export const paintFormulaComponentGetManySchema = z
   .transform(paintFormulaComponentTransform);
 
 export const paintFormulaComponentCreateSchema = z.object({
-  ratio: z.number().positive("Proporção deve ser positiva").max(100, "Proporção máxima é 100%"),
+  weight: z.number().positive("Peso deve ser positivo"),  // Weight in grams
   itemId: z.string().uuid("Item inválido"),
   formulaPaintId: z.string().uuid("Fórmula inválida"),
 });
 
 export const paintFormulaComponentUpdateSchema = z
   .object({
-    ratio: z.number().positive("Proporção deve ser positiva").max(100, "Proporção máxima é 100%").optional(),
+    weight: z.number().positive("Peso deve ser positivo").optional(),  // Weight in grams
     itemId: z.string().uuid("Item inválido").optional(),
     formulaPaintId: z.string().uuid("Fórmula inválida").optional(),
   })
   .refine(
     (data) => {
       // Ensure at least one field is being updated
-      return data.ratio !== undefined || data.itemId !== undefined || data.formulaPaintId !== undefined;
+      return data.weight !== undefined || data.itemId !== undefined || data.formulaPaintId !== undefined;
     },
     {
       message: "Pelo menos um campo deve ser fornecido para atualização",

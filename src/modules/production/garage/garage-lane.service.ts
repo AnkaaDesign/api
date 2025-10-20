@@ -296,6 +296,126 @@ export class GarageLaneService {
   }
 
   /**
+   * Calculate auto-positioning for lanes with even spacing
+   * - Maintains 3m spacing from top and bottom edges
+   * - Evenly distributes lanes based on count and garage height
+   */
+  private calculateAutoPosition(
+    garageLength: number,
+    laneCount: number,
+    laneWidth: number,
+  ): number[] {
+    const EDGE_SPACING = 3; // 3m spacing from edges
+    const availableSpace = garageLength - (2 * EDGE_SPACING);
+    const totalLaneWidth = laneCount * laneWidth;
+    const totalSpacing = availableSpace - totalLaneWidth;
+    const spacingBetweenLanes = laneCount > 1 ? totalSpacing / (laneCount - 1) : 0;
+
+    const positions: number[] = [];
+    for (let i = 0; i < laneCount; i++) {
+      const yPosition = EDGE_SPACING + (i * (laneWidth + spacingBetweenLanes));
+      positions.push(yPosition);
+    }
+
+    return positions;
+  }
+
+  /**
+   * Criar nova faixa com auto-posicionamento
+   */
+  async createWithAutoPositioning(
+    data: GarageLaneCreateFormData,
+    include?: GarageLaneInclude,
+    userId?: string,
+  ): Promise<GarageLaneCreateResponse> {
+    try {
+      const garageLane = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Buscar garagem para obter dimensões
+        const garage = await tx.garage.findUnique({
+          where: { id: data.garageId },
+          include: { lanes: true },
+        });
+
+        if (!garage) {
+          throw new NotFoundException('Garagem não encontrada.');
+        }
+
+        // Calcular posição automática
+        const existingLaneCount = garage.lanes.length;
+        const newLaneCount = existingLaneCount + 1;
+        const laneWidth = data.width;
+
+        // Validar que cabe mais uma faixa
+        const EDGE_SPACING = 3;
+        const availableSpace = garage.length - (2 * EDGE_SPACING);
+        const totalLaneWidth = newLaneCount * laneWidth;
+
+        if (totalLaneWidth > availableSpace) {
+          throw new BadRequestException(
+            `Não há espaço suficiente na garagem para adicionar mais uma faixa. ` +
+            `Espaço disponível: ${availableSpace}m, Espaço necessário: ${totalLaneWidth}m`
+          );
+        }
+
+        // Calcular novas posições para todas as faixas (incluindo a nova)
+        const newPositions = this.calculateAutoPosition(garage.length, newLaneCount, laneWidth);
+
+        // Atualizar posições das faixas existentes
+        for (let i = 0; i < existingLaneCount; i++) {
+          await tx.garageLane.update({
+            where: { id: garage.lanes[i].id },
+            data: { yPosition: newPositions[i] },
+          });
+        }
+
+        // Criar a nova faixa com a última posição calculada
+        const laneDataWithPosition = {
+          ...data,
+          yPosition: newPositions[newLaneCount - 1],
+          xPosition: data.xPosition || 0, // Default to 0 if not provided
+        };
+
+        // Validar entidade completa
+        await this.garageLaneValidation(laneDataWithPosition, undefined, tx);
+
+        // Criar a faixa
+        const newGarageLane = await this.garageLaneRepository.createWithTransaction(
+          tx,
+          laneDataWithPosition,
+          { include },
+        );
+
+        // Registrar no changelog
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.GARAGE_LANE,
+          entityId: newGarageLane.id,
+          action: CHANGE_ACTION.CREATE,
+          entity: newGarageLane,
+          reason: 'Faixa criada com auto-posicionamento',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          userId: userId || '',
+          transaction: tx,
+        });
+
+        return newGarageLane;
+      });
+
+      return {
+        success: true,
+        message: 'Faixa criada com sucesso com posicionamento automático.',
+        data: garageLane,
+      };
+    } catch (error: any) {
+      this.logger.error('Erro ao criar faixa com auto-posicionamento:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Erro ao criar faixa. Por favor, tente novamente.');
+    }
+  }
+
+  /**
    * Criar nova faixa
    */
   async create(
@@ -427,6 +547,9 @@ export class GarageLaneService {
 
   /**
    * Excluir faixa
+   * NOTE: Currently validates parking spots rather than trucks directly,
+   * as trucks are associated with garages, not individual lanes in the schema.
+   * This prevents deletion of lanes that still have parking spots defined.
    */
   async delete(id: string, userId?: string): Promise<GarageLaneDeleteResponse> {
     try {
@@ -443,7 +566,9 @@ export class GarageLaneService {
         });
 
         if (parkingSpots > 0) {
-          throw new BadRequestException('Não é possível excluir a faixa pois há vagas associadas.');
+          throw new BadRequestException(
+            `Não é possível excluir a faixa pois há ${parkingSpots} vaga(s) associada(s).`
+          );
         }
 
         // Registrar exclusão

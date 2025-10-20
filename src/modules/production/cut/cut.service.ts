@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
+import { FileService } from '@modules/common/file/file.service';
 import { CutRepository, PrismaTransaction } from './repositories/cut/cut.repository';
 import {
   Cut,
@@ -60,6 +61,7 @@ export class CutService {
     private readonly cutRepository: CutRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly notificationService: NotificationService,
+    private readonly fileService: FileService,
   ) {}
 
   // =====================
@@ -213,42 +215,100 @@ export class CutService {
     data: CutCreateFormData,
     include?: CutQueryFormData['include'],
     userId?: string,
+    file?: Express.Multer.File,
+    quantity: number = 1,
   ): Promise<CutCreateResponse> {
     try {
-      // Validate cut data
-      await this.cutValidation(data);
+      // Ensure either file was provided or fileId already exists
+      if (!file && !data.fileId) {
+        throw new BadRequestException('É necessário fornecer um arquivo ou um fileId para criar um corte.');
+      }
 
-      // Use transaction to create cut
+      // Log quantity for debugging
+      this.logger.log(`[CutService.create] Received quantity: ${quantity} (type: ${typeof quantity})`);
+
+      // Validate quantity
+      if (quantity < 1) {
+        throw new BadRequestException('Quantidade deve ser maior que zero.');
+      }
+      if (quantity > 100) {
+        throw new BadRequestException('Quantidade não pode exceder 100 por vez.');
+      }
+
+      // Use transaction to create cut(s) and upload file atomically
       const result = await this.prisma.$transaction(async tx => {
-        // Create the cut
-        const cut = await this.cutRepository.createWithTransaction(
-          tx,
-          data,
-          include ? { include } : undefined,
-        );
+        // Handle file upload if provided (within transaction)
+        let fileId = data.fileId;
+        if (file) {
+          // Parse _context if it's a string (from FormData)
+          const context = typeof data._context === 'string' ? JSON.parse(data._context) : data._context;
 
-        // Note: Removed logic to create cut items since CutItem model doesn't exist
+          // Upload file using transactional method (shared by all cuts)
+          // Use 'plotterAdesivo' as fileContext - the cutType param will determine the actual subfolder
+          // Plotter/{CustomerName}/Adesivo (for VINYL) or Plotter/{CustomerName}/Espovo (for STENCIL)
+          const uploadedFile = await this.fileService.createFromUploadWithTransaction(
+            tx,
+            file,
+            'plotterAdesivo', // fileContext for WebDAV folder organization (cutType determines subfolder)
+            userId,
+            {
+              entityId: context?.entityId,
+              entityType: context?.entityType || 'cut',
+              customerName: context?.customerName,
+              cutType: context?.cutType, // 'VINYL' or 'STENCIL' - determines Adesivo vs Espovo subfolder
+            },
+            include?.file ? { task: true } : undefined,
+          );
 
-        // Create changelog entry for cut
-        await logEntityChange({
-          changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.CUT,
-          entityId: cut.id,
-          action: CHANGE_ACTION.CREATE,
-          entity: extractEssentialFields(cut, getEssentialFields(ENTITY_TYPE.CUT) as (keyof Cut)[]),
-          reason: 'Novo corte criado',
-          userId: userId || null,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          transaction: tx,
-        });
+          fileId = uploadedFile.id;
+        }
 
-        // Return cut
-        return cut;
+        // Create cut data with fileId
+        const cutData = { ...data, fileId };
+
+        // Validate cut data
+        await this.cutValidation(cutData, undefined, tx);
+
+        // Create multiple cuts based on quantity
+        this.logger.log(`[CutService.create] Creating ${quantity} cut(s)...`);
+        const cuts = [];
+        for (let i = 0; i < quantity; i++) {
+          this.logger.log(`[CutService.create] Creating cut ${i + 1} of ${quantity}`);
+          const cut = await this.cutRepository.createWithTransaction(
+            tx,
+            cutData,
+            include ? { include } : undefined,
+          );
+          this.logger.log(`[CutService.create] Cut ${i + 1} created with ID: ${cut.id}`);
+
+          // Create changelog entry for each cut
+          await logEntityChange({
+            changeLogService: this.changeLogService,
+            entityType: ENTITY_TYPE.CUT,
+            entityId: cut.id,
+            action: CHANGE_ACTION.CREATE,
+            entity: extractEssentialFields(cut, getEssentialFields(ENTITY_TYPE.CUT) as (keyof Cut)[]),
+            reason: quantity > 1 ? `Novo corte criado (${i + 1} de ${quantity})` : 'Novo corte criado',
+            userId: userId || null,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            transaction: tx,
+          });
+
+          cuts.push(cut);
+        }
+        this.logger.log(`[CutService.create] Finished creating ${cuts.length} cut(s)`);
+
+        // Return the first cut (or all cuts if multiple)
+        return quantity === 1 ? cuts[0] : cuts;
       });
+
+      const message = quantity === 1
+        ? 'Corte criado com sucesso'
+        : `${quantity} cortes criados com sucesso`;
 
       return {
         success: true,
-        message: 'Corte criado com sucesso',
+        message,
         data: result,
       };
     } catch (error) {

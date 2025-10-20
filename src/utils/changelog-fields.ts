@@ -175,7 +175,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     entryDate: "Data de Entrada",
     term: "Prazo",
     commission: "Comissão",
-    price: "Preço",
     statusOrder: "Ordem do Status",
     customerId: "Cliente",
     sectorId: "Setor",

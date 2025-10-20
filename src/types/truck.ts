@@ -2,7 +2,7 @@
 
 import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
 import type { Task, TaskIncludes, TaskOrderBy } from "./task";
-import type { Garage, GarageIncludes, GarageOrderBy } from "./garage";
+import type { Garage, GarageIncludes, GarageOrderBy, GarageLane, GarageLaneIncludes } from "./garage";
 import type { Layout, LayoutIncludes } from "./layout";
 import type { ORDER_BY_DIRECTION, TRUCK_MANUFACTURER } from '@constants';
 
@@ -23,11 +23,13 @@ export interface Truck extends BaseEntity {
   // Relations
   taskId: string;
   garageId: string | null;
+  laneId: string | null;
   leftSideLayoutId: string | null;
   rightSideLayoutId: string | null;
   backSideLayoutId: string | null;
   task?: Task;
   garage?: Garage;
+  lane?: GarageLane;
   leftSideLayout?: Layout;
   rightSideLayout?: Layout;
   backSideLayout?: Layout;
@@ -47,6 +49,11 @@ export interface TruckIncludes {
     | boolean
     | {
         include?: GarageIncludes;
+      };
+  lane?:
+    | boolean
+    | {
+        include?: GarageLaneIncludes;
       };
   leftSideLayout?:
     | boolean
@@ -78,6 +85,7 @@ export interface TruckOrderBy {
   yPosition?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
   garageId?: ORDER_BY_DIRECTION;
+  laneId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;

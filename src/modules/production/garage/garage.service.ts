@@ -43,6 +43,36 @@ export class GarageService {
   ) {}
 
   /**
+   * Ensure the virtual "Patio" garage exists
+   */
+  async ensureVirtualPatioGarage(): Promise<void> {
+    try {
+      const existingPatio = await this.prisma.garage.findFirst({
+        where: {
+          name: 'Patio',
+          isVirtual: true,
+        },
+      });
+
+      if (!existingPatio) {
+        this.logger.log('Creating virtual Patio garage...');
+        await this.prisma.garage.create({
+          data: {
+            name: 'Patio',
+            width: 0,
+            length: 0,
+            isVirtual: true,
+          },
+        });
+        this.logger.log('Virtual Patio garage created successfully');
+      }
+    } catch (error) {
+      this.logger.error('Error ensuring Patio garage exists:', error);
+      // Don't throw - this should not prevent the service from starting
+    }
+  }
+
+  /**
    * Validar restrições de unicidade
    */
   private async validateUniqueConstraints(
@@ -506,9 +536,25 @@ export class GarageService {
   async delete(id: string, userId?: string): Promise<GarageDeleteResponse> {
     try {
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const garage = await this.garageRepository.findByIdWithTransaction(tx, id);
+        const garage = await this.garageRepository.findByIdWithTransaction(tx, id, {
+          include: { trucks: true },
+        });
         if (!garage) {
           throw new NotFoundException('Garagem não encontrada. Verifique se o ID está correto.');
+        }
+
+        // Check if garage has trucks assigned
+        if (garage.trucks && garage.trucks.length > 0) {
+          throw new BadRequestException(
+            `Não é possível excluir a garagem pois ela possui ${garage.trucks.length} caminhão(ões) alocado(s). Realoque os caminhões antes de excluir.`,
+          );
+        }
+
+        // Prevent deletion of virtual garage
+        if (garage.isVirtual) {
+          throw new BadRequestException(
+            'Não é possível excluir uma garagem virtual. Garagens virtuais são gerenciadas automaticamente pelo sistema.',
+          );
         }
 
         await this.garageRepository.deleteWithTransaction(tx, id);
@@ -648,6 +694,9 @@ export class GarageService {
    */
   async findMany(query: GarageGetManyFormData): Promise<GarageGetManyResponse> {
     try {
+      // Ensure virtual Patio garage exists
+      await this.ensureVirtualPatioGarage();
+
       const params = {
         where: query.where || {},
         page: query.page,

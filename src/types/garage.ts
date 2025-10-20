@@ -27,12 +27,14 @@ export interface GarageLane extends BaseEntity {
   // Relations
   garage?: Garage;
   parkingSpots?: ParkingSpot[];
+  trucks?: Truck[];
 }
 
 export interface Garage extends BaseEntity {
   name: string;
   width: number;
   length: number;
+  isVirtual?: boolean;
 
   // Relations
   lanes?: GarageLane[];
@@ -67,6 +69,11 @@ export interface GarageLaneIncludes {
     | {
         include?: ParkingSpotIncludes;
       };
+  trucks?:
+    | boolean
+    | {
+        include?: TruckIncludes;
+      };
 }
 
 export interface ParkingSpotIncludes {
@@ -86,6 +93,7 @@ export interface GarageOrderBy {
   name?: ORDER_BY_DIRECTION;
   width?: ORDER_BY_DIRECTION;
   length?: ORDER_BY_DIRECTION;
+  isVirtual?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
 }

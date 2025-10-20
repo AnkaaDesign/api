@@ -456,7 +456,7 @@ const toFormData = <T>(data: T) => data;
 
 export const cutCreateSchema = z
   .object({
-    fileId: z.string().uuid("Arquivo inválido"),
+    fileId: z.string().uuid("Arquivo inválido").optional(),
     type: z.nativeEnum(CUT_TYPE, {
       errorMap: () => ({ message: "Tipo de corte inválido" }),
     }),
@@ -597,7 +597,6 @@ export const cutCreateNestedSchema = z
       .nullable()
       .optional(),
     parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
-    quantity: z.number().int().min(1).max(100).optional().default(1),
   })
   .transform(toFormData);
 

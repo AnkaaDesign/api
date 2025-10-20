@@ -324,7 +324,6 @@ export const taskOrderBySchema = z
       term: orderByDirectionSchema.optional(),
       startedAt: orderByDirectionSchema.optional(),
       finishedAt: orderByDirectionSchema.optional(),
-      price: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
     }),
@@ -341,7 +340,6 @@ export const taskOrderBySchema = z
         term: orderByDirectionSchema.optional(),
         startedAt: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
-        price: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       }),
@@ -367,7 +365,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       chassisNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       plate: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      price: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
       commission: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
       entryDate: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
       term: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
@@ -763,17 +760,6 @@ const taskTransform = (data: any): any => {
   }
 
 
-  // Range filters
-  if (data.priceRange && typeof data.priceRange === "object") {
-    const condition: any = {};
-    if (typeof data.priceRange.from === "number") condition.gte = data.priceRange.from;
-    if (typeof data.priceRange.to === "number") condition.lte = data.priceRange.to;
-    if (Object.keys(condition).length > 0) {
-      andConditions.push({ price: condition });
-    }
-    delete data.priceRange;
-  }
-
   // Date range filters
   if (data.entryDateRange && typeof data.entryDateRange === "object") {
     const condition: any = {};
@@ -1008,12 +994,6 @@ export const taskGetManySchema = z
     logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
     garageIds: z.array(z.string()).optional(), // Filter tasks by truck garage location
     // Numeric range filters
-    priceRange: z
-      .object({
-        from: z.number().optional(),
-        to: z.number().optional(),
-      })
-      .optional(),
     progressRange: z
       .object({
         from: z.number().min(0).max(100).optional(),
@@ -1195,7 +1175,9 @@ export const taskGetManySchema = z
 // Observation schema without taskId (will be auto-linked)
 const taskObservationCreateSchema = z.object({
   description: z.string().min(1, "Descrição é obrigatória"),
-  artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
+  // Accept any string for fileIds to support temporary file IDs (e.g., "1760878145245-xdmtocbjn")
+  // These will be replaced with actual UUIDs after upload
+  fileIds: z.array(z.string().min(1, "ID do arquivo inválido")).optional(),
 });
 
 // ServiceOrder schema without taskId (will be auto-linked)
@@ -1261,7 +1243,6 @@ export const taskCreateSchema = z
     paintId: z.string().uuid("Tinta inválida").nullable().optional(),
     customerId: z.string().uuid("Cliente inválido").min(1, "Cliente é obrigatório"),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    price: moneySchema.nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: "Status de comissão inválido" }),
@@ -1372,7 +1353,6 @@ export const taskUpdateSchema = z
     paintId: z.string().uuid("Tinta inválida").nullable().optional(),
     customerId: z.string().uuid("Cliente inválido").nullable().optional(),
     sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    price: moneySchema.nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: "Status de comissão inválido" }),
@@ -1544,3 +1524,39 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   generalPaintingId: task.generalPainting?.id,
   // Complex relations need to be handled separately
 }));
+
+// =====================
+// Task Positioning Schemas
+// =====================
+
+// Schema for updating a single truck position
+export const taskPositionUpdateSchema = z.object({
+  xPosition: z.number().nullable().optional(),
+  yPosition: z.number().nullable().optional(),
+  garageId: z.string().uuid().nullable().optional(),
+  laneId: z.string().uuid().nullable().optional(),
+});
+
+export type TaskPositionUpdateFormData = z.infer<typeof taskPositionUpdateSchema>;
+
+// Schema for bulk updating truck positions
+export const taskBulkPositionUpdateSchema = z.object({
+  updates: z.array(
+    z.object({
+      taskId: z.string().uuid(),
+      xPosition: z.number().nullable().optional(),
+      yPosition: z.number().nullable().optional(),
+      garageId: z.string().uuid().nullable().optional(),
+      laneId: z.string().uuid().nullable().optional(),
+    })
+  ),
+});
+
+export type TaskBulkPositionUpdateFormData = z.infer<typeof taskBulkPositionUpdateSchema>;
+
+// Schema for swapping two trucks
+export const taskSwapPositionSchema = z.object({
+  targetTaskId: z.string().uuid(),
+});
+
+export type TaskSwapPositionFormData = z.infer<typeof taskSwapPositionSchema>;

@@ -559,6 +559,14 @@ export class DashboardService {
         value: itemStats.totalValue,
         unit: 'R$',
       },
+      negativeStockItems: {
+        label: 'Estoque Negativo',
+        value: itemStats.negativeStockItems,
+      },
+      outOfStockItems: {
+        label: 'Sem Estoque',
+        value: itemStats.outOfStockItems,
+      },
       criticalItems: {
         label: 'Estoque Crítico',
         value: itemStats.criticalItems,
@@ -566,6 +574,10 @@ export class DashboardService {
       lowStockItems: {
         label: 'Estoque Baixo',
         value: itemStats.lowStockItems,
+      },
+      optimalItems: {
+        label: 'Estoque Ótimo',
+        value: itemStats.optimalItems,
       },
       overstockedItems: {
         label: 'Excesso de Estoque',

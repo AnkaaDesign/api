@@ -833,6 +833,7 @@ model PaintFormula {
 model PaintFormulaComponent {
   id             String       @id @default(uuid())
   ratio          Float
+  weight         Float?       // Weight in grams used during formulation
   itemId         String
   formulaPaintId String
   createdAt      DateTime     @default(now())
@@ -976,7 +977,6 @@ model Task {
   customerId            String?
   sectorId              String?
   commission            CommissionStatus
-  price                 Decimal?         @db.Decimal(10, 2)
   createdById           String?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
@@ -1038,21 +1038,26 @@ model Cut {
 }
 
 model Truck {
-  id                String   @id @default(uuid())
+  id                String      @id @default(uuid())
   xPosition         Float?
   yPosition         Float?
-  taskId            String   @unique
+  taskId            String      @unique
   garageId          String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  backSideLayoutId  String?  @unique
-  leftSideLayoutId  String?  @unique
-  rightSideLayoutId String?  @unique
-  backSideLayout    Layout?  @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
-  garage            Garage?  @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
-  leftSideLayout    Layout?  @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
-  rightSideLayout   Layout?  @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
-  task              Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  laneId            String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  backSideLayoutId  String?     @unique
+  leftSideLayoutId  String?     @unique
+  rightSideLayoutId String?     @unique
+  backSideLayout    Layout?     @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
+  garage            Garage?     @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
+  lane              GarageLane? @relation("TRUCK_LANE", fields: [laneId], references: [id])
+  leftSideLayout    Layout?     @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
+  rightSideLayout   Layout?     @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  task              Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([garageId])
+  @@index([laneId])
 }
 
 model Layout {
@@ -1088,6 +1093,7 @@ model Garage {
   name      String
   width     Float        @default(25)
   length    Float        @default(45)
+  isVirtual Boolean      @default(false)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   lanes     GarageLane[]
@@ -1105,6 +1111,7 @@ model GarageLane {
   updatedAt    DateTime      @updatedAt
   garage       Garage        @relation(fields: [garageId], references: [id], onDelete: Cascade)
   parkingSpots ParkingSpot[]
+  trucks       Truck[]       @relation("TRUCK_LANE")
 
   @@index([garageId])
 }
@@ -1873,6 +1880,9 @@ enum SectorPrivileges {
   LEADER
   MAINTENANCE
   WAREHOUSE
+  DESIGNER
+  FINANCIAL
+  LOGISTIC
   ADMIN
   HUMAN_RESOURCES
   EXTERNAL

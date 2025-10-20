@@ -19,7 +19,7 @@ import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestj
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
 import { TaskService } from './task.service';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, TASK_STATUS } from '../../../constants/enums';
 import {
@@ -36,6 +36,9 @@ import {
   taskBatchDeleteSchema,
   taskDuplicateSchema,
   taskQuerySchema,
+  taskPositionUpdateSchema,
+  taskBulkPositionUpdateSchema,
+  taskSwapPositionSchema,
 } from '../../../schemas/task';
 import type {
   TaskCreateFormData,
@@ -46,6 +49,9 @@ import type {
   TaskBatchDeleteFormData,
   TaskDuplicateFormData,
   TaskQueryFormData,
+  TaskPositionUpdateFormData,
+  TaskBulkPositionUpdateFormData,
+  TaskSwapPositionFormData,
 } from '../../../schemas/task';
 import type {
   Task,
@@ -72,6 +78,9 @@ export class TaskController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.LEADER,
     SECTOR_PRIVILEGES.ADMIN,
   )
@@ -93,19 +102,44 @@ export class TaskController {
       { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
       { name: 'cutFiles', maxCount: 20 },
+      // Airbrushing files - support up to 10 airbrushings with multiple files each
+      { name: 'airbrushings[0].receipts', maxCount: 10 },
+      { name: 'airbrushings[0].invoices', maxCount: 10 },
+      { name: 'airbrushings[0].artworks', maxCount: 20 },
+      { name: 'airbrushings[1].receipts', maxCount: 10 },
+      { name: 'airbrushings[1].invoices', maxCount: 10 },
+      { name: 'airbrushings[1].artworks', maxCount: 20 },
+      { name: 'airbrushings[2].receipts', maxCount: 10 },
+      { name: 'airbrushings[2].invoices', maxCount: 10 },
+      { name: 'airbrushings[2].artworks', maxCount: 20 },
+      { name: 'airbrushings[3].receipts', maxCount: 10 },
+      { name: 'airbrushings[3].invoices', maxCount: 10 },
+      { name: 'airbrushings[3].artworks', maxCount: 20 },
+      { name: 'airbrushings[4].receipts', maxCount: 10 },
+      { name: 'airbrushings[4].invoices', maxCount: 10 },
+      { name: 'airbrushings[4].artworks', maxCount: 20 },
+      { name: 'airbrushings[5].receipts', maxCount: 10 },
+      { name: 'airbrushings[5].invoices', maxCount: 10 },
+      { name: 'airbrushings[5].artworks', maxCount: 20 },
+      { name: 'airbrushings[6].receipts', maxCount: 10 },
+      { name: 'airbrushings[6].invoices', maxCount: 10 },
+      { name: 'airbrushings[6].artworks', maxCount: 20 },
+      { name: 'airbrushings[7].receipts', maxCount: 10 },
+      { name: 'airbrushings[7].invoices', maxCount: 10 },
+      { name: 'airbrushings[7].artworks', maxCount: 20 },
+      { name: 'airbrushings[8].receipts', maxCount: 10 },
+      { name: 'airbrushings[8].invoices', maxCount: 10 },
+      { name: 'airbrushings[8].artworks', maxCount: 20 },
+      { name: 'airbrushings[9].receipts', maxCount: 10 },
+      { name: 'airbrushings[9].invoices', maxCount: 10 },
+      { name: 'airbrushings[9].artworks', maxCount: 20 },
     ], multerConfig)
   )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
-      budgets?: Express.Multer.File[],
-      invoices?: Express.Multer.File[],
-      receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[],
-      cutFiles?: Express.Multer.File[]
-    },
+    @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskCreateResponse> {
     return this.tasksService.create(data, query.include, userId, files);
   }
@@ -201,6 +235,87 @@ export class TaskController {
   }
 
   // =====================
+  // POSITIONING ENDPOINTS
+  // =====================
+
+  @Get('in-production')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async getInProductionTasks(
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<TaskGetManyResponse> {
+    // Get tasks with status PENDING or IN_PRODUCTION that have truck layouts
+    return this.tasksService.findMany({
+      ...query,
+      where: {
+        OR: [
+          { status: TASK_STATUS.PENDING },
+          { status: TASK_STATUS.IN_PRODUCTION },
+        ],
+        truck: {
+          OR: [
+            { leftSideLayoutId: { not: null } },
+            { rightSideLayoutId: { not: null } },
+            { backSideLayoutId: { not: null } },
+          ],
+        },
+      },
+      include: {
+        truck: {
+          include: {
+            garage: true,
+            lane: true,
+            leftSideLayout: { include: { layoutSections: true } },
+            rightSideLayout: { include: { layoutSections: true } },
+            backSideLayout: { include: { layoutSections: true } },
+          },
+        },
+        ...query.include,
+      },
+    });
+  }
+
+  @Put(':id/position')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  async updateTaskPosition(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(taskPositionUpdateSchema)) data: TaskPositionUpdateFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<TaskUpdateResponse> {
+    return this.tasksService.updateTaskPosition(id, data, query.include, userId);
+  }
+
+  @Post('bulk-position')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  async bulkUpdatePositions(
+    @Body(new ZodValidationPipe(taskBulkPositionUpdateSchema)) data: TaskBulkPositionUpdateFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<TaskBatchUpdateResponse<TaskPositionUpdateFormData>> {
+    return this.tasksService.bulkUpdatePositions(data, query.include, userId);
+  }
+
+  @Post(':id/swap')
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  async swapTaskPositions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(taskSwapPositionSchema)) data: TaskSwapPositionFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<SuccessResponse<{ task1: Task; task2: Task }>> {
+    return this.tasksService.swapTaskPositions(id, data.targetTaskId, query.include, userId);
+  }
+
+  // =====================
   // DYNAMIC ROUTES (must come last)
   // =====================
 
@@ -208,6 +323,9 @@ export class TaskController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.LEADER,
     SECTOR_PRIVILEGES.ADMIN,
   )
@@ -220,7 +338,7 @@ export class TaskController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'budgets', maxCount: 10 },
@@ -228,6 +346,38 @@ export class TaskController {
       { name: 'receipts', maxCount: 10 },
       { name: 'artworks', maxCount: 10 },
       { name: 'cutFiles', maxCount: 20 },
+      { name: 'observationFiles', maxCount: 10 },
+      // Airbrushing files - support up to 10 airbrushings with multiple files each
+      { name: 'airbrushings[0].receipts', maxCount: 10 },
+      { name: 'airbrushings[0].invoices', maxCount: 10 },
+      { name: 'airbrushings[0].artworks', maxCount: 20 },
+      { name: 'airbrushings[1].receipts', maxCount: 10 },
+      { name: 'airbrushings[1].invoices', maxCount: 10 },
+      { name: 'airbrushings[1].artworks', maxCount: 20 },
+      { name: 'airbrushings[2].receipts', maxCount: 10 },
+      { name: 'airbrushings[2].invoices', maxCount: 10 },
+      { name: 'airbrushings[2].artworks', maxCount: 20 },
+      { name: 'airbrushings[3].receipts', maxCount: 10 },
+      { name: 'airbrushings[3].invoices', maxCount: 10 },
+      { name: 'airbrushings[3].artworks', maxCount: 20 },
+      { name: 'airbrushings[4].receipts', maxCount: 10 },
+      { name: 'airbrushings[4].invoices', maxCount: 10 },
+      { name: 'airbrushings[4].artworks', maxCount: 20 },
+      { name: 'airbrushings[5].receipts', maxCount: 10 },
+      { name: 'airbrushings[5].invoices', maxCount: 10 },
+      { name: 'airbrushings[5].artworks', maxCount: 20 },
+      { name: 'airbrushings[6].receipts', maxCount: 10 },
+      { name: 'airbrushings[6].invoices', maxCount: 10 },
+      { name: 'airbrushings[6].artworks', maxCount: 20 },
+      { name: 'airbrushings[7].receipts', maxCount: 10 },
+      { name: 'airbrushings[7].invoices', maxCount: 10 },
+      { name: 'airbrushings[7].artworks', maxCount: 20 },
+      { name: 'airbrushings[8].receipts', maxCount: 10 },
+      { name: 'airbrushings[8].invoices', maxCount: 10 },
+      { name: 'airbrushings[8].artworks', maxCount: 20 },
+      { name: 'airbrushings[9].receipts', maxCount: 10 },
+      { name: 'airbrushings[9].invoices', maxCount: 10 },
+      { name: 'airbrushings[9].artworks', maxCount: 20 },
     ], multerConfig)
   )
   async update(
@@ -235,17 +385,22 @@ export class TaskController {
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema)) data: TaskUpdateFormData = {} as TaskUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
-      budgets?: Express.Multer.File[],
-      invoices?: Express.Multer.File[],
-      receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[],
-      cutFiles?: Express.Multer.File[]
-    },
+    @User() user: UserPayload,
+    @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskUpdateResponse> {
     // Debug logging - FIRST LINE to see if controller is reached
     console.log('[TaskController.update] ========== REQUEST RECEIVED ==========');
     console.log('[TaskController.update] Task ID:', id);
+    console.log('[TaskController.update] User role:', user?.role);
+    console.log('[TaskController.update] ========== AIRBRUSHINGS DATA ==========');
+    console.log('[TaskController.update] data.airbrushings:', JSON.stringify(data.airbrushings, null, 2));
+    console.log('[TaskController.update] ========== FILES RECEIVED ==========');
+    console.log('[TaskController.update] All file fields:', Object.keys(files || {}));
+    const airbrushingFileFields = Object.keys(files || {}).filter(k => k.startsWith('airbrushings['));
+    console.log('[TaskController.update] Airbrushing file fields:', airbrushingFileFields);
+    airbrushingFileFields.forEach(field => {
+      console.log(`[TaskController.update]   ${field}: ${(files as any)[field]?.length || 0} files`);
+    });
     console.log('[TaskController.update] Body keys:', Object.keys(data || {}));
     console.log('[TaskController.update] Body:', JSON.stringify(data).substring(0, 200));
 
@@ -255,13 +410,15 @@ export class TaskController {
       hasNfes: !!files?.invoices && files.invoices.length > 0,
       hasReceipts: !!files?.receipts && files.receipts.length > 0,
       hasArtworks: !!files?.artworks && files.artworks.length > 0,
+      hasObservationFiles: !!files?.observationFiles && files.observationFiles.length > 0,
       budgetsCount: files?.budgets?.length || 0,
       invoicesCount: files?.invoices?.length || 0,
       receiptsCount: files?.receipts?.length || 0,
       artworksCount: files?.artworks?.length || 0,
+      observationFilesCount: files?.observationFiles?.length || 0,
     });
 
-    return this.tasksService.update(id, data, query.include, userId, files);
+    return this.tasksService.update(id, data, query.include, userId, user?.role as SECTOR_PRIVILEGES, files);
   }
 
   @Delete(':id')

@@ -491,6 +491,7 @@ export const ENTITY_BADGE_CONFIG = {
     [SECTOR_PRIVILEGES.PRODUCTION]: "info" as BadgeVariant,
     [SECTOR_PRIVILEGES.LEADER]: "inProgress" as BadgeVariant,
     [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: "warning" as BadgeVariant,
+    [SECTOR_PRIVILEGES.FINANCIAL]: "success" as BadgeVariant,
     [SECTOR_PRIVILEGES.EXTERNAL]: "outline" as BadgeVariant,
   },
 

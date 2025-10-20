@@ -10,10 +10,14 @@ import {
   Body,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { CutService } from './cut.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -59,7 +63,15 @@ export class CutController {
   constructor(private readonly cutService: CutService) {}
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getMany(
     @Query(new ZodQueryValidationPipe(cutGetManySchema)) query: CutGetManyFormData,
   ): Promise<CutGetManyResponse> {
@@ -67,19 +79,31 @@ export class CutController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('file', multerConfig))
   async create(
-    @Body(new ZodValidationPipe(cutCreateSchema)) data: CutCreateFormData,
+    @Body() rawBody: any,
     @UserId() userId: string,
     @Query(new ZodQueryValidationPipe(cutQueryParamsSchema)) query: CutQueryFormData,
+    @UploadedFile() file?: Express.Multer.File,
   ): Promise<CutCreateResponse> {
-    return this.cutService.create(data, query.include, userId);
+    // Extract quantity BEFORE validation (it's not a database field, just a UI helper)
+    const quantity = rawBody.quantity ? parseInt(rawBody.quantity, 10) : 1;
+
+    // Remove quantity from body before validation
+    const { quantity: _, ...bodyWithoutQuantity } = rawBody;
+
+    // Validate the cut data (without quantity)
+    const validationPipe = new ZodValidationPipe(cutCreateSchema);
+    const data = await validationPipe.transform(bodyWithoutQuantity, { type: 'body' });
+
+    return this.cutService.create(data, query.include, userId, file, quantity);
   }
 
   // Batch operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(cutBatchCreateSchema)) data: CutBatchCreateFormData,
@@ -90,7 +114,7 @@ export class CutController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(cutBatchUpdateSchema)) data: CutBatchUpdateFormData,
     @UserId() userId: string,
@@ -100,7 +124,7 @@ export class CutController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(cutBatchDeleteSchema)) data: CutBatchDeleteFormData,
@@ -110,7 +134,15 @@ export class CutController {
   }
 
   @Get(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getUnique(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(cutQueryParamsSchema)) query: CutQueryFormData,
@@ -119,7 +151,7 @@ export class CutController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(cutUpdateSchema)) data: CutUpdateFormData,
@@ -130,7 +162,7 @@ export class CutController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

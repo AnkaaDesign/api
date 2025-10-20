@@ -167,14 +167,17 @@ export class TaskPrismaRepository
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): Task {
     // Map logoPaints back to paints for the interface
+    // Map airbrushing (singular) back to airbrushings (plural) for the interface
     const task: Task = {
       ...databaseEntity,
       paints: databaseEntity.logoPaints,
+      airbrushings: databaseEntity.airbrushing,
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
     };
 
-    // Remove the logoPaints property since we've mapped it to paints
+    // Remove the database property names since we've mapped them
     delete (task as any).logoPaints;
+    delete (task as any).airbrushing;
 
     return task;
   }
@@ -389,6 +392,44 @@ export class TaskPrismaRepository
           valor: item.valor,
         })),
       };
+    }
+
+    // Handle airbrushings creation (array of airbrushing items)
+    const airbrushings = (extendedData as any).airbrushings;
+    console.log('[TaskRepository] ========== AIRBRUSHINGS DEBUG ==========');
+    console.log('[TaskRepository] airbrushings from formData:', airbrushings);
+    console.log('[TaskRepository] airbrushings is array?', Array.isArray(airbrushings));
+    console.log('[TaskRepository] airbrushings length:', airbrushings?.length);
+    if (airbrushings && Array.isArray(airbrushings) && airbrushings.length > 0) {
+      console.log('✅ Processing airbrushings array:', airbrushings.length, 'items');
+      console.log('[TaskRepository] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
+      taskData.airbrushing = {
+        create: airbrushings.map((item: any, index: number) => {
+          console.log(`[TaskRepository] Creating airbrushing ${index}:`, item);
+          console.log(`[TaskRepository] Price value:`, item.price, 'type:', typeof item.price);
+          const airbrushingData = {
+            status: item.status || 'PENDING',
+            price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
+            startDate: item.startDate || null,
+            finishDate: item.finishDate || null,
+            // Connect existing file IDs if provided
+            receipts: item.receiptIds && item.receiptIds.length > 0
+              ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+              : undefined,
+            invoices: item.invoiceIds && item.invoiceIds.length > 0
+              ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+              : undefined,
+            artworks: item.artworkIds && item.artworkIds.length > 0
+              ? { connect: item.artworkIds.map((id: string) => ({ id })) }
+              : undefined,
+          };
+          console.log(`[TaskRepository] Final airbrushing data:`, airbrushingData);
+          return airbrushingData;
+        }),
+      };
+      console.log('[TaskRepository] taskData.airbrushing:', JSON.stringify(taskData.airbrushing, null, 2));
+    } else {
+      console.log('❌ No airbrushings to process');
     }
 
     return taskData;
@@ -663,6 +704,49 @@ export class TaskPrismaRepository
       }
     }
 
+    // Handle airbrushings update (array of airbrushing items) - replace all existing airbrushings
+    const airbrushings = (extendedData as any).airbrushings;
+    console.log('[TaskRepository.UPDATE] ========== AIRBRUSHINGS DEBUG ==========');
+    console.log('[TaskRepository.UPDATE] airbrushings from formData:', airbrushings);
+    console.log('[TaskRepository.UPDATE] airbrushings is array?', Array.isArray(airbrushings));
+    console.log('[TaskRepository.UPDATE] airbrushings length:', airbrushings?.length);
+
+    if (airbrushings !== undefined) {
+      if (airbrushings === null || (Array.isArray(airbrushings) && airbrushings.length === 0)) {
+        console.log('🗑️ Deleting all airbrushings');
+        updateData.airbrushing = { deleteMany: {} };
+      } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
+        console.log('✅ Updating airbrushings array:', airbrushings.length, 'items');
+        console.log('[TaskRepository.UPDATE] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
+        updateData.airbrushing = {
+          deleteMany: {}, // Delete all existing airbrushings
+          create: airbrushings.map((item: any, index: number) => {
+            console.log(`[TaskRepository.UPDATE] Creating airbrushing ${index}:`, item);
+            console.log(`[TaskRepository.UPDATE] Price value:`, item.price, 'type:', typeof item.price);
+            const airbrushingData = {
+              status: item.status || 'PENDING',
+              price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
+              startDate: item.startDate || null,
+              finishDate: item.finishDate || null,
+              // Connect existing file IDs if provided
+              receipts: item.receiptIds && item.receiptIds.length > 0
+                ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+                : undefined,
+              invoices: item.invoiceIds && item.invoiceIds.length > 0
+                ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+                : undefined,
+              artworks: item.artworkIds && item.artworkIds.length > 0
+                ? { connect: item.artworkIds.map((id: string) => ({ id })) }
+                : undefined,
+            };
+            console.log(`[TaskRepository.UPDATE] Final airbrushing data:`, airbrushingData);
+            return airbrushingData;
+          }),
+        };
+        console.log('[TaskRepository.UPDATE] updateData.airbrushing:', JSON.stringify(updateData.airbrushing, null, 2));
+      }
+    }
+
     return updateData;
   }
 
@@ -671,7 +755,8 @@ export class TaskPrismaRepository
       return this.getDefaultInclude();
     }
 
-    const databaseInclude: any = {};
+    // Start with default include to ensure observation.files are always included
+    const databaseInclude: any = { ...this.getDefaultInclude() };
 
     Object.keys(include).forEach(key => {
       const value = include[key as keyof TaskInclude];
@@ -692,6 +777,7 @@ export class TaskPrismaRepository
         }
       } else if (typeof value === 'object' && value !== null && 'include' in value) {
         // Handle nested includes with field name mappings
+        // Deep merge nested includes to preserve defaults like observation.files
         if (key === 'paints') {
           databaseInclude.logoPaints = { include: value.include };
         } else if (key === 'airbrushings') {
@@ -701,7 +787,16 @@ export class TaskPrismaRepository
         } else if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = { include: value.include };
         } else {
-          databaseInclude[key] = { include: value.include };
+          // Deep merge nested includes to preserve default nested relations
+          const existingValue = databaseInclude[key];
+          if (existingValue && typeof existingValue === 'object' && 'include' in existingValue) {
+            databaseInclude[key] = {
+              ...existingValue,
+              include: { ...existingValue.include, ...value.include }
+            };
+          } else {
+            databaseInclude[key] = { include: value.include };
+          }
         }
       }
     });

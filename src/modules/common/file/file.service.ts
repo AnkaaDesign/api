@@ -352,9 +352,10 @@ export class FileService {
    */
   async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
     try {
-      // Check if WebDAV is configured (used for thumbnail path resolution)
-      const webdavRoot = process.env.WEBDAV_ROOT;
+      // Check environment configuration
       const useWebdav = process.env.USE_WEBDAV === 'true';
+      const webdavRoot = process.env.WEBDAV_ROOT || './uploads/webdav';
+      const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true';
 
       const file = await this.fileRepository.findById(id);
 
@@ -374,18 +375,20 @@ export class FileService {
 
       // Get the appropriate thumbnail size
       const thumbnailSize = this.thumbnailService.getThumbnailSize(size);
+      const thumbnailSizeStr = `${thumbnailSize.width}x${thumbnailSize.height}`;
 
-      // Build thumbnail path based on size and format
-      // Check if WebDAV is configured and use WebDAV path for thumbnails
-      const thumbnailBaseDir = useWebdav && webdavRoot
-        ? join(webdavRoot, 'Thumbnails')
-        : join(environmentConfig.upload.uploadDir, 'thumbnails');
-
-      const thumbnailPath = join(
-        thumbnailBaseDir,
-        `${thumbnailSize.width}x${thumbnailSize.height}`,
-        `${file.id}_${thumbnailSize.width}x${thumbnailSize.height}.webp`,
+      // Use WebDAVService to get consistent thumbnail folder path (same as generation)
+      // This ensures thumbnails are found regardless of environment
+      const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+        'thumbnails',
+        'image/webp',
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        thumbnailSizeStr, // Pass thumbnail size - folder already includes this
       );
+
+      // Thumbnail filename (matches generation)
+      const thumbnailFilename = `${file.id}_${thumbnailSizeStr}.webp`;
+      const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
 
       // Fallback to other formats if webp doesn't exist
       let actualPath = thumbnailPath;
@@ -458,27 +461,42 @@ export class FileService {
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
-      // Use X-Accel-Redirect for nginx to serve the thumbnail (10x faster than Node.js streaming)
-      // Map thumbnail directory to nginx internal path
-      let nginxInternalPath: string;
-      if (useWebdav && webdavRoot) {
-        // WebDAV: Map /srv/webdav/Thumbnails/... to /internal-thumbnails/...
-        const thumbnailsDir = join(webdavRoot, 'Thumbnails');
-        const absolutePath = resolve(actualPath);
-        const relativePath = absolutePath.replace(thumbnailsDir, '');
-        nginxInternalPath = `/internal-thumbnails${relativePath}`;
-      } else {
-        // Local: Map ./uploads/thumbnails/... to /internal-uploads/thumbnails/...
-        const uploadsDir = resolve(environmentConfig.upload.uploadDir);
-        const thumbnailsDir = join(uploadsDir, 'thumbnails');
-        const absolutePath = resolve(actualPath);
-        const relativePath = absolutePath.replace(uploadsDir, '');
-        nginxInternalPath = `/internal-uploads${relativePath}`;
-      }
+      // Production: Use X-Accel-Redirect for nginx (10x faster)
+      // Development: Stream file directly with Node.js
+      if (useXAccelRedirect) {
+        let nginxInternalPath: string;
+        if (useWebdav && webdavRoot) {
+          // WebDAV: Map /srv/webdav/Thumbnails/... to /internal-thumbnails/...
+          const thumbnailsDir = join(webdavRoot, 'Thumbnails');
+          const absolutePath = resolve(actualPath);
+          const relativePath = absolutePath.replace(thumbnailsDir, '');
+          nginxInternalPath = `/internal-thumbnails${relativePath}`;
+        } else {
+          // Local: Map ./uploads/thumbnails/... to /internal-uploads/thumbnails/...
+          const uploadsDir = resolve(environmentConfig.upload.uploadDir);
+          const thumbnailsDir = join(uploadsDir, 'thumbnails');
+          const absolutePath = resolve(actualPath);
+          const relativePath = absolutePath.replace(uploadsDir, '');
+          nginxInternalPath = `/internal-uploads${relativePath}`;
+        }
 
-      // Set X-Accel-Redirect header - nginx will intercept and serve the file
-      res.setHeader('X-Accel-Redirect', nginxInternalPath);
-      res.end();
+        // Set X-Accel-Redirect header - nginx will intercept and serve the file
+        res.setHeader('X-Accel-Redirect', nginxInternalPath);
+        res.end();
+      } else {
+        // Development mode: Stream file directly without nginx
+        const { createReadStream } = await import('fs');
+        const fileStream = createReadStream(actualPath);
+
+        fileStream.on('error', (error: any) => {
+          this.logger.error(`Error streaming thumbnail ${file.id}:`, error);
+          if (!res.headersSent) {
+            res.status(500).send('Error streaming thumbnail');
+          }
+        });
+
+        fileStream.pipe(res);
+      }
     } catch (error: any) {
       this.logger.error(`Erro ao servir thumbnail ${id}:`, error);
       if (error instanceof NotFoundException) {

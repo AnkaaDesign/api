@@ -76,6 +76,7 @@ export const garageOrderBySchema = z
         name: orderByDirectionSchema.optional(),
         width: orderByDirectionSchema.optional(),
         length: orderByDirectionSchema.optional(),
+        isVirtual: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -87,6 +88,7 @@ export const garageOrderBySchema = z
           name: orderByDirectionSchema.optional(),
           width: orderByDirectionSchema.optional(),
           length: orderByDirectionSchema.optional(),
+          isVirtual: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -243,6 +245,17 @@ export const garageWhereSchema: z.ZodSchema = z.lazy(() =>
             gte: z.number().optional(),
             lt: z.number().optional(),
             lte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      // Boolean fields
+      isVirtual: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
           }),
         ])
         .optional(),
@@ -1008,6 +1021,7 @@ export const garageCreateSchema = z
     name: z.string().min(1, "Nome é obrigatório").max(255),
     width: z.number().positive("Largura deve ser positiva"),
     length: z.number().positive("Comprimento deve ser positivo"),
+    isVirtual: z.boolean().default(false).optional(),
     description: z.string().optional(),
     location: z.string().optional(),
     metadata: z.any().optional(),
@@ -1019,6 +1033,7 @@ export const garageUpdateSchema = z
     name: z.string().min(1).max(255).optional(),
     width: z.number().positive().optional(),
     length: z.number().positive().optional(),
+    isVirtual: z.boolean().optional(),
     description: z.string().optional(),
     location: z.string().optional(),
     metadata: z.any().optional(),

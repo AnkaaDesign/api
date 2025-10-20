@@ -42,7 +42,7 @@ export class DashboardController {
   }
 
   @Get('hr')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @UsePipes(new ZodQueryValidationPipe(hrDashboardQuerySchema))
   async getHRDashboard(
     @Query() query: HRDashboardQueryFormData,
