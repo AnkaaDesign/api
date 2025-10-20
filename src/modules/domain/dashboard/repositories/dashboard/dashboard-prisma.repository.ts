@@ -205,7 +205,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       const hasActiveOrder =
         item.orderItems?.some(
           (orderItem) =>
-            orderItem.order && activeOrderStatuses.includes(orderItem.order.status),
+            orderItem.order && activeOrderStatuses.includes(orderItem.order.status as ORDER_STATUS),
         ) || false;
 
       // Determine stock level using the unified algorithm

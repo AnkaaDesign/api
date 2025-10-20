@@ -1512,7 +1512,6 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   paintId: task.paintId,
   customerId: task.customerId,
   sectorId: task.sectorId,
-  price: task.price,
   // Relations - File arrays
   budgetIds: task.budgets?.map((budget) => budget.id),
   invoiceIds: task.invoices?.map((invoice) => invoice.id),

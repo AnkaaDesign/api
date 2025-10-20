@@ -241,7 +241,8 @@ export class CutService {
         let fileId = data.fileId;
         if (file) {
           // Parse _context if it's a string (from FormData)
-          const context = typeof data._context === 'string' ? JSON.parse(data._context) : data._context;
+          const dataWithContext = data as any;
+          const context = typeof dataWithContext._context === 'string' ? JSON.parse(dataWithContext._context) : dataWithContext._context;
 
           // Upload file using transactional method (shared by all cuts)
           // Use 'plotterAdesivo' as fileContext - the cutType param will determine the actual subfolder
@@ -257,7 +258,7 @@ export class CutService {
               customerName: context?.customerName,
               cutType: context?.cutType, // 'VINYL' or 'STENCIL' - determines Adesivo vs Espovo subfolder
             },
-            include?.file ? { task: true } : undefined,
+            undefined,
           );
 
           fileId = uploadedFile.id;

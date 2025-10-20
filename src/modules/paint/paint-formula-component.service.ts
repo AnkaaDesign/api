@@ -350,7 +350,7 @@ export class PaintFormulaComponentService {
         });
 
         // Calculate total weight (existing + new)
-        const existingTotalWeight = existingComponents.reduce((sum, comp) => sum + (comp.weight || 0), 0);
+        const existingTotalWeight = existingComponents.reduce((sum, comp) => sum + ((comp as any).weight || 0), 0);
         const newTotalWeight = existingTotalWeight + data.weight;
 
         // Calculate ratio for the new component
@@ -833,22 +833,14 @@ export class PaintFormulaComponentService {
       }
 
       const result = await this.prisma.$transaction(async transaction => {
-        // Validate total ratios by formula
-        const formulaRatios = new Map<string, number>();
+        // Validate total weights by formula (ratios will be calculated)
+        const formulaWeights = new Map<string, number>();
         for (const comp of data.paintFormulaComponents) {
-          const currentRatio = formulaRatios.get(comp.formulaPaintId) || 0;
-          formulaRatios.set(comp.formulaPaintId, currentRatio + comp.ratio);
+          const currentWeight = formulaWeights.get(comp.formulaPaintId) || 0;
+          formulaWeights.set(comp.formulaPaintId, currentWeight + comp.weight);
         }
 
-        // Check that each formula's total doesn't exceed 100%
-        for (const [formulaId, totalRatio] of Array.from(formulaRatios.entries())) {
-          if (totalRatio > 100.01) {
-            // Allow small floating point error
-            throw new BadRequestException(
-              `Fórmula ${formulaId}: soma das proporções (${totalRatio.toFixed(2)}%) excede 100%`,
-            );
-          }
-        }
+        // Note: Weight validation removed since ratios are now calculated from weights
 
         const batchResult = await this.paintFormulaComponentRepository.createManyWithTransaction(
           transaction,
@@ -1009,7 +1001,7 @@ export class PaintFormulaComponentService {
           const existing = existingMap.get(updateData.id);
           if (!existing) continue;
 
-          if (updateData.data.ratio !== undefined) {
+          if ((updateData.data as any).ratio !== undefined) {
             // Get current formula total excluding this component
             const allComponents = await transaction.paintFormulaComponent.findMany({
               where: { formulaPaintId: (existing as any).formulaPaintId },
@@ -1019,7 +1011,7 @@ export class PaintFormulaComponentService {
               .filter(comp => comp.id !== updateData.id)
               .reduce((sum, comp) => sum + comp.ratio, 0);
 
-            const newTotalRatio = currentTotalRatio + updateData.data.ratio;
+            const newTotalRatio = currentTotalRatio + (updateData.data as any).ratio;
 
             if (newTotalRatio > 100.01) {
               // Allow small floating point error

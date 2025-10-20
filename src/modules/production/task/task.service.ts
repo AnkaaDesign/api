@@ -43,6 +43,7 @@ import {
   TaskGetManyFormData,
   TaskBatchDeleteFormData,
   TaskBatchCreateFormData,
+  TaskBulkPositionUpdateFormData,
 } from '../../../schemas/task';
 import {
   isValidTaskStatusTransition,
@@ -220,7 +221,7 @@ export class TaskService {
 
           // Airbrushing files - process files for each airbrushing
           const airbrushingFileFields = Object.keys(files).filter(key => key.startsWith('airbrushings['));
-          if (airbrushingFileFields.length > 0 && newTask.airbrushing) {
+          if (airbrushingFileFields.length > 0 && newTask.airbrushings) {
             console.log('[TaskService] Processing airbrushing files:', airbrushingFileFields.length, 'fields');
 
             for (const fieldName of airbrushingFileFields) {
@@ -233,12 +234,12 @@ export class TaskService {
               const airbrushingFiles = (files as any)[fieldName] as Express.Multer.File[];
 
               if (!airbrushingFiles || airbrushingFiles.length === 0) continue;
-              if (!newTask.airbrushing[index]) {
+              if (!newTask.airbrushings[index]) {
                 console.warn(`[TaskService] Airbrushing at index ${index} not found`);
                 continue;
               }
 
-              const airbrushing = newTask.airbrushing[index];
+              const airbrushing = newTask.airbrushings[index];
               console.log(`[TaskService] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`);
 
               const fileIds: string[] = [];
@@ -529,7 +530,7 @@ export class TaskService {
             const fileRecord = await this.fileService.createFromUploadWithTransaction(
               tx,
               observationFile,
-              'observationFiles',
+              'observations',
               userId,
               {
                 entityId: id,
@@ -656,7 +657,7 @@ export class TaskService {
 
           // Airbrushing files - process files for each airbrushing
           const airbrushingFileFields = Object.keys(files).filter(key => key.startsWith('airbrushings['));
-          if (airbrushingFileFields.length > 0 && updatedTask?.airbrushing) {
+          if (airbrushingFileFields.length > 0 && updatedTask?.airbrushings) {
             console.log('[TaskService.update] Processing airbrushing files:', airbrushingFileFields.length, 'fields');
 
             for (const fieldName of airbrushingFileFields) {
@@ -669,12 +670,12 @@ export class TaskService {
               const airbrushingFiles = (files as any)[fieldName] as Express.Multer.File[];
 
               if (!airbrushingFiles || airbrushingFiles.length === 0) continue;
-              if (!updatedTask.airbrushing[index]) {
+              if (!updatedTask.airbrushings[index]) {
                 console.warn(`[TaskService.update] Airbrushing at index ${index} not found`);
                 continue;
               }
 
-              const airbrushing = updatedTask.airbrushing[index];
+              const airbrushing = updatedTask.airbrushings[index];
               console.log(`[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`);
 
               const fileIds: string[] = [];
@@ -1690,7 +1691,7 @@ export class TaskService {
           yPosition: positionData.yPosition,
           garageId: positionData.garageId,
           laneId: positionData.laneId,
-        },
+        } as any,
       });
 
       // Log the change
@@ -1700,16 +1701,16 @@ export class TaskService {
           entityId: task.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          metadata: {
-            taskId: task.id,
-            oldPosition: {
-              xPosition: task.truck.xPosition,
-              yPosition: task.truck.yPosition,
-              garageId: task.truck.garageId,
-              laneId: task.truck.laneId,
-            },
-            newPosition: positionData,
+          oldValue: {
+            xPosition: task.truck.xPosition,
+            yPosition: task.truck.yPosition,
+            garageId: task.truck.garageId,
+            laneId: (task.truck as any).laneId,
           },
+          newValue: positionData,
+          reason: `Position updated for task ${task.id}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
+          triggeredById: null,
           transaction: tx,
         });
       }
@@ -1717,8 +1718,7 @@ export class TaskService {
       // Fetch updated task
       const updatedTask = await this.tasksRepository.findById(
         taskId,
-        include,
-        tx
+        include
       );
 
       return {
@@ -1733,22 +1733,15 @@ export class TaskService {
    * Bulk update positions for multiple trucks
    */
   async bulkUpdatePositions(
-    data: {
-      updates: Array<{
-        taskId: string;
-        xPosition?: number | null;
-        yPosition?: number | null;
-        garageId?: string | null;
-        laneId?: string | null;
-      }>;
-    },
+    data: TaskBulkPositionUpdateFormData,
     include?: TaskInclude,
     userId?: string,
   ): Promise<TaskBatchUpdateResponse<any>> {
     const results: Task[] = [];
-    const errors: Array<{ input: any; error: string }> = [];
+    const errors: Array<{ index: number; data: any; error: string }> = [];
 
-    for (const update of data.updates) {
+    for (let i = 0; i < data.updates.length; i++) {
+      const update = data.updates[i];
       try {
         const result = await this.updateTaskPosition(
           update.taskId,
@@ -1759,7 +1752,8 @@ export class TaskService {
         results.push(result.data);
       } catch (error) {
         errors.push({
-          input: update,
+          index: i,
+          data: update,
           error: error.message || 'Erro desconhecido',
         });
       }
@@ -1770,8 +1764,13 @@ export class TaskService {
       message: errors.length === 0
         ? 'Todas as posições foram atualizadas com sucesso'
         : `${results.length} posições atualizadas, ${errors.length} falharam`,
-      data: results,
-      errors: errors.length > 0 ? errors : undefined,
+      data: {
+        success: results,
+        failed: errors,
+        totalProcessed: data.updates.length,
+        totalSuccess: results.length,
+        totalFailed: errors.length,
+      },
     };
   }
 
@@ -1809,14 +1808,14 @@ export class TaskService {
         xPosition: task1.truck.xPosition,
         yPosition: task1.truck.yPosition,
         garageId: task1.truck.garageId,
-        laneId: task1.truck.laneId,
+        laneId: (task1.truck as any).laneId,
       };
 
       const truck2Position = {
         xPosition: task2.truck.xPosition,
         yPosition: task2.truck.yPosition,
         garageId: task2.truck.garageId,
-        laneId: task2.truck.laneId,
+        laneId: (task2.truck as any).laneId,
       };
 
       // Swap positions
@@ -1837,12 +1836,11 @@ export class TaskService {
           entityId: task1.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          metadata: {
-            operation: 'swap',
-            swappedWith: task2.truck.id,
-            oldPosition: truck1Position,
-            newPosition: truck2Position,
-          },
+          oldValue: truck1Position,
+          newValue: truck2Position,
+          reason: `Position swapped with truck ${task2.truck.id}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
+          triggeredById: null,
           transaction: tx,
         });
 
@@ -1851,19 +1849,18 @@ export class TaskService {
           entityId: task2.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          metadata: {
-            operation: 'swap',
-            swappedWith: task1.truck.id,
-            oldPosition: truck2Position,
-            newPosition: truck1Position,
-          },
+          oldValue: truck2Position,
+          newValue: truck1Position,
+          reason: `Position swapped with truck ${task1.truck.id}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
+          triggeredById: null,
           transaction: tx,
         });
       }
 
       // Fetch updated tasks
-      const updatedTask1 = await this.tasksRepository.findById(taskId1, include, tx);
-      const updatedTask2 = await this.tasksRepository.findById(taskId2, include, tx);
+      const updatedTask1 = await this.tasksRepository.findById(taskId1, include);
+      const updatedTask2 = await this.tasksRepository.findById(taskId2, include);
 
       return {
         success: true,

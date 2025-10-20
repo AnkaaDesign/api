@@ -44,12 +44,7 @@ export class TruckPrismaRepository
   protected mapDatabaseEntityToEntity(
     databaseEntity: Prisma.TruckGetPayload<{ include: Prisma.TruckInclude }>,
   ): Truck {
-    // Convert Decimal to number for price field
-    const entity = { ...databaseEntity } as any;
-    if (entity.task?.price) {
-      entity.task.price = Number(entity.task.price);
-    }
-    return entity as Truck;
+    return databaseEntity as unknown as Truck;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(

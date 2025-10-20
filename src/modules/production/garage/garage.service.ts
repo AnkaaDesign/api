@@ -51,7 +51,7 @@ export class GarageService {
         where: {
           name: 'Patio',
           isVirtual: true,
-        },
+        } as any,
       });
 
       if (!existingPatio) {
@@ -62,7 +62,7 @@ export class GarageService {
             width: 0,
             length: 0,
             isVirtual: true,
-          },
+          } as any,
         });
         this.logger.log('Virtual Patio garage created successfully');
       }

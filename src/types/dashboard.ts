@@ -288,8 +288,8 @@ export interface AdministrationDashboardData {
   taskOverview: {
     totalTasks: DashboardMetric;
     tasksByStatus: DashboardChartData;
-    tasksWithPrice: DashboardMetric; // price is not null
-    totalRevenue: DashboardMetric; // sum of task.price
+    tasksWithPrice: DashboardMetric; // tasks with budget information
+    totalRevenue: DashboardMetric; // sum of task budget values
     tasksBySector: DashboardChartData;
   };
   notificationMetrics: {

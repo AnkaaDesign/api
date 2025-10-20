@@ -187,10 +187,10 @@ export function formatTaskSummary(task: Task): string {
 
 /**
  * Format task price
+ * Note: Price is no longer stored directly on tasks
  */
 export function formatTaskPrice(task: Task): string {
-  if (!task.price) return "Sem valor";
-  return numberUtils.formatCurrency(task.price);
+  return "Sem valor";
 }
 
 
@@ -313,8 +313,9 @@ export function calculateTaskStats(tasks: Task[]) {
 
   const completionRate = total > 0 ? (completed / total) * 100 : 0;
 
-  const totalValue = tasks.reduce((sum, task) => sum + (task.price || 0), 0);
-  const averagePrice = total > 0 ? totalValue / total : 0;
+  // Note: Price is no longer stored directly on tasks
+  const totalValue = 0;
+  const averagePrice = 0;
 
   return {
     total,
