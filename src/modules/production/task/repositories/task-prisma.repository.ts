@@ -204,7 +204,6 @@ export class TaskPrismaRepository
       customerId,
       sectorId,
       commission,
-      price,
       // Extended properties - File arrays
       budgetIds,
       invoiceIds,
@@ -238,7 +237,6 @@ export class TaskPrismaRepository
     if (term !== undefined) taskData.term = term;
     if (startedAt !== undefined) taskData.startedAt = startedAt;
     if (finishedAt !== undefined) taskData.finishedAt = finishedAt;
-    if (price !== undefined) taskData.price = price;
 
     // Handle relations with proper null checks
     if (customerId) taskData.customer = { connect: { id: customerId } };
@@ -457,7 +455,6 @@ export class TaskPrismaRepository
       customerId,
       sectorId,
       commission,
-      price,
       // Extended properties - File arrays
       budgetIds,
       invoiceIds,
@@ -490,7 +487,6 @@ export class TaskPrismaRepository
     if (term !== undefined) updateData.term = term;
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
-    if (price !== undefined) updateData.price = price;
     if (commission !== undefined) updateData.commission = commission as any;
 
     // Handle enums
