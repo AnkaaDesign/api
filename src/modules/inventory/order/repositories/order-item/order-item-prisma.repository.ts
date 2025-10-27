@@ -49,6 +49,7 @@ export class OrderItemPrismaRepository
       id: databaseEntity.id,
       orderId: databaseEntity.orderId,
       itemId: databaseEntity.itemId,
+      temporaryItemDescription: databaseEntity.temporaryItemDescription,
       orderedQuantity: databaseEntity.orderedQuantity,
       receivedQuantity: databaseEntity.receivedQuantity,
       price: databaseEntity.price,
@@ -86,14 +87,25 @@ export class OrderItemPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: OrderItemCreateFormData,
   ): Prisma.OrderItemCreateInput {
-    return {
+    const createInput: Prisma.OrderItemCreateInput = {
       orderedQuantity: formData.orderedQuantity,
       receivedQuantity: 0,
       price: formData.price,
       tax: formData.tax,
       order: { connect: { id: formData.orderId } },
-      item: { connect: { id: formData.itemId } },
     };
+
+    // Connect to inventory item if itemId is provided (inventory item)
+    if (formData.itemId) {
+      createInput.item = { connect: { id: formData.itemId } };
+    }
+
+    // Set temporary item description if provided (temporary item)
+    if (formData.temporaryItemDescription) {
+      createInput.temporaryItemDescription = formData.temporaryItemDescription;
+    }
+
+    return createInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(

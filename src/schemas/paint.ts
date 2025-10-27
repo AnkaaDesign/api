@@ -238,6 +238,24 @@ export const paintBrandWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 
 export const paintIncludeSchema = z
   .object({
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              formulas: z.boolean().optional(),
+              generalPaintings: z.boolean().optional(),
+              logoTasks: z.boolean().optional(),
+              paintGrounds: z.boolean().optional(),
+              groundPaintFor: z.boolean().optional(),
+              relatedPaints: z.boolean().optional(),
+              relatedTo: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     paintType: z
       .union([
         z.boolean(),

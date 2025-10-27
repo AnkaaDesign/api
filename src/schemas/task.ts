@@ -145,6 +145,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 relatedPaints: z.boolean().optional(),
                 relatedTo: z.boolean().optional(),
                 paintType: z.boolean().optional(),
+                paintBrand: z.boolean().optional(),
                 paintGrounds: z
                   .union([
                     z.boolean(),
@@ -210,8 +211,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      logoPaints: z.boolean().optional(),
-      paints: z
+      logoPaints: z
         .union([
           z.boolean(),
           z.object({
@@ -222,11 +222,26 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                 logoTasks: z.boolean().optional(),
                 relatedPaints: z.boolean().optional(),
                 relatedTo: z.boolean().optional(),
+                paintType: z.boolean().optional(),
+                paintBrand: z.boolean().optional(),
+                paintGrounds: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      include: z
+                        .object({
+                          paint: z.boolean().optional(),
+                          groundPaint: z.boolean().optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
               })
               .optional(),
           }),
         ])
-        .optional(), // Alias for logoPaints
+        .optional(),
       services: z
         .union([
           z.boolean(),
@@ -259,6 +274,43 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 task: z.boolean().optional(),
                 garage: z.boolean().optional(),
+                lane: z.boolean().optional(),
+                leftSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      include: z
+                        .object({
+                          layoutSections: z.boolean().optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+                rightSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      include: z
+                        .object({
+                          layoutSections: z.boolean().optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+                backSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      include: z
+                        .object({
+                          layoutSections: z.boolean().optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
               })
               .optional(),
           }),
@@ -271,8 +323,12 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
             include: z
               .object({
                 task: z.boolean().optional(),
-                receipts: z.boolean().optional(),
+                artworks: z.boolean().optional(),
+                budgets: z.boolean().optional(),
                 invoices: z.boolean().optional(),
+                invoiceReimbursements: z.boolean().optional(),
+                receipts: z.boolean().optional(),
+                reimbursements: z.boolean().optional(),
               })
               .optional(),
             orderBy: z

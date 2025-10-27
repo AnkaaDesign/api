@@ -399,8 +399,67 @@ export const createDateRangeSchema = (fieldName: string) =>
 
 export const createMapToFormDataHelper = <TEntity, TFormData>(mapper: (entity: TEntity) => TFormData) => mapper;
 
-// Simple identity function for form data transformation
-export const toFormData = <T>(data: T) => data;
+// Transform function for form data that handles multipart/form-data string encoding
+// When data comes from multipart/form-data, arrays and objects are JSON-stringified
+// and numbers come as strings. This function parses them back to their proper types.
+export const toFormData = <T>(data: T): T => {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  const result: any = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    // Skip null/undefined
+    if (value === null || value === undefined) {
+      result[key] = value;
+      continue;
+    }
+
+    // If already the correct type, keep it
+    if (Array.isArray(value) || typeof value === 'object') {
+      result[key] = value;
+      continue;
+    }
+
+    // Try to parse string values that might be JSON-encoded arrays or objects
+    if (typeof value === 'string') {
+      // Check if it looks like a JSON array or object
+      if ((value.startsWith('[') && value.endsWith(']')) ||
+          (value.startsWith('{') && value.endsWith('}'))) {
+        try {
+          result[key] = JSON.parse(value);
+          continue;
+        } catch {
+          // If parsing fails, keep as string
+          result[key] = value;
+          continue;
+        }
+      }
+
+      // For number fields in forms, try to convert string to number
+      // Only do this for fields that are explicitly numeric fields (not IDs)
+      const numberFields = ['price', 'quantity', 'amount', 'value', 'total', 'cost', 'weight', 'height', 'width', 'length'];
+      const isNumberField = numberFields.some(field =>
+        key.toLowerCase().includes(field)
+      );
+
+      // Try to parse as number only for known numeric fields
+      if (isNumberField && value !== '') {
+        const numValue = Number(value);
+        if (!isNaN(numValue)) {
+          result[key] = numValue;
+          continue;
+        }
+      }
+    }
+
+    // Default: keep as is
+    result[key] = value;
+  }
+
+  return result as T;
+};
 
 // =====================
 // Audit and History

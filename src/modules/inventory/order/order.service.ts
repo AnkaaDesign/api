@@ -183,44 +183,52 @@ export class OrderService {
   ): Promise<void> {
     const transaction = tx || this.prisma;
 
-    // Validar que o item existe
-    const catalogItem = await transaction.item.findUnique({
-      where: { id: item.itemId },
-      select: {
-        id: true,
-        name: true,
-        supplierId: true,
-        isActive: true,
-        supplier: {
-          select: { fantasyName: true },
+    let itemName: string;
+    const isTemporaryItem = !item.itemId && item.temporaryItemDescription;
+
+    if (isTemporaryItem) {
+      // For temporary items, use the description as the item name
+      itemName = item.temporaryItemDescription;
+    } else {
+      // For inventory items, validate that the item exists in catalog
+      const catalogItem = await transaction.item.findUnique({
+        where: { id: item.itemId },
+        select: {
+          id: true,
+          name: true,
+          supplierId: true,
+          isActive: true,
+          supplier: {
+            select: { fantasyName: true },
+          },
         },
-      },
-    });
+      });
 
-    if (!catalogItem) {
-      throw new NotFoundException(`Item com ID ${item.itemId} não encontrado.`);
+      if (!catalogItem) {
+        throw new NotFoundException(`Item com ID ${item.itemId} não encontrado.`);
+      }
+
+      itemName = catalogItem.name;
     }
-
-    // Removed supplier validation - items can be ordered from any supplier
 
     // Validar quantidade positiva
     if (item.orderedQuantity <= 0) {
       throw new BadRequestException(
-        `Quantidade para o item "${catalogItem.name}" deve ser positiva.`,
+        `Quantidade para o item "${itemName}" deve ser positiva.`,
       );
     }
 
     // Validar preço unitário não negativo
     if (item.price < 0) {
       throw new BadRequestException(
-        `Preço unitário para o item "${catalogItem.name}" não pode ser negativo.`,
+        `Preço unitário para o item "${itemName}" não pode ser negativo.`,
       );
     }
 
     // Validar taxa se fornecida
     if (item.tax !== undefined && item.tax < 0) {
       throw new BadRequestException(
-        `Taxa para o item "${catalogItem.name}" não pode ser negativa.`,
+        `Taxa para o item "${itemName}" não pode ser negativa.`,
       );
     }
   }
@@ -233,7 +241,9 @@ export class OrderService {
     tx?: PrismaTransaction,
   ): Promise<void> {
     const transaction = tx || this.prisma;
-    const itemIds = items.map(item => item.itemId);
+    // Filter out temporary items (those without itemId)
+    const inventoryItems = items.filter(item => item.itemId);
+    const itemIds = inventoryItems.map(item => item.itemId);
 
     // Buscar todos os itens de uma vez com preços atuais
     const catalogItems = await transaction.item.findMany({
@@ -249,8 +259,8 @@ export class OrderService {
     // Criar mapa para acesso rápido
     const catalogItemMap = new Map(catalogItems.map(item => [item.id, item]));
 
-    // Validar cada item
-    for (const orderItem of items) {
+    // Validar cada item de inventário (temporary items are skipped)
+    for (const orderItem of inventoryItems) {
       const catalogItem = catalogItemMap.get(orderItem.itemId);
 
       if (!catalogItem) {
@@ -763,6 +773,13 @@ export class OrderService {
               this.logger.log(`Updated order item ${existingItem.id} (itemId: ${item.itemId})`);
             }
           }
+
+          // After modifying items, check if order status should be automatically updated
+          // This handles the case where items are removed and all remaining items are received
+          if (itemsToDelete.length > 0 || itemsToUpdate.length > 0) {
+            this.logger.log(`Checking order received status after item modifications for order ${id}`);
+            await this.checkAndUpdateOrderReceivedStatus(id, tx);
+          }
         }
 
         // Log status transition separately with special field name for better UI display
@@ -961,21 +978,35 @@ export class OrderService {
           );
 
           // Get existing ORDER_RECEIVED activities for this order item to check what was already processed
+          // Query by both orderItemId and as a fallback by itemId+orderId to ensure we catch all activities
           const existingActivities = await tx.activity.findMany({
             where: {
-              orderItemId: item.id,
-              reason: ACTIVITY_REASON.ORDER_RECEIVED,
-              operation: ACTIVITY_OPERATION.INBOUND,
+              OR: [
+                {
+                  orderItemId: item.id,
+                  reason: ACTIVITY_REASON.ORDER_RECEIVED,
+                },
+                {
+                  itemId: item.itemId,
+                  orderId: existingOrder.id,
+                  orderItemId: null, // Legacy activities that might not have orderItemId set
+                  reason: ACTIVITY_REASON.ORDER_RECEIVED,
+                },
+              ],
             },
           });
 
-          // Calculate total quantity already processed in activities
-          const alreadyProcessedQuantity = existingActivities.reduce(
-            (sum, activity) => sum + activity.quantity,
-            0,
-          );
+          // Calculate net quantity already processed (INBOUND adds, OUTBOUND subtracts)
+          const alreadyProcessedQuantity = existingActivities.reduce((sum, activity) => {
+            if (activity.operation === ACTIVITY_OPERATION.INBOUND) {
+              return sum + activity.quantity;
+            } else if (activity.operation === ACTIVITY_OPERATION.OUTBOUND) {
+              return sum - activity.quantity;
+            }
+            return sum;
+          }, 0);
           this.logger.debug(
-            `Item ${item.id}: Found ${existingActivities.length} existing activities totaling ${alreadyProcessedQuantity}`,
+            `Item ${item.id}: Found ${existingActivities.length} existing activities with net quantity ${alreadyProcessedQuantity}`,
           );
 
           // Determine the target received quantity

@@ -60,7 +60,7 @@ export class AuthGuard implements CanActivate {
         throw new UnauthorizedException('Usuário não encontrado.');
       }
 
-      if (user.status === USER_STATUS.DISMISSED) {
+      if (!user.isActive) {
         throw new ForbiddenException(
           'Sua conta está inativa. Entre em contato com o administrador.',
         );

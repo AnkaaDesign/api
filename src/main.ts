@@ -26,11 +26,29 @@ import {
 import { env } from './common/config/env.validation';
 import { secretsManager } from './common/config/secrets.manager';
 
-async function bootstrap() {
-  // Validate secrets before starting the application
-  secretsManager.validateSecrets();
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Stack trace:', reason?.stack);
+  // Log the error but don't exit the process immediately
+  // Let PM2 handle the restart if needed
+});
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+process.on('uncaughtException', (error: Error) => {
+  console.error('Uncaught Exception thrown:', error);
+  console.error('Stack trace:', error.stack);
+  // Give the process time to log before exiting
+  setTimeout(() => {
+    process.exit(1);
+  }, 1000);
+});
+
+async function bootstrap() {
+  try {
+    // Validate secrets before starting the application
+    secretsManager.validateSecrets();
+
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Configure query string parser to handle bracket notation from axios
   app.set('query parser', (str: string) => {
@@ -39,7 +57,7 @@ async function bootstrap() {
       arrayLimit: 100,
       parameterLimit: 1000,
       parseArrays: true,
-      allowDots: false,
+      allowDots: true,  // Changed to true to support array[0].field notation
       strictNullHandling: true,
       decoder: (value, defaultDecoder, charset, type) => {
         // Handle boolean strings
@@ -138,8 +156,27 @@ async function bootstrap() {
   // No global prefix - API runs on subdomain (api.ankaa.live, test.api.ankaa.live)
   // app.setGlobalPrefix('api'); // REMOVED: Using subdomain architecture
 
-  const port = env.API_PORT ?? env.PORT ?? 3030;
-  // Try without specifying host to let Node.js handle it
-  await app.listen(port);
+    const port = env.API_PORT ?? env.PORT ?? 3030;
+    // Try without specifying host to let Node.js handle it
+    await app.listen(port);
+
+    // Signal PM2 that app is ready
+    if (process.send) {
+      process.send('ready');
+    }
+
+    console.log(`Application is running on port ${port}`);
+  } catch (error: any) {
+    console.error('Failed to start application:', error);
+    console.error('Stack trace:', error.stack);
+    // Exit with error code so PM2 can restart
+    process.exit(1);
+  }
 }
-bootstrap();
+
+// Start the application with error handling
+bootstrap().catch((error) => {
+  console.error('Bootstrap failed:', error);
+  console.error('Stack trace:', error.stack);
+  process.exit(1);
+});

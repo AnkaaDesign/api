@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { BonusService } from '../human-resources/bonus/bonus.service';
+import { UserService } from '../people/user/user.service';
 import { BONUS_STATUS } from '../../constants/enums';
 
 @Injectable()
@@ -8,7 +9,10 @@ export class CronService {
   private readonly logger = new Logger(CronService.name);
   private readonly systemUserId = 'system';
 
-  constructor(private readonly bonusService: BonusService) {}
+  constructor(
+    private readonly bonusService: BonusService,
+    private readonly userService: UserService,
+  ) {}
 
   /**
    * Calculate and save monthly bonuses
@@ -141,5 +145,61 @@ export class CronService {
   isBonusCalculationDay(): boolean {
     const now = new Date();
     return now.getDate() === 26;
+  }
+
+  /**
+   * Process automatic user status transitions when experience periods end
+   * Runs daily at midnight (00:00)
+   *
+   * This cron job:
+   * - Finds users where exp1EndAt is today and transitions them from EXPERIENCE_PERIOD_1 to EXPERIENCE_PERIOD_2
+   * - Finds users where exp2EndAt is today and transitions them from EXPERIENCE_PERIOD_2 to CONTRACTED
+   * - Logs all changes to the changelog system
+   */
+  @Cron('0 0 * * *')
+  async processUserStatusTransitions() {
+    this.logger.log('Starting automatic user status transitions cron job...');
+
+    try {
+      const result = await this.userService.processExperiencePeriodTransitions(this.systemUserId);
+
+      this.logger.log('User status transitions completed successfully.');
+      this.logger.log(
+        `Results: ${result.totalProcessed} users processed, ` +
+        `${result.exp1ToExp2} transitioned from EXP1 to EXP2, ` +
+        `${result.exp2ToContracted} transitioned from EXP2 to CONTRACTED, ` +
+        `${result.errors.length} errors`
+      );
+
+      // Log details about transitions
+      if (result.exp1ToExp2 > 0) {
+        this.logger.log(`${result.exp1ToExp2} users completed Experience Period 1 and moved to Experience Period 2`);
+      }
+
+      if (result.exp2ToContracted > 0) {
+        this.logger.log(`${result.exp2ToContracted} users completed Experience Period 2 and became CONTRACTED`);
+      }
+
+      // Log warning if there were errors
+      if (result.errors.length > 0) {
+        this.logger.error(`Failed to transition ${result.errors.length} users`);
+        result.errors.forEach((error) => {
+          this.logger.error(`User ${error.userId}: ${error.error}`);
+        });
+      }
+
+      // Log if no transitions occurred
+      if (result.totalProcessed === 0) {
+        this.logger.log('No users required status transitions today');
+      }
+
+    } catch (error) {
+      this.logger.error('Failed to run user status transitions cron job', error);
+      // In a production environment, you might want to:
+      // - Send alerts to administrators
+      // - Create system notifications
+      // - Retry the operation
+      throw error;
+    }
   }
 }

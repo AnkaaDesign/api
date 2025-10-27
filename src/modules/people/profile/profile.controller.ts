@@ -50,7 +50,8 @@ export class ProfileController {
     @UploadedFile(
       new ParseFilePipeBuilder()
         .addFileTypeValidator({
-          fileType: /(jpg|jpeg|png|gif|webp)$/,
+          fileType: /^image\/(jpeg|png|gif|webp)$/,
+          skipMagicNumbersValidation: true,
         })
         .addMaxSizeValidator({
           maxSize: 5 * 1024 * 1024, // 5MB

@@ -30,6 +30,7 @@ import type {
   UserGetManyResponse,
   UserGetUniqueResponse,
   UserUpdateResponse,
+  UserMergeResponse,
 } from '../../../types';
 import type {
   UserCreateFormData,
@@ -40,6 +41,7 @@ import type {
   UserBatchDeleteFormData,
   UserGetByIdFormData,
   UserQueryFormData,
+  UserMergeFormData,
 } from '../../../schemas/user';
 import {
   userCreateSchema,
@@ -50,6 +52,7 @@ import {
   userUpdateSchema,
   userGetByIdSchema,
   userQuerySchema,
+  userMergeSchema,
 } from '../../../schemas/user';
 
 @Controller('users')
@@ -59,14 +62,16 @@ export class UserController {
   // Basic CRUD Operations
   @Get()
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   @ReadRateLimit()
   async findMany(
@@ -122,17 +127,30 @@ export class UserController {
     return this.userService.batchDelete(data, userId);
   }
 
+  @Post('merge')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async merge(
+    @Body(new ZodValidationPipe(userMergeSchema)) data: UserMergeFormData,
+    @Query(new ZodQueryValidationPipe(userQuerySchema)) query: UserQueryFormData,
+    @UserId() userId: string,
+  ): Promise<UserMergeResponse> {
+    return this.userService.merge(data, query.include, userId);
+  }
+
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   @ReadRateLimit()
   async findById(

@@ -6,6 +6,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { WebDAVService } from './services/webdav.service';
+import { THUMBNAIL_CONFIG } from './config/thumbnail.config';
 
 const execAsync = promisify(exec);
 
@@ -31,6 +32,8 @@ export interface ThumbnailSize {
   small: { width: 150; height: 150 };
   medium: { width: 300; height: 300 };
   large: { width: 600; height: 600 };
+  xlarge: { width: 1200; height: 1200 };
+  xxlarge: { width: 2400; height: 2400 };
 }
 
 @Injectable()
@@ -41,12 +44,14 @@ export class ThumbnailService {
     small: { width: 150, height: 150 },
     medium: { width: 300, height: 300 },
     large: { width: 600, height: 600 },
+    xlarge: { width: 1200, height: 1200 },
+    xxlarge: { width: 2400, height: 2400 },
   };
 
   private readonly defaultOptions: Required<ThumbnailOptions> = {
     width: 300,
     height: 300,
-    quality: 85,
+    quality: 100,
     format: 'webp',
     fit: 'contain',
   };
@@ -233,11 +238,11 @@ export class ThumbnailService {
       // Ensure directory exists
       await fs.mkdir(dirname(tempPngPath), { recursive: true });
 
-      // Use moderate density and size constraints to avoid enormous temp files
+      // Use high density and size constraints for maximum quality
       // Create a 3x larger temp image for better quality after downscaling
       const tempSize = finalOptions.width * 3;
-      const density = 150; // Lower density to avoid huge images
-      const quality = 95;
+      const density = 300; // Maximum density for best quality
+      const quality = 100;
 
       try {
         // Try ImageMagick first with improved settings
@@ -277,7 +282,7 @@ export class ThumbnailService {
           background: { r: 255, g: 255, b: 255 }, // White background for padding
         })
         .toFormat(finalOptions.format as any, {
-          quality: Math.min(95, finalOptions.quality + 10),
+          quality: 100,
           effort: 6,
         })
         .toFile(thumbnailPath);
@@ -328,7 +333,14 @@ export class ThumbnailService {
       // Ensure directory exists
       await fs.mkdir(dirname(tempPngPath), { recursive: true });
 
-      const density = 300;
+      // Determine DPI based on requested size - use high-res DPI for large thumbnails
+      const isHighRes = finalOptions.width >= 1200 || finalOptions.height >= 1200;
+      const density = isHighRes
+        ? THUMBNAIL_CONFIG.generation.epsHighResDpi
+        : THUMBNAIL_CONFIG.generation.epsDpi;
+
+      this.logger.log(`Using ${isHighRes ? 'HIGH-RES' : 'standard'} DPI: ${density} for size ${finalOptions.width}x${finalOptions.height}`);
+
       const targetSize = Math.max(finalOptions.width, finalOptions.height) * 3;
 
       // DIRECT APPROACH: Convert EPS directly to PNG with proper cropping
@@ -377,14 +389,14 @@ export class ThumbnailService {
         }
 
         // Step 2: Convert the cropped PDF to PNG with transparency support
-        const reducedDensity = 200; // Increased slightly for better detail capture
+        // Use the same density as determined earlier for consistency
         const pdfToPngCommand = [
           GS_BINARY,
           '-dNOPAUSE',
           '-dBATCH',
           '-dSAFER',
           '-sDEVICE=pngalpha', // Use pngalpha for transparency support
-          `-r${reducedDensity}`, // Good balance between quality and file size
+          `-r${density}`, // Use dynamic DPI based on requested size
           '-dTextAlphaBits=4',
           '-dGraphicsAlphaBits=4',
           '-dQuiet',
@@ -488,13 +500,15 @@ export class ThumbnailService {
 
           // Use Ghostscript to create the final thumbnail directly from the cropped PDF
           // This preserves the proper cropping from the EPS->PDF conversion
+          // Use half the density for large images to avoid memory issues while maintaining quality
+          const largeDensity = Math.floor(density / 2);
           const finalGsCommand = [
             GS_BINARY,
             '-dNOPAUSE',
             '-dBATCH',
             '-dSAFER',
             '-sDEVICE=pngalpha', // Use pngalpha for transparency support
-            '-r150', // Higher resolution for better quality before Sharp processing
+            `-r${largeDensity}`, // Use adjusted resolution based on requested size
             '-dTextAlphaBits=4',
             '-dGraphicsAlphaBits=4',
             `-g${finalOptions.width * 2}x${finalOptions.height * 2}`, // Create larger image for better processing
@@ -520,7 +534,7 @@ export class ThumbnailService {
             .sharpen(1, 1, 2)
             .webp({
               // Use WebP format
-              quality: 90,
+              quality: 100,
               effort: 6,
             })
             .toFile(thumbnailPath);
@@ -542,7 +556,7 @@ export class ThumbnailService {
             .sharpen(1, 1, 2) // Add slight sharpening for better visibility in small thumbnails
             .webp({
               // Use WebP format
-              quality: 90,
+              quality: 100,
               effort: 6,
             })
             .toFile(thumbnailPath); // Use WebP extension from thumbnailPath
@@ -581,7 +595,7 @@ export class ThumbnailService {
               .normalize()
               .linear(1.2, -10) // Enhance contrast
               .sharpen(1, 1, 2)
-              .webp({ quality: 90, effort: 6 }) // Use WebP format
+              .webp({ quality: 100, effort: 6 }) // Use WebP format
               .toFile(thumbnailPath);
 
             // Remove the unenhanced PNG version
@@ -596,7 +610,7 @@ export class ThumbnailService {
               // Try simple conversion to WebP
               await sharp(pngThumbnailPath)
                 .flatten({ background: { r: 255, g: 255, b: 255 } }) // Add white background
-                .webp({ quality: 90 })
+                .webp({ quality: 100 })
                 .toFile(thumbnailPath);
               await fs.unlink(pngThumbnailPath);
             } catch (convertError) {

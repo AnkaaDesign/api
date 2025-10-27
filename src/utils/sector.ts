@@ -28,7 +28,7 @@ export const getSectorFullDisplay = (sector: Sector): string => {
 // Privilege Management (imported from constants)
 // =====================
 // Functions getSectorPrivilegeLevel, canAccessSector, canAccessAnyPrivilege, canAccessAllPrivileges
-// are now imported from @ankaa/constants to maintain proper package dependency hierarchy
+// are now imported from @constants to maintain proper package dependency hierarchy
 
 export const getSectorPrivilegeDescription = (privilege: SECTOR_PRIVILEGES): string => {
   const descriptions = {

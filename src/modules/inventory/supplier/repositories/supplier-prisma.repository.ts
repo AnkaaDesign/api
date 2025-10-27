@@ -57,6 +57,7 @@ export class SupplierPrismaRepository
       zipCode: databaseEntity.zipCode,
       site: databaseEntity.site,
       phones: databaseEntity.phones || [],
+      tags: databaseEntity.tags || [],
       logoId: databaseEntity.logoId,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,

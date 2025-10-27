@@ -68,6 +68,9 @@ importers:
       colorjs.io:
         specifier: ^0.5.2
         version: 0.5.2
+      csv-parse:
+        specifier: ^6.1.0
+        version: 6.1.0
       csv-parser:
         specifier: ^3.2.0
         version: 3.2.0
@@ -1983,6 +1986,9 @@ packages:
 
   crypto-js@4.2.0:
     resolution: {integrity: sha512-KALDyEYgpY+Rlob/iriUtjV6d5Eq+Y191A5g4UqLAi8CyGP9N1+FdVbkc1SxKc2r4YAYqG8JzO2KGL+AizD70Q==}
+
+  csv-parse@6.1.0:
+    resolution: {integrity: sha512-CEE+jwpgLn+MmtCpVcPtiCZpVtB6Z2OKPTr34pycYYoL7sxdOkXDdQ4lRiw6ioC0q6BLqhc6cKweCVvral8yhw==}
 
   csv-parser@3.2.0:
     resolution: {integrity: sha512-fgKbp+AJbn1h2dcAHKIdKNSSjfp43BZZykXsCjzALjKy80VXQNHPFJ6T9Afwdzoj24aMkq8GwDS7KGcDPpejrA==}
@@ -6098,6 +6104,8 @@ snapshots:
       which: 2.0.2
 
   crypto-js@4.2.0: {}
+
+  csv-parse@6.1.0: {}
 
   csv-parser@3.2.0: {}
 

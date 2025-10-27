@@ -21,6 +21,28 @@ export interface TrackAndLogFieldChangesParams {
 }
 
 /**
+ * Extract relationship name from entity if the field is a foreign key
+ * For example, if field is "sectorId", this will look for entity.sector.name
+ */
+function extractRelationshipName(entity: any, field: string): any {
+  // Check if field ends with "Id" (foreign key pattern)
+  if (!field.endsWith('Id')) {
+    return entity?.[field];
+  }
+
+  // Get the relationship name by removing "Id" suffix
+  const relationshipName = field.slice(0, -2);
+  const relationshipObj = entity?.[relationshipName];
+
+  // If relationship exists and has a name, return it; otherwise return the ID
+  if (relationshipObj && typeof relationshipObj === 'object') {
+    return relationshipObj.name || entity?.[field] || null;
+  }
+
+  return entity?.[field];
+}
+
+/**
  * Track individual field changes between old and new entity states and log them
  * Only logs changes where values actually differ
  * This is the async version that directly logs to changelog
@@ -43,13 +65,18 @@ export async function trackAndLogFieldChanges({
     // Only log if the value actually changed
     if (hasValueChanged(oldValue, newValue)) {
       const fieldNamePt = translateFieldName(field);
+
+      // Extract relationship names for foreign key fields
+      const oldValueForLog = extractRelationshipName(oldEntity, field);
+      const newValueForLog = extractRelationshipName(newEntity, field);
+
       await changeLogService.logChange({
         entityType: entityType,
         entityId,
         action: CHANGE_ACTION.UPDATE,
         field,
-        oldValue,
-        newValue,
+        oldValue: oldValueForLog,
+        newValue: newValueForLog,
         reason: `Campo ${fieldNamePt} atualizado`,
         triggeredBy,
         triggeredById: entityId,
@@ -338,6 +365,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   origin: 'origem',
   reason: 'motivo',
   parentCutId: 'corte pai',
+  cuts: 'recortes',
   taskId: 'tarefa',
 
   // Truck fields

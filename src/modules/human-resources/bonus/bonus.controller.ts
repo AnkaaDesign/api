@@ -17,7 +17,9 @@ import {
 } from '@nestjs/common';
 import { BonusService } from './bonus.service';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { ZodValidationPipe, ZodQueryValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import {
   bonusGetManyFormDataSchema,
   bonusGetByIdSchema,
@@ -54,6 +56,7 @@ export class BonusController {
    * Get live payroll data with bonus calculations for a period
    * This endpoint provides real-time bonus calculations without saving to database
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Get('payroll-data')
   async getPayrollData(
     @Query() query: { year?: string; month?: string; includeInactive?: boolean },
@@ -78,6 +81,7 @@ export class BonusController {
   /**
    * Get many bonuses
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Get()
   async findMany(
     @Query(new ZodQueryValidationPipe(bonusGetManyFormDataSchema)) query: BonusGetManyFormData,
@@ -88,6 +92,7 @@ export class BonusController {
   /**
    * Get bonus by ID
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Get(':id')
   async findById(
     @Param('id') id: string,
@@ -105,6 +110,7 @@ export class BonusController {
   /**
    * Create bonus
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Post()
   @UsePipes(new ZodValidationPipe(bonusCreateSchema))
   async create(
@@ -122,6 +128,7 @@ export class BonusController {
   /**
    * Update bonus
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Put(':id')
   @UsePipes(new ZodValidationPipe(bonusUpdateSchema))
   async update(
@@ -140,6 +147,7 @@ export class BonusController {
   /**
    * Delete bonus
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(
@@ -152,6 +160,7 @@ export class BonusController {
   /**
    * Batch create bonuses
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Post('batch')
   @UsePipes(new ZodValidationPipe(bonusBatchCreateSchema))
   async batchCreate(
@@ -169,6 +178,7 @@ export class BonusController {
   /**
    * Batch update bonuses
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Put('batch')
   @UsePipes(new ZodValidationPipe(bonusBatchUpdateSchema))
   async batchUpdate(
@@ -186,6 +196,7 @@ export class BonusController {
   /**
    * Batch delete bonuses
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Delete('batch')
   @UsePipes(new ZodValidationPipe(bonusBatchDeleteSchema))
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -199,6 +210,7 @@ export class BonusController {
   /**
    * Create bonus discount
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Post(':id/discounts')
   @UsePipes(new ZodValidationPipe(discountCreateSchema))
   async createDiscount(
@@ -212,6 +224,7 @@ export class BonusController {
   /**
    * Delete bonus discount
    */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Delete('discounts/:discountId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteDiscount(

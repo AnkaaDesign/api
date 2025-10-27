@@ -151,7 +151,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     verified: "Verificado",
     requirePasswordChange: "Requer Mudança de Senha",
     birth: "Data de Nascimento",
-    dismissal: "Data de Demissão",
+    dismissedAt: "Data de Demissão",
     verificationCode: "Código de Verificação",
     verificationExpiresAt: "Expiração da Verificação",
     verificationType: "Tipo de Verificação",

@@ -40,7 +40,18 @@ export const observationIncludeSchema = z
           include: z
             .object({
               sector: z.boolean().optional(),
-              customer: z.boolean().optional(),
+              customer: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        logo: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               budget: z.boolean().optional(),
               nfe: z.boolean().optional(),
               receipt: z.boolean().optional(),
@@ -341,23 +352,25 @@ const toFormData = <T>(data: T) => data;
 // CRUD Schemas
 // =====================
 
-export const observationCreateSchema = z
-  .object({
+export const observationCreateSchema = z.preprocess(
+  toFormData,
+  z.object({
     reason: z.string().min(1, "Motivo é obrigatório"),
     description: z.string().min(1, "Descrição é obrigatória"),
     taskId: z.string().uuid("Tarefa inválida"),
     fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
   })
-  .transform(toFormData);
+);
 
-export const observationUpdateSchema = z
-  .object({
+export const observationUpdateSchema = z.preprocess(
+  toFormData,
+  z.object({
     reason: z.string().optional(),
     description: z.string().min(1, "Descrição é obrigatória").optional(),
     taskId: z.string().uuid("Tarefa inválida").optional(),
     fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
   })
-  .transform(toFormData);
+);
 
 // =====================
 // Batch Operations Schemas

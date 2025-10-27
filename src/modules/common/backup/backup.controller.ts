@@ -11,6 +11,7 @@ import {
   UseGuards,
   ParseUUIDPipe,
   ValidationPipe,
+  Header,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,7 +26,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
 import { BackupService, BackupMetadata, CreateBackupDto } from './backup.service';
-import { IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsNotEmpty, IsNumber } from 'class-validator';
 
 // DTOs for validation
 class CreateBackupRequestDto {
@@ -33,8 +34,8 @@ class CreateBackupRequestDto {
   @IsString()
   name: string;
 
-  @IsEnum(['database', 'files', 'full'])
-  type: 'database' | 'files' | 'full';
+  @IsEnum(['database', 'files', 'system', 'full'])
+  type: 'database' | 'files' | 'system' | 'full';
 
   @IsOptional()
   @IsString()
@@ -44,6 +45,22 @@ class CreateBackupRequestDto {
   @IsArray()
   @IsString({ each: true })
   paths?: string[];
+
+  @IsOptional()
+  @IsEnum(['low', 'medium', 'high', 'critical'])
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+
+  @IsOptional()
+  @IsBoolean()
+  raidAware?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  compressionLevel?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  encrypted?: boolean;
 }
 
 class ScheduleBackupDto extends CreateBackupRequestDto {
@@ -78,6 +95,9 @@ export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 
   @Get()
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   @ApiOperation({ summary: 'Get all backups' })
   @ApiResponse({
     status: 200,
@@ -93,7 +113,7 @@ export class BackupController {
             properties: {
               id: { type: 'string' },
               name: { type: 'string' },
-              type: { type: 'string', enum: ['database', 'files', 'full'] },
+              type: { type: 'string', enum: ['database', 'files', 'system', 'full'] },
               size: { type: 'number' },
               createdAt: { type: 'string' },
               status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] },
@@ -107,7 +127,7 @@ export class BackupController {
       },
     },
   })
-  @ApiQuery({ name: 'type', required: false, enum: ['database', 'files', 'full'] })
+  @ApiQuery({ name: 'type', required: false, enum: ['database', 'files', 'system', 'full'] })
   @ApiQuery({
     name: 'status',
     required: false,
@@ -137,18 +157,55 @@ export class BackupController {
       return {
         success: true,
         data: backups,
-        message: 'Backups retrieved successfully',
+        message: 'Backups recuperados com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: [],
-        message: error.message || 'Failed to retrieve backups',
+        message: error.message || 'Falha ao recuperar backups',
+      };
+    }
+  }
+
+  @Get('webdav-folders')
+  @ApiOperation({ summary: 'Get list of WebDAV folders available for backup' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of WebDAV folder names',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  async getWebDAVFolders() {
+    try {
+      const folders = await this.backupService.listWebDAVFolders();
+      return {
+        success: true,
+        data: folders,
+        message: 'WebDAV folders retrieved successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: [],
+        message: error.message || 'Failed to list WebDAV folders',
       };
     }
   }
 
   @Get(':id')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   @ApiOperation({ summary: 'Get backup by ID' })
   @ApiParam({ name: 'id', description: 'Backup ID' })
   @ApiResponse({
@@ -176,7 +233,7 @@ export class BackupController {
       },
     },
   })
-  @ApiResponse({ status: 404, description: 'Backup not found' })
+  @ApiResponse({ status: 404, description: 'Backup não encontrado' })
   async getBackupById(@Param('id') id: string) {
     try {
       const backup = await this.backupService.getBackupById(id);
@@ -185,20 +242,20 @@ export class BackupController {
         return {
           success: false,
           data: null,
-          message: 'Backup not found',
+          message: 'Backup não encontrado',
         };
       }
 
       return {
         success: true,
         data: backup,
-        message: 'Backup retrieved successfully',
+        message: 'Backup recuperado com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to retrieve backup',
+        message: error.message || 'Falha ao recuperar backup',
       };
     }
   }
@@ -238,13 +295,13 @@ export class BackupController {
       return {
         success: true,
         data: result,
-        message: 'Backup creation initiated successfully',
+        message: 'Backup criado com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to create backup',
+        message: error.message || 'Falha ao criar backup',
       };
     }
   }
@@ -286,13 +343,13 @@ export class BackupController {
       return {
         success: true,
         data: result,
-        message: 'Backup restore initiated successfully',
+        message: 'Restauração de backup iniciada com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to restore backup',
+        message: error.message || 'Falha ao restaurar backup',
       };
     }
   }
@@ -302,7 +359,7 @@ export class BackupController {
   @ApiParam({ name: 'id', description: 'Backup ID to delete' })
   @ApiResponse({
     status: 200,
-    description: 'Backup deleted successfully',
+    description: 'Backup excluído com sucesso',
     schema: {
       type: 'object',
       properties: {
@@ -320,18 +377,21 @@ export class BackupController {
       return {
         success: true,
         data: null,
-        message: 'Backup deleted successfully',
+        message: 'Backup excluído com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to delete backup',
+        message: error.message || 'Falha ao excluir backup',
       };
     }
   }
 
   @Get('scheduled/list')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @Header('Pragma', 'no-cache')
+  @Header('Expires', '0')
   @ApiOperation({ summary: 'Get all scheduled backups' })
   @ApiResponse({
     status: 200,
@@ -363,13 +423,13 @@ export class BackupController {
       return {
         success: true,
         data: scheduledBackups,
-        message: 'Scheduled backups retrieved successfully',
+        message: 'Backups agendados recuperados com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: [],
-        message: error.message || 'Failed to retrieve scheduled backups',
+        message: error.message || 'Falha ao recuperar backups agendados',
       };
     }
   }
@@ -382,7 +442,7 @@ export class BackupController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Backup scheduled successfully',
+    description: 'Backup agendado com sucesso',
     schema: {
       type: 'object',
       properties: {
@@ -415,13 +475,13 @@ export class BackupController {
       return {
         success: true,
         data: result,
-        message: 'Backup scheduled successfully',
+        message: 'Backup agendado com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to schedule backup',
+        message: error.message || 'Falha ao agendar backup',
       };
     }
   }
@@ -449,13 +509,13 @@ export class BackupController {
       return {
         success: true,
         data: null,
-        message: 'Scheduled backup removed successfully',
+        message: 'Backup agendado removido com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to remove scheduled backup',
+        message: error.message || 'Falha ao remover backup agendado',
       };
     }
   }
@@ -517,13 +577,13 @@ export class BackupController {
       return {
         success: true,
         data: healthSummary,
-        message: 'System health summary retrieved successfully',
+        message: 'Resumo de saúde do sistema recuperado com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to retrieve system health summary',
+        message: error.message || 'Falha ao recuperar resumo de saúde do sistema',
       };
     }
   }
@@ -652,13 +712,13 @@ export class BackupController {
           lastBackup,
           nextScheduledBackup,
         },
-        message: 'System health retrieved successfully',
+        message: 'Saúde do sistema recuperada com sucesso',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to retrieve system health',
+        message: error.message || 'Falha ao recuperar saúde do sistema',
       };
     }
   }
@@ -696,7 +756,7 @@ export class BackupController {
         return {
           success: false,
           data: null,
-          message: 'Backup not found',
+          message: 'Backup não encontrado',
         };
       }
 
@@ -746,13 +806,13 @@ export class BackupController {
           verificationTime,
           details,
         },
-        message: 'Backup verification completed',
+        message: 'Verificação de backup concluída',
       };
     } catch (error) {
       return {
         success: false,
         data: null,
-        message: error.message || 'Failed to verify backup',
+        message: error.message || 'Falha ao verificar backup',
       };
     }
   }

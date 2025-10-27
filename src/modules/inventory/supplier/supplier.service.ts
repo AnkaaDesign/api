@@ -37,6 +37,7 @@ import {
   logEntityChange,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { FileService } from '@modules/common/file/file.service';
+import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
 import { unlinkSync, existsSync } from 'fs';
 
 @Injectable()
@@ -71,6 +72,7 @@ export class SupplierService {
     private readonly supplierRepository: SupplierRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly folderRenameService: FolderRenameService,
   ) {}
 
   /**
@@ -381,6 +383,33 @@ export class SupplierService {
 
         // Validar fornecedor completo
         await this.validateSupplier(data, id, tx);
+
+        // Check if fantasyName changed and rename folders accordingly
+        if (data.fantasyName && data.fantasyName !== existingSupplier.fantasyName) {
+          this.logger.log(
+            `Supplier fantasyName changed from "${existingSupplier.fantasyName}" to "${data.fantasyName}". Renaming folders...`,
+          );
+
+          try {
+            const renameResult = await this.folderRenameService.renameSupplierFolders(
+              existingSupplier.fantasyName,
+              data.fantasyName,
+              tx,
+            );
+
+            this.logger.log(
+              `Folder rename complete for supplier "${existingSupplier.fantasyName}": ` +
+                `${renameResult.totalFoldersRenamed} folders renamed, ` +
+                `${renameResult.totalFilesUpdated} file paths updated`,
+            );
+          } catch (renameError: any) {
+            this.logger.error(`Failed to rename supplier folders: ${renameError.message}`);
+            throw new InternalServerErrorException(
+              `Failed to rename supplier folders: ${renameError.message}. ` +
+                `Supplier update cancelled to maintain consistency.`,
+            );
+          }
+        }
 
         // Process logo file if provided
         let logoId: string | null | undefined = data.logoId;

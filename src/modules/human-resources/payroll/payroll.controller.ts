@@ -48,7 +48,7 @@ import {
   type DiscountCreateFormData,
 } from '../../../schemas/payroll';
 
-// Response types - these should be properly defined in @ankaa/types
+// Response types - these should be properly defined in @types
 type PayrollCreateResponse = any;
 type PayrollDeleteResponse = any;
 type PayrollGetManyResponse = any;

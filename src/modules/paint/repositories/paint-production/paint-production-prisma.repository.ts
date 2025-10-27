@@ -91,7 +91,16 @@ export class PaintProductionPrismaRepository
 
   protected getDefaultInclude(): Prisma.PaintProductionInclude | undefined {
     return {
-      formula: true,
+      formula: {
+        include: {
+          paint: {
+            include: {
+              paintType: true,
+              paintBrand: true,
+            },
+          },
+        },
+      },
     };
   }
 

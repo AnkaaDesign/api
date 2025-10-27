@@ -18,7 +18,18 @@ export const airbrushingIncludeSchema = z
           include: z
             .object({
               sector: z.boolean().optional(),
-              customer: z.boolean().optional(),
+              customer: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        logo: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               budgets: z.boolean().optional(),
               invoices: z.boolean().optional(),
               receipts: z.boolean().optional(),
@@ -548,8 +559,9 @@ export const airbrushingGetManySchema = z
 // CRUD Schemas
 // =====================
 
-export const airbrushingCreateSchema = z
-  .object({
+export const airbrushingCreateSchema = z.preprocess(
+  toFormData,
+  z.object({
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
     price: z
@@ -568,10 +580,11 @@ export const airbrushingCreateSchema = z
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
   })
-  .transform(toFormData);
+);
 
-export const airbrushingUpdateSchema = z
-  .object({
+export const airbrushingUpdateSchema = z.preprocess(
+  toFormData,
+  z.object({
     startDate: nullableDate.optional(),
     finishDate: nullableDate.optional(),
     price: z
@@ -590,7 +603,7 @@ export const airbrushingUpdateSchema = z
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
   })
-  .transform(toFormData);
+);
 
 // =====================
 // Batch Operations Schemas

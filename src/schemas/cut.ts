@@ -308,7 +308,11 @@ const cutTransform = (data: any) => {
   // Handle searchingFor
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
     andConditions.push({
-      OR: [{ file: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } }],
+      OR: [
+        { file: { filename: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { task: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { task: { customer: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -583,7 +587,7 @@ export type CutWhere = z.infer<typeof cutWhereSchema>;
 // Nested schema for creating cuts from other entities (like tasks)
 export const cutCreateNestedSchema = z
   .object({
-    fileId: z.string().uuid("Arquivo inválido"),
+    fileId: z.string().uuid("Arquivo inválido").optional(),
     type: z.nativeEnum(CUT_TYPE, {
       errorMap: () => ({ message: "Tipo de corte inválido" }),
     }),
@@ -597,6 +601,7 @@ export const cutCreateNestedSchema = z
       .nullable()
       .optional(),
     parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
+    _fileIndex: z.number().optional(), // Temporary field for file mapping (frontend optimization)
   })
   .transform(toFormData);
 

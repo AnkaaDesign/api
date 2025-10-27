@@ -1,20 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { Item } from '../../../../../types';
+import { Item } from '@types';
 import {
   ItemCreateFormData,
   ItemUpdateFormData,
   ItemInclude,
   ItemOrderBy,
   ItemWhere,
-} from '../../../../../schemas/item';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+} from '@schemas/item';
+import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@types';
 import { ItemRepository } from './item.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { Item as PrismaItem, Prisma } from '@prisma/client';
-import { mapPpeTypeToPrisma, mapPpeSizeToPrisma, mapPpeDeliveryModeToPrisma } from '../../../../../utils';
-import { PPE_SIZE, PPE_SIZE_ORDER } from '../../../../../constants';
+import { mapPpeTypeToPrisma, mapPpeSizeToPrisma, mapPpeDeliveryModeToPrisma } from '@utils';
+import { PPE_SIZE, PPE_SIZE_ORDER } from '@constants';
 
 @Injectable()
 export class ItemPrismaRepository
@@ -42,7 +42,8 @@ export class ItemPrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Item {
-    const item = {
+    // Convert Decimal fields to numbers
+    return {
       ...databaseEntity,
       monthlyConsumption: databaseEntity.monthlyConsumption
         ? Number(databaseEntity.monthlyConsumption)
@@ -51,23 +52,6 @@ export class ItemPrismaRepository
         ? Number(databaseEntity.monthlyConsumptionTrendPercent)
         : null,
     } as Item;
-
-    // Add virtual price field from latest monetary value
-    // Priority: 1. prices[current=true], 2. most recent price, 3. default to 0
-    if (item.prices && item.prices.length > 0) {
-      // Find the current monetary value or use the most recent one
-      const currentValue = item.prices.find((mv: any) => mv.current === true);
-      if (currentValue) {
-        item.price = currentValue.value;
-      } else {
-        // Fallback to the first (most recent) monetary value
-        item.price = item.prices[0].value;
-      }
-    } else {
-      item.price = 0; // Explicitly set to 0
-    }
-
-    return item;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
@@ -363,19 +347,11 @@ export class ItemPrismaRepository
       brand: true,
       category: true,
       supplier: true,
-      measures: true, // Used in 95%+ of queries (display, paint formulas, PPE management)
-      // Fetch monetary values ordered by current=true first, then by most recent
       prices: {
-        orderBy: [
-          { current: 'desc' as const },
-          { createdAt: 'desc' as const }
-        ],
-        take: 5, // Get a few recent values for history
-      },
-      _count: {
-        select: {
-          prices: true,
+        orderBy: {
+          updatedAt: 'desc',
         },
+        take: 1,
       },
     };
   }

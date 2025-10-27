@@ -7,7 +7,7 @@ const logger = new Logger('ChangeLogSerializer');
  * Handles Prisma enums, circular references, and other non-serializable objects
  */
 export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
-  if (value === null || value === undefined) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
 

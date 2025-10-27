@@ -26,6 +26,7 @@ import {
   getEssentialFields,
   hasValueChanged,
   extractEssentialFields,
+  translateFieldName,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   TASK_STATUS,
@@ -493,10 +494,10 @@ export class TaskService {
         if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
           const customerName = existingTask.customer?.fantasyName || (data.customerId ? (await tx.customer.findUnique({ where: { id: data.customerId }, select: { fantasyName: true } }))?.fantasyName : undefined);
 
-          // Upload each cut file and update the corresponding cut with its fileId
-          for (let i = 0; i < Math.min(files.cutFiles.length, data.cuts.length); i++) {
-            const cutFile = files.cutFiles[i];
-            const cutRecord = await this.fileService.createFromUploadWithTransaction(
+          // Upload each unique file once and store the file records
+          const uploadedFileRecords = [];
+          for (const cutFile of files.cutFiles) {
+            const fileRecord = await this.fileService.createFromUploadWithTransaction(
               tx,
               cutFile,
               'cutFiles',
@@ -507,9 +508,18 @@ export class TaskService {
                 customerName,
               },
             );
-            // Update the cut with the uploaded file's ID
-            data.cuts[i].fileId = cutRecord.id;
+            uploadedFileRecords.push(fileRecord);
           }
+
+          // Assign fileIds to cuts based on _fileIndex (if present) or sequential index (backward compat)
+          data.cuts.forEach((cut, index) => {
+            const fileIndex = cut._fileIndex !== undefined ? cut._fileIndex : index;
+            if (fileIndex < uploadedFileRecords.length) {
+              cut.fileId = uploadedFileRecords[fileIndex].id;
+            }
+            // Clean up the temporary _fileIndex field
+            delete cut._fileIndex;
+          });
         }
 
         // Process observation files BEFORE task update (to replace temporary IDs with real UUIDs)
@@ -576,83 +586,130 @@ export class TaskService {
           this.logger.log(`[Task Update] Processing files with customer name: "${customerName}" (from updatedTask: ${!!updatedTask.customer?.fantasyName}, from existingTask: ${!!existingTask.customer?.fantasyName})`);
 
           // Budget files (multiple)
-          if (files.budgets && files.budgets.length > 0) {
-            const budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : (existingTask.budgets?.map((b: any) => b.id) || []);
-            for (const budgetFile of files.budgets) {
-              const budgetRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                budgetFile,
-                'taskBudgets',
-                userId,
-                {
-                  entityId: id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              budgetIds.push(budgetRecord.id);
+          // Process if new files are being uploaded OR if budgetIds is explicitly provided (for deletions)
+          if ((files.budgets && files.budgets.length > 0) || data.budgetIds !== undefined) {
+            // Start with the budgetIds provided in the form data (files that should be kept)
+            // If not provided, default to empty array (will only have the new uploads)
+            const budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : [];
+
+            // Upload new files and add their IDs
+            if (files.budgets && files.budgets.length > 0) {
+              for (const budgetFile of files.budgets) {
+                const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  budgetFile,
+                  'taskBudgets',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                budgetIds.push(budgetRecord.id);
+              }
             }
-            fileUpdates.budgets = { connect: budgetIds.map(id => ({ id })) };
+
+            // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+            fileUpdates.budgets = { set: budgetIds.map(id => ({ id })) };
+            this.logger.log(`[Task Update] Setting budgets to ${budgetIds.length} files (${data.budgetIds?.length || 0} existing + ${files.budgets?.length || 0} new)`);
           }
 
           // NFe files (multiple)
-          if (files.invoices && files.invoices.length > 0) {
-            const nfeIds: string[] = data.nfeIds ? [...data.nfeIds] : (existingTask.invoices?.map((n: any) => n.id) || []);
-            for (const nfeFile of files.invoices) {
-              const nfeRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                nfeFile,
-                'taskInvoices',
-                userId,
-                {
-                  entityId: id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              nfeIds.push(nfeRecord.id);
+          // Process if new files are being uploaded OR if invoiceIds is explicitly provided (for deletions)
+          if ((files.invoices && files.invoices.length > 0) || data.invoiceIds !== undefined) {
+            // Start with the invoiceIds provided in the form data (files that should be kept)
+            // If not provided, default to empty array (will only have the new uploads)
+            const invoiceIds: string[] = data.invoiceIds ? [...data.invoiceIds] : [];
+
+            // Upload new files and add their IDs
+            if (files.invoices && files.invoices.length > 0) {
+              for (const invoiceFile of files.invoices) {
+                const invoiceRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  invoiceFile,
+                  'taskInvoices',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                invoiceIds.push(invoiceRecord.id);
+              }
             }
-            fileUpdates.invoices = { connect: nfeIds.map(id => ({ id })) };
+
+            // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+            fileUpdates.invoices = { set: invoiceIds.map(id => ({ id })) };
+            this.logger.log(`[Task Update] Setting invoices to ${invoiceIds.length} files (${data.invoiceIds?.length || 0} existing + ${files.invoices?.length || 0} new)`);
           }
 
           // Receipt files (multiple)
-          if (files.receipts && files.receipts.length > 0) {
-            const receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : (existingTask.receipts?.map((r: any) => r.id) || []);
-            for (const receiptFile of files.receipts) {
-              const receiptRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                receiptFile,
-                'taskReceipts',
-                userId,
-                {
-                  entityId: id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              receiptIds.push(receiptRecord.id);
+          // Process if new files are being uploaded OR if receiptIds is explicitly provided (for deletions)
+          if ((files.receipts && files.receipts.length > 0) || data.receiptIds !== undefined) {
+            // Start with the receiptIds provided in the form data (files that should be kept)
+            // If not provided, default to empty array (will only have the new uploads)
+            const receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : [];
+
+            // Upload new files and add their IDs
+            if (files.receipts && files.receipts.length > 0) {
+              for (const receiptFile of files.receipts) {
+                const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  receiptFile,
+                  'taskReceipts',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                receiptIds.push(receiptRecord.id);
+              }
             }
-            fileUpdates.receipts = { connect: receiptIds.map(id => ({ id })) };
+
+            // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+            fileUpdates.receipts = { set: receiptIds.map(id => ({ id })) };
+            this.logger.log(`[Task Update] Setting receipts to ${receiptIds.length} files (${data.receiptIds?.length || 0} existing + ${files.receipts?.length || 0} new)`);
           }
 
           // Artwork files
-          if (files.artworks && files.artworks.length > 0) {
-            const artworkIds: string[] = data.artworkIds ? [...data.artworkIds] : (existingTask.artworks?.map((a: any) => a.id) || []);
-            for (const artworkFile of files.artworks) {
-              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
-                tx,
-                artworkFile,
-                'tasksArtworks',
-                userId,
-                {
-                  entityId: id,
-                  entityType: 'TASK',
-                  customerName,
-                },
-              );
-              artworkIds.push(artworkRecord.id);
+          // Process if new files are being uploaded OR if artworkIds is explicitly provided (for deletions)
+          if ((files.artworks && files.artworks.length > 0) || data.artworkIds !== undefined) {
+            // Start with the artworkIds provided in the form data (files that should be kept)
+            // If not provided, default to empty array (will only have the new uploads)
+            const artworkIds: string[] = data.artworkIds ? [...data.artworkIds] : [];
+
+            // Upload new files and add their IDs
+            if (files.artworks && files.artworks.length > 0) {
+              for (const artworkFile of files.artworks) {
+                const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  artworkFile,
+                  'tasksArtworks',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                artworkIds.push(artworkRecord.id);
+              }
             }
-            fileUpdates.artworks = { connect: artworkIds.map(id => ({ id })) };
+
+            // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+            // This ensures removed files are actually removed from the relationship
+            fileUpdates.artworks = { set: artworkIds.map(id => ({ id })) };
+            this.logger.log(`[Task Update] Setting artworks to ${artworkIds.length} files (${data.artworkIds?.length || 0} existing + ${files.artworks?.length || 0} new)`);
+          }
+
+          // Logo paints (paintIds) - no file upload, just relation management
+          if (data.paintIds !== undefined) {
+            fileUpdates.logoPaints = { set: data.paintIds.map(id => ({ id })) };
+            this.logger.log(`[Task Update] Setting logo paints to ${data.paintIds.length} paints`);
           }
 
           // Airbrushing files - process files for each airbrushing
@@ -678,7 +735,16 @@ export class TaskService {
               const airbrushing = updatedTask.airbrushings[index];
               console.log(`[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`);
 
-              const fileIds: string[] = [];
+              // Get existing file IDs from the form data for this airbrushing
+              // The form should include the IDs of files that should be kept
+              const airbrushingData = (data as any).airbrushings?.[index];
+              const fileIdKey = `${fileType === 'invoices' ? 'invoiceIds' : fileType === 'receipts' ? 'receiptIds' : 'artworkIds'}`;
+              const existingFileIds = airbrushingData?.[fileIdKey] || [];
+
+              // Start with existing files from form data
+              const fileIds: string[] = [...existingFileIds];
+
+              // Upload new files and add their IDs
               for (const file of airbrushingFiles) {
                 const fileRecord = await this.fileService.createFromUploadWithTransaction(
                   tx,
@@ -694,15 +760,15 @@ export class TaskService {
                 fileIds.push(fileRecord.id);
               }
 
-              // Update the airbrushing with file IDs
+              // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
               if (fileIds.length > 0) {
                 await tx.airbrushing.update({
                   where: { id: airbrushing.id },
                   data: {
-                    [fileType]: { connect: fileIds.map(id => ({ id })) },
+                    [fileType]: { set: fileIds.map(id => ({ id })) },
                   },
                 });
-                console.log(`[TaskService.update] Connected ${fileIds.length} ${fileType} to airbrushing ${airbrushing.id}`);
+                console.log(`[TaskService.update] Set ${fileIds.length} ${fileType} for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`);
               }
             }
           }
@@ -732,11 +798,13 @@ export class TaskService {
           'details',
           'name',
           'serialNumber',
+          'chassisNumber',
           'plate',
           'term',
           'entryDate',
           'priority',
-          'statusOrder',
+          'bonusDiscountId',
+          // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
         ];
 
@@ -894,8 +962,20 @@ export class TaskService {
                   type: c.type,
                   origin: c.origin,
                   quantity: 1,
+                  status: c.status,
                   ...(c.reason && { reason: c.reason }),
                   ...(c.parentCutId && { parentCutId: c.parentCutId }),
+                  // Include file details for changelog display with thumbnails
+                  ...(c.file && {
+                    file: {
+                      id: c.file.id,
+                      filename: c.file.filename,
+                      mimetype: c.file.mimetype,
+                      size: c.file.size,
+                      thumbnailUrl: c.file.thumbnailUrl,
+                      path: c.file.path,
+                    }
+                  }),
                 });
               }
             });
@@ -1320,6 +1400,14 @@ export class TaskService {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
       }
 
+      // Debug logging for logo paints
+      this.logger.log(`[Task findById] Task ${task.id} (${task.name}):`);
+      this.logger.log(`  - General painting: ${task.generalPainting ? task.generalPainting.name : 'none'}`);
+      this.logger.log(`  - Logo paints count: ${task.logoPaints?.length || 0}`);
+      if (task.logoPaints && task.logoPaints.length > 0) {
+        this.logger.log(`  - Logo paints: ${JSON.stringify(task.logoPaints.map(p => ({ id: p.id, name: p.name, paintType: p.paintType?.name, paintBrand: p.paintBrand?.name })))}`);
+      }
+
       return {
         success: true,
         message: 'Tarefa carregada com sucesso.',
@@ -1552,12 +1640,152 @@ export class TaskService {
         );
       }
 
-      // 4. Create update data with just the field being rolled back
+      // 4. Convert oldValue to appropriate type based on field
+      let convertedValue: any = oldValue;
+
+      // Handle null, undefined, and empty string values
+      if (oldValue === null || oldValue === undefined || oldValue === '') {
+        convertedValue = null;
+      }
+      // Handle date fields
+      else if (
+        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt'].includes(fieldToRevert)
+      ) {
+        // Dates must be either a valid Date object or null, never empty string
+        convertedValue = new Date(oldValue as string);
+      }
+      // Handle number fields
+      else if (['priority', 'statusOrder'].includes(fieldToRevert)) {
+        convertedValue = typeof oldValue === 'number' ? oldValue : parseInt(oldValue as string, 10);
+      }
+      // Handle enum fields (status, commission) - must not be empty string
+      else if (['status', 'commission'].includes(fieldToRevert)) {
+        convertedValue = oldValue as string;
+      }
+      // Handle UUID/string fields - convert empty strings to null for optional fields
+      else if (
+        ['customerId', 'sectorId', 'paintId', 'createdById', 'bonusDiscountId', 'serialNumber', 'chassisNumber', 'plate', 'details'].includes(fieldToRevert)
+      ) {
+        convertedValue = oldValue;
+      }
+      // Handle required string fields (name) - keep as is
+      else if (['name'].includes(fieldToRevert)) {
+        convertedValue = oldValue;
+      }
+
+      // 5. Special handling for array/relation fields that need custom rollback logic
+      if (fieldToRevert === 'cuts') {
+        // Cuts are a relation, not a direct field - need special handling
+        // oldValue is a serialized array like: [{ fileId, type, origin, quantity, status, file: {...} }]
+
+        this.logger.log(`[Rollback] Starting cuts rollback for task ${changeLog.entityId}`);
+        this.logger.log(`[Rollback] Changelog action: ${changeLog.action}`);
+        this.logger.log(`[Rollback] oldValue type: ${typeof oldValue}`);
+
+        // Parse oldValue if it's a JSON string
+        let parsedOldValue = oldValue;
+        if (typeof oldValue === 'string') {
+          try {
+            parsedOldValue = JSON.parse(oldValue);
+            this.logger.log(`[Rollback] Parsed oldValue from string to ${typeof parsedOldValue}`);
+          } catch (e) {
+            this.logger.error(`[Rollback] Failed to parse oldValue: ${e.message}`);
+            parsedOldValue = oldValue;
+          }
+        }
+
+        // Delete all current cuts for this task
+        const deleteResult = await tx.cut.deleteMany({
+          where: { taskId: changeLog.entityId },
+        });
+        this.logger.log(`[Rollback] Deleted ${deleteResult.count} existing cuts`);
+
+        // Recreate cuts from parsedOldValue
+        let cutsCreated = 0;
+        if (parsedOldValue && Array.isArray(parsedOldValue)) {
+          this.logger.log(`[Rollback] Recreating ${parsedOldValue.length} cut groups`);
+          for (const cutData of parsedOldValue) {
+            // Type assertion for cutData as it's from JSON
+            const cut = cutData as any;
+
+            // Create 'quantity' number of cuts with the same fileId/type/origin
+            const quantity = cut.quantity || 1;
+            this.logger.log(`[Rollback] Creating ${quantity} cuts for file ${cut.fileId} (${cut.file?.filename || 'unknown'})`);
+
+            for (let i = 0; i < quantity; i++) {
+              const createdCut = await tx.cut.create({
+                data: {
+                  fileId: cut.fileId,
+                  type: cut.type,
+                  origin: cut.origin || 'PLAN',
+                  status: cut.status || 'PENDING',
+                  taskId: changeLog.entityId,
+                },
+              });
+              cutsCreated++;
+              this.logger.log(`[Rollback] Created cut ${i + 1}/${quantity}: ${createdCut.id}`);
+            }
+          }
+        } else {
+          this.logger.log(`[Rollback] No cuts to recreate (parsedOldValue is ${typeof parsedOldValue}, isArray: ${Array.isArray(parsedOldValue)})`);
+        }
+
+        this.logger.log(`[Rollback] Total cuts created: ${cutsCreated}`);
+
+        // Fetch updated task with cuts to return
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+              cuts: {
+                include: {
+                  file: true,
+                },
+              },
+            },
+          },
+        );
+
+        // Log the rollback action
+        const fieldNamePt = translateFieldName(fieldToRevert);
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue, // What we're rolling back from
+          newValue: changeLog.oldValue, // What we're rolling back to
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        this.logger.log(
+          `Field '${fieldToRevert}' rolled back for task ${changeLog.entityId} by user ${userId}`,
+        );
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
+      }
+
+      // 5. Create update data with just the field being rolled back
       const updateData: any = {
-        [fieldToRevert]: oldValue,
+        [fieldToRevert]: convertedValue,
       };
 
-      // 5. Special handling for status changes
+      // 6. Special handling for status changes
       if (fieldToRevert === 'status') {
         const targetStatus = oldValue as TASK_STATUS;
         const currentStatus = currentTask.status as TASK_STATUS;
@@ -1585,16 +1813,25 @@ export class TaskService {
         }
       }
 
-
-      // 7. Update the task
+      // 7. Update the task with relations included for proper response
       const updatedTask = await this.tasksRepository.updateWithTransaction(
         tx,
         changeLog.entityId,
         updateData,
+        {
+          include: {
+            customer: true,
+            sector: true,
+            generalPainting: true,
+            truck: true,
+            createdBy: true,
+          },
+        },
       );
 
+      // 8. Log the rollback action
+      const fieldNamePt = translateFieldName(fieldToRevert);
 
-      // 9. Log the rollback action
       await this.changeLogService.logChange({
         entityType: ENTITY_TYPE.TASK,
         entityId: changeLog.entityId,
@@ -1602,7 +1839,7 @@ export class TaskService {
         field: fieldToRevert,
         oldValue: changeLog.newValue, // What we're rolling back from
         newValue: changeLog.oldValue, // What we're rolling back to
-        reason: `Campo '${fieldToRevert}' revertido via changelog ${changeLogId}`,
+        reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         triggeredById: changeLog.entityId,
         userId,
@@ -1615,7 +1852,7 @@ export class TaskService {
 
       return {
         success: true,
-        message: `Campo '${fieldToRevert}' revertido com sucesso`,
+        message: `Campo '${fieldNamePt}' revertido com sucesso`,
         data: updatedTask,
       };
     });

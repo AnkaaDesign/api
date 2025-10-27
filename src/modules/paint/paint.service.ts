@@ -419,8 +419,8 @@ export class PaintService {
         SELECT DISTINCT p.id
         FROM "Paint" p
         LEFT JOIN "Task" t1 ON t1."paintId" = p.id
-        LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."B" = p.id
-        LEFT JOIN "Task" t2 ON t2.id = tlp."A"
+        LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
+        LEFT JOIN "Task" t2 ON t2.id = tlp."B"
         WHERE LOWER(t1.name) LIKE LOWER(${searchPattern})
            OR LOWER(t1."serialNumber") LIKE LOWER(${searchPattern})
            OR LOWER(t1.plate) LIKE LOWER(${searchPattern})
@@ -452,8 +452,8 @@ export class PaintService {
         FROM "Paint" p
         LEFT JOIN "Task" t1 ON t1."paintId" = p.id
         LEFT JOIN "Customer" c1 ON c1.id = t1."customerId"
-        LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."B" = p.id
-        LEFT JOIN "Task" t2 ON t2.id = tlp."A"
+        LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
+        LEFT JOIN "Task" t2 ON t2.id = tlp."B"
         LEFT JOIN "Customer" c2 ON c2.id = t2."customerId"
         WHERE LOWER(c1."fantasyName") LIKE LOWER(${searchPattern})
            OR LOWER(c1."corporateName") LIKE LOWER(${searchPattern})

@@ -577,6 +577,7 @@ export const borrowCreateSchema = z
         required_error: "Quantidade é obrigatória",
         invalid_type_error: "Quantidade inválida",
       })
+      .int("Quantidade deve ser um número inteiro")
       .positive("Quantidade deve ser positiva")
       .default(1),
     returnedAt: nullableDate.optional(),

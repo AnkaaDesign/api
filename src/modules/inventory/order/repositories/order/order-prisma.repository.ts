@@ -174,13 +174,26 @@ export class OrderPrismaRepository
     // Handle nested items creation
     if (items && items.length > 0) {
       createData.items = {
-        create: items.map(item => ({
-          orderedQuantity: item.orderedQuantity,
-          receivedQuantity: 0,
-          price: item.price,
-          tax: item.tax || 0,
-          item: { connect: { id: item.itemId } },
-        })),
+        create: items.map((item: any) => {
+          const itemData: any = {
+            orderedQuantity: item.orderedQuantity,
+            receivedQuantity: 0,
+            price: item.price,
+            tax: item.tax || 0,
+          };
+
+          // Connect to inventory item if itemId is provided (inventory item)
+          if (item.itemId) {
+            itemData.item = { connect: { id: item.itemId } };
+          }
+
+          // Set temporary item description if provided (temporary item)
+          if (item.temporaryItemDescription) {
+            itemData.temporaryItemDescription = item.temporaryItemDescription;
+          }
+
+          return itemData;
+        }),
       };
     }
 

@@ -58,7 +58,7 @@ import {
 
   // PPE Delivery By Schedule schemas
   ppeDeliveryByScheduleSchema,
-} from '../../../schemas';
+} from '@schemas';
 import type {
   // PPE Size types
   PpeSizeGetManyFormData,
@@ -102,7 +102,7 @@ import type {
 
   // PPE Delivery By Schedule types
   PpeDeliveryByScheduleFormData,
-} from '../../../schemas';
+} from '@schemas';
 import type {
   PpeSizeGetManyResponse,
   PpeSizeGetUniqueResponse,
@@ -136,13 +136,13 @@ import type {
   PpeDeliveryScheduleBatchCreateResponse,
   PpeDeliveryScheduleBatchUpdateResponse,
   PpeDeliveryScheduleBatchDeleteResponse,
-} from '../../../types';
+} from '@types';
 import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeSizeService } from './ppe-size.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { SECTOR_PRIVILEGES, PPE_DELIVERY_STATUS, PPE_TYPE, PPE_SIZE } from '../../../constants';
+import { SECTOR_PRIVILEGES, PPE_DELIVERY_STATUS, PPE_TYPE, PPE_SIZE } from '@constants';
 
 @Controller('ppe')
 export class PpeController {
@@ -158,10 +158,16 @@ export class PpeController {
 
   @Get('sizes')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeSizes(
     @Query(new ZodQueryValidationPipe(ppeSizeGetManySchema)) query: PpeSizeGetManyFormData,
@@ -213,10 +219,16 @@ export class PpeController {
 
   @Get('sizes/by-mask/:maskSize')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeSizesByMask(
     @Param('maskSize') maskSize: string,
@@ -228,10 +240,16 @@ export class PpeController {
 
   @Get('sizes/user/:userId')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeSizeByUserId(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
@@ -243,10 +261,16 @@ export class PpeController {
 
   @Get('sizes/:id')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeSizeById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -282,10 +306,16 @@ export class PpeController {
 
   @Get('deliveries')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
@@ -295,7 +325,7 @@ export class PpeController {
   }
 
   @Post('deliveries')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDelivery(
     @Body(new ZodValidationPipe(ppeDeliveryCreateSchema)) data: PpeDeliveryCreateFormData,
@@ -306,7 +336,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchCreateSchema)) data: PpeDeliveryBatchCreateFormData,
@@ -327,7 +357,7 @@ export class PpeController {
   }
 
   @Delete('deliveries/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchDeletePpeDeliveries(
     @Body(new ZodValidationPipe(ppeDeliveryBatchDeleteSchema)) data: PpeDeliveryBatchDeleteFormData,
     @UserId() userId: string,
@@ -343,7 +373,7 @@ export class PpeController {
     @UserId() userId: string,
     @Body('deliveryDate') deliveryDate?: Date,
   ): Promise<PpeDeliveryUpdateResponse> {
-    return this.ppeDeliveryService.markAsDelivered(id, userId, deliveryDate);
+    return this.ppeDeliveryService.markAsDelivered(id, userId, deliveryDate, userId);
   }
 
   @Post('deliveries/finish-and-schedule-next/:id')
@@ -394,8 +424,34 @@ export class PpeController {
     );
   }
 
+  @Post('deliveries/batch-mark-delivered')
+  @Roles(SECTOR_PRIVILEGES.ADMIN) // Only admins can batch mark as delivered
+  @HttpCode(HttpStatus.OK)
+  async batchMarkPpeDeliveriesAsDelivered(
+    @Body() data: { deliveryIds: string[]; reviewedBy?: string; deliveryDate?: Date },
+    @UserId() userId: string,
+  ): Promise<{ success: number; failed: number; results: any[] }> {
+    return this.ppeDeliveryService.batchMarkAsDelivered(
+      data.deliveryIds,
+      data.reviewedBy || userId,
+      data.deliveryDate,
+      userId,
+    );
+  }
+
   @Get('deliveries/scheduled')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getScheduledDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
     @UserId() userId: string,
@@ -413,7 +469,18 @@ export class PpeController {
   }
 
   @Get('deliveries/pending-for-schedule/:scheduleId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getPendingDeliveriesForSchedule(
     @Param('scheduleId', ParseUUIDPipe) scheduleId: string,
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -423,7 +490,18 @@ export class PpeController {
   }
 
   @Get('deliveries/available-for-user/:userId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getAvailablePpeForUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -435,10 +513,16 @@ export class PpeController {
 
   @Get('deliveries/:id')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeDeliveryById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -469,13 +553,35 @@ export class PpeController {
   }
 
   @Get('deliveries/stats')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getPpeDeliveryStatistics(@UserId() userId: string, @Query('userId') targetUserId?: string) {
     return this.ppeDeliveryService.getDeliveryStatistics(targetUserId);
   }
 
   @Get('deliveries/overdue')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getOverdueDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
     @UserId() userId: string,
@@ -484,7 +590,18 @@ export class PpeController {
   }
 
   @Get('deliveries/upcoming')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getUpcomingDeliveries(
     @Query('days') days: string = '7',
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
@@ -521,7 +638,18 @@ export class PpeController {
   // =====================
 
   @Get('deliveries/my-requests')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getMyPpeDeliveries(
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
     @UserId() userId: string,
@@ -538,7 +666,18 @@ export class PpeController {
   }
 
   @Get('deliveries/my-available')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getMyAvailablePpe(
     @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
     @UserId() userId: string,
@@ -685,10 +824,16 @@ export class PpeController {
 
   @Get('schedules')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeDeliverySchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleGetManySchema))
@@ -699,7 +844,7 @@ export class PpeController {
   }
 
   @Post('schedules')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async createPpeDeliverySchedule(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleCreateSchema))
@@ -712,7 +857,7 @@ export class PpeController {
   }
 
   @Post('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchCreateSchema))
@@ -725,7 +870,7 @@ export class PpeController {
   }
 
   @Put('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdatePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchUpdateSchema))
     data: PpeDeliveryScheduleBatchUpdateFormData,
@@ -737,7 +882,7 @@ export class PpeController {
   }
 
   @Delete('schedules/batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchDeletePpeDeliverySchedules(
     @Body(new ZodValidationPipe(ppeDeliveryScheduleBatchDeleteSchema))
     data: PpeDeliveryScheduleBatchDeleteFormData,
@@ -748,10 +893,16 @@ export class PpeController {
 
   @Get('schedules/:id')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getPpeDeliveryScheduleById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -763,7 +914,7 @@ export class PpeController {
   }
 
   @Put('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async updatePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(ppeDeliveryScheduleUpdateSchema))
@@ -776,7 +927,7 @@ export class PpeController {
   }
 
   @Delete('schedules/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async deletePpeDeliverySchedule(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -785,7 +936,7 @@ export class PpeController {
   }
 
   @Post('schedules/execute/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async executeScheduleNow(
     @Param('id', ParseUUIDPipe) id: string,
@@ -804,7 +955,18 @@ export class PpeController {
   }
 
   @Get('schedules/stats/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getScheduleExecutionStats(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -826,7 +988,7 @@ export class PpeController {
   }
 
   @Post('schedules/toggle-active/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async toggleScheduleActive(
     @Param('id', ParseUUIDPipe) id: string,
@@ -837,7 +999,7 @@ export class PpeController {
   }
 
   @Post('schedules/recalculate-next-run/:id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async recalculateScheduleNextRun(
     @Param('id', ParseUUIDPipe) id: string,
@@ -848,10 +1010,16 @@ export class PpeController {
 
   @Get('schedules/active')
   @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getActiveSchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleQuerySchema))
@@ -862,7 +1030,18 @@ export class PpeController {
   }
 
   @Get('schedules/by-user/:userId')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getSchedulesByUser(
     @Param('userId', ParseUUIDPipe) targetUserId: string,
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleQuerySchema))
@@ -873,7 +1052,18 @@ export class PpeController {
   }
 
   @Get('schedules/due')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
   async getDueSchedules(
     @Query(new ZodQueryValidationPipe(ppeDeliveryScheduleQuerySchema))
     query: PpeDeliveryScheduleQueryFormData,

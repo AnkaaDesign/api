@@ -113,8 +113,8 @@ export class AuthService {
       throw new UnauthorizedException('Senha incorreta.');
     }
 
-    // Check if user is not dismissed
-    if (user.status === USER_STATUS.DISMISSED) {
+    // Check if user is active
+    if (!user.isActive) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
@@ -935,8 +935,8 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    // Check if user is not dismissed
-    if (user.status === USER_STATUS.DISMISSED) {
+    // Check if user is active
+    if (!user.isActive) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 
@@ -961,8 +961,8 @@ export class AuthService {
       throw new NotFoundException('Usuário não encontrado.');
     }
 
-    // Check if user is not dismissed
-    if (user.status === USER_STATUS.DISMISSED) {
+    // Check if user is active
+    if (!user.isActive) {
       throw new ForbiddenException('Sua conta está inativa. Entre em contato com o administrador.');
     }
 

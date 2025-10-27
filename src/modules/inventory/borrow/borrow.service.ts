@@ -140,7 +140,7 @@ export class BorrowService {
       select: {
         id: true,
         name: true,
-        status: true,
+        isActive: true,
         sectorId: true,
       },
     });
@@ -149,12 +149,12 @@ export class BorrowService {
       throw new NotFoundException('Usuário não encontrado');
     }
 
-    if (!ACTIVE_USER_STATUSES.includes(user.status as any)) {
+    if (!user.isActive) {
       throw new BadRequestException('Usuário não está ativo e não pode fazer empréstimos');
     }
 
     // Validar quantidade
-    const quantity = data.quantity || 1;
+    const quantity = data.quantity ?? 1;
 
     if (!Number.isInteger(quantity)) {
       throw new BadRequestException('Quantidade deve ser um número inteiro');

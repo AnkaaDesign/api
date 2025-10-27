@@ -89,7 +89,8 @@ export interface OrderRule extends BaseEntity {
 
 export interface OrderItem extends BaseEntity {
   orderId: string;
-  itemId: string;
+  itemId: string | null;
+  temporaryItemDescription: string | null;
   orderedQuantity: number;
   receivedQuantity: number;
   price: number;

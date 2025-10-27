@@ -2,15 +2,15 @@
 
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Injectable, Logger } from '@nestjs/common';
-import { Customer } from '../../../../types';
+import { Customer } from '@types';
 import {
   CustomerCreateFormData,
   CustomerUpdateFormData,
   CustomerInclude,
   CustomerOrderBy,
   CustomerWhere,
-} from '../../../../schemas/customer';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
+} from '@schemas/customer';
+import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@types';
 import { CustomerRepository } from './customer.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';

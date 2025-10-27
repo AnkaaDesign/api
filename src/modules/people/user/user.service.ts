@@ -19,6 +19,7 @@ import type {
   UserGetManyResponse,
   UserGetUniqueResponse,
   UserUpdateResponse,
+  UserMergeResponse,
   FindManyOptions,
 } from '../../../types';
 import type {
@@ -28,6 +29,7 @@ import type {
   UserBatchCreateFormData,
   UserBatchUpdateFormData,
   UserBatchDeleteFormData,
+  UserMergeFormData,
   UserInclude,
   UserOrderBy,
   UserWhere,
@@ -46,6 +48,7 @@ import {
 } from '../../../constants/enums';
 import { USER_STATUS_ORDER } from '../../../constants/sortOrders';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
+import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -56,6 +59,7 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly userRepository: UserRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly folderRenameService: FolderRenameService,
   ) {}
 
   /**
@@ -429,11 +433,8 @@ export class UserService {
       }
 
       // Handle boolean filters
-      // isActive now means "not dismissed" since we no longer have ACTIVE/INACTIVE
       if (filters.isActive !== undefined) {
-        finalWhere.status = filters.isActive
-          ? { not: USER_STATUS.DISMISSED }  // Active = not dismissed
-          : USER_STATUS.DISMISSED;           // Inactive = dismissed
+        finalWhere.isActive = filters.isActive;
       }
       if (filters.isVerified !== undefined) {
         finalWhere.verified = filters.isVerified;
@@ -690,21 +691,21 @@ export class UserService {
           throw new NotFoundException('Usuário não encontrado.');
         }
 
-        // Business logic BEFORE saving: Handle dismissal date and status relationship
-        // If dismissalDate is provided and status is not DISMISSED, automatically set status to DISMISSED
-        if (data.dismissal && (!data.status || data.status !== USER_STATUS.DISMISSED)) {
+        // Business logic BEFORE saving: Handle dismissedAt date and status relationship
+        // If dismissedAt date is provided and status is not DISMISSED, automatically set status to DISMISSED
+        if (data.dismissedAt && (!data.status || data.status !== USER_STATUS.DISMISSED)) {
           this.logger.log(
             `Dismissal date provided for user ${id}. Automatically setting status to DISMISSED.`,
           );
           (data as any).status = USER_STATUS.DISMISSED;
         }
 
-        // If status is being set to DISMISSED and dismissalDate is null, automatically set dismissalDate
-        if (data.status === USER_STATUS.DISMISSED && !data.dismissal && !existingUser.dismissal) {
+        // If status is being set to DISMISSED and dismissedAt is null, automatically set dismissedAt
+        if (data.status === USER_STATUS.DISMISSED && !data.dismissedAt && !existingUser.dismissedAt) {
           this.logger.log(
-            `Status being set to DISMISSED for user ${id}. Automatically setting dismissal date to now.`,
+            `Status being set to DISMISSED for user ${id}. Automatically setting dismissedAt to now.`,
           );
-          (data as any).dismissal = new Date();
+          (data as any).dismissedAt = new Date();
         }
 
         // Validate status transition
@@ -733,6 +734,33 @@ export class UserService {
 
         // Validar usuário completo
         await this.userValidation(data, id, tx);
+
+        // Check if name changed and rename folders accordingly
+        if (data.name && data.name !== existingUser.name) {
+          this.logger.log(
+            `User name changed from "${existingUser.name}" to "${data.name}". Renaming folders...`,
+          );
+
+          try {
+            const renameResult = await this.folderRenameService.renameUserFolders(
+              existingUser.name,
+              data.name,
+              tx,
+            );
+
+            this.logger.log(
+              `Folder rename complete for user "${existingUser.name}": ` +
+                `${renameResult.totalFoldersRenamed} folders renamed, ` +
+                `${renameResult.totalFilesUpdated} file paths updated`,
+            );
+          } catch (renameError: any) {
+            this.logger.error(`Failed to rename user folders: ${renameError.message}`);
+            throw new InternalServerErrorException(
+              `Failed to rename user folders: ${renameError.message}. ` +
+                `User update cancelled to maintain consistency.`,
+            );
+          }
+        }
 
         // Hash da senha se fornecida
         if (data.password) {
@@ -789,7 +817,7 @@ export class UserService {
           'verified',
           'requirePasswordChange',
           'birth',
-          'dismissal', // Track dismissal date changes
+          'dismissedAt', // Track dismissal date changes
           'verificationCode',
           'verificationExpiresAt',
           'verificationType',
@@ -841,45 +869,6 @@ export class UserService {
           });
         }
 
-        // Track relationship changes with descriptive messages
-        if (
-          data.hasOwnProperty('positionId') &&
-          existingUser.positionId !== updatedUser.positionId
-        ) {
-          const oldPosition = existingUser.position?.name || 'Nenhum';
-          const newPosition = updatedUser.position?.name || 'Nenhum';
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.USER,
-            entityId: id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'position',
-            oldValue: oldPosition,
-            newValue: newPosition,
-            reason: `Cargo alterado de "${oldPosition}" para "${newPosition}"`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-            triggeredById: id,
-            userId: userId || null,
-            transaction: tx,
-          });
-        }
-
-        if (data.hasOwnProperty('sectorId') && existingUser.sectorId !== updatedUser.sectorId) {
-          const oldSector = existingUser.sector?.name || 'Nenhum';
-          const newSector = updatedUser.sector?.name || 'Nenhum';
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.USER,
-            entityId: id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'sector',
-            oldValue: oldSector,
-            newValue: newSector,
-            reason: `Setor alterado de "${oldSector}" para "${newSector}"`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-            triggeredById: id,
-            userId: userId || null,
-            transaction: tx,
-          });
-        }
 
         return updatedUser;
       });
@@ -1302,7 +1291,7 @@ export class UserService {
                 'verified',
                 'requirePasswordChange',
                 'birth',
-                'dismissal',
+                'dismissedAt',
                 'address',
                 'addressNumber',
                 'addressComplement',
@@ -1446,6 +1435,370 @@ export class UserService {
       this.logger.error('Erro na exclusão em lote:', error);
       throw new InternalServerErrorException(
         'Erro ao excluir usuários em lote. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  async merge(
+    data: UserMergeFormData,
+    include?: UserInclude,
+    userId?: string,
+  ): Promise<UserMergeResponse> {
+    try {
+      const mergedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // 1. Fetch target user and source users
+        const targetUser = await tx.user.findUnique({
+          where: { id: data.targetUserId },
+          include: {
+            createdTasks: true,
+            vacations: true,
+          },
+        });
+
+        if (!targetUser) {
+          throw new NotFoundException(`Usuário alvo com ID ${data.targetUserId} não encontrado`);
+        }
+
+        const sourceUsers = await tx.user.findMany({
+          where: { id: { in: data.sourceUserIds } },
+          include: {
+            createdTasks: true,
+            vacations: true,
+          },
+        });
+
+        if (sourceUsers.length !== data.sourceUserIds.length) {
+          const foundIds = sourceUsers.map(u => u.id);
+          const missingIds = data.sourceUserIds.filter(id => !foundIds.includes(id));
+          throw new NotFoundException(`Usuários de origem não encontrados: ${missingIds.join(', ')}`);
+        }
+
+        // 2. Merge tasks - move all created tasks from source users to target
+        for (const sourceUser of sourceUsers) {
+          if (sourceUser.createdTasks.length > 0) {
+            await tx.task.updateMany({
+              where: { createdById: sourceUser.id },
+              data: { createdById: data.targetUserId },
+            });
+          }
+        }
+
+        // 3. Merge activities
+        for (const sourceUser of sourceUsers) {
+          await tx.activity.updateMany({
+            where: { userId: sourceUser.id },
+            data: { userId: data.targetUserId },
+          });
+        }
+
+        // 4. Merge borrows
+        for (const sourceUser of sourceUsers) {
+          await tx.borrow.updateMany({
+            where: { userId: sourceUser.id },
+            data: { userId: data.targetUserId },
+          });
+        }
+
+        // 5. Merge vacations
+        for (const sourceUser of sourceUsers) {
+          if (sourceUser.vacations.length > 0) {
+            await tx.vacation.updateMany({
+              where: { userId: sourceUser.id },
+              data: { userId: data.targetUserId },
+            });
+          }
+        }
+
+        // 6. Merge warnings (both as collaborator and supervisor)
+        for (const sourceUser of sourceUsers) {
+          // Update warnings where source user is the collaborator
+          await tx.warning.updateMany({
+            where: { collaboratorId: sourceUser.id },
+            data: { collaboratorId: data.targetUserId },
+          });
+          // Update warnings where source user is the supervisor
+          await tx.warning.updateMany({
+            where: { supervisorId: sourceUser.id },
+            data: { supervisorId: data.targetUserId },
+          });
+        }
+
+        // 7. Merge PPE deliveries
+        for (const sourceUser of sourceUsers) {
+          await tx.ppeDelivery.updateMany({
+            where: { userId: sourceUser.id },
+            data: { userId: data.targetUserId },
+          });
+        }
+
+        // 8. Merge notifications (created by user)
+        for (const sourceUser of sourceUsers) {
+          await tx.notification.updateMany({
+            where: { userId: sourceUser.id },
+            data: { userId: data.targetUserId },
+          });
+        }
+
+        // 9. Merge seen notifications
+        for (const sourceUser of sourceUsers) {
+          await tx.seenNotification.updateMany({
+            where: { userId: sourceUser.id },
+            data: { userId: data.targetUserId },
+          });
+        }
+
+        // 10. Delete source users BEFORE updating target to avoid unique constraint conflicts
+        for (const sourceUser of sourceUsers) {
+          await logEntityChange({
+            changeLogService: this.changeLogService,
+            entityType: ENTITY_TYPE.USER,
+            entityId: sourceUser.id,
+            action: CHANGE_ACTION.DELETE,
+            oldEntity: sourceUser,
+            reason: `Usuário removido após mesclagem com ${targetUser.name}`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            userId: userId || null,
+            transaction: tx,
+          });
+
+          await tx.user.delete({
+            where: { id: sourceUser.id },
+          });
+        }
+
+        // 11. Apply conflict resolutions to target user
+        const updateData: any = {};
+        if (data.conflictResolutions) {
+          Object.keys(data.conflictResolutions).forEach(field => {
+            updateData[field] = data.conflictResolutions![field];
+          });
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await tx.user.update({
+            where: { id: data.targetUserId },
+            data: updateData,
+          });
+        }
+
+        // 12. Log the merge operation
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.USER,
+          entityId: data.targetUserId,
+          action: CHANGE_ACTION.UPDATE,
+          entity: targetUser,
+          reason: `Usuário mesclado com ${sourceUsers.length} outro(s) usuário(s): ${sourceUsers.map(u => u.name).join(', ')}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          userId: userId || null,
+          transaction: tx,
+        });
+
+        // 13. Return the merged user
+        const mergedUser = await this.userRepository.findByIdWithTransaction(
+          tx,
+          data.targetUserId,
+          { include },
+        );
+
+        return mergedUser;
+      });
+
+      const { password, ...userWithoutPassword } = mergedUser;
+      return {
+        success: true,
+        message: `${data.sourceUserIds.length + 1} usuários mesclados com sucesso.`,
+        data: userWithoutPassword as User,
+      };
+    } catch (error: unknown) {
+      this.logger.error('Erro ao mesclar usuários:', error);
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        'Erro ao mesclar usuários. Por favor, tente novamente.',
+      );
+    }
+  }
+
+  /**
+   * Automatically transition users to the next status when their experience periods end
+   * This method should be called by a cron job daily at midnight
+   *
+   * Status transitions:
+   * - EXPERIENCE_PERIOD_1 -> EXPERIENCE_PERIOD_2 (when exp1EndAt is today)
+   * - EXPERIENCE_PERIOD_2 -> CONTRACTED (when exp2EndAt is today)
+   */
+  async processExperiencePeriodTransitions(userId: string = 'system'): Promise<{
+    totalProcessed: number;
+    exp1ToExp2: number;
+    exp2ToContracted: number;
+    errors: Array<{ userId: string; error: string }>;
+  }> {
+    this.logger.log('Starting automatic experience period status transitions...');
+
+    const result = {
+      totalProcessed: 0,
+      exp1ToExp2: 0,
+      exp2ToContracted: 0,
+      errors: [] as Array<{ userId: string; error: string }>,
+    };
+
+    try {
+      // Get today's date at start of day (midnight)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Get tomorrow's date at start of day to create a range for "today"
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Find users where exp1EndAt is today and status is EXPERIENCE_PERIOD_1
+      const usersEndingExp1 = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EXPERIENCE_PERIOD_1,
+          exp1EndAt: {
+            gte: today,
+            lt: tomorrow,
+          },
+        },
+        include: {
+          position: true,
+          sector: true,
+        },
+      });
+
+      this.logger.log(`Found ${usersEndingExp1.length} users ending Experience Period 1 today`);
+
+      // Transition users from exp1 to exp2
+      for (const user of usersEndingExp1) {
+        try {
+          await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            const existingUser = user;
+
+            // Update user status to EXPERIENCE_PERIOD_2
+            const updatedUser = await tx.user.update({
+              where: { id: user.id },
+              data: {
+                status: USER_STATUS.EXPERIENCE_PERIOD_2,
+                // exp2StartAt and exp2EndAt should already be set, but we can update them if needed
+                exp2StartAt: user.exp2StartAt || today,
+                updatedAt: new Date(),
+              },
+            });
+
+            // Log the status change
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.USER,
+              entityId: user.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'status',
+              oldValue: USER_STATUS.EXPERIENCE_PERIOD_1,
+              newValue: USER_STATUS.EXPERIENCE_PERIOD_2,
+              reason: 'Transição automática: Período de Experiência 1 finalizado',
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: user.id,
+              userId: userId,
+              transaction: tx,
+            });
+
+            this.logger.log(
+              `User ${user.name} (${user.id}) transitioned from EXP1 to EXP2`
+            );
+          });
+
+          result.exp1ToExp2++;
+          result.totalProcessed++;
+        } catch (error: any) {
+          this.logger.error(
+            `Failed to transition user ${user.id} from EXP1 to EXP2:`,
+            error
+          );
+          result.errors.push({
+            userId: user.id,
+            error: error.message || 'Unknown error during exp1->exp2 transition',
+          });
+        }
+      }
+
+      // Find users where exp2EndAt is today and status is EXPERIENCE_PERIOD_2
+      const usersEndingExp2 = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EXPERIENCE_PERIOD_2,
+          exp2EndAt: {
+            gte: today,
+            lt: tomorrow,
+          },
+        },
+        include: {
+          position: true,
+          sector: true,
+        },
+      });
+
+      this.logger.log(`Found ${usersEndingExp2.length} users ending Experience Period 2 today`);
+
+      // Transition users from exp2 to contracted
+      for (const user of usersEndingExp2) {
+        try {
+          await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+            const existingUser = user;
+
+            // Update user status to CONTRACTED
+            const updatedUser = await tx.user.update({
+              where: { id: user.id },
+              data: {
+                status: USER_STATUS.CONTRACTED,
+                contractedAt: today,
+                updatedAt: new Date(),
+              },
+            });
+
+            // Log the status change
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.USER,
+              entityId: user.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'status',
+              oldValue: USER_STATUS.EXPERIENCE_PERIOD_2,
+              newValue: USER_STATUS.CONTRACTED,
+              reason: 'Transição automática: Período de Experiência 2 finalizado',
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: user.id,
+              userId: userId,
+              transaction: tx,
+            });
+
+            this.logger.log(
+              `User ${user.name} (${user.id}) transitioned from EXP2 to CONTRACTED`
+            );
+          });
+
+          result.exp2ToContracted++;
+          result.totalProcessed++;
+        } catch (error: any) {
+          this.logger.error(
+            `Failed to transition user ${user.id} from EXP2 to CONTRACTED:`,
+            error
+          );
+          result.errors.push({
+            userId: user.id,
+            error: error.message || 'Unknown error during exp2->contracted transition',
+          });
+        }
+      }
+
+      this.logger.log(
+        `Experience period transitions completed. Total processed: ${result.totalProcessed}, ` +
+        `EXP1->EXP2: ${result.exp1ToExp2}, EXP2->CONTRACTED: ${result.exp2ToContracted}, ` +
+        `Errors: ${result.errors.length}`
+      );
+
+      return result;
+    } catch (error: any) {
+      this.logger.error('Failed to process experience period transitions:', error);
+      throw new InternalServerErrorException(
+        'Erro ao processar transições de período de experiência. Por favor, tente novamente.',
       );
     }
   }

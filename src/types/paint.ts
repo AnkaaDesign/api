@@ -184,6 +184,11 @@ export interface PaintFormulaIncludes {
     | {
         include?: PaintIncludes;
       };
+  paintProduction?:
+    | boolean
+    | {
+        include?: PaintProductionIncludes;
+      };
 }
 
 export interface PaintFormulaComponentIncludes {

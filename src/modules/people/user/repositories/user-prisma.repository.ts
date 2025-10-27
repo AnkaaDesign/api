@@ -1,14 +1,14 @@
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Injectable, Logger } from '@nestjs/common';
-import { User } from '../../../../types';
+import { User } from '@types';
 import {
   UserCreateFormData,
   UserUpdateFormData,
   UserInclude,
   UserOrderBy,
   UserWhere,
-} from '../../../../schemas/user';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
+} from '@schemas/user';
+import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@types';
 import { UserRepository } from './user.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -22,9 +22,7 @@ import {
   mapPantsSizeToPrisma,
   mapSleevesSizeToPrisma,
   mapMaskSizeToPrisma,
-  mapGlovesSizeToPrisma,
-  mapRainBootsSizeToPrisma,
-} from '../../../../utils';
+} from '@utils';
 
 @Injectable()
 export class UserPrismaRepository
@@ -52,20 +50,13 @@ export class UserPrismaRepository
 
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): User {
-    const { birth, dismissal, ...restUser } = databaseEntity;
+    const { birth, admissional, ...restUser } = databaseEntity;
 
     const user = {
       ...restUser,
       // Map database field names to entity field names
-      birth: birth || null,
-      dismissal: dismissal || null,
-      // Ensure status timestamp fields are properly mapped
-      contractedAt: restUser.contractedAt || null,
-      exp1StartAt: restUser.exp1StartAt || null,
-      exp1EndAt: restUser.exp1EndAt || null,
-      exp2StartAt: restUser.exp2StartAt || null,
-      exp2EndAt: restUser.exp2EndAt || null,
-      dismissedAt: restUser.dismissedAt || null,
+      birthDate: birth || null,
+      hireDate: admissional || null,
     } as User;
 
 
@@ -91,7 +82,6 @@ export class UserPrismaRepository
       notificationPreferences,
       userId,
       birth,
-      dismissal,
       ...rest
     } = formData;
 
@@ -103,16 +93,8 @@ export class UserPrismaRepository
       status: mapUserStatusToPrisma(formData.status),
       verified: formData.verified ?? false,
       performanceLevel: formData.performanceLevel ?? 0,
-      // Map date fields to Prisma model field names (all optional)
-      ...(birth !== undefined && { birth }),
-      ...(dismissal !== undefined && { dismissal }),
-      // Include status timestamp fields if they're in rest (from service layer)
-      ...((rest as any).contractedAt !== undefined && { contractedAt: (rest as any).contractedAt }),
-      ...((rest as any).exp1StartAt !== undefined && { exp1StartAt: (rest as any).exp1StartAt }),
-      ...((rest as any).exp1EndAt !== undefined && { exp1EndAt: (rest as any).exp1EndAt }),
-      ...((rest as any).exp2StartAt !== undefined && { exp2StartAt: (rest as any).exp2StartAt }),
-      ...((rest as any).exp2EndAt !== undefined && { exp2EndAt: (rest as any).exp2EndAt }),
-      ...((rest as any).dismissedAt !== undefined && { dismissedAt: (rest as any).dismissedAt }),
+      // Map date fields to Prisma model field names
+      birth: birth || null,
     };
 
     if (positionId) {
@@ -136,8 +118,6 @@ export class UserPrismaRepository
           pants: mapPantsSizeToPrisma(ppeSize.pants),
           sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
           mask: mapMaskSizeToPrisma(ppeSize.mask),
-          gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
-          rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
         },
       };
     }
@@ -162,9 +142,8 @@ export class UserPrismaRepository
       verificationCode,
       verificationExpiresAt,
       requirePasswordChange,
-      birth,
-      dismissal,
       ppeSize,
+      birth,
       ...rest
     } = formData;
 
@@ -181,14 +160,6 @@ export class UserPrismaRepository
       ...(requirePasswordChange !== undefined && { requirePasswordChange }),
       // Map date fields to Prisma model field names
       ...(birth !== undefined && { birth }),
-      ...(dismissal !== undefined && { dismissal }),
-      // Include status timestamp fields if they're in rest (from service layer)
-      ...((rest as any).contractedAt !== undefined && { contractedAt: (rest as any).contractedAt }),
-      ...((rest as any).exp1StartAt !== undefined && { exp1StartAt: (rest as any).exp1StartAt }),
-      ...((rest as any).exp1EndAt !== undefined && { exp1EndAt: (rest as any).exp1EndAt }),
-      ...((rest as any).exp2StartAt !== undefined && { exp2StartAt: (rest as any).exp2StartAt }),
-      ...((rest as any).exp2EndAt !== undefined && { exp2EndAt: (rest as any).exp2EndAt }),
-      ...((rest as any).dismissedAt !== undefined && { dismissedAt: (rest as any).dismissedAt }),
     };
 
     if (positionId !== undefined) {
@@ -210,7 +181,7 @@ export class UserPrismaRepository
       updateInput.preference = { update: preferences };
     }
 
-    // Handle PPE size update (upsert - create if doesn't exist, update if it does)
+    // Handle ppeSize update
     if (ppeSize) {
       updateInput.ppeSize = {
         upsert: {
@@ -220,8 +191,6 @@ export class UserPrismaRepository
             pants: mapPantsSizeToPrisma(ppeSize.pants),
             sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
             mask: mapMaskSizeToPrisma(ppeSize.mask),
-            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
-            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
           },
           update: {
             shirts: mapShirtSizeToPrisma(ppeSize.shirts),
@@ -229,8 +198,6 @@ export class UserPrismaRepository
             pants: mapPantsSizeToPrisma(ppeSize.pants),
             sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
             mask: mapMaskSizeToPrisma(ppeSize.mask),
-            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
-            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
           },
         },
       };
@@ -258,12 +225,12 @@ export class UserPrismaRepository
   ): Prisma.UserOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
 
-    // If it's an array, take the first element to satisfy type requirements
-    // Prisma supports both single object and array of objects for orderBy at runtime
+    // If orderBy is an array, take the first element
     if (Array.isArray(orderBy)) {
       return orderBy[0] as Prisma.UserOrderByWithRelationInput;
     }
 
+    // Return as is for object
     return orderBy as Prisma.UserOrderByWithRelationInput;
   }
 

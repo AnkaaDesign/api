@@ -679,21 +679,22 @@ model Order {
 }
 
 model OrderItem {
-  id               String     @id @default(uuid())
-  orderId          String
-  itemId           String
-  orderedQuantity  Float
-  receivedQuantity Float      @default(0)
-  price            Float
-  tax              Float
-  isCritical       Boolean    @default(false)
-  receivedAt       DateTime?
-  fulfilledAt      DateTime?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  activities       Activity[] @relation("ACTIVITY_ORDER_ITEM")
-  item             Item       @relation("ORDER_ITEM_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
-  order            Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id                       String     @id @default(uuid())
+  orderId                  String
+  itemId                   String?
+  temporaryItemDescription String?
+  orderedQuantity          Float
+  receivedQuantity         Float      @default(0)
+  price                    Float
+  tax                      Float
+  isCritical               Boolean    @default(false)
+  receivedAt               DateTime?
+  fulfilledAt              DateTime?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  activities               Activity[] @relation("ACTIVITY_ORDER_ITEM")
+  item                     Item?      @relation("ORDER_ITEM_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  order                    Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([itemId])
@@ -946,6 +947,7 @@ model Supplier {
   zipCode           String?
   site              String?
   phones            String[]
+  tags              String[]        @default([])
   logoId            String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -981,7 +983,7 @@ model Task {
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   bonusDiscountId       String?
-  airbrushing           Airbrushing[]    @relation("AIRBRUSHING")
+  airbrushings          Airbrushing[]    @relation("AIRBRUSHING")
   cuts                  Cut[]            @relation("CUT_TASK")
   observation           Observation?     @relation("OBSERVATION_TO_TASK")
   services              ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
@@ -1151,6 +1153,7 @@ model User {
   name                  String
   status                UserStatus         @default(EXPERIENCE_PERIOD_1)
   statusOrder           Int                @default(1)
+  isActive              Boolean            @default(true)
   phone                 String?            @unique
   password              String?
   positionId            String?
@@ -1168,7 +1171,6 @@ model User {
   birth                 DateTime?
   verified              Boolean            @default(false)
   admissional           DateTime?
-  dismissal             DateTime?
   sectorId              String?
   managedSectorId       String?
   requirePasswordChange Boolean            @default(false)
@@ -1213,7 +1215,7 @@ model User {
 
   @@index([status, sectorId])
   @@index([statusOrder])
-  @@index([dismissal])
+  @@index([isActive])
   @@index([exp1StartAt])
   @@index([exp1EndAt])
   @@index([exp2StartAt])
@@ -2022,18 +2024,21 @@ enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
   AIRBRUSHING
+  BONUS
   BORROW
   CALCULATION
   CALCULATION_DETAIL
   CALCULATION_DECOMPOSITION
   CATEGORY
   COLLECTION
+  COMMISSION
   CUSTOMER
   CUT
   CUT_ITEM
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
+  DISCOUNT
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
   PPE_REQUEST
@@ -2043,12 +2048,15 @@ enum ChangeLogEntityType {
   EXTERNAL_WITHDRAWAL
   EXTERNAL_WITHDRAWAL_ITEM
   FILE
+  GARAGE_LANE
   ITEM
   ITEM_BRAND
   ITEM_CATEGORY
   MAINTENANCE
+  MAINTENANCE_ITEM
   MAINTENANCE_SCHEDULE
   NOTIFICATION
+  OBSERVATION
   ORDER
   ORDER_ITEM
   ORDER_RULE
@@ -2060,6 +2068,8 @@ enum ChangeLogEntityType {
   PAINT_FORMULA
   PAINT_FORMULA_COMPONENT
   PAINT_PRODUCTION
+  PARKING_SPOT
+  PAYROLL
   PIECE
   POSITION
   PRODUCTION
@@ -2069,10 +2079,18 @@ enum ChangeLogEntityType {
   SERVICE_ORDER
   SUPPLIER
   TASK
+  TIME_CLOCK_ENTRY
   TRUCK
   LAYOUT
   USER
   VACATION
+  PPE_CONFIG
+  PRICE
+  HOLIDAY
+  SEEN_NOTIFICATION
+  NOTIFICATION_PREFERENCE
+  VERIFICATION
+  EXPENSE
   DEPLOYMENT
 }
 

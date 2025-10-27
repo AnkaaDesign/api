@@ -15,7 +15,7 @@ import {
   PpeDeliveryBatchCreateResponse,
   PpeDeliveryBatchUpdateResponse,
   PpeDeliveryBatchDeleteResponse,
-} from '../../../types';
+} from '@types';
 import {
   PpeDeliveryCreateFormData,
   PpeDeliveryUpdateFormData,
@@ -25,7 +25,7 @@ import {
   PpeDeliveryBatchUpdateFormData,
   PpeDeliveryBatchDeleteFormData,
   PpeDeliveryByScheduleFormData,
-} from '../../../schemas';
+} from '@schemas';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
   CHANGE_TRIGGERED_BY,
@@ -38,8 +38,8 @@ import {
   PPE_DELIVERY_STATUS,
   PPE_TYPE,
   ACTIVE_USER_STATUSES,
-} from '../../../constants';
-import { PPE_DELIVERY_STATUS_ORDER } from '../../../constants';
+} from '@constants';
+import { PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { ItemRepository } from '@modules/inventory/item/repositories/item/item.repository';
@@ -99,7 +99,7 @@ export class PpeDeliveryService {
         throw new NotFoundException('Usuário não encontrado');
       }
 
-      if (!ACTIVE_USER_STATUSES.includes(user.status as any)) {
+      if (!user.isActive) {
         throw new BadRequestException('Usuário não está ativo e não pode receber PPEs');
       }
 
@@ -117,7 +117,7 @@ export class PpeDeliveryService {
         throw new NotFoundException('Usuário responsável pela aprovação não encontrado');
       }
 
-      if (!ACTIVE_USER_STATUSES.includes(reviewedByUser.status as any)) {
+      if (!reviewedByUser.isActive) {
         throw new BadRequestException('Usuário responsável pela aprovação não está ativo');
       }
     }
@@ -1907,6 +1907,192 @@ export class PpeDeliveryService {
             oldValue: { status: delivery.status, reviewedBy: null },
             newValue: { status: PPE_DELIVERY_STATUS.REPROVED, reviewedBy: reviewedById, reason },
             reason: reason || 'Entrega reprovada em lote',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: deliveryId,
+            userId: userId || null,
+            transaction: transaction,
+          });
+
+          results.push({
+            id: deliveryId,
+            success: true,
+            data: updatedDelivery,
+          });
+          successCount++;
+        } catch (error) {
+          results.push({
+            id: deliveryId,
+            success: false,
+            error: error.message || 'Erro desconhecido',
+          });
+          failedCount++;
+        }
+      }
+
+      return {
+        success: successCount,
+        failed: failedCount,
+        results,
+      };
+    });
+  }
+
+  async batchMarkAsDelivered(
+    deliveryIds: string[],
+    reviewedById: string,
+    deliveryDate?: Date,
+    userId?: string,
+  ): Promise<{
+    success: number;
+    failed: number;
+    results: any[];
+  }> {
+    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+      const results: any[] = [];
+      let successCount = 0;
+      let failedCount = 0;
+
+      // Validate reviewed by user exists
+      const reviewedByUser = await this.userRepository.findById(reviewedById);
+      if (!reviewedByUser) {
+        throw new BadRequestException('Usuário revisor não encontrado.');
+      }
+
+      // Use current date if not provided
+      const actualDeliveryDate = deliveryDate || new Date();
+      if (actualDeliveryDate > new Date()) {
+        throw new BadRequestException('A data de entrega não pode ser no futuro.');
+      }
+
+      for (const deliveryId of deliveryIds) {
+        try {
+          // Find the delivery with item and user info
+          const delivery = await this.repository.findById(deliveryId, {
+            include: { item: true, user: { include: { ppeSize: true } } },
+          });
+
+          if (!delivery) {
+            results.push({
+              id: deliveryId,
+              success: false,
+              error: 'Entrega não encontrada',
+            });
+            failedCount++;
+            continue;
+          }
+
+          // Check if already delivered
+          if (delivery.actualDeliveryDate) {
+            results.push({
+              id: deliveryId,
+              success: false,
+              error: 'Esta entrega já foi marcada como entregue',
+            });
+            failedCount++;
+            continue;
+          }
+
+          // Check if status is APPROVED
+          if (delivery.status !== PPE_DELIVERY_STATUS.APPROVED) {
+            results.push({
+              id: deliveryId,
+              success: false,
+              error: `Entrega não está aprovada. Status atual: ${delivery.status}`,
+            });
+            failedCount++;
+            continue;
+          }
+
+          // Check stock availability
+          if (delivery.item && delivery.item.quantity < delivery.quantity) {
+            results.push({
+              id: deliveryId,
+              success: false,
+              error: `Quantidade insuficiente em estoque. Disponível: ${delivery.item.quantity}, Solicitado: ${delivery.quantity}`,
+            });
+            failedCount++;
+            continue;
+          }
+
+          // Validate size compatibility
+          let sizeInfo: string | undefined;
+          let ppeType: PPE_TYPE | undefined;
+
+          if (delivery.item?.ppeType && delivery.user?.ppeSize) {
+            ppeType = delivery.item.ppeType;
+
+            // Map PPE type to user size
+            switch (ppeType) {
+              case PPE_TYPE.SHIRT:
+                sizeInfo = delivery.user.ppeSize.shirts || undefined;
+                break;
+              case PPE_TYPE.PANTS:
+                sizeInfo = delivery.user.ppeSize.pants || undefined;
+                break;
+              case PPE_TYPE.BOOTS:
+                sizeInfo = delivery.user.ppeSize.boots || undefined;
+                break;
+              case PPE_TYPE.SLEEVES:
+                sizeInfo = delivery.user.ppeSize.sleeves || undefined;
+                break;
+              case PPE_TYPE.MASK:
+                sizeInfo = delivery.user.ppeSize.mask || undefined;
+                break;
+            }
+
+            // Validate size match
+            if (sizeInfo && delivery.item.ppeSize !== sizeInfo) {
+              results.push({
+                id: deliveryId,
+                success: false,
+                error: `O tamanho do PPE (${delivery.item.ppeSize}) não corresponde ao tamanho do usuário (${sizeInfo})`,
+              });
+              failedCount++;
+              continue;
+            }
+          }
+
+          // Update delivery status to delivered
+          const updatedDelivery = await this.repository.updateWithTransaction(
+            transaction,
+            deliveryId,
+            {
+              reviewedBy: reviewedById,
+              actualDeliveryDate,
+              status: PPE_DELIVERY_STATUS.DELIVERED,
+              statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
+            },
+            { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
+          );
+
+          // Update stock with size information
+          await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
+            size: sizeInfo,
+            ppeType,
+          });
+
+          // Try to auto-create the next delivery if this is linked to a schedule
+          try {
+            const nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
+            if (nextDelivery) {
+              console.log(
+                `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+              );
+            }
+          } catch (error) {
+            // Log but don't fail the main operation
+            console.error('Error in auto-creation during batch mark as delivered:', error);
+          }
+
+          // Log the change
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.PPE_DELIVERY,
+            entityId: deliveryId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'batch_mark_delivered',
+            oldValue: { status: delivery.status, actualDeliveryDate: null },
+            newValue: { status: PPE_DELIVERY_STATUS.DELIVERED, actualDeliveryDate, reviewedBy: reviewedById },
+            reason: 'Entrega marcada como entregue em lote',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: deliveryId,
             userId: userId || null,

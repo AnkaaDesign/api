@@ -24,6 +24,8 @@ export interface ThumbnailConfig {
     defaultQuality: number;
     defaultFormat: 'webp' | 'png' | 'jpg';
     maxFileSize: number; // in bytes
+    epsDpi: number; // DPI for EPS rasterization
+    epsHighResDpi: number; // DPI for high-res EPS thumbnails (xlarge, xxlarge)
   };
 
   // Tool Paths
@@ -62,9 +64,11 @@ export const THUMBNAIL_CONFIG: ThumbnailConfig = {
   generation: {
     defaultWidth: parseInt(process.env.THUMBNAIL_DEFAULT_WIDTH || '300'),
     defaultHeight: parseInt(process.env.THUMBNAIL_DEFAULT_HEIGHT || '300'),
-    defaultQuality: parseInt(process.env.THUMBNAIL_DEFAULT_QUALITY || '85'),
+    defaultQuality: parseInt(process.env.THUMBNAIL_DEFAULT_QUALITY || '100'),
     defaultFormat: (process.env.THUMBNAIL_DEFAULT_FORMAT as 'webp' | 'png' | 'jpg') || 'webp',
     maxFileSize: parseInt(process.env.THUMBNAIL_MAX_FILE_SIZE || (500 * 1024 * 1024).toString()), // 500MB
+    epsDpi: parseInt(process.env.THUMBNAIL_EPS_DPI || '300'), // Standard DPI for EPS
+    epsHighResDpi: parseInt(process.env.THUMBNAIL_EPS_HIGHRES_DPI || '600'), // High-res DPI for large EPS thumbnails
   },
 
   tools: {

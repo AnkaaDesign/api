@@ -67,6 +67,14 @@ import { AppsModule } from './modules/system/app/app.module';
         port: parseInt(process.env.REDIS_PORT || '6379'),
         password: process.env.REDIS_PASSWORD,
         db: parseInt(process.env.REDIS_DB || '0'),
+        // Retry strategy to prevent crashes on connection errors
+        retryStrategy: (times: number) => {
+          const delay = Math.min(times * 500, 2000);
+          console.log(`Redis connection attempt ${times}, retrying in ${delay}ms`);
+          return delay;
+        },
+        // Prevent unhandled error events from crashing the app
+        lazyConnect: false,
       },
     }),
     SecurityModule,

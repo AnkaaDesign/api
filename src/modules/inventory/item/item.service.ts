@@ -685,8 +685,6 @@ export class ItemService {
             operation: operation,
             reason: ACTIVITY_REASON.INVENTORY_COUNT,
             userId: null, // No user for inventory count
-            description: `Ajuste de inventário: quantidade ${quantityDifference > 0 ? 'aumentada' : 'reduzida'} em ${absoluteDifference} unidades`,
-            notes: `Atualização manual do item. Quantidade anterior: ${existingItem.quantity}, Nova quantidade: ${itemData.quantity}`,
           };
 
           // Create activity record directly in the database
@@ -703,7 +701,7 @@ export class ItemService {
             oldValue: null,
             newValue: newActivity,
             reason: `Atividade de contagem de inventário criada automaticamente devido a ajuste manual de quantidade`,
-            triggeredBy: CHANGE_TRIGGERED_BY.INVENTORY_COUNT,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: id,
             userId: userId || null,
             transaction: tx,

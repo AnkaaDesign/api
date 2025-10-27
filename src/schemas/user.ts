@@ -202,7 +202,6 @@ export const userOrderBySchema = z.union([
       verified: orderByDirectionSchema.optional(),
       payrollNumber: orderByDirectionSchema.optional(),
       birth: orderByDirectionSchema.optional(),
-      dismissal: orderByDirectionSchema.optional(),
       contractedAt: orderByDirectionSchema.optional(),
       exp1StartAt: orderByDirectionSchema.optional(),
       exp1EndAt: orderByDirectionSchema.optional(),
@@ -263,7 +262,6 @@ export const userOrderBySchema = z.union([
         verified: orderByDirectionSchema.optional(),
         payrollNumber: orderByDirectionSchema.optional(),
         birth: orderByDirectionSchema.optional(),
-        dismissal: orderByDirectionSchema.optional(),
         contractedAt: orderByDirectionSchema.optional(),
         exp1StartAt: orderByDirectionSchema.optional(),
         exp1EndAt: orderByDirectionSchema.optional(),
@@ -475,21 +473,6 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             equals: z.date().optional(),
             not: z.date().optional(),
-            gte: z.coerce.date().optional(),
-            gt: z.coerce.date().optional(),
-            lte: z.coerce.date().optional(),
-            lt: z.coerce.date().optional(),
-          }),
-        ])
-        .optional(),
-
-      dismissal: z
-        .union([
-          z.date(),
-          z.null(),
-          z.object({
-            equals: z.union([z.date(), z.null()]).optional(),
-            not: z.union([z.date(), z.null()]).optional(),
             gte: z.coerce.date().optional(),
             gt: z.coerce.date().optional(),
             lte: z.coerce.date().optional(),
@@ -1047,9 +1030,13 @@ export const userCreateSchema = z
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().length(2, "Estado deve ter 2 caracteres").nullable().optional(),
+    state: z.string().nullable().optional().refine((val) => !val || val.length === 2, {
+      message: "Estado deve ter 2 caracteres"
+    }),
     zipCode: z.string().nullable().optional(),
-    site: z.string().url("URL inválida").nullable().optional(),
+    site: z.string().nullable().optional().refine((val) => !val || z.string().url().safeParse(val).success, {
+      message: "URL inválida"
+    }),
 
     // Additional dates - birth is required
     birth: z.coerce
@@ -1062,7 +1049,6 @@ export const userCreateSchema = z
         },
         { message: "O colaborador deve ter pelo menos 18 anos" }
       ),
-    dismissal: nullableDate.optional(),
 
     // Status timestamp tracking
     contractedAt: nullableDate.optional(),
@@ -1113,9 +1099,13 @@ export const userUpdateSchema = z
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().length(2, "Estado deve ter 2 caracteres").nullable().optional(),
+    state: z.string().nullable().optional().refine((val) => !val || val.length === 2, {
+      message: "Estado deve ter 2 caracteres"
+    }),
     zipCode: z.string().nullable().optional(),
-    site: z.string().url("URL inválida").nullable().optional(),
+    site: z.string().nullable().optional().refine((val) => !val || z.string().url().safeParse(val).success, {
+      message: "URL inválida"
+    }),
 
     // Additional dates
     birth: z.coerce
@@ -1129,7 +1119,6 @@ export const userUpdateSchema = z
         { message: "O colaborador deve ter pelo menos 18 anos" }
       )
       .optional(),
-    dismissal: nullableDate.optional(),
 
     // Status timestamp tracking
     contractedAt: nullableDate.optional(),
@@ -1163,8 +1152,8 @@ export const userUpdateSchema = z
   })
   .refine(
     (data) => {
-      // If dismissal date is provided, status must be DISMISSED
-      if (data.dismissal && data.status && data.status !== USER_STATUS.DISMISSED) {
+      // If dismissedAt date is provided, status must be DISMISSED
+      if (data.dismissedAt && data.status && data.status !== USER_STATUS.DISMISSED) {
         return false;
       }
       return true;
@@ -1176,15 +1165,15 @@ export const userUpdateSchema = z
   )
   .refine(
     (data) => {
-      // If status is DISMISSED, dismissal date is required
-      if (data.status === USER_STATUS.DISMISSED && !data.dismissal) {
+      // If status is DISMISSED, dismissedAt date is required
+      if (data.status === USER_STATUS.DISMISSED && !data.dismissedAt) {
         return false;
       }
       return true;
     },
     {
       message: "Data de demissão é obrigatória quando o status é DISMISSED",
-      path: ["dismissal"],
+      path: ["dismissedAt"],
     }
   )
   .refine(
@@ -1254,6 +1243,15 @@ export const userBatchDeleteSchema = z.object({
   userIds: z.array(z.string().uuid("Usuário inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
 });
 
+export const userMergeSchema = z.object({
+  targetUserId: z.string().uuid({ message: "ID do usuário principal inválido" }),
+  sourceUserIds: z
+    .array(z.string().uuid({ message: "ID de usuário inválido" }))
+    .min(1, { message: "É necessário selecionar pelo menos 1 usuário para mesclar" })
+    .max(10, { message: "Máximo de 10 usuários podem ser mesclados por vez" }),
+  conflictResolutions: z.record(z.any()).optional(),
+});
+
 // Query schema for include parameter
 export const userQuerySchema = z.object({
   include: userIncludeSchema.optional(),
@@ -1281,6 +1279,7 @@ export type UserUpdateFormData = z.infer<typeof userUpdateSchema>;
 export type UserBatchCreateFormData = z.infer<typeof userBatchCreateSchema>;
 export type UserBatchUpdateFormData = z.infer<typeof userBatchUpdateSchema>;
 export type UserBatchDeleteFormData = z.infer<typeof userBatchDeleteSchema>;
+export type UserMergeFormData = z.infer<typeof userMergeSchema>;
 
 export type UserInclude = z.infer<typeof userIncludeSchema>;
 export type UserOrderBy = z.infer<typeof userOrderBySchema>;
@@ -1373,9 +1372,9 @@ export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormD
   zipCode: user.zipCode || undefined,
   // site: user.site || undefined,
 
-  // Additional dates - use birth and dismissal
+  // Additional dates - use birth and dismissedAt
   birth: user.birth,
-  dismissal: user.dismissal || undefined,
+  dismissedAt: user.dismissedAt || undefined,
 
   // Payroll info
   payrollNumber: user.payrollNumber || undefined,

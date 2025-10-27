@@ -184,6 +184,11 @@ export class PaintPrismaRepository
     // Create a completely new object with ONLY valid Prisma fields
     const prismaInclude: any = {};
 
+    // Handle _count field - CRITICAL for proper task count display
+    if (include._count !== undefined) {
+      prismaInclude._count = include._count;
+    }
+
     // Only copy fields that are valid for Prisma's Paint model
     if (include.paintType !== undefined) {
       prismaInclude.paintType = include.paintType;
@@ -275,6 +280,13 @@ export class PaintPrismaRepository
       groundPaintFor: {
         include: {
           paint: true,
+        },
+      },
+      _count: {
+        select: {
+          generalPaintings: true,
+          logoTasks: true,
+          formulas: true,
         },
       },
     };

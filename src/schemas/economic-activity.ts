@@ -341,7 +341,7 @@ export const economicActivityGetByIdSchema = z.object({
 // Inferred Types (for internal use only)
 // =====================
 
-// Note: FormData types are defined in @ankaa/types as the single source of truth
+// Note: FormData types are defined in @types as the single source of truth
 export type EconomicActivityGetManyFormData = z.infer<typeof economicActivityGetManySchema>;
 export type EconomicActivityGetByIdFormData = z.infer<typeof economicActivityGetByIdSchema>;
 export type EconomicActivityCreateFormData = z.infer<typeof economicActivityCreateSchema>;

@@ -299,6 +299,92 @@ export class CutService {
         }
         this.logger.log(`[CutService.create] Finished creating ${cuts.length} cut(s)`);
 
+        // If cuts are associated with a task, also create TASK changelog entry
+        if (data.taskId) {
+          // Fetch OLD cuts (before adding new ones) for changelog "antes"
+          const newCutIds = cuts.map(c => c.id);
+          const oldTaskCuts = await tx.cut.findMany({
+            where: {
+              taskId: data.taskId,
+              id: { notIn: newCutIds }, // Exclude the newly created cuts
+            },
+            include: {
+              file: {
+                select: {
+                  id: true,
+                  filename: true,
+                  mimetype: true,
+                  size: true,
+                  thumbnailUrl: true,
+                  path: true,
+                },
+              },
+            },
+          });
+
+          // Fetch ALL cuts (including new ones) for changelog "depois"
+          const allTaskCuts = await tx.cut.findMany({
+            where: { taskId: data.taskId },
+            include: {
+              file: {
+                select: {
+                  id: true,
+                  filename: true,
+                  mimetype: true,
+                  size: true,
+                  thumbnailUrl: true,
+                  path: true,
+                },
+              },
+            },
+          });
+
+          // Serialize cuts for changelog (grouped by type, fileId, origin)
+          const serializeCuts = (cuts: any[]) => {
+            const grouped = new Map<string, any>();
+            cuts.forEach((c: any) => {
+              const key = `${c.type}-${c.fileId}-${c.origin}`;
+              if (grouped.has(key)) {
+                grouped.get(key).quantity += 1;
+              } else {
+                grouped.set(key, {
+                  fileId: c.fileId,
+                  type: c.type,
+                  origin: c.origin,
+                  status: c.status,
+                  quantity: 1,
+                  ...(c.file && {
+                    file: {
+                      id: c.file.id,
+                      filename: c.file.filename,
+                      mimetype: c.file.mimetype,
+                      size: c.file.size,
+                      thumbnailUrl: c.file.thumbnailUrl,
+                      path: c.file.path,
+                    }
+                  }),
+                });
+              }
+            });
+            return Array.from(grouped.values());
+          };
+
+          // Create TASK changelog entry showing cuts were added
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: data.taskId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'cuts',
+            oldValue: serializeCuts(oldTaskCuts), // Show cuts before adding new ones
+            newValue: serializeCuts(allTaskCuts), // Show all cuts after adding
+            reason: quantity > 1 ? `${quantity} recortes adicionados` : 'Recorte adicionado',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: data.taskId,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
+
         // Return the first cut (or all cuts if multiple)
         return quantity === 1 ? cuts[0] : cuts;
       });
@@ -412,7 +498,94 @@ export class CutService {
           transaction: tx,
         });
 
+        // If cut was associated with a task, also create TASK changelog entry
+        const taskId = existing.taskId;
+
+        // Fetch OLD cuts (before deletion) for changelog "antes"
+        let oldTaskCuts: any[] = [];
+        if (taskId) {
+          oldTaskCuts = await tx.cut.findMany({
+            where: { taskId },
+            include: {
+              file: {
+                select: {
+                  id: true,
+                  filename: true,
+                  mimetype: true,
+                  size: true,
+                  thumbnailUrl: true,
+                  path: true,
+                },
+              },
+            },
+          });
+        }
+
         await this.cutRepository.deleteWithTransaction(tx, id);
+
+        if (taskId) {
+          // Fetch remaining cuts for this task after deletion
+          const remainingTaskCuts = await tx.cut.findMany({
+            where: { taskId },
+            include: {
+              file: {
+                select: {
+                  id: true,
+                  filename: true,
+                  mimetype: true,
+                  size: true,
+                  thumbnailUrl: true,
+                  path: true,
+                },
+              },
+            },
+          });
+
+          // Serialize cuts for changelog (same as create)
+          const serializeCuts = (cuts: any[]) => {
+            const grouped = new Map<string, any>();
+            cuts.forEach((c: any) => {
+              const key = `${c.type}-${c.fileId}-${c.origin}`;
+              if (grouped.has(key)) {
+                grouped.get(key).quantity += 1;
+              } else {
+                grouped.set(key, {
+                  fileId: c.fileId,
+                  type: c.type,
+                  origin: c.origin,
+                  status: c.status,
+                  quantity: 1,
+                  ...(c.file && {
+                    file: {
+                      id: c.file.id,
+                      filename: c.file.filename,
+                      mimetype: c.file.mimetype,
+                      size: c.file.size,
+                      thumbnailUrl: c.file.thumbnailUrl,
+                      path: c.file.path,
+                    }
+                  }),
+                });
+              }
+            });
+            return Array.from(grouped.values());
+          };
+
+          // Create TASK changelog entry showing cut was removed
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: taskId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'cuts',
+            oldValue: serializeCuts(oldTaskCuts), // Show cuts before deletion
+            newValue: serializeCuts(remainingTaskCuts), // Show remaining cuts after deletion
+            reason: 'Recorte removido',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: taskId,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
       });
 
       return {

@@ -25,6 +25,7 @@ export interface Supplier extends BaseEntity {
   zipCode: string | null;
   site: string | null;
   phones: string[];
+  tags: string[];
   logoId: string | null;
 
   // Relations

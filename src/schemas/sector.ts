@@ -424,7 +424,7 @@ export const sectorGetByIdSchema = z.object({
 // Inferred Types (for internal use only)
 // =====================
 
-// Note: FormData types are defined in @ankaa/types as the single source of truth
+// Note: FormData types are defined in @types as the single source of truth
 export type SectorGetManyFormData = z.infer<typeof sectorGetManySchema>;
 export type SectorGetByIdFormData = z.infer<typeof sectorGetByIdSchema>;
 export type SectorCreateFormData = z.infer<typeof sectorCreateSchema>;

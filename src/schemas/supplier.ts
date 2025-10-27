@@ -806,7 +806,25 @@ export const supplierCreateSchema = z.object({
     }
     return val;
   }, z.array(phoneSchema).default([]).optional()),
-  tags: z.array(z.string()).default([]),
+  tags: z.preprocess((val) => {
+    // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((tag) => tag && typeof tag === "string" && tag.trim());
+        }
+      } catch {
+        // If parsing fails, return empty array
+        return [];
+      }
+    }
+    // If it's already an array, filter out empty values
+    if (Array.isArray(val)) {
+      return val.filter((tag) => tag && typeof tag === "string" && tag.trim());
+    }
+    return [];
+  }, z.array(z.string()).default([])),
   logoId: z.string().uuid("Logo inválido").nullable().optional(),
 });
 
@@ -942,7 +960,25 @@ export const supplierUpdateSchema = z.object({
 
     return val;
   }, z.array(phoneSchema).optional()),
-  tags: z.array(z.string()).optional(),
+  tags: z.preprocess((val) => {
+    // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
+    if (typeof val === "string") {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((tag) => tag && typeof tag === "string" && tag.trim());
+        }
+      } catch {
+        // If parsing fails, return undefined for optional field
+        return undefined;
+      }
+    }
+    // If it's already an array, filter out empty values
+    if (Array.isArray(val)) {
+      return val.filter((tag) => tag && typeof tag === "string" && tag.trim());
+    }
+    return val;
+  }, z.array(z.string()).optional()),
   logoId: z.string().uuid("Logo inválido").nullable().optional(),
 });
 
@@ -1019,5 +1055,6 @@ export const mapSupplierToFormData = createMapToFormDataHelper<Supplier, Supplie
   zipCode: supplier.zipCode,
   site: supplier.site,
   phones: supplier.phones,
+  tags: supplier.tags,
   logoId: supplier.logoId,
 }));

@@ -441,9 +441,7 @@ export class ZodValidationPipe implements PipeTransform {
     ];
 
     // Check if the field name contains any of these string-only field names
-    const result = stringOnlyFields.some(field => fieldName.toLowerCase().includes(field.toLowerCase()));
-    console.log(`[shouldKeepFieldAsString] fieldName: "${fieldName}", result: ${result}`);
-    return result;
+    return stringOnlyFields.some(field => fieldName.toLowerCase().includes(field.toLowerCase()));
   }
 
   protected fixArrays(obj: any): any {
@@ -534,7 +532,6 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
 
     // Parse dot notation in query parameters
     if (value && typeof value === 'object' && !Array.isArray(value)) {
-      console.log('[ZodQueryValidationPipe] Raw value:', JSON.stringify(value, null, 2));
       const parsed: any = {};
 
       // First pass: handle searchingFor field specially to keep it as string
@@ -658,6 +655,41 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
 
         // Handle dot notation with array brackets
         // e.g., "include.orderItems.where.order.status.in[]" or "include.orderItems.where.order.status.in[0]"
+        // or "orderBy[0].status=asc" or "orderBy[1].createdAt=desc"
+
+        // Check if this key has array index notation (e.g., orderBy[0].status)
+        const arrayIndexMatch = key.match(/^([^\[]+)\[(\d+)\]\.(.+)$/);
+        if (arrayIndexMatch) {
+          const [, basePath, index, remainingPath] = arrayIndexMatch;
+          const arrayIndex = parseInt(index, 10);
+
+          // Initialize the array if it doesn't exist
+          if (!parsed[basePath]) {
+            parsed[basePath] = [];
+          }
+
+          // Ensure we have an object at this array index
+          if (!parsed[basePath][arrayIndex]) {
+            parsed[basePath][arrayIndex] = {};
+          }
+
+          // Parse the remaining path (e.g., "status" or "item.name")
+          const remainingParts = remainingPath.split('.');
+          let current = parsed[basePath][arrayIndex];
+
+          for (let i = 0; i < remainingParts.length - 1; i++) {
+            const part = remainingParts[i];
+            if (!current[part]) {
+              current[part] = {};
+            }
+            current = current[part];
+          }
+
+          const lastPart = remainingParts[remainingParts.length - 1];
+          current[lastPart] = this.transformValue(val, [basePath, ...remainingParts]);
+          continue;
+        }
+
         const keyWithoutBrackets = key.replace(/\[\d*\]$/, ''); // Remove array brackets at the end
         const isArrayNotation = key !== keyWithoutBrackets;
 
@@ -668,6 +700,10 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
           for (let i = 0; i < parts.length - 1; i++) {
             const part = parts[i];
             if (!current[part]) {
+              current[part] = {};
+            } else if (typeof current[part] !== 'object' || Array.isArray(current[part])) {
+              // If the current value is a primitive (like true) or an array, we need to convert it to an object
+              // This handles cases like include.truck=true being overridden by include.truck.include.leftSideLayout=...
               current[part] = {};
             }
             current = current[part];
@@ -773,15 +809,11 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
 
       // Remove undefined values from the parsed object to avoid schema validation issues
       const cleanParsed = this.removeUndefinedValues(parsed);
-      console.log('[ZodQueryValidationPipe] cleanParsed:', JSON.stringify(cleanParsed, null, 2));
 
       // Fix arrays that were serialized as objects with numeric keys (e.g., status[0]=COMPLETED)
       const fixedParsed = this.fixArrays(cleanParsed);
-      console.log('[ZodQueryValidationPipe] fixedParsed:', JSON.stringify(fixedParsed, null, 2));
 
-      const result = super.transform(fixedParsed, metadata);
-      console.log('[ZodQueryValidationPipe] Final result:', JSON.stringify(result, null, 2));
-      return result;
+      return super.transform(fixedParsed, metadata);
     }
 
     return super.transform(value, metadata);

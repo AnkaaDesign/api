@@ -20,6 +20,7 @@ import { WebDAVModule } from './services/webdav.module';
 import { UPLOAD_CONFIG, fileFilter } from './config/upload.config';
 import { FileCleanupSchedulerService } from './services/file-cleanup-scheduler.service';
 import { ThumbnailRetrySchedulerService } from './services/thumbnail-retry-scheduler.service';
+import { FolderRenameService } from './services/folder-rename.service';
 
 // Ensure upload directory exists
 const uploadDir = UPLOAD_CONFIG.uploadDir;
@@ -59,12 +60,13 @@ if (!existsSync(uploadDir)) {
     ThumbnailService,
     FileCleanupSchedulerService,
     ThumbnailRetrySchedulerService,
+    FolderRenameService,
     {
       provide: FileRepository,
       useClass: FilePrismaRepository,
     },
   ],
-  exports: [FileService, FileRepository],
+  exports: [FileService, FileRepository, FolderRenameService],
 })
 export class FileModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

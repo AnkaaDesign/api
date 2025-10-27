@@ -454,6 +454,8 @@ export class ServerService {
       owner: string;
       group: string;
       webdavUrl?: string;
+      fileCount?: number;
+      folderCount?: number;
     }>;
     totalFiles: number;
     totalSize: string;
@@ -463,7 +465,9 @@ export class ServerService {
       // Use proper WebDAV mount point, fallback to samba if not available
       const webdavRoot = '/srv/webdav';
       const basePath = path.join(webdavRoot, folderName);
-      const targetPath = subPath ? path.join(basePath, subPath) : basePath;
+      // Decode URL-encoded path to handle special characters (spaces, etc.)
+      const decodedSubPath = subPath ? decodeURIComponent(subPath) : undefined;
+      const targetPath = decodedSubPath ? path.join(basePath, decodedSubPath) : basePath;
 
       if (!fs.existsSync(targetPath)) {
         throw new Error(`Folder does not exist: ${targetPath}`);
@@ -511,13 +515,42 @@ export class ServerService {
         const isDirectory = permissions.startsWith('d');
 
         let size: string;
+        let fileCount: number | undefined;
+        let folderCount: number | undefined;
+
         if (isDirectory) {
-          // Get directory size
+          // Get directory size and counts
           try {
             const { stdout: duOutput } = await execPromise(
               `du -sh "${itemPath}" 2>/dev/null || echo "0B\t${itemPath}"`,
             );
             size = duOutput.split('\t')[0] || '0B';
+
+            // Count files and folders inside this directory
+            try {
+              const dirContents = fs.readdirSync(itemPath);
+              let files = 0;
+              let folders = 0;
+
+              for (const item of dirContents) {
+                // Skip hidden files
+                if (item.startsWith('.')) continue;
+
+                const itemFullPath = path.join(itemPath, item);
+                const itemStats = fs.statSync(itemFullPath);
+
+                if (itemStats.isDirectory()) {
+                  folders++;
+                } else {
+                  files++;
+                }
+              }
+
+              fileCount = files;
+              folderCount = folders;
+            } catch {
+              // If we can't read the directory, leave counts undefined
+            }
           } catch {
             size = '--';
           }
@@ -543,6 +576,8 @@ export class ServerService {
           owner,
           group,
           webdavUrl,
+          fileCount,
+          folderCount,
         });
       }
 

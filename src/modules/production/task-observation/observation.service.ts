@@ -13,6 +13,7 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
+  COMMISSION_STATUS,
 } from '../../../constants/enums';
 import {
   trackFieldChanges,
@@ -159,6 +160,29 @@ export class ObservationService {
           include,
         });
 
+        // Atualizar a tarefa para suspender a comissão
+        if (data.taskId) {
+          await tx.task.update({
+            where: { id: data.taskId },
+            data: { commission: COMMISSION_STATUS.SUSPENDED_COMMISSION },
+          });
+
+          // Registrar mudança na comissão
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: data.taskId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'commission',
+            oldValue: null,
+            newValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            reason: 'Comissão suspensa devido à criação de observação',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+            triggeredById: newObservation.id,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
+
         // Registrar criação da entidade
         await logEntityChange({
           changeLogService: this.changeLogService,
@@ -173,8 +197,9 @@ export class ObservationService {
         });
 
         // Process file uploads if provided
+        let newFileIds: string[] = [];
         if (files?.files && files.files.length > 0) {
-          await this.processObservationFileUploads(newObservation.id, files, userId, tx);
+          newFileIds = await this.processObservationFileUploads(newObservation.id, files, userId, tx);
         }
 
         // Registrar anexação de arquivos se houver
@@ -247,16 +272,25 @@ export class ObservationService {
         });
         const oldFileIds = existingWithFiles?.files?.map(f => f.id) || [];
 
-        // Process file uploads if provided
+        // Process file uploads if provided and get new file IDs
+        let newFileIds: string[] = [];
         if (files?.files && files.files.length > 0) {
-          await this.processObservationFileUploads(id, files, userId, tx);
+          newFileIds = await this.processObservationFileUploads(id, files, userId, tx);
         }
+
+        // Combine existing fileIds from data with newly uploaded file IDs
+        const combinedFileIds = [...(data.fileIds || []), ...newFileIds];
+
+        // Update data with combined file IDs if any new files were uploaded
+        const updateData = newFileIds.length > 0
+          ? { ...data, fileIds: combinedFileIds }
+          : data;
 
         // Atualizar a observação
         const updatedObservation = await this.observationRepository.updateWithTransaction(
           tx,
           id,
-          data,
+          updateData,
           { include },
         );
 
@@ -329,6 +363,28 @@ export class ObservationService {
           throw new NotFoundException('Observação não encontrada.');
         }
 
+        // Restaurar a comissão da tarefa para FULL_COMMISSION
+        if (observation.taskId) {
+          await tx.task.update({
+            where: { id: observation.taskId },
+            data: { commission: COMMISSION_STATUS.FULL_COMMISSION },
+          });
+
+          // Registrar mudança na comissão
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: observation.taskId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'commission',
+            oldValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            newValue: COMMISSION_STATUS.FULL_COMMISSION,
+            reason: 'Comissão restaurada devido à exclusão de observação',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+            triggeredById: id,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
 
         // Registrar exclusão da entidade
         await logEntityChange({
@@ -626,6 +682,30 @@ export class ObservationService {
           data.observationIds,
         );
 
+        // Restaurar comissões das tarefas
+        const taskIds = [...new Set(observations.map(obs => obs.taskId).filter(Boolean))];
+        for (const taskId of taskIds) {
+          await tx.task.update({
+            where: { id: taskId as string },
+            data: { commission: COMMISSION_STATUS.FULL_COMMISSION },
+          });
+
+          // Registrar mudança na comissão
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: taskId as string,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'commission',
+            oldValue: COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            newValue: COMMISSION_STATUS.FULL_COMMISSION,
+            reason: 'Comissão restaurada devido à exclusão em lote de observação',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+            triggeredById: null,
+            userId: userId || null,
+            transaction: tx,
+          });
+        }
+
         // Registrar exclusões
         for (const observation of observations) {
           await logEntityChange({
@@ -680,6 +760,7 @@ export class ObservationService {
 
   /**
    * Process observation file uploads
+   * Returns array of newly created file IDs
    */
   private async processObservationFileUploads(
     observationId: string,
@@ -688,8 +769,9 @@ export class ObservationService {
     },
     userId?: string,
     tx?: PrismaTransaction,
-  ): Promise<void> {
+  ): Promise<string[]> {
     const transaction = tx || this.prisma;
+    const newFileIds: string[] = [];
 
     try {
       // Get observation with task and customer info for folder organization
@@ -713,7 +795,7 @@ export class ObservationService {
       // Process files
       if (files.files && files.files.length > 0) {
         for (const file of files.files) {
-          await this.saveFileToWebDAV(
+          const fileRecord = await this.saveFileToWebDAV(
             file,
             'observations',
             observationId,
@@ -722,12 +804,15 @@ export class ObservationService {
             userId,
             transaction,
           );
+          newFileIds.push(fileRecord.id);
         }
       }
     } catch (error) {
       this.logger.error('Erro ao processar upload de arquivos da observação:', error);
       throw error;
     }
+
+    return newFileIds;
   }
 
   /**

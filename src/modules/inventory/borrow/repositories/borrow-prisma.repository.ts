@@ -76,7 +76,7 @@ export class BorrowPrismaRepository
 
     const createInput: Prisma.BorrowCreateInput = {
       ...rest,
-      quantity: formData.quantity || 1,
+      quantity: formData.quantity ?? 1,
       item: { connect: { id: itemId } },
       user: { connect: { id: userId } },
     };

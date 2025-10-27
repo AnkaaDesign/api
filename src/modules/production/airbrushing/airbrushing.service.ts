@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { AirbrushingRepository, PrismaTransaction } from './repositories/airbrushing.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { FileService } from '@modules/common/file/file.service';
 import { CHANGE_TRIGGERED_BY, CHANGE_ACTION, ENTITY_TYPE } from '../../../constants/enums';
 import type {
   AirbrushingBatchCreateResponse,
@@ -38,6 +39,7 @@ export class AirbrushingService {
     private readonly prisma: PrismaService,
     private readonly airbrushingRepository: AirbrushingRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   /**
@@ -130,6 +132,11 @@ export class AirbrushingService {
           include,
         });
 
+        // Process file uploads if provided
+        if (files && (files.receipts?.length || files.invoices?.length || files.artworks?.length)) {
+          await this.processAirbrushingFileUploads(newAirbrushing.id, files, userId, tx);
+        }
+
         // Registrar no changelog
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.AIRBRUSHING,
@@ -193,11 +200,33 @@ export class AirbrushingService {
         // Validar entidade completa
         await this.validateAirbrushing(data, id, tx);
 
+        // Process file uploads if provided and get new file IDs
+        let newFileIds = { receiptIds: [] as string[], invoiceIds: [] as string[], artworkIds: [] as string[] };
+        if (files && (files.receipts?.length || files.invoices?.length || files.artworks?.length)) {
+          newFileIds = await this.processAirbrushingFileUploads(id, files, userId, tx);
+        }
+
+        // Combine existing fileIds from data with newly uploaded file IDs
+        const combinedReceiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
+        const combinedInvoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
+        const combinedArtworkIds = [...(data.artworkIds || []), ...newFileIds.artworkIds];
+
+        // Update data with combined file IDs if any new files were uploaded
+        const hasNewFiles = newFileIds.receiptIds.length > 0 || newFileIds.invoiceIds.length > 0 || newFileIds.artworkIds.length > 0;
+        const updateData = hasNewFiles
+          ? {
+              ...data,
+              receiptIds: combinedReceiptIds,
+              invoiceIds: combinedInvoiceIds,
+              artworkIds: combinedArtworkIds,
+            }
+          : data;
+
         // Atualizar a aerografia
         const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
           tx,
           id,
-          data,
+          updateData,
           { include },
         );
 
@@ -548,6 +577,161 @@ export class AirbrushingService {
       throw new InternalServerErrorException(
         'Erro interno do servidor na exclusão em lote. Tente novamente.',
       );
+    }
+  }
+
+  /**
+   * Process airbrushing file uploads
+   * Returns object with arrays of newly created file IDs for each file type
+   */
+  private async processAirbrushingFileUploads(
+    airbrushingId: string,
+    files: {
+      receipts?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+    },
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<{ receiptIds: string[]; invoiceIds: string[]; artworkIds: string[] }> {
+    const transaction = tx || this.prisma;
+    const receiptIds: string[] = [];
+    const invoiceIds: string[] = [];
+    const artworkIds: string[] = [];
+
+    try {
+      // Get airbrushing with task and customer info for folder organization
+      const airbrushing = await transaction.airbrushing.findUnique({
+        where: { id: airbrushingId },
+        include: {
+          task: {
+            include: {
+              customer: true,
+            },
+          },
+        },
+      });
+
+      if (!airbrushing) {
+        throw new NotFoundException('Aerografia não encontrada');
+      }
+
+      const customerName = airbrushing.task?.customer?.fantasyName;
+
+      // Process receipt files
+      if (files.receipts && files.receipts.length > 0) {
+        for (const file of files.receipts) {
+          const fileRecord = await this.saveFileToWebDAV(
+            file,
+            'airbrushingReceipts',
+            airbrushingId,
+            'airbrushing_receipt',
+            customerName,
+            userId,
+            transaction,
+          );
+          receiptIds.push(fileRecord.id);
+        }
+      }
+
+      // Process invoice files
+      if (files.invoices && files.invoices.length > 0) {
+        for (const file of files.invoices) {
+          const fileRecord = await this.saveFileToWebDAV(
+            file,
+            'airbrushingInvoices',
+            airbrushingId,
+            'airbrushing_invoice',
+            customerName,
+            userId,
+            transaction,
+          );
+          invoiceIds.push(fileRecord.id);
+        }
+      }
+
+      // Process artwork files
+      if (files.artworks && files.artworks.length > 0) {
+        for (const file of files.artworks) {
+          const fileRecord = await this.saveFileToWebDAV(
+            file,
+            'airbrushingArtworks',
+            airbrushingId,
+            'airbrushing_artwork',
+            customerName,
+            userId,
+            transaction,
+          );
+          artworkIds.push(fileRecord.id);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Erro ao processar upload de arquivos da aerografia:', error);
+      throw error;
+    }
+
+    return { receiptIds, invoiceIds, artworkIds };
+  }
+
+  /**
+   * Save file to WebDAV and link to airbrushing
+   */
+  private async saveFileToWebDAV(
+    file: Express.Multer.File,
+    fileContext: string,
+    entityId: string,
+    entityType: string,
+    customerName?: string,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<any> {
+    if (!tx) {
+      throw new InternalServerErrorException('Transaction is required for file upload');
+    }
+
+    try {
+      // Use centralized file service to create file with proper transaction handling
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        file,
+        fileContext as any,
+        userId,
+        {
+          entityId,
+          entityType,
+          customerName,
+        },
+      );
+
+      // Connect the file to the airbrushing using the appropriate relation
+      if (entityType === 'airbrushing_receipt') {
+        await tx.file.update({
+          where: { id: fileRecord.id },
+          data: {
+            airbrushingReceipts: { connect: { id: entityId } },
+          },
+        });
+      } else if (entityType === 'airbrushing_invoice') {
+        await tx.file.update({
+          where: { id: fileRecord.id },
+          data: {
+            airbrushingInvoices: { connect: { id: entityId } },
+          },
+        });
+      } else if (entityType === 'airbrushing_artwork') {
+        await tx.file.update({
+          where: { id: fileRecord.id },
+          data: {
+            airbrushingArtworks: { connect: { id: entityId } },
+          },
+        });
+      }
+
+      this.logger.log(`Saved and linked file ${file.originalname} to airbrushing ${entityId}`);
+      return fileRecord;
+    } catch (error) {
+      this.logger.error(`Error saving file to WebDAV:`, error);
+      throw error;
     }
   }
 }

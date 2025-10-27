@@ -2,19 +2,19 @@
 
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Injectable, Logger } from '@nestjs/common';
-import { Position } from '../../../../../types';
+import { Position } from '@types';
 import {
   PositionCreateFormData,
   PositionUpdateFormData,
   PositionInclude,
   PositionOrderBy,
   PositionWhere,
-} from '../../../../../schemas/position';
+} from '@schemas/position';
 import { PositionRepository } from './position.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '@types';
 
 @Injectable()
 export class PositionPrismaRepository
@@ -45,9 +45,9 @@ export class PositionPrismaRepository
     const position = databaseEntity as Position;
 
 
-    // Add virtual remuneration field from current MonetaryValue
+    // Add virtual remuneration field from latest remuneration record
     if (position.remunerations && position.remunerations.length > 0) {
-      // Filtered by current: true in getDefaultInclude
+      // Assuming remunerations are ordered by createdAt desc
       position.remuneration = position.remunerations[0].value;
     } else {
       position.remuneration = 0; // Explicitly set to 0
@@ -62,8 +62,6 @@ export class PositionPrismaRepository
     // Note: remuneration is handled separately in the service layer
     return {
       name: formData.name,
-      hierarchy: formData.hierarchy ?? null,
-      bonifiable: formData.bonifiable ?? true,
     };
   }
 
@@ -74,14 +72,6 @@ export class PositionPrismaRepository
 
     if (formData.name !== undefined) {
       updateInput.name = formData.name;
-    }
-
-    if (formData.hierarchy !== undefined) {
-      updateInput.hierarchy = formData.hierarchy;
-    }
-
-    if (formData.bonifiable !== undefined) {
-      updateInput.bonifiable = formData.bonifiable;
     }
 
     // Note: remuneration is handled separately in the service layer
@@ -139,7 +129,7 @@ export class PositionPrismaRepository
         },
       },
       remunerations: {
-        where: { current: true },
+        orderBy: { createdAt: 'desc' },
         take: 1,
       },
       _count: {

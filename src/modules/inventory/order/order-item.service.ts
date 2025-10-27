@@ -229,9 +229,11 @@ export class OrderItemService {
 
           // Handle activity creation for received quantity changes INSIDE the transaction
           // Activities should be created whenever quantities change, regardless of order status
+          // Skip activity creation for temporary items (items without itemId)
           if (
             data.receivedQuantity !== undefined &&
-            data.receivedQuantity !== existingOrderItem.receivedQuantity
+            data.receivedQuantity !== existingOrderItem.receivedQuantity &&
+            existingOrderItem.itemId
           ) {
             // Check existing activities to prevent duplicates
             const existingActivities = await tx.activity.findMany({
@@ -515,53 +517,56 @@ export class OrderItemService {
                 ordersToCheckReceived.add(orderItem.orderId);
 
                 // Always create activities when received quantities change INSIDE the transaction
-                // Check existing activities to prevent duplicates
-                const existingActivities = await tx.activity.findMany({
-                  where: {
-                    orderItemId: orderItem.id,
-                    reason: ACTIVITY_REASON.ORDER_RECEIVED,
-                    operation: ACTIVITY_OPERATION.INBOUND,
-                  },
-                });
-
-                // Calculate what was already processed
-                const alreadyInStock = existingActivities.reduce(
-                  (sum, activity) => sum + activity.quantity,
-                  0,
-                );
-
-                // Calculate the stock adjustment needed
-                const stockAdjustment = orderItem.receivedQuantity - alreadyInStock;
-
-                if (stockAdjustment !== 0) {
-                  // Create activity INSIDE the transaction - this ensures it's always created
-                  await tx.activity.create({
-                    data: {
-                      itemId: orderItem.itemId,
-                      quantity: Math.abs(stockAdjustment),
-                      operation:
-                        stockAdjustment > 0
-                          ? ACTIVITY_OPERATION.INBOUND
-                          : ACTIVITY_OPERATION.OUTBOUND,
-                      reason: ACTIVITY_REASON.ORDER_RECEIVED,
-                      reasonOrder: 1,
-                      orderId: orderItem.orderId,
+                // Skip activity creation for temporary items (items without itemId)
+                if (orderItem.itemId) {
+                  // Check existing activities to prevent duplicates
+                  const existingActivities = await tx.activity.findMany({
+                    where: {
                       orderItemId: orderItem.id,
-                      userId: null, // ORDER_RECEIVED activities don't have user
+                      reason: ACTIVITY_REASON.ORDER_RECEIVED,
+                      operation: ACTIVITY_OPERATION.INBOUND,
                     },
                   });
 
-                  // Update item stock INSIDE the transaction
-                  const currentItem = await tx.item.findUnique({
-                    where: { id: orderItem.itemId },
-                  });
+                  // Calculate what was already processed
+                  const alreadyInStock = existingActivities.reduce(
+                    (sum, activity) => sum + activity.quantity,
+                    0,
+                  );
 
-                  if (currentItem) {
-                    const newQuantity = currentItem.quantity + stockAdjustment;
-                    await tx.item.update({
-                      where: { id: orderItem.itemId },
-                      data: { quantity: Math.max(0, newQuantity) },
+                  // Calculate the stock adjustment needed
+                  const stockAdjustment = orderItem.receivedQuantity - alreadyInStock;
+
+                  if (stockAdjustment !== 0) {
+                    // Create activity INSIDE the transaction - this ensures it's always created
+                    await tx.activity.create({
+                      data: {
+                        itemId: orderItem.itemId,
+                        quantity: Math.abs(stockAdjustment),
+                        operation:
+                          stockAdjustment > 0
+                            ? ACTIVITY_OPERATION.INBOUND
+                            : ACTIVITY_OPERATION.OUTBOUND,
+                        reason: ACTIVITY_REASON.ORDER_RECEIVED,
+                        reasonOrder: 1,
+                        orderId: orderItem.orderId,
+                        orderItemId: orderItem.id,
+                        userId: null, // ORDER_RECEIVED activities don't have user
+                      },
                     });
+
+                    // Update item stock INSIDE the transaction
+                    const currentItem = await tx.item.findUnique({
+                      where: { id: orderItem.itemId },
+                    });
+
+                    if (currentItem) {
+                      const newQuantity = currentItem.quantity + stockAdjustment;
+                      await tx.item.update({
+                        where: { id: orderItem.itemId },
+                        data: { quantity: Math.max(0, newQuantity) },
+                      });
+                    }
                   }
                 }
               }

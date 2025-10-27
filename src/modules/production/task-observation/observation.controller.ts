@@ -62,13 +62,16 @@ export class ObservationController {
   // Basic CRUD Operations
   @Get()
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(observationGetManySchema)) query: ObservationGetManyFormData,
@@ -77,7 +80,7 @@ export class ObservationController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor([
@@ -98,7 +101,7 @@ export class ObservationController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(observationBatchCreateSchema)) data: ObservationBatchCreateFormData,
@@ -109,7 +112,7 @@ export class ObservationController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(observationBatchUpdateSchema)) data: ObservationBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
@@ -119,7 +122,7 @@ export class ObservationController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(observationBatchDeleteSchema)) data: ObservationBatchDeleteFormData,
@@ -131,13 +134,16 @@ export class ObservationController {
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
@@ -147,7 +153,7 @@ export class ObservationController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'files', maxCount: 10 },
@@ -167,7 +173,7 @@ export class ObservationController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

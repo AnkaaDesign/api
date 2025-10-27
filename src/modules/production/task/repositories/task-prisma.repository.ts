@@ -97,7 +97,10 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
     },
   },
   generalPainting: {
-    select: { id: true, name: true, hex: true, paintBrand: { select: { name: true } } },
+    include: {
+      paintType: true,
+      paintBrand: true,
+    },
   },
   artworks: {
     select: {
@@ -110,7 +113,10 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
     },
   },
   logoPaints: {
-    select: { id: true, name: true, hex: true, paintBrand: { select: { name: true } } },
+    include: {
+      paintType: true,
+      paintBrand: true,
+    },
   },
   services: {
     orderBy: { createdAt: 'desc' },
@@ -120,7 +126,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       garage: { select: { id: true, name: true } },
     },
   },
-  airbrushing: {
+  airbrushings: {
     orderBy: { createdAt: 'desc' },
   },
   cuts: {
@@ -166,18 +172,10 @@ export class TaskPrismaRepository
 
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): Task {
-    // Map logoPaints back to paints for the interface
-    // Map airbrushing (singular) back to airbrushings (plural) for the interface
     const task: Task = {
       ...databaseEntity,
-      paints: databaseEntity.logoPaints,
-      airbrushings: databaseEntity.airbrushing,
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
     };
-
-    // Remove the database property names since we've mapped them
-    delete (task as any).logoPaints;
-    delete (task as any).airbrushing;
 
     return task;
   }
@@ -336,6 +334,11 @@ export class TaskPrismaRepository
     if (cuts && Array.isArray(cuts)) {
       console.log('✅ Processing cuts array (preferred method)');
       for (const cutItem of cuts) {
+        // Skip cuts without fileId (file must be uploaded first)
+        if (!cutItem.fileId) {
+          console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+          continue;
+        }
         // If quantity is specified, create multiple records
         const quantity = (cutItem as any).quantity || 1;
         console.log(`  → Creating ${quantity} cut(s) of type ${cutItem.type}`);
@@ -355,20 +358,25 @@ export class TaskPrismaRepository
     // Handle single cut field ONLY if cuts array is not present (deprecated - kept for backward compatibility)
     else if (cut) {
       console.log('⚠️  Processing single cut field (deprecated method)');
-      // Extract quantity and create multiple cut records
-      const quantity = (cut as any).quantity || 1;
-      console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
+      // Skip cut without fileId (file must be uploaded first)
+      if (!cut.fileId) {
+        console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+      } else {
+        // Extract quantity and create multiple cut records
+        const quantity = (cut as any).quantity || 1;
+        console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
 
-      for (let i = 0; i < quantity; i++) {
-        cutRecords.push({
-          fileId: cut.fileId,
-          type: cut.type as any,
-          status: CUT_STATUS.PENDING as any,
-          statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
-          origin: cut.origin as any,
-          reason: cut.reason ? (cut.reason as any) : null,
-          parentCutId: cut.parentCutId || null,
-        } as any);
+        for (let i = 0; i < quantity; i++) {
+          cutRecords.push({
+            fileId: cut.fileId,
+            type: cut.type as any,
+            status: CUT_STATUS.PENDING as any,
+            statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
+            origin: cut.origin as any,
+            reason: cut.reason ? (cut.reason as any) : null,
+            parentCutId: cut.parentCutId || null,
+          } as any);
+        }
       }
     }
 
@@ -401,7 +409,7 @@ export class TaskPrismaRepository
     if (airbrushings && Array.isArray(airbrushings) && airbrushings.length > 0) {
       console.log('✅ Processing airbrushings array:', airbrushings.length, 'items');
       console.log('[TaskRepository] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
-      taskData.airbrushing = {
+      taskData.airbrushings = {
         create: airbrushings.map((item: any, index: number) => {
           console.log(`[TaskRepository] Creating airbrushing ${index}:`, item);
           console.log(`[TaskRepository] Price value:`, item.price, 'type:', typeof item.price);
@@ -425,7 +433,7 @@ export class TaskPrismaRepository
           return airbrushingData;
         }),
       };
-      console.log('[TaskRepository] taskData.airbrushing:', JSON.stringify(taskData.airbrushing, null, 2));
+      console.log('[TaskRepository] taskData.airbrushings:', JSON.stringify(taskData.airbrushings, null, 2));
     } else {
       console.log('❌ No airbrushings to process');
     }
@@ -628,6 +636,11 @@ export class TaskPrismaRepository
       if (cuts !== undefined && cuts !== null && Array.isArray(cuts)) {
         console.log('✅ Processing cuts array (preferred method)');
         for (const cutItem of cuts) {
+          // Skip cuts without fileId (file must be uploaded first)
+          if (!cutItem.fileId) {
+            console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+            continue;
+          }
           // If quantity is specified, create multiple records
           const quantity = (cutItem as any).quantity || 1;
           console.log(`  → Creating ${quantity} cut(s) of type ${cutItem.type}`);
@@ -647,20 +660,25 @@ export class TaskPrismaRepository
       // Handle single cut field ONLY if cuts array is not present (deprecated - kept for backward compatibility)
       else if (cut !== undefined && cut !== null) {
         console.log('⚠️  Processing single cut field (deprecated method)');
-        // Extract quantity and create multiple cut records
-        const quantity = (cut as any).quantity || 1;
-        console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
+        // Skip cut without fileId (file must be uploaded first)
+        if (!cut.fileId) {
+          console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+        } else {
+          // Extract quantity and create multiple cut records
+          const quantity = (cut as any).quantity || 1;
+          console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
 
-        for (let i = 0; i < quantity; i++) {
-          cutRecords.push({
-            fileId: cut.fileId,
-            type: cut.type as any,
-            status: CUT_STATUS.PENDING as any,
-            statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
-            origin: cut.origin as any,
-            reason: cut.reason ? (cut.reason as any) : null,
-            parentCutId: cut.parentCutId || null,
-          } as any);
+          for (let i = 0; i < quantity; i++) {
+            cutRecords.push({
+              fileId: cut.fileId,
+              type: cut.type as any,
+              status: CUT_STATUS.PENDING as any,
+              statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
+              origin: cut.origin as any,
+              reason: cut.reason ? (cut.reason as any) : null,
+              parentCutId: cut.parentCutId || null,
+            } as any);
+          }
         }
       }
 
@@ -710,11 +728,11 @@ export class TaskPrismaRepository
     if (airbrushings !== undefined) {
       if (airbrushings === null || (Array.isArray(airbrushings) && airbrushings.length === 0)) {
         console.log('🗑️ Deleting all airbrushings');
-        updateData.airbrushing = { deleteMany: {} };
+        updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
         console.log('✅ Updating airbrushings array:', airbrushings.length, 'items');
         console.log('[TaskRepository.UPDATE] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
-        updateData.airbrushing = {
+        updateData.airbrushings = {
           deleteMany: {}, // Delete all existing airbrushings
           create: airbrushings.map((item: any, index: number) => {
             console.log(`[TaskRepository.UPDATE] Creating airbrushing ${index}:`, item);
@@ -739,17 +757,51 @@ export class TaskPrismaRepository
             return airbrushingData;
           }),
         };
-        console.log('[TaskRepository.UPDATE] updateData.airbrushing:', JSON.stringify(updateData.airbrushing, null, 2));
+        console.log('[TaskRepository.UPDATE] updateData.airbrushings:', JSON.stringify(updateData.airbrushings, null, 2));
       }
     }
 
     return updateData;
   }
 
+  // Helper function to recursively process nested includes
+  private processNestedInclude(value: any): any {
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      if ('include' in value) {
+        // Recursively process the nested include
+        const processedInclude: any = {};
+        Object.keys(value.include).forEach(nestedKey => {
+          processedInclude[nestedKey] = this.processNestedInclude(value.include[nestedKey]);
+        });
+
+        return {
+          ...value,
+          include: processedInclude
+        };
+      }
+
+      // If it's an object but doesn't have 'include', process its properties
+      const processed: any = {};
+      Object.keys(value).forEach(k => {
+        processed[k] = this.processNestedInclude(value[k]);
+      });
+      return processed;
+    }
+
+    return value;
+  }
+
   protected mapIncludeToDatabaseInclude(include?: TaskInclude): Prisma.TaskInclude | undefined {
     if (!include) {
       return this.getDefaultInclude();
     }
+
+    // LOG: Input includes
+    this.logger.log('[mapIncludeToDatabaseInclude] Input include:', JSON.stringify(include, null, 2));
 
     // Start with default include to ensure observation.files are always included
     const databaseInclude: any = { ...this.getDefaultInclude() };
@@ -759,43 +811,35 @@ export class TaskPrismaRepository
 
       if (typeof value === 'boolean') {
         // Handle field name mappings for backwards compatibility
-        // Frontend might use old singular/Portuguese names, map them to new plural English names
-        if (key === 'paints') {
-          databaseInclude.logoPaints = value;
-        } else if (key === 'airbrushings') {
-          databaseInclude.airbrushing = value;
-        } else if (key === 'reimbursements') {
-          databaseInclude.reimbursements = value;
-        } else if (key === 'nfeReimbursements') {
+        if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
         } else {
           databaseInclude[key] = value;
         }
       } else if (typeof value === 'object' && value !== null && 'include' in value) {
-        // Handle nested includes with field name mappings
-        // Deep merge nested includes to preserve defaults like observation.files
-        if (key === 'paints') {
-          databaseInclude.logoPaints = { include: value.include };
-        } else if (key === 'airbrushings') {
-          databaseInclude.airbrushing = { include: value.include, orderBy: (value as any).orderBy };
-        } else if (key === 'reimbursements') {
-          databaseInclude.reimbursements = { include: value.include };
-        } else if (key === 'nfeReimbursements') {
-          databaseInclude.invoiceReimbursements = { include: value.include };
+        // Handle nested includes with field name mappings and recursive processing
+        const processedValue = this.processNestedInclude(value);
+
+        // Special handling for relations that need deep merging with defaults
+        if (key === 'nfeReimbursements') {
+          databaseInclude.invoiceReimbursements = processedValue;
         } else {
           // Deep merge nested includes to preserve default nested relations
           const existingValue = databaseInclude[key];
           if (existingValue && typeof existingValue === 'object' && 'include' in existingValue) {
             databaseInclude[key] = {
               ...existingValue,
-              include: { ...existingValue.include, ...value.include }
+              include: { ...existingValue.include, ...processedValue.include }
             };
           } else {
-            databaseInclude[key] = { include: value.include };
+            databaseInclude[key] = processedValue;
           }
         }
       }
     });
+
+    // LOG: Output includes being sent to Prisma
+    this.logger.log('[mapIncludeToDatabaseInclude] Output include for Prisma:', JSON.stringify(databaseInclude, null, 2));
 
     return databaseInclude as Prisma.TaskInclude;
   }
@@ -893,6 +937,8 @@ export class TaskPrismaRepository
     const mappedWhere = this.mapWhereToDatabaseWhere(where);
     const countOptions = mappedWhere ? { where: mappedWhere } : undefined;
 
+    const includeForQuery = this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude();
+
     const [total, tasks] = await Promise.all([
       transaction.task.count(countOptions),
       transaction.task.findMany({
@@ -900,9 +946,22 @@ export class TaskPrismaRepository
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' },
         skip,
         take,
-        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        include: includeForQuery,
       }),
     ]);
+
+    // LOG: Check first task's truck data structure
+    if (tasks.length > 0 && tasks[0].truck) {
+      const truck: any = tasks[0].truck; // Cast to any to check actual runtime data
+      this.logger.log('[findManyWithTransaction] First task truck data:', JSON.stringify({
+        hasTruck: !!truck,
+        truckId: truck?.id,
+        leftLayoutId: truck?.leftSideLayoutId,
+        rightLayoutId: truck?.rightSideLayoutId,
+        hasLeftLayoutId: !!truck?.leftSideLayoutId,
+        hasRightLayoutId: !!truck?.rightSideLayoutId,
+      }, null, 2));
+    }
 
     // Verify count matches expectations
     if (total > 0 && tasks.length === 0 && skip === 0) {

@@ -1335,7 +1335,7 @@ export class ActivityService {
     if (data.userId !== undefined && data.userId !== null) {
       const user = await tx.user.findUnique({
         where: { id: data.userId },
-        select: { id: true, status: true },
+        select: { id: true, isActive: true },
       });
 
       if (!user) {
@@ -1343,7 +1343,7 @@ export class ActivityService {
       }
 
       // Verificar se o usuário está ativo
-      if (!ACTIVE_USER_STATUSES.includes(user.status as any)) {
+      if (!user.isActive) {
         throw new BadRequestException('Usuário não está ativo');
       }
     }
