@@ -45,6 +45,7 @@ import {
   EXTERNAL_WITHDRAWAL_STATUS,
   ACTIVE_USER_STATUSES,
 } from '../../../constants/enums';
+import { getStatusOrder } from '../../../utils/order';
 import {
   calculateMonthlyConsumption,
   calculateConsumptionTrend,
@@ -1739,6 +1740,7 @@ export class ActivityService {
         where: { id: orderId },
         data: {
           status: newStatus,
+          statusOrder: getStatusOrder(newStatus as ORDER_STATUS),
           // Order completion is now tracked at the item level via fulfilledAt
         },
       });

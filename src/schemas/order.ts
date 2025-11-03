@@ -57,7 +57,25 @@ export const orderIncludeSchema = z
         z.object({
           include: z
             .object({
-              item: z.boolean().optional(),
+              item: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        brand: z.boolean().optional(),
+                        category: z.boolean().optional(),
+                        supplier: z.boolean().optional(),
+                        measures: z.boolean().optional(),
+                        paints: z.boolean().optional(),
+                        activities: z.boolean().optional(),
+                        borrows: z.boolean().optional(),
+                        orderItems: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               order: z.boolean().optional(),
               activities: z.boolean().optional(),
             })
@@ -251,7 +269,8 @@ export const orderItemOrderBySchema = z.union([
       orderedQuantity: orderByDirectionSchema.optional(),
       receivedQuantity: orderByDirectionSchema.optional(),
       price: orderByDirectionSchema.optional(),
-      tax: orderByDirectionSchema.optional(),
+      icms: orderByDirectionSchema.optional(),
+      ipi: orderByDirectionSchema.optional(),
       receivedAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
@@ -1266,11 +1285,17 @@ export const orderCreateSchema = z
           temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
           orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
           price: moneySchema,
-          tax: z
+          icms: z
             .number()
-            .min(0, "Taxa deve ser maior ou igual a 0")
-            .max(100, "Taxa deve ser menor ou igual a 100")
-            .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
+            .min(0, "ICMS deve ser maior ou igual a 0")
+            .max(100, "ICMS deve ser menor ou igual a 100")
+            .transform((val) => Math.round(val * 100) / 100)
+            .default(0),
+          ipi: z
+            .number()
+            .min(0, "IPI deve ser maior ou igual a 0")
+            .max(100, "IPI deve ser menor ou igual a 100")
+            .transform((val) => Math.round(val * 100) / 100)
             .default(0),
         })
         .superRefine((data, ctx) => {
@@ -1333,11 +1358,17 @@ export const orderUpdateSchema = z
           temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
           orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
           price: moneySchema,
-          tax: z
+          icms: z
             .number()
-            .min(0, "Taxa deve ser maior ou igual a 0")
-            .max(100, "Taxa deve ser menor ou igual a 100")
-            .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
+            .min(0, "ICMS deve ser maior ou igual a 0")
+            .max(100, "ICMS deve ser menor ou igual a 100")
+            .transform((val) => Math.round(val * 100) / 100)
+            .default(0),
+          ipi: z
+            .number()
+            .min(0, "IPI deve ser maior ou igual a 0")
+            .max(100, "IPI deve ser menor ou igual a 100")
+            .transform((val) => Math.round(val * 100) / 100)
             .default(0),
         })
         .superRefine((data, ctx) => {
@@ -1383,11 +1414,17 @@ export const orderItemCreateSchema = z
     temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
     orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
     price: moneySchema,
-    tax: z
+    icms: z
       .number()
-      .min(0, "Taxa deve ser maior ou igual a 0")
-      .max(100, "Taxa deve ser menor ou igual a 100")
-      .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
+      .min(0, "ICMS deve ser maior ou igual a 0")
+      .max(100, "ICMS deve ser menor ou igual a 100")
+      .transform((val) => Math.round(val * 100) / 100)
+      .default(0),
+    ipi: z
+      .number()
+      .min(0, "IPI deve ser maior ou igual a 0")
+      .max(100, "IPI deve ser menor ou igual a 100")
+      .transform((val) => Math.round(val * 100) / 100)
       .default(0),
   })
   .superRefine((data, ctx) => {
@@ -1415,11 +1452,17 @@ export const orderItemUpdateSchema = z
     orderedQuantity: z.number().positive("Quantidade deve ser positiva").optional(),
     receivedQuantity: z.number().min(0, "Quantidade recebida deve ser não negativa").optional(),
     price: moneySchema.optional(),
-    tax: z
+    icms: z
       .number()
-      .min(0, "Taxa deve ser maior ou igual a 0")
-      .max(100, "Taxa deve ser menor ou igual a 100")
-      .multipleOf(0.01, "Taxa deve ter no máximo 2 casas decimais")
+      .min(0, "ICMS deve ser maior ou igual a 0")
+      .max(100, "ICMS deve ser menor ou igual a 100")
+      .transform((val) => Math.round(val * 100) / 100)
+      .optional(),
+    ipi: z
+      .number()
+      .min(0, "IPI deve ser maior ou igual a 0")
+      .max(100, "IPI deve ser menor ou igual a 100")
+      .transform((val) => Math.round(val * 100) / 100)
       .optional(),
     receivedAt: z.coerce.date().optional(),
     fulfilledAt: z.coerce.date().optional(),
@@ -1769,7 +1812,8 @@ export const mapOrderItemToFormData = createMapToFormDataHelper<OrderItem, Order
   orderedQuantity: orderItem.orderedQuantity,
   receivedQuantity: orderItem.receivedQuantity,
   price: orderItem.price,
-  tax: orderItem.tax,
+  icms: orderItem.icms,
+  ipi: orderItem.ipi,
   receivedAt: orderItem.receivedAt || undefined,
 }));
 

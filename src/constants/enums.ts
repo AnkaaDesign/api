@@ -483,12 +483,19 @@ export enum SHIRT_SIZE {
 }
 
 export enum BOOT_SIZE {
+  SIZE_35 = "SIZE_35",
   SIZE_36 = "SIZE_36",
+  SIZE_37 = "SIZE_37",
   SIZE_38 = "SIZE_38",
+  SIZE_39 = "SIZE_39",
   SIZE_40 = "SIZE_40",
+  SIZE_41 = "SIZE_41",
   SIZE_42 = "SIZE_42",
+  SIZE_43 = "SIZE_43",
   SIZE_44 = "SIZE_44",
+  SIZE_45 = "SIZE_45",
   SIZE_46 = "SIZE_46",
+  SIZE_47 = "SIZE_47",
   SIZE_48 = "SIZE_48",
 }
 
@@ -512,12 +519,20 @@ export enum GLOVES_SIZE {
 }
 
 export enum RAIN_BOOTS_SIZE {
+  SIZE_35 = "SIZE_35",
   SIZE_36 = "SIZE_36",
+  SIZE_37 = "SIZE_37",
   SIZE_38 = "SIZE_38",
+  SIZE_39 = "SIZE_39",
   SIZE_40 = "SIZE_40",
+  SIZE_41 = "SIZE_41",
   SIZE_42 = "SIZE_42",
+  SIZE_43 = "SIZE_43",
   SIZE_44 = "SIZE_44",
+  SIZE_45 = "SIZE_45",
   SIZE_46 = "SIZE_46",
+  SIZE_47 = "SIZE_47",
+  SIZE_48 = "SIZE_48",
 }
 
 // =====================
@@ -533,12 +548,19 @@ export enum PPE_SIZE {
   XG = "XG",
 
   // Pants and Boots sizes
+  SIZE_35 = "SIZE_35",
   SIZE_36 = "SIZE_36",
+  SIZE_37 = "SIZE_37",
   SIZE_38 = "SIZE_38",
+  SIZE_39 = "SIZE_39",
   SIZE_40 = "SIZE_40",
+  SIZE_41 = "SIZE_41",
   SIZE_42 = "SIZE_42",
+  SIZE_43 = "SIZE_43",
   SIZE_44 = "SIZE_44",
+  SIZE_45 = "SIZE_45",
   SIZE_46 = "SIZE_46",
+  SIZE_47 = "SIZE_47",
   SIZE_48 = "SIZE_48",
 }
 
@@ -958,6 +980,7 @@ export enum PPE_TYPE {
   MASK = "MASK",
   GLOVES = "GLOVES",
   RAIN_BOOTS = "RAIN_BOOTS",
+  OUTROS = "OUTROS",
 }
 
 export enum PPE_SIZE_TYPE {

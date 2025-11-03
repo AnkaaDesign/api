@@ -1,6 +1,6 @@
 // apps/api/src/modules/production/layout/layout.service.ts
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { Layout } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
@@ -10,6 +10,8 @@ import { LayoutPrismaRepository } from './repositories/layout-prisma.repository'
 
 @Injectable()
 export class LayoutService {
+  private readonly logger = new Logger(LayoutService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly layoutRepository: LayoutPrismaRepository,
@@ -95,8 +97,33 @@ export class LayoutService {
     data: LayoutCreateFormData,
     userId?: string,
   ): Promise<Layout> {
+    this.logger.log('');
+    this.logger.log('═══════════════════════════════════════════════════════════════');
+    this.logger.log('🚚 [BACKEND] createOrUpdateTruckLayout - REQUEST RECEIVED');
+    this.logger.log('═══════════════════════════════════════════════════════════════');
+    this.logger.log(`[BACKEND] Input parameters:`, {
+      truckId,
+      side,
+      userId,
+      data: {
+        height: data.height,
+        sectionsCount: data.sections?.length,
+        sections: data.sections?.map(s => ({
+          width: s.width,
+          isDoor: s.isDoor,
+          doorOffset: s.doorOffset,
+          position: s.position,
+        })),
+        totalWidth: data.sections?.reduce((sum, s) => sum + s.width, 0),
+        photoId: data.photoId,
+      },
+    });
+
     return await this.prisma.$transaction(async tx => {
+      this.logger.log('[BACKEND] Transaction started');
+
       // Get the truck
+      this.logger.log(`[BACKEND] Fetching truck with ID: ${truckId}`);
       const truck = await tx.truck.findUnique({
         where: { id: truckId },
         include: {
@@ -107,8 +134,18 @@ export class LayoutService {
       });
 
       if (!truck) {
-        throw new NotFoundException('Caminhão não encontrado');
+        this.logger.error(`[BACKEND] ❌ Truck NOT FOUND: ${truckId}`);
+        throw new NotFoundException(
+          `Caminhão não encontrado para ID ${truckId}. Certifique-se de que a tarefa foi criada corretamente antes de adicionar layouts.`
+        );
       }
+
+      this.logger.log(`[BACKEND] ✅ Truck found:`, {
+        id: truck.id,
+        hasLeftLayout: !!truck.leftSideLayout,
+        hasRightLayout: !!truck.rightSideLayout,
+        hasBackLayout: !!truck.backSideLayout,
+      });
 
       // Determine which layout to update
       const layoutFieldMap = {
@@ -126,20 +163,44 @@ export class LayoutService {
       const layoutField = layoutFieldMap[side];
       const existingLayout = existingLayoutMap[side];
 
+      this.logger.log(`[BACKEND] Side '${side}' - Checking existing layout:`, {
+        hasExistingLayout: !!existingLayout,
+        existingLayoutId: existingLayout?.id,
+      });
+
       let layout: Layout;
 
       if (existingLayout) {
-        // Update existing layout - delete old sections and create new ones
+        this.logger.log(`[BACKEND] ⚙️  REPLACE MODE - Existing layout found for ${side} side`);
+        this.logger.log(`[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (delete-then-create approach)`);
+
+        // First, disconnect the layout from the truck
+        await tx.truck.update({
+          where: { id: truckId },
+          data: {
+            [layoutField]: null,
+          },
+        });
+        this.logger.log(`[BACKEND] Layout disconnected from truck`);
+
+        // Delete old layout sections
         await tx.layoutSection.deleteMany({
           where: { layoutId: existingLayout.id },
         });
+        this.logger.log(`[BACKEND] Old layout sections deleted`);
 
-        layout = await tx.layout.update({
+        // Delete the old layout
+        await tx.layout.delete({
           where: { id: existingLayout.id },
+        });
+        this.logger.log(`[BACKEND] Old layout deleted successfully`);
+
+        // Create new layout
+        this.logger.log(`[BACKEND] 🆕 Creating new layout to replace old one`);
+        layout = await tx.layout.create({
           data: {
             height: data.height,
             ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
-            ...(data.photoId === null && { photo: { disconnect: true } }),
             layoutSections: {
               create: data.sections.map((section, index) => ({
                 width: section.width,
@@ -157,17 +218,36 @@ export class LayoutService {
           },
         });
 
+        this.logger.log(`[BACKEND] ✅ New layout created successfully:`, {
+          oldLayoutId: existingLayout.id,
+          newLayoutId: layout.id,
+          height: layout.height,
+          sectionsCount: (layout as any).layoutSections?.length || 0,
+        });
+
+        // Link new layout to truck
+        await tx.truck.update({
+          where: { id: truckId },
+          data: {
+            [layoutField]: layout.id,
+          },
+        });
+        this.logger.log(`[BACKEND] ✅ New layout linked to truck`);
+
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.LAYOUT,
           entityId: layout.id,
-          action: CHANGE_ACTION.UPDATE,
-          reason: 'Layout do caminhão atualizado',
+          action: CHANGE_ACTION.CREATE,
+          reason: `Layout do lado ${side} do caminhão substituído (deletar e criar novo)`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId || null,
           userId: userId || null,
           transaction: tx,
         });
       } else {
+        this.logger.log(`[BACKEND] ➕ CREATE MODE - No existing layout for ${side} side`);
+        this.logger.log(`[BACKEND] 🆕 Creating new layout (always create, no duplicate check)`);
+
         // Create new layout
         layout = await tx.layout.create({
           data: {
@@ -190,13 +270,21 @@ export class LayoutService {
           },
         });
 
+        this.logger.log(`[BACKEND] ✅ New layout created successfully:`, {
+          layoutId: layout.id,
+          height: layout.height,
+          sectionsCount: (layout as any).layoutSections?.length || 0,
+        });
+
         // Update truck with new layout
+        this.logger.log(`[BACKEND] Linking layout ${layout.id} to truck ${truckId} (${side} side)`);
         await tx.truck.update({
           where: { id: truckId },
           data: {
             [layoutField]: layout.id,
           },
         });
+        this.logger.log(`[BACKEND] ✅ Truck updated with layout link`);
 
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.LAYOUT,
@@ -210,17 +298,16 @@ export class LayoutService {
         });
       }
 
-      // Log layout creation/update for truck
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.LAYOUT,
-        entityId: layout.id,
-        action: CHANGE_ACTION.UPDATE,
-        reason: `Layout do lado ${side} do caminhão atualizado`,
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: userId || null,
-        userId: userId || null,
-        transaction: tx,
+      this.logger.log(`[BACKEND] Transaction committed successfully`);
+      this.logger.log(`[BACKEND] 🎉 FINAL RESULT:`, {
+        layoutId: layout.id,
+        height: layout.height,
+        sectionsCount: (layout as any).layoutSections?.length || 0,
+        side,
+        truckId,
       });
+      this.logger.log('═══════════════════════════════════════════════════════════════');
+      this.logger.log('');
 
       return layout;
     });

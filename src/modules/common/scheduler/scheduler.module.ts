@@ -6,6 +6,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ItemModule } from '../../inventory/item/item.module';
 import { BonusModule } from '../../human-resources/bonus/bonus.module';
 import { UserModule } from '../../people/user/user.module';
+import { OrderModule } from '../../inventory/order/order.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { UserModule } from '../../people/user/user.module';
     ItemModule,
     forwardRef(() => BonusModule),
     UserModule,
+    OrderModule,
   ],
   providers: [SchedulerService, BonusCronService, CronService],
   exports: [SchedulerService, BonusCronService, CronService],

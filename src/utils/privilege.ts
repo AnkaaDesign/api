@@ -13,6 +13,8 @@ export const getSectorPrivilegeLevel = (privilege: SECTOR_PRIVILEGES): number =>
     [SECTOR_PRIVILEGES.MAINTENANCE]: 2,
     [SECTOR_PRIVILEGES.WAREHOUSE]: 3,
     [SECTOR_PRIVILEGES.PRODUCTION]: 4,
+    [SECTOR_PRIVILEGES.DESIGNER]: 4, // Same level as PRODUCTION - specialized access
+    [SECTOR_PRIVILEGES.LOGISTIC]: 4, // Same level as PRODUCTION - specialized access
     [SECTOR_PRIVILEGES.LEADER]: 5,
     [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 6,
     [SECTOR_PRIVILEGES.FINANCIAL]: 6, // Same level as HR - specialized access

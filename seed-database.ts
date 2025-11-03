@@ -3297,7 +3297,10 @@ async function migrateOrders() {
             }
           }
 
-          const tax = parseFloatValue(order[`items[${i}].tax`]) || 0.0;
+          // Migrate old tax field to icms (for backwards compatibility with old CSV data)
+          const oldTax = parseFloatValue(order[`items[${i}].tax`]) || 0.0;
+          const icms = parseFloatValue(order[`items[${i}].icms`]) || oldTax;
+          const ipi = parseFloatValue(order[`items[${i}].ipi`]) || 0.0;
 
           await prisma.orderItem.create({
             data: {
@@ -3306,9 +3309,9 @@ async function migrateOrders() {
               orderedQuantity: orderedQty,
               receivedQuantity: receivedQty,
               price: unitPrice, // This is the unit price
-              tax: tax,
+              icms: icms,
+              ipi: ipi,
               // OrderItem doesn't have status/statusOrder fields in the schema
-              isCritical: !done && orderedQty > 100, // Mark as critical if large quantity and not done
               receivedAt: done ? new Date() : null,
             },
           });

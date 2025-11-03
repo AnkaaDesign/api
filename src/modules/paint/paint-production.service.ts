@@ -972,24 +972,37 @@ export class PaintProductionService {
     }
 
     await this.prisma.$transaction(async transaction => {
-      // Before deleting, return inventory for all components
+      // Get formula with full component details (including measures) to properly calculate rollback
       const formula = await transaction.paintFormula.findUnique({
         where: { id: productionExists.formulaId },
         include: {
           components: {
             include: {
-              item: true,
+              item: {
+                include: {
+                  measures: true,
+                },
+              },
             },
           },
         },
       });
 
-      if (formula && formula.components) {
-        // Calculate the production weight from volume using formula density
-        const formulaDensity = Number(formula.density) || 1.0; // default density
-        const totalWeight = productionExists.volumeLiters * 1000 * formulaDensity; // kg to grams
+      if (!formula) {
+        throw new NotFoundException('Fórmula da produção não encontrada.');
+      }
+
+      if (formula.components && formula.components.length > 0) {
+        const formulaDensity = Number(formula.density) || 1.0;
+
+        // Log for debugging
+        this.logger.debug(
+          `Deleting production ${id}: Volume: ${productionExists.volumeLiters}L, Formula density: ${formulaDensity} g/ml`,
+        );
 
         for (const component of formula.components) {
+          if (!component?.item) continue;
+
           // Get current item quantity for changelog
           const currentItem = await transaction.item.findUnique({
             where: { id: component.itemId },
@@ -999,36 +1012,97 @@ export class PaintProductionService {
 
           const originalQuantity = currentItem.quantity;
 
-          // Calculate how much to return based on component ratio
-          const componentRatio = component.ratio / 100; // Convert percentage to decimal
-          const returnWeight = totalWeight * componentRatio;
+          // Calculate component volume needed (same as create logic)
+          const componentVolumeNeeded = productionExists.volumeLiters * (component.ratio / 100);
 
-          // Calculate quantity to return (simplified - assuming base units)
-          let returnQuantity = returnWeight / 1000; // Convert grams to kg
+          // Calculate units to return using the SAME logic as create (measure-aware)
+          let unitsToReturn = 0;
 
-          // Round to 2 decimal places
-          returnQuantity = Math.round(returnQuantity * 100) / 100;
-          const newQuantity = originalQuantity + returnQuantity;
+          const weightMeasure = component.item.measures?.find(m => m.measureType === 'WEIGHT');
+          const volumeMeasure = component.item.measures?.find(m => m.measureType === 'VOLUME');
 
-          await transaction.activity.create({
-            data: {
+          if (weightMeasure && weightMeasure.value) {
+            // For weight-based items: convert volume to weight using formula density
+            const componentWeightNeeded = componentVolumeNeeded * 1000 * formulaDensity; // Convert L to ml, then to g
+
+            this.logger.debug(
+              `Component ${component.item.name}: Volume: ${componentVolumeNeeded}L, Weight: ${componentWeightNeeded}g`,
+            );
+
+            // Convert weight to units based on item's weight measure
+            if (weightMeasure.unit === 'KILOGRAM') {
+              const weightPerUnitGrams = weightMeasure.value * 1000; // Convert kg to g
+              unitsToReturn = componentWeightNeeded / weightPerUnitGrams;
+            } else if (weightMeasure.unit === 'GRAM') {
+              unitsToReturn = componentWeightNeeded / weightMeasure.value;
+            }
+          } else if (volumeMeasure && volumeMeasure.value) {
+            // For volume-based items, use volume directly
+            if (volumeMeasure.unit === 'MILLILITER') {
+              unitsToReturn = (componentVolumeNeeded * 1000) / volumeMeasure.value; // Convert L to mL then to units
+            } else if (volumeMeasure.unit === 'LITER') {
+              unitsToReturn = componentVolumeNeeded / volumeMeasure.value;
+            }
+          } else {
+            // Default: assume 1 unit = 1 liter if no measures defined
+            unitsToReturn = componentVolumeNeeded;
+            this.logger.warn(
+              `Component ${component.item.name}: No measures defined, using default 1 unit = 1L`,
+            );
+          }
+
+          // Round to 4 decimal places (same precision as create)
+          unitsToReturn = Math.max(0, Math.round(unitsToReturn * 10000) / 10000);
+          const newQuantity = originalQuantity + unitsToReturn;
+
+          this.logger.debug(
+            `Component ${component.item.name}: Will restore ${unitsToReturn} units (${originalQuantity} -> ${newQuantity})`,
+          );
+
+          // Delete the OUTBOUND activities that were created during production creation
+          // We use deleteMany() which is a raw Prisma operation that doesn't trigger Activity service hooks
+          // This means we need to manually restore the inventory below
+          const deletedActivities = await transaction.activity.deleteMany({
+            where: {
               itemId: component.itemId,
-              quantity: returnQuantity,
-              operation: ACTIVITY_OPERATION.INBOUND,
-              reason: ACTIVITY_REASON.RETURN,
-              reasonOrder: 5,
-              userId: userId || null,
+              operation: ACTIVITY_OPERATION.OUTBOUND,
+              reason: ACTIVITY_REASON.PAINT_PRODUCTION,
+              quantity: unitsToReturn, // Match exact quantity to ensure we delete the right activity
+              createdAt: {
+                gte: new Date(productionExists.createdAt.getTime() - 5000), // 5 seconds before
+                lte: new Date(productionExists.createdAt.getTime() + 5000), // 5 seconds after
+              },
             },
           });
 
+          this.logger.debug(
+            `Deleted ${deletedActivities.count} OUTBOUND activities for component ${component.item.name}`,
+          );
+
+          // Manually restore item quantity since deleteMany() doesn't trigger Activity service hooks
+          // This increment reverses the decrement that was done during production creation
           await transaction.item.update({
             where: { id: component.itemId },
             data: {
               quantity: {
-                increment: returnQuantity,
+                increment: unitsToReturn,
               },
             },
           });
+
+          // Manually trigger monthly consumption recalculation
+          try {
+            await this.activityService['calculateAndUpdateItemMonthlyConsumption'](
+              transaction,
+              component.itemId,
+              userId,
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Failed to update monthly consumption for item ${component.itemId}:`,
+              error,
+            );
+          }
 
           // Log individual component inventory impact for production deletion
           await this.changeLogService.logChange({
@@ -1038,7 +1112,7 @@ export class PaintProductionService {
             field: 'quantity',
             oldValue: originalQuantity,
             newValue: newQuantity,
-            reason: `Inventário retornado devido à exclusão de produção: ${returnQuantity.toFixed(2)} unidades retornadas de ${returnWeight.toFixed(2)}g (${component.ratio.toFixed(1)}% da fórmula)`,
+            reason: `Inventário restaurado devido à exclusão de produção: ${unitsToReturn.toFixed(4)} unidades retornadas para ${componentVolumeNeeded.toFixed(3)}L (${component.ratio.toFixed(1)}% da fórmula)`,
             triggeredBy: CHANGE_TRIGGERED_BY.PAINT_PRODUCTION_DELETE,
             triggeredById: id,
             userId: userId || 'system',
@@ -1053,13 +1127,13 @@ export class PaintProductionService {
             field: 'componentImpact',
             oldValue: {
               itemId: component.itemId,
-              itemName: component.item?.name || 'Unknown',
-              returnedUnits: returnQuantity,
-              returnedWeight: returnWeight,
+              itemName: component.item.name,
+              returnedUnits: unitsToReturn,
+              volumeReturned: componentVolumeNeeded,
               ratio: component.ratio,
-              operationType: 'DELETE_RETURN',
+              operationType: 'DELETE_ROLLBACK',
             },
-            reason: `Componente ${component.item?.name || 'Unknown'}: ${returnQuantity.toFixed(2)} unidades retornadas por exclusão`,
+            reason: `Componente ${component.item.name}: ${unitsToReturn.toFixed(4)} unidades restauradas (${componentVolumeNeeded.toFixed(3)}L)`,
             triggeredBy: CHANGE_TRIGGERED_BY.PAINT_PRODUCTION_DELETE,
             triggeredById: id,
             userId: userId || 'system',
@@ -1068,6 +1142,7 @@ export class PaintProductionService {
         }
       }
 
+      // Delete the production record
       await this.paintProductionRepository.deleteWithTransaction(transaction, id);
 
       // Log the deletion
@@ -1080,7 +1155,7 @@ export class PaintProductionService {
           productionExists,
           getEssentialFields(ENTITY_TYPE.PAINT_PRODUCTION) as (keyof typeof productionExists)[],
         ),
-        reason: `Produção de tinta excluída - Volume: ${productionExists.volumeLiters.toFixed(3)}L`,
+        reason: `Produção de tinta excluída com rollback completo - Volume: ${productionExists.volumeLiters.toFixed(3)}L`,
         userId: userId || 'system',
         triggeredBy: CHANGE_TRIGGERED_BY.PAINT_PRODUCTION_DELETE,
         transaction,

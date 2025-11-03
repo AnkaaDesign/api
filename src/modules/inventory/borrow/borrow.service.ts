@@ -467,7 +467,6 @@ export class BorrowService {
         // Registrar mudanças de campos usando trackAndLogFieldChanges
         const fieldsToTrack = [
           'status',
-          'statusOrder',
           'itemId',
           'userId',
           'quantity',
@@ -756,7 +755,6 @@ export class BorrowService {
           if (oldBorrow) {
             const fieldsToTrack = [
               'status',
-              'statusOrder',
               'itemId',
               'userId',
               'quantity',
@@ -942,7 +940,7 @@ export class BorrowService {
         );
 
         // Registrar mudança usando trackAndLogFieldChanges
-        const fieldsToTrack = ['status', 'statusOrder', 'returnedAt'];
+        const fieldsToTrack = ['status', 'returnedAt'];
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,

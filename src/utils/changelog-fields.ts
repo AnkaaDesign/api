@@ -48,7 +48,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     CA: "CA (Certificado de Aprovação)",
     leadTime: "Tempo de Entrega",
     estimatedLeadTime: "Tempo de Entrega Estimado",
-    tax: "Imposto (%)",
+    icms: "ICMS (%)",
+    ipi: "IPI (%)",
     totalPrice: "Preço Total",
     monthlyConsumption: "Consumo Mensal",
     monthlyConsumptionTrendPercent: "Tendência de Consumo (%)",
@@ -119,8 +120,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     orderedQuantity: "Quantidade Pedida",
     receivedQuantity: "Quantidade Recebida",
     price: "Preço Unitário",
-    tax: "Imposto (%)",
-    isCritical: "Item Crítico",
+    icms: "ICMS (%)",
+    ipi: "IPI (%)",
     receivedAt: "Recebido em",
     fulfilledAt: "Cumprido em",
     notes: "Observações do Item",
@@ -372,7 +373,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     price: "Preço Unitário",
     unitPrice: "Preço Unitário",
     totalPrice: "Preço Total",
-    tax: "Imposto",
+    icms: "ICMS",
+    ipi: "IPI",
     discount: "Desconto",
     notes: "Observações",
     condition: "Condição",
@@ -493,7 +495,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
   [CHANGE_LOG_ENTITY_TYPE.PRICE]: {
     itemId: "Item",
     value: "Valor",
-    tax: "Imposto (%)",
+    icms: "ICMS (%)",
+    ipi: "IPI (%)",
     // Nested relationship fields
     "item.name": "Nome do Item",
     "item.sku": "SKU do Item",
@@ -1464,7 +1467,7 @@ export function formatFieldValue(value: ComplexFieldValue, field?: string | null
     }
 
     // Percentage fields
-    if (field === "tax" || field === "margin" || field === "minimumMargin" || field === "monthlyConsumptionTrendPercent" || field === "ratio") {
+    if (field === "icms" || field === "ipi" || field === "margin" || field === "minimumMargin" || field === "monthlyConsumptionTrendPercent" || field === "ratio") {
       return `${value.toLocaleString("pt-BR")}%`;
     }
 

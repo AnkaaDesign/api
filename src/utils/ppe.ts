@@ -59,6 +59,10 @@ export function isValidSizeForPpeType(size: PPE_SIZE, ppeType: PPE_TYPE): boolea
       // Galocha uses 36-46 sizes (not 48)
       return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46].includes(size);
 
+    case PPE_TYPE.OUTROS:
+      // OUTROS type doesn't require specific sizes - size is optional
+      return true;
+
     default:
       return false;
   }
@@ -92,6 +96,10 @@ export function getValidSizesForPpeType(ppeType: PPE_TYPE): PPE_SIZE[] {
     case PPE_TYPE.RAIN_BOOTS:
       // Galocha uses 36-46 sizes (not 48)
       return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46];
+
+    case PPE_TYPE.OUTROS:
+      // OUTROS type doesn't require specific sizes - size is optional
+      return [];
 
     default:
       return [];
@@ -540,6 +548,9 @@ export function getPpeSizeByType(ppeSize: PpeSize, ppeType: PPE_TYPE): string | 
       return ppeSize.gloves;
     case PPE_TYPE.RAIN_BOOTS:
       return ppeSize.rainBoots;
+    case PPE_TYPE.OUTROS:
+      // OUTROS type doesn't have specific size mapping
+      return null;
     default:
       return null;
   }
@@ -576,10 +587,13 @@ export function getPpeStandardQuantity(item: Item): number {
 }
 
 /**
- * Get PPE auto order months from item
+ * Calculate PPE auto order lead time in days based on item's estimated lead time
+ * Default to 180 days (6 months) if no lead time is specified
  */
-export function getPpeAutoOrderMonths(item: Item): number {
-  return item.ppeAutoOrderMonths || 6;
+export function getPpeAutoOrderLeadTime(item: Item): number {
+  // Use estimatedLeadTime if available, otherwise default to 180 days (6 months)
+  const leadTimeDays = item.estimatedLeadTime || 180;
+  return leadTimeDays;
 }
 
 /**

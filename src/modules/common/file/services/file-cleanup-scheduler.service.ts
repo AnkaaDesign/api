@@ -28,6 +28,16 @@ export class FileCleanupSchedulerService {
   private readonly webdavRoot: string;
   private readonly uploadDir: string;
 
+  // Folders managed via Samba that should be excluded from orphaned file cleanup
+  // These folders contain files uploaded directly via Samba and won't have database records
+  private readonly sambaExcludedFolders = [
+    'Artes',
+    'Auxiliares',
+    'Fotos',
+    'Aerografias',
+    'Backup',
+  ];
+
   constructor(
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly prisma: PrismaService,
@@ -142,12 +152,14 @@ export class FileCleanupSchedulerService {
       });
       const dbFilePaths = new Set(dbFiles.map(f => f.path));
 
-      // Scan WebDAV directory
+      // Scan WebDAV directory (excluding Samba-managed folders)
       if (UPLOAD_CONFIG.useWebDAV && existsSync(this.webdavRoot)) {
         this.logger.log(`Scanning WebDAV directory: ${this.webdavRoot}`);
+        this.logger.log(`Excluding Samba folders: ${this.sambaExcludedFolders.join(', ')}`);
         const webdavOrphans = await this.scanDirectoryForOrphans(
           this.webdavRoot,
           dbFilePaths,
+          this.sambaExcludedFolders, // Exclude Samba-managed folders
         );
         orphanedFiles.push(...webdavOrphans);
       }
@@ -190,6 +202,7 @@ export class FileCleanupSchedulerService {
         // Skip specified directories
         if (entry.isDirectory()) {
           if (skipDirs.includes(entry.name)) {
+            this.logger.log(`Skipping excluded directory: ${fullPath}`);
             continue;
           }
           // Recursively scan subdirectories
@@ -200,6 +213,11 @@ export class FileCleanupSchedulerService {
           );
           orphanedFiles.push(...subOrphans);
         } else if (entry.isFile()) {
+          // Skip macOS metadata files (created by Samba/macOS clients)
+          if (entry.name.startsWith('._') || entry.name === '.DS_Store') {
+            continue;
+          }
+
           // Check if file exists in database
           if (!dbFilePaths.has(fullPath)) {
             try {

@@ -77,7 +77,7 @@ export class PaintBrandController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async create(
     @Body(new ZodValidationPipe(paintBrandCreateSchema)) data: PaintBrandCreateFormData,
     @Query(new ZodQueryValidationPipe(paintBrandQuerySchema)) query: PaintBrandQueryFormData,
@@ -87,7 +87,7 @@ export class PaintBrandController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(paintBrandUpdateSchema)) data: PaintBrandUpdateFormData,
@@ -98,7 +98,7 @@ export class PaintBrandController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.paintBrandService.delete(id, userId);
@@ -109,7 +109,7 @@ export class PaintBrandController {
   // =====================
 
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchCreate(
     @Body(new ZodValidationPipe(paintBrandBatchCreateSchema)) data: PaintBrandBatchCreateFormData,
     @Query(new ZodQueryValidationPipe(paintBrandQuerySchema)) query: PaintBrandQueryFormData,
@@ -119,7 +119,7 @@ export class PaintBrandController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(paintBrandBatchUpdateSchema)) data: PaintBrandBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(paintBrandQuerySchema)) query: PaintBrandQueryFormData,
@@ -129,7 +129,7 @@ export class PaintBrandController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(@Body(new ZodValidationPipe(paintBrandBatchDeleteSchema)) data: PaintBrandBatchDeleteFormData, @UserId() userId: string) {
     return this.paintBrandService.batchDelete(data, userId);

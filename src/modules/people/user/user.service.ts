@@ -684,7 +684,7 @@ export class UserService {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar usuário existente com relações para o tracking
         const existingUser = await this.userRepository.findByIdWithTransaction(tx, id, {
-          include: { position: true, sector: true },
+          include: { position: true, sector: true, ppeSize: true },
         });
 
         if (!existingUser) {
@@ -869,6 +869,44 @@ export class UserService {
           });
         }
 
+        // Track PPE size changes
+        if (data.ppeSize) {
+          const oldPpeSize = existingUser.ppeSize;
+          const newPpeSize = data.ppeSize;
+
+          // Track each PPE size field individually
+          const ppeSizeFields = [
+            { field: 'shirts', label: 'Tamanho de camisetas' },
+            { field: 'boots', label: 'Tamanho de botas' },
+            { field: 'pants', label: 'Tamanho de calças' },
+            { field: 'sleeves', label: 'Tamanho de mangas' },
+            { field: 'mask', label: 'Tamanho de máscara' },
+            { field: 'gloves', label: 'Tamanho de luvas' },
+            { field: 'rainBoots', label: 'Tamanho de botas de chuva' },
+          ];
+
+          for (const { field, label } of ppeSizeFields) {
+            const oldValue = oldPpeSize?.[field];
+            const newValue = newPpeSize[field];
+
+            // Only log if the value actually changed
+            if (oldValue !== newValue) {
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.USER,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: `ppeSize.${field}`,
+                oldValue: oldValue || 'Não definido',
+                newValue: newValue || 'Não definido',
+                reason: `${label} atualizado`,
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || null,
+                transaction: tx,
+              });
+            }
+          }
+        }
 
         return updatedUser;
       });

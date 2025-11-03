@@ -386,6 +386,10 @@ export class TaskController {
       { name: 'airbrushings[9].receipts', maxCount: 10 },
       { name: 'airbrushings[9].invoices', maxCount: 10 },
       { name: 'airbrushings[9].artworks', maxCount: 20 },
+      // Layout photos - one photo per side (matches backend service check at line 685)
+      { name: 'layoutPhotos.leftSide', maxCount: 1 },
+      { name: 'layoutPhotos.rightSide', maxCount: 1 },
+      { name: 'layoutPhotos.backSide', maxCount: 1 },
     ], multerConfig)
   )
   async update(

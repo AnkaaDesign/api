@@ -179,7 +179,8 @@ export class OrderPrismaRepository
             orderedQuantity: item.orderedQuantity,
             receivedQuantity: 0,
             price: item.price,
-            tax: item.tax || 0,
+            icms: item.icms || 0,
+            ipi: item.ipi || 0,
           };
 
           // Connect to inventory item if itemId is provided (inventory item)
@@ -513,11 +514,14 @@ export class OrderPrismaRepository
       id: databaseOrderItem.id,
       orderId: databaseOrderItem.orderId,
       itemId: databaseOrderItem.itemId,
+      temporaryItemDescription: databaseOrderItem.temporaryItemDescription,
       orderedQuantity: databaseOrderItem.orderedQuantity,
       receivedQuantity: databaseOrderItem.receivedQuantity,
       price: databaseOrderItem.price,
-      tax: databaseOrderItem.tax,
+      icms: databaseOrderItem.icms,
+      ipi: databaseOrderItem.ipi,
       receivedAt: databaseOrderItem.receivedAt,
+      fulfilledAt: databaseOrderItem.fulfilledAt,
       item: databaseOrderItem.item,
       order: databaseOrderItem.order,
       activities: databaseOrderItem.activities,

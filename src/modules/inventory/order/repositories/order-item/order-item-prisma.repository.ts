@@ -53,7 +53,8 @@ export class OrderItemPrismaRepository
       orderedQuantity: databaseEntity.orderedQuantity,
       receivedQuantity: databaseEntity.receivedQuantity,
       price: databaseEntity.price,
-      tax: databaseEntity.tax,
+      icms: databaseEntity.icms,
+      ipi: databaseEntity.ipi,
       receivedAt: databaseEntity.receivedAt,
       fulfilledAt: databaseEntity.fulfilledAt,
       createdAt: databaseEntity.createdAt,
@@ -91,7 +92,8 @@ export class OrderItemPrismaRepository
       orderedQuantity: formData.orderedQuantity,
       receivedQuantity: 0,
       price: formData.price,
-      tax: formData.tax,
+      icms: formData.icms,
+      ipi: formData.ipi,
       order: { connect: { id: formData.orderId } },
     };
 

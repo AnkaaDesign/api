@@ -97,12 +97,13 @@ export function isOrderCompleted(order: Order): boolean {
 }
 
 /**
- * Calculate order item total with tax
+ * Calculate order item total with icms and ipi
  */
 export function calculateOrderItemTotal(item: OrderItem): number {
   const subtotal = item.orderedQuantity * item.price;
-  const taxAmount = subtotal * (item.tax / 100);
-  return subtotal + taxAmount;
+  const icmsAmount = subtotal * (item.icms / 100);
+  const ipiAmount = subtotal * (item.ipi / 100);
+  return subtotal + icmsAmount + ipiAmount;
 }
 
 /**
@@ -117,7 +118,7 @@ export function calculateOrderTotal(order: Order): number {
 }
 
 /**
- * Calculate order subtotal (without tax)
+ * Calculate order subtotal (without ICMS/IPI)
  */
 export function calculateOrderSubtotal(order: Order): number {
   if (!order.items || order.items.length === 0) return 0;
@@ -128,15 +129,16 @@ export function calculateOrderSubtotal(order: Order): number {
 }
 
 /**
- * Calculate order tax amount
+ * Calculate order total ICMS and IPI amount
  */
 export function calculateOrderTax(order: Order): number {
   if (!order.items || order.items.length === 0) return 0;
 
   return order.items.reduce((total, item) => {
     const subtotal = item.orderedQuantity * item.price;
-    const taxAmount = subtotal * (item.tax / 100);
-    return total + taxAmount;
+    const icmsAmount = subtotal * (item.icms / 100);
+    const ipiAmount = subtotal * (item.ipi / 100);
+    return total + icmsAmount + ipiAmount;
   }, 0);
 }
 

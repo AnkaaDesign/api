@@ -1121,7 +1121,6 @@ export const ppeDeliveryByScheduleSchema = z.object({
 // - ppeCA: string (Certificate of Approval)
 // - ppeDeliveryMode: PPE_DELIVERY_MODE enum
 // - ppeStandardQuantity: number
-// - ppeAutoOrderMonths: number
 
 // =====================
 // PPE SCHEDULE SCHEMAS

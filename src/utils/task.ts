@@ -186,11 +186,20 @@ export function formatTaskSummary(task: Task): string {
 }
 
 /**
- * Format task price
- * Note: Price is no longer stored directly on tasks
+ * Calculate task price from budget items
+ */
+export function calculateTaskPrice(task: Task): number {
+  if (!task.budget || task.budget.length === 0) return 0;
+  return task.budget.reduce((sum, item) => sum + item.valor, 0);
+}
+
+/**
+ * Format task price from budget items
  */
 export function formatTaskPrice(task: Task): string {
-  return "Sem valor";
+  if (!task.budget || task.budget.length === 0) return "Sem valor";
+  const totalValue = calculateTaskPrice(task);
+  return numberUtils.formatCurrency(totalValue);
 }
 
 

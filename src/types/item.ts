@@ -52,7 +52,8 @@ export interface Item extends BaseEntity {
   reorderPoint: number | null;
   reorderQuantity: number | null;
   boxQuantity: number | null;
-  tax: number;
+  icms: number;
+  ipi: number;
   totalPrice: number | null;
   monthlyConsumption: number;
   monthlyConsumptionTrendPercent: number | null;
@@ -75,7 +76,6 @@ export interface Item extends BaseEntity {
   ppeCA: string | null;
   ppeDeliveryMode: PPE_DELIVERY_MODE | null;
   ppeStandardQuantity: number | null;
-  ppeAutoOrderMonths: number | null;
 
   // Measure fields (backward compatibility)
   measureUnit?: MEASURE_UNIT;
@@ -220,7 +220,8 @@ export interface ItemWhere {
   reorderPoint?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
   reorderQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
   boxQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  tax?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  icms?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  ipi?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
   totalPrice?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
   monthlyConsumption?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
   monthlyConsumptionTrendPercent?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
@@ -244,7 +245,6 @@ export interface ItemWhere {
   // PPE-specific number fields
   ppeSizeOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
   ppeStandardQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  ppeAutoOrderMonths?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
 
   // Boolean fields
   shouldAssignToUser?: boolean | { equals?: boolean; not?: boolean };
@@ -330,7 +330,8 @@ export interface ItemOrderBy {
   reorderPoint?: ORDER_BY_DIRECTION;
   reorderQuantity?: ORDER_BY_DIRECTION;
   boxQuantity?: ORDER_BY_DIRECTION;
-  tax?: ORDER_BY_DIRECTION;
+  icms?: ORDER_BY_DIRECTION;
+  ipi?: ORDER_BY_DIRECTION;
   monthlyConsumption?: ORDER_BY_DIRECTION;
   monthlyConsumptionTrendPercent?: ORDER_BY_DIRECTION;
   shouldAssignToUser?: ORDER_BY_DIRECTION;

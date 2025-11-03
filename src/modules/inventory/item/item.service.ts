@@ -135,12 +135,67 @@ export class ItemService {
 
         const existingItem = await prismaClient.item.findFirst({
           where: whereClause,
+          include: {
+            measures: true, // Include measures to compare
+          },
         });
 
         if (existingItem) {
-          const brandInfo = brandIdToCheck ? ' para esta marca' : '';
-          const categoryInfo = categoryIdToCheck ? ' e categoria' : '';
-          errors.push(`Já existe um item com o nome "${nameToCheck}"${brandInfo}${categoryInfo}`);
+          // Check if items differ in measures or PPE attributes
+          const itemData = data as ItemDataWithMeasures;
+          let hasDifferentAttributes = false;
+
+          // Compare PPE type if present
+          const newPpeType = itemData.ppeType || null;
+          const existingPpeType = existingItem.ppeType || null;
+
+          if (newPpeType !== existingPpeType) {
+            hasDifferentAttributes = true;
+          }
+
+          // Compare measures if present
+          if (!hasDifferentAttributes && itemData.measures && Array.isArray(itemData.measures)) {
+            const newMeasures = itemData.measures as MeasureData[];
+            const existingMeasures = existingItem.measures || [];
+
+            // If the number of measures is different, they're different items
+            if (newMeasures.length !== existingMeasures.length) {
+              hasDifferentAttributes = true;
+            } else {
+              // Compare each measure
+              // Sort by measureType for consistent comparison
+              const sortedNew = [...newMeasures].sort((a, b) =>
+                a.measureType.localeCompare(b.measureType)
+              );
+              const sortedExisting = [...existingMeasures].sort((a, b) =>
+                a.measureType.localeCompare(b.measureType)
+              );
+
+              for (let i = 0; i < sortedNew.length; i++) {
+                const newM = sortedNew[i];
+                const existM = sortedExisting[i];
+
+                if (
+                  newM.measureType !== existM.measureType ||
+                  newM.value !== existM.value ||
+                  newM.unit !== existM.unit
+                ) {
+                  hasDifferentAttributes = true;
+                  break;
+                }
+              }
+            }
+          } else if (!hasDifferentAttributes && existingItem.measures && existingItem.measures.length > 0) {
+            // Existing item has measures but new item doesn't (or vice versa)
+            hasDifferentAttributes = true;
+          }
+
+          // Only throw error if items are truly identical
+          if (!hasDifferentAttributes) {
+            const brandInfo = brandIdToCheck ? ' para esta marca' : '';
+            const categoryInfo = categoryIdToCheck ? ' e categoria' : '';
+            errors.push(`Já existe um item com o nome "${nameToCheck}"${brandInfo}${categoryInfo}`);
+          }
         }
       }
     }
@@ -266,19 +321,6 @@ export class ItemService {
         }
       }
 
-      // Validate PPE auto order months
-      if (data.ppeAutoOrderMonths !== undefined && data.ppeAutoOrderMonths !== null) {
-        if (
-          !Number.isInteger(data.ppeAutoOrderMonths) ||
-          data.ppeAutoOrderMonths < 0 ||
-          data.ppeAutoOrderMonths > 12
-        ) {
-          errors.push(
-            'Meses para pedido automático de PPE deve ser um número inteiro entre 0 e 12',
-          );
-        }
-      }
-
       // If PPE type is set, ensure size and delivery mode are also set
       // Check for PPE size in measures array (SIZE type measure)
       let hasPpeSize = false;
@@ -318,11 +360,6 @@ export class ItemService {
       }
       if (data.ppeStandardQuantity !== undefined && data.ppeStandardQuantity !== null) {
         errors.push('Não é possível definir quantidade padrão sem definir o tipo de PPE');
-      }
-      if (data.ppeAutoOrderMonths !== undefined && data.ppeAutoOrderMonths !== null) {
-        errors.push(
-          'Não é possível definir meses para pedido automático sem definir o tipo de PPE',
-        );
       }
     }
 

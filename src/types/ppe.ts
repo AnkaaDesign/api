@@ -68,7 +68,6 @@ export interface PpeDelivery extends BaseEntity {
 // - ppeCA: Certificate of Approval
 // - ppeDeliveryMode: SCHEDULED, ON_DEMAND, BOTH
 // - ppeStandardQuantity: Standard quantity per delivery
-// - ppeAutoOrderMonths: Months before delivery to create auto-order
 
 // PPE Schedule Item for schedules with quantities per type
 export interface PpeScheduleItem {

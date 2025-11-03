@@ -428,7 +428,19 @@ export const paintIncludeSchema = z
           include: z
             .object({
               paint: z.boolean().optional(),
-              groundPaint: z.boolean().optional(),
+              groundPaint: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        paintType: z.boolean().optional(),
+                        paintBrand: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
             })
             .optional(),
           where: z.any().optional(),
@@ -444,7 +456,19 @@ export const paintIncludeSchema = z
         z.object({
           include: z
             .object({
-              paint: z.boolean().optional(),
+              paint: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        paintType: z.boolean().optional(),
+                        paintBrand: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               groundPaint: z.boolean().optional(),
             })
             .optional(),

@@ -95,7 +95,8 @@ export interface OrderItem extends BaseEntity {
   receivedQuantity: number;
   price: number;
   unitPrice?: number;
-  tax: number;
+  icms: number;
+  ipi: number;
   receivedAt: Date | null;
   fulfilledAt: Date | null;
 
@@ -299,7 +300,8 @@ export interface OrderItemWhere {
   orderedQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   receivedQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   price?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  tax?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  icms?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  ipi?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   receivedAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   fulfilledAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
@@ -357,7 +359,8 @@ export interface OrderItemOrderBy {
   orderedQuantity?: ORDER_BY_DIRECTION;
   receivedQuantity?: ORDER_BY_DIRECTION;
   price?: ORDER_BY_DIRECTION;
-  tax?: ORDER_BY_DIRECTION;
+  icms?: ORDER_BY_DIRECTION;
+  ipi?: ORDER_BY_DIRECTION;
   receivedAt?: ORDER_BY_DIRECTION;
   fulfilledAt?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;

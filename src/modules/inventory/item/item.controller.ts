@@ -468,7 +468,7 @@ export class ItemUnifiedController {
   }
 
   @Post('recalculate-monthly-consumption')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async recalculateAllItemsMonthlyConsumption(
     @UserId() userId: string,
   ): Promise<{

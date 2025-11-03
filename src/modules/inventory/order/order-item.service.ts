@@ -165,8 +165,8 @@ export class OrderItemService {
             'orderedQuantity',
             'receivedQuantity',
             'price',
-            'tax',
-            'isCritical',
+            'icms',
+            'ipi',
             'receivedAt',
             'fulfilledAt',
           ];
@@ -199,7 +199,9 @@ export class OrderItemService {
             );
 
             const itemName =
-              orderItemWithDetails?.item?.name || `Item ${existingOrderItem.itemId.slice(0, 8)}...`;
+              orderItemWithDetails?.item?.name ||
+              orderItemWithDetails?.temporaryItemDescription ||
+              (existingOrderItem.itemId ? `Item ${existingOrderItem.itemId.slice(0, 8)}...` : 'Item temporário');
 
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.ORDER,
@@ -453,8 +455,8 @@ export class OrderItemService {
             'orderedQuantity',
             'receivedQuantity',
             'price',
-            'tax',
-            'isCritical',
+            'icms',
+            'ipi',
             'receivedAt',
             'fulfilledAt',
           ];
@@ -492,7 +494,9 @@ export class OrderItemService {
                 );
 
                 const itemName =
-                  orderItemWithDetails?.item?.name || `Item ${orderItem.itemId.slice(0, 8)}...`;
+                  orderItemWithDetails?.item?.name ||
+                  orderItemWithDetails?.temporaryItemDescription ||
+                  (orderItem.itemId ? `Item ${orderItem.itemId.slice(0, 8)}...` : 'Item temporário');
 
                 await this.changeLogService.logChange({
                   entityType: ENTITY_TYPE.ORDER,

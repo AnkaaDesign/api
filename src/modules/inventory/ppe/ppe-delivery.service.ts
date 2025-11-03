@@ -841,7 +841,6 @@ export class PpeDeliveryService {
       // Track field-level changes for better changelog history
       const fieldsToTrack = [
         'status',
-        'statusOrder',
         'quantity',
         'scheduledDate',
         'actualDeliveryDate',
@@ -1231,7 +1230,7 @@ export class PpeDeliveryService {
         entityId: id,
         oldEntity: oldDelivery,
         newEntity: updatedDelivery,
-        fieldsToTrack: ['status', 'statusOrder', 'reviewedBy', 'actualDeliveryDate'],
+        fieldsToTrack: ['status', 'reviewedBy', 'actualDeliveryDate'],
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         transaction: transaction,

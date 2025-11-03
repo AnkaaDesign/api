@@ -133,11 +133,10 @@ export interface MeasureData {
 }
 
 // Type for item data with measures
+// Note: Size information is stored in measures with MeasureType.SIZE, not as a separate field
 export interface ItemDataWithMeasures extends EntityDataWithArrays {
   measures?: MeasureData[];
   ppeType?: string;
-  ppeSize?: string;
-  ppeSizeOrder?: number;
   ppeDeliveryMode?: string;
 }
 

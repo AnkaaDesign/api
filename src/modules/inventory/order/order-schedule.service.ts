@@ -1097,7 +1097,8 @@ export class OrderScheduleService {
           itemId: calc.itemId,
           orderedQuantity: calc.quantity,
           price: currentPrice,
-          tax: item.tax || 0,
+          icms: item.icms || 0,
+          ipi: item.ipi || 0,
         };
       });
 

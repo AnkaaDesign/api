@@ -257,7 +257,7 @@ export const bonusDiscountCreateSchema = z
       .number()
       .min(0, "Percentual deve ser maior ou igual a 0")
       .max(100, "Percentual deve ser menor ou igual a 100")
-      .multipleOf(0.01, "Percentual deve ter no máximo 2 casas decimais")
+      .transform((val) => Math.round(val * 100) / 100)
       .optional(),
     value: moneySchema.optional(),
     reference: createNameSchema(1, 200, "Referência"),
@@ -280,7 +280,7 @@ export const bonusDiscountUpdateSchema = z
       .number()
       .min(0, "Percentual deve ser maior ou igual a 0")
       .max(100, "Percentual deve ser menor ou igual a 100")
-      .multipleOf(0.01, "Percentual deve ter no máximo 2 casas decimais")
+      .transform((val) => Math.round(val * 100) / 100)
       .optional(),
     value: moneySchema.optional(),
     reference: createNameSchema(1, 200, "Referência").optional(),

@@ -412,7 +412,6 @@ export class TaskPrismaRepository
       taskData.airbrushings = {
         create: airbrushings.map((item: any, index: number) => {
           console.log(`[TaskRepository] Creating airbrushing ${index}:`, item);
-          console.log(`[TaskRepository] Price value:`, item.price, 'type:', typeof item.price);
           const airbrushingData = {
             status: item.status || 'PENDING',
             price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
@@ -736,7 +735,6 @@ export class TaskPrismaRepository
           deleteMany: {}, // Delete all existing airbrushings
           create: airbrushings.map((item: any, index: number) => {
             console.log(`[TaskRepository.UPDATE] Creating airbrushing ${index}:`, item);
-            console.log(`[TaskRepository.UPDATE] Price value:`, item.price, 'type:', typeof item.price);
             const airbrushingData = {
               status: item.status || 'PENDING',
               price: item.price !== undefined && item.price !== null ? Number(item.price) : null,

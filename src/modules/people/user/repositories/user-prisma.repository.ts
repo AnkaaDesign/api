@@ -22,6 +22,8 @@ import {
   mapPantsSizeToPrisma,
   mapSleevesSizeToPrisma,
   mapMaskSizeToPrisma,
+  mapGlovesSizeToPrisma,
+  mapRainBootsSizeToPrisma,
 } from '@utils';
 
 @Injectable()
@@ -118,6 +120,8 @@ export class UserPrismaRepository
           pants: mapPantsSizeToPrisma(ppeSize.pants),
           sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
           mask: mapMaskSizeToPrisma(ppeSize.mask),
+          gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+          rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
         },
       };
     }
@@ -191,6 +195,8 @@ export class UserPrismaRepository
             pants: mapPantsSizeToPrisma(ppeSize.pants),
             sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
             mask: mapMaskSizeToPrisma(ppeSize.mask),
+            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
           },
           update: {
             shirts: mapShirtSizeToPrisma(ppeSize.shirts),
@@ -198,6 +204,8 @@ export class UserPrismaRepository
             pants: mapPantsSizeToPrisma(ppeSize.pants),
             sleeves: mapSleevesSizeToPrisma(ppeSize.sleeves),
             mask: mapMaskSizeToPrisma(ppeSize.mask),
+            gloves: mapGlovesSizeToPrisma(ppeSize.gloves),
+            rainBoots: mapRainBootsSizeToPrisma(ppeSize.rainBoots),
           },
         },
       };

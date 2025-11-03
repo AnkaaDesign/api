@@ -59,6 +59,7 @@ export const cutIncludeSchema = z
 // OrderBy Schema
 export const cutOrderBySchema = z
   .union([
+    // Single ordering object
     z.object({
       id: orderByDirectionSchema.optional(),
       fileId: orderByDirectionSchema.optional(),
@@ -73,7 +74,26 @@ export const cutOrderBySchema = z
       completedAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
-    }),
+    }).partial(),
+    // Array of ordering objects for multiple field ordering
+    z.array(
+      z.object({
+        id: orderByDirectionSchema.optional(),
+        fileId: orderByDirectionSchema.optional(),
+        type: orderByDirectionSchema.optional(),
+        status: orderByDirectionSchema.optional(),
+        statusOrder: orderByDirectionSchema.optional(),
+        taskId: orderByDirectionSchema.optional(),
+        origin: orderByDirectionSchema.optional(),
+        reason: orderByDirectionSchema.optional(),
+        parentCutId: orderByDirectionSchema.optional(),
+        startedAt: orderByDirectionSchema.optional(),
+        completedAt: orderByDirectionSchema.optional(),
+        createdAt: orderByDirectionSchema.optional(),
+        updatedAt: orderByDirectionSchema.optional(),
+      }).partial(),
+    ),
+    // String enum for simple field names
     z.enum(["id", "fileId", "type", "status", "statusOrder", "taskId", "origin", "reason", "parentCutId", "startedAt", "completedAt", "createdAt", "updatedAt"]),
   ])
   .optional();

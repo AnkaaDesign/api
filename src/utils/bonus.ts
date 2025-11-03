@@ -168,21 +168,21 @@ const performanceMultipliers: Record<number, number> = {
 function getDetailedPositionLevel(positionName: string): number {
   const normalized = positionName.toLowerCase().replace(/\s+/g, '').trim();
 
-  // Junior levels (1-4)
-  if (normalized.includes('juniorii') || normalized.includes('júniorii')) return 2;
-  if (normalized.includes('junioriii') || normalized.includes('júnioriii')) return 3;
+  // Junior levels (1-4) - Check longer strings first to avoid substring matching issues
   if (normalized.includes('junioriv') || normalized.includes('júnioriv')) return 4;
+  if (normalized.includes('junioriii') || normalized.includes('júnioriii')) return 3;
+  if (normalized.includes('juniorii') || normalized.includes('júniorii')) return 2;
   if (normalized.includes('juniori') || normalized.includes('júniori')) return 1;
   if (normalized === 'junior' || normalized === 'júnior') return 1;
 
-  // Pleno levels (5-8)
-  if (normalized.includes('plenoii')) return 6;
-  if (normalized.includes('plenoiii')) return 7;
+  // Pleno levels (5-8) - Check longer strings first to avoid substring matching issues
   if (normalized.includes('plenoiv')) return 8;
+  if (normalized.includes('plenoiii')) return 7;
+  if (normalized.includes('plenoii')) return 6;
   if (normalized.includes('plenoi')) return 5;
   if (normalized === 'pleno') return 5;
 
-  // Senior levels (9-12)
+  // Senior levels (9-12) - Check longer strings first to avoid substring matching issues
   if (normalized.includes('senioriv') || normalized.includes('sênioriv')) return 12;
   if (normalized.includes('senioriii') || normalized.includes('sênioriii')) return 11;
   if (normalized.includes('seniorii') || normalized.includes('sêniori')) return 10;

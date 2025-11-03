@@ -805,12 +805,19 @@ export const SHIRT_SIZE_LABELS: Record<SHIRT_SIZE, string> = {
 };
 
 export const BOOT_SIZE_LABELS: Record<BOOT_SIZE, string> = {
+  [BOOT_SIZE.SIZE_35]: "35",
   [BOOT_SIZE.SIZE_36]: "36",
+  [BOOT_SIZE.SIZE_37]: "37",
   [BOOT_SIZE.SIZE_38]: "38",
+  [BOOT_SIZE.SIZE_39]: "39",
   [BOOT_SIZE.SIZE_40]: "40",
+  [BOOT_SIZE.SIZE_41]: "41",
   [BOOT_SIZE.SIZE_42]: "42",
+  [BOOT_SIZE.SIZE_43]: "43",
   [BOOT_SIZE.SIZE_44]: "44",
+  [BOOT_SIZE.SIZE_45]: "45",
   [BOOT_SIZE.SIZE_46]: "46",
+  [BOOT_SIZE.SIZE_47]: "47",
   [BOOT_SIZE.SIZE_48]: "48",
 };
 
@@ -834,12 +841,20 @@ export const GLOVES_SIZE_LABELS: Record<GLOVES_SIZE, string> = {
 };
 
 export const RAIN_BOOTS_SIZE_LABELS: Record<RAIN_BOOTS_SIZE, string> = {
+  [RAIN_BOOTS_SIZE.SIZE_35]: "35",
   [RAIN_BOOTS_SIZE.SIZE_36]: "36",
+  [RAIN_BOOTS_SIZE.SIZE_37]: "37",
   [RAIN_BOOTS_SIZE.SIZE_38]: "38",
+  [RAIN_BOOTS_SIZE.SIZE_39]: "39",
   [RAIN_BOOTS_SIZE.SIZE_40]: "40",
+  [RAIN_BOOTS_SIZE.SIZE_41]: "41",
   [RAIN_BOOTS_SIZE.SIZE_42]: "42",
+  [RAIN_BOOTS_SIZE.SIZE_43]: "43",
   [RAIN_BOOTS_SIZE.SIZE_44]: "44",
+  [RAIN_BOOTS_SIZE.SIZE_45]: "45",
   [RAIN_BOOTS_SIZE.SIZE_46]: "46",
+  [RAIN_BOOTS_SIZE.SIZE_47]: "47",
+  [RAIN_BOOTS_SIZE.SIZE_48]: "48",
 };
 
 export const PPE_TYPE_LABELS: Record<PPE_TYPE, string> = {
@@ -850,6 +865,7 @@ export const PPE_TYPE_LABELS: Record<PPE_TYPE, string> = {
   [PPE_TYPE.MASK]: "Máscara",
   [PPE_TYPE.GLOVES]: "Luvas",
   [PPE_TYPE.RAIN_BOOTS]: "Galocha",
+  [PPE_TYPE.OUTROS]: "Outros",
 };
 
 export const PPE_SIZE_TYPE_LABELS: Record<PPE_SIZE_TYPE, string> = {
@@ -872,12 +888,19 @@ export const PPE_SIZE_LABELS: Record<PPE_SIZE, string> = {
   [PPE_SIZE.XG]: "XG",
 
   // Pants and Boots sizes
+  [PPE_SIZE.SIZE_35]: "35",
   [PPE_SIZE.SIZE_36]: "36",
+  [PPE_SIZE.SIZE_37]: "37",
   [PPE_SIZE.SIZE_38]: "38",
+  [PPE_SIZE.SIZE_39]: "39",
   [PPE_SIZE.SIZE_40]: "40",
+  [PPE_SIZE.SIZE_41]: "41",
   [PPE_SIZE.SIZE_42]: "42",
+  [PPE_SIZE.SIZE_43]: "43",
   [PPE_SIZE.SIZE_44]: "44",
+  [PPE_SIZE.SIZE_45]: "45",
   [PPE_SIZE.SIZE_46]: "46",
+  [PPE_SIZE.SIZE_47]: "47",
   [PPE_SIZE.SIZE_48]: "48",
 };
 

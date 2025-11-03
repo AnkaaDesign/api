@@ -152,12 +152,13 @@ export function getItemValue(item: Item): number {
 }
 
 /**
- * Calculate item total cost including tax
+ * Calculate item total cost including ICMS and IPI
  */
 export function getItemTotalCost(item: Item): number {
   const value = getItemValue(item);
-  const tax = item.tax || 0;
-  return value + (value * tax) / 100;
+  const icms = item.icms || 0;
+  const ipi = item.ipi || 0;
+  return value + (value * icms) / 100 + (value * ipi) / 100;
 }
 
 /**
@@ -383,7 +384,7 @@ export function getPpeSize(item: Item): PPE_SIZE | null {
  * Check if item has PPE configuration
  */
 export function hasPpeConfiguration(item: Item): boolean {
-  return isPpe(item) && item.ppeDeliveryMode !== null && item.ppeStandardQuantity !== null && item.ppeAutoOrderMonths !== null;
+  return isPpe(item) && item.ppeDeliveryMode !== null && item.ppeStandardQuantity !== null;
 }
 
 /**

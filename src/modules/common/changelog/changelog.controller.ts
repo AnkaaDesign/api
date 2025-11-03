@@ -13,7 +13,17 @@ export class ChangeLogController {
   constructor(private readonly changeLogService: ChangeLogService) {}
 
   @Get()
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodQueryValidationPipe(changeLogGetManySchema))
   async findMany(@Query() query: ChangeLogGetManyFormData): Promise<ChangeLogGetManyResponse> {
     const result = await this.changeLogService.findMany(query);
@@ -25,7 +35,17 @@ export class ChangeLogController {
   }
 
   @Get('entity/:type/:id')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getEntityHistory(
     @Param('type') entityType: string,
     @Param('id') entityId: string,
@@ -55,7 +75,11 @@ export class ChangeLogController {
   }
 
   @Get('order/:id/history')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getOrderHistory(@Param('id') orderId: string) {
     const data = await this.changeLogService.getOrderHistory(orderId);
 
@@ -67,7 +91,15 @@ export class ChangeLogController {
   }
 
   @Get('task/:id/history')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getTaskHistory(@Param('id') taskId: string) {
     const data = await this.changeLogService.getTaskHistory(taskId);
 

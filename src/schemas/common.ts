@@ -494,7 +494,18 @@ export const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, { message: "
 export const percentageSchema = z.number().min(0, { message: "Porcentagem deve ser maior ou igual a 0" }).max(100, { message: "Porcentagem deve ser menor ou igual a 100" });
 
 // Money/currency validation (non-negative with 2 decimal places)
-export const moneySchema = z.number().min(0, { message: "Valor deve ser maior ou igual a 0" }).multipleOf(0.01, { message: "Valor deve ter no máximo 2 casas decimais" });
+export const moneySchema = z
+  .number()
+  .min(0, { message: "Valor deve ser maior ou igual a 0" })
+  .transform((val) => Math.round(val * 100) / 100) // Round to 2 decimal places
+  .refine(
+    (val) => {
+      // Check if the value has at most 2 decimal places after rounding
+      const decimalPlaces = (val.toString().split('.')[1] || '').length;
+      return decimalPlaces <= 2;
+    },
+    { message: "Valor deve ter no máximo 2 casas decimais" }
+  );
 
 // Positive quantity validation
 export const quantitySchema = z.number().positive({ message: "Quantidade deve ser positiva" });

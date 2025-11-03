@@ -153,7 +153,19 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                       include: z
                         .object({
                           paint: z.boolean().optional(),
-                          groundPaint: z.boolean().optional(),
+                          groundPaint: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                include: z
+                                  .object({
+                                    paintType: z.boolean().optional(),
+                                    paintBrand: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
                         })
                         .optional(),
                     }),
@@ -231,7 +243,19 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
                       include: z
                         .object({
                           paint: z.boolean().optional(),
-                          groundPaint: z.boolean().optional(),
+                          groundPaint: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                include: z
+                                  .object({
+                                    paintType: z.boolean().optional(),
+                                    paintBrand: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
                         })
                         .optional(),
                     }),
@@ -1256,6 +1280,40 @@ const taskTruckCreateSchema = z.object({
   garageId: z.string().uuid("Garagem inválida").nullable().optional(),
 });
 
+// Layout data schema for embedding in task create/update
+const taskLayoutDataSchema = z.object({
+  leftSide: z.object({
+    height: z.number().positive(),
+    sections: z.array(z.object({
+      width: z.number().positive(),
+      isDoor: z.boolean(),
+      doorOffset: z.number().nullable(),
+      position: z.number(),
+    })),
+    photoId: z.string().uuid().nullable().optional(),
+  }).nullable().optional(),
+  rightSide: z.object({
+    height: z.number().positive(),
+    sections: z.array(z.object({
+      width: z.number().positive(),
+      isDoor: z.boolean(),
+      doorOffset: z.number().nullable(),
+      position: z.number(),
+    })),
+    photoId: z.string().uuid().nullable().optional(),
+  }).nullable().optional(),
+  backSide: z.object({
+    height: z.number().positive(),
+    sections: z.array(z.object({
+      width: z.number().positive(),
+      isDoor: z.boolean(),
+      doorOffset: z.number().nullable(),
+      position: z.number(),
+    })),
+    photoId: z.string().uuid().nullable().optional(),
+  }).nullable().optional(),
+}).nullable().optional();
+
 // =====================
 // CRUD Schemas
 // =====================
@@ -1321,6 +1379,7 @@ export const taskCreateSchema = z
     services: z.array(taskServiceOrderCreateSchema).min(1, "Pelo menos um serviço é obrigatório"),
     budget: z.array(budgetCreateNestedSchema).optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
+    truckLayoutData: taskLayoutDataSchema, // Layout data for truck
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -1427,6 +1486,7 @@ export const taskUpdateSchema = z
     services: z.array(taskServiceOrderCreateSchema).optional(),
     budget: z.array(budgetCreateNestedSchema).optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
+    truckLayoutData: taskLayoutDataSchema, // Layout data for truck
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings

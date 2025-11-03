@@ -389,6 +389,7 @@ const activityFilters = {
   searchingFor: z.string().optional(),
   hasUser: z.boolean().optional(),
   hasDiscrepancies: z.boolean().optional(),
+  showPaintProduction: z.boolean().optional(),
   operations: z.array(z.nativeEnum(ACTIVITY_OPERATION)).optional(),
   itemIds: z.array(z.string()).optional(),
   userIds: z.array(z.string()).optional(),
@@ -478,6 +479,12 @@ const activityTransform = (data: any) => {
     });
     delete data.hasDiscrepancies;
   }
+
+  // Handle showPaintProduction filter - exclude paint production activities by default
+  if (!data.showPaintProduction) {
+    andConditions.push({ reason: { not: ACTIVITY_REASON.PAINT_PRODUCTION } });
+  }
+  delete data.showPaintProduction;
 
   // Handle operations filter
   if (data.operations && Array.isArray(data.operations) && data.operations.length > 0) {

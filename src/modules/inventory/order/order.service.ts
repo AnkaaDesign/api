@@ -225,10 +225,17 @@ export class OrderService {
       );
     }
 
-    // Validar taxa se fornecida
-    if (item.tax !== undefined && item.tax < 0) {
+    // Validar ICMS se fornecido
+    if (item.icms !== undefined && item.icms < 0) {
       throw new BadRequestException(
-        `Taxa para o item "${itemName}" não pode ser negativa.`,
+        `ICMS para o item "${itemName}" não pode ser negativo.`,
+      );
+    }
+
+    // Validar IPI se fornecido
+    if (item.ipi !== undefined && item.ipi < 0) {
+      throw new BadRequestException(
+        `IPI para o item "${itemName}" não pode ser negativo.`,
       );
     }
   }
@@ -270,19 +277,20 @@ export class OrderService {
       // User can manually set the price, no validation against catalog price needed
       // This allows creating orders even when items don't have catalog prices
 
-      // User can also manually set the tax, no validation against catalog tax needed
+      // User can also manually set the ICMS and IPI, no validation against catalog values needed
     }
   }
 
   /**
    * Calcular total do pedido server-side
-   * Tax is a percentage (0-100), not an absolute value
+   * ICMS and IPI are percentages (0-100), not absolute values
    */
   private calculateOrderTotal(items: Omit<OrderItemCreateFormData, 'orderId'>[]): number {
     return items.reduce((total, item) => {
       const subtotal = item.orderedQuantity * item.price;
-      const taxAmount = subtotal * ((item.tax || 0) / 100);
-      const itemTotal = subtotal + taxAmount;
+      const icmsAmount = subtotal * ((item.icms || 0) / 100);
+      const ipiAmount = subtotal * ((item.ipi || 0) / 100);
+      const itemTotal = subtotal + icmsAmount + ipiAmount;
       return total + itemTotal;
     }, 0);
   }
@@ -752,7 +760,8 @@ export class OrderService {
                 itemId: item.itemId,
                 orderedQuantity: item.orderedQuantity,
                 price: item.price,
-                tax: item.tax || 0,
+                icms: item.icms || 0,
+                ipi: item.ipi || 0,
               },
             });
             this.logger.log(`Added order item for itemId: ${item.itemId}`);
@@ -762,14 +771,90 @@ export class OrderService {
           for (const item of itemsToUpdate) {
             const existingItem = existingItemsMap.get(item.itemId);
             if (existingItem) {
+              // Track changes for changelog
+              const hasOrderedQuantityChange = existingItem.orderedQuantity !== item.orderedQuantity;
+              const hasPriceChange = existingItem.price !== item.price;
+              const hasIcmsChange = existingItem.icms !== (item.icms || 0);
+              const hasIpiChange = existingItem.ipi !== (item.ipi || 0);
+
               await tx.orderItem.update({
                 where: { id: existingItem.id },
                 data: {
                   orderedQuantity: item.orderedQuantity,
                   price: item.price,
-                  tax: item.tax || 0,
+                  icms: item.icms || 0,
+                  ipi: item.ipi || 0,
                 },
               });
+
+              // Log quantity change
+              if (hasOrderedQuantityChange) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ORDER_ITEM,
+                  entityId: existingItem.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'orderedQuantity',
+                  oldValue: existingItem.orderedQuantity,
+                  newValue: item.orderedQuantity,
+                  reason: `Quantidade pedida do item atualizada`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.ORDER_UPDATE,
+                  triggeredById: id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+
+              // Log price change
+              if (hasPriceChange) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ORDER_ITEM,
+                  entityId: existingItem.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'price',
+                  oldValue: existingItem.price,
+                  newValue: item.price,
+                  reason: `Preço do item atualizado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.ORDER_UPDATE,
+                  triggeredById: id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+
+              // Log ICMS change
+              if (hasIcmsChange) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ORDER_ITEM,
+                  entityId: existingItem.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'icms',
+                  oldValue: existingItem.icms,
+                  newValue: item.icms || 0,
+                  reason: `ICMS do item atualizado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.ORDER_UPDATE,
+                  triggeredById: id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+
+              // Log IPI change
+              if (hasIpiChange) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ORDER_ITEM,
+                  entityId: existingItem.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'ipi',
+                  oldValue: existingItem.ipi,
+                  newValue: item.ipi || 0,
+                  reason: `IPI do item atualizado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.ORDER_UPDATE,
+                  triggeredById: id,
+                  userId: userId || null,
+                  transaction: tx,
+                });
+              }
+
               this.logger.log(`Updated order item ${existingItem.id} (itemId: ${item.itemId})`);
             }
           }
@@ -1619,7 +1704,8 @@ export class OrderService {
             itemId: existingItem.itemId,
             orderedQuantity: data.orderedQuantity,
             price: data.price !== undefined ? data.price : existingItem.price,
-            tax: data.tax !== undefined ? data.tax : existingItem.tax,
+            icms: data.icms !== undefined ? data.icms : existingItem.icms,
+            ipi: data.ipi !== undefined ? data.ipi : existingItem.ipi,
           };
 
           // Validar o item com a nova quantidade
@@ -1631,7 +1717,7 @@ export class OrderService {
         }
 
         // Se o preço está sendo atualizado, validar
-        if (data.price !== undefined || data.tax !== undefined) {
+        if (data.price !== undefined || data.icms !== undefined || data.ipi !== undefined) {
           // Validar o novo preço
           await this.validateItemPrices(
             [
@@ -1642,7 +1728,8 @@ export class OrderService {
                     ? data.orderedQuantity
                     : existingItem.orderedQuantity,
                 price: data.price !== undefined ? data.price : existingItem.price,
-                tax: data.tax !== undefined ? data.tax : existingItem.tax,
+                icms: data.icms !== undefined ? data.icms : existingItem.icms,
+                ipi: data.ipi !== undefined ? data.ipi : existingItem.ipi,
               },
             ],
             tx,
@@ -1736,7 +1823,8 @@ export class OrderService {
           'orderedQuantity',
           'receivedQuantity',
           'price',
-          'tax',
+          'icms',
+          'ipi',
           'receivedAt',
         ];
 
