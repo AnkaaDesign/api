@@ -1,3 +1,0 @@
--- AlterEnum
-ALTER TYPE "TaskStatus" ADD VALUE 'INVOICED';
-ALTER TYPE "TaskStatus" ADD VALUE 'SETTLED';

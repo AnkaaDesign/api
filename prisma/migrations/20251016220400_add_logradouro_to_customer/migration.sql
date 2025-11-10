@@ -1,5 +1,0 @@
--- CreateEnum
-CREATE TYPE "LogradouroType" AS ENUM ('RUA', 'AVENIDA', 'ALAMEDA', 'TRAVESSA', 'PRACA', 'RODOVIA', 'ESTRADA', 'VIA', 'LARGO', 'VIELA', 'BECO', 'RUELA', 'CAMINHO', 'PASSAGEM', 'JARDIM', 'QUADRA', 'LOTE', 'SITIO', 'PARQUE', 'FAZENDA', 'CHACARA', 'CONDOMINIO', 'CONJUNTO', 'RESIDENCIAL', 'OUTRO');
-
--- AlterTable
-ALTER TABLE "Customer" ADD COLUMN "logradouro" "LogradouroType";
