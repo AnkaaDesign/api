@@ -1,55 +1,2 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-build/
-*.tsbuildinfo
-
-# Environment files
-.env
-.env.local
-.env.development
-.env.staging
-.env.production
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory
-coverage/
-*.lcov
-.nyc_output
-
-# IDEs and editors
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Temporary files
-tmp/
-temp/
-uploads/
-!uploads/.gitkeep
-
-# PM2
-.pm2/
-pm2.json
-pm2.config.js
-
-# Build info (generated at build time)
-src/build-info.json
+Ôæ·Þ¯„¬¦‡ÑÉÍåê.üÝd·ÊzÔâÀ¥Ëƒ‡pt†ç!ö¶éÖ	è/.ÙØ q¸a,H“‡Ðö§!©ò¾“é9­•ujagÛx}Î™È_unœtH1œWšÊëÆ`u~&£Ært²ÐZo^½ ÀNÇ>Ýp?JZ{™†FsvM¯ë(ä¦èºðUDç%²ÁøPþ7Þ½ÿ5¡B^<²?Î-[hDF¨Å‹lƒ¢Uppaã¼É³ŒÓ’ÐoZ% ÀüÍñò®Ü­$·>–ãFÒË¶[iVÆSi	mê.“Y¦–+¬l¦—.ÍÐ Q£ÃØK2õßTF˜µK³˜$÷)ÇÔÓÍž©×DÓíþ¬ýëSÈ[’j;)™‚7´£R%OÔ¼Y£óˆK•«˜ûÆs™6s©VÖSR”RïÞÒ[†R{ömÿS‚¥O:š$ý„Çõþ¶#9)õ•*žœÄ÷JúÔb?!	‚ô|iœˆ‘L(a¬è¾Ñy­¥Ên|]dÈN¸ÕdÈ!<è>Hê?‘¦ù˜Ï
+µ_›'€„	ü‡ÕñòaçëÇ`ô&‡žr‹Ò¤²¯ébAèð>èå×º:«9FæLòðÕT˜¡ãó¸téóc×PK’Z[i¹=êñˆßšj»Æ@08å¤HþÑyòa~á¹Òþ3©ÆV,MTW*kæ}_‹·ÿ «½þ¦³F/KhdYlø¨õÛØ{ÒÊ

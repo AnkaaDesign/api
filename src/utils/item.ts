@@ -230,17 +230,23 @@ export function filterPpeItemsByType(items: Item[], ppeType: PPE_TYPE): Item[] {
 }
 
 /**
- * Filter PPE items by size
+ * Filter PPE items by size (size stored in measures)
  */
-export function filterPpeItemsBySize(items: Item[], ppeSize: PPE_SIZE): Item[] {
-  return items.filter((item) => item.ppeSize === ppeSize);
+export function filterPpeItemsBySize(items: Item[], ppeSize: string): Item[] {
+  return items.filter((item) => {
+    const itemSize = getPpeSize(item);
+    return itemSize === ppeSize;
+  });
 }
 
 /**
- * Filter PPE items by type and size
+ * Filter PPE items by type and size (size stored in measures)
  */
-export function filterPpeItemsByTypeAndSize(items: Item[], ppeType: PPE_TYPE, ppeSize: PPE_SIZE): Item[] {
-  return items.filter((item) => item.ppeType === ppeType && item.ppeSize === ppeSize);
+export function filterPpeItemsByTypeAndSize(items: Item[], ppeType: PPE_TYPE, ppeSize: string): Item[] {
+  return items.filter((item) => {
+    const itemSize = getPpeSize(item);
+    return item.ppeType === ppeType && itemSize === ppeSize;
+  });
 }
 
 /**
@@ -263,22 +269,23 @@ export function groupPpeItemsByType(items: Item[]): Record<PPE_TYPE, Item[]> {
 }
 
 /**
- * Group PPE items by size
+ * Group PPE items by size (size stored in measures)
  */
-export function groupPpeItemsBySize(items: Item[]): Record<PPE_SIZE, Item[]> {
+export function groupPpeItemsBySize(items: Item[]): Record<string, Item[]> {
   const ppeItems = filterPpeItems(items);
-  const groups: Partial<Record<PPE_SIZE, Item[]>> = {};
+  const groups: Record<string, Item[]> = {};
 
   ppeItems.forEach((item) => {
-    if (item.ppeSize) {
-      if (!groups[item.ppeSize]) {
-        groups[item.ppeSize] = [];
+    const itemSize = getPpeSize(item);
+    if (itemSize) {
+      if (!groups[itemSize]) {
+        groups[itemSize] = [];
       }
-      groups[item.ppeSize]!.push(item);
+      groups[itemSize].push(item);
     }
   });
 
-  return groups as Record<PPE_SIZE, Item[]>;
+  return groups;
 }
 
 /**
@@ -363,7 +370,7 @@ export function hasCA(item: Item): boolean {
  * Check if item is a PPE (Personal Protective Equipment)
  */
 export function isPpe(item: Item): boolean {
-  return item.ppeType !== null && item.ppeSize !== null;
+  return item.ppeType !== null;
 }
 
 /**
@@ -374,10 +381,12 @@ export function getPpeType(item: Item): PPE_TYPE | null {
 }
 
 /**
- * Get PPE size from item
+ * Get PPE size from item's measures array
  */
-export function getPpeSize(item: Item): PPE_SIZE | null {
-  return item.ppeSize;
+export function getPpeSize(item: Item): string | null {
+  if (!item.measures || item.measures.length === 0) return null;
+  const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+  return sizeMeasure?.unit || null;
 }
 
 /**
@@ -466,6 +475,68 @@ export function formatItemQuantityWithMeasureValue(item: Item): string {
   return `${formattedQuantity} ${unitLabel}`;
 }
 
+/**
+ * Get PPE size from item's measures array
+ * Handles both letter sizes (P, M, G) stored in unit field
+ * and numeric sizes (36, 38, 40) stored in value field
+ * This is a helper function that extracts the SIZE measure
+ */
+export function getPpeSizeFromItem(item: Item): string | null {
+  if (!item.measures || item.measures.length === 0) return null;
+  const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+  if (!sizeMeasure) return null;
+
+  // Letter sizes (P, M, G, GG, XG) are stored in unit field
+  if (sizeMeasure.unit) {
+    return sizeMeasure.unit;
+  }
+
+  // Numeric sizes (36, 38, 40, etc.) are stored in value field
+  // Return as string for consistency
+  if (sizeMeasure.value !== null && sizeMeasure.value !== undefined) {
+    return String(sizeMeasure.value);
+  }
+
+  return null;
+}
+
+/**
+ * Filter items by PPE size (using measures)
+ * @param items - Array of items to filter
+ * @param size - The PPE size to filter by (e.g., "P", "M", "G", "SIZE_40", etc.)
+ * @returns Filtered array of items that have the specified size
+ */
+export function filterItemsByPpeSize(items: Item[], size: string): Item[] {
+  return items.filter(item => {
+    const itemSize = getPpeSizeFromItem(item);
+    return itemSize === size;
+  });
+}
+
+/**
+ * Check if item has a SIZE measure
+ * @param item - The item to check
+ * @returns True if the item has a SIZE measure, false otherwise
+ */
+export function itemHasSizeMeasure(item: Item): boolean {
+  if (!item.measures || item.measures.length === 0) return false;
+  return item.measures.some(m => m.measureType === "SIZE");
+}
+
+/**
+ * Set or update PPE size measure for an item
+ * This creates a new measure object for use in item creation/update
+ * @param size - The size value (e.g., "P", "M", "G", "SIZE_40", etc.)
+ * @returns A measure object for the SIZE type
+ */
+export function createPpeSizeMeasure(size: string): { measureType: string; unit: string; value: null } {
+  return {
+    measureType: "SIZE",
+    unit: size,
+    value: null,
+  };
+}
+
 // Export all item utilities as a namespace object
 export const itemUtils = {
   getStockStatus,
@@ -509,4 +580,9 @@ export const itemUtils = {
   getItemIssueTypeLabel,
   formatItemQuantity,
   formatItemQuantityWithMeasureValue,
+  // New helper functions for PPE size migration
+  getPpeSizeFromItem,
+  filterItemsByPpeSize,
+  itemHasSizeMeasure,
+  createPpeSizeMeasure,
 };

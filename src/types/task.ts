@@ -41,6 +41,7 @@ export interface Task extends BaseEntity {
   reimbursementInvoiceIds?: string[];
   createdById: string | null;
   priority?: string | null;
+  price?: number | null; // Calculated from budget total
 
   // Relations
   sector?: Sector;
@@ -56,7 +57,7 @@ export interface Task extends BaseEntity {
   artworks?: File[];
   logoPaints?: Paint[];
   services?: ServiceOrder[];
-  budget?: Budget[];
+  budget?: Budget;
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;

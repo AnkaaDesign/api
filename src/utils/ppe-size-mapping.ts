@@ -52,8 +52,10 @@ export function getPpeSizeFromMeasures(measures: Array<{ measureType: string; va
 
 /**
  * Create a measure object for PPE size
+ * @deprecated Use createPpeSizeMeasure from @utils/item instead
+ * This function has incorrect logic - sizes should be stored in the unit field, not value
  */
-export function createPpeSizeMeasure(size: string, itemId: string) {
+export function createPpeSizeMeasureDeprecated(size: string, itemId: string) {
   const numericValue = ppeSizeToNumeric(size);
   if (!numericValue) return null;
 

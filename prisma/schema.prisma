@@ -183,31 +183,31 @@ model EconomicActivity {
 }
 
 model Customer {
-  id                   String              @id @default(uuid())
-  fantasyName          String              @unique
-  cnpj                 String?             @unique
-  cpf                  String?             @unique
-  corporateName        String?
-  email                String?
-  logradouro           LogradouroType?
-  address              String?
-  addressNumber        String?
-  addressComplement    String?
-  neighborhood         String?
-  city                 String?
-  state                String?
-  zipCode              String?
-  site                 String?
-  phones               String[]
-  tags                 String[]
-  logoId               String?
-  economicActivityId   String?
-  situacaoCadastral    RegistrationStatus?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  economicActivity     EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
-  logo                 File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
-  tasks                Task[]
+  id                 String              @id @default(uuid())
+  fantasyName        String              @unique
+  cnpj               String?             @unique
+  cpf                String?             @unique
+  corporateName      String?
+  email              String?
+  address            String?
+  addressNumber      String?
+  addressComplement  String?
+  neighborhood       String?
+  city               String?
+  state              String?
+  zipCode            String?
+  site               String?
+  phones             String[]
+  tags               String[]
+  logoId             String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  economicActivityId String?
+  situacaoCadastral  RegistrationStatus?
+  logradouro         LogradouroType?
+  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
+  tasks              Task[]
 
   @@index([fantasyName])
   @@index([cpf])
@@ -306,6 +306,7 @@ model File {
   taskCuts                                Cut[]                @relation("TASK_CUTS")
   layoutPhotos                            Layout[]             @relation("LAYOUT_PHOTO")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
+  userAvatar                              User[]               @relation("USER_AVATAR")
   thumbnailJob                            ThumbnailJob?
   airbrushingArtworks                     Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
   airbrushingBudgets                      Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
@@ -330,7 +331,6 @@ model File {
   taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
-  userAvatar                              User[]               @relation("USER_AVATAR")
 
   @@index([filename])
   @@index([originalName])
@@ -379,7 +379,6 @@ model Item {
   reorderPoint                   Float?
   reorderQuantity                Float?
   boxQuantity                    Int?
-  tax                            Float                    @default(0)
   totalPrice                     Float?
   monthlyConsumption             Decimal                  @default(0) @db.Decimal(10, 2)
   monthlyConsumptionTrendPercent Decimal?                 @db.Decimal(5, 2)
@@ -398,9 +397,10 @@ model Item {
   ppeCA                          String?
   ppeDeliveryMode                PpeDeliveryMode?
   ppeStandardQuantity            Int?
-  ppeAutoOrderMonths             Int?
   createdAt                      DateTime                 @default(now())
   updatedAt                      DateTime                 @updatedAt
+  icms                           Float                    @default(0)
+  ipi                            Float                    @default(0)
   activities                     Activity[]               @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
   externalWithdrawalItems        ExternalWithdrawalItem[]
@@ -531,7 +531,7 @@ model Observation {
 model ExternalWithdrawal {
   id                    String                   @id @default(uuid())
   withdrawerName        String
-  willReturn            Boolean                  @default(true)
+  type                  ExternalWithdrawalType   @default(RETURNABLE)
   status                ExternalWithdrawalStatus @default(PENDING)
   statusOrder           Int                      @default(1)
   notes                 String?
@@ -544,8 +544,8 @@ model ExternalWithdrawal {
   reimbursements        File[]                   @relation("EXTERNAL_WITHDRAWAL_REIMBURSEMENTS")
 
   @@index([withdrawerName])
+  @@index([type])
   @@index([status, statusOrder])
-  @@index([willReturn])
   @@index([createdAt])
 }
 
@@ -682,16 +682,16 @@ model OrderItem {
   id                       String     @id @default(uuid())
   orderId                  String
   itemId                   String?
-  temporaryItemDescription String?
   orderedQuantity          Float
   receivedQuantity         Float      @default(0)
   price                    Float
-  tax                      Float
-  isCritical               Boolean    @default(false)
   receivedAt               DateTime?
   fulfilledAt              DateTime?
   createdAt                DateTime   @default(now())
   updatedAt                DateTime   @updatedAt
+  temporaryItemDescription String?
+  icms                     Float      @default(0)
+  ipi                      Float      @default(0)
   activities               Activity[] @relation("ACTIVITY_ORDER_ITEM")
   item                     Item?      @relation("ORDER_ITEM_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
   order                    Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -741,7 +741,7 @@ model PaintProduction {
   formulaId    String
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
-  formula      PaintFormula @relation(fields: [formulaId], references: [id])
+  formula      PaintFormula @relation(fields: [formulaId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([formulaId])
 }
@@ -755,12 +755,12 @@ model Paint {
   tags             String[]
   palette          ColorPalette       @default(BLACK)
   paletteOrder     Int                @default(1)
-  colorOrder       Int                @default(0)
   paintTypeId      String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   code             String?
   paintBrandId     String?
+  colorOrder       Int                @default(0)
   paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
   paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
   formulas         PaintFormula[]
@@ -834,11 +834,11 @@ model PaintFormula {
 model PaintFormulaComponent {
   id             String       @id @default(uuid())
   ratio          Float
-  weight         Float?       // Weight in grams used during formulation
   itemId         String
   formulaPaintId String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+  weight         Float?
   formula        PaintFormula @relation(fields: [formulaPaintId], references: [id], onDelete: Cascade)
   item           Item         @relation(fields: [itemId], references: [id])
 
@@ -920,15 +920,28 @@ model ServiceOrder {
 }
 
 model Budget {
-  id         String   @id @default(uuid())
-  referencia String
-  valor      Decimal  @db.Decimal(10, 2)
-  taskId     String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  task       Task     @relation("BUDGET_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  id        String       @id @default(uuid())
+  total     Decimal      @db.Decimal(10, 2)
+  expiresIn DateTime
+  taskId    String       @unique
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  task      Task         @relation("BUDGET_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  items     BudgetItem[] @relation("BUDGET_ITEMS")
 
   @@index([taskId])
+}
+
+model BudgetItem {
+  id          String   @id @default(uuid())
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  budgetId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  budget      Budget   @relation("BUDGET_ITEMS", fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([budgetId])
 }
 
 model Supplier {
@@ -937,7 +950,6 @@ model Supplier {
   cnpj              String?         @unique
   corporateName     String?
   email             String?
-  logradouro        LogradouroType?
   address           String?
   addressNumber     String?
   addressComplement String?
@@ -947,10 +959,11 @@ model Supplier {
   zipCode           String?
   site              String?
   phones            String[]
-  tags              String[]        @default([])
   logoId            String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
+  logradouro        LogradouroType?
+  tags              String[]        @default([])
   items             Item[]          @relation("ITEM_SUPPLIER")
   orders            Order[]         @relation("ORDER_SUPPLIER")
   orderRules        OrderRule[]
@@ -968,7 +981,6 @@ model Task {
   status                TaskStatus       @default(PENDING)
   statusOrder           Int              @default(1)
   serialNumber          String?          @unique
-  chassisNumber         String?
   plate                 String?          @unique
   details               String?
   entryDate             DateTime?
@@ -983,11 +995,12 @@ model Task {
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   bonusDiscountId       String?
+  chassisNumber         String?
   airbrushings          Airbrushing[]    @relation("AIRBRUSHING")
+  budget                Budget?          @relation("BUDGET_TASK")
   cuts                  Cut[]            @relation("CUT_TASK")
   observation           Observation?     @relation("OBSERVATION_TO_TASK")
   services              ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
-  budget                Budget[]         @relation("BUDGET_TASK")
   bonusDiscount         BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
   createdBy             User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
   customer              Customer?        @relation(fields: [customerId], references: [id])
@@ -1045,12 +1058,12 @@ model Truck {
   yPosition         Float?
   taskId            String      @unique
   garageId          String?
-  laneId            String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   backSideLayoutId  String?     @unique
   leftSideLayoutId  String?     @unique
   rightSideLayoutId String?     @unique
+  laneId            String?
   backSideLayout    Layout?     @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
   garage            Garage?     @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
   lane              GarageLane? @relation("TRUCK_LANE", fields: [laneId], references: [id])
@@ -1095,9 +1108,9 @@ model Garage {
   name      String
   width     Float        @default(25)
   length    Float        @default(45)
-  isVirtual Boolean      @default(false)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+  isVirtual Boolean      @default(false)
   lanes     GarageLane[]
   trucks    Truck[]      @relation("TRUCK_GARAGE")
 }
@@ -1153,7 +1166,6 @@ model User {
   name                  String
   status                UserStatus         @default(EXPERIENCE_PERIOD_1)
   statusOrder           Int                @default(1)
-  isActive              Boolean            @default(true)
   phone                 String?            @unique
   password              String?
   positionId            String?
@@ -1190,7 +1202,7 @@ model User {
   exp2EndAt             DateTime?
   dismissedAt           DateTime?
   avatarId              String?
-  avatar                File?              @relation("USER_AVATAR", fields: [avatarId], references: [id])
+  isActive              Boolean            @default(true)
   activities            Activity[]         @relation("ACTIVITY_USER")
   bonuses               Bonus[]            @relation("UserBonus")
   borrows               Borrow[]           @relation("USER_BORROW")
@@ -1203,6 +1215,7 @@ model User {
   preference            Preferences?       @relation("USER_PREFERENCES")
   seenNotification      SeenNotification[]
   createdTasks          Task[]             @relation("TASK_CREATED_BY")
+  avatar                File?              @relation("USER_AVATAR", fields: [avatarId], references: [id])
   managedSector         Sector?            @relation("USER_MANAGED_SECTOR", fields: [managedSectorId], references: [id])
   position              Position?          @relation("USER_POSITION", fields: [positionId], references: [id])
   sector                Sector?            @relation(fields: [sectorId], references: [id])
@@ -1513,6 +1526,8 @@ enum PpeType {
   MASK
   GLOVES
   RAIN_BOOTS
+  OUTROS
+  OTHERS
 }
 
 enum PpeDeliveryMode {
@@ -1547,6 +1562,13 @@ enum BootSize {
   SIZE_44
   SIZE_46
   SIZE_48
+  SIZE_35
+  SIZE_37
+  SIZE_39
+  SIZE_41
+  SIZE_43
+  SIZE_45
+  SIZE_47
 }
 
 enum SleevesSize {
@@ -1575,6 +1597,14 @@ enum RainBootsSize {
   SIZE_42
   SIZE_44
   SIZE_46
+  SIZE_35
+  SIZE_37
+  SIZE_39
+  SIZE_41
+  SIZE_43
+  SIZE_45
+  SIZE_47
+  SIZE_48
 }
 
 enum PpeSizeEnum {
@@ -1590,6 +1620,13 @@ enum PpeSizeEnum {
   SIZE_44
   SIZE_46
   SIZE_48
+  SIZE_35
+  SIZE_37
+  SIZE_39
+  SIZE_41
+  SIZE_43
+  SIZE_45
+  SIZE_47
 }
 
 enum PpeDeliveryStatus {
@@ -1700,12 +1737,24 @@ enum BorrowStatus {
   LOST
 }
 
+enum ExternalWithdrawalType {
+  RETURNABLE
+  CHARGEABLE
+  COMPLIMENTARY
+}
+
 enum ExternalWithdrawalStatus {
+  // Common statuses
   PENDING
+  CANCELLED
+  // Returnable specific
   PARTIALLY_RETURNED
   FULLY_RETURNED
+  // Chargeable specific
   CHARGED
-  CANCELLED
+  LIQUIDATED
+  // Complimentary specific
+  DELIVERED
 }
 
 enum VacationType {
@@ -1868,6 +1917,7 @@ enum MeasureType {
   WEIGHT
   VOLUME
   LENGTH
+  WIDTH
   AREA
   COUNT
   DIAMETER
@@ -1882,12 +1932,12 @@ enum SectorPrivileges {
   LEADER
   MAINTENANCE
   WAREHOUSE
-  DESIGNER
-  FINANCIAL
-  LOGISTIC
   ADMIN
   HUMAN_RESOURCES
   EXTERNAL
+  DESIGNER
+  FINANCIAL
+  LOGISTIC
 }
 
 enum ScheduleFrequency {
@@ -2018,27 +2068,25 @@ enum ChangeLogTriggeredByType {
   INVENTORY_ADJUSTMENT
   ITEM_MONTHLY_CONSUMPTION_UPDATE
   AUTOMATIC_MIN_MAX_UPDATE
+  PPE_DELIVERY
 }
 
 enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
   AIRBRUSHING
-  BONUS
   BORROW
   CALCULATION
   CALCULATION_DETAIL
   CALCULATION_DECOMPOSITION
   CATEGORY
   COLLECTION
-  COMMISSION
   CUSTOMER
   CUT
   CUT_ITEM
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
-  DISCOUNT
   PPE_DELIVERY
   PPE_DELIVERY_ITEM
   PPE_REQUEST
@@ -2048,15 +2096,12 @@ enum ChangeLogEntityType {
   EXTERNAL_WITHDRAWAL
   EXTERNAL_WITHDRAWAL_ITEM
   FILE
-  GARAGE_LANE
   ITEM
   ITEM_BRAND
   ITEM_CATEGORY
   MAINTENANCE
-  MAINTENANCE_ITEM
   MAINTENANCE_SCHEDULE
   NOTIFICATION
-  OBSERVATION
   ORDER
   ORDER_ITEM
   ORDER_RULE
@@ -2068,8 +2113,6 @@ enum ChangeLogEntityType {
   PAINT_FORMULA
   PAINT_FORMULA_COMPONENT
   PAINT_PRODUCTION
-  PARKING_SPOT
-  PAYROLL
   PIECE
   POSITION
   PRODUCTION
@@ -2079,11 +2122,20 @@ enum ChangeLogEntityType {
   SERVICE_ORDER
   SUPPLIER
   TASK
-  TIME_CLOCK_ENTRY
   TRUCK
   LAYOUT
   USER
   VACATION
+  DEPLOYMENT
+  OBSERVATION
+  BONUS
+  COMMISSION
+  DISCOUNT
+  GARAGE_LANE
+  MAINTENANCE_ITEM
+  PARKING_SPOT
+  PAYROLL
+  TIME_CLOCK_ENTRY
   PPE_CONFIG
   PRICE
   HOLIDAY
@@ -2091,7 +2143,6 @@ enum ChangeLogEntityType {
   NOTIFICATION_PREFERENCE
   VERIFICATION
   EXPENSE
-  DEPLOYMENT
 }
 
 enum ChangeLogAction {
