@@ -62,8 +62,6 @@ export const validateEntityType = (entityType: string): boolean => {
     "ItemBrand",
     "ItemCategory",
     "Paint",
-    "Truck",
-    "Garage",
   ];
   return validEntityTypes.includes(entityType);
 };

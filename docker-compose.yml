@@ -3,11 +3,12 @@ services:
     image: 'bitnami/postgresql:latest'
     ports:
       - '5432:5432'
+    env_file:
+      - .env
     environment:
-      - POSTGRESQL_USER=kennedycampos
-      - POSTGRESQL_PASSWORD=
-      - POSTGRESQL_DB=ankaa
-      - ALLOW_EMPTY_PASSWORD=yes
+      - POSTGRESQL_USER=${POSTGRES_USER:-postgres}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRESQL_DB=${POSTGRES_DB:-ankaa_dev}
     volumes:
       - pools_pg_data:/bitnami/postgresql
 

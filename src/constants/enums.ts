@@ -114,11 +114,6 @@ export enum CUT_REQUEST_REASON {
   WRONG = "WRONG",
 }
 
-export enum GARAGE_STATUS {
-  ACTIVE = "ACTIVE",
-  INACTIVE = "INACTIVE",
-  MAINTENANCE = "MAINTENANCE",
-}
 
 export enum VACATION_STATUS {
   PENDING = "PENDING",
@@ -709,6 +704,10 @@ export enum PAINT_BASE_TYPE {
   MIXING = "MIXING",
 }
 
+// =====================
+// Truck & Garage Enums
+// =====================
+
 export enum TRUCK_MANUFACTURER {
   SCANIA = "SCANIA",
   VOLVO = "VOLVO",
@@ -718,9 +717,11 @@ export enum TRUCK_MANUFACTURER {
   MERCEDES_BENZ = "MERCEDES_BENZ",
 }
 
-// =====================
-// Fleet & Fuel Management
-// =====================
+export enum GARAGE_STATUS {
+  ACTIVE = "ACTIVE",
+  INACTIVE = "INACTIVE",
+  MAINTENANCE = "MAINTENANCE",
+}
 
 // =====================
 // Operations & Actions
@@ -762,8 +763,6 @@ export enum ENTITY_TYPE {
   EXTERNAL_WITHDRAWAL = "EXTERNAL_WITHDRAWAL",
   EXTERNAL_WITHDRAWAL_ITEM = "EXTERNAL_WITHDRAWAL_ITEM",
   FILE = "FILE",
-  FUEL = "FUEL",
-  GARAGE = "GARAGE",
   GARAGE_LANE = "GARAGE_LANE",
   HOLIDAY = "HOLIDAY",
   ITEM = "ITEM",
@@ -922,9 +921,6 @@ export enum CHANGE_TRIGGERED_BY {
   VERIFICATION_EXPIRE = "VERIFICATION_EXPIRE",
   VERIFICATION_CANCEL = "VERIFICATION_CANCEL",
   VERIFICATION_RESEND = "VERIFICATION_RESEND",
-  VEHICLE_MOVEMENT = "VEHICLE_MOVEMENT",
-  PARKING_ASSIGNMENT = "PARKING_ASSIGNMENT",
-  GARAGE_CAPACITY_CHANGE = "GARAGE_CAPACITY_CHANGE",
   OBSERVATION_CREATE = "OBSERVATION_CREATE",
   OBSERVATION_DELETE = "OBSERVATION_DELETE",
   SCHEDULED_JOB = "SCHEDULED_JOB",
@@ -1724,7 +1720,6 @@ export enum FAVORITE_PAGES {
   PRODUCAO_SERVICOS_LISTAR = "/producao/servicos",
   PRODUCAO_OBSERVACOES_LISTAR = "/producao/observacoes",
   PRODUCAO_AEROGRAFIA_LISTAR = "/producao/aerografia/listar",
-  PRODUCAO_GARAGENS_LISTAR = "/producao/garagens",
   PRODUCAO_ORDENS_SERVICO_LISTAR = "/producao/ordens-de-servico",
   PRODUCAO_HISTORICO_LISTAR = "/producao/historico",
 
@@ -1734,7 +1729,6 @@ export enum FAVORITE_PAGES {
   PRODUCAO_SERVICOS_CADASTRAR = "/producao/servicos/cadastrar",
   PRODUCAO_OBSERVACOES_CADASTRAR = "/producao/observacoes/cadastrar",
   PRODUCAO_AEROGRAFIA_CADASTRAR = "/producao/aerografia/cadastrar",
-  PRODUCAO_GARAGENS_CADASTRAR = "/producao/garagens/cadastrar",
   PRODUCAO_ORDENS_SERVICO_CADASTRAR = "/producao/ordens-de-servico/cadastrar",
 
   // Inventory - List Pages

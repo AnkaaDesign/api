@@ -191,12 +191,12 @@ export class ExternalWithdrawalService {
       }
     }
 
-    // Validate willReturn and pricing logic
-    if (!isUpdate && 'willReturn' in data && !data.willReturn && 'items' in data) {
-      // If items won't be returned, validate that all items have prices
+    // Validate type and pricing logic
+    if (!isUpdate && 'type' in data && data.type === 'CHARGEABLE' && 'items' in data) {
+      // If items are chargeable, validate that all items have prices
       for (const item of data.items || []) {
         if (item.price === null || item.price === undefined || item.price < 0) {
-          throw new BadRequestException('Preço é obrigatório para itens que não serão devolvidos');
+          throw new BadRequestException('Preço é obrigatório para itens cobráveis');
         }
       }
     }
@@ -231,15 +231,16 @@ export class ExternalWithdrawalService {
       if (isUpdate && existingId) {
         const existingWithdrawal = await transaction.externalWithdrawal.findUnique({
           where: { id: existingId },
-          select: { status: true },
+          select: { status: true, type: true },
         });
 
         if (existingWithdrawal && existingWithdrawal.status !== data.status) {
           try {
-            // Validate status transition
+            // Validate status transition based on type
             this.validateStatusTransition(
               existingWithdrawal.status as EXTERNAL_WITHDRAWAL_STATUS,
               data.status as EXTERNAL_WITHDRAWAL_STATUS,
+              existingWithdrawal.type,
             );
 
             // Log successful status transition validation
@@ -279,42 +280,81 @@ export class ExternalWithdrawalService {
   }
 
   /**
-   * Validate status transition for external withdrawal devolution/charging workflow
+   * Validate status transition for external withdrawal based on type
    */
   private validateStatusTransition(
     fromStatus: EXTERNAL_WITHDRAWAL_STATUS,
     toStatus: EXTERNAL_WITHDRAWAL_STATUS,
+    type: string,
   ): void {
-    const validTransitions: Record<EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_STATUS[]> = {
-      [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: [
-        EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED,
-        EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED,
-        EXTERNAL_WITHDRAWAL_STATUS.CHARGED,
-        EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
-      ],
-      [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: [
-        EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED,
-        EXTERNAL_WITHDRAWAL_STATUS.CHARGED,
-        EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
-      ],
-      [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: [], // Final state
-      [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: [], // Final state
-      [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: [], // Final state
+    // Type-specific valid transitions
+    const validTransitions: Record<string, Record<EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_STATUS[]>> = {
+      RETURNABLE: {
+        [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: [
+          EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED,
+          EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED,
+          EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
+        ],
+        [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: [
+          EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED,
+          EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
+        ],
+        [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: [],
+      },
+      CHARGEABLE: {
+        [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: [
+          EXTERNAL_WITHDRAWAL_STATUS.CHARGED,
+          EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED,
+          EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
+        ],
+        [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: [
+          EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED,
+          EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
+        ],
+        [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: [],
+      },
+      COMPLIMENTARY: {
+        [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: [
+          EXTERNAL_WITHDRAWAL_STATUS.DELIVERED,
+          EXTERNAL_WITHDRAWAL_STATUS.CANCELLED,
+        ],
+        [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: [], // Final state
+        [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: [],
+        [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: [],
+      },
     };
 
-    const allowedTransitions = validTransitions[fromStatus];
+    const typeTransitions = validTransitions[type];
+    if (!typeTransitions) {
+      throw new BadRequestException(`Tipo de retirada inválido: ${type}`);
+    }
+
+    const allowedTransitions = typeTransitions[fromStatus];
 
     if (!allowedTransitions || !allowedTransitions.includes(toStatus)) {
       const statusLabels: Record<EXTERNAL_WITHDRAWAL_STATUS, string> = {
         [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: 'Pendente',
+        [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: 'Cancelado',
         [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: 'Parcialmente Devolvido',
         [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: 'Totalmente Devolvido',
         [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: 'Cobrado',
-        [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: 'Cancelado',
+        [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: 'Liquidado',
+        [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: 'Entregue',
       };
 
       throw new BadRequestException(
-        `Transição de status inválida: não é possível alterar de "${statusLabels[fromStatus]}" para "${statusLabels[toStatus]}"`,
+        `Transição de status inválida para o tipo ${type}: não é possível alterar de "${statusLabels[fromStatus]}" para "${statusLabels[toStatus]}"`,
       );
     }
   }
@@ -328,7 +368,7 @@ export class ExternalWithdrawalService {
       quantity: number;
       price: number | null;
     },
-    willReturn: boolean,
+    type: string,
     tx?: PrismaTransaction,
     existingWithdrawalId?: string,
   ): Promise<{ item: any }> {
@@ -361,7 +401,7 @@ export class ExternalWithdrawalService {
     }
 
     // Validate unit price only if items won't be returned
-    if (!willReturn) {
+    if (type === 'CHARGEABLE') {
       if (data.price === undefined || data.price === null) {
         throw new BadRequestException('Preço é obrigatório para itens que não serão devolvidos');
       }
@@ -448,7 +488,7 @@ export class ExternalWithdrawalService {
     }
 
     // Validate price consistency only if not returning
-    if (!willReturn && data.price !== null && item.prices && item.prices.length > 0) {
+    if (type === 'CHARGEABLE' && data.price !== null && item.prices && item.prices.length > 0) {
       const currentPrice = item.prices[0]?.value ?? 0;
       const priceDifference = Math.abs(data.price - currentPrice);
       const priceVariationPercent = (priceDifference / currentPrice) * 100;
@@ -539,8 +579,8 @@ export class ExternalWithdrawalService {
         // Validate external withdrawal data
         await this.externalWithdrawalValidation(data, undefined, tx);
 
-        // Validate willReturn field (default to true)
-        const willReturn = data.willReturn ?? true;
+        // Validate type field (default to RETURNABLE)
+        const type = data.type ?? 'RETURNABLE';
 
         const validatedItems: Array<{
           itemId: string;
@@ -557,13 +597,13 @@ export class ExternalWithdrawalService {
                 quantity: itemData.withdrawedQuantity,
                 price: itemData.price ?? null,
               },
-              willReturn,
+              type,
               tx,
             );
             validatedItems.push({
               itemId: itemData.itemId,
               withdrawedQuantity: itemData.withdrawedQuantity,
-              price: willReturn ? null : (itemData.price ?? null),
+              price: type !== 'CHARGEABLE' ? null : (itemData.price ?? null),
             });
           }
         }
@@ -573,7 +613,7 @@ export class ExternalWithdrawalService {
           tx,
           {
             ...data,
-            willReturn,
+            type,
             items: undefined, // Remover itens dos dados principais
           },
           { include },
@@ -726,14 +766,14 @@ export class ExternalWithdrawalService {
           withdrawalId: id,
           dataStatus: data.status,
           existingStatus: existingWithdrawal.status,
-          willReturn: existingWithdrawal.willReturn,
+          type: existingWithdrawal.type,
           statusChanged: existingWithdrawal.status !== data.status,
           isReturnStatus:
             data.status === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED ||
             data.status === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED,
           shouldProcessReturn:
             data.status &&
-            existingWithdrawal.willReturn &&
+            existingWithdrawal.type === 'RETURNABLE' &&
             existingWithdrawal.status !== data.status &&
             (data.status === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED ||
               data.status === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED),
@@ -741,7 +781,7 @@ export class ExternalWithdrawalService {
 
         if (
           data.status &&
-          existingWithdrawal.willReturn &&
+          existingWithdrawal.type === 'RETURNABLE' &&
           existingWithdrawal.status !== data.status &&
           (data.status === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED ||
             data.status === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED)
@@ -751,6 +791,7 @@ export class ExternalWithdrawalService {
           this.validateStatusTransition(
             existingWithdrawal.status as EXTERNAL_WITHDRAWAL_STATUS,
             data.status as EXTERNAL_WITHDRAWAL_STATUS,
+            existingWithdrawal.type,
           );
 
           // Get withdrawal items
@@ -847,7 +888,7 @@ export class ExternalWithdrawalService {
           'nfeId',
           'receiptId',
           'budgetId',
-          'willReturn',
+          'type',
           'notes',
           'withdrawalDate',
           'expectedReturnDate',
@@ -1202,7 +1243,7 @@ export class ExternalWithdrawalService {
           'nfeId',
           'receiptId',
           'budgetId',
-          'willReturn',
+          'type',
           'notes',
           'withdrawalDate',
           'expectedReturnDate',
@@ -1451,10 +1492,11 @@ export class ExternalWithdrawalService {
           throw new NotFoundException('Retirada externa não encontrada');
         }
 
-        // Validate status transition
+        // Validate status transition based on type
         this.validateStatusTransition(
           existingWithdrawal.status as EXTERNAL_WITHDRAWAL_STATUS,
           newStatus,
+          existingWithdrawal.type,
         );
 
         // Prepare update data
@@ -1483,15 +1525,15 @@ export class ExternalWithdrawalService {
           withdrawalId: id,
           existingStatus: existingWithdrawal.status,
           newStatus: newStatus,
-          willReturn: existingWithdrawal.willReturn,
+          type: existingWithdrawal.type,
           shouldProcessReturn:
-            existingWithdrawal.willReturn &&
+            existingWithdrawal.type === 'RETURNABLE' &&
             (newStatus === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED ||
               newStatus === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED),
         });
 
         if (
-          existingWithdrawal.willReturn &&
+          existingWithdrawal.type === 'RETURNABLE' &&
           (newStatus === EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED ||
             newStatus === EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED)
         ) {
