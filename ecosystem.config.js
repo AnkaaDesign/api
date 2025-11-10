@@ -6,7 +6,7 @@ module.exports = {
     {
       name: 'ankaa-api-production',
       script: 'dist/main.js',
-      cwd: '/home/kennedy/repositories/api',
+      cwd: process.cwd(),
 
       // Instance Configuration
       instances: 2,
@@ -53,7 +53,7 @@ module.exports = {
     {
       name: 'ankaa-api-staging',
       script: 'dist/main.js',
-      cwd: '/home/kennedy/repositories/api',
+      cwd: process.cwd(),
 
       // Instance Configuration
       instances: 1,
