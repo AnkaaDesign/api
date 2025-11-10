@@ -59,8 +59,8 @@ export function isValidSizeForPpeType(size: PPE_SIZE, ppeType: PPE_TYPE): boolea
       // Galocha uses 36-46 sizes (not 48)
       return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46].includes(size);
 
-    case PPE_TYPE.OUTROS:
-      // OUTROS type doesn't require specific sizes - size is optional
+    case PPE_TYPE.OTHERS:
+      // OTHERS type doesn't require specific sizes - size is optional
       return true;
 
     default:
@@ -97,8 +97,8 @@ export function getValidSizesForPpeType(ppeType: PPE_TYPE): PPE_SIZE[] {
       // Galocha uses 36-46 sizes (not 48)
       return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46];
 
-    case PPE_TYPE.OUTROS:
-      // OUTROS type doesn't require specific sizes - size is optional
+    case PPE_TYPE.OTHERS:
+      // OTHERS type doesn't require specific sizes - size is optional
       return [];
 
     default:
@@ -548,8 +548,8 @@ export function getPpeSizeByType(ppeSize: PpeSize, ppeType: PPE_TYPE): string | 
       return ppeSize.gloves;
     case PPE_TYPE.RAIN_BOOTS:
       return ppeSize.rainBoots;
-    case PPE_TYPE.OUTROS:
-      // OUTROS type doesn't have specific size mapping
+    case PPE_TYPE.OTHERS:
+      // OTHERS type doesn't have specific size mapping
       return null;
     default:
       return null;
@@ -560,17 +560,25 @@ export function getPpeSizeByType(ppeSize: PpeSize, ppeType: PPE_TYPE): string | 
  * Check if an item is a PPE
  */
 export function isItemPpe(item: Item): boolean {
-  return item.ppeType !== null && item.ppeSize !== null;
+  return item.ppeType !== null;
 }
 
 /**
- * Format PPE item display name with size
+ * Format PPE item display name with size (size from measures)
  */
 export function formatPpeItemName(item: Item): string {
   if (!isItemPpe(item)) return item.name;
 
   const ppeType = item.ppeType ? getPpeTypeLabel(item.ppeType) : "";
-  const ppeSize = item.ppeSize ? getPpeSizeLabel(item.ppeSize) : "";
+
+  // Get size from measures
+  let ppeSize = "";
+  if (item.measures && item.measures.length > 0) {
+    const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+    if (sizeMeasure && sizeMeasure.unit) {
+      ppeSize = getPpeSizeLabel(sizeMeasure.unit as any);
+    }
+  }
 
   if (ppeType && ppeSize) {
     return `${item.name} - ${ppeType} ${ppeSize}`;

@@ -48,12 +48,14 @@ export type DensityCalculationResult = DensityCalculationSuccess | DensityCalcul
 export const WEIGHT_UNITS = [MEASURE_UNIT.GRAM, MEASURE_UNIT.KILOGRAM] as const;
 export const VOLUME_UNITS = [MEASURE_UNIT.MILLILITER, MEASURE_UNIT.LITER] as const;
 export const LENGTH_UNITS = [MEASURE_UNIT.MILLIMETER, MEASURE_UNIT.CENTIMETER, MEASURE_UNIT.METER] as const;
+export const WIDTH_UNITS = [MEASURE_UNIT.MILLIMETER, MEASURE_UNIT.CENTIMETER, MEASURE_UNIT.METER] as const;
 export const COUNT_UNITS = [MEASURE_UNIT.UNIT, MEASURE_UNIT.PAIR, MEASURE_UNIT.DOZEN, MEASURE_UNIT.HUNDRED, MEASURE_UNIT.THOUSAND] as const;
 export const PACKAGING_UNITS = [MEASURE_UNIT.PACKAGE, MEASURE_UNIT.BOX, MEASURE_UNIT.ROLL, MEASURE_UNIT.SHEET, MEASURE_UNIT.SET] as const;
 
 export type WeightUnit = (typeof WEIGHT_UNITS)[number];
 export type VolumeUnit = (typeof VOLUME_UNITS)[number];
 export type LengthUnit = (typeof LENGTH_UNITS)[number];
+export type WidthUnit = (typeof WIDTH_UNITS)[number];
 export type CountUnit = (typeof COUNT_UNITS)[number];
 export type PackagingUnit = (typeof PACKAGING_UNITS)[number];
 
@@ -75,6 +77,15 @@ const VOLUME_CONVERSIONS = {
 
 // Length conversions (base: millimeters)
 const LENGTH_CONVERSIONS = {
+  [MEASURE_UNIT.MILLIMETER]: 1,
+  [MEASURE_UNIT.CENTIMETER]: 10,
+  [MEASURE_UNIT.METER]: 1000,
+  // Adding inch conversion (1 inch = 25.4 mm)
+  INCH: 25.4,
+} as const;
+
+// Width conversions (base: millimeters) - same as length
+const WIDTH_CONVERSIONS = {
   [MEASURE_UNIT.MILLIMETER]: 1,
   [MEASURE_UNIT.CENTIMETER]: 10,
   [MEASURE_UNIT.METER]: 1000,
@@ -107,6 +118,10 @@ export function isLengthUnit(unit: MEASURE_UNIT): unit is LengthUnit {
   return LENGTH_UNITS.includes(unit as LengthUnit);
 }
 
+export function isWidthUnit(unit: MEASURE_UNIT): unit is WidthUnit {
+  return WIDTH_UNITS.includes(unit as WidthUnit);
+}
+
 export function isCountUnit(unit: MEASURE_UNIT): unit is CountUnit {
   return COUNT_UNITS.includes(unit as CountUnit);
 }
@@ -119,6 +134,7 @@ export function getUnitCategory(unit: MEASURE_UNIT): string {
   if (isWeightUnit(unit)) return "weight";
   if (isVolumeUnit(unit)) return "volume";
   if (isLengthUnit(unit)) return "length";
+  if (isWidthUnit(unit)) return "width";
   if (isCountUnit(unit)) return "count";
   if (isPackagingUnit(unit)) return "packaging";
   return "unknown";
@@ -184,6 +200,11 @@ export function convertUnits(value: number, fromUnit: MEASURE_UNIT | "INCH", toU
   else if (isLengthUnit(fromUnit as MEASURE_UNIT) && isLengthUnit(toUnit as MEASURE_UNIT)) {
     const baseValue = value * LENGTH_CONVERSIONS[fromUnit as LengthUnit];
     convertedValue = baseValue / LENGTH_CONVERSIONS[toUnit as LengthUnit];
+  }
+  // Width conversions (same as length)
+  else if (isWidthUnit(fromUnit as MEASURE_UNIT) && isWidthUnit(toUnit as MEASURE_UNIT)) {
+    const baseValue = value * WIDTH_CONVERSIONS[fromUnit as WidthUnit];
+    convertedValue = baseValue / WIDTH_CONVERSIONS[toUnit as WidthUnit];
   }
   // Count conversions
   else if (isCountUnit(fromUnit as MEASURE_UNIT) && isCountUnit(toUnit as MEASURE_UNIT)) {
@@ -364,7 +385,7 @@ export function calculateDensityInGramsMl(weightMeasure: MeasureValue, volumeMea
  * Helper to find a specific measure type from an array of measures
  * Useful when working with items that have multiple measurements
  */
-export function getMeasureByType(measures: MeasureValue[], type: "weight" | "volume" | "length" | "count"): MeasureValue | null {
+export function getMeasureByType(measures: MeasureValue[], type: "weight" | "volume" | "length" | "width" | "count"): MeasureValue | null {
   return measures.find((measure) => getUnitCategory(measure.unit) === type) || null;
 }
 
@@ -491,7 +512,7 @@ export function validateDensityMeasures(weightMeasure: MeasureValue, volumeMeasu
  */
 export function validateMeasureCombination(
   measures: MeasureValue[],
-  requiredTypes: Array<"weight" | "volume" | "length" | "count">,
+  requiredTypes: Array<"weight" | "volume" | "length" | "width" | "count">,
 ): { valid: boolean; error?: string; missing?: string[] } {
   const availableTypes = measures.map((m) => getUnitCategory(m.unit));
   const missing = requiredTypes.filter((type) => !availableTypes.includes(type));
@@ -505,6 +526,8 @@ export function validateMeasureCombination(
           return "volume";
         case "length":
           return "comprimento";
+        case "width":
+          return "largura";
         case "count":
           return "quantidade";
         default:
@@ -550,19 +573,6 @@ export function validateMeasureRange(measure: MeasureValue): { valid: boolean; e
     [MEASURE_UNIT.CENTIMETER]: 100000, // 1 km in cm
     [MEASURE_UNIT.METER]: 1000, // 1 km
     [MEASURE_UNIT.INCHES]: 40000, // ~1 km in inches
-
-    // Diameter units (fractional inches)
-    [MEASURE_UNIT.INCH_1_8]: 1000,
-    [MEASURE_UNIT.INCH_1_4]: 1000,
-    [MEASURE_UNIT.INCH_3_8]: 1000,
-    [MEASURE_UNIT.INCH_1_2]: 1000,
-    [MEASURE_UNIT.INCH_5_8]: 1000,
-    [MEASURE_UNIT.INCH_3_4]: 1000,
-    [MEASURE_UNIT.INCH_7_8]: 1000,
-    [MEASURE_UNIT.INCH_1]: 1000,
-    [MEASURE_UNIT.INCH_1_1_4]: 1000,
-    [MEASURE_UNIT.INCH_1_1_2]: 1000,
-    [MEASURE_UNIT.INCH_2]: 1000,
 
     // Thread pitch units
     [MEASURE_UNIT.THREAD_MM]: 100,
@@ -640,6 +650,7 @@ export const measureUtils = {
   isWeightUnit,
   isVolumeUnit,
   isLengthUnit,
+  isWidthUnit,
   isCountUnit,
   isPackagingUnit,
 };

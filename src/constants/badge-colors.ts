@@ -269,6 +269,8 @@ export const ENTITY_BADGE_CONFIG = {
     [EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED]: "warning" as BadgeVariant, // Orange - partial
     [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: "success" as BadgeVariant, // Green - completed
     [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: "primary" as BadgeVariant, // Blue - charged
+    [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: "success" as BadgeVariant, // Green - paid
+    [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: "completed" as BadgeVariant, // Purple - delivered
     [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: "cancelled" as BadgeVariant, // Red - cancelled
   },
 
