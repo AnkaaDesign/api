@@ -1,2 +1,58 @@
-Ôæ·Ş¯„¬¦‡ÑÉÍåê.üİd·ÊzÔâÀ¥Ëƒ‡pt†ç!ö¶éÖ	è/.ÙØ q¸a,H“‡Ğö§!©ò¾“é9­•ujagÛx}Î™È_unœtH1œWšÊëÆ`u~&£Ært²ĞZo^½ ÀNÇ>İp?JZ{™†FsvM¯ë(ä¦èºğUDç%²ÁøPş7Ş½ÿ5¡B^<²?Î-[hDF¨Å‹lƒ¢Uppaã¼É³ŒÓ’ĞoZ% ÀüÍñò®Ü­$·>–ãFÒË¶[iVÆSi	mê.“Y¦–+¬l¦—.ÍĞ Q£ÃØK2õßTF˜µK³˜$÷)ÇÔÓÍ©×DÓíş¬ıëSÈ[’j;)™‚7´£R%OÔ¼Y£óˆK•«˜ûÆs™6s©VÖSR”RïŞÒ[†R{ömÿS‚¥O:š$ı„Çõş¶#9)õ•*œÄ÷JúÔb?!	‚ô|iœˆ‘L(a¬è¾Ñy­¥Ên|]dÈN¸ÕdÈ!<è>Hê?‘¦ù˜Ï
-µ_›'€„	ü‡ÕñòaçëÇ`ô&‡r‹Ò¤²¯ébAèğ>èå×º:«9FæLòğÕT˜¡ãó¸téóc×PK’Z[i¹=êñˆßšj»Æ@08å¤HşÑyòa~á¹Òş3©ÆV,MTW*kæ}_‹·ÿ «½ş¦³F/KhdYlø¨õÛØ{ÒÊ
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files - prevent ALL env files except examples
+.env*
+!.env.example
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Uploads directory (temp files)
+uploads/temp/
+uploads/**/*.eps
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.backup
+*.old
+*.bak
+
+# Build info
+.build-info.json
