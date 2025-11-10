@@ -6,7 +6,10 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  Inject,
+  OnModuleInit,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import type {
@@ -51,14 +54,174 @@ import {
 } from '../../utils/paint';
 
 @Injectable()
-export class PaintFormulaService {
+export class PaintFormulaService implements OnModuleInit {
   private readonly logger = new Logger(PaintFormulaService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly paintFormulaRepository: PaintFormulaRepository,
     private readonly changeLogService: ChangeLogService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  /**
+   * Set up event listeners when the module initializes
+   */
+  onModuleInit() {
+    this.eventEmitter.on('item.updated', this.handleItemUpdated.bind(this));
+    this.logger.log('Paint Formula Service event listeners initialized');
+  }
+
+  /**
+   * Handle item updated event
+   */
+  private async handleItemUpdated(event: {
+    itemId: string;
+    userId: string;
+    changes: {
+      price: boolean;
+      icms: boolean;
+      ipi: boolean;
+      measures: boolean;
+    };
+  }): Promise<void> {
+    try {
+      this.logger.log(
+        `Handling item.updated event for item ${event.itemId}. Changes: ${JSON.stringify(event.changes)}`,
+      );
+
+      // Only recalculate if price, taxes, or measures changed
+      const shouldRecalculate =
+        event.changes.price || event.changes.icms || event.changes.ipi || event.changes.measures;
+
+      if (!shouldRecalculate) {
+        this.logger.log(`No relevant changes for item ${event.itemId}, skipping formula recalculation`);
+        return;
+      }
+
+      // Get item details for better changelog messages
+      const item = await this.prisma.item.findUnique({
+        where: { id: event.itemId },
+        select: {
+          id: true,
+          name: true,
+          uniCode: true,
+        },
+      });
+
+      if (!item) {
+        this.logger.warn(`Item ${event.itemId} not found, cannot recalculate formulas`);
+        return;
+      }
+
+      // Build change description
+      const changeDescriptions: string[] = [];
+      if (event.changes.price) changeDescriptions.push('preço');
+      if (event.changes.icms) changeDescriptions.push('ICMS');
+      if (event.changes.ipi) changeDescriptions.push('IPI');
+      if (event.changes.measures) changeDescriptions.push('medidas (peso/volume)');
+
+      const itemDescription = item.uniCode ? `${item.uniCode} - ${item.name}` : item.name;
+      const changeDescription = changeDescriptions.join(', ');
+
+      // Find all formulas that use this item
+      const affectedFormulas = await this.findFormulasAffectedByItem(event.itemId);
+
+      if (affectedFormulas.length === 0) {
+        this.logger.log(`No formulas found using item ${event.itemId}`);
+        return;
+      }
+
+      this.logger.log(
+        `Found ${affectedFormulas.length} formulas affected by item ${event.itemId} changes`,
+      );
+
+      // Recalculate all affected formulas with context
+      await this.recalculateFormulasForItem(
+        event.itemId,
+        affectedFormulas,
+        event.userId,
+        itemDescription,
+        changeDescription,
+        event.changes, // Pass the changes object to determine what to recalculate
+      );
+
+      this.logger.log(
+        `Successfully recalculated ${affectedFormulas.length} formulas for item ${event.itemId}`,
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `Error handling item.updated event for item ${event.itemId}: ${error.message}`,
+        error.stack,
+      );
+      // Don't throw - event handler should not crash the application
+    }
+  }
+
+  /**
+   * Find all formulas that use a specific item
+   */
+  private async findFormulasAffectedByItem(itemId: string): Promise<string[]> {
+    const components = await this.prisma.paintFormulaComponent.findMany({
+      where: { itemId },
+      select: {
+        formulaPaintId: true,
+      },
+      distinct: ['formulaPaintId'],
+    });
+
+    return components.map(c => c.formulaPaintId);
+  }
+
+  /**
+   * Recalculate all formulas that use a specific item
+   */
+  private async recalculateFormulasForItem(
+    itemId: string,
+    formulaIds: string[],
+    userId?: string,
+    itemDescription?: string,
+    changeDescription?: string,
+    changes?: {
+      price: boolean;
+      icms: boolean;
+      ipi: boolean;
+      measures: boolean;
+    },
+  ): Promise<void> {
+    // Process each formula in its own transaction for isolation
+    // If one fails, others can still succeed
+    for (const formulaId of formulaIds) {
+      try {
+        // Each formula gets its own transaction by not passing a transaction parameter
+        // The recalculateFormulaDensityAndCost method will use this.prisma (non-transactional)
+        // but creates its own transaction internally via the update operations
+        await this.prisma.$transaction(
+          async (tx: PrismaTransaction) => {
+            await this.recalculateFormulaDensityAndCost(
+              formulaId,
+              tx,
+              userId,
+              CHANGE_TRIGGERED_BY.ITEM_UPDATE, // Triggered by item update
+              itemId, // triggeredById = itemId that caused the change
+              itemDescription,
+              changeDescription,
+              changes, // Pass changes to determine what to recalculate
+            );
+          },
+          {
+            maxWait: 5000, // 5 seconds per formula
+            timeout: 15000, // 15 seconds per formula
+          },
+        );
+      } catch (error: any) {
+        this.logger.error(
+          `Error recalculating formula ${formulaId} for item ${itemId}: ${error.message}`,
+        );
+        // Continue with other formulas even if one fails
+      }
+    }
+  }
 
   /**
    * Create a summary object for a paint formula for changelog tracking
@@ -192,12 +355,24 @@ export class PaintFormulaService {
             );
           }
 
-          // Validate each component exists and calculate cost
-          let totalWeightInGrams = 0;
-          let totalVolumeInMl = 0;
+          // First: Convert weights to ratios
+          const componentsWithRatio = data.components.map(comp => ({
+            itemId: comp.itemId,
+            weightInGrams: comp.weightInGrams,
+            ratio: totalWeight > 0 ? (comp.weightInGrams / totalWeight) * 100 : 0,
+          }));
+
+          // Validate ratio sum (should be ~100%)
+          const totalRatio = componentsWithRatio.reduce((sum, comp) => sum + comp.ratio, 0);
+          if (Math.abs(totalRatio - 100) > 0.1) {
+            this.logger.warn(`Ratio sum is ${totalRatio.toFixed(2)}% (expected 100%)`);
+          }
+
+          // Calculate density and price FROM RATIOS (same logic as recalculation)
+          let totalWeightFor1L = 0;
           let totalCost = 0;
 
-          for (const componentData of data.components) {
+          for (const componentData of componentsWithRatio) {
             const item = items.find(i => i.id === componentData.itemId);
             if (!item) {
               throw new BadRequestException(
@@ -232,31 +407,39 @@ export class PaintFormulaService {
               );
             }
 
-            // Calculate component contribution
-            totalWeightInGrams += componentData.weightInGrams;
+            // Convert to base units (grams and milliliters)
+            let weightPerUnitInGrams = weightValue;
+            if (weightMeasure.unit === 'KILOGRAM') {
+              weightPerUnitInGrams = weightValue * 1000;
+            }
 
-            // Calculate volume based on item density
-            const itemDensity = weightValue / volumeValue; // g/ml
-            const componentVolume = componentData.weightInGrams / itemDensity;
-            totalVolumeInMl += componentVolume;
+            let volumePerUnitInMl = volumeValue;
+            if (volumeMeasure.unit === 'LITER') {
+              volumePerUnitInMl = volumeValue * 1000;
+            }
 
-            // Calculate cost
+            // Calculate item density (g/ml)
+            const itemDensity = volumePerUnitInMl > 0 ? weightPerUnitInGrams / volumePerUnitInMl : 1.0;
+
+            // Calculate component volume in 1L of paint (ratio-based)
+            const componentVolumeInMl = 1000 * (componentData.ratio / 100);
+
+            // Calculate weight for this volume
+            const componentWeightInGrams = componentVolumeInMl * itemDensity;
+            totalWeightFor1L += componentWeightInGrams;
+
+            // Calculate cost based on VOLUME, not weight (same as recalculation)
             const itemPrice = item.prices?.[0]?.value || 0;
-            const costPerGram = itemPrice / weightValue;
-            totalCost += costPerGram * componentData.weightInGrams;
+            const pricePerMl = volumePerUnitInMl > 0 ? itemPrice / volumePerUnitInMl : 0;
+            const componentCost = pricePerMl * componentVolumeInMl;
+            totalCost += componentCost;
           }
 
-          // Calculate formula density
-          if (totalVolumeInMl > 0) {
-            calculatedDensity = totalWeightInGrams / totalVolumeInMl; // g/ml
-          }
+          // Calculate formula density (for 1 liter)
+          calculatedDensity = totalWeightFor1L / 1000; // g/ml
 
-          // Calculate price per liter
-          if (totalWeightInGrams > 0) {
-            // Convert total cost to cost per liter
-            const costPerGram = totalCost / totalWeightInGrams;
-            calculatedPricePerLiter = costPerGram * calculatedDensity * 1000; // R$/L
-          }
+          // Price per liter (already calculated for 1L)
+          calculatedPricePerLiter = totalCost;
         }
 
         // Log component details
@@ -842,6 +1025,14 @@ export class PaintFormulaService {
     userId?: string,
     triggeredBy?: CHANGE_TRIGGERED_BY,
     triggeredById?: string,
+    itemDescription?: string,
+    changeDescription?: string,
+    changes?: {
+      price?: boolean;
+      icms?: boolean;
+      ipi?: boolean;
+      measures?: boolean;
+    },
   ): Promise<void> {
     const tx = transaction || this.prisma;
 
@@ -874,8 +1065,9 @@ export class PaintFormulaService {
       const originalDensity = formula.density;
       const originalPricePerLiter = formula.pricePerLiter;
 
-      // Calculate total cost based on component ratios
+      // Calculate total cost and density based on component ratios
       let totalCost = 0;
+      let totalWeightFor1L = 0; // Total weight in grams for 1 liter of paint
 
       for (const component of formula.components) {
         // Calculate actual cost based on item price and weight needed
@@ -886,8 +1078,17 @@ export class PaintFormulaService {
           component.item.measures?.find(m => m.unit === 'GRAM' && m.measureType === 'WEIGHT') ||
           component.item.measures?.find(m => m.unit === 'KILOGRAM' && m.measureType === 'WEIGHT');
 
+        const volumeMeasure =
+          component.item.measures?.find(m => m.unit === 'MILLILITER' && m.measureType === 'VOLUME') ||
+          component.item.measures?.find(m => m.unit === 'LITER' && m.measureType === 'VOLUME');
+
         if (!weightMeasure) {
           this.logger.warn(`No weight measure found for component ${component.item.name}`);
+          continue;
+        }
+
+        if (!volumeMeasure) {
+          this.logger.warn(`No volume measure found for component ${component.item.name}`);
           continue;
         }
 
@@ -898,32 +1099,73 @@ export class PaintFormulaService {
           weightPerUnitInGrams = weightValue * 1000; // Convert kg to grams
         }
 
-        const pricePerGram = weightPerUnitInGrams > 0 ? itemPrice / weightPerUnitInGrams : 0;
+        // Convert to milliliters if needed
+        const volumeValue = volumeMeasure.value || 0;
+        let volumePerUnitInMl = volumeValue;
+        if (volumeMeasure.unit === 'LITER') {
+          volumePerUnitInMl = volumeValue * 1000; // Convert L to ml
+        }
 
-        // For 1 liter of formula with default density of 1.0 g/ml = 1000g/L
-        const componentWeightFor1L = 1000 * (component.ratio / 100);
-        const componentCost = pricePerGram * componentWeightFor1L;
+        // Calculate item density (g/ml)
+        const itemDensity = volumePerUnitInMl > 0 ? weightPerUnitInGrams / volumePerUnitInMl : 1.0;
+
+        // Calculate how much volume this component occupies in 1L of paint
+        // ratio% of 1000ml = component volume in ml
+        const componentVolumeInMl = 1000 * (component.ratio / 100);
+
+        // Calculate weight for this component volume (for density calculation)
+        const componentWeightInGrams = componentVolumeInMl * itemDensity;
+
+        // Add to total weight
+        totalWeightFor1L += componentWeightInGrams;
+
+        // Calculate cost based on VOLUME, not weight
+        // Cost = (volume_used / item_volume) × item_price
+        const pricePerMl = volumePerUnitInMl > 0 ? itemPrice / volumePerUnitInMl : 0;
+        const componentCost = pricePerMl * componentVolumeInMl;
 
         totalCost += componentCost;
       }
 
-      // Set default density and price per liter
-      const calculatedDensity = 1.0; // Default density
+      // Calculate density: total weight (g) / total volume (ml) = g/ml
+      // For 1 liter of paint: density = totalWeightFor1L / 1000
+      const calculatedDensity = totalWeightFor1L / 1000;
       const pricePerLiter = totalCost; // Total cost is price per liter
 
-      // Only update if values changed
-      const densityChanged = hasValueChanged(originalDensity, calculatedDensity);
-      const priceChanged = hasValueChanged(originalPricePerLiter, pricePerLiter);
+      // Determine what should be recalculated based on changes
+      // Density should only be recalculated if measures changed
+      // Price should be recalculated if price, icms, ipi, or measures changed
+      const shouldRecalculateDensity = !changes || changes.measures === true;
+      const shouldRecalculatePrice = !changes || changes.price || changes.icms || changes.ipi || changes.measures;
+
+      // Only check for changes if we should recalculate
+      const densityChanged = shouldRecalculateDensity && hasValueChanged(originalDensity, calculatedDensity);
+      const priceChanged = shouldRecalculatePrice && hasValueChanged(originalPricePerLiter, pricePerLiter);
 
       if (densityChanged || priceChanged) {
-        // Update formula
+        // Build update data - only update fields that changed
+        const updateData: any = {};
+        if (densityChanged) {
+          updateData.density = new Prisma.Decimal(calculatedDensity);
+        }
+        if (priceChanged) {
+          updateData.pricePerLiter = new Prisma.Decimal(pricePerLiter);
+        }
+
+        // Update formula with only the changed fields
         await tx.paintFormula.update({
           where: { id: formulaId },
-          data: {
-            density: new Prisma.Decimal(calculatedDensity),
-            pricePerLiter: new Prisma.Decimal(pricePerLiter),
-          },
+          data: updateData,
         });
+
+        // Build reason messages with item context if available
+        let densityReasonBase = `Densidade recalculada automaticamente (${calculatedDensity.toFixed(3)} g/ml)`;
+        let priceReasonBase = `Preço por litro recalculado automaticamente (R$ ${pricePerLiter.toFixed(2)})`;
+
+        if (itemDescription && changeDescription) {
+          densityReasonBase += ` devido à alteração de ${changeDescription} do item ${itemDescription}`;
+          priceReasonBase += ` devido à alteração de ${changeDescription} do item ${itemDescription}`;
+        }
 
         // Log density change
         if (densityChanged) {
@@ -934,7 +1176,7 @@ export class PaintFormulaService {
             field: 'density',
             oldValue: originalDensity,
             newValue: calculatedDensity,
-            reason: `Densidade recalculada automaticamente (${calculatedDensity.toFixed(3)} g/ml)`,
+            reason: densityReasonBase,
             triggeredBy: triggeredBy || CHANGE_TRIGGERED_BY.SYSTEM,
             triggeredById: triggeredById || formulaId,
             userId: userId || 'system',
@@ -951,7 +1193,7 @@ export class PaintFormulaService {
             field: 'pricePerLiter',
             oldValue: originalPricePerLiter,
             newValue: pricePerLiter,
-            reason: `Preço por litro recalculado automaticamente (R$ ${pricePerLiter.toFixed(2)})`,
+            reason: priceReasonBase,
             triggeredBy: triggeredBy || CHANGE_TRIGGERED_BY.SYSTEM,
             triggeredById: triggeredById || formulaId,
             userId: userId || 'system',

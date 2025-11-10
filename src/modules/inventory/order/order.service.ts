@@ -146,24 +146,30 @@ export class OrderService {
       await this.validateItemPrices(data.items, tx);
 
       // Validar disponibilidade de estoque para pedidos imediatos (não agendados)
+      // Only validate stock for inventory items (skip temporary items without itemId)
       if (
         data.status &&
         [ORDER_STATUS.PARTIALLY_FULFILLED, ORDER_STATUS.FULFILLED].includes(
           data.status as ORDER_STATUS,
         )
       ) {
-        const stockValidation = await this.itemService.validateStockAvailability(
-          data.items.map(item => ({
-            itemId: item.itemId,
-            quantity: item.orderedQuantity,
-          })),
-          tx,
-        );
+        // Filter out temporary items (items without itemId) before validating stock
+        const inventoryItems = data.items.filter(item => item.itemId);
 
-        if (!stockValidation.valid) {
-          throw new BadRequestException(
-            `Estoque insuficiente: ${stockValidation.errors.join(', ')}`,
+        if (inventoryItems.length > 0) {
+          const stockValidation = await this.itemService.validateStockAvailability(
+            inventoryItems.map(item => ({
+              itemId: item.itemId,
+              quantity: item.orderedQuantity,
+            })),
+            tx,
           );
+
+          if (!stockValidation.valid) {
+            throw new BadRequestException(
+              `Estoque insuficiente: ${stockValidation.errors.join(', ')}`,
+            );
+          }
         }
       }
 
@@ -1064,20 +1070,27 @@ export class OrderService {
 
           // Get existing ORDER_RECEIVED activities for this order item to check what was already processed
           // Query by both orderItemId and as a fallback by itemId+orderId to ensure we catch all activities
+          // Build OR conditions dynamically to handle temporary items (itemId = null)
+          const orConditions: any[] = [
+            {
+              orderItemId: item.id,
+              reason: ACTIVITY_REASON.ORDER_RECEIVED,
+            },
+          ];
+
+          // Only add the itemId condition for inventory items (not temporary items)
+          if (item.itemId) {
+            orConditions.push({
+              itemId: item.itemId,
+              orderId: existingOrder.id,
+              orderItemId: null, // Legacy activities that might not have orderItemId set
+              reason: ACTIVITY_REASON.ORDER_RECEIVED,
+            });
+          }
+
           const existingActivities = await tx.activity.findMany({
             where: {
-              OR: [
-                {
-                  orderItemId: item.id,
-                  reason: ACTIVITY_REASON.ORDER_RECEIVED,
-                },
-                {
-                  itemId: item.itemId,
-                  orderId: existingOrder.id,
-                  orderItemId: null, // Legacy activities that might not have orderItemId set
-                  reason: ACTIVITY_REASON.ORDER_RECEIVED,
-                },
-              ],
+              OR: orConditions,
             },
           });
 
@@ -1129,7 +1142,8 @@ export class OrderService {
 
           // Only create activity and add to stock if there's a positive quantity to add
           // This handles the case where activities weren't created during item updates
-          if (quantityToAddToStock > 0) {
+          // Skip this for temporary items (items without itemId) since they don't have inventory
+          if (quantityToAddToStock > 0 && item.itemId) {
             this.logger.debug(
               `Item ${item.id}: Creating activity for ${quantityToAddToStock} units`,
             );
@@ -1159,6 +1173,10 @@ export class OrderService {
                 data: { quantity: newQuantity },
               });
             }
+          } else if (!item.itemId) {
+            this.logger.debug(
+              `Item ${item.id}: Skipping activity and stock update for temporary item (no itemId)`,
+            );
           }
         }
       }

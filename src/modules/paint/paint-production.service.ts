@@ -72,6 +72,154 @@ export class PaintProductionService {
    * Volume-based validation for paint production
    * Works directly with volume ratios without weight conversion
    */
+  /**
+   * PUBLIC CALCULATOR: Calculate component weights for a given volume
+   * Input: Volume in liters (e.g., 3.6L for a can)
+   * Output: Weight in grams for each component
+   */
+  async calculateComponentWeightsForVolume(
+    formulaId: string,
+    requestedVolumeLiters: number,
+  ): Promise<{
+    formulaDensity: number; // g/ml
+    totalWeightGrams: number;
+    totalCost: number;
+    components: Array<{
+      itemId: string;
+      itemName: string;
+      ratio: number; // percentage
+      volumeNeededMl: number;
+      weightNeededGrams: number;
+      itemDensity: number; // g/ml
+      unitsNeeded: number;
+      availableUnits: number;
+      unitCost: number;
+      totalCost: number;
+      measureInfo: {
+        weightValue: number;
+        weightUnit: string;
+        volumeValue: number;
+        volumeUnit: string;
+      };
+    }>;
+  }> {
+    // Validate input
+    if (requestedVolumeLiters <= 0) {
+      throw new BadRequestException('Volume deve ser positivo.');
+    }
+
+    // Get formula with all components
+    const formula = await this.prisma.paintFormula.findUnique({
+      where: { id: formulaId },
+      include: {
+        paint: true,
+        components: {
+          include: {
+            item: {
+              include: {
+                prices: { orderBy: { createdAt: 'desc' }, take: 1 },
+                measures: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!formula) {
+      throw new NotFoundException('Fórmula não encontrada.');
+    }
+
+    if (!formula.components || formula.components.length === 0) {
+      throw new BadRequestException('Fórmula não possui componentes.');
+    }
+
+    const formulaDensity = Number(formula.density) || 1.0;
+    const requestedVolumeMl = requestedVolumeLiters * 1000;
+    const components: any[] = [];
+    let totalWeightGrams = 0;
+    let totalCost = 0;
+
+    for (const component of formula.components) {
+      if (!component?.item) continue;
+
+      const item = component.item;
+      const ratio = component.ratio;
+
+      // Component volume in the requested paint volume
+      const componentVolumeMl = requestedVolumeMl * (ratio / 100);
+
+      // Get item measures
+      const weightMeasure = item.measures?.find(m => m.measureType === 'WEIGHT');
+      const volumeMeasure = item.measures?.find(m => m.measureType === 'VOLUME');
+
+      if (!weightMeasure || !volumeMeasure) {
+        throw new BadRequestException(
+          `Item "${item.name}" deve ter medidas de peso e volume configuradas.`,
+        );
+      }
+
+      // Convert to base units (grams and milliliters)
+      let weightPerUnitGrams = weightMeasure.value || 0;
+      if (weightMeasure.unit === 'KILOGRAM') {
+        weightPerUnitGrams *= 1000;
+      }
+
+      let volumePerUnitMl = volumeMeasure.value || 0;
+      if (volumeMeasure.unit === 'LITER') {
+        volumePerUnitMl *= 1000;
+      }
+
+      if (weightPerUnitGrams <= 0 || volumePerUnitMl <= 0) {
+        throw new BadRequestException(
+          `Item "${item.name}" tem medidas inválidas (peso ou volume zero/negativo).`,
+        );
+      }
+
+      // Calculate ITEM density (NOT formula density!)
+      const itemDensity = weightPerUnitGrams / volumePerUnitMl; // g/ml
+
+      // Calculate weight needed for this component volume
+      const weightNeededGrams = componentVolumeMl * itemDensity;
+
+      // Calculate units needed from inventory
+      const unitsNeeded = weightNeededGrams / weightPerUnitGrams;
+
+      // Calculate cost
+      const unitPrice = item.prices?.[0]?.value || 0;
+      const componentTotalCost = unitsNeeded * unitPrice;
+
+      totalWeightGrams += weightNeededGrams;
+      totalCost += componentTotalCost;
+
+      components.push({
+        itemId: item.id,
+        itemName: item.name,
+        ratio,
+        volumeNeededMl: componentVolumeMl,
+        weightNeededGrams,
+        itemDensity,
+        unitsNeeded,
+        availableUnits: item.quantity,
+        unitCost: unitPrice,
+        totalCost: componentTotalCost,
+        measureInfo: {
+          weightValue: weightMeasure.value,
+          weightUnit: weightMeasure.unit,
+          volumeValue: volumeMeasure.value,
+          volumeUnit: volumeMeasure.unit,
+        },
+      });
+    }
+
+    return {
+      formulaDensity,
+      totalWeightGrams,
+      totalCost,
+      components,
+    };
+  }
+
   private async paintProductionVolumeValidation(
     paintId: string,
     formulaId: string,

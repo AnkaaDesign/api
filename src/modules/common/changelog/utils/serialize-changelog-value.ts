@@ -22,6 +22,11 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
       return value.toISOString();
     }
 
+    // Handle Prisma Decimal objects - convert to number
+    if (value && 'toNumber' in value && typeof value.toNumber === 'function') {
+      return value.toNumber();
+    }
+
     // Handle circular references
     if (seen.has(value)) {
       return '[Circular Reference]';
@@ -71,11 +76,17 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
 
 /**
  * Normalize value for comparison
- * Handles numeric strings and numbers to prevent false positives
+ * Handles numeric strings, Prisma Decimals, and numbers to prevent false positives
  */
 function normalizeValue(value: any): any {
   if (value === null || value === undefined) {
     return null;
+  }
+
+  // Handle Prisma Decimal objects - convert to number for comparison
+  // Decimal objects have d, e, s properties and a toNumber() method
+  if (value && typeof value === 'object' && 'toNumber' in value && typeof value.toNumber === 'function') {
+    return value.toNumber();
   }
 
   // Convert numeric strings to numbers for comparison

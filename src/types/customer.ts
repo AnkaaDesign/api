@@ -16,7 +16,7 @@ export interface Customer extends BaseEntity {
   cpf: string | null;
   corporateName: string | null;
   email: string | null;
-  logradouro: string | null;
+  streetType: string | null;
   address: string | null;
   addressNumber: string | null;
   addressComplement: string | null;
@@ -29,7 +29,7 @@ export interface Customer extends BaseEntity {
   tags: string[];
   logoId: string | null;
   economicActivityId: string | null;
-  situacaoCadastral: string | null;
+  registrationStatus: string | null;
 
   // Relations
   logo?: File;

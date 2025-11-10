@@ -23,7 +23,6 @@ import { PpeModule } from './modules/inventory/ppe/ppe.module';
 import { EventEmitterModule } from './modules/common/event-emitter/event-emitter.module';
 import { ExternalWithdrawalModule } from './modules/inventory/external-withdrawal/external-withdrawal.module';
 import { FileModule } from './modules/common/file/file.module';
-import { GarageModule } from './modules/production/garage/garage.module';
 import { ItemModule } from './modules/inventory/item/item.module';
 import { MailerModule } from './modules/common/mailer/mailer.module';
 import { MaintenanceModule } from './modules/inventory/maintenance/maintenance.module';
@@ -39,7 +38,6 @@ import { ServiceOrderModule } from './modules/production/service-order/service-o
 import { SupplierModule } from './modules/inventory/supplier/supplier.module';
 import { TaskModule } from './modules/production/task/task.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
-import { TruckModule } from './modules/production/truck/truck.module';
 import { LayoutModule } from './modules/production/layout/layout.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
@@ -92,7 +90,6 @@ import { AppsModule } from './modules/system/app/app.module';
     EventEmitterModule,
     ExternalWithdrawalModule,
     FileModule,
-    GarageModule,
     ItemModule,
     MailerModule,
     MaintenanceModule,
@@ -108,7 +105,6 @@ import { AppsModule } from './modules/system/app/app.module';
     ServiceOrderModule,
     SupplierModule,
     TaskModule,
-    TruckModule,
     LayoutModule,
     UserModule,
     ProfileModule,

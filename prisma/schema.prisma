@@ -202,10 +202,10 @@ model Customer {
   logoId             String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
-  economicActivityId String?
-  situacaoCadastral  RegistrationStatus?
-  logradouro         LogradouroType?
-  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  economicActivityId   String?
+  registrationStatus   RegistrationStatus?
+  streetType           LogradouroType?
+  economicActivity     EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]
 
@@ -962,7 +962,7 @@ model Supplier {
   logoId            String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
-  logradouro        LogradouroType?
+  streetType        LogradouroType?
   tags              String[]        @default([])
   items             Item[]          @relation("ITEM_SUPPLIER")
   orders            Order[]         @relation("ORDER_SUPPLIER")
@@ -2003,12 +2003,14 @@ enum OrderTriggerType {
 enum ChangeLogTriggeredByType {
   TASK_CREATE
   TASK_UPDATE
+  ITEM_UPDATE
   USER_ACTION
   BATCH_CREATE
   BATCH_UPDATE
   BATCH_DELETE
   BATCH_OPERATION
   SYSTEM
+  SYSTEM_GENERATED
   USER
   EXTERNAL_WITHDRAWAL
   EXTERNAL_WITHDRAWAL_DELETE
@@ -2047,6 +2049,12 @@ enum ChangeLogTriggeredByType {
   PAINT_TYPE_BATCH_CREATE
   PAINT_TYPE_BATCH_UPDATE
   PAINT_TYPE_BATCH_DELETE
+  PAINT_BRAND_CREATE
+  PAINT_BRAND_UPDATE
+  PAINT_BRAND_DELETE
+  PAINT_BRAND_BATCH_CREATE
+  PAINT_BRAND_BATCH_UPDATE
+  PAINT_BRAND_BATCH_DELETE
   PAINT_GROUND_CREATE
   PAINT_GROUND_UPDATE
   PAINT_GROUND_DELETE
@@ -2066,9 +2074,28 @@ enum ChangeLogTriggeredByType {
   ACTIVITY_DELETE
   ACTIVITY_SYNC
   INVENTORY_ADJUSTMENT
+  INVENTORY_COUNT
   ITEM_MONTHLY_CONSUMPTION_UPDATE
   AUTOMATIC_MIN_MAX_UPDATE
   PPE_DELIVERY
+  SMS_VERIFICATION_CREATE
+  SMS_VERIFICATION_SEND
+  SMS_VERIFICATION_VERIFY
+  SMS_VERIFICATION_EXPIRE
+  SMS_VERIFICATION_CANCEL
+  EMAIL_SERVICE
+  VERIFICATION_CREATE
+  VERIFICATION_SEND
+  VERIFICATION_VERIFY
+  VERIFICATION_EXPIRE
+  VERIFICATION_CANCEL
+  VERIFICATION_RESEND
+  OBSERVATION_CREATE
+  OBSERVATION_DELETE
+  SCHEDULED_JOB
+  API
+  WEBHOOK
+  ADMIN
 }
 
 enum ChangeLogEntityType {
