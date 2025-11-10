@@ -12,7 +12,6 @@ export * from "./borrow";
 export * from "./changelog";
 export * from "./changelog-fields";
 export * from "./cleaners";
-export * from "./color";
 export * from "./customer";
 export * from "./dataOperationEnumGetters";
 export * from "./date";
@@ -29,7 +28,7 @@ export * from "./file-relationship";
 // Browser-only modules - these contain DOM API usage and should not be used server-side
 // The modules themselves have environment checks, but for server safety, consider importing directly
 // file-viewer moved to apps/web/src/utils/ due to DOM API usage
-export * from "./file-type-icons";
+// file-type-icons moved to apps/web/src/utils/ due to UI-specific styling
 export {
   fileUtilsEnhanced,
   getFileTypeFromMime,
