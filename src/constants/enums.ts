@@ -158,12 +158,24 @@ export enum BORROW_STATUS {
   LOST = "LOST",
 }
 
+export enum EXTERNAL_WITHDRAWAL_TYPE {
+  RETURNABLE = "RETURNABLE",
+  CHARGEABLE = "CHARGEABLE",
+  COMPLIMENTARY = "COMPLIMENTARY",
+}
+
 export enum EXTERNAL_WITHDRAWAL_STATUS {
+  // Common statuses
   PENDING = "PENDING",
+  CANCELLED = "CANCELLED",
+  // Returnable specific
   PARTIALLY_RETURNED = "PARTIALLY_RETURNED",
   FULLY_RETURNED = "FULLY_RETURNED",
+  // Chargeable specific
   CHARGED = "CHARGED",
-  CANCELLED = "CANCELLED",
+  LIQUIDATED = "LIQUIDATED",
+  // Complimentary specific
+  DELIVERED = "DELIVERED",
 }
 
 // =====================
@@ -539,6 +551,11 @@ export enum RAIN_BOOTS_SIZE {
 // Unified PPE Size Enum
 // =====================
 
+/**
+ * @deprecated Use MEASURE_UNIT with measureType: "SIZE" instead
+ * PPE_SIZE enum is kept for backward compatibility but should not be used for new code.
+ * All PPE sizes are now stored in the measures array on Item with measureType: "SIZE".
+ */
 export enum PPE_SIZE {
   // Shirt, Manguito, Mask, and Gloves sizes
   P = "P",
@@ -584,19 +601,6 @@ export enum MEASURE_UNIT {
   METER = "METER",
   INCHES = "INCHES",
 
-  // Diameter units (fractional inches)
-  INCH_1_8 = "INCH_1_8",
-  INCH_1_4 = "INCH_1_4",
-  INCH_3_8 = "INCH_3_8",
-  INCH_1_2 = "INCH_1_2",
-  INCH_5_8 = "INCH_5_8",
-  INCH_3_4 = "INCH_3_4",
-  INCH_7_8 = "INCH_7_8",
-  INCH_1 = "INCH_1",
-  INCH_1_1_4 = "INCH_1_1_4",
-  INCH_1_1_2 = "INCH_1_1_2",
-  INCH_2 = "INCH_2",
-
   // Thread pitch units
   THREAD_MM = "THREAD_MM",
   THREAD_TPI = "THREAD_TPI",
@@ -625,18 +629,35 @@ export enum MEASURE_UNIT {
   SET = "SET",
   SACK = "SACK",
 
-  // PPE Size units (letter sizes)
+  // PPE Size units (letter sizes) - used with measureType: "SIZE"
   P = "P",
   M = "M",
   G = "G",
   GG = "GG",
   XG = "XG",
+
+  // PPE Size units (numeric sizes) - used with measureType: "SIZE" for boots, pants, etc.
+  SIZE_35 = "SIZE_35",
+  SIZE_36 = "SIZE_36",
+  SIZE_37 = "SIZE_37",
+  SIZE_38 = "SIZE_38",
+  SIZE_39 = "SIZE_39",
+  SIZE_40 = "SIZE_40",
+  SIZE_41 = "SIZE_41",
+  SIZE_42 = "SIZE_42",
+  SIZE_43 = "SIZE_43",
+  SIZE_44 = "SIZE_44",
+  SIZE_45 = "SIZE_45",
+  SIZE_46 = "SIZE_46",
+  SIZE_47 = "SIZE_47",
+  SIZE_48 = "SIZE_48",
 }
 
 export enum MEASURE_TYPE {
   WEIGHT = "WEIGHT",
   VOLUME = "VOLUME",
   LENGTH = "LENGTH",
+  WIDTH = "WIDTH",
   AREA = "AREA",
   COUNT = "COUNT",
   DIAMETER = "DIAMETER",
@@ -980,7 +1001,7 @@ export enum PPE_TYPE {
   MASK = "MASK",
   GLOVES = "GLOVES",
   RAIN_BOOTS = "RAIN_BOOTS",
-  OUTROS = "OUTROS",
+  OTHERS = "OTHERS",
 }
 
 export enum PPE_SIZE_TYPE {

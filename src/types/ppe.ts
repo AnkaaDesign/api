@@ -63,8 +63,7 @@ export interface PpeDelivery extends BaseEntity {
 // Each PPE size is a separate item (e.g., "Camisa EPI Tamanho M", "Bota de Segurança Tamanho 42")
 // The Item entity now contains all PPE-specific fields:
 // - ppeType: Type of PPE (SHIRT, PANTS, BOOTS, etc.)
-// - ppeSize: Size of the PPE item
-// - ppeSizeOrder: Sort order for size
+// - measures: Array with measureType: "SIZE" and unit from MEASURE_UNIT (P, M, G, SIZE_40, etc.)
 // - ppeCA: Certificate of Approval
 // - ppeDeliveryMode: SCHEDULED, ON_DEMAND, BOTH
 // - ppeStandardQuantity: Standard quantity per delivery

@@ -87,6 +87,7 @@ export const MEASURE_CATEGORIES = {
   WEIGHT: "Peso",
   VOLUME: "Volume",
   LENGTH: "Comprimento",
+  WIDTH: "Largura",
   AREA: "Área",
   COUNT: "Contagem",
   PACKAGING: "Embalagem",
@@ -137,19 +138,6 @@ export const UNIT_CONVERSION_FACTORS: Record<MEASURE_UNIT, { baseUnit: MEASURE_U
   [MEASURE_UNIT.SET]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
   [MEASURE_UNIT.SACK]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
 
-  // Diameter units (base: MILLIMETER - fractional inches converted to mm)
-  [MEASURE_UNIT.INCH_1_8]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 3.175, category: MEASURE_CATEGORIES.DIAMETER }, // 1/8" = 3.175 mm
-  [MEASURE_UNIT.INCH_1_4]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 6.35, category: MEASURE_CATEGORIES.DIAMETER }, // 1/4" = 6.35 mm
-  [MEASURE_UNIT.INCH_3_8]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 9.525, category: MEASURE_CATEGORIES.DIAMETER }, // 3/8" = 9.525 mm
-  [MEASURE_UNIT.INCH_1_2]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 12.7, category: MEASURE_CATEGORIES.DIAMETER }, // 1/2" = 12.7 mm
-  [MEASURE_UNIT.INCH_5_8]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 15.875, category: MEASURE_CATEGORIES.DIAMETER }, // 5/8" = 15.875 mm
-  [MEASURE_UNIT.INCH_3_4]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 19.05, category: MEASURE_CATEGORIES.DIAMETER }, // 3/4" = 19.05 mm
-  [MEASURE_UNIT.INCH_7_8]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 22.225, category: MEASURE_CATEGORIES.DIAMETER }, // 7/8" = 22.225 mm
-  [MEASURE_UNIT.INCH_1]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 25.4, category: MEASURE_CATEGORIES.DIAMETER }, // 1" = 25.4 mm
-  [MEASURE_UNIT.INCH_1_1_4]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 31.75, category: MEASURE_CATEGORIES.DIAMETER }, // 1 1/4" = 31.75 mm
-  [MEASURE_UNIT.INCH_1_1_2]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 38.1, category: MEASURE_CATEGORIES.DIAMETER }, // 1 1/2" = 38.1 mm
-  [MEASURE_UNIT.INCH_2]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 50.8, category: MEASURE_CATEGORIES.DIAMETER }, // 2" = 50.8 mm
-
   // Thread units (no conversion between mm and TPI as they measure different properties)
   [MEASURE_UNIT.THREAD_MM]: { baseUnit: MEASURE_UNIT.THREAD_MM, factor: 1, category: MEASURE_CATEGORIES.THREAD }, // Thread pitch in mm
   [MEASURE_UNIT.THREAD_TPI]: { baseUnit: MEASURE_UNIT.THREAD_TPI, factor: 1, category: MEASURE_CATEGORIES.THREAD }, // Threads per inch
@@ -165,6 +153,22 @@ export const UNIT_CONVERSION_FACTORS: Record<MEASURE_UNIT, { baseUnit: MEASURE_U
   [MEASURE_UNIT.G]: { baseUnit: MEASURE_UNIT.G, factor: 1, category: MEASURE_CATEGORIES.COUNT }, // Large size
   [MEASURE_UNIT.GG]: { baseUnit: MEASURE_UNIT.GG, factor: 1, category: MEASURE_CATEGORIES.COUNT }, // Extra large size
   [MEASURE_UNIT.XG]: { baseUnit: MEASURE_UNIT.XG, factor: 1, category: MEASURE_CATEGORIES.COUNT }, // Extra extra large size
+
+  // PPE Size units (numeric sizes - no conversion between sizes)
+  [MEASURE_UNIT.SIZE_35]: { baseUnit: MEASURE_UNIT.SIZE_35, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_36]: { baseUnit: MEASURE_UNIT.SIZE_36, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_37]: { baseUnit: MEASURE_UNIT.SIZE_37, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_38]: { baseUnit: MEASURE_UNIT.SIZE_38, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_39]: { baseUnit: MEASURE_UNIT.SIZE_39, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_40]: { baseUnit: MEASURE_UNIT.SIZE_40, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_41]: { baseUnit: MEASURE_UNIT.SIZE_41, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_42]: { baseUnit: MEASURE_UNIT.SIZE_42, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_43]: { baseUnit: MEASURE_UNIT.SIZE_43, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_44]: { baseUnit: MEASURE_UNIT.SIZE_44, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_45]: { baseUnit: MEASURE_UNIT.SIZE_45, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_46]: { baseUnit: MEASURE_UNIT.SIZE_46, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_47]: { baseUnit: MEASURE_UNIT.SIZE_47, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_48]: { baseUnit: MEASURE_UNIT.SIZE_48, factor: 1, category: MEASURE_CATEGORIES.COUNT },
 };
 
 // =====================

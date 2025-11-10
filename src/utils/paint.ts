@@ -276,6 +276,78 @@ export const calculatePaintDensity = (weightInGrams: number, volumeInMl: number)
 };
 
 /**
+ * Validates if a density value is within acceptable range for paint
+ * Typical paint densities range from 0.5 to 3.0 g/ml
+ */
+export const isValidPaintDensity = (density: number): boolean => {
+  return density >= 0.5 && density <= 3.0;
+};
+
+/**
+ * Validates if a price per liter is within acceptable range for paint
+ * Typical paint prices range from R$ 5 to R$ 1000 per liter
+ */
+export const isValidPaintPrice = (pricePerLiter: number): boolean => {
+  return pricePerLiter >= 5 && pricePerLiter <= 1000;
+};
+
+/**
+ * Calculate item density from weight and volume measures with unit conversion
+ * Returns density in g/ml
+ */
+export const calculateItemDensity = (
+  weightValue: number,
+  weightUnit: MEASURE_UNIT,
+  volumeValue: number,
+  volumeUnit: MEASURE_UNIT,
+): { density: number; weightInGrams: number; volumeInMl: number; error?: string } => {
+  // Convert weight to grams
+  let weightInGrams = weightValue;
+  if (weightUnit === MEASURE_UNIT.KILOGRAM) {
+    weightInGrams = weightValue * 1000;
+  } else if (weightUnit !== MEASURE_UNIT.GRAM) {
+    return {
+      density: 0,
+      weightInGrams: 0,
+      volumeInMl: 0,
+      error: `Invalid weight unit: ${weightUnit}. Must be GRAM or KILOGRAM.`,
+    };
+  }
+
+  // Convert volume to milliliters
+  let volumeInMl = volumeValue;
+  if (volumeUnit === MEASURE_UNIT.LITER) {
+    volumeInMl = volumeValue * 1000;
+  } else if (volumeUnit !== MEASURE_UNIT.MILLILITER) {
+    return {
+      density: 0,
+      weightInGrams: 0,
+      volumeInMl: 0,
+      error: `Invalid volume unit: ${volumeUnit}. Must be MILLILITER or LITER.`,
+    };
+  }
+
+  // Validate positive values
+  if (weightInGrams <= 0 || volumeInMl <= 0) {
+    return {
+      density: 0,
+      weightInGrams,
+      volumeInMl,
+      error: `Weight and volume must be positive. Got weight: ${weightInGrams}g, volume: ${volumeInMl}ml`,
+    };
+  }
+
+  // Calculate density
+  const density = weightInGrams / volumeInMl;
+
+  return {
+    density,
+    weightInGrams,
+    volumeInMl,
+  };
+};
+
+/**
  * Calculates volume from weight and density
  */
 export const calculateVolumeFromWeight = (weightInGrams: number, densityGPerMl: number): number => {

@@ -1,7 +1,7 @@
 // packages/interfaces/src/externalWithdrawal.ts
 
 import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { ORDER_BY_DIRECTION, EXTERNAL_WITHDRAWAL_STATUS } from '@constants';
+import type { ORDER_BY_DIRECTION, EXTERNAL_WITHDRAWAL_TYPE, EXTERNAL_WITHDRAWAL_STATUS } from '@constants';
 import type { File, FileIncludes } from "./file";
 import type { Item, ItemIncludes, ItemOrderBy } from "./item";
 
@@ -11,7 +11,7 @@ import type { Item, ItemIncludes, ItemOrderBy } from "./item";
 
 export interface ExternalWithdrawal extends BaseEntity {
   withdrawerName: string;
-  willReturn: boolean;
+  type: EXTERNAL_WITHDRAWAL_TYPE;
   status: EXTERNAL_WITHDRAWAL_STATUS;
   statusOrder: number;
   invoiceIds?: string[];
@@ -80,7 +80,7 @@ export interface ExternalWithdrawalItemIncludes {
 export interface ExternalWithdrawalOrderBy {
   id?: ORDER_BY_DIRECTION;
   withdrawerName?: ORDER_BY_DIRECTION;
-  willReturn?: ORDER_BY_DIRECTION;
+  type?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
   notes?: ORDER_BY_DIRECTION;
