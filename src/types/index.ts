@@ -37,7 +37,7 @@ export * from "./serviceOrder";
 export * from "./summary";
 export * from "./supplier";
 export * from "./task";
-export * from "./truck";
+// export * from "./truck"; // Truck types are now in garage.ts
 export * from "./user";
 export * from "./vacation";
 export * from "./verification";

@@ -48,7 +48,7 @@ export {
 } from "./file-utils";
 export * from "./form";
 export * from "./formatters";
-export * from "./garage";
+// export * from "./garage"; // TODO: Create garage utilities if needed
 export * from "./item";
 export * from "./maintenance";
 export * from "./measure";

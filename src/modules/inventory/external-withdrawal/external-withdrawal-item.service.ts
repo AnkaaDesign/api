@@ -431,7 +431,7 @@ export class ExternalWithdrawalItemService {
         });
 
         // Check if returnedQuantity was updated and update withdrawal status accordingly
-        if (data.returnedQuantity !== undefined && existingItem.externalWithdrawal?.willReturn) {
+        if (data.returnedQuantity !== undefined && existingItem.externalWithdrawal?.type === 'RETURNABLE') {
           // Log the item update in the withdrawal's changelog using a dynamic field name with item name
           const itemName = existingItem.item?.name || `Item ${existingItem.itemId.slice(0, 8)}...`;
           await this.changeLogService.logChange({
@@ -758,7 +758,7 @@ export class ExternalWithdrawalItemService {
                 },
               );
 
-              if (fullItem?.externalWithdrawal?.willReturn) {
+              if (fullItem?.externalWithdrawal?.type === 'RETURNABLE') {
                 const itemName = fullItem.item?.name || `Item ${fullItem.itemId.slice(0, 8)}...`;
                 await this.changeLogService.logChange({
                   entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
@@ -978,7 +978,7 @@ export class ExternalWithdrawalItemService {
         tx,
         withdrawalId,
       );
-      if (!withdrawal || !withdrawal.willReturn) return;
+      if (!withdrawal || withdrawal.type !== 'RETURNABLE') return;
 
       let newStatus: EXTERNAL_WITHDRAWAL_STATUS | null = null;
 

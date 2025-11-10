@@ -13,7 +13,7 @@ export * from "./cut";
 export * from "./epi";
 export * from "./externalWithdrawal";
 export * from "./file";
-export * from "./garage";
+// export * from "./garage"; // TODO: Create garage schemas if needed
 export * from "./holiday";
 export * from "./item";
 export * from "./maintenance";
@@ -109,7 +109,7 @@ export {
 export * from "./serviceOrder";
 export * from "./supplier";
 export * from "./task";
-export * from "./truck";
+// export * from "./truck"; // TODO: Create truck schemas if needed
 export * from "./layout";
 export * from "./user";
 export * from "./vacation";

@@ -5,7 +5,9 @@ import {
   InternalServerErrorException,
   Logger,
   ConflictException,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ItemRepository, PrismaTransaction } from './repositories/item/item.repository';
 import type {
@@ -69,6 +71,7 @@ export class ItemService {
     private readonly prisma: PrismaService,
     private readonly itemRepository: ItemRepository,
     private readonly changeLogService: ChangeLogService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -776,6 +779,30 @@ export class ItemService {
 
         return updatedItem;
       });
+
+      // Emit event if price, taxes, or measures were updated
+      const shouldEmitEvent =
+        data.price !== undefined ||
+        data.icms !== undefined ||
+        data.ipi !== undefined ||
+        data.measures !== undefined;
+
+      if (shouldEmitEvent) {
+        // Emit event asynchronously (don't wait for formula recalculations)
+        setImmediate(() => {
+          this.eventEmitter.emit('item.updated', {
+            itemId: id,
+            userId: userId,
+            changes: {
+              price: data.price !== undefined,
+              icms: data.icms !== undefined,
+              ipi: data.ipi !== undefined,
+              measures: data.measures !== undefined,
+            },
+          });
+          this.logger.log(`Emitted item.updated event for item ${id}`);
+        });
+      }
 
       return {
         success: true,
@@ -2549,6 +2576,28 @@ export class ItemService {
         message = `Ajuste parcial: ${successCount} ${successCount === 1 ? 'item atualizado' : 'itens atualizados'}, ${failCount} ${failCount === 1 ? 'falhou' : 'falharam'}.`;
       } else {
         message = `Ajuste concluído: ${successCount} ${successCount === 1 ? 'item atualizado' : 'itens atualizados'} com sucesso.`;
+      }
+
+      // Emit events for all successfully updated items
+      if (successCount > 0) {
+        setImmediate(() => {
+          const successfulItemIds = results.filter(r => r.success).map(r => r.itemId);
+          for (const itemId of successfulItemIds) {
+            this.eventEmitter.emit('item.updated', {
+              itemId: itemId,
+              userId: userId,
+              changes: {
+                price: true,
+                icms: false,
+                ipi: false,
+                measures: false,
+              },
+            });
+          }
+          this.logger.log(
+            `Emitted item.updated events for ${successfulItemIds.length} items after batch price adjustment`,
+          );
+        });
       }
 
       return {

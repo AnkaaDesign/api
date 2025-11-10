@@ -617,6 +617,47 @@ export class PaintUnifiedController {
     return this.paintFormulaService.delete(id, userId);
   }
 
+  @Get('formulas/:id/calculate-weights')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async calculateComponentWeights(
+    @Param('id', ParseUUIDPipe) formulaId: string,
+    @Query('volume') volume: string,
+  ) {
+    const volumeLiters = parseFloat(volume);
+
+    if (isNaN(volumeLiters) || volumeLiters <= 0) {
+      return {
+        success: false,
+        message: 'Volume deve ser um número positivo',
+        data: null,
+      };
+    }
+
+    try {
+      const result = await this.paintProductionService.calculateComponentWeightsForVolume(
+        formulaId,
+        volumeLiters,
+      );
+
+      return {
+        success: true,
+        message: `Cálculo realizado para ${volumeLiters}L de tinta`,
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Erro ao calcular pesos dos componentes',
+        data: null,
+      };
+    }
+  }
+
   // =====================
   // PAINT FORMULA COMPONENT OPERATIONS
   // =====================

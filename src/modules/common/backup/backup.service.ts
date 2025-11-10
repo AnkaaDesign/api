@@ -114,12 +114,14 @@ export class BackupService {
       for (const dir of baseDirectories) {
         const dirPath = path.join(this.backupBasePath, dir);
         await fs.mkdir(dirPath, { recursive: true });
-        // Set proper permissions for WebDAV (www-data:www-data, 2775)
-        try {
-          await execAsync(`sudo chown www-data:www-data "${dirPath}"`);
-          await execAsync(`sudo chmod 2775 "${dirPath}"`);
-        } catch (permError) {
-          this.logger.warn(`Could not set permissions on ${dirPath}: ${permError.message}`);
+        // Set proper permissions for WebDAV (www-data:www-data, 2775) - production only
+        if (!this.isDevelopment) {
+          try {
+            await execAsync(`sudo chown www-data:www-data "${dirPath}"`);
+            await execAsync(`sudo chmod 2775 "${dirPath}"`);
+          } catch (permError) {
+            this.logger.warn(`Could not set permissions on ${dirPath}: ${permError.message}`);
+          }
         }
       }
     } catch (error) {
@@ -138,12 +140,14 @@ export class BackupService {
 
     try {
       await fs.mkdir(backupFolderPath, { recursive: true });
-      // Set proper WebDAV permissions
-      try {
-        await execAsync(`sudo chown -R www-data:www-data "${backupFolderPath}"`);
-        await execAsync(`sudo chmod -R 2775 "${backupFolderPath}"`);
-      } catch (permError) {
-        this.logger.warn(`Could not set permissions on ${backupFolderPath}: ${permError.message}`);
+      // Set proper WebDAV permissions - production only
+      if (!this.isDevelopment) {
+        try {
+          await execAsync(`sudo chown -R www-data:www-data "${backupFolderPath}"`);
+          await execAsync(`sudo chmod -R 2775 "${backupFolderPath}"`);
+        } catch (permError) {
+          this.logger.warn(`Could not set permissions on ${backupFolderPath}: ${permError.message}`);
+        }
       }
       return backupFolderPath;
     } catch (error) {

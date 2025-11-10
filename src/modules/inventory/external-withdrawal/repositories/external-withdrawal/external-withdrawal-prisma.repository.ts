@@ -25,7 +25,7 @@ import { ExternalWithdrawalRepository } from './external-withdrawal.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma, ExternalWithdrawal as PrismaExternalWithdrawal } from '@prisma/client';
-import { EXTERNAL_WITHDRAWAL_STATUS_ORDER, EXTERNAL_WITHDRAWAL_STATUS } from '../../../../../constants';
+import { EXTERNAL_WITHDRAWAL_STATUS_ORDER, EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_TYPE } from '../../../../../constants';
 
 @Injectable()
 export class ExternalWithdrawalPrismaRepository
@@ -56,17 +56,17 @@ export class ExternalWithdrawalPrismaRepository
     return {
       id: databaseEntity.id,
       withdrawerName: databaseEntity.withdrawerName,
-      willReturn: databaseEntity.willReturn,
+      type: databaseEntity.type,
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
-      invoiceIds: databaseEntity.invoices?.map((invoice: any) => invoice.id),
-      receiptIds: databaseEntity.receipts?.map((receipt: any) => receipt.id),
+      nfeId: databaseEntity.nfeId,
+      receiptId: databaseEntity.receiptId,
       notes: databaseEntity.notes,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
-      invoices: databaseEntity.invoices,
-      receipts: databaseEntity.receipts,
+      nfe: databaseEntity.nfe,
+      receipt: databaseEntity.receipt,
       items: databaseEntity.items,
     };
   }
@@ -74,7 +74,7 @@ export class ExternalWithdrawalPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ExternalWithdrawalCreateFormData,
   ): Prisma.ExternalWithdrawalCreateInput {
-    const { invoiceIds, receiptIds, items, status, ...rest } = formData;
+    const { items, status, ...rest } = formData;
 
     // Validate required fields
     if (!formData.withdrawerName) {
@@ -84,21 +84,12 @@ export class ExternalWithdrawalPrismaRepository
     const createInput: Prisma.ExternalWithdrawalCreateInput = {
       ...rest,
       withdrawerName: formData.withdrawerName!, // Ensure it's required
-      willReturn: formData.willReturn ?? true,
+      type: formData.type ?? EXTERNAL_WITHDRAWAL_TYPE.RETURNABLE,
       // Set status and statusOrder
       status: status || EXTERNAL_WITHDRAWAL_STATUS.PENDING,
       statusOrder:
         EXTERNAL_WITHDRAWAL_STATUS_ORDER[status || EXTERNAL_WITHDRAWAL_STATUS.PENDING] || 1,
     };
-
-    // Handle file arrays
-    if (invoiceIds && invoiceIds.length > 0) {
-      createInput.invoices = { connect: invoiceIds.map(id => ({ id })) };
-    }
-
-    if (receiptIds && receiptIds.length > 0) {
-      createInput.receipts = { connect: receiptIds.map(id => ({ id })) };
-    }
 
     if (items && items.length > 0) {
       createInput.items = {

@@ -145,6 +145,14 @@ async function bootstrap() {
     },
   });
 
+  // Serve favicon and other static assets from public directory
+  const publicPath = join(__dirname, '..', '..', 'public');
+  app.useStaticAssets(publicPath, {
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+    },
+  });
+
   app.useGlobalPipes(validationPipe);
   app.useGlobalInterceptors(new UserContextInterceptor());
   app.useGlobalFilters(new GlobalExceptionFilter());

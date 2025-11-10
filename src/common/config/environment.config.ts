@@ -127,7 +127,6 @@ export const environmentConfig = {
       enabled: !!process.env.TWILIO_ACCOUNT_SID,
       accountSid: process.env.TWILIO_ACCOUNT_SID,
       authToken: process.env.TWILIO_AUTH_TOKEN,
-      serviceSid: process.env.TWILIO_SERVICE_SID,
     },
     email: {
       enabled: !!process.env.EMAIL_HOST,
