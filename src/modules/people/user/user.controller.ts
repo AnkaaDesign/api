@@ -10,7 +10,12 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
+import { ArrayFixPipe } from '@modules/common/pipes/array-fix.pipe';
 import { UserService } from './user.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -85,12 +90,14 @@ export class UserController {
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('avatar', multerConfig))
   async create(
-    @Body(new ZodValidationPipe(userCreateSchema)) data: UserCreateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(userCreateSchema)) data: UserCreateFormData,
     @Query(new ZodQueryValidationPipe(userQuerySchema)) query: UserQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() avatar?: Express.Multer.File,
   ): Promise<UserCreateResponse> {
-    return this.userService.create(data, query.include, userId);
+    return this.userService.create(data, query.include, userId, avatar);
   }
 
   // Batch Operations (must come before dynamic routes)
@@ -164,13 +171,23 @@ export class UserController {
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
+  @UseInterceptors(FileInterceptor('avatar', multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(userUpdateSchema)) data: UserUpdateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(userUpdateSchema)) data: UserUpdateFormData,
     @Query(new ZodQueryValidationPipe(userQuerySchema)) query: UserQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() avatar?: Express.Multer.File,
   ): Promise<UserUpdateResponse> {
-    return this.userService.update(id, data, query.include, userId);
+    console.log('[UserController.update] Avatar file received:', {
+      hasAvatar: !!avatar,
+      fileName: avatar?.originalname,
+      fileSize: avatar?.size,
+      mimetype: avatar?.mimetype,
+      fieldname: avatar?.fieldname,
+      userId: id,
+    });
+    return this.userService.update(id, data, query.include, userId, avatar);
   }
 
   @Delete(':id')

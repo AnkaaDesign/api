@@ -716,24 +716,4 @@ export class PpeDeliverySchedulePrismaRepository
     }
   }
 
-  async findSchedulesForReschedule(tx?: PrismaTransaction): Promise<PpeDeliverySchedule[]> {
-    try {
-      const client = tx || this.prisma;
-      const results = await client.ppeDeliverySchedule.findMany({
-        where: {
-          isActive: true,
-          rescheduleCount: {
-            gt: 0,
-          },
-        },
-        include: this.getDefaultInclude(),
-        orderBy: [{ lastRescheduleDate: 'desc' }],
-      });
-
-      return results.map(result => this.mapDatabaseEntityToEntity(result));
-    } catch (error) {
-      this.logError('buscar agendamentos PPE para reagendar', error);
-      throw error;
-    }
-  }
 }

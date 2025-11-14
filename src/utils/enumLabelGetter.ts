@@ -49,7 +49,6 @@ import {
   USER_STATUS_LABELS,
   VACATION_STATUS_LABELS,
   VACATION_TYPE_LABELS,
-  RESCHEDULE_REASON_LABELS,
   CHANGE_LOG_ENTITY_TYPE_LABELS,
   CHANGE_LOG_ACTION_LABELS,
   NOTIFICATION_ACTION_TYPE_LABELS,
@@ -71,7 +70,6 @@ import {
   USER_STATUS,
   VACATION_STATUS,
   VACATION_TYPE,
-  RESCHEDULE_REASON,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   NOTIFICATION_ACTION_TYPE,
@@ -134,15 +132,6 @@ export function getVacationStatusLabel(status: VACATION_STATUS): string {
  */
 export function getVacationTypeLabel(type: VACATION_TYPE): string {
   return VACATION_TYPE_LABELS[type] || type;
-}
-
-/**
- * Get the display label for a reschedule reason
- * @param reason - The reschedule reason enum value
- * @returns The localized label for the reason
- */
-export function getRescheduleReasonLabel(reason: RESCHEDULE_REASON): string {
-  return RESCHEDULE_REASON_LABELS[reason] || reason;
 }
 
 /**

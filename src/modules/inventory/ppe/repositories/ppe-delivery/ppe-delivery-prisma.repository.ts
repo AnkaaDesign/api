@@ -176,6 +176,9 @@ export class PpeDeliveryPrismaRepository
     options?: CreateOptions<PpeDeliveryInclude>,
   ): Promise<PpeDelivery> {
     try {
+      // Validate stock availability before creating delivery
+      await this.validateStockAvailability(transaction, data.itemId, data.quantity);
+
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
@@ -189,6 +192,56 @@ export class PpeDeliveryPrismaRepository
     } catch (error) {
       this.logError('criar entrega PPE', error, { data });
       throw error;
+    }
+  }
+
+  /**
+   * Validates if there's enough stock available for a delivery
+   * Takes into account existing pending/approved deliveries
+   */
+  private async validateStockAvailability(
+    transaction: PrismaTransaction,
+    itemId: string,
+    requestedQuantity: number,
+  ): Promise<void> {
+    // Get the item with its current quantity
+    const item = await transaction.item.findUnique({
+      where: { id: itemId },
+      select: {
+        id: true,
+        name: true,
+        quantity: true,
+        uniCode: true,
+      },
+    });
+
+    if (!item) {
+      throw new Error(`Item não encontrado: ${itemId}`);
+    }
+
+    // Calculate reserved quantity from pending/approved deliveries (not yet delivered)
+    const reservedQuantityResult = await transaction.ppeDelivery.aggregate({
+      where: {
+        itemId: itemId,
+        status: {
+          in: ['PENDING', 'APPROVED'], // Only count deliveries that haven't been delivered yet
+        },
+      },
+      _sum: {
+        quantity: true,
+      },
+    });
+
+    const reservedQuantity = reservedQuantityResult._sum.quantity || 0;
+    const availableQuantity = item.quantity - reservedQuantity;
+
+    // Validate requested quantity against available (not total) stock
+    if (requestedQuantity > availableQuantity) {
+      const itemName = item.name || item.uniCode || itemId;
+      throw new Error(
+        `Quantidade solicitada (${requestedQuantity}) excede o estoque disponível (${availableQuantity}) para o item "${itemName}". ` +
+        `Estoque total: ${item.quantity}, Reservado: ${reservedQuantity}`
+      );
     }
   }
 

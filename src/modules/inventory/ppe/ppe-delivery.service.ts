@@ -571,23 +571,6 @@ export class PpeDeliveryService {
       undefined,
       userId,
     );
-
-    // Log additional information about size in the change log for PPE delivery tracking
-    if (sizeInfo || ppeType) {
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.PPE_DELIVERY,
-        entityId: delivery.id,
-        action: CHANGE_ACTION.CREATE,
-        field: 'ppe_info',
-        oldValue: null,
-        newValue: { size: sizeInfo, type: ppeType, quantity: delivery.quantity },
-        reason: `Entrega de PPE${sizeInfo ? ` - Tamanho: ${sizeInfo}` : ''}${ppeType ? ` - Tipo: ${ppeType}` : ''} - Quantidade: ${delivery.quantity} - Usuário: ${delivery.userId}`,
-        triggeredBy: CHANGE_TRIGGERED_BY.PPE_DELIVERY,
-        triggeredById: delivery.id,
-        userId: userId || null,
-        transaction: transaction,
-      });
-    }
   }
 
   private calculateNextScheduledDate(schedule: any, currentDate: Date = new Date()): Date {
@@ -978,7 +961,22 @@ export class PpeDeliveryService {
     userId?: string,
   ): Promise<PpeDeliveryBatchCreateResponse<PpeDeliveryCreateFormData>> {
     return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      const result = await this.repository.createMany(data.ppeDeliveries, { include });
+      // Always include item and user for proper display in frontend
+      const defaultInclude: PpeDeliveryInclude = {
+        item: true,
+        user: {
+          include: {
+            position: true,
+            sector: true,
+          },
+        },
+        reviewedByUser: true,
+        ppeSchedule: true,
+      };
+
+      const result = await this.repository.createMany(data.ppeDeliveries, {
+        include: include || defaultInclude,
+      });
 
       // Log successful creations
       for (const delivery of result.success) {
@@ -995,18 +993,65 @@ export class PpeDeliveryService {
         });
       }
 
-      return {
-        success: true,
-        message: `${result.totalCreated} entregas de PPE criadas com sucesso. ${result.totalFailed} falharam.`,
-        data: {
-          success: result.success,
-          failed: result.failed.map((error, idx) => ({
+      // Enrich success data with extracted fields for frontend
+      const enrichedSuccess = result.success.map((delivery: any) => ({
+        ...delivery,
+        itemName: delivery.item?.name || delivery.item?.uniCode || 'Item desconhecido',
+        userName: delivery.user?.name || 'Funcionário desconhecido',
+        quantity: delivery.quantity,
+      }));
+
+      // Enrich failed data with item and user names from original request
+      const enrichedFailed = await Promise.all(
+        result.failed.map(async (error, idx) => {
+          const originalData = data.ppeDeliveries[error.index ?? idx];
+          let itemName = 'Item desconhecido';
+          let userName = 'Funcionário desconhecido';
+
+          // Try to fetch item and user names
+          if (originalData?.itemId) {
+            try {
+              const item = await transaction.item.findUnique({
+                where: { id: originalData.itemId },
+                select: { name: true, uniCode: true },
+              });
+              itemName = item?.name || item?.uniCode || itemName;
+            } catch (e) {
+              // Keep default
+            }
+          }
+
+          if (originalData?.userId) {
+            try {
+              const user = await transaction.user.findUnique({
+                where: { id: originalData.userId },
+                select: { name: true },
+              });
+              userName = user?.name || userName;
+            } catch (e) {
+              // Keep default
+            }
+          }
+
+          return {
             index: error.index ?? idx,
             id: error.id,
             error: error.error,
             errorCode: error.errorCode,
             data: error.data,
-          })),
+            itemName,
+            userName,
+            quantity: originalData?.quantity,
+          };
+        })
+      );
+
+      return {
+        success: true,
+        message: `${result.totalCreated} entregas de PPE criadas com sucesso. ${result.totalFailed} falharam.`,
+        data: {
+          success: enrichedSuccess,
+          failed: enrichedFailed,
           totalProcessed: result.totalCreated + result.totalFailed,
           totalSuccess: result.totalCreated,
           totalFailed: result.totalFailed,
@@ -1233,28 +1278,6 @@ export class PpeDeliveryService {
         fieldsToTrack: ['status', 'reviewedBy', 'actualDeliveryDate'],
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        transaction: transaction,
-      });
-
-      // Log special event for delivery completion
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.PPE_DELIVERY,
-        entityId: updatedDelivery.id,
-        action: CHANGE_ACTION.COMPLETE,
-        field: 'delivery_completed',
-        oldValue: null,
-        newValue: {
-          itemName: updatedDelivery.item?.name,
-          userName: updatedDelivery.user?.name,
-          quantity: updatedDelivery.quantity,
-          deliveredAt: actualDeliveryDate,
-          size: sizeInfo,
-          ppeType: ppeType,
-        },
-        reason: `EPI entregue para ${updatedDelivery.user?.name || 'usuário'} - ${updatedDelivery.quantity} un de ${updatedDelivery.item?.name || 'item'}`,
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: updatedDelivery.id,
-        userId: userId || null,
         transaction: transaction,
       });
 
@@ -2183,60 +2206,4 @@ export class PpeDeliveryService {
     };
   }
 
-  async rescheduleDelivery(
-    id: string,
-    newScheduledDate: Date,
-    reason?: string,
-    userId?: string,
-  ): Promise<PpeDeliveryUpdateResponse> {
-    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      const delivery = await this.repository.findById(id);
-
-      if (!delivery) {
-        throw new NotFoundException(
-          'Entrega de PPE não encontrada. Verifique se o ID está correto.',
-        );
-      }
-
-      if (delivery.actualDeliveryDate) {
-        throw new BadRequestException('Não é possível reagendar uma entrega já realizada.');
-      }
-
-      if (!delivery.ppeScheduleId) {
-        throw new BadRequestException('Apenas entregas agendadas podem ser reagendadas.');
-      }
-
-      // Validate new scheduled date
-      if (newScheduledDate <= new Date()) {
-        throw new BadRequestException('A nova data agendada deve ser no futuro.');
-      }
-
-      const updatedDelivery = await this.repository.updateWithTransaction(
-        transaction,
-        id,
-        { scheduledDate: newScheduledDate },
-        { include: { ppeSchedule: true, item: true, user: true } },
-      );
-
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.PPE_DELIVERY,
-        entityId: updatedDelivery.id,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'reschedule',
-        oldValue: { scheduledDate: delivery.scheduledDate },
-        newValue: { scheduledDate: newScheduledDate, reason },
-        reason: reason || 'Entrega de PPE reagendada',
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: updatedDelivery.id,
-        userId: userId || null,
-        transaction: transaction,
-      });
-
-      return {
-        success: true,
-        message: `Entrega reagendada para ${newScheduledDate.toLocaleDateString('pt-BR')}.`,
-        data: updatedDelivery,
-      };
-    });
-  }
 }

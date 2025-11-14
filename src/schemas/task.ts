@@ -298,7 +298,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 task: z.boolean().optional(),
                 garage: z.boolean().optional(),
-                lane: z.boolean().optional(),
                 leftSideLayout: z
                   .union([
                     z.boolean(),
@@ -398,8 +397,6 @@ export const taskOrderBySchema = z
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
       serialNumber: orderByDirectionSchema.optional(),
-      chassisNumber: orderByDirectionSchema.optional(),
-      plate: orderByDirectionSchema.optional(),
       entryDate: orderByDirectionSchema.optional(),
       term: orderByDirectionSchema.optional(),
       startedAt: orderByDirectionSchema.optional(),
@@ -414,13 +411,11 @@ export const taskOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         serialNumber: orderByDirectionSchema.optional(),
-        chassisNumber: orderByDirectionSchema.optional(),
-        plate: orderByDirectionSchema.optional(),
         entryDate: orderByDirectionSchema.optional(),
         term: orderByDirectionSchema.optional(),
         startedAt: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
-          createdAt: orderByDirectionSchema.optional(),
+        createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       }),
     ),
@@ -442,8 +437,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       status: z.union([z.nativeEnum(TASK_STATUS), z.object({ in: z.array(z.nativeEnum(TASK_STATUS)).optional() })]).optional(),
       statusOrder: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      chassisNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      plate: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       commission: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
       entryDate: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
@@ -557,8 +550,6 @@ const taskTransform = (data: any): any => {
         // Direct task fields
         { name: { contains: searchTerm, mode: "insensitive" } },
         { serialNumber: { contains: searchTerm, mode: "insensitive" } },
-        { chassisNumber: { contains: searchTerm, mode: "insensitive" } },
-        { plate: { contains: searchTerm, mode: "insensitive" } },
         { details: { contains: searchTerm, mode: "insensitive" } },
         // Related entities
         { customer: { fantasyName: { contains: searchTerm, mode: "insensitive" } } },
@@ -575,7 +566,10 @@ const taskTransform = (data: any): any => {
         { generalPainting: { code: { contains: searchTerm, mode: "insensitive" } } },
         { logoPaints: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
         { logoPaints: { some: { code: { contains: searchTerm, mode: "insensitive" } } } },
-        // Truck garage search
+        // Truck search - plate, model, chassisNumber
+        { truck: { plate: { contains: searchTerm, mode: "insensitive" } } },
+        { truck: { model: { contains: searchTerm, mode: "insensitive" } } },
+        { truck: { chassisNumber: { contains: searchTerm, mode: "insensitive" } } },
         { truck: { garage: { name: { contains: searchTerm, mode: "insensitive" } } } },
       ],
     });
@@ -1336,19 +1330,6 @@ export const taskCreateSchema = z
       .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
         message: "Número de série deve conter apenas letras maiúsculas, números e hífens",
       }),
-    chassisNumber: z
-      .string()
-      .optional()
-      .nullable()
-      .transform((val) => (val === "" ? null : val)),
-    plate: z
-      .string()
-      .optional()
-      .nullable()
-      .transform((val) => (val === "" ? null : val))
-      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
-        message: "A placa deve conter apenas letras maiúsculas, números e hífens",
-      }),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),
@@ -1449,15 +1430,6 @@ export const taskUpdateSchema = z
     serialNumber: z
       .string()
       .regex(/^[A-Z0-9-]+$/, "Número de série deve conter apenas letras maiúsculas, números e hífens")
-      .nullable()
-      .optional(),
-    chassisNumber: z
-      .string()
-      .nullable()
-      .optional(),
-    plate: z
-      .string()
-      .regex(/^[A-Z0-9-]+$/, "A placa deve conter apenas letras maiúsculas, números e hífens")
       .nullable()
       .optional(),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
@@ -1618,8 +1590,6 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   status: task.status,
   statusOrder: task.statusOrder || undefined,
   serialNumber: task.serialNumber,
-  chassisNumber: task.chassisNumber,
-  plate: task.plate,
   details: task.details,
   entryDate: task.entryDate,
   term: task.term,
@@ -1649,7 +1619,6 @@ export const taskPositionUpdateSchema = z.object({
   xPosition: z.number().nullable().optional(),
   yPosition: z.number().nullable().optional(),
   garageId: z.string().uuid().nullable().optional(),
-  laneId: z.string().uuid().nullable().optional(),
 });
 
 export type TaskPositionUpdateFormData = z.infer<typeof taskPositionUpdateSchema>;
@@ -1662,7 +1631,6 @@ export const taskBulkPositionUpdateSchema = z.object({
       xPosition: z.number().nullable().optional(),
       yPosition: z.number().nullable().optional(),
       garageId: z.string().uuid().nullable().optional(),
-      laneId: z.string().uuid().nullable().optional(),
     })
   ),
 });

@@ -46,6 +46,7 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
+import { MaintenanceScheduleService } from './maintenance-schedule.service';
 
 @Injectable()
 export class MaintenanceService {
@@ -57,6 +58,8 @@ export class MaintenanceService {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => ActivityService))
     private readonly activityService: ActivityService,
+    @Inject(forwardRef(() => MaintenanceScheduleService))
+    private readonly maintenanceScheduleService: MaintenanceScheduleService,
   ) {}
 
   // =====================
@@ -272,8 +275,6 @@ export class MaintenanceService {
         const existing = await this.maintenanceRepository.findById(id, {
           include: {
             item: true,
-            truck: true,
-            mechanic: true,
             maintenanceSchedule: true,
             itemsNeeded: true,
           },
@@ -305,7 +306,8 @@ export class MaintenanceService {
           // Starting maintenance - set startedAt
           if (
             data.status === MAINTENANCE_STATUS.IN_PROGRESS &&
-            existing.status === MAINTENANCE_STATUS.PENDING
+            (existing.status === MAINTENANCE_STATUS.PENDING ||
+              existing.status === MAINTENANCE_STATUS.OVERDUE)
           ) {
             (data as any).startedAt = new Date();
           }
@@ -321,7 +323,7 @@ export class MaintenanceService {
             // Calculate time taken if we have a start time
             if (existing.startedAt) {
               const timeTakenMs = finishedAt.getTime() - new Date(existing.startedAt).getTime();
-              (data as any).timeTaken = Math.round(timeTakenMs / 60000); // Convert to minutes
+              (data as any).timeTaken = Math.round(timeTakenMs / 1000); // Convert to seconds
             }
 
             await this.handleMaintenanceCompletion(existing, userId, tx);
@@ -635,8 +637,6 @@ export class MaintenanceService {
             const existing = await this.maintenanceRepository.findById(item.id, {
               include: {
                 item: true,
-                truck: true,
-                mechanic: true,
                 maintenanceSchedule: true,
                 itemsNeeded: true,
               },
@@ -1197,9 +1197,13 @@ export class MaintenanceService {
         `Notifying schedule ${maintenanceScheduleId} of maintenance completion: ${completedMaintenance.id}`,
       );
 
-      // TODO: This should call the MaintenanceSchedule service to handle next occurrence creation
-      // For now, we'll just log the completion and let the MaintenanceSchedule service
-      // handle the logic for determining when to create the next maintenance
+      // Call the MaintenanceSchedule service to handle next occurrence creation
+      await this.maintenanceScheduleService.handleMaintenanceCompletion(
+        maintenanceScheduleId,
+        completedMaintenance,
+        userId,
+        tx,
+      );
 
       // Log the schedule notification in changelog
       await this.changelogService.logChange({
@@ -1209,7 +1213,7 @@ export class MaintenanceService {
         field: 'scheduleNotification',
         oldValue: null,
         newValue: maintenanceScheduleId,
-        reason: `Cronograma ${maintenanceScheduleId} notificado da conclusão da manutenção`,
+        reason: `Cronograma ${maintenanceScheduleId} notificado da conclusão da manutenção e próxima manutenção criada`,
         triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULE,
         triggeredById: maintenanceScheduleId,
         userId: userId || null,
@@ -1217,7 +1221,7 @@ export class MaintenanceService {
       });
 
       this.logger.log(
-        `Successfully notified schedule ${maintenanceScheduleId} of maintenance completion`,
+        `Successfully notified schedule ${maintenanceScheduleId} of maintenance completion and created next maintenance`,
       );
     } catch (error) {
       this.logger.error(`Failed to notify schedule ${maintenanceScheduleId} of completion:`, error);

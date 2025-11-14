@@ -80,6 +80,7 @@ export class UserPrismaRepository
       positionId,
       sectorId,
       managedSectorId,
+      avatarId,
       ppeSize,
       notificationPreferences,
       userId,
@@ -111,6 +112,10 @@ export class UserPrismaRepository
       createInput.managedSector = { connect: { id: managedSectorId } };
     }
 
+    if (avatarId) {
+      createInput.avatar = { connect: { id: avatarId } };
+    }
+
     // Handle nested creates
     if (ppeSize) {
       createInput.ppeSize = {
@@ -139,6 +144,7 @@ export class UserPrismaRepository
       positionId,
       sectorId,
       managedSectorId,
+      avatarId,
       preferences,
       userId,
       status,
@@ -178,6 +184,10 @@ export class UserPrismaRepository
       updateInput.managedSector = managedSectorId
         ? { connect: { id: managedSectorId } }
         : { disconnect: true };
+    }
+
+    if (avatarId !== undefined) {
+      updateInput.avatar = avatarId ? { connect: { id: avatarId } } : { disconnect: true };
     }
 
     // Handle preferences update

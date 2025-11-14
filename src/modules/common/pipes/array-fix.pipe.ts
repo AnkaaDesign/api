@@ -33,8 +33,9 @@ export class ArrayFixPipe implements PipeTransform {
       return obj.map(item => this.fixArrays(item));
     }
 
-    // Handle JSON strings (from FormData)
+    // Handle JSON strings and type conversion (from FormData)
     if (typeof obj === 'string') {
+      // Try to parse as JSON first (arrays, objects)
       try {
         const parsed = JSON.parse(obj);
         // Only process if it's an object or array
@@ -42,9 +43,35 @@ export class ArrayFixPipe implements PipeTransform {
           return this.fixArrays(parsed);
         }
       } catch (e) {
-        // Not JSON, return as-is
-        return obj;
+        // Not JSON, try type conversion
       }
+
+      // Convert boolean strings
+      if (obj === 'true') return true;
+      if (obj === 'false') return false;
+
+      // Convert null string
+      if (obj === 'null') return null;
+
+      // Convert numeric strings (but keep long numbers that are likely IDs/phones/CPF/PIS)
+      // Only convert short numbers (1-9 digits) without leading zeros
+      // Keep long numeric strings (10+ digits) as strings since they're likely identifiers
+      if (/^-?\d+(\.\d+)?$/.test(obj)) {
+        // Don't convert if has leading zero (except '0' itself or decimals)
+        if (obj.length > 1 && obj[0] === '0' && obj[1] !== '.') {
+          return obj;
+        }
+
+        // Don't convert long numbers (10+ digits) - they're likely IDs, phones, CPF, PIS, etc.
+        if (obj.replace(/[.-]/g, '').length >= 10) {
+          return obj;
+        }
+
+        // Convert short numbers (performance levels, counts, etc.)
+        const num = Number(obj);
+        if (!isNaN(num)) return num;
+      }
+
       return obj;
     }
 

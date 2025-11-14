@@ -769,7 +769,7 @@ export class PayrollService {
         isLive: true,
         totalTasks: userBonus?.totalTasks || 0,
         weightedTaskCount: userBonus?.weightedTaskCount || 0,
-        totalUsers: payrollData.totalActiveUsers || 0, // Total eligible users (CONTRACTED + bonifiable + performance > 0)
+        totalUsers: payrollData.totalActiveUsers || 0, // Total eligible users (EFFECTED + bonifiable + performance > 0)
       };
     } catch (error) {
       this.logger.error('Error calculating live bonus data:', error);
