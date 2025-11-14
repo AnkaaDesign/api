@@ -48,7 +48,9 @@ import {
 } from '../../../constants/enums';
 import { USER_STATUS_ORDER } from '../../../constants/sortOrders';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
+import { FileService } from '@modules/common/file/file.service';
 import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
+import { unlinkSync, existsSync } from 'fs';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -59,6 +61,7 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly userRepository: UserRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
     private readonly folderRenameService: FolderRenameService,
   ) {}
 
@@ -126,10 +129,11 @@ export class UserService {
         }
         break;
 
-      case USER_STATUS.CONTRACTED:
-        // Set contractedAt if not provided
-        if (!data.contractedAt) {
-          (data as any).contractedAt = now;
+      case USER_STATUS.EFFECTED:
+        // Set effectedAt (exp1StartAt) if not provided
+        // Note: effectedAt field will be kept for now but represents the actual contract date (exp1StartAt)
+        if (!data.effectedAt) {
+          (data as any).effectedAt = now;
         }
         break;
 
@@ -552,16 +556,16 @@ export class UserService {
       // Primeiro período de experiência (45 dias)
       [USER_STATUS.EXPERIENCE_PERIOD_1]: [
         USER_STATUS.EXPERIENCE_PERIOD_2, // Progride para segundo período
-        USER_STATUS.CONTRACTED, // Pode ser efetivado diretamente
+        USER_STATUS.EFFECTED, // Pode ser efetivado diretamente
         USER_STATUS.DISMISSED, // Pode ser demitido
       ],
       // Segundo período de experiência (45 dias)
       [USER_STATUS.EXPERIENCE_PERIOD_2]: [
-        USER_STATUS.CONTRACTED, // Progride para contratado
+        USER_STATUS.EFFECTED, // Progride para efetivado
         USER_STATUS.DISMISSED, // Pode ser demitido
       ],
-      // Contratado (efetivo)
-      [USER_STATUS.CONTRACTED]: [
+      // Efetivado (contratado permanente)
+      [USER_STATUS.EFFECTED]: [
         USER_STATUS.DISMISSED, // Pode ser demitido
         // Note: CANNOT go back to experience periods per Brazilian law
       ],
@@ -590,12 +594,43 @@ export class UserService {
   }
 
   /**
+   * Process avatar file upload
+   */
+  private async processAvatarFile(
+    avatarFile: Express.Multer.File,
+    userId: string,
+    userName: string,
+    tx: PrismaTransaction,
+    triggeredBy?: string,
+  ): Promise<string> {
+    try {
+      const fileRecord = await this.fileService.createFromUploadWithTransaction(
+        tx,
+        avatarFile,
+        'userAvatar',
+        triggeredBy,
+        {
+          entityId: userId,
+          entityType: 'user',
+          userName,
+        },
+      );
+      this.logger.log(`Avatar file created and moved to WebDAV: ${fileRecord.path}`);
+      return fileRecord.id;
+    } catch (error: any) {
+      this.logger.error(`Failed to process avatar file: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Criar novo usuário
    */
   async create(
     data: UserCreateFormData,
     include?: UserInclude,
     userId?: string,
+    avatarFile?: Express.Multer.File,
   ): Promise<UserCreateResponse> {
     try {
       const user = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -619,8 +654,26 @@ export class UserService {
         // Set initial status timestamps and calculate dates
         this.setInitialStatusTimestamps(data, status);
 
+        // Process avatar file if provided
+        let avatarId: string | null = data.avatarId || null;
+        if (avatarFile) {
+          try {
+            avatarId = await this.processAvatarFile(avatarFile, '', data.name, tx, userId);
+          } catch (fileError: any) {
+            this.logger.error(`Avatar file processing failed: ${fileError.message}`);
+            if (existsSync(avatarFile.path)) {
+              unlinkSync(avatarFile.path);
+            }
+            throw new BadRequestException('Erro ao processar arquivo de avatar.');
+          }
+        }
+
         // Criar o usuário
-        const newUser = await this.userRepository.createWithTransaction(tx, data, { include });
+        const newUser = await this.userRepository.createWithTransaction(
+          tx,
+          { ...data, avatarId },
+          { include },
+        );
 
         // Registrar no changelog
         await logEntityChange({
@@ -679,6 +732,7 @@ export class UserService {
     data: UserUpdateFormData,
     include?: UserInclude,
     userId?: string,
+    avatarFile?: Express.Multer.File,
   ): Promise<UserUpdateResponse> {
     try {
       const updatedUser = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -720,15 +774,15 @@ export class UserService {
           }
         }
 
-        // Prevent CONTRACTED users from being set to experience periods (additional check)
+        // Prevent EFFECTED users from being set to experience periods (additional check)
         if (
-          existingUser.status === USER_STATUS.CONTRACTED &&
+          existingUser.status === USER_STATUS.EFFECTED &&
           data.status &&
           (data.status === USER_STATUS.EXPERIENCE_PERIOD_1 ||
             data.status === USER_STATUS.EXPERIENCE_PERIOD_2)
         ) {
           throw new BadRequestException(
-            'Colaboradores contratados não podem ser alterados para períodos de experiência conforme a CLT.',
+            'Colaboradores efetivados não podem ser alterados para períodos de experiência conforme a CLT.',
           );
         }
 
@@ -787,8 +841,41 @@ export class UserService {
           (data as any).sessionToken = null;
         }
 
+        // Process avatar file if provided
+        let avatarId: string | null | undefined = data.avatarId;
+        if (avatarFile) {
+          try {
+            // Delete old avatar file before uploading new one
+            if (existingUser.avatarId) {
+              try {
+                await this.fileService.delete(existingUser.avatarId, userId);
+                this.logger.log(`Deleted old avatar file: ${existingUser.avatarId}`);
+              } catch (deleteError: any) {
+                this.logger.warn(`Failed to delete old avatar: ${deleteError.message}`);
+              }
+            }
+
+            // Process new avatar file
+            avatarId = await this.processAvatarFile(avatarFile, id, existingUser.name, tx, userId);
+          } catch (fileError: any) {
+            this.logger.error(`Avatar file processing failed: ${fileError.message}`);
+            if (existsSync(avatarFile.path)) {
+              unlinkSync(avatarFile.path);
+            }
+            throw new BadRequestException('Erro ao processar arquivo de avatar.');
+          }
+        }
+
+        // Prepare data for database update
+        // Remove currentStatus (validation-only field) and other non-database fields
+        const { currentStatus, ...dataForDb } = data as any;
+        const dbUpdateData = avatarFile ? { ...dataForDb, avatarId } : dataForDb;
+
         // Prepare update data for tracking
         const updateData: any = { ...data };
+        if (avatarFile) {
+          updateData.avatarId = avatarId;
+        }
 
         // Handle password separately for security
         if (data.password) {
@@ -796,9 +883,14 @@ export class UserService {
         }
 
         // Atualizar o usuário
-        const updatedUser = await this.userRepository.updateWithTransaction(tx, id, data, {
-          include,
-        });
+        const updatedUser = await this.userRepository.updateWithTransaction(
+          tx,
+          id,
+          dbUpdateData,
+          {
+            include,
+          },
+        );
 
         // Track individual field changes
         const fieldsToTrack = [
@@ -1067,8 +1159,8 @@ export class UserService {
                 statusTimestamps.exp2EndAt = exp2End;
                 break;
 
-              case USER_STATUS.CONTRACTED:
-                statusTimestamps.contractedAt = now;
+              case USER_STATUS.EFFECTED:
+                statusTimestamps.effectedAt = now;
                 break;
 
               case USER_STATUS.DISMISSED:
@@ -1261,8 +1353,8 @@ export class UserService {
                   processedData.exp2EndAt = exp2End;
                   break;
 
-                case USER_STATUS.CONTRACTED:
-                  processedData.contractedAt = now;
+                case USER_STATUS.EFFECTED:
+                  processedData.effectedAt = now;
                   break;
 
                 case USER_STATUS.DISMISSED:
@@ -1665,12 +1757,12 @@ export class UserService {
    *
    * Status transitions:
    * - EXPERIENCE_PERIOD_1 -> EXPERIENCE_PERIOD_2 (when exp1EndAt is today)
-   * - EXPERIENCE_PERIOD_2 -> CONTRACTED (when exp2EndAt is today)
+   * - EXPERIENCE_PERIOD_2 -> EFFECTED (when exp2EndAt is today)
    */
   async processExperiencePeriodTransitions(userId: string = 'system'): Promise<{
     totalProcessed: number;
     exp1ToExp2: number;
-    exp2ToContracted: number;
+    exp2ToEffected: number;
     errors: Array<{ userId: string; error: string }>;
   }> {
     this.logger.log('Starting automatic experience period status transitions...');
@@ -1678,7 +1770,7 @@ export class UserService {
     const result = {
       totalProcessed: 0,
       exp1ToExp2: 0,
-      exp2ToContracted: 0,
+      exp2ToEffected: 0,
       errors: [] as Array<{ userId: string; error: string }>,
     };
 
@@ -1776,18 +1868,18 @@ export class UserService {
 
       this.logger.log(`Found ${usersEndingExp2.length} users ending Experience Period 2 today`);
 
-      // Transition users from exp2 to contracted
+      // Transition users from exp2 to effected
       for (const user of usersEndingExp2) {
         try {
           await this.prisma.$transaction(async (tx: PrismaTransaction) => {
             const existingUser = user;
 
-            // Update user status to CONTRACTED
+            // Update user status to EFFECTED
             const updatedUser = await tx.user.update({
               where: { id: user.id },
               data: {
-                status: USER_STATUS.CONTRACTED,
-                contractedAt: today,
+                status: USER_STATUS.EFFECTED,
+                effectedAt: today,
                 updatedAt: new Date(),
               },
             });
@@ -1799,7 +1891,7 @@ export class UserService {
               action: CHANGE_ACTION.UPDATE,
               field: 'status',
               oldValue: USER_STATUS.EXPERIENCE_PERIOD_2,
-              newValue: USER_STATUS.CONTRACTED,
+              newValue: USER_STATUS.EFFECTED,
               reason: 'Transição automática: Período de Experiência 2 finalizado',
               triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
               triggeredById: user.id,
@@ -1808,27 +1900,27 @@ export class UserService {
             });
 
             this.logger.log(
-              `User ${user.name} (${user.id}) transitioned from EXP2 to CONTRACTED`
+              `User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED`
             );
           });
 
-          result.exp2ToContracted++;
+          result.exp2ToEffected++;
           result.totalProcessed++;
         } catch (error: any) {
           this.logger.error(
-            `Failed to transition user ${user.id} from EXP2 to CONTRACTED:`,
+            `Failed to transition user ${user.id} from EXP2 to EFFECTED:`,
             error
           );
           result.errors.push({
             userId: user.id,
-            error: error.message || 'Unknown error during exp2->contracted transition',
+            error: error.message || 'Unknown error during exp2->effected transition',
           });
         }
       }
 
       this.logger.log(
         `Experience period transitions completed. Total processed: ${result.totalProcessed}, ` +
-        `EXP1->EXP2: ${result.exp1ToExp2}, EXP2->CONTRACTED: ${result.exp2ToContracted}, ` +
+        `EXP1->EXP2: ${result.exp1ToExp2}, EXP2->EFFECTED: ${result.exp2ToEffected}, ` +
         `Errors: ${result.errors.length}`
       );
 

@@ -262,6 +262,7 @@ export class MaintenanceController {
   ): Promise<MaintenanceUpdateResponse> {
     return this.maintenanceService.finish(id, query.include, userId);
   }
+
 }
 
 @Controller('maintenance-items')
@@ -484,6 +485,7 @@ export class MaintenanceScheduleController {
     return this.maintenanceScheduleService.batchDelete(data, userId);
   }
 
+  // =====================
   // =====================
   // Dynamic routes (must come after static routes)
   // =====================

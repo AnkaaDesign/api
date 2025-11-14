@@ -59,7 +59,7 @@ export function getUserStatusColor(status: USER_STATUS): string {
   const colors: Record<USER_STATUS, string> = {
     [USER_STATUS.EXPERIENCE_PERIOD_1]: "orange",
     [USER_STATUS.EXPERIENCE_PERIOD_2]: "orange",
-    [USER_STATUS.CONTRACTED]: "green",
+    [USER_STATUS.EFFECTED]: "green",
     [USER_STATUS.DISMISSED]: "gray",
   };
   return colors[status] || "default";
@@ -193,7 +193,7 @@ export function groupUsersByStatus(users: User[]): Record<USER_STATUS, User[]> {
   const groups = {
     [USER_STATUS.EXPERIENCE_PERIOD_1]: [],
     [USER_STATUS.EXPERIENCE_PERIOD_2]: [],
-    [USER_STATUS.CONTRACTED]: [],
+    [USER_STATUS.EFFECTED]: [],
     [USER_STATUS.DISMISSED]: [],
   } as Record<USER_STATUS, User[]>;
 
@@ -343,13 +343,13 @@ export function canAccessTeamManagement(user: User): boolean {
 
 /**
  * Check if user is eligible for bonus calculation based on:
- * 1. user.status === CONTRACTED (not in experience period or dismissed)
+ * 1. user.status === EFFECTED (not in experience period or dismissed)
  * 2. user.performanceLevel > 0
  * 3. position.bonifiable === true
  */
 export function isUserEligibleForBonus(user: User): boolean {
-  // Check if user is CONTRACTED (not in experience period or dismissed)
-  if (user.status !== USER_STATUS.CONTRACTED) {
+  // Check if user is EFFECTED (not in experience period or dismissed)
+  if (user.status !== USER_STATUS.EFFECTED) {
     return false;
   }
 

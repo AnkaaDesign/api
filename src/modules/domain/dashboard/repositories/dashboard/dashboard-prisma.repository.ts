@@ -2381,54 +2381,37 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
   async getGarageUtilizationMetrics(garageId?: string): Promise<{
     totalGarages: number;
-    totalLanes: number;
     totalParkingSpots: number;
     occupiedSpots: number;
     spotsByGarage: DashboardChartData;
   }> {
     const where = garageId ? { id: garageId } : {};
 
-    const [garages, spots] = await Promise.all([
-      this.prisma.garage.findMany({
-        where,
-        include: {
-          _count: { select: { lanes: true } },
-          lanes: {
-            include: {
-              _count: { select: { parkingSpots: true } },
-            },
-          },
-        },
-      }),
-      this.prisma.parkingSpot.count({
-        where: {
-          garageLane: {
-            garage: where,
-          },
-        },
-      }),
-    ]);
+    const garages = await this.prisma.garage.findMany({
+      where,
+      include: {
+        _count: { select: { trucks: true } },
+      },
+    });
 
     const totalGarages = garages.length;
-    const totalLanes = garages.reduce((sum, garage) => sum + garage._count.lanes, 0);
-    const totalParkingSpots = spots;
+    const totalParkingSpots = garages.reduce((sum, garage) => sum + garage._count.trucks, 0);
 
     const spotsByGarage: DashboardChartData = {
       labels: garages.map(g => g.name),
       datasets: [
         {
-          label: 'Vagas por Garagem',
-          data: garages.map(g => g.lanes.reduce((sum, lane) => sum + lane._count.parkingSpots, 0)),
+          label: 'Caminhões por Garagem',
+          data: garages.map(g => g._count.trucks),
         },
       ],
     };
 
-    // Mock occupied spots - implement based on actual truck positions
-    const occupiedSpots = Math.floor(totalParkingSpots * 0.3);
+    // Calculate occupied spots based on actual truck count
+    const occupiedSpots = totalParkingSpots;
 
     return {
       totalGarages,
-      totalLanes,
       totalParkingSpots,
       occupiedSpots,
       spotsByGarage,

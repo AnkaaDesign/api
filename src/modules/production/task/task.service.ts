@@ -122,13 +122,16 @@ export class TaskService {
         if (data.truckLayoutData && (data.truckLayoutData.leftSide || data.truckLayoutData.rightSide || data.truckLayoutData.backSide)) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
-          // Create truck
+          // Create truck with optional plate, model, and manufacturer
           const truck = await tx.truck.create({
             data: {
               taskId: newTask.id,
               xPosition: null,
               yPosition: null,
               garageId: null,
+              ...(data.truckLayoutData.plate && { plate: data.truckLayoutData.plate }),
+              ...(data.truckLayoutData.model && { model: data.truckLayoutData.model }),
+              ...(data.truckLayoutData.manufacturer && { manufacturer: data.truckLayoutData.manufacturer }),
             },
           });
           this.logger.log(`[Task Create] Truck created: ${truck.id}`);
@@ -1174,38 +1177,32 @@ export class TaskService {
         }
 
         // Track logoPaints array changes (paintIds)
-        if (data.paintIds) {
+        if (data.paintIds !== undefined) {
           const oldPaintIds = existingTask.logoPaints?.map((p: any) => p.id) || [];
           const newPaintIds = data.paintIds || [];
 
           const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
           const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
 
-          if (addedPaintIds.length > 0) {
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'logoPaints',
-              oldValue: null,
-              newValue: addedPaintIds,
-              reason: `${addedPaintIds.length} tinta(s) adicionada(s)`,
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
-          }
+          // Only log if there are actual changes
+          if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
+            // Create a single log entry showing complete before/after state
+            const changeReasons = [];
+            if (addedPaintIds.length > 0) {
+              changeReasons.push(`${addedPaintIds.length} tinta(s) adicionada(s)`);
+            }
+            if (removedPaintIds.length > 0) {
+              changeReasons.push(`${removedPaintIds.length} tinta(s) removida(s)`);
+            }
 
-          if (removedPaintIds.length > 0) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
               field: 'logoPaints',
-              oldValue: removedPaintIds,
-              newValue: null,
-              reason: `${removedPaintIds.length} tinta(s) removida(s)`,
+              oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
+              newValue: newPaintIds.length > 0 ? newPaintIds : null,
+              reason: changeReasons.join(', '),
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
               userId: userId || '',
@@ -2144,7 +2141,6 @@ export class TaskService {
       xPosition?: number | null;
       yPosition?: number | null;
       garageId?: string | null;
-      laneId?: string | null;
     },
     include?: TaskInclude,
     userId?: string,
@@ -2187,7 +2183,6 @@ export class TaskService {
           positionData.xPosition,
           positionData.yPosition,
           positionData.garageId,
-          positionData.laneId || null,
           task.truck,
           tx
         );
@@ -2200,7 +2195,6 @@ export class TaskService {
           xPosition: positionData.xPosition,
           yPosition: positionData.yPosition,
           garageId: positionData.garageId,
-          laneId: positionData.laneId,
         } as any,
       });
 
@@ -2215,7 +2209,6 @@ export class TaskService {
             xPosition: task.truck.xPosition,
             yPosition: task.truck.yPosition,
             garageId: task.truck.garageId,
-            laneId: (task.truck as any).laneId,
           },
           newValue: positionData,
           reason: `Position updated for task ${task.id}`,
@@ -2318,14 +2311,12 @@ export class TaskService {
         xPosition: task1.truck.xPosition,
         yPosition: task1.truck.yPosition,
         garageId: task1.truck.garageId,
-        laneId: (task1.truck as any).laneId,
       };
 
       const truck2Position = {
         xPosition: task2.truck.xPosition,
         yPosition: task2.truck.yPosition,
         garageId: task2.truck.garageId,
-        laneId: (task2.truck as any).laneId,
       };
 
       // Swap positions
@@ -2384,14 +2375,13 @@ export class TaskService {
   }
 
   /**
-   * Validate truck position within garage and lane constraints
+   * Validate truck position within garage constraints
    */
   private async validateTruckPosition(
     truckId: string,
     xPosition: number | null,
     yPosition: number | null,
     garageId: string,
-    laneId: string | null,
     truck: any,
     tx: PrismaTransaction
   ): Promise<void> {
@@ -2403,7 +2393,6 @@ export class TaskService {
     // Fetch garage
     const garage = await tx.garage.findUnique({
       where: { id: garageId },
-      include: { lanes: true },
     });
 
     if (!garage) {
@@ -2425,27 +2414,6 @@ export class TaskService {
       throw new BadRequestException(
         `Caminhão não cabe na garagem: comprimento do caminhão (${truckLength}m) + posição Y (${yPosition}m) excede comprimento da garagem (${garage.length}m)`
       );
-    }
-
-    // Validate lane constraints if lane is specified
-    if (laneId) {
-      const lane = garage.lanes.find(l => l.id === laneId);
-      if (!lane) {
-        throw new BadRequestException(`Faixa ${laneId} não encontrada na garagem ${garageId}`);
-      }
-
-      // Check if truck fits within lane boundaries
-      if (xPosition < lane.xPosition || xPosition + truckWidth > lane.xPosition + lane.width) {
-        throw new BadRequestException(
-          `Caminhão não cabe na faixa: posição horizontal fora dos limites da faixa`
-        );
-      }
-
-      if (yPosition < lane.yPosition || yPosition + truckLength > lane.yPosition + lane.length) {
-        throw new BadRequestException(
-          `Caminhão não cabe na faixa: posição vertical fora dos limites da faixa`
-        );
-      }
     }
 
     // Check for overlapping trucks in the same garage

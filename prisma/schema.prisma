@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model Activity {
@@ -202,10 +203,10 @@ model Customer {
   logoId             String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
-  economicActivityId   String?
-  registrationStatus   RegistrationStatus?
-  streetType           LogradouroType?
-  economicActivity     EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  economicActivityId String?
+  registrationStatus RegistrationStatus?
+  streetType         StreetType?
+  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]
 
@@ -270,10 +271,6 @@ model PpeDeliverySchedule {
   dayOfWeek          DayOfWeek?
   month              Month?
   customMonths       Month[]
-  rescheduleCount    Int                    @default(0)
-  originalDate       DateTime?
-  lastRescheduleDate DateTime?
-  rescheduleReason   RescheduleReason?
   weeklyConfigId     String?                @unique
   monthlyConfigId    String?                @unique
   yearlyConfigId     String?                @unique
@@ -620,10 +617,6 @@ model MaintenanceSchedule {
   dayOfWeek              DayOfWeek?
   month                  Month?
   customMonths           Month[]
-  rescheduleCount        Int                       @default(0)
-  originalDate           DateTime?
-  lastRescheduleDate     DateTime?
-  rescheduleReason       RescheduleReason?
   weeklyConfigId         String?                   @unique
   monthlyConfigId        String?                   @unique
   yearlyConfigId         String?                   @unique
@@ -711,10 +704,6 @@ model OrderSchedule {
   dayOfWeek          DayOfWeek?
   month              Month?
   customMonths       Month[]
-  rescheduleCount    Int                    @default(0)
-  originalDate       DateTime?
-  lastRescheduleDate DateTime?
-  rescheduleReason   RescheduleReason?
   weeklyConfigId     String?                @unique
   monthlyConfigId    String?                @unique
   yearlyConfigId     String?                @unique
@@ -962,7 +951,7 @@ model Supplier {
   logoId            String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
-  streetType        LogradouroType?
+  streetType        StreetType?
   tags              String[]        @default([])
   items             Item[]          @relation("ITEM_SUPPLIER")
   orders            Order[]         @relation("ORDER_SUPPLIER")
@@ -981,7 +970,6 @@ model Task {
   status                TaskStatus       @default(PENDING)
   statusOrder           Int              @default(1)
   serialNumber          String?          @unique
-  plate                 String?          @unique
   details               String?
   entryDate             DateTime?
   term                  DateTime?
@@ -995,7 +983,6 @@ model Task {
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   bonusDiscountId       String?
-  chassisNumber         String?
   airbrushings          Airbrushing[]    @relation("AIRBRUSHING")
   budget                Budget?          @relation("BUDGET_TASK")
   cuts                  Cut[]            @relation("CUT_TASK")
@@ -1053,26 +1040,26 @@ model Cut {
 }
 
 model Truck {
-  id                String      @id @default(uuid())
+  id                String   @id @default(uuid())
+  plate             String?  @unique
+  chassisNumber     String?
   xPosition         Float?
   yPosition         Float?
-  taskId            String      @unique
+  taskId            String   @unique
   garageId          String?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  backSideLayoutId  String?     @unique
-  leftSideLayoutId  String?     @unique
-  rightSideLayoutId String?     @unique
-  laneId            String?
-  backSideLayout    Layout?     @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
-  garage            Garage?     @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
-  lane              GarageLane? @relation("TRUCK_LANE", fields: [laneId], references: [id])
-  leftSideLayout    Layout?     @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
-  rightSideLayout   Layout?     @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
-  task              Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  backSideLayoutId  String?  @unique
+  leftSideLayoutId  String?  @unique
+  rightSideLayoutId String?  @unique
+  backSideLayout    Layout?  @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
+  garage            Garage?  @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
+  leftSideLayout    Layout?  @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
+  rightSideLayout   Layout?  @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  task              Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([garageId])
-  @@index([laneId])
+  @@index([plate])
 }
 
 model Layout {
@@ -1104,43 +1091,13 @@ model LayoutSection {
 }
 
 model Garage {
-  id        String       @id @default(uuid())
+  id        String   @id @default(uuid())
   name      String
-  width     Float        @default(25)
-  length    Float        @default(45)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  isVirtual Boolean      @default(false)
-  lanes     GarageLane[]
-  trucks    Truck[]      @relation("TRUCK_GARAGE")
-}
-
-model GarageLane {
-  id           String        @id @default(uuid())
-  width        Float
-  length       Float
-  xPosition    Float
-  yPosition    Float
-  garageId     String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  garage       Garage        @relation(fields: [garageId], references: [id], onDelete: Cascade)
-  parkingSpots ParkingSpot[]
-  trucks       Truck[]       @relation("TRUCK_LANE")
-
-  @@index([garageId])
-}
-
-model ParkingSpot {
-  id           String     @id @default(uuid())
-  name         String
-  length       Float      @default(12.5)
-  garageLaneId String
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  garageLane   GarageLane @relation(fields: [garageLaneId], references: [id], onDelete: Cascade)
-
-  @@index([garageLaneId])
+  width     Float    @default(25)
+  length    Float    @default(45)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  trucks    Truck[]  @relation("TRUCK_GARAGE")
 }
 
 model SecullumToken {
@@ -1195,7 +1152,7 @@ model User {
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   performanceLevel      Int                @default(0)
-  contractedAt          DateTime?
+  effectedAt            DateTime?
   exp1StartAt           DateTime?
   exp1EndAt             DateTime?
   exp2StartAt           DateTime?
@@ -1233,7 +1190,7 @@ model User {
   @@index([exp1EndAt])
   @@index([exp2StartAt])
   @@index([exp2EndAt])
-  @@index([contractedAt])
+  @@index([effectedAt])
   @@index([dismissedAt])
   @@index([email])
   @@index([phone])
@@ -1480,25 +1437,10 @@ model DeploymentMetric {
   @@map("deployment_metrics")
 }
 
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model file_backup {
-  id           String?
-  filename     String?
-  originalName String?
-  mimetype     String?
-  path         String?
-  size         Int?
-  thumbnailUrl String?
-  createdAt    DateTime?
-  updatedAt    DateTime?
-
-  @@ignore
-}
-
 enum UserStatus {
   EXPERIENCE_PERIOD_1
   EXPERIENCE_PERIOD_2
-  CONTRACTED
+  EFFECTED
   DISMISSED
 }
 
@@ -1777,13 +1719,6 @@ enum PaintFinish {
   SATIN
 }
 
-enum PaintBaseType {
-  TRANSPARENT
-  WHITE
-  ALUMINUM
-  BLACK
-  MIXING
-}
 
 enum ColorPalette {
   BLACK
@@ -1877,17 +1812,6 @@ enum MeasureUnit {
   CENTIMETER
   METER
   INCHES
-  INCH_1_8
-  INCH_1_4
-  INCH_3_8
-  INCH_1_2
-  INCH_5_8
-  INCH_3_4
-  INCH_7_8
-  INCH_1
-  INCH_1_1_4
-  INCH_1_1_2
-  INCH_2
   THREAD_MM
   THREAD_TPI
   WATT
@@ -2158,7 +2082,6 @@ enum ChangeLogEntityType {
   BONUS
   COMMISSION
   DISCOUNT
-  GARAGE_LANE
   MAINTENANCE_ITEM
   PARKING_SPOT
   PAYROLL
@@ -2201,16 +2124,6 @@ enum NotificationActionType {
   VIEW_REPORT
   ACKNOWLEDGE
   DISMISS
-}
-
-enum RescheduleReason {
-  LOW_FUNDS
-  SUPPLIER_DELAY
-  OPERATIONAL_ISSUE
-  PRIORITY_CHANGE
-  SEASONAL_ADJUSTMENT
-  EMERGENCY
-  OTHER
 }
 
 enum ActivityOperation {
@@ -2307,37 +2220,37 @@ enum DeploymentTrigger {
 }
 
 enum RegistrationStatus {
-  ATIVA
-  SUSPENSA
-  INAPTA
-  ATIVA_NAO_REGULAR
-  BAIXADA
+  ACTIVE
+  SUSPENDED
+  UNFIT
+  ACTIVE_NOT_REGULAR
+  DEREGISTERED
 }
 
-enum LogradouroType {
-  RUA
-  AVENIDA
-  ALAMEDA
-  TRAVESSA
-  PRACA
-  RODOVIA
-  ESTRADA
-  VIA
-  LARGO
-  VIELA
-  BECO
-  RUELA
-  CAMINHO
-  PASSAGEM
-  JARDIM
-  QUADRA
-  LOTE
-  SITIO
-  PARQUE
-  FAZENDA
-  CHACARA
-  CONDOMINIO
-  CONJUNTO
-  RESIDENCIAL
-  OUTRO
+enum StreetType {
+  STREET
+  AVENUE
+  ALLEY
+  CROSSING
+  SQUARE
+  HIGHWAY
+  ROAD
+  WAY
+  PLAZA
+  LANE
+  DEADEND
+  SMALL_STREET
+  PATH
+  PASSAGE
+  GARDEN
+  BLOCK
+  LOT
+  SITE
+  PARK
+  FARM
+  RANCH
+  CONDOMINIUM
+  COMPLEX
+  RESIDENTIAL
+  OTHER
 }

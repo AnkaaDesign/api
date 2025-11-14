@@ -32,7 +32,19 @@
     "dev:fresh": "npm run dev:reset && npm run seed",
     "dev:watch": "ts-node-dev -r tsconfig-paths/register --transpile-only --respawn --notify src/main.ts",
     "seed:demo": "tsx seed-database.ts --demo-data",
-    "seed:minimal": "tsx seed-database.ts --minimal"
+    "seed:minimal": "tsx seed-database.ts --minimal",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:create": "prisma migrate dev --create-only",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:reset": "prisma migrate reset",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:seed": "prisma db seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v && docker compose up -d",
+    "docker:logs": "docker compose logs -f"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

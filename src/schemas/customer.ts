@@ -678,7 +678,7 @@ export const customerCreateSchema = z
       .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
-    streetType: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
+    streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
@@ -691,7 +691,7 @@ export const customerCreateSchema = z
     tags: z.array(z.string()).default([]),
     logoId: z.string().uuid("Logo inválido").nullable().optional(),
     economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
-    registrationStatus: z.enum(["ATIVA", "SUSPENSA", "INAPTA", "ATIVA_NAO_REGULAR", "BAIXADA"]).nullable().optional(),
+    registrationStatus: z.enum(["ACTIVE", "SUSPENDED", "UNFIT", "ACTIVE_NOT_REGULAR", "DEREGISTERED"]).nullable().optional(),
   })
   .transform(toFormData)
   .refine(
@@ -727,7 +727,7 @@ export const customerUpdateSchema = z
       .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
-    streetType: z.enum(["RUA", "AVENIDA", "ALAMEDA", "TRAVESSA", "PRACA", "RODOVIA", "ESTRADA", "VIA", "LARGO", "VIELA", "BECO", "RUELA", "CAMINHO", "PASSAGEM", "JARDIM", "QUADRA", "LOTE", "SITIO", "PARQUE", "FAZENDA", "CHACARA", "CONDOMINIO", "CONJUNTO", "RESIDENCIAL", "OUTRO"]).nullable().optional(),
+    streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
@@ -740,7 +740,7 @@ export const customerUpdateSchema = z
     tags: z.array(z.string()).optional(),
     logoId: z.string().uuid("Logo inválido").nullable().optional(),
     economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
-    registrationStatus: z.enum(["ATIVA", "SUSPENSA", "INAPTA", "ATIVA_NAO_REGULAR", "BAIXADA"]).nullable().optional(),
+    registrationStatus: z.enum(["ACTIVE", "SUSPENDED", "UNFIT", "ACTIVE_NOT_REGULAR", "DEREGISTERED"]).nullable().optional(),
   })
   .transform(toFormData);
 
@@ -843,5 +843,5 @@ export const mapCustomerToFormData = createMapToFormDataHelper<Customer, Custome
   tags: customer.tags,
   logoId: customer.logoId,
   economicActivityId: customer.economicActivityId,
-  registrationStatus: customer.registrationStatus as "ATIVA" | "SUSPENSA" | "INAPTA" | "ATIVA_NAO_REGULAR" | "BAIXADA" | null,
+  registrationStatus: customer.registrationStatus as "ACTIVE" | "SUSPENDED" | "UNFIT" | "ACTIVE_NOT_REGULAR" | "DEREGISTERED" | null,
 }));

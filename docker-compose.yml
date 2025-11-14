@@ -1,29 +1,77 @@
 services:
   postgres:
-    image: 'bitnami/postgresql:latest'
+    image: 'postgres:17-alpine'
+    container_name: ankaa-postgres
     ports:
       - '5432:5432'
-    env_file:
-      - .env
     environment:
-      - POSTGRESQL_USER=${POSTGRES_USER:-postgres}
-      - POSTGRESQL_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRESQL_DB=${POSTGRES_DB:-ankaa_dev}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
-      - pools_pg_data:/bitnami/postgresql
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ankaa-network
 
-  # Uncomment this section when deploying the API service
+  redis:
+    image: 'redis:7-alpine'
+    container_name: ankaa-redis
+    ports:
+      - '6379:6379'
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ankaa-network
+
+  # API service (uncomment for production)
   # api:
-  #   build: .
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: ankaa-api
   #   ports:
   #     - "3030:3030"
   #   environment:
-  #     - NODE_ENV=production
+  #     - NODE_ENV=${NODE_ENV}
+  #   env_file:
+  #     - .env
   #   volumes:
-  #     - uploads_data:/app/uploads
+  #     - ./uploads:/app/uploads
+  #     - ./logs:/app/logs
   #   depends_on:
-  #     - postgres
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #   restart: unless-stopped
+  #   networks:
+  #     - ankaa-network
 
 volumes:
-  pools_pg_data:
-  uploads_data:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  ankaa-network:
+    driver: bridge

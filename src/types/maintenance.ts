@@ -36,7 +36,7 @@ export interface Maintenance extends BaseEntity {
   // Time tracking fields
   startedAt: Date | null;
   finishedAt: Date | null;
-  timeTaken: number | null; // Duration in minutes
+  timeTaken: number | null; // Duration in seconds
   lastRun: Date | null;
 
   // Link to the schedule that created this maintenance (if any)

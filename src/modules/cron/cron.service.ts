@@ -155,7 +155,7 @@ export class CronService {
    *
    * This cron job:
    * - Finds users where exp1EndAt is today and transitions them from EXPERIENCE_PERIOD_1 to EXPERIENCE_PERIOD_2
-   * - Finds users where exp2EndAt is today and transitions them from EXPERIENCE_PERIOD_2 to CONTRACTED
+   * - Finds users where exp2EndAt is today and transitions them from EXPERIENCE_PERIOD_2 to EFFECTED
    * - Logs all changes to the changelog system
    */
   @Cron('0 0 * * *')
@@ -169,7 +169,7 @@ export class CronService {
       this.logger.log(
         `Results: ${result.totalProcessed} users processed, ` +
         `${result.exp1ToExp2} transitioned from EXP1 to EXP2, ` +
-        `${result.exp2ToContracted} transitioned from EXP2 to CONTRACTED, ` +
+        `${result.exp2ToEffected} transitioned from EXP2 to EFFECTED, ` +
         `${result.errors.length} errors`
       );
 
@@ -178,8 +178,8 @@ export class CronService {
         this.logger.log(`${result.exp1ToExp2} users completed Experience Period 1 and moved to Experience Period 2`);
       }
 
-      if (result.exp2ToContracted > 0) {
-        this.logger.log(`${result.exp2ToContracted} users completed Experience Period 2 and became CONTRACTED`);
+      if (result.exp2ToEffected > 0) {
+        this.logger.log(`${result.exp2ToEffected} users completed Experience Period 2 and became EFFECTED`);
       }
 
       // Log warning if there were errors

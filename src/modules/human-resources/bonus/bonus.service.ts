@@ -143,8 +143,8 @@ export class BonusService {
 
       // Only filter by status if not including inactive
       if (!includeInactive) {
-        // Only CONTRACTED users are eligible for bonuses (not experience periods)
-        userWhereClause.status = USER_STATUS.CONTRACTED;
+        // Only EFFECTED users are eligible for bonuses (not experience periods)
+        userWhereClause.status = USER_STATUS.EFFECTED;
       }
 
       const users = await this.prisma.user.findMany({
@@ -227,7 +227,7 @@ export class BonusService {
         }
       }
 
-      // Calculate average tasks per user using ONLY eligible users (CONTRACTED + bonifiable + performance > 0)
+      // Calculate average tasks per user using ONLY eligible users (EFFECTED + bonifiable + performance > 0)
       const totalEligibleUsers = eligibleUsers.length;
       // CRITICAL: Use centralized rounding utility for consistency
       const averageTasksPerUser = totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
