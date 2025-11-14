@@ -241,6 +241,14 @@ function parseMongoDate(dateStr: string | null): Date | null {
   return isNaN(date.getTime()) ? null : date;
 }
 
+function parseMongoDatеWithTime(dateStr: string | null, hours: number = 7, minutes: number = 30): Date | null {
+  if (!dateStr) return null;
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return null;
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
 function parseBoolean(value: any): boolean {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -733,11 +741,11 @@ async function migrateUsers() {
 
         // ADAPTED: Calculate status timestamp fields based on status
         const isDismissed = employee?.status === 'DESLIGADO';
-        const userStatus = isDismissed ? USER_STATUS.DISMISSED : USER_STATUS.CONTRACTED;
+        const userStatus = isDismissed ? USER_STATUS.DISMISSED : USER_STATUS.EFFECTED;
 
         // Calculate lifecycle dates based on status
         // Note: Old API doesn't have experience period data, so we calculate reasonable estimates
-        let contractedAt: Date | null = null;
+        let effectedAt: Date | null = null;
         let dismissedAt: Date | null = null;
         let exp1StartAt: Date | null = null;
         let exp1EndAt: Date | null = null;
@@ -750,8 +758,8 @@ async function migrateUsers() {
           dismissedAt = employee?.dismissal ? new Date(employee.dismissal) : null;
           isActive = false;
 
-          // If they were dismissed, they must have been contracted before
-          // Set contracted date to admissional (assuming they completed experience periods)
+          // If they were dismissed, they must have been effected before
+          // Set effected date to admissional (assuming they completed experience periods)
           if (admissional) {
             const admissionalDate = new Date(admissional);
             // Experience period 1: 45 days from admissional
@@ -762,12 +770,12 @@ async function migrateUsers() {
             exp2StartAt = new Date(exp1EndAt);
             exp2EndAt = new Date(exp1EndAt.getTime() + 45 * 24 * 60 * 60 * 1000);
 
-            // Contracted date: after experience periods
-            contractedAt = new Date(exp2EndAt);
+            // Effected date: after experience periods
+            effectedAt = new Date(exp2EndAt);
           }
         } else {
-          // Active/Contracted user
-          contractedAt = admissional;
+          // Active/Effected user
+          effectedAt = admissional;
           isActive = true;
 
           // Calculate experience periods (45 days each, total 90 days trial)
@@ -778,12 +786,12 @@ async function migrateUsers() {
             exp2StartAt = new Date(exp1EndAt);
             exp2EndAt = new Date(exp1EndAt.getTime() + 45 * 24 * 60 * 60 * 1000);
 
-            // If current date is before experience end, adjust contracted date
+            // If current date is before experience end, adjust effected date
             const now = new Date();
             if (now < exp2EndAt) {
-              contractedAt = null; // Still in experience period
+              effectedAt = null; // Still in experience period
             } else {
-              contractedAt = exp2EndAt; // Contracted after experience
+              effectedAt = exp2EndAt; // Effected after experience
             }
           }
         }
@@ -804,9 +812,10 @@ async function migrateUsers() {
             status: userStatus,
             statusOrder: isDismissed
               ? USER_STATUS_ORDER[USER_STATUS.DISMISSED]
-              : USER_STATUS_ORDER[USER_STATUS.CONTRACTED],
+              : USER_STATUS_ORDER[USER_STATUS.EFFECTED],
+            verified: true, // Set all users as verified
             // ENHANCED: Set lifecycle timestamp fields
-            contractedAt,
+            effectedAt,
             dismissedAt,
             exp1StartAt,
             exp1EndAt,
@@ -878,6 +887,71 @@ async function migrateUsers() {
     }
   } // End of skipUserCreation conditional
 
+  // Create missing users that don't exist in database yet
+  console.log('\n🔄 Creating missing users from CSV...');
+  const existingUsersRefreshed = await prisma.user.findMany({
+    include: { position: true, sector: true },
+  });
+
+  for (const user of users) {
+    const userEmail = user.email?.toLowerCase();
+    const userName = formatNameToTitleCase(user.name) || user.name;
+
+    // Check if user already exists in database
+    const exists = existingUsersRefreshed.some(
+      u =>
+        (u.email && userEmail && u.email.toLowerCase() === userEmail) ||
+        u.name.toLowerCase() === userName.toLowerCase(),
+    );
+
+    if (!exists && userName) {
+      try {
+        // Create user with minimal data
+        const hashedPassword = await bcrypt.hash('ankaa123', 10); // Default password
+        let login = userEmail ? userEmail.split('@')[0] : userName.toLowerCase().replace(/\s+/g, '.');
+        let email = userEmail;
+
+        // Special handling for Almoxarifado (warehouse user)
+        if (userName === 'Almoxarifado' || userName.toLowerCase() === 'almoxarifado') {
+          login = 'almoxarifado';
+          email = 'almoxarifado@ankaadesign.com.br';
+        } else if (!email) {
+          // Generate email if missing for other users
+          email = `${login}@ankaadesign.com.br`;
+        }
+
+        const created = await prisma.user.create({
+          data: {
+            name: userName,
+            email: email,
+            login: login,
+            cpf: cleanCPF(user.cpf) || null,
+            active: true,
+            verified: true, // Set all users as verified
+            password: hashedPassword,
+            phone: cleanPhoneNumber(user.phone) || null,
+            birthDate: parseDate(user.birthDate),
+            imageUrl: null,
+            isTemporaryPassword: true, // Force password change on first login
+          },
+        });
+
+        console.log(`  ✅ Created missing user: ${userName} (${created.email})`);
+
+        // Add to existing users list for mapping
+        existingUsersRefreshed.push(created);
+      } catch (error: any) {
+        // Skip duplicate errors silently, log other errors
+        if (!error.message.includes('Unique constraint')) {
+          console.error(`  ❌ Failed to create user ${userName}:`, error.message);
+        }
+      }
+    }
+  }
+
+  // Update existingUsers reference for mapping
+  // Using existingUsersRefreshed directly instead of re-declaring existingUsers
+
   // ADAPTED: Map CSV users to existing database users by email or name
   console.log('\n🔗 Mapping CSV users to existing database users...');
   for (const user of users) {
@@ -885,7 +959,7 @@ async function migrateUsers() {
     const userName = formatNameToTitleCase(user.name) || user.name;
 
     // Find matching user in database
-    const dbUser = existingUsers.find(
+    const dbUser = existingUsersRefreshed.find(
       u =>
         (u.email && userEmail && u.email.toLowerCase() === userEmail) ||
         u.name.toLowerCase() === userName.toLowerCase(),
@@ -3879,8 +3953,8 @@ async function migrateTasks() {
         term: parseMongoDate(work.term),
         startedAt: parseMongoDate(work.started_at),
         finishedAt: parseMongoDate(work.finished_at),
-        entryDate: parseMongoDate(work.entry_date),
-        createdAt: parseMongoDate(work.entry_date) || new Date(),
+        entryDate: parseMongoDatеWithTime(work.entry_date),
+        createdAt: parseMongoDatеWithTime(work.entry_date) || (() => { const d = new Date(); d.setHours(7, 30, 0, 0); return d; })(),
         updatedAt: parseMongoDate(work.updatedAt) || new Date(),
       };
 
@@ -3936,7 +4010,7 @@ async function migrateTasks() {
             data: {
               taskId: task.id,
               description: observationAnnotation || '',
-              createdAt: parseMongoDate(work.entry_date) || new Date(),
+              createdAt: parseMongoDatеWithTime(work.entry_date) || (() => { const d = new Date(); d.setHours(7, 30, 0, 0); return d; })(),
               updatedAt: parseMongoDate(work.updatedAt) || new Date(),
             },
           });
@@ -3970,7 +4044,7 @@ async function migrateTasks() {
                   observations: {
                     connect: { id: observation.id },
                   },
-                  createdAt: parseMongoDate(work.entry_date) || new Date(),
+                  createdAt: parseMongoDatеWithTime(work.entry_date) || (() => { const d = new Date(); d.setHours(7, 30, 0, 0); return d; })(),
                   updatedAt: parseMongoDate(work.updatedAt) || new Date(),
                 },
               });
@@ -4105,9 +4179,11 @@ async function migrateTasks() {
             },
           });
 
-          // Create truck with layout references
+          // Create truck with layout references and plate
           await prisma.truck.create({
             data: {
+              plate: plate || null, // Use detected plate or null if not available
+              chassisNumber: null, // No chassis number in source data
               taskId: task.id,
               leftSideLayoutId: leftSideLayout.id,
               rightSideLayoutId: rightSideLayout.id,
@@ -4116,7 +4192,7 @@ async function migrateTasks() {
           });
 
           console.log(
-            `    📦 Truck created for task ${task.name} with layouts (Left: 8.0x2.4m, Right: 8.0x2.4m, Back: 2.42x2.42m)`,
+            `    📦 Truck created for task ${task.name} with plate "${plate || 'none'}" and layouts (Left: 8.0x2.4m, Right: 8.0x2.4m, Back: 2.42x2.42m)`,
           );
         } catch (error) {
           console.error(`    ❌ Failed to create truck for task ${task.name}:`, error);

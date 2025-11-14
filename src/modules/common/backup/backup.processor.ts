@@ -309,4 +309,27 @@ export class BackupProcessor {
       throw error;
     }
   }
+
+  @Process('cleanup-expired-backups')
+  async handleCleanupExpiredBackups(job: Job) {
+    try {
+      this.logger.log('Running cleanup for expired backups...');
+
+      const result = await this.backupService.cleanupExpiredBackups();
+
+      if (result.deletedCount > 0) {
+        this.logger.log(
+          `Cleanup completed: ${result.deletedCount} expired backups deleted`,
+        );
+        this.logger.log(`Deleted backup IDs: ${result.deletedBackups.join(', ')}`);
+      } else {
+        this.logger.log('Cleanup completed: No expired backups found');
+      }
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Cleanup of expired backups failed: ${error.message}`);
+      throw error;
+    }
+  }
 }

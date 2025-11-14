@@ -348,7 +348,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     notes: "Observações",
     totalPrice: "Valor Total",
     withdrawalDate: "Data da Retirada",
-    expectedReturnDate: "Data Prevista de Devolução",
     actualReturnDate: "Data Real de Devolução",
     totalValue: "Valor Total",
     isPaid: "Pago",
@@ -420,7 +419,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     startedAt: "Iniciado em",
     finishedAt: "Finalizado em",
     completedAt: "Concluído em",
-    timeTaken: "Tempo gasto (min)",
+    timeTaken: "Tempo gasto",
     cost: "Custo",
     maintenanceScheduleId: "Cronograma de Manutenção",
     itemId: "Equipamento",
@@ -728,6 +727,25 @@ interface FieldMetadata {
 export function formatFieldValue(value: ComplexFieldValue, field?: string | null, entityType?: CHANGE_LOG_ENTITY_TYPE, metadata?: FieldMetadata): string {
   if (value === null || value === undefined) return "—";
 
+  // Parse string numbers for specific numeric fields
+  if (typeof value === "string" && field) {
+    const numericFields = [
+      "pricePerLiter", "density", "price", "totalPrice", "unitCost", "averageCost",
+      "lastPurchasePrice", "suggestedPrice", "totalAmount", "remuneration", "cost",
+      "icms", "ipi", "margin", "minimumMargin", "monthlyConsumptionTrendPercent", "ratio",
+      "quantity", "maxQuantity", "boxQuantity", "reorderPoint", "reorderQuantity",
+      "orderedQuantity", "receivedQuantity", "withdrawedQuantity", "returnedQuantity",
+      "viscosity", "weight", "volume", "volumeLiters", "timeTaken"
+    ];
+
+    if (numericFields.includes(field)) {
+      const parsed = parseFloat(value);
+      if (!isNaN(parsed)) {
+        value = parsed;
+      }
+    }
+  }
+
   // Special handling for item returned quantity from metadata
   if (metadata?.fieldType === "item_returned_quantity" && typeof value === "number") {
     return `${value.toLocaleString("pt-BR")} un`;
@@ -872,7 +890,7 @@ export function formatFieldValue(value: ComplexFieldValue, field?: string | null
     const userStatusLabels: Record<string, string> = {
       EXPERIENCE_PERIOD_1: "Experiência - 1º Período",
       EXPERIENCE_PERIOD_2: "Experiência - 2º Período",
-      CONTRACTED: "Contratado",
+      EFFECTED: "Efetivado",
       DISMISSED: "Demitido",
     };
     return userStatusLabels[value] || value;
@@ -1438,9 +1456,11 @@ export function formatFieldValue(value: ComplexFieldValue, field?: string | null
       return `${value} ${value === 1 ? "dia" : "dias"}`;
     }
 
-    // Time fields (minutes)
+    // Time fields (seconds) - format as HH:MM
     if (field === "timeTaken") {
-      return `${value} ${value === 1 ? "minuto" : "minutos"}`;
+      const hours = Math.floor(value / 3600);
+      const minutes = Math.floor((value % 3600) / 60);
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     }
 
     // Quantity fields
@@ -1590,7 +1610,6 @@ export const actionConfig: Record<CHANGE_LOG_ACTION, { label: string }> = {
   [CHANGE_LOG_ACTION.REJECT]: { label: "Rejeitado" },
   [CHANGE_LOG_ACTION.CANCEL]: { label: "Cancelado" },
   [CHANGE_LOG_ACTION.COMPLETE]: { label: "Concluído" },
-  [CHANGE_LOG_ACTION.RESCHEDULE]: { label: "Reagendado" },
   [CHANGE_LOG_ACTION.BATCH_CREATE]: { label: "Criação em Lote" },
   [CHANGE_LOG_ACTION.BATCH_UPDATE]: { label: "Atualização em Lote" },
   [CHANGE_LOG_ACTION.BATCH_DELETE]: { label: "Exclusão em Lote" },

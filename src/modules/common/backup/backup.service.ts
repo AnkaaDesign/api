@@ -1,11 +1,12 @@
-import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from 'eventemitter2';
 
 const execAsync = promisify(exec);
 
@@ -23,6 +24,11 @@ export interface BackupMetadata {
   raidAware?: boolean;
   compressionLevel?: number;
   encrypted?: boolean;
+  autoDelete?: {
+    enabled: boolean;
+    retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+    deleteAfter?: string; // ISO date string when backup should be deleted
+  };
 }
 
 export interface CreateBackupDto {
@@ -38,10 +44,14 @@ export interface CreateBackupDto {
   raidAware?: boolean;
   compressionLevel?: number;
   encrypted?: boolean;
+  autoDelete?: {
+    enabled: boolean;
+    retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+  };
 }
 
 @Injectable()
-export class BackupService {
+export class BackupService implements OnModuleInit {
   private readonly logger = new Logger(BackupService.name);
   private readonly webdavRoot = '/srv/webdav';
   private readonly backupBasePath = process.env.BACKUP_PATH || `${this.webdavRoot}/Backup`;
@@ -79,6 +89,7 @@ export class BackupService {
   constructor(
     @InjectQueue('backup-queue') private backupQueue: Queue,
     private configService: ConfigService,
+    private eventEmitter: EventEmitter2,
   ) {
     this.ensureBackupDirectories();
   }
@@ -160,6 +171,17 @@ export class BackupService {
     const backupId = `backup_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     try {
+      // Calculate auto-delete date if enabled
+      let autoDeleteSettings: BackupMetadata['autoDelete'] = undefined;
+      if (createBackupDto.autoDelete?.enabled) {
+        const deleteAfter = this.calculateDeleteAfterDate(createBackupDto.autoDelete.retention);
+        autoDeleteSettings = {
+          enabled: true,
+          retention: createBackupDto.autoDelete.retention,
+          deleteAfter: deleteAfter.toISOString(),
+        };
+      }
+
       // Create initial metadata
       const metadata: BackupMetadata = {
         id: backupId,
@@ -174,6 +196,7 @@ export class BackupService {
         raidAware: createBackupDto.raidAware,
         compressionLevel: createBackupDto.compressionLevel,
         encrypted: createBackupDto.encrypted,
+        autoDelete: autoDeleteSettings,
       };
 
       await this.saveBackupMetadata(metadata);
@@ -474,6 +497,175 @@ export class BackupService {
     }
   }
 
+  /**
+   * Execute tar command with real progress tracking using verbose output
+   * Sends progress updates every 0.5 seconds via EventEmitter
+   */
+  private async executeTarWithProgress(
+    tarCommand: string,
+    backupId: string,
+    totalFilesOrBytes?: number,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tarProcess = spawn('sh', ['-c', tarCommand]);
+      let filesProcessed = 0;
+      let lastProgress = 0;
+      let lastEmitTime = Date.now();
+      const EMIT_INTERVAL = 500; // Emit every 500ms as requested
+
+      // Capture both stdout and stderr for verbose tar output
+      const processOutput = (data: Buffer) => {
+        const output = data.toString();
+
+        // Each line in verbose output represents a file being processed
+        const lines = output.split('\n').filter(line => line.trim() && !line.startsWith('tar:'));
+        filesProcessed += lines.length;
+
+        // Calculate progress based on file count or estimated size
+        let progress = 0;
+        if (totalFilesOrBytes && totalFilesOrBytes > 0) {
+          // If we're tracking bytes (for single file like database), use different calculation
+          if (tarCommand.includes('.sql')) {
+            // For database backup, estimate based on compression ratio (usually 10-20% of original)
+            const estimatedCompressed = totalFilesOrBytes * 0.15;
+            progress = Math.min(95, Math.round((filesProcessed * 10000) / estimatedCompressed * 100));
+          } else {
+            // For multiple files, use file count
+            progress = Math.min(95, Math.round((filesProcessed / totalFilesOrBytes) * 100));
+          }
+        } else {
+          // No total estimate, just increment slowly
+          progress = Math.min(95, lastProgress + 1);
+        }
+
+        const now = Date.now();
+        const shouldEmit = (progress > lastProgress && (now - lastEmitTime) >= EMIT_INTERVAL) ||
+                          progress === 95;
+
+        if (shouldEmit) {
+          lastProgress = progress;
+          lastEmitTime = now;
+
+          const progressData = {
+            backupId,
+            progress,
+            filesProcessed,
+            totalFiles: totalFilesOrBytes,
+            timestamp: now,
+            rate: filesProcessed / ((now - startTime) / 1000), // files per second
+          };
+
+          // Emit to EventEmitter for WebSocket/SSE
+          this.eventEmitter.emit('backup.progress', progressData);
+
+          // Also send webhook if configured
+          this.sendProgressWebhook(backupId, progressData).catch(err => {
+            this.logger.debug(`Webhook send failed: ${err.message}`);
+          });
+
+          // Update metadata with progress
+          this.updateBackupProgress(backupId, progress).catch(err => {
+            this.logger.debug(`Progress metadata update failed: ${err.message}`);
+          });
+        }
+      };
+
+      const startTime = Date.now();
+
+      // Listen to both stdout and stderr
+      tarProcess.stdout.on('data', processOutput);
+      tarProcess.stderr.on('data', processOutput);
+
+      tarProcess.on('close', (code) => {
+        if (code === 0) {
+          // Send final 100% progress
+          const finalData = {
+            backupId,
+            progress: 100,
+            filesProcessed,
+            totalFiles: totalFilesOrBytes,
+            timestamp: Date.now(),
+            completed: true,
+          };
+
+          this.eventEmitter.emit('backup.progress', finalData);
+          this.sendProgressWebhook(backupId, finalData).catch(() => {});
+
+          resolve();
+        } else {
+          reject(new Error(`Tar process exited with code ${code}`));
+        }
+      });
+
+      tarProcess.on('error', (error) => {
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Send progress update via webhook
+   */
+  private async sendProgressWebhook(backupId: string, progressData: any): Promise<void> {
+    // Use subdomain webhook URL or fallback to configured URL
+    const webhookUrl = this.configService.get<string>('BACKUP_PROGRESS_WEBHOOK_URL') ||
+                      'https://webhook.ankaa.live/backup/progress';
+
+    try {
+      // Create HMAC signature if secret is configured
+      const secret = this.configService.get<string>('WEBHOOK_SECRET');
+      const headers: any = {
+        'Content-Type': 'application/json',
+      };
+
+      const payload = {
+        type: 'backup.progress',
+        backupId,
+        ...progressData,
+      };
+
+      if (secret) {
+        const crypto = require('crypto');
+        const signature = crypto
+          .createHmac('sha256', secret)
+          .update(JSON.stringify(payload))
+          .digest('hex');
+        headers['X-Webhook-Signature'] = signature;
+      }
+
+      // Use fetch or axios to send webhook
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        // Add timeout to prevent hanging
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Webhook returned ${response.status}`);
+      }
+    } catch (error) {
+      // Webhook failures should not break the backup process
+      this.logger.debug(`Failed to send progress webhook: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update backup metadata with progress information
+   */
+  private async updateBackupProgress(backupId: string, progress: number): Promise<void> {
+    try {
+      const metadata = await this.getBackupById(backupId);
+      if (metadata) {
+        metadata['progress'] = progress;
+        await this.saveBackupMetadata(metadata);
+      }
+    } catch (error) {
+      // Silent fail - progress update is not critical
+    }
+  }
+
   async performDatabaseBackup(backupId: string): Promise<string> {
     try {
       const dbUrl = this.configService.get<string>('DATABASE_URL');
@@ -506,9 +698,25 @@ export class BackupService {
       const dumpCommand = `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbName} -f ${tempSqlFile} --no-password`;
       await execAsync(dumpCommand, { env });
 
-      // Compress the SQL dump
-      const compressCommand = `tar -czf ${finalBackupPath} -C /tmp ${backupId}.sql`;
-      await execAsync(compressCommand);
+      // Get SQL file size for progress tracking
+      const stats = await fs.stat(tempSqlFile);
+      const totalSize = stats.size;
+
+      // Emit initial progress
+      this.eventEmitter.emit('backup.progress', {
+        backupId,
+        progress: 10,
+        status: 'Starting compression...',
+        totalSize,
+      });
+
+      // Compress the SQL dump with verbose output for progress tracking
+      // Use -v flag to get list of files being compressed
+      const compressCommand = `tar -czvf ${finalBackupPath} -C /tmp ${backupId}.sql 2>&1`;
+
+      // For database backups, we know it's a single file, so we can use pv (pipe viewer) if available
+      // or track based on tar verbose output
+      await this.executeTarWithProgress(compressCommand, backupId, totalSize);
 
       // Clean up temporary file
       await fs.unlink(tempSqlFile);
@@ -862,6 +1070,91 @@ export class BackupService {
       this.logger.error(`Failed to remove scheduled backup: ${error.message}`);
       throw new InternalServerErrorException('Failed to remove scheduled backup');
     }
+  }
+
+  /**
+   * Calculate the deletion date based on retention period
+   */
+  private calculateDeleteAfterDate(retention: string): Date {
+    const now = new Date();
+
+    switch (retention) {
+      case '1_day':
+        return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      case '3_days':
+        return new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+      case '1_week':
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      case '2_weeks':
+        return new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+      case '1_month':
+        return new Date(now.setMonth(now.getMonth() + 1));
+      case '3_months':
+        return new Date(now.setMonth(now.getMonth() + 3));
+      case '6_months':
+        return new Date(now.setMonth(now.getMonth() + 6));
+      case '1_year':
+        return new Date(now.setFullYear(now.getFullYear() + 1));
+      default:
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // Default to 1 week
+    }
+  }
+
+  /**
+   * Check and delete expired backups
+   */
+  async cleanupExpiredBackups(): Promise<{ deletedCount: number; deletedBackups: string[] }> {
+    const deletedBackups: string[] = [];
+
+    try {
+      const allBackups = await this.getBackups();
+      const now = new Date();
+
+      for (const backup of allBackups) {
+        // Check if backup has auto-delete enabled and is expired
+        if (backup.autoDelete?.enabled && backup.autoDelete?.deleteAfter) {
+          const deleteAfterDate = new Date(backup.autoDelete.deleteAfter);
+
+          if (now > deleteAfterDate && backup.status === 'completed') {
+            try {
+              await this.deleteBackup(backup.id);
+              deletedBackups.push(backup.id);
+              this.logger.log(`Auto-deleted expired backup: ${backup.id} (${backup.name})`);
+            } catch (error) {
+              this.logger.error(`Failed to auto-delete backup ${backup.id}: ${error.message}`);
+            }
+          }
+        }
+      }
+
+      return {
+        deletedCount: deletedBackups.length,
+        deletedBackups,
+      };
+    } catch (error) {
+      this.logger.error(`Failed during cleanup of expired backups: ${error.message}`);
+      return {
+        deletedCount: 0,
+        deletedBackups: [],
+      };
+    }
+  }
+
+  /**
+   * Initialize cleanup cron job on service start
+   */
+  async onModuleInit() {
+    // Schedule cleanup to run every hour
+    await this.backupQueue.add(
+      'cleanup-expired-backups',
+      {},
+      {
+        repeat: { cron: '0 * * * *' }, // Run every hour
+        jobId: 'backup-cleanup-cron',
+      },
+    );
+
+    this.logger.log('Backup cleanup cron job initialized');
   }
 
   // RAID and System Health Methods

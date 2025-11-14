@@ -56,7 +56,7 @@ export interface User extends BaseEntity {
   payrollNumber: number | null;
 
   // Status timestamp tracking
-  contractedAt: Date | null; // When user became permanently contracted
+  effectedAt: Date | null; // When user became permanently effected
   exp1StartAt: Date | null; // Start of first experience period (45 days)
   exp1EndAt: Date | null; // End of first experience period
   exp2StartAt: Date | null; // Start of second experience period (45 days)
@@ -234,7 +234,7 @@ export interface UserOrderBy {
   verified?: ORDER_BY_DIRECTION;
   payrollNumber?: ORDER_BY_DIRECTION;
   birth?: ORDER_BY_DIRECTION;
-  contractedAt?: ORDER_BY_DIRECTION;
+  effectedAt?: ORDER_BY_DIRECTION;
   exp1StartAt?: ORDER_BY_DIRECTION;
   exp1EndAt?: ORDER_BY_DIRECTION;
   exp2StartAt?: ORDER_BY_DIRECTION;

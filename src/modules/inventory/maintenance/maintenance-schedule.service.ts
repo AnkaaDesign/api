@@ -121,6 +121,12 @@ export class MaintenanceScheduleService {
         nextRun.setMonth(nextRun.getMonth() + 1); // Default to monthly
     }
 
+    // Set time to 13:00 (1 PM)
+    nextRun = this.setDefaultMaintenanceTime(nextRun);
+
+    // Adjust for weekends - move to nearest weekday
+    nextRun = this.adjustForWeekend(nextRun);
+
     return nextRun;
   }
 
@@ -160,6 +166,35 @@ export class MaintenanceScheduleService {
 
   private getDaysInMonth(date: Date): number {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  }
+
+  /**
+   * Adjust date if it falls on a weekend to the nearest weekday
+   * Saturday -> Friday, Sunday -> Monday
+   * Preserves the time component
+   */
+  private adjustForWeekend(date: Date): Date {
+    const adjustedDate = new Date(date);
+    const dayOfWeek = adjustedDate.getDay();
+
+    if (dayOfWeek === 0) {
+      // Sunday -> move to Monday
+      adjustedDate.setDate(adjustedDate.getDate() + 1);
+    } else if (dayOfWeek === 6) {
+      // Saturday -> move to Friday
+      adjustedDate.setDate(adjustedDate.getDate() - 1);
+    }
+
+    return adjustedDate;
+  }
+
+  /**
+   * Set time to 13:00:00 (1 PM) for maintenance scheduling
+   */
+  private setDefaultMaintenanceTime(date: Date): Date {
+    const newDate = new Date(date);
+    newDate.setHours(13, 0, 0, 0);
+    return newDate;
   }
 
   /**
@@ -1014,9 +1049,17 @@ export class MaintenanceScheduleService {
         `Creating initial maintenance for schedule ${schedule.id} with nextRun: ${schedule.nextRun}`,
       );
 
+      // Generate unique name by appending scheduled date
+      const formattedDate = schedule.nextRun.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+      const uniqueName = `${schedule.name} - ${formattedDate}`;
+
       // Prepare maintenance data based on the schedule configuration
       const maintenanceData: any = {
-        name: `${schedule.name} - Primeira Execução`,
+        name: uniqueName,
         description: schedule.description
           ? `${schedule.description}\n\nManutenção criada automaticamente pelo agendamento.`
           : 'Manutenção criada automaticamente pelo agendamento.',
@@ -1024,7 +1067,7 @@ export class MaintenanceScheduleService {
         status: MAINTENANCE_STATUS.PENDING,
         scheduledFor: schedule.nextRun,
         maintenanceScheduleId: schedule.id,
-        maintenanceItemsConfig: schedule.maintenanceItemsConfig || [],
+        itemsNeeded: schedule.maintenanceItemsConfig || [],
       };
 
       // Create the maintenance using the maintenance service within the same transaction
@@ -1042,4 +1085,156 @@ export class MaintenanceScheduleService {
       // The schedule is still created, but the first maintenance wasn't
     }
   }
+
+  /**
+   * Handle maintenance completion - create the next maintenance based on the schedule
+   */
+  async handleMaintenanceCompletion(
+    scheduleId: string,
+    completedMaintenance: any,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    this.logger.log(
+      `[MAINTENANCE COMPLETION] Starting handler for schedule ${scheduleId}, maintenance: ${completedMaintenance.id}`,
+    );
+
+    try {
+      // Get the schedule details
+      const schedule = await (tx || this.prisma).maintenanceSchedule.findUnique({
+        where: { id: scheduleId },
+      });
+
+      if (!schedule) {
+        this.logger.error(
+          `[MAINTENANCE COMPLETION] Schedule ${scheduleId} not found! Cannot create next maintenance.`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] Schedule found: ${schedule.name}, frequency: ${schedule.frequency}, isActive: ${schedule.isActive}`,
+      );
+
+      // Check if schedule is still active
+      if (!schedule.isActive) {
+        this.logger.warn(
+          `[MAINTENANCE COMPLETION] Schedule ${scheduleId} is not active, skipping next maintenance creation`,
+        );
+        return;
+      }
+
+      // Calculate next run date based on the completed maintenance's actual completion date
+      // This allows the schedule to adjust based on when maintenances are actually finished
+      // If a maintenance scheduled for 10/10 is finished on 15/10 and it's monthly,
+      // the next one will be created for 15/11 instead of 10/11
+      const baseDate = completedMaintenance.finishedAt || new Date();
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] Calculating next run from completion date: ${baseDate}`,
+      );
+
+      const nextRunDate = this.calculateNextRunDate(schedule, baseDate);
+
+      if (!nextRunDate) {
+        this.logger.warn(
+          `[MAINTENANCE COMPLETION] No next run date calculated for schedule ${scheduleId} (frequency: ${schedule.frequency}). This might be a ONCE schedule.`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] Next run date calculated: ${nextRunDate.toISOString()}`,
+      );
+
+      // Prepare schedule update data - update nextRun, lastRun, and date configuration fields
+      // based on the completion date to adjust the schedule
+      const scheduleUpdateData: any = {
+        nextRun: nextRunDate,
+        lastRun: completedMaintenance.finishedAt || new Date(),
+      };
+
+      // Update the schedule's date configuration fields based on the completion date
+      // This ensures the schedule adjusts to when maintenances are actually completed
+      if (schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY) {
+        // For weekly schedules, update dayOfWeek to match the completion date's day of week
+        const completionDay = baseDate.getDay();
+        const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+        scheduleUpdateData.dayOfWeek = dayNames[completionDay];
+        this.logger.log(
+          `[MAINTENANCE COMPLETION] Updating schedule dayOfWeek to ${scheduleUpdateData.dayOfWeek} based on completion date`,
+        );
+      } else if (schedule.frequency === SCHEDULE_FREQUENCY.MONTHLY) {
+        // For monthly schedules, update dayOfMonth to match the completion date's day
+        scheduleUpdateData.dayOfMonth = baseDate.getDate();
+        this.logger.log(
+          `[MAINTENANCE COMPLETION] Updating schedule dayOfMonth to ${scheduleUpdateData.dayOfMonth} based on completion date`,
+        );
+      } else if (schedule.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
+        // For annual schedules, update both month and dayOfMonth
+        const monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+        scheduleUpdateData.month = monthNames[baseDate.getMonth()];
+        scheduleUpdateData.dayOfMonth = baseDate.getDate();
+        this.logger.log(
+          `[MAINTENANCE COMPLETION] Updating schedule month to ${scheduleUpdateData.month} and dayOfMonth to ${scheduleUpdateData.dayOfMonth} based on completion date`,
+        );
+      }
+
+      // Update the schedule with the new date configuration
+      const updatedSchedule = await (tx || this.prisma).maintenanceSchedule.update({
+        where: { id: scheduleId },
+        data: scheduleUpdateData,
+      });
+
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] Schedule updated: nextRun=${updatedSchedule.nextRun?.toISOString()}, lastRun=${updatedSchedule.lastRun?.toISOString()}`,
+      );
+
+      // Prepare maintenance data for the next occurrence
+      // Generate unique name by appending scheduled date
+      const formattedDate = nextRunDate.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      });
+      const uniqueName = `${schedule.name} - ${formattedDate}`;
+
+      const maintenanceData: any = {
+        name: uniqueName,
+        description: schedule.description
+          ? `${schedule.description}\n\nManutenção criada automaticamente pelo agendamento.`
+          : 'Manutenção criada automaticamente pelo agendamento.',
+        itemId: schedule.itemId,
+        status: MAINTENANCE_STATUS.PENDING,
+        scheduledFor: nextRunDate,
+        maintenanceScheduleId: schedule.id,
+        itemsNeeded: schedule.maintenanceItemsConfig || [],
+      };
+
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] Creating next maintenance: ${maintenanceData.name} for ${nextRunDate.toISOString()}`,
+      );
+
+      // Create the next maintenance using the maintenance service within the same transaction
+      const createdMaintenance = await this.maintenanceService.createWithinTransaction(
+        maintenanceData,
+        tx || this.prisma,
+        undefined,
+        userId,
+      );
+
+      this.logger.log(
+        `[MAINTENANCE COMPLETION] ✅ SUCCESS! Created next maintenance ${createdMaintenance.id} for schedule ${scheduleId}, scheduled for ${nextRunDate.toISOString()}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[MAINTENANCE COMPLETION] ❌ FAILED for schedule ${scheduleId}:`,
+        error,
+      );
+      this.logger.error(`[MAINTENANCE COMPLETION] Error stack:`, error.stack);
+      // Don't throw error to prevent maintenance status update from failing
+      // The maintenance is still completed, but the next one wasn't created
+      // Log the error for investigation
+    }
+  }
+
 }

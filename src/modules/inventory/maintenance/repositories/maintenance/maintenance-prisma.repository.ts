@@ -158,7 +158,37 @@ export class MaintenancePrismaRepository
   }
 
   protected mapOrderByToDatabaseOrderBy(orderBy?: MaintenanceOrderBy): any {
-    return orderBy || { createdAt: 'desc' };
+    this.logger.log(`[mapOrderByToDatabaseOrderBy] Input: ${JSON.stringify(orderBy)}`);
+
+    if (!orderBy) {
+      this.logger.log('[mapOrderByToDatabaseOrderBy] No orderBy, using default: { createdAt: "desc" }');
+      return { createdAt: 'desc' };
+    }
+
+    // Handle array of orderBy objects (multi-column sort)
+    if (Array.isArray(orderBy)) {
+      const result = orderBy.map(order => {
+        // Map 'status' to 'statusOrder' for proper priority sorting (fallback for legacy requests)
+        if (order.status) {
+          return { statusOrder: order.status };
+        }
+        // Pass through statusOrder as-is (new format from frontend)
+        return order;
+      });
+      this.logger.log(`[mapOrderByToDatabaseOrderBy] Array result: ${JSON.stringify(result)}`);
+      return result;
+    }
+
+    // Handle single orderBy object
+    if (typeof orderBy === 'object' && 'status' in orderBy) {
+      const result = { statusOrder: orderBy.status };
+      this.logger.log(`[mapOrderByToDatabaseOrderBy] Single object with status result: ${JSON.stringify(result)}`);
+      return result;
+    }
+
+    // Pass through as-is (including statusOrder)
+    this.logger.log(`[mapOrderByToDatabaseOrderBy] Pass-through result: ${JSON.stringify(orderBy)}`);
+    return orderBy;
   }
 
   protected mapWhereToDatabaseWhere(
@@ -172,7 +202,11 @@ export class MaintenancePrismaRepository
     return {
       itemsNeeded: {
         include: {
-          item: true,
+          item: {
+            include: {
+              prices: true,
+            },
+          },
         },
       },
       item: true,

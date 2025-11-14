@@ -26,7 +26,8 @@ import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
 import { BackupService, BackupMetadata, CreateBackupDto } from './backup.service';
-import { IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsNotEmpty, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsNotEmpty, IsNumber, IsObject, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 
 // DTOs for validation
 class CreateBackupRequestDto {
@@ -63,7 +64,22 @@ class CreateBackupRequestDto {
   encrypted?: boolean;
 }
 
-class ScheduleBackupDto extends CreateBackupRequestDto {
+class AutoDeleteDto {
+  @IsBoolean()
+  enabled: boolean;
+
+  @IsEnum(['1_day', '3_days', '1_week', '2_weeks', '1_month', '3_months', '6_months', '1_year'])
+  retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+}
+
+class CreateBackupWithAutoDeleteDto extends CreateBackupRequestDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AutoDeleteDto)
+  autoDelete?: AutoDeleteDto;
+}
+
+class ScheduleBackupDto extends CreateBackupWithAutoDeleteDto {
   @IsBoolean()
   enabled: boolean;
 
@@ -263,7 +279,7 @@ export class BackupController {
   @Post()
   @ApiOperation({ summary: 'Create a new backup' })
   @ApiBody({
-    type: CreateBackupRequestDto,
+    type: CreateBackupWithAutoDeleteDto,
     description: 'Backup creation data',
   })
   @ApiResponse({
@@ -285,7 +301,7 @@ export class BackupController {
     },
   })
   @HttpCode(HttpStatus.CREATED)
-  async createBackup(@Body(ValidationPipe) createBackupDto: CreateBackupRequestDto) {
+  async createBackup(@Body(ValidationPipe) createBackupDto: CreateBackupWithAutoDeleteDto) {
     try {
       const result = await this.backupService.createBackup({
         ...createBackupDto,

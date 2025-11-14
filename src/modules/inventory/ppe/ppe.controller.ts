@@ -611,18 +611,6 @@ export class PpeController {
     return this.ppeDeliveryService.findUpcomingScheduledDeliveries(daysNumber, query.include);
   }
 
-  @Post('deliveries/reschedule/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async rescheduleDelivery(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('scheduledDate') scheduledDate: Date,
-    @UserId() userId: string,
-    @Body('reason') reason?: string,
-  ): Promise<PpeDeliveryUpdateResponse> {
-    return this.ppeDeliveryService.rescheduleDelivery(id, new Date(scheduledDate), reason, userId);
-  }
-
   @Post('deliveries/create-from-schedule')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)

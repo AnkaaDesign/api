@@ -109,7 +109,7 @@ export {
 export * from "./serviceOrder";
 export * from "./supplier";
 export * from "./task";
-// export * from "./truck"; // TODO: Create truck schemas if needed
+export * from "./truck";
 export * from "./layout";
 export * from "./user";
 export * from "./vacation";
