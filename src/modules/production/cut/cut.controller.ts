@@ -106,7 +106,7 @@ export class CutController {
 
   // Batch operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(cutBatchCreateSchema)) data: CutBatchCreateFormData,
