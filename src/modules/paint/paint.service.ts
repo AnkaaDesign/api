@@ -10,6 +10,8 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PaintRepository } from './repositories/paint/paint.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
+import { WebDAVService } from '@modules/common/file/services/webdav.service';
+import { promises as fs } from 'fs';
 import type {
   PaintBatchCreateResponse,
   PaintBatchDeleteResponse,
@@ -53,7 +55,43 @@ export class PaintService {
     private readonly paintRepository: PaintRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly itemRepository: ItemRepository,
+    private readonly webdavService: WebDAVService,
   ) {}
+
+  /**
+   * Upload colorPreview file to WebDAV and return the file path
+   * (URL is generated at retrieval time like task artworks - ensures correct URL in all environments)
+   */
+  private async uploadColorPreviewFile(
+    file: Express.Multer.File,
+    paintName: string,
+  ): Promise<string> {
+    try {
+      // Generate WebDAV path for paint color preview
+      const webdavPath = this.webdavService.generateWebDAVFilePath(
+        file.originalname || `${paintName}.webp`,
+        'paintColor',
+        file.mimetype,
+      );
+
+      // Move file to WebDAV
+      await this.webdavService.moveToWebDAV(file.path, webdavPath);
+
+      // Return the path (not URL) - URL will be generated at retrieval time
+      // This follows the same pattern as task artworks which work correctly
+      this.logger.log(`Color preview uploaded to WebDAV path: ${webdavPath}`);
+      return webdavPath;
+    } catch (error: any) {
+      this.logger.error('Failed to upload color preview file:', error);
+      // Clean up temp file on error
+      try {
+        await fs.unlink(file.path);
+      } catch (unlinkError) {
+        this.logger.warn(`Failed to clean up temp file: ${file.path}`);
+      }
+      throw new InternalServerErrorException('Erro ao fazer upload da imagem de preview');
+    }
+  }
 
   /**
    * Validar entidade completa
@@ -419,14 +457,16 @@ export class PaintService {
         SELECT DISTINCT p.id
         FROM "Paint" p
         LEFT JOIN "Task" t1 ON t1."paintId" = p.id
+        LEFT JOIN "Truck" tr1 ON tr1."taskId" = t1.id
         LEFT JOIN "_TASK_LOGO_PAINT" tlp ON tlp."A" = p.id
         LEFT JOIN "Task" t2 ON t2.id = tlp."B"
+        LEFT JOIN "Truck" tr2 ON tr2."taskId" = t2.id
         WHERE LOWER(t1.name) LIKE LOWER(${searchPattern})
            OR LOWER(t1."serialNumber") LIKE LOWER(${searchPattern})
-           OR LOWER(t1.plate) LIKE LOWER(${searchPattern})
+           OR LOWER(tr1.plate) LIKE LOWER(${searchPattern})
            OR LOWER(t2.name) LIKE LOWER(${searchPattern})
            OR LOWER(t2."serialNumber") LIKE LOWER(${searchPattern})
-           OR LOWER(t2.plate) LIKE LOWER(${searchPattern})
+           OR LOWER(tr2.plate) LIKE LOWER(${searchPattern})
       `;
 
       const ids = result.map(row => row.id);
@@ -503,8 +543,15 @@ export class PaintService {
     data: PaintCreateFormData,
     include?: PaintInclude,
     userId?: string,
+    colorPreviewFile?: Express.Multer.File,
   ): Promise<PaintCreateResponse> {
     try {
+      // Handle colorPreview file upload before transaction
+      let colorPreviewUrl: string | null = null;
+      if (colorPreviewFile) {
+        colorPreviewUrl = await this.uploadColorPreviewFile(colorPreviewFile, data.name);
+      }
+
       const paint = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validar entidade completa
         await this.paintValidation(data, undefined, tx);
@@ -513,6 +560,8 @@ export class PaintService {
         const createData = {
           ...data,
           tags: data.tags ? data.tags.map(tag => tag.trim().toLowerCase()) : [],
+          // Use uploaded file URL if available, otherwise use provided colorPreview (for backward compat)
+          colorPreview: colorPreviewUrl || data.colorPreview || null,
         };
 
         // Criar a tinta
@@ -610,8 +659,18 @@ export class PaintService {
     data: PaintUpdateFormData,
     include?: PaintInclude,
     userId?: string,
+    colorPreviewFile?: Express.Multer.File,
   ): Promise<PaintUpdateResponse> {
     try {
+      // Handle colorPreview file upload before transaction
+      let colorPreviewUrl: string | null | undefined = undefined;
+      if (colorPreviewFile) {
+        // Get paint name for file naming
+        const existingPaintForName = await this.paintRepository.findById(id);
+        const paintName = existingPaintForName?.name || 'preview';
+        colorPreviewUrl = await this.uploadColorPreviewFile(colorPreviewFile, paintName);
+      }
+
       const updatedPaint = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Buscar tinta existente com relações para comparação
         const existingPaint = await this.paintRepository.findByIdWithTransaction(tx, id, {
@@ -634,6 +693,11 @@ export class PaintService {
 
         // Prepare update data
         let updateData: any = { ...data };
+
+        // Update colorPreview with uploaded file URL if available
+        if (colorPreviewUrl !== undefined) {
+          updateData.colorPreview = colorPreviewUrl;
+        }
 
         // Normalize tags if provided
         if (data.tags) {

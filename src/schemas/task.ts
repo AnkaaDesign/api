@@ -566,9 +566,8 @@ const taskTransform = (data: any): any => {
         { generalPainting: { code: { contains: searchTerm, mode: "insensitive" } } },
         { logoPaints: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
         { logoPaints: { some: { code: { contains: searchTerm, mode: "insensitive" } } } },
-        // Truck search - plate, model, chassisNumber
+        // Truck search - plate, chassisNumber
         { truck: { plate: { contains: searchTerm, mode: "insensitive" } } },
-        { truck: { model: { contains: searchTerm, mode: "insensitive" } } },
         { truck: { chassisNumber: { contains: searchTerm, mode: "insensitive" } } },
         { truck: { garage: { name: { contains: searchTerm, mode: "insensitive" } } } },
       ],
@@ -1358,7 +1357,7 @@ export const taskCreateSchema = z
     receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).min(1, "Pelo menos um serviço é obrigatório"),
-    budget: z.array(budgetCreateNestedSchema).optional(),
+    budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     truckLayoutData: taskLayoutDataSchema, // Layout data for truck
     cut: cutCreateNestedSchema.nullable().optional(),
@@ -1456,7 +1455,7 @@ export const taskUpdateSchema = z
     paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).optional(),
-    budget: z.array(budgetCreateNestedSchema).optional(),
+    budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     truckLayoutData: taskLayoutDataSchema, // Layout data for truck
     cut: cutCreateNestedSchema.nullable().optional(),

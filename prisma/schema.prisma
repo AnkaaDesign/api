@@ -239,6 +239,7 @@ model PpeDelivery {
   status             PpeDeliveryStatus    @default(PENDING)
   statusOrder        Int                  @default(1)
   quantity           Int
+  reason             String?
   reviewedBy         String?
   ppeScheduleId      String?
   scheduledDate      DateTime?
@@ -750,6 +751,7 @@ model Paint {
   code             String?
   paintBrandId     String?
   colorOrder       Int                @default(0)
+  colorPreview     String?            // Paint preview image URL (WebP)
   paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
   paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
   formulas         PaintFormula[]

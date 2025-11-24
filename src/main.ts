@@ -91,15 +91,10 @@ async function bootstrap() {
     }
   });
 
-  // Regular JSON parser for all other routes (skip for multipart/form-data)
-  app.use((req, res, next) => {
-    const contentType = req.headers['content-type'] || '';
-    // Skip JSON parsing for multipart/form-data (handled by multer)
-    if (contentType.includes('multipart/form-data')) {
-      return next();
-    }
-    return express.json()(req, res, next);
-  });
+  // NestJS handles body parsing automatically for JSON and URL-encoded
+  // We don't need custom JSON parsing middleware
+  // Multer handles multipart/form-data
+  // The webhook route above handles its own raw body capture
 
   // Security headers with Helmet
   // Temporarily disable some security features for debugging
@@ -165,8 +160,8 @@ async function bootstrap() {
   // app.setGlobalPrefix('api'); // REMOVED: Using subdomain architecture
 
     const port = env.API_PORT ?? env.PORT ?? 3030;
-    // Try without specifying host to let Node.js handle it
-    await app.listen(port);
+    // Bind to 0.0.0.0 to accept connections from all interfaces (IPv4)
+    await app.listen(port, '0.0.0.0');
 
     // Signal PM2 that app is ready
     if (process.send) {

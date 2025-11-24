@@ -1961,11 +1961,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
       select: {
         id: true,
         name: true,
-        plate: true,
         serialNumber: true,
         createdAt: true,
         generalPainting: true,
         logoPaints: true,
+        truck: {
+          select: {
+            plate: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -2070,7 +2074,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           paintName: task.generalPainting.name,
           taskId: task.id,
           taskName: task.name,
-          taskPlate: task.plate || undefined,
+          taskPlate: task.truck?.plate || undefined,
           taskSerialNumber: task.serialNumber || undefined,
           createdAt: task.createdAt,
         });
@@ -2083,7 +2087,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
           paintName: paint.name,
           taskId: task.id,
           taskName: task.name,
-          taskPlate: task.plate || undefined,
+          taskPlate: task.truck?.plate || undefined,
           taskSerialNumber: task.serialNumber || undefined,
           createdAt: task.createdAt,
         });
@@ -2426,9 +2430,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
   }> {
     const [trucks, trucksInProduction] = await Promise.all([
       this.prisma.truck.findMany({
-        include: {
+        select: {
+          id: true,
+          plate: true,
           garage: { select: { name: true } },
-          task: { select: { status: true, plate: true, name: true } },
+          task: { select: { status: true, name: true } },
         },
       }),
       this.prisma.truck.count({
@@ -2460,7 +2466,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     const byPosition = trucks.map(truck => ({
       id: truck.id,
-      name: `${truck.task.plate || 'Sem placa'} - ${truck.task.name}`,
+      name: `${truck.plate || 'Sem placa'} - ${truck.task.name}`,
       value: 1,
       metadata: {
         position: truck.garage?.name || 'Sem posição',
@@ -2840,6 +2846,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
     total: number;
     active: number;
     inactive: number;
+    experiencePeriod1: number;
+    experiencePeriod2: number;
+    effected: number;
+    dismissed: number;
     newUsersThisMonth: number;
     newUsersThisWeek: number;
     newUsersToday: number;
@@ -2852,15 +2862,29 @@ export class DashboardPrismaRepository implements DashboardRepository {
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [total, active, inactive, newUsersThisMonth, newUsersThisWeek, newUsersToday] =
-      await Promise.all([
-        this.prisma.user.count({ where }),
-        this.prisma.user.count({ where: { ...where, status: { in: [...ACTIVE_USER_STATUSES] } } }),
-        this.prisma.user.count({ where: { ...where, status: USER_STATUS.DISMISSED } }),
-        this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfMonth } } }),
-        this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfWeek } } }),
-        this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfDay } } }),
-      ]);
+    const [
+      total,
+      active,
+      inactive,
+      experiencePeriod1,
+      experiencePeriod2,
+      effected,
+      dismissed,
+      newUsersThisMonth,
+      newUsersThisWeek,
+      newUsersToday,
+    ] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.count({ where: { ...where, status: { in: [...ACTIVE_USER_STATUSES] } } }),
+      this.prisma.user.count({ where: { ...where, status: USER_STATUS.DISMISSED } }),
+      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EXPERIENCE_PERIOD_1 } }),
+      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EXPERIENCE_PERIOD_2 } }),
+      this.prisma.user.count({ where: { ...where, status: USER_STATUS.EFFECTED } }),
+      this.prisma.user.count({ where: { ...where, status: USER_STATUS.DISMISSED } }),
+      this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfMonth } } }),
+      this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfWeek } } }),
+      this.prisma.user.count({ where: { ...where, createdAt: { gte: startOfDay } } }),
+    ]);
 
     // Get monthly growth for the last 6 months
     const monthlyGrowth: Array<{ month: string; count: number }> = [];
@@ -2903,6 +2927,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
       total,
       active,
       inactive,
+      experiencePeriod1,
+      experiencePeriod2,
+      effected,
+      dismissed,
       newUsersThisMonth,
       newUsersThisWeek,
       newUsersToday,

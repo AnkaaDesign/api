@@ -24,6 +24,7 @@ import {
 } from '@prisma/client';
 import { COLOR_PALETTE } from '../../../../constants/enums';
 import { getColorPaletteOrder } from '../../../../utils';
+import { WebDAVService } from '@modules/common/file/services/webdav.service';
 
 @Injectable()
 export class PaintPrismaRepository
@@ -45,7 +46,10 @@ export class PaintPrismaRepository
 {
   protected readonly logger = new Logger(PaintPrismaRepository.name);
 
-  constructor(protected readonly prisma: PrismaService) {
+  constructor(
+    protected readonly prisma: PrismaService,
+    private readonly webdavService: WebDAVService,
+  ) {
     super(prisma);
   }
 
@@ -53,6 +57,13 @@ export class PaintPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Paint {
     // Map database fields to API fields
     const mapped: any = { ...databaseEntity };
+
+    // Generate URL from colorPreview path (like task artworks workflow)
+    // colorPreview stores the file path, URL is generated at retrieval time
+    if (mapped.colorPreview && !mapped.colorPreview.startsWith('http') && !mapped.colorPreview.startsWith('data:')) {
+      // It's a path, generate URL
+      mapped.colorPreview = this.webdavService.getWebDAVUrl(mapped.colorPreview);
+    }
 
     // Recursively map nested relations
     if (mapped.generalPaintings && Array.isArray(mapped.generalPaintings)) {
@@ -99,6 +110,7 @@ export class PaintPrismaRepository
       paintType: {
         connect: { id: restFormData.paintTypeId },
       },
+      colorPreview: restFormData.colorPreview || null,
     };
 
     // Handle ground paints connection
@@ -163,6 +175,10 @@ export class PaintPrismaRepository
       updateInput.paintType = {
         connect: { id: restFormData.paintTypeId },
       };
+    }
+
+    if (restFormData.colorPreview !== undefined) {
+      updateInput.colorPreview = restFormData.colorPreview;
     }
 
     // Handle ground paints update - delete all existing and recreate

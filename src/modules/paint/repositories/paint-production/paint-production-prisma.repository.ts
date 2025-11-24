@@ -13,6 +13,7 @@ import {
 } from '../../../../schemas/paint';
 import { PaintProduction } from '../../../../types';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
+import { transformPaintColorPreview } from '../../../../utils';
 
 @Injectable()
 export class PaintProductionPrismaRepository
@@ -39,8 +40,15 @@ export class PaintProductionPrismaRepository
   }
 
   // Abstract method implementations from BaseStringPrismaRepository
-  protected mapDatabaseEntityToEntity(databaseEntity: PrismaPaintProduction): PaintProduction {
-    return databaseEntity as PaintProduction;
+  protected mapDatabaseEntityToEntity(databaseEntity: any): PaintProduction {
+    const production = databaseEntity as PaintProduction;
+
+    // Transform nested paint colorPreview path to URL
+    if (production.formula?.paint) {
+      production.formula.paint = transformPaintColorPreview(production.formula.paint);
+    }
+
+    return production;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(

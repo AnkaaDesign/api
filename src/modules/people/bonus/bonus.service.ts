@@ -41,6 +41,8 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   BONUS_STATUS,
+  TASK_STATUS,
+  COMMISSION_STATUS,
 } from '../../../constants/enums';
 import { BONUS_STATUS_ORDER } from '../../../constants/sortOrders';
 import {
@@ -189,59 +191,46 @@ export class BonusService {
       const periodStart = getBonusPeriodStart(year, month);
       const periodEnd = getBonusPeriodEnd(year, month);
 
-      // Count tasks for this user in the period
-      const tasks = await transaction.task.findMany({
+      // Query ALL tasks in the period (no user filter)
+      // Bonus is calculated from company-wide average, not per-user tasks
+      const allTasks = await transaction.task.findMany({
         where: {
-          createdById: userId,
+          status: {
+            in: [TASK_STATUS.COMPLETED, TASK_STATUS.INVOICED, TASK_STATUS.SETTLED],
+          },
           finishedAt: {
             gte: periodStart,
             lte: periodEnd,
           },
+          commission: {
+            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+          },
         },
       });
 
-      // Calculate weighted task count
-      let weightedTaskCount = 0;
-      for (const task of tasks) {
+      // Calculate total weighted tasks from ALL tasks (company-wide)
+      let totalWeightedTasks = 0;
+      for (const task of allTasks) {
         // Full commission tasks count as 1, partial commission tasks count as 0.5
-        if (task.commission === 'FULL_COMMISSION') {
-          weightedTaskCount += 1;
-        } else if (task.commission === 'PARTIAL_COMMISSION') {
-          weightedTaskCount += 0.5;
+        if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+          totalWeightedTasks += 1;
+        } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+          totalWeightedTasks += 0.5;
         }
       }
 
       // Get all eligible users for this period to calculate average
       const eligibleUsers = await transaction.user.findMany({
         where: {
+          performanceLevel: { gt: 0 },
           position: {
             bonifiable: true,
           },
         },
         include: {
           position: true,
-          createdTasks: {
-            where: {
-              finishedAt: {
-                gte: periodStart,
-                lte: periodEnd,
-              },
-            },
-          },
         },
       });
-
-      // Calculate total weighted tasks across all eligible users
-      let totalWeightedTasks = 0;
-      for (const eligibleUser of eligibleUsers) {
-        for (const task of eligibleUser.createdTasks) {
-          if (task.commission === 'FULL_COMMISSION') {
-            totalWeightedTasks += 1;
-          } else if (task.commission === 'PARTIAL_COMMISSION') {
-            totalWeightedTasks += 0.5;
-          }
-        }
-      }
 
       // Calculate average tasks per user
       const averageTasksPerUser = eligibleUsers.length > 0 ? totalWeightedTasks / eligibleUsers.length : 0;
@@ -257,7 +246,7 @@ export class BonusService {
         positionName: user.position.name,
         performanceLevel,
         averageTasksPerUser,
-        weightedTaskCount,
+        totalWeightedTasks,
         totalEligibleUsers: eligibleUsers.length,
       });
 
@@ -864,6 +853,60 @@ export class BonusService {
     } catch (error) {
       this.logger.error('Error getting payroll data', { error, params });
       throw new InternalServerErrorException('Erro interno do servidor ao obter dados da folha de pagamento.');
+    }
+  }
+
+  /**
+   * Get tasks for a bonus by calculation period
+   * Used when tasks are not linked via many-to-many relation
+   * This query MUST match the exact bonus calculation logic to show the same tasks that were counted
+   */
+  async getTasksForBonus(
+    userId: string,
+    periodStart: Date,
+    periodEnd: Date
+  ): Promise<any[]> {
+    try {
+      this.logger.log(`Getting tasks for bonus - userId: ${userId}, period: ${periodStart} to ${periodEnd}`);
+
+      // Query ALL tasks in the period that match bonus calculation criteria
+      // This MUST match the query in calculateLiveBonus() method (lines 196-209)
+      const tasks = await this.bonusRepository.prisma.task.findMany({
+        where: {
+          // Use same status filter as bonus calculation
+          status: {
+            in: [TASK_STATUS.COMPLETED, TASK_STATUS.INVOICED, TASK_STATUS.SETTLED],
+          },
+          finishedAt: {
+            gte: periodStart,
+            lte: periodEnd,
+          },
+          // Only show tasks that contributed to the bonus (with commission)
+          commission: {
+            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+          },
+        },
+        orderBy: {
+          finishedAt: 'desc',
+        },
+        // Only select fields needed for commission display
+        select: {
+          id: true,
+          name: true,
+          commission: true,
+          status: true,
+          finishedAt: true,
+          createdById: true,
+          sectorId: true,
+        },
+      });
+
+      this.logger.log(`Found ${tasks.length} tasks matching bonus calculation criteria`);
+
+      return tasks;
+    } catch (error) {
+      this.logger.error('Error getting tasks for bonus', { error, userId, periodStart, periodEnd });
+      return []; // Return empty array instead of throwing
     }
   }
 }

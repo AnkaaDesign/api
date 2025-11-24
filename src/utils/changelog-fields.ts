@@ -594,7 +594,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     // Nested relationship fields
     "file.filename": "Nome do Arquivo",
     "task.serialNumber": "Número de Série da Tarefa",
-    "task.plate": "Placa da Tarefa",
+    "truck.plate": "Placa do Caminhão",
     "task.title": "Título da Tarefa",
     "parentCut.id": "ID do Corte Pai",
   },

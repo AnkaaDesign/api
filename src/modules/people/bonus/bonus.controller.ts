@@ -146,7 +146,166 @@ export class BonusController {
   }
 
   // =====================
-  // Payroll Operations
+  // Personal Bonus Operations (No privilege requirements - available to all authenticated users)
+  // =====================
+
+  /**
+   * Get current user's saved bonuses
+   * Returns only bonuses belonging to the authenticated user
+   * No admin/HR privileges required - accessible to all users
+   */
+  @Get('my-bonuses')
+  @ReadRateLimit()
+  async getMyBonuses(
+    @Query(new ZodQueryValidationPipe(bonusGetManySchema)) query: BonusGetManyFormData,
+    @UserId() userId: string,
+  ): Promise<BonusGetManyResponse> {
+    console.log('🔍 [my-bonuses] Request received:', {
+      userId,
+      where: query.where,
+    });
+
+    // Force filter by current user - users can only see their own bonuses
+    const userQuery = {
+      ...query,
+      where: {
+        ...query.where,
+        userId: userId,
+      },
+    };
+
+    const result = await this.bonusService.findMany(userQuery, query.include, userId);
+
+    // Convert Prisma Decimal fields to plain numbers for mobile compatibility
+    if (result.data) {
+      result.data = result.data.map((bonus: any) => ({
+        ...bonus,
+        baseBonus: bonus.baseBonus?.toNumber ? bonus.baseBonus.toNumber() : bonus.baseBonus,
+        ponderedTaskCount: bonus.ponderedTaskCount?.toNumber ? bonus.ponderedTaskCount.toNumber() : bonus.ponderedTaskCount,
+        averageTasksPerUser: bonus.averageTasksPerUser?.toNumber ? bonus.averageTasksPerUser.toNumber() : bonus.averageTasksPerUser,
+      }));
+    }
+
+    console.log('🔍 [my-bonuses] Returning:', {
+      count: result.data?.length || 0,
+      totalRecords: result.meta?.totalRecords || 0,
+      firstBonusValue: result.data?.[0]?.baseBonus,
+      firstBonusType: typeof result.data?.[0]?.baseBonus,
+    });
+
+    return result;
+  }
+
+  /**
+   * Get a specific bonus detail for current user
+   * Returns only if the bonus belongs to the authenticated user
+   * No admin/HR privileges required - accessible to all users
+   */
+  @Get('my-bonuses/:id')
+  @ReadRateLimit()
+  async getMyBonusDetail(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodQueryValidationPipe(bonusQuerySchema)) query: BonusQueryFormData,
+    @UserId() userId: string,
+  ): Promise<BonusGetUniqueResponse> {
+    console.log('🔍 [my-bonuses/:id] Request received:', {
+      bonusId: id,
+      userId,
+    });
+
+    const bonus = await this.bonusService.findById(id, query.include, userId);
+
+    // Security check: ensure the bonus belongs to the current user
+    if (bonus.data && bonus.data.userId !== userId) {
+      throw new NotFoundException('Bônus não encontrado.');
+    }
+
+    // If tasks are requested but not linked via relation, fetch by calculation period
+    if (bonus.data && query.include?.tasks && (!bonus.data.tasks || bonus.data.tasks.length === 0)) {
+      console.log('🔍 [my-bonuses/:id] Tasks not linked, fetching by calculation period');
+
+      const tasks = await this.bonusService.getTasksForBonus(
+        bonus.data.userId,
+        bonus.data.calculationPeriodStart,
+        bonus.data.calculationPeriodEnd
+      );
+
+      bonus.data.tasks = tasks;
+      console.log('🔍 [my-bonuses/:id] Fetched tasks by period:', tasks.length);
+    }
+
+    // Convert Prisma Decimal fields to plain numbers for mobile compatibility
+    if (bonus.data) {
+      bonus.data = {
+        ...bonus.data,
+        baseBonus: bonus.data.baseBonus?.toNumber ? bonus.data.baseBonus.toNumber() : bonus.data.baseBonus,
+        ponderedTaskCount: bonus.data.ponderedTaskCount?.toNumber ? bonus.data.ponderedTaskCount.toNumber() : bonus.data.ponderedTaskCount,
+        averageTasksPerUser: bonus.data.averageTasksPerUser?.toNumber ? bonus.data.averageTasksPerUser.toNumber() : bonus.data.averageTasksPerUser,
+        bonusDiscounts: bonus.data.bonusDiscounts?.map((discount: any) => ({
+          ...discount,
+          percentage: discount.percentage?.toNumber ? discount.percentage.toNumber() : discount.percentage,
+          value: discount.value?.toNumber ? discount.value.toNumber() : discount.value,
+        })),
+        tasks: bonus.data.tasks?.map((task: any) => ({
+          ...task,
+          // Convert task Decimal fields
+          totalPrice: task.totalPrice?.toNumber ? task.totalPrice.toNumber() : task.totalPrice,
+          laborPrice: task.laborPrice?.toNumber ? task.laborPrice.toNumber() : task.laborPrice,
+          materialPrice: task.materialPrice?.toNumber ? task.materialPrice.toNumber() : task.materialPrice,
+          // commission field is already a string enum, no conversion needed
+        })),
+      } as any;
+    }
+
+    console.log('🔍 [my-bonuses/:id] Returning bonus for user');
+
+    return bonus;
+  }
+
+  /**
+   * Get current user's live bonus calculation for current period
+   * Returns real-time bonus calculation without saving to database
+   * No admin/HR privileges required - accessible to all users
+   */
+  @Get('my-live-bonus')
+  @ReadRateLimit()
+  async getMyLiveBonus(
+    @Query(new ZodQueryValidationPipe(payrollGetSchema)) params: PayrollGetParams,
+    @UserId() userId: string,
+  ) {
+    console.log('🔍 [my-live-bonus] Request received:', {
+      userId,
+      year: params.year,
+      month: params.month,
+    });
+
+    // Get payroll data for the specified period
+    const payrollData = await this.bonusService.getPayrollData(params, userId);
+
+    console.log('🔍 [my-live-bonus] Payroll data:', {
+      bonusesCount: payrollData.data?.bonuses?.length || 0,
+      hasBonuses: !!payrollData.data?.bonuses,
+    });
+
+    // Extract only the current user's bonus from the payroll data
+    const myBonus = payrollData.data?.bonuses?.find((b: any) => b.userId === userId);
+
+    console.log('🔍 [my-live-bonus] Returning:', {
+      found: !!myBonus,
+      data: myBonus || null,
+    });
+
+    return {
+      success: true,
+      message: myBonus
+        ? 'Bônus ao vivo calculado com sucesso.'
+        : 'Nenhum bônus encontrado para o período.',
+      data: myBonus || null,
+    };
+  }
+
+  // =====================
+  // Payroll Operations (Admin/HR only)
   // =====================
 
   @Get('payroll')

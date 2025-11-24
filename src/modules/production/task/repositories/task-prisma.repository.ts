@@ -23,6 +23,7 @@ import {
   mapTaskStatusToPrisma,
   mapServiceOrderStatusToPrisma,
   mapWhereClause,
+  transformPaintColorPreview,
 } from '../../../../utils';
 
 // Removed TaskIncludeProfile - using direct include parameters instead
@@ -31,7 +32,7 @@ import {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
-  budget: true, // Budget items (referencia/valor)
+  budget: { include: { items: true } }, // Budget with items (description/amount)
   budgets: {
     select: {
       id: true,
@@ -177,6 +178,16 @@ export class TaskPrismaRepository
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
     };
 
+    // Transform generalPainting.colorPreview path to URL
+    if (task.generalPainting) {
+      task.generalPainting = transformPaintColorPreview(task.generalPainting);
+    }
+
+    // Transform logoPaints colorPreview paths to URLs
+    if (task.logoPaints && Array.isArray(task.logoPaints)) {
+      task.logoPaints = task.logoPaints.map((paint: any) => transformPaintColorPreview(paint));
+    }
+
     return task;
   }
 
@@ -228,8 +239,6 @@ export class TaskPrismaRepository
 
     // Add optional scalar fields
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
-    if (chassisNumber !== undefined) taskData.chassisNumber = chassisNumber;
-    if (plate !== undefined) taskData.plate = plate;
     if (details !== undefined) taskData.details = details;
     if (entryDate !== undefined) taskData.entryDate = entryDate;
     if (term !== undefined) taskData.term = term;
@@ -299,6 +308,10 @@ export class TaskPrismaRepository
         xPosition: truck.xPosition ?? null,
         yPosition: truck.yPosition ?? null,
       };
+
+      // Add plate and chassisNumber if provided (from top-level or truck object)
+      if (plate !== undefined) truckData.plate = plate;
+      if (chassisNumber !== undefined) truckData.chassisNumber = chassisNumber;
 
       // Add garage connection if garageId is provided
       if (truck.garageId) {
@@ -389,14 +402,22 @@ export class TaskPrismaRepository
       };
     }
 
-    // Handle budget creation (array of budget items)
-    if (budget && Array.isArray(budget) && budget.length > 0) {
-      console.log('✅ Processing budget array:', budget.length, 'items');
+    // Handle budget creation (object with items and expiresIn)
+    if (budget && typeof budget === 'object' && budget.items && Array.isArray(budget.items) && budget.items.length > 0) {
+      console.log('✅ Processing budget object:', budget.items.length, 'items');
+      // Calculate total from items
+      const total = budget.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
       taskData.budget = {
-        create: budget.map((item: any) => ({
-          referencia: item.referencia,
-          valor: item.valor,
-        })),
+        create: {
+          total,
+          expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
+          items: {
+            create: budget.items.map((item: any) => ({
+              description: item.description,
+              amount: Number(item.amount || 0),
+            })),
+          },
+        },
       };
     }
 
@@ -487,8 +508,6 @@ export class TaskPrismaRepository
     // Handle scalar fields
     if (name !== undefined) updateData.name = name;
     if (serialNumber !== undefined) updateData.serialNumber = serialNumber;
-    if (chassisNumber !== undefined) updateData.chassisNumber = chassisNumber;
-    if (plate !== undefined) updateData.plate = plate;
     if (details !== undefined) updateData.details = details;
     if (entryDate !== undefined) updateData.entryDate = entryDate;
     if (term !== undefined) updateData.term = term;
@@ -592,11 +611,15 @@ export class TaskPrismaRepository
       if (truck === null) {
         updateData.truck = { delete: true };
       } else {
-        const truckCreateData = {
+        const truckCreateData: any = {
           xPosition: truck.xPosition ?? null,
           yPosition: truck.yPosition ?? null,
           garage: truck.garageId ? { connect: { id: truck.garageId } } : undefined,
         };
+
+        // Add plate and chassisNumber for truck creation
+        if (plate !== undefined) truckCreateData.plate = plate;
+        if (chassisNumber !== undefined) truckCreateData.chassisNumber = chassisNumber;
 
         const truckUpdateData: any = {};
         if (truck.xPosition !== undefined) truckUpdateData.xPosition = truck.xPosition ?? null;
@@ -605,6 +628,10 @@ export class TaskPrismaRepository
           truckUpdateData.garage =
             truck.garageId === null ? { disconnect: true } : { connect: { id: truck.garageId } };
         }
+
+        // Add plate and chassisNumber for truck update
+        if (plate !== undefined) truckUpdateData.plate = plate;
+        if (chassisNumber !== undefined) truckUpdateData.chassisNumber = chassisNumber;
 
         updateData.truck = {
           upsert: {
@@ -700,19 +727,39 @@ export class TaskPrismaRepository
       }
     }
 
-    // Handle budget update (array of budget items) - replace all existing budget items
+    // Handle budget update (object with items and expiresIn) - upsert budget
     if (budget !== undefined) {
-      if (budget === null || (Array.isArray(budget) && budget.length === 0)) {
-        console.log('🗑️ Deleting all budget items');
-        updateData.budget = { deleteMany: {} };
-      } else if (Array.isArray(budget) && budget.length > 0) {
-        console.log('✅ Updating budget array:', budget.length, 'items');
+      if (budget === null) {
+        console.log('🗑️ Deleting budget');
+        updateData.budget = { delete: true };
+      } else if (typeof budget === 'object' && budget.items && Array.isArray(budget.items) && budget.items.length > 0) {
+        console.log('✅ Updating budget object:', budget.items.length, 'items');
+        // Calculate total from items
+        const total = budget.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
         updateData.budget = {
-          deleteMany: {}, // Delete all existing budget items
-          create: budget.map((item: any) => ({
-            referencia: item.referencia,
-            valor: item.valor,
-          })),
+          upsert: {
+            create: {
+              total,
+              expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
+              items: {
+                create: budget.items.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount || 0),
+                })),
+              },
+            },
+            update: {
+              total,
+              expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
+              items: {
+                deleteMany: {}, // Delete all existing items
+                create: budget.items.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount || 0),
+                })),
+              },
+            },
+          },
         };
       }
     }

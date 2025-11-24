@@ -4,6 +4,7 @@ export * from "./bonus";
 export * from "./bonusDiscount";
 export * from "./borrow";
 export * from "./budget";
+export * from "./budgetItem";
 export * from "./changelog";
 export * from "./common";
 export * from "./customer";
