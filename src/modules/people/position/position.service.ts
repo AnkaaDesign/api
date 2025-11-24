@@ -559,6 +559,8 @@ export class PositionService {
             'privileges',
             'commissionEligible',
             'maxAllowedVacationDays',
+            'hierarchy',
+            'bonifiable',
           ];
 
           await trackAndLogFieldChanges({

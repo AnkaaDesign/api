@@ -845,6 +845,22 @@ export class DashboardService {
         label: 'Usuários Inativos',
         value: stats.inactive,
       },
+      experiencePeriod1Users: {
+        label: 'Experiência 1/2',
+        value: stats.experiencePeriod1,
+      },
+      experiencePeriod2Users: {
+        label: 'Experiência 2/2',
+        value: stats.experiencePeriod2,
+      },
+      effectedUsers: {
+        label: 'Efetivados',
+        value: stats.effected,
+      },
+      dismissedUsers: {
+        label: 'Desligados',
+        value: stats.dismissed,
+      },
       pendingUsers: {
         label: 'Usuários Pendentes',
         value: 0, // Can be calculated if there's a pending status

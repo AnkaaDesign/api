@@ -18,6 +18,7 @@ export const bonusIncludeSchema = z
           include: z
             .object({
               sector: z.boolean().optional(),
+              position: z.boolean().optional(),
             })
             .optional(),
         }),

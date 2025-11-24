@@ -835,8 +835,9 @@ export const paintWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       OR: z.array(paintWhereSchema).optional(),
       NOT: z.union([paintWhereSchema, z.array(paintWhereSchema)]).optional(),
       id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      name: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
+      name: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional(), mode: z.enum(['default', 'insensitive']).optional() })]).optional(),
       hex: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
+      code: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
       finish: z.union([z.nativeEnum(PAINT_FINISH), z.object({ in: z.array(z.nativeEnum(PAINT_FINISH)).optional() })]).optional(),
       manufacturer: z.union([z.nativeEnum(TRUCK_MANUFACTURER), z.object({ in: z.array(z.nativeEnum(TRUCK_MANUFACTURER)).optional() })]).optional(),
       palette: z.union([z.nativeEnum(COLOR_PALETTE), z.object({ in: z.array(z.nativeEnum(COLOR_PALETTE)).optional() })]).optional(),
@@ -1362,6 +1363,7 @@ export const paintCreateSchema = z.object({
   paletteOrder: z.number().int().min(1).max(14).optional(),
   colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
+  colorPreview: z.string().nullable().optional(), // URL or data URL for paint preview image
 });
 
 export const paintUpdateSchema = z.object({
@@ -1390,6 +1392,7 @@ export const paintUpdateSchema = z.object({
   paletteOrder: z.number().int().min(1).max(14).optional(),
   colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
+  colorPreview: z.string().nullable().optional(), // URL or data URL for paint preview image
 });
 
 // =====================

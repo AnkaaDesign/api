@@ -302,6 +302,10 @@ export interface AdministrationDashboardData {
     totalUsers: DashboardMetric;
     activeUsers: DashboardMetric;
     inactiveUsers: DashboardMetric;
+    experiencePeriod1Users: DashboardMetric;
+    experiencePeriod2Users: DashboardMetric;
+    effectedUsers: DashboardMetric;
+    dismissedUsers: DashboardMetric;
     pendingUsers: DashboardMetric;
     newUsersThisWeek: DashboardMetric;
     newUsersToday: DashboardMetric;

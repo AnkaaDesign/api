@@ -74,6 +74,14 @@ export class PositionPrismaRepository
       updateInput.name = formData.name;
     }
 
+    if (formData.hierarchy !== undefined) {
+      updateInput.hierarchy = formData.hierarchy;
+    }
+
+    if (formData.bonifiable !== undefined) {
+      updateInput.bonifiable = formData.bonifiable;
+    }
+
     // Note: remuneration is handled separately in the service layer
 
     return updateInput;

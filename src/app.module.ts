@@ -14,6 +14,7 @@ import { SecurityModule } from './modules/common/security/security.module';
 import { ActivityModule } from './modules/inventory/activity/activity.module';
 import { AirbrushingModule } from './modules/production/airbrushing/airbrushing.module';
 import { AuthModule } from './modules/common/auth/auth.module';
+import { BonusModule } from './modules/people/bonus/bonus.module';
 import { BorrowModule } from './modules/inventory/borrow/borrow.module';
 import { CustomerModule } from './modules/production/customer/customer.module';
 import { CutModule } from './modules/production/cut/cut.module';
@@ -42,6 +43,7 @@ import { LayoutModule } from './modules/production/layout/layout.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
 import { VacationModule } from './modules/people/vacation/vacation.module';
+import { PersonalModule } from './modules/people/personal/personal.module';
 import { ThrottlerModule } from './modules/common/throttler/throttler.module';
 import { SchedulerModule } from './modules/common/scheduler/scheduler.module';
 import { SecullumModule } from './modules/integrations/secullum/secullum.module';
@@ -80,6 +82,7 @@ import { AppsModule } from './modules/system/app/app.module';
     ThrottlerModule,
     ActivityModule,
     AirbrushingModule,
+    BonusModule,
     HumanResourcesModule,
     BorrowModule,
     CustomerModule,
@@ -109,6 +112,7 @@ import { AppsModule } from './modules/system/app/app.module';
     UserModule,
     ProfileModule,
     VacationModule,
+    PersonalModule,
     SchedulerModule,
     SecullumModule,
     ServerModule,

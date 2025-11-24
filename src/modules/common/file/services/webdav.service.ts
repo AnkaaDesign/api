@@ -56,6 +56,7 @@ export interface WebDAVFolderMapping {
   plotterEspovo: string; // Stencil (Espovo) plotter files
   plotterAdesivo: string; // Vinyl (Adesivo) plotter files
   thumbnails: string; // Thumbnail files
+  paintColor: string; // Paint color preview images
 
   // General folders
   general: string; // General files
@@ -137,6 +138,7 @@ export class WebDAVService {
     plotterEspovo: 'Plotter', // Will add customer folder + Espovo: Plotter/{customerFantasyName}/Espovo/
     plotterAdesivo: 'Plotter', // Will add customer folder + Adesivo: Plotter/{customerFantasyName}/Adesivo/
     thumbnails: 'Thumbnails', // NEW - Will add size folder: Thumbnails/{size}/
+    paintColor: 'Tintas', // Paint color preview images
 
     // General folders (WebDAV exclusive - will NOT be served via API)
     general: 'Auxiliares',
@@ -500,7 +502,12 @@ export class WebDAVService {
    */
   getWebDAVUrl(filePath: string): string {
     const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
-    const relativePath = filePath.replace(this.webdavRoot, '').replace(/\\/g, '/');
+
+    // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
+    const normalizedFilePath = filePath.replace(/^\.\//, '');
+    const normalizedRoot = this.webdavRoot.replace(/^\.\//, '');
+
+    const relativePath = normalizedFilePath.replace(normalizedRoot, '').replace(/\\/g, '/');
     const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
 
     return `${baseUrl}${cleanPath}`;
