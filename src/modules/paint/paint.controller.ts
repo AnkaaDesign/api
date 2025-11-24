@@ -10,8 +10,12 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -238,12 +242,14 @@ export class PaintUnifiedController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(FileInterceptor('colorPreview', multerConfig))
   async createPaint(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(paintCreateSchema)) data: PaintCreateFormData,
     @Query(new ZodQueryValidationPipe(paintQuerySchema)) query: PaintQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() colorPreviewFile?: Express.Multer.File,
   ): Promise<PaintCreateResponse> {
-    return this.paintService.create(data, query.include, userId);
+    return this.paintService.create(data, query.include, userId, colorPreviewFile);
   }
 
   // Batch operations (must come before dynamic routes)
@@ -307,13 +313,15 @@ export class PaintUnifiedController {
   // Dynamic routes (must come after static routes)
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(FileInterceptor('colorPreview', multerConfig))
   async updatePaint(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(paintUpdateSchema)) data: PaintUpdateFormData,
     @Query(new ZodQueryValidationPipe(paintQuerySchema)) query: PaintQueryFormData,
     @UserId() userId: string,
+    @UploadedFile() colorPreviewFile?: Express.Multer.File,
   ): Promise<PaintUpdateResponse> {
-    return this.paintService.update(id, data, query.include, userId);
+    return this.paintService.update(id, data, query.include, userId, colorPreviewFile);
   }
 
   @Delete(':id')

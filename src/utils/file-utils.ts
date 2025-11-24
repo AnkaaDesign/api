@@ -461,6 +461,50 @@ export const getIconForMimeType = (mimeType: string, iconLibrary: "fontawesome" 
 };
 
 // =====================
+// WebDAV URL Builder
+// =====================
+
+/**
+ * Convert a file path to a WebDAV URL
+ * This is a standalone utility that doesn't require DI
+ */
+export const getWebDAVUrl = (filePath: string): string => {
+  // If already a URL or data URL, return as-is
+  if (!filePath || filePath.startsWith('http') || filePath.startsWith('data:')) {
+    return filePath;
+  }
+
+  const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
+  const webdavRoot = process.env.UPLOAD_DIR || './uploads';
+
+  // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
+  const normalizedFilePath = filePath.replace(/^\.\//, '');
+  const normalizedRoot = webdavRoot.replace(/^\.\//, '');
+
+  const relativePath = normalizedFilePath.replace(normalizedRoot, '').replace(/\\/g, '/');
+  const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
+
+  return `${baseUrl}${cleanPath}`;
+};
+
+/**
+ * Transform paint colorPreview path to URL (for nested relations)
+ */
+export const transformPaintColorPreview = (paint: any): any => {
+  if (!paint) return paint;
+
+  if (paint.colorPreview &&
+      !paint.colorPreview.startsWith('http') &&
+      !paint.colorPreview.startsWith('data:')) {
+    return {
+      ...paint,
+      colorPreview: getWebDAVUrl(paint.colorPreview),
+    };
+  }
+  return paint;
+};
+
+// =====================
 // Thumbnail and URL Builders
 // =====================
 

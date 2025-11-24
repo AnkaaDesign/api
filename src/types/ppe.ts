@@ -51,6 +51,7 @@ export interface PpeDelivery extends BaseEntity {
   status: PPE_DELIVERY_STATUS;
   statusOrder: number;
   quantity: number;
+  reason: string | null;
 
   // Relations (optional, populated based on query)
   user?: User;

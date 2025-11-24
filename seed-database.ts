@@ -924,16 +924,15 @@ async function migrateUsers() {
           data: {
             name: userName,
             email: email,
-            login: login,
             cpf: cleanCPF(user.cpf) || null,
-            active: true,
+            isActive: true,
             verified: true, // Set all users as verified
             password: hashedPassword,
             phone: cleanPhoneNumber(user.phone) || null,
-            birthDate: parseDate(user.birthDate),
-            imageUrl: null,
-            isTemporaryPassword: true, // Force password change on first login
+            birth: parseMongoDate(user.birthDate),
+            requirePasswordChange: true, // Force password change on first login
           },
+          include: { position: true, sector: true },
         });
 
         console.log(`  ✅ Created missing user: ${userName} (${created.email})`);
@@ -5129,15 +5128,16 @@ async function main() {
     await migrateSuppliers();
     await createItemCategoriesAndBrands();
     await migrateBrandsAsCustomers();
-    await createPaintBrands();
-    await createPaintTypes();
+    // Paint-related migrations disabled
+    // await createPaintBrands();
+    // await createPaintTypes();
     await migrateItems();
     await mergeDuplicateItems();
-    await enhancePaintComponentsWithWeight();
+    // await enhancePaintComponentsWithWeight();
     await addDefaultWeightsFromVolume();
-    await linkPaintTypesWithComponents();
-    await linkPaintBrandsWithComponents();
-    await migratePaints();
+    // await linkPaintTypesWithComponents();
+    // await linkPaintBrandsWithComponents();
+    // await migratePaints();
     await migrateOrders();
     await migrateTasks();
     await migrateActivities();

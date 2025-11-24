@@ -185,7 +185,7 @@ function getDetailedPositionLevel(positionName: string): number {
   // Senior levels (9-12) - Check longer strings first to avoid substring matching issues
   if (normalized.includes('senioriv') || normalized.includes('sênioriv')) return 12;
   if (normalized.includes('senioriii') || normalized.includes('sênioriii')) return 11;
-  if (normalized.includes('seniorii') || normalized.includes('sêniori')) return 10;
+  if (normalized.includes('seniorii') || normalized.includes('sêniorii')) return 10;
   if (normalized.includes('seniori') || normalized.includes('sêniori')) return 9;
   if (normalized === 'senior' || normalized === 'sênior') return 11; // Default senior to III
 

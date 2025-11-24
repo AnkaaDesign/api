@@ -920,6 +920,8 @@ export enum CHANGE_TRIGGERED_BY {
   API = "API",
   WEBHOOK = "WEBHOOK",
   ADMIN = "ADMIN",
+  VEHICLE_MOVEMENT = "VEHICLE_MOVEMENT",
+  PARKING_ASSIGNMENT = "PARKING_ASSIGNMENT",
 }
 
 // Alias for Prisma compatibility

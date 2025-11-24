@@ -46,8 +46,8 @@ export const budgetOrderBySchema = z
     z
       .object({
         id: orderByDirectionSchema.optional(),
-        referencia: orderByDirectionSchema.optional(),
-        valor: orderByDirectionSchema.optional(),
+        total: orderByDirectionSchema.optional(),
+        expiresIn: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
@@ -72,8 +72,8 @@ export const budgetOrderBySchema = z
       z
         .object({
           id: orderByDirectionSchema.optional(),
-          referencia: orderByDirectionSchema.optional(),
-          valor: orderByDirectionSchema.optional(),
+          total: orderByDirectionSchema.optional(),
+          expiresIn: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
@@ -106,23 +106,7 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      referencia: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            not: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-            contains: z.string().optional(),
-            startsWith: z.string().optional(),
-            endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
-          }),
-        ])
-        .optional(),
-
-      valor: z
+      total: z
         .union([
           z.number(),
           z.object({
@@ -132,6 +116,20 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
             gte: z.number().optional(),
             lt: z.number().optional(),
             lte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      expiresIn: z
+        .union([
+          z.date(),
+          z.object({
+            equals: z.date().optional(),
+            not: z.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -187,7 +185,6 @@ const budgetFilters = {
   searchingFor: z.string().optional(),
   taskId: z.string().uuid("Tarefa inválida").optional(),
   hasTask: z.boolean().optional(),
-  referenciaContains: z.string().optional(),
 };
 
 // =====================
@@ -208,20 +205,12 @@ const budgetTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  // Handle searchingFor - search in referencia
+  // Handle searchingFor - search in items description
   if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
     andConditions.push({
-      referencia: { contains: data.searchingFor.trim(), mode: "insensitive" },
+      items: { some: { description: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
     });
     delete data.searchingFor;
-  }
-
-  // Handle referenciaContains filter
-  if (data.referenciaContains && typeof data.referenciaContains === "string" && data.referenciaContains.trim()) {
-    andConditions.push({
-      referencia: { contains: data.referenciaContains.trim(), mode: "insensitive" },
-    });
-    delete data.referenciaContains;
   }
 
   // Handle taskId filter
@@ -307,9 +296,16 @@ export const budgetGetManySchema = z
 // Nested Schemas for Relations
 // =====================
 
+// BudgetItem nested schema
+export const budgetItemCreateNestedSchema = z.object({
+  description: z.string().min(1, "Descrição é obrigatória").max(400, "Máximo de 400 caracteres atingido"),
+  amount: moneySchema,
+});
+
+// Budget nested schema for task create/update (matches Prisma Budget model)
 export const budgetCreateNestedSchema = z.object({
-  referencia: z.string().min(1, "Referência é obrigatória").max(400, "Máximo de 400 caracteres atingido"),
-  valor: moneySchema,
+  items: z.array(budgetItemCreateNestedSchema).min(1, "Pelo menos um item é obrigatório"),
+  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }),
 });
 
 // =====================
@@ -317,15 +313,17 @@ export const budgetCreateNestedSchema = z.object({
 // =====================
 
 export const budgetCreateSchema = z.object({
-  referencia: z.string().min(1, "Referência é obrigatória").max(400, "Máximo de 400 caracteres atingido"),
-  valor: moneySchema,
+  total: moneySchema,
+  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }),
   taskId: z.string().uuid("Tarefa inválida"),
+  items: z.array(budgetItemCreateNestedSchema).min(1, "Pelo menos um item é obrigatório").optional(),
 });
 
 export const budgetUpdateSchema = z.object({
-  referencia: z.string().min(1, "Referência é obrigatória").max(400, "Máximo de 400 caracteres atingido").optional(),
-  valor: moneySchema.optional(),
+  total: moneySchema.optional(),
+  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }).optional(),
   taskId: z.string().uuid("Tarefa inválida").optional(),
+  items: z.array(budgetItemCreateNestedSchema).optional(),
 });
 
 // =====================
@@ -391,7 +389,8 @@ export type BudgetOrderBy = z.infer<typeof budgetOrderBySchema>;
 export type BudgetWhere = z.infer<typeof budgetWhereSchema>;
 export type BudgetInclude = z.infer<typeof budgetIncludeSchema>;
 
-// Nested budget create schema type
+// Nested budget create schema types
+export type BudgetItemCreateNestedFormData = z.infer<typeof budgetItemCreateNestedSchema>;
 export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema>;
 
 // =====================
@@ -399,7 +398,7 @@ export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema
 // =====================
 
 export const mapBudgetToFormData = createMapToFormDataHelper<Budget, BudgetUpdateFormData>((budget) => ({
-  referencia: budget.referencia,
-  valor: budget.valor,
+  total: budget.total,
+  expiresIn: budget.expiresIn,
   taskId: budget.taskId,
 }));

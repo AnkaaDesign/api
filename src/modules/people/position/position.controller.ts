@@ -60,7 +60,6 @@ export class PositionController {
 
   // Basic CRUD Operations
   @Get()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async findMany(
     @Query(new ZodQueryValidationPipe(positionGetManySchema)) query: PositionGetManyFormData,
   ): Promise<PositionGetManyResponse> {

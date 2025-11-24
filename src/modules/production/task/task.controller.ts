@@ -40,6 +40,13 @@ import {
   taskBulkPositionUpdateSchema,
   taskSwapPositionSchema,
 } from '../../../schemas/task';
+import {
+  taskBulkArtsSchema,
+  taskBulkDocumentsSchema,
+  taskBulkPaintsSchema,
+  taskBulkCuttingPlansSchema,
+  taskBulkFileUploadSchema,
+} from '../../../schemas/task-bulk';
 import type {
   TaskCreateFormData,
   TaskUpdateFormData,
@@ -53,6 +60,13 @@ import type {
   TaskBulkPositionUpdateFormData,
   TaskSwapPositionFormData,
 } from '../../../schemas/task';
+import type {
+  TaskBulkArtsFormData,
+  TaskBulkDocumentsFormData,
+  TaskBulkPaintsFormData,
+  TaskBulkCuttingPlansFormData,
+  TaskBulkFileUploadFormData,
+} from '../../../schemas/task-bulk';
 import type {
   Task,
   TaskCreateResponse,
@@ -158,12 +172,32 @@ export class TaskController {
 
   @Put('batch')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'budgets', maxCount: 10 },
+      { name: 'invoices', maxCount: 10 },
+      { name: 'receipts', maxCount: 10 },
+      { name: 'artworks', maxCount: 10 },
+      { name: 'cutFiles', maxCount: 20 },
+    ], multerConfig)
+  )
   async batchUpdate(
-    @Body(new ZodValidationPipe(taskBatchUpdateSchema)) data: TaskBatchUpdateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema)) data: TaskBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
-    return this.tasksService.batchUpdate(data, query.include, userId);
+    // Log what we're receiving
+    console.log('[TaskController.batchUpdate] Files received:', files ? Object.keys(files) : 'none');
+    if (files && files.artworks) {
+      console.log('[TaskController.batchUpdate] Artworks count:', files.artworks.length);
+      console.log('[TaskController.batchUpdate] First artwork:', {
+        originalname: files.artworks[0]?.originalname,
+        mimetype: files.artworks[0]?.mimetype,
+        size: files.artworks[0]?.size,
+      });
+    }
+    return this.tasksService.batchUpdate(data, query.include, userId, files);
   }
 
   @Delete('batch')
@@ -174,6 +208,125 @@ export class TaskController {
     @UserId() userId: string,
   ): Promise<TaskBatchDeleteResponse> {
     return this.tasksService.batchDelete(data, userId);
+  }
+
+  // =====================
+  // BULK OPERATIONS
+  // =====================
+
+  @Post('bulk/arts')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async bulkAddArtworks(
+    @Body(new ZodValidationPipe(taskBulkArtsSchema)) data: TaskBulkArtsFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    return this.tasksService.bulkAddArtworks(
+      data.taskIds,
+      data.artworkIds,
+      userId,
+      query.include,
+    );
+  }
+
+  @Post('bulk/documents')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async bulkAddDocuments(
+    @Body(new ZodValidationPipe(taskBulkDocumentsSchema)) data: TaskBulkDocumentsFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    return this.tasksService.bulkAddDocuments(
+      data.taskIds,
+      data.documentType,
+      data.documentIds,
+      userId,
+      query.include,
+    );
+  }
+
+  @Post('bulk/paints')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async bulkAddPaints(
+    @Body(new ZodValidationPipe(taskBulkPaintsSchema)) data: TaskBulkPaintsFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    return this.tasksService.bulkAddPaints(
+      data.taskIds,
+      data.paintIds,
+      userId,
+      query.include,
+    );
+  }
+
+  @Post('bulk/cutting-plans')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async bulkAddCuttingPlans(
+    @Body(new ZodValidationPipe(taskBulkCuttingPlansSchema)) data: TaskBulkCuttingPlansFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    return this.tasksService.bulkAddCuttingPlans(
+      data.taskIds,
+      data.cutData,
+      userId,
+      query.include,
+    );
+  }
+
+  @Post('bulk/upload-files')
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FilesInterceptor('files', 10, multerConfig)
+  )
+  async bulkUploadFiles(
+    @Body(new ZodValidationPipe(taskBulkFileUploadSchema)) data: TaskBulkFileUploadFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+    @UploadedFiles() files?: Express.Multer.File[],
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Nenhum arquivo foi enviado');
+    }
+
+    return this.tasksService.bulkUploadFiles(
+      data.taskIds,
+      data.fileType,
+      files,
+      userId,
+      query.include,
+    );
   }
 
   // =====================

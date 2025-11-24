@@ -45,6 +45,8 @@ export {
   getFileColorFromType,
   getIconForMimeType,
   MIME_TYPE_ICONS,
+  getWebDAVUrl,
+  transformPaintColorPreview,
 } from "./file-utils";
 export * from "./form";
 export * from "./formatters";

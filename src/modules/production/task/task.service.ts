@@ -122,7 +122,7 @@ export class TaskService {
         if (data.truckLayoutData && (data.truckLayoutData.leftSide || data.truckLayoutData.rightSide || data.truckLayoutData.backSide)) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
-          // Create truck with optional plate, model, and manufacturer
+          // Create truck with optional plate and manufacturer
           const truck = await tx.truck.create({
             data: {
               taskId: newTask.id,
@@ -130,7 +130,6 @@ export class TaskService {
               yPosition: null,
               garageId: null,
               ...(data.truckLayoutData.plate && { plate: data.truckLayoutData.plate }),
-              ...(data.truckLayoutData.model && { model: data.truckLayoutData.model }),
               ...(data.truckLayoutData.manufacturer && { manufacturer: data.truckLayoutData.manufacturer }),
             },
           });
@@ -1079,14 +1078,13 @@ export class TaskService {
           'details',
           'name',
           'serialNumber',
-          'chassisNumber',
-          'plate',
           'term',
           'entryDate',
           'priority',
           'bonusDiscountId',
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
+          // Note: chassisNumber and plate are now on Truck entity, not Task
         ];
 
         await trackAndLogFieldChanges({
@@ -1355,12 +1353,27 @@ export class TaskService {
     data: TaskBatchUpdateFormData,
     include?: TaskInclude,
     userId?: string,
+    files?: {
+      budgets?: Express.Multer.File[],
+      invoices?: Express.Multer.File[],
+      receipts?: Express.Multer.File[],
+      artworks?: Express.Multer.File[],
+      cutFiles?: Express.Multer.File[],
+    },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
     this.logger.log(`[batchUpdate] Number of tasks to update: ${data.tasks?.length || 0}`);
     this.logger.log(`[batchUpdate] Tasks data: ${JSON.stringify(data.tasks?.map(t => ({ id: t.id, data: t.data })))}`);
     this.logger.log(`[batchUpdate] userId: ${userId}`);
     this.logger.log(`[batchUpdate] include: ${JSON.stringify(include)}`);
+
+    // Log files received
+    this.logger.log(`[batchUpdate] Files received: ${files ? Object.keys(files).join(', ') : 'none'}`);
+    if (files) {
+      Object.entries(files).forEach(([key, fileArray]) => {
+        this.logger.log(`[batchUpdate] ${key}: ${fileArray.length} files`);
+      });
+    }
 
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -1369,12 +1382,35 @@ export class TaskService {
         const updatesWithChangeTracking: { id: string; data: TaskUpdateFormData }[] = [];
         const validationErrors: Array<{ id: string; error: string }> = [];
 
+        // Store existing task states BEFORE updates for changelog comparison
+        const existingTaskStates: Map<string, any> = new Map();
+
         for (const update of data.tasks) {
           this.logger.log(`[batchUpdate] Processing task ${update.id}`);
           const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
-            include,
+            include: {
+              ...include,
+              artworks: true,
+              budgets: true,
+              invoices: true,
+              receipts: true,
+              logoPaints: true,
+              generalPainting: true,
+              cuts: { include: { file: true } },
+            },
           });
           if (existingTask) {
+            // Store existing state for changelog comparison after update
+            existingTaskStates.set(update.id, {
+              ...existingTask,
+              artworks: existingTask.artworks ? [...existingTask.artworks] : [],
+              budgets: existingTask.budgets ? [...existingTask.budgets] : [],
+              invoices: existingTask.invoices ? [...existingTask.invoices] : [],
+              receipts: existingTask.receipts ? [...existingTask.receipts] : [],
+              logoPaints: existingTask.logoPaints ? [...existingTask.logoPaints] : [],
+              cuts: existingTask.cuts ? [...existingTask.cuts] : [],
+            });
+
             this.logger.log(`[batchUpdate] Found existing task ${update.id}, validating...`);
             try {
               await this.validateTask(update.data, update.id, tx);
@@ -1450,6 +1486,265 @@ export class TaskService {
           data: data.tasks.find(u => u.id === e.id)?.data || ({} as TaskUpdateFormData),
         }));
 
+        // Process file uploads if provided - upload files once and add to all tasks
+        let uploadedFileIds: {
+          budgets?: string[];
+          invoices?: string[];
+          receipts?: string[];
+          artworks?: string[];
+        } = {};
+
+        if (files && data.tasks.length > 0) {
+          this.logger.log('[batchUpdate] Processing file uploads for batch operation');
+          this.logger.log(`[batchUpdate] Files object keys: ${Object.keys(files).join(', ')}`);
+          this.logger.log(`[batchUpdate] Has artworks: ${!!files.artworks}, Count: ${files.artworks?.length || 0}`);
+
+          // Get customer name from first task for file metadata
+          const firstTask = await this.tasksRepository.findByIdWithTransaction(tx, data.tasks[0].id, {
+            include: { customer: true },
+          });
+          const customerName = firstTask?.customer?.fantasyName;
+
+          // Upload budgets
+          if (files.budgets && files.budgets.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.budgets.length} budget files`);
+            uploadedFileIds.budgets = [];
+            for (const budgetFile of files.budgets) {
+              const budgetRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                budgetFile,
+                'taskBudgets',
+                userId,
+                {
+                  entityId: data.tasks[0].id, // Use first task ID for reference
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.budgets.push(budgetRecord.id);
+            }
+          }
+
+          // Upload invoices
+          if (files.invoices && files.invoices.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.invoices.length} invoice files`);
+            uploadedFileIds.invoices = [];
+            for (const invoiceFile of files.invoices) {
+              const invoiceRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                invoiceFile,
+                'taskInvoices',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.invoices.push(invoiceRecord.id);
+            }
+          }
+
+          // Upload receipts
+          if (files.receipts && files.receipts.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.receipts.length} receipt files`);
+            uploadedFileIds.receipts = [];
+            for (const receiptFile of files.receipts) {
+              const receiptRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                receiptFile,
+                'taskReceipts',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.receipts.push(receiptRecord.id);
+            }
+          }
+
+          // Upload artworks
+          if (files.artworks && files.artworks.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.artworks.length} artwork files`);
+            uploadedFileIds.artworks = [];
+            for (const artworkFile of files.artworks) {
+              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                artworkFile,
+                'tasksArtworks',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.artworks.push(artworkRecord.id);
+            }
+          }
+
+          // Process cut files for batch update
+          // Note: These files will be referenced in the cuts data for each task
+          const uploadedCutFiles: Array<{ id: string }> = [];
+          if (files.cutFiles && files.cutFiles.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.cutFiles.length} cut files`);
+            for (const cutFile of files.cutFiles) {
+              const cutRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                cutFile,
+                'cutFiles',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'CUT',
+                  customerName,
+                },
+              );
+              uploadedCutFiles.push({ id: cutRecord.id });
+            }
+
+            // Update cuts data with uploaded file IDs
+            // Each task's cuts array should have _fileIndex that maps to the uploaded files
+            for (const task of data.tasks) {
+              if (task.data.cuts && Array.isArray(task.data.cuts)) {
+                task.data.cuts.forEach((cut: any) => {
+                  if (typeof cut._fileIndex === 'number' && cut._fileIndex < uploadedCutFiles.length) {
+                    cut.fileId = uploadedCutFiles[cut._fileIndex].id;
+                    delete cut._fileIndex; // Clean up the temporary field
+                  }
+                });
+              }
+            }
+          }
+
+          // Add uploaded files to all tasks in the batch
+          // We need to merge with existing files to avoid replacing them
+          this.logger.log('[batchUpdate] Adding uploaded files to all tasks in batch');
+          this.logger.log(`[batchUpdate] Tasks to update with files: ${updatesWithChangeTracking.length}`);
+          this.logger.log(`[batchUpdate] Uploaded file IDs:`, uploadedFileIds);
+
+          for (const update of updatesWithChangeTracking) {
+            this.logger.log(`[batchUpdate] Processing task ${update.id} for file connections and removals`);
+
+            // Get current task to merge existing files and process removals
+            const currentTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
+              include: {
+                budgets: true,
+                invoices: true,
+                receipts: true,
+                artworks: true,
+                logoPaints: true,
+                cuts: true,
+              },
+            });
+
+            if (!currentTask) {
+              this.logger.error(`[batchUpdate] Task ${update.id} not found`);
+              continue;
+            }
+
+            // Process file additions (merge with existing)
+            if (uploadedFileIds.budgets && uploadedFileIds.budgets.length > 0) {
+              const currentBudgetIds = currentTask.budgets?.map(f => f.id) || [];
+              const mergedBudgetIds = [...new Set([...currentBudgetIds, ...uploadedFileIds.budgets])];
+              update.data.budgetIds = mergedBudgetIds;
+              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.budgets.length} budgets to task ${update.id} (total: ${mergedBudgetIds.length})`);
+            }
+
+            if (uploadedFileIds.invoices && uploadedFileIds.invoices.length > 0) {
+              const currentInvoiceIds = currentTask.invoices?.map(f => f.id) || [];
+              const mergedInvoiceIds = [...new Set([...currentInvoiceIds, ...uploadedFileIds.invoices])];
+              update.data.invoiceIds = mergedInvoiceIds;
+              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.invoices.length} invoices to task ${update.id} (total: ${mergedInvoiceIds.length})`);
+            }
+
+            if (uploadedFileIds.receipts && uploadedFileIds.receipts.length > 0) {
+              const currentReceiptIds = currentTask.receipts?.map(f => f.id) || [];
+              const mergedReceiptIds = [...new Set([...currentReceiptIds, ...uploadedFileIds.receipts])];
+              update.data.receiptIds = mergedReceiptIds;
+              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.receipts.length} receipts to task ${update.id} (total: ${mergedReceiptIds.length})`);
+            }
+
+            if (uploadedFileIds.artworks && uploadedFileIds.artworks.length > 0) {
+              const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
+              const mergedArtworkIds = [...new Set([...currentArtworkIds, ...uploadedFileIds.artworks])];
+              // The mapper expects 'fileIds' for artworks relation
+              update.data.fileIds = mergedArtworkIds;
+              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (total: ${mergedArtworkIds.length})`);
+            }
+
+            // Process removals
+            // Remove artworks
+            if (update.data.removeArtworkIds && update.data.removeArtworkIds.length > 0) {
+              const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
+              const filteredArtworkIds = currentArtworkIds.filter(id => !update.data.removeArtworkIds.includes(id));
+              update.data.fileIds = filteredArtworkIds;
+              delete update.data.removeArtworkIds;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeArtworkIds.length} artworks from task ${update.id}`);
+            }
+
+            // Remove budgets
+            if (update.data.removeBudgetIds && update.data.removeBudgetIds.length > 0) {
+              const currentBudgetIds = currentTask.budgets?.map(f => f.id) || [];
+              const filteredBudgetIds = currentBudgetIds.filter(id => !update.data.removeBudgetIds.includes(id));
+              update.data.budgetIds = filteredBudgetIds;
+              delete update.data.removeBudgetIds;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeBudgetIds.length} budgets from task ${update.id}`);
+            }
+
+            // Remove invoices
+            if (update.data.removeInvoiceIds && update.data.removeInvoiceIds.length > 0) {
+              const currentInvoiceIds = currentTask.invoices?.map(f => f.id) || [];
+              const filteredInvoiceIds = currentInvoiceIds.filter(id => !update.data.removeInvoiceIds.includes(id));
+              update.data.invoiceIds = filteredInvoiceIds;
+              delete update.data.removeInvoiceIds;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeInvoiceIds.length} invoices from task ${update.id}`);
+            }
+
+            // Remove receipts
+            if (update.data.removeReceiptIds && update.data.removeReceiptIds.length > 0) {
+              const currentReceiptIds = currentTask.receipts?.map(f => f.id) || [];
+              const filteredReceiptIds = currentReceiptIds.filter(id => !update.data.removeReceiptIds.includes(id));
+              update.data.receiptIds = filteredReceiptIds;
+              delete update.data.removeReceiptIds;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeReceiptIds.length} receipts from task ${update.id}`);
+            }
+
+            // Remove general painting
+            if (update.data.removeGeneralPainting) {
+              update.data.paintId = null;
+              delete update.data.removeGeneralPainting;
+              this.logger.log(`[batchUpdate] Removing general painting from task ${update.id}`);
+            }
+
+            // Remove logo paints
+            if (update.data.removeLogoPaints && update.data.removeLogoPaints.length > 0) {
+              const currentLogoPaintIds = currentTask.logoPaints?.map(p => p.id) || [];
+              const filteredLogoPaintIds = currentLogoPaintIds.filter(id => !update.data.removeLogoPaints.includes(id));
+              update.data.paintIds = filteredLogoPaintIds;
+              delete update.data.removeLogoPaints;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeLogoPaints.length} logo paints from task ${update.id}`);
+            }
+
+            // Remove cuts
+            if (update.data.removeCutIds && update.data.removeCutIds.length > 0) {
+              // Delete the cuts directly using prisma
+              await tx.cut.deleteMany({
+                where: {
+                  id: { in: update.data.removeCutIds },
+                  taskId: update.id,
+                },
+              });
+              delete update.data.removeCutIds;
+              this.logger.log(`[batchUpdate] Removing ${update.data.removeCutIds.length} cuts from task ${update.id}`);
+            }
+
+            this.logger.log(`[batchUpdate] After merge and removals - update.data:`, JSON.stringify(update.data));
+          }
+        }
+
         // Batch update only valid items
         const result = await this.tasksRepository.updateManyWithTransaction(
           tx,
@@ -1466,31 +1761,227 @@ export class TaskService {
         // Track individual field changes for successful updates
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
-          const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id);
+          const existingTask = existingTaskStates.get(task.id);
+
+          // Fetch updated task with all relations for comparison
+          const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
+            include: {
+              artworks: true,
+              budgets: true,
+              invoices: true,
+              receipts: true,
+              logoPaints: true,
+              generalPainting: true,
+              cuts: { include: { file: true } },
+            },
+          });
 
           // Track individual field changes for batch update
-          if (existingTask && updateData) {
-            const fieldsToTrack = Object.keys(updateData) as Array<keyof typeof updateData>;
+          if (existingTask && updateData && updatedTask) {
+            // Track artworks changes
+            const artworkIdsForChangelog = (updateData as any).artworkIds || (updateData as any).fileIds;
+            if (artworkIdsForChangelog !== undefined) {
+              const oldArtworks = existingTask.artworks || [];
+              const newArtworks = updatedTask.artworks || [];
 
-            for (const field of fieldsToTrack) {
-              const oldValue = existingTask[field as keyof typeof existingTask];
-              const newValue = task[field as keyof typeof task];
+              const oldArtworkIds = oldArtworks.map((f: any) => f.id);
+              const newArtworkIds = newArtworks.map((f: any) => f.id);
 
-              // Only log if the value actually changed
-              if (hasValueChanged(oldValue, newValue)) {
+              const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(f.id));
+              const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(f.id));
+
+              if (addedArtworks.length > 0 || removedArtworks.length > 0) {
                 await this.changeLogService.logChange({
                   entityType: ENTITY_TYPE.TASK,
                   entityId: task.id,
                   action: CHANGE_ACTION.UPDATE,
-                  field: field as string,
-                  oldValue: oldValue,
-                  newValue: newValue,
-                  reason: `Campo ${String(field)} atualizado em operação de lote`,
+                  field: 'artworks',
+                  oldValue: oldArtworks.length > 0 ? oldArtworks : null,
+                  newValue: newArtworks.length > 0 ? newArtworks : null,
+                  reason: `Artes atualizadas em operação de lote`,
                   triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                   triggeredById: task.id,
                   userId: userId || '',
                   transaction: tx,
                 });
+              }
+            }
+
+            // Track budgets changes
+            if (updateData.budgetIds !== undefined) {
+              const oldBudgets = existingTask.budgets || [];
+              const newBudgets = updatedTask.budgets || [];
+
+              const oldBudgetIds = oldBudgets.map((f: any) => f.id);
+              const newBudgetIds = newBudgets.map((f: any) => f.id);
+
+              const addedBudgets = newBudgets.filter((f: any) => !oldBudgetIds.includes(f.id));
+              const removedBudgets = oldBudgets.filter((f: any) => !newBudgetIds.includes(f.id));
+
+              if (addedBudgets.length > 0 || removedBudgets.length > 0) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'budgets',
+                  oldValue: oldBudgets.length > 0 ? oldBudgets : null,
+                  newValue: newBudgets.length > 0 ? newBudgets : null,
+                  reason: `Orçamentos atualizados em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track invoices changes
+            if (updateData.invoiceIds !== undefined) {
+              const oldInvoices = existingTask.invoices || [];
+              const newInvoices = updatedTask.invoices || [];
+
+              const oldInvoiceIds = oldInvoices.map((f: any) => f.id);
+              const newInvoiceIds = newInvoices.map((f: any) => f.id);
+
+              const addedInvoices = newInvoices.filter((f: any) => !oldInvoiceIds.includes(f.id));
+              const removedInvoices = oldInvoices.filter((f: any) => !newInvoiceIds.includes(f.id));
+
+              if (addedInvoices.length > 0 || removedInvoices.length > 0) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'invoices',
+                  oldValue: oldInvoices.length > 0 ? oldInvoices : null,
+                  newValue: newInvoices.length > 0 ? newInvoices : null,
+                  reason: `Notas fiscais atualizadas em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track receipts changes
+            if (updateData.receiptIds !== undefined) {
+              const oldReceipts = existingTask.receipts || [];
+              const newReceipts = updatedTask.receipts || [];
+
+              const oldReceiptIds = oldReceipts.map((f: any) => f.id);
+              const newReceiptIds = newReceipts.map((f: any) => f.id);
+
+              const addedReceipts = newReceipts.filter((f: any) => !oldReceiptIds.includes(f.id));
+              const removedReceipts = oldReceipts.filter((f: any) => !newReceiptIds.includes(f.id));
+
+              if (addedReceipts.length > 0 || removedReceipts.length > 0) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'receipts',
+                  oldValue: oldReceipts.length > 0 ? oldReceipts : null,
+                  newValue: newReceipts.length > 0 ? newReceipts : null,
+                  reason: `Comprovantes atualizados em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track logoPaints changes
+            if (updateData.paintIds !== undefined) {
+              const oldPaintIds = existingTask.logoPaints?.map((p: any) => p.id) || [];
+              const newPaintIds = updatedTask.logoPaints?.map((p: any) => p.id) || [];
+
+              const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
+              const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+
+              if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'logoPaints',
+                  oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
+                  newValue: newPaintIds.length > 0 ? newPaintIds : null,
+                  reason: `Tintas de logo atualizadas em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track general painting (paintId) changes
+            if (updateData.paintId !== undefined) {
+              const oldPaintId = existingTask.paintId;
+              const newPaintId = updatedTask.paintId;
+
+              if (oldPaintId !== newPaintId) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'paintId',
+                  oldValue: oldPaintId,
+                  newValue: newPaintId,
+                  reason: `Pintura geral atualizada em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track cuts changes
+            if (updateData.cuts !== undefined) {
+              const oldCuts = existingTask.cuts || [];
+              const newCuts = updatedTask.cuts || [];
+
+              if (JSON.stringify(oldCuts) !== JSON.stringify(newCuts)) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'cuts',
+                  oldValue: oldCuts.length > 0 ? oldCuts : null,
+                  newValue: newCuts.length > 0 ? newCuts : null,
+                  reason: `Planos de corte atualizados em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track other simple field changes
+            const simpleFieldsToTrack = ['status', 'sectorId', 'assignedToUserId', 'description', 'observations'];
+            for (const field of simpleFieldsToTrack) {
+              if ((updateData as any)[field] !== undefined) {
+                const oldValue = existingTask[field as keyof typeof existingTask];
+                const newValue = updatedTask[field as keyof typeof updatedTask];
+
+                if (hasValueChanged(oldValue, newValue)) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: field,
+                    oldValue: oldValue,
+                    newValue: newValue,
+                    reason: `Campo ${field} atualizado em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
           }
@@ -1859,10 +2350,10 @@ export class TaskService {
 
     // Validate unique plate
     if (data.plate) {
-      const existing = await transaction.task.findFirst({
+      const existing = await transaction.truck.findFirst({
         where: {
           plate: data.plate,
-          ...(existingId && { id: { not: existingId } }),
+          ...(existingId && { taskId: { not: existingId } }),
         },
       });
       if (existing) {
@@ -1934,9 +2425,10 @@ export class TaskService {
       }
       // Handle UUID/string fields - convert empty strings to null for optional fields
       else if (
-        ['customerId', 'sectorId', 'paintId', 'createdById', 'bonusDiscountId', 'serialNumber', 'chassisNumber', 'plate', 'details'].includes(fieldToRevert)
+        ['customerId', 'sectorId', 'paintId', 'createdById', 'bonusDiscountId', 'serialNumber', 'details'].includes(fieldToRevert)
       ) {
         convertedValue = oldValue;
+        // Note: chassisNumber and plate are now on Truck entity, not Task
       }
       // Handle required string fields (name) - keep as is
       else if (['name'].includes(fieldToRevert)) {
@@ -2479,5 +2971,573 @@ export class TaskService {
 
     // Use the maximum length from available layouts, default to 12.5m if no layout
     return Math.max(backLength, leftLength, rightLength) || 12.5;
+  }
+
+  // =====================
+  // BULK OPERATIONS
+  // =====================
+
+  /**
+   * Bulk add artworks to multiple tasks
+   */
+  async bulkAddArtworks(
+    taskIds: string[],
+    artworkIds: string[],
+    userId: string,
+    include?: TaskInclude,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    this.logger.log(`[bulkAddArtworks] Adding ${artworkIds.length} artworks to ${taskIds.length} tasks`);
+
+    const errors: Array<{ taskId: string; error: string }> = [];
+    let successCount = 0;
+
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Verify all tasks exist and user has permission
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds } },
+        select: { id: true, name: true },
+      });
+
+      if (tasks.length !== taskIds.length) {
+        const foundIds = tasks.map(t => t.id);
+        const missingIds = taskIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tarefas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Verify all artwork files exist
+      const artworks = await tx.file.findMany({
+        where: { id: { in: artworkIds } },
+        select: { id: true },
+      });
+
+      if (artworks.length !== artworkIds.length) {
+        const foundIds = artworks.map(a => a.id);
+        const missingIds = artworkIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Artes não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Add artworks to each task
+      for (const task of tasks) {
+        try {
+          // Get current artworks for this task
+          const currentTask = await tx.task.findUnique({
+            where: { id: task.id },
+            include: { artworks: { select: { id: true } } },
+          });
+
+          // Merge current artwork IDs with new ones (avoid duplicates)
+          const currentArtworkIds = currentTask?.artworks?.map(a => a.id) || [];
+          const mergedArtworkIds = [...new Set([...currentArtworkIds, ...artworkIds])];
+
+          // Update task with merged artwork IDs
+          await tx.task.update({
+            where: { id: task.id },
+            data: {
+              artworks: {
+                set: mergedArtworkIds.map(id => ({ id })),
+              },
+            },
+          });
+
+          // Log the change
+          await this.changeLogService.createWithTransaction({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            action: CHANGE_ACTION.UPDATE,
+            fieldName: 'artworks',
+            oldValue: JSON.stringify(currentArtworkIds),
+            newValue: JSON.stringify(mergedArtworkIds),
+            reason: `Artes adicionadas em lote (${artworkIds.length} artes)`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: task.id,
+            userId: userId || '',
+            transaction: tx,
+          });
+
+          successCount++;
+        } catch (error) {
+          this.logger.error(`[bulkAddArtworks] Error updating task ${task.id}:`, error);
+          errors.push({
+            taskId: task.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
+        }
+      }
+    });
+
+    return {
+      success: successCount,
+      failed: errors.length,
+      total: taskIds.length,
+      errors,
+    };
+  }
+
+  /**
+   * Bulk add documents to multiple tasks
+   */
+  async bulkAddDocuments(
+    taskIds: string[],
+    documentType: 'budget' | 'invoice' | 'receipt',
+    documentIds: string[],
+    userId: string,
+    include?: TaskInclude,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    this.logger.log(`[bulkAddDocuments] Adding ${documentIds.length} ${documentType}s to ${taskIds.length} tasks`);
+
+    const errors: Array<{ taskId: string; error: string }> = [];
+    let successCount = 0;
+
+    // Map document type to Prisma relation name
+    const relationMap = {
+      budget: 'budgets',
+      invoice: 'invoices',
+      receipt: 'receipts',
+    };
+    const relationName = relationMap[documentType];
+
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Verify all tasks exist
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds } },
+        select: { id: true, name: true },
+      });
+
+      if (tasks.length !== taskIds.length) {
+        const foundIds = tasks.map(t => t.id);
+        const missingIds = taskIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tarefas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Verify all document files exist
+      const documents = await tx.file.findMany({
+        where: { id: { in: documentIds } },
+        select: { id: true },
+      });
+
+      if (documents.length !== documentIds.length) {
+        const foundIds = documents.map(d => d.id);
+        const missingIds = documentIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Documentos não encontrados: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Add documents to each task
+      for (const task of tasks) {
+        try {
+          // Get current documents for this task
+          const currentTask = await tx.task.findUnique({
+            where: { id: task.id },
+            include: { [relationName]: { select: { id: true } } },
+          });
+
+          // Merge current document IDs with new ones (avoid duplicates)
+          const currentDocumentIds = (currentTask as any)?.[relationName]?.map((d: any) => d.id) || [];
+          const mergedDocumentIds = [...new Set([...currentDocumentIds, ...documentIds])];
+
+          // Update task with merged document IDs
+          await tx.task.update({
+            where: { id: task.id },
+            data: {
+              [relationName]: {
+                set: mergedDocumentIds.map(id => ({ id })),
+              },
+            },
+          });
+
+          // Log the change
+          await this.changeLogService.createWithTransaction({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            action: CHANGE_ACTION.UPDATE,
+            fieldName: relationName,
+            oldValue: JSON.stringify(currentDocumentIds),
+            newValue: JSON.stringify(mergedDocumentIds),
+            reason: `Documentos (${documentType}) adicionados em lote (${documentIds.length} documentos)`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: task.id,
+            userId: userId || '',
+            transaction: tx,
+          });
+
+          successCount++;
+        } catch (error) {
+          this.logger.error(`[bulkAddDocuments] Error updating task ${task.id}:`, error);
+          errors.push({
+            taskId: task.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
+        }
+      }
+    });
+
+    return {
+      success: successCount,
+      failed: errors.length,
+      total: taskIds.length,
+      errors,
+    };
+  }
+
+  /**
+   * Bulk add paints to multiple tasks
+   */
+  async bulkAddPaints(
+    taskIds: string[],
+    paintIds: string[],
+    userId: string,
+    include?: TaskInclude,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    this.logger.log(`[bulkAddPaints] Adding ${paintIds.length} paints to ${taskIds.length} tasks`);
+
+    const errors: Array<{ taskId: string; error: string }> = [];
+    let successCount = 0;
+
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Verify all tasks exist
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds } },
+        select: { id: true, name: true },
+      });
+
+      if (tasks.length !== taskIds.length) {
+        const foundIds = tasks.map(t => t.id);
+        const missingIds = taskIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tarefas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Verify all paints exist
+      const paints = await tx.paint.findMany({
+        where: { id: { in: paintIds } },
+        select: { id: true },
+      });
+
+      if (paints.length !== paintIds.length) {
+        const foundIds = paints.map(p => p.id);
+        const missingIds = paintIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tintas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Add paints to each task
+      for (const task of tasks) {
+        try {
+          // Get current paints for this task
+          const currentTask = await tx.task.findUnique({
+            where: { id: task.id },
+            include: { logoPaints: { select: { id: true } } },
+          });
+
+          // Merge current paint IDs with new ones (avoid duplicates)
+          const currentPaintIds = currentTask?.logoPaints?.map(p => p.id) || [];
+          const mergedPaintIds = [...new Set([...currentPaintIds, ...paintIds])];
+
+          // Update task with merged paint IDs
+          await tx.task.update({
+            where: { id: task.id },
+            data: {
+              logoPaints: {
+                set: mergedPaintIds.map(id => ({ id })),
+              },
+            },
+          });
+
+          // Log the change
+          await this.changeLogService.createWithTransaction({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            action: CHANGE_ACTION.UPDATE,
+            fieldName: 'logoPaints',
+            oldValue: JSON.stringify(currentPaintIds),
+            newValue: JSON.stringify(mergedPaintIds),
+            reason: `Tintas adicionadas em lote (${paintIds.length} tintas)`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: task.id,
+            userId: userId || '',
+            transaction: tx,
+          });
+
+          successCount++;
+        } catch (error) {
+          this.logger.error(`[bulkAddPaints] Error updating task ${task.id}:`, error);
+          errors.push({
+            taskId: task.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
+        }
+      }
+    });
+
+    return {
+      success: successCount,
+      failed: errors.length,
+      total: taskIds.length,
+      errors,
+    };
+  }
+
+  /**
+   * Bulk add cutting plans to multiple tasks
+   */
+  async bulkAddCuttingPlans(
+    taskIds: string[],
+    cutData: {
+      fileId: string;
+      type: string;
+      origin?: string;
+      reason?: string | null;
+      quantity?: number;
+    },
+    userId: string,
+    include?: TaskInclude,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    this.logger.log(`[bulkAddCuttingPlans] Adding cutting plans to ${taskIds.length} tasks`);
+
+    const errors: Array<{ taskId: string; error: string }> = [];
+    let successCount = 0;
+
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Verify all tasks exist
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds } },
+        select: { id: true, name: true },
+      });
+
+      if (tasks.length !== taskIds.length) {
+        const foundIds = tasks.map(t => t.id);
+        const missingIds = taskIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tarefas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Verify the cut file exists
+      const cutFile = await tx.file.findUnique({
+        where: { id: cutData.fileId },
+      });
+
+      if (!cutFile) {
+        throw new NotFoundException(
+          `Arquivo de corte não encontrado: ${cutData.fileId}`
+        );
+      }
+
+      // Create cutting plans for each task
+      for (const task of tasks) {
+        try {
+          const quantity = cutData.quantity || 1;
+          const createdCuts = [];
+
+          // Create the specified quantity of cuts for this task
+          for (let i = 0; i < quantity; i++) {
+            const cut = await tx.cut.create({
+              data: {
+                fileId: cutData.fileId,
+                type: cutData.type as any,
+                origin: (cutData.origin || 'PLAN') as any,
+                reason: cutData.reason ? (cutData.reason as any) : null,
+                status: 'PENDING' as any,
+                statusOrder: 1,
+                taskId: task.id,
+              },
+            });
+            createdCuts.push(cut);
+          }
+
+          // Log the change
+          await this.changeLogService.createWithTransaction({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            action: CHANGE_ACTION.UPDATE,
+            fieldName: 'cuts',
+            oldValue: null,
+            newValue: JSON.stringify(createdCuts.map(c => c.id)),
+            reason: `Planos de corte adicionados em lote (${quantity} cortes)`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: task.id,
+            userId: userId || '',
+            transaction: tx,
+          });
+
+          successCount++;
+        } catch (error) {
+          this.logger.error(`[bulkAddCuttingPlans] Error updating task ${task.id}:`, error);
+          errors.push({
+            taskId: task.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
+        }
+      }
+    });
+
+    return {
+      success: successCount,
+      failed: errors.length,
+      total: taskIds.length,
+      errors,
+    };
+  }
+
+  /**
+   * Bulk upload files to multiple tasks
+   * Uploads files once and adds them to all selected tasks
+   */
+  async bulkUploadFiles(
+    taskIds: string[],
+    fileType: 'budgets' | 'invoices' | 'receipts' | 'artworks',
+    files: Express.Multer.File[],
+    userId: string,
+    include?: TaskInclude,
+  ): Promise<{
+    success: number;
+    failed: number;
+    total: number;
+    errors: Array<{ taskId: string; error: string }>;
+  }> {
+    this.logger.log(`[bulkUploadFiles] Uploading ${files.length} ${fileType} to ${taskIds.length} tasks`);
+
+    const errors: Array<{ taskId: string; error: string }> = [];
+    let successCount = 0;
+
+    // Map file type to Prisma relation name
+    const relationMap = {
+      budgets: 'budgets',
+      invoices: 'invoices',
+      receipts: 'receipts',
+      artworks: 'artworks',
+    };
+    const relationName = relationMap[fileType];
+
+    // Map file type to file service category
+    const categoryMap = {
+      budgets: 'taskBudgets',
+      invoices: 'taskInvoices',
+      receipts: 'taskReceipts',
+      artworks: 'tasksArtworks',
+    };
+    const category = categoryMap[fileType];
+
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Verify all tasks exist
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds } },
+        include: { customer: true },
+      });
+
+      if (tasks.length !== taskIds.length) {
+        const foundIds = tasks.map(t => t.id);
+        const missingIds = taskIds.filter(id => !foundIds.includes(id));
+        throw new NotFoundException(
+          `Tarefas não encontradas: ${missingIds.join(', ')}`
+        );
+      }
+
+      // Upload all files once
+      this.logger.log(`[bulkUploadFiles] Uploading ${files.length} files`);
+      const uploadedFileIds: string[] = [];
+      const customerName = tasks[0]?.customer?.fantasyName;
+
+      for (const file of files) {
+        const fileRecord = await this.fileService.createFromUploadWithTransaction(
+          tx,
+          file,
+          category as any,
+          userId,
+          {
+            entityId: tasks[0].id, // Use first task for reference
+            entityType: 'TASK',
+            customerName,
+          },
+        );
+        uploadedFileIds.push(fileRecord.id);
+      }
+
+      this.logger.log(`[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`);
+
+      // Add uploaded files to each task
+      for (const task of tasks) {
+        try {
+          // Get current files for this task
+          const currentTask = await tx.task.findUnique({
+            where: { id: task.id },
+            include: { [relationName]: { select: { id: true } } },
+          });
+
+          // Merge current file IDs with new ones (avoid duplicates)
+          const currentFileIds = (currentTask as any)?.[relationName]?.map((f: any) => f.id) || [];
+          const mergedFileIds = [...new Set([...currentFileIds, ...uploadedFileIds])];
+
+          // Update task with merged file IDs
+          await tx.task.update({
+            where: { id: task.id },
+            data: {
+              [relationName]: {
+                set: mergedFileIds.map(id => ({ id })),
+              },
+            },
+          });
+
+          // Log the change
+          await this.changeLogService.createWithTransaction({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: task.id,
+            action: CHANGE_ACTION.UPDATE,
+            fieldName: relationName,
+            oldValue: JSON.stringify(currentFileIds),
+            newValue: JSON.stringify(mergedFileIds),
+            reason: `${files.length} arquivo(s) de ${fileType} adicionado(s) em lote`,
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: task.id,
+            userId: userId || '',
+            transaction: tx,
+          });
+
+          successCount++;
+        } catch (error) {
+          this.logger.error(`[bulkUploadFiles] Error updating task ${task.id}:`, error);
+          errors.push({
+            taskId: task.id,
+            error: error instanceof Error ? error.message : 'Erro desconhecido',
+          });
+        }
+      }
+    });
+
+    return {
+      success: successCount,
+      failed: errors.length,
+      total: taskIds.length,
+      errors,
+    };
   }
 }
