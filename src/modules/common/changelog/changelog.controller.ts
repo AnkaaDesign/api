@@ -34,6 +34,27 @@ export class ChangeLogController {
     };
   }
 
+  @Get(':id')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async findOne(@Param('id') id: string, @Query('include') include?: any) {
+    const data = await this.changeLogService.findOne(id, include);
+    return {
+      success: true,
+      message: 'Registro de mudança carregado com sucesso',
+      data,
+    };
+  }
+
   @Get('entity/:type/:id')
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,
