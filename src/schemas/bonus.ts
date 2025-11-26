@@ -24,6 +24,20 @@ export const bonusIncludeSchema = z
         }),
       ])
       .optional(),
+    // Many-to-many relation: all users eligible for bonuses in the same period
+    users: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              sector: z.boolean().optional(),
+              position: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     tasks: z
       .union([
         z.boolean(),

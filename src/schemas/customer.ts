@@ -470,7 +470,7 @@ const customerTransform = (data: any) => {
       { state: { contains: searchingFor, mode: "insensitive" } },
       { neighborhood: { contains: searchingFor, mode: "insensitive" } },
       { address: { contains: searchingFor, mode: "insensitive" } },
-      { tasks: { some: { plate: { contains: searchingFor, mode: "insensitive" } } } },
+      { tasks: { some: { truck: { plate: { contains: searchingFor, mode: "insensitive" } } } } },
       { tasks: { some: { serialNumber: { contains: searchingFor, mode: "insensitive" } } } },
     ];
 

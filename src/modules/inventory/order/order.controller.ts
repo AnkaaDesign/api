@@ -21,6 +21,7 @@ import { FileService } from '@modules/common/file/file.service';
 import { OrderService } from './order.service';
 import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
+import { OrderAnalyticsService } from './order-analytics.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
@@ -52,6 +53,8 @@ import {
   orderItemBatchUpdateSchema,
   orderItemBatchDeleteSchema,
 } from '../../../schemas/order';
+import { orderAnalyticsSchema, type OrderAnalyticsFormData } from '../../../schemas/order-analytics';
+import type { OrderAnalyticsResponse } from '../../../types/order-analytics';
 import type {
   OrderGetManyFormData,
   OrderCreateFormData,
@@ -108,8 +111,33 @@ export class OrderController {
     private readonly orderService: OrderService,
     private readonly orderItemService: OrderItemService,
     private readonly orderScheduleService: OrderScheduleService,
+    private readonly orderAnalyticsService: OrderAnalyticsService,
     private readonly fileService: FileService,
   ) {}
+
+  // =====================
+  // Order Analytics
+  // =====================
+
+  @Post('analytics')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  @HttpCode(HttpStatus.OK)
+  async getOrderAnalytics(
+    @Body(new ZodValidationPipe(orderAnalyticsSchema)) data: OrderAnalyticsFormData,
+    @UserId() userId: string,
+  ): Promise<OrderAnalyticsResponse> {
+    return this.orderAnalyticsService.getOrderAnalytics(data);
+  }
 
   // =====================
   // Order Query Operations
