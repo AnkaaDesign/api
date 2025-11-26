@@ -3238,25 +3238,26 @@ async function migratePaints() {
       }
 
       // Extract potential code from tags or color name
+      // DISABLED: Codes should not be automatically filled
       let extractedCode: string | null = null;
 
-      // Check if there are any tags that could be codes
-      if (color.tags && Array.isArray(color.tags) && color.tags.length > 0) {
-        // Look for code-like patterns in tags (letters + numbers, typically 3-8 characters)
-        const codePattern = /^[A-Z0-9]{3,8}$/i;
-        const potentialCode = color.tags.find((tag: string) => codePattern.test(tag.trim()));
-        if (potentialCode) {
-          extractedCode = potentialCode.trim().toUpperCase();
-        }
-      }
+      // // Check if there are any tags that could be codes
+      // if (color.tags && Array.isArray(color.tags) && color.tags.length > 0) {
+      //   // Look for code-like patterns in tags (letters + numbers, typically 3-8 characters)
+      //   const codePattern = /^[A-Z0-9]{3,8}$/i;
+      //   const potentialCode = color.tags.find((tag: string) => codePattern.test(tag.trim()));
+      //   if (potentialCode) {
+      //     extractedCode = potentialCode.trim().toUpperCase();
+      //   }
+      // }
 
-      // Alternative: extract from color name if it contains code-like patterns
-      if (!extractedCode && color.name) {
-        const nameCodeMatch = color.name.match(/\b([A-Z0-9]{3,8})\b/i);
-        if (nameCodeMatch) {
-          extractedCode = nameCodeMatch[1].toUpperCase();
-        }
-      }
+      // // Alternative: extract from color name if it contains code-like patterns
+      // if (!extractedCode && color.name) {
+      //   const nameCodeMatch = color.name.match(/\b([A-Z0-9]{3,8})\b/i);
+      //   if (nameCodeMatch) {
+      //     extractedCode = nameCodeMatch[1].toUpperCase();
+      //   }
+      // }
 
       const palette = getColorPalette(color.name);
       const finish = getPaintFinish(color.name);
@@ -5128,16 +5129,16 @@ async function main() {
     await migrateSuppliers();
     await createItemCategoriesAndBrands();
     await migrateBrandsAsCustomers();
-    // Paint-related migrations disabled
-    // await createPaintBrands();
-    // await createPaintTypes();
+    // Paint-related migrations enabled (codes disabled)
+    await createPaintBrands();
+    await createPaintTypes();
     await migrateItems();
     await mergeDuplicateItems();
-    // await enhancePaintComponentsWithWeight();
+    await enhancePaintComponentsWithWeight();
     await addDefaultWeightsFromVolume();
-    // await linkPaintTypesWithComponents();
-    // await linkPaintBrandsWithComponents();
-    // await migratePaints();
+    await linkPaintTypesWithComponents();
+    await linkPaintBrandsWithComponents();
+    await migratePaints();
     await migrateOrders();
     await migrateTasks();
     await migrateActivities();

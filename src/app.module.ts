@@ -49,6 +49,7 @@ import { SchedulerModule } from './modules/common/scheduler/scheduler.module';
 import { SecullumModule } from './modules/integrations/secullum/secullum.module';
 import { ServerModule } from './modules/common/server/server.module';
 import { BackupModule } from './modules/common/backup/backup.module';
+import { MonitoringModule } from './modules/common/monitoring/monitoring.module';
 import { HumanResourcesModule } from './modules/human-resources/human-resources.module';
 import { DeploymentModule } from './modules/system/deployment/deployment.module';
 import { SystemThrottlerModule } from './modules/system/throttler/throttler.module';
@@ -117,6 +118,7 @@ import { AppsModule } from './modules/system/app/app.module';
     SecullumModule,
     ServerModule,
     BackupModule,
+    MonitoringModule,
     DeploymentModule,
     SystemThrottlerModule,
     RepositoryModule,
