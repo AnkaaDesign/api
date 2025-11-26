@@ -34,7 +34,9 @@ export class ConsumptionAnalyticsService {
 
       // Route to appropriate method based on mode
       let data;
-      if (mode === 'sectors') {
+      if (mode === 'periods') {
+        data = await this.getPeriodComparison(query);
+      } else if (mode === 'sectors') {
         data = await this.getSectorComparison(query);
       } else if (mode === 'users') {
         data = await this.getUserComparison(query);
@@ -67,9 +69,11 @@ export class ConsumptionAnalyticsService {
    * Determine the comparison mode based on query parameters
    */
   private determineComparisonMode(query: ConsumptionAnalyticsFormData): ConsumptionComparisonMode {
+    const hasPeriodComparison = query.periods && query.periods.length >= 2;
     const hasSectorComparison = query.sectorIds && query.sectorIds.length >= 2;
     const hasUserComparison = query.userIds && query.userIds.length >= 2;
 
+    if (hasPeriodComparison) return 'periods';
     if (hasSectorComparison) return 'sectors';
     if (hasUserComparison) return 'users';
     return 'items';
@@ -79,12 +83,15 @@ export class ConsumptionAnalyticsService {
    * Validate that comparison mode is correctly configured
    */
   private validateComparisonMode(query: ConsumptionAnalyticsFormData, mode: ConsumptionComparisonMode): void {
-    // Already validated in schema, but double-check for safety
-    if (mode === 'sectors' && query.userIds && query.userIds.length >= 2) {
-      throw new BadRequestException('Não é possível comparar setores e usuários simultaneamente');
-    }
-    if (mode === 'users' && query.sectorIds && query.sectorIds.length >= 2) {
-      throw new BadRequestException('Não é possível comparar setores e usuários simultaneamente');
+    // Count active comparison modes
+    const hasSectorComparison = query.sectorIds && query.sectorIds.length >= 2;
+    const hasUserComparison = query.userIds && query.userIds.length >= 2;
+    const hasPeriodComparison = query.periods && query.periods.length >= 2;
+
+    const activeComparisons = [hasSectorComparison, hasUserComparison, hasPeriodComparison].filter(Boolean).length;
+
+    if (activeComparisons > 1) {
+      throw new BadRequestException('Não é possível usar múltiplos modos de comparação simultaneamente');
     }
   }
 
@@ -580,6 +587,183 @@ export class ConsumptionAnalyticsService {
       totalValue: consumptionItems.reduce((sum, item) => sum + item.totalValue, 0),
       itemCount: consumptionItems.length,
       entityCount: userIds.length,
+      averageConsumptionPerItem:
+        consumptionItems.length > 0
+          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length
+          : 0,
+      averageValuePerItem:
+        consumptionItems.length > 0
+          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) / consumptionItems.length
+          : 0,
+    };
+
+    // Pagination
+    const pagination = {
+      hasMore: (offset || 0) + (limit || 20) < itemTotals.length,
+      offset: offset || 0,
+      limit: limit || 20,
+      total: itemTotals.length,
+    };
+
+    return { items: consumptionItems, summary, pagination };
+  }
+
+  /**
+   * Get period comparison data (compare consumption across different time periods)
+   */
+  private async getPeriodComparison(query: ConsumptionAnalyticsFormData) {
+    const { periods, sectorIds, userIds, itemIds, brandIds, categoryIds, offset, limit, sortBy, sortOrder, operation } = query;
+
+    if (!periods || periods.length < 2) {
+      throw new BadRequestException('Comparação de períodos requer pelo menos 2 períodos');
+    }
+
+    // Create a map to store aggregated data by item and period
+    const itemsMap = new Map<string, Map<string, { periodLabel: string; quantity: number; value: number; movementCount: bigint }>>();
+
+    // Query each period separately and aggregate
+    for (const period of periods) {
+      const aggregatedData = await this.prisma.$queryRaw<
+        Array<{
+          itemId: string;
+          totalQuantity: number;
+          movementCount: bigint;
+        }>
+      >`
+        SELECT
+          "itemId",
+          SUM("quantity") as "totalQuantity",
+          COUNT("id") as "movementCount"
+        FROM "Activity"
+        WHERE
+          "createdAt" >= ${period.startDate}
+          AND "createdAt" <= ${period.endDate}
+          ${operation && operation !== 'ALL' ? Prisma.sql`AND "operation" = ${operation}::"ActivityOperation"` : Prisma.empty}
+          ${itemIds && itemIds.length > 0 ? Prisma.sql`AND "itemId" = ANY(${itemIds})` : Prisma.empty}
+          ${userIds && userIds.length > 0 ? Prisma.sql`AND "userId" = ANY(${userIds})` : Prisma.empty}
+          ${sectorIds && sectorIds.length > 0 ? Prisma.sql`AND "userId" IN (SELECT "id" FROM "User" WHERE "sectorId" = ANY(${sectorIds}))` : Prisma.empty}
+          ${brandIds && brandIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "brandId" = ANY(${brandIds}))` : Prisma.empty}
+          ${categoryIds && categoryIds.length > 0 ? Prisma.sql`AND "itemId" IN (SELECT "id" FROM "Item" WHERE "categoryId" = ANY(${categoryIds}))` : Prisma.empty}
+        GROUP BY "itemId"
+      `;
+
+      // Add results to the map
+      for (const row of aggregatedData) {
+        if (!itemsMap.has(row.itemId)) {
+          itemsMap.set(row.itemId, new Map());
+        }
+        itemsMap.get(row.itemId)!.set(period.id, {
+          periodLabel: period.label,
+          quantity: Number(row.totalQuantity),
+          value: 0, // Will be calculated after fetching item prices
+          movementCount: row.movementCount,
+        });
+      }
+    }
+
+    // Calculate total quantity per item for sorting
+    const itemTotals = Array.from(itemsMap.entries()).map(([itemId, periodData]) => {
+      const totalQuantity = Array.from(periodData.values()).reduce((sum, p) => sum + p.quantity, 0);
+      return { itemId, totalQuantity };
+    });
+
+    // Sort by total quantity or name
+    if (sortBy === 'quantity' || sortBy === 'value') {
+      itemTotals.sort((a, b) => {
+        return sortOrder === 'asc' ? a.totalQuantity - b.totalQuantity : b.totalQuantity - a.totalQuantity;
+      });
+    }
+
+    // Apply pagination
+    const paginatedItemIds = itemTotals.slice(offset || 0, (offset || 0) + (limit || 20)).map((t) => t.itemId);
+
+    // Fetch item details
+    const items = await this.prisma.item.findMany({
+      where: { id: { in: paginatedItemIds } },
+      include: {
+        brand: true,
+        category: true,
+        prices: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    // Create item map
+    const itemMap = new Map(items.map((item) => [item.id, item]));
+
+    // Build consumption items with comparisons
+    const consumptionItems: ConsumptionItemComparison[] = paginatedItemIds
+      .map((itemId) => {
+        const item = itemMap.get(itemId);
+        const periodData = itemsMap.get(itemId);
+
+        if (!item || !periodData) return null;
+
+        const averagePrice = item.prices[0]?.value || 0;
+        const comparisons: ConsumptionEntityComparison[] = [];
+        let totalQuantity = 0;
+
+        // Build comparisons for each period (in order)
+        for (const period of periods) {
+          const data = periodData.get(period.id);
+          const quantity = data ? data.quantity : 0;
+          const value = quantity * averagePrice;
+          totalQuantity += quantity;
+
+          comparisons.push({
+            entityId: period.id,
+            entityName: period.label,
+            quantity,
+            value,
+            percentage: 0, // Will be calculated after totals are known
+            movementCount: data ? Number(data.movementCount) : 0,
+          });
+        }
+
+        // Calculate percentages
+        comparisons.forEach((c) => {
+          c.percentage = totalQuantity > 0 ? (c.quantity / totalQuantity) * 100 : 0;
+        });
+
+        const totalValue = totalQuantity * averagePrice;
+
+        return {
+          itemId: item.id,
+          itemName: item.name,
+          itemUniCode: item.uniCode,
+          categoryId: item.categoryId,
+          categoryName: item.category?.name || null,
+          brandId: item.brandId,
+          brandName: item.brand?.name || null,
+          totalQuantity,
+          totalValue,
+          comparisons,
+          currentStock: Number(item.quantity),
+          averagePrice,
+        };
+      })
+      .filter((item): item is ConsumptionItemComparison => item !== null);
+
+    // Sort by name if requested
+    if (sortBy === 'name') {
+      consumptionItems.sort((a, b) => {
+        const comparison = a.itemName.localeCompare(b.itemName, 'pt-BR');
+        return sortOrder === 'asc' ? comparison : -comparison;
+      });
+    } else if (sortBy === 'value') {
+      consumptionItems.sort((a, b) => {
+        return sortOrder === 'asc' ? a.totalValue - b.totalValue : b.totalValue - a.totalValue;
+      });
+    }
+
+    // Calculate summary
+    const summary = {
+      totalQuantity: consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0),
+      totalValue: consumptionItems.reduce((sum, item) => sum + item.totalValue, 0),
+      itemCount: consumptionItems.length,
+      entityCount: periods.length,
       averageConsumptionPerItem:
         consumptionItems.length > 0
           ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length

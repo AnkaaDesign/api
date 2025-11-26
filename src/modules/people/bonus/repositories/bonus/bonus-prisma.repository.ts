@@ -235,6 +235,18 @@ export class BonusPrismaRepository
       }
     }
 
+    // Many-to-many relation: all users eligible for bonuses in the same period
+    if ((include as any).users) {
+      const usersInclude = (include as any).users;
+      if (typeof usersInclude === 'boolean') {
+        prismaInclude.users = true;
+      } else {
+        prismaInclude.users = {
+          include: this.mapUserInclude(usersInclude.include),
+        };
+      }
+    }
+
     if (include.bonusDiscounts) {
       if (typeof include.bonusDiscounts === 'boolean') {
         prismaInclude.bonusDiscounts = true;
@@ -245,7 +257,43 @@ export class BonusPrismaRepository
       }
     }
 
+    if ((include as any).tasks) {
+      const tasksInclude = (include as any).tasks;
+      if (typeof tasksInclude === 'boolean') {
+        prismaInclude.tasks = true;
+      } else {
+        prismaInclude.tasks = {
+          include: this.mapTaskInclude(tasksInclude.include),
+          where: tasksInclude.where,
+          orderBy: tasksInclude.orderBy,
+        };
+      }
+    }
+
+    if ((include as any).payroll) {
+      const payrollInclude = (include as any).payroll;
+      if (typeof payrollInclude === 'boolean') {
+        prismaInclude.payroll = true;
+      } else {
+        prismaInclude.payroll = {
+          include: payrollInclude.include,
+        };
+      }
+    }
+
     return prismaInclude;
+  }
+
+  private mapTaskInclude(taskInclude?: any): any {
+    if (!taskInclude) return undefined;
+
+    const include: any = {};
+    if (taskInclude.customer) include.customer = true;
+    if (taskInclude.sector) include.sector = true;
+    if (taskInclude.services) include.services = true;
+    if (taskInclude.commissions) include.commissions = true;
+
+    return Object.keys(include).length > 0 ? include : undefined;
   }
 
   private mapUserInclude(userInclude?: any): any {
