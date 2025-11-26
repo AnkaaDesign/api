@@ -31,6 +31,10 @@ export class ChangeLogService {
     return await this.changeLogRepository.findMany(params);
   }
 
+  async findOne(id: string, include?: any): Promise<any> {
+    return await this.changeLogRepository.findById(id, include);
+  }
+
   async logChange(params: LogChangeParams): Promise<void>;
   async logChange(
     entityType: ENTITY_TYPE,

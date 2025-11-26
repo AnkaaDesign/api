@@ -11,12 +11,14 @@ import { EnhancedActivityService } from '../services/enhanced-activity.service';
 import { AtomicStockCalculatorService } from '../services/atomic-stock-calculator.service';
 import { AtomicStockUpdateService } from '../services/atomic-stock-update.service';
 import { StockErrorHandlerService } from '../services/stock-error-handler.service';
+import { ConsumptionAnalyticsService } from './consumption-analytics.service';
 
 @Module({
   imports: [PrismaModule, ChangeLogModule],
   controllers: [ActivityController],
   providers: [
     ActivityService,
+    ConsumptionAnalyticsService,
     EnhancedActivityService,
     AtomicStockCalculatorService,
     AtomicStockUpdateService,
@@ -26,6 +28,6 @@ import { StockErrorHandlerService } from '../services/stock-error-handler.servic
       useClass: ActivityPrismaRepository,
     },
   ],
-  exports: [ActivityService, ActivityRepository, EnhancedActivityService],
+  exports: [ActivityService, ActivityRepository, EnhancedActivityService, ConsumptionAnalyticsService],
 })
 export class ActivityModule {}

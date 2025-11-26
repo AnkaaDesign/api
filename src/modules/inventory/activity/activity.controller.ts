@@ -14,6 +14,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ActivityService } from './activity.service';
+import { ConsumptionAnalyticsService } from './consumption-analytics.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
@@ -31,6 +32,7 @@ import type {
   ActivityGetUniqueResponse,
   ActivityUpdateResponse,
 } from '../../../types';
+import type { ConsumptionAnalyticsResponse } from '../../../types/consumption-analytics';
 import type {
   ActivityCreateFormData,
   ActivityUpdateFormData,
@@ -41,6 +43,7 @@ import type {
   ActivityGetByIdFormData,
   ActivityQueryFormData,
 } from '../../../schemas/activity';
+import type { ConsumptionAnalyticsFormData } from '../../../schemas/consumption-analytics';
 import {
   activityCreateSchema,
   activityBatchCreateSchema,
@@ -51,10 +54,14 @@ import {
   activityGetByIdSchema,
   activityQuerySchema,
 } from '../../../schemas/activity';
+import { consumptionAnalyticsSchema } from '../../../schemas/consumption-analytics';
 
 @Controller('activities')
 export class ActivityController {
-  constructor(private readonly activityService: ActivityService) {}
+  constructor(
+    private readonly activityService: ActivityService,
+    private readonly consumptionAnalyticsService: ConsumptionAnalyticsService,
+  ) {}
 
   // Basic CRUD Operations
   @Get()
@@ -119,6 +126,27 @@ export class ActivityController {
     @UserId() userId: string,
   ): Promise<ActivityBatchDeleteResponse> {
     return this.activityService.batchDelete(data, query.include, userId);
+  }
+
+  // Analytics Operations
+  @Post('analytics/consumption-comparison')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  @HttpCode(HttpStatus.OK)
+  async getConsumptionAnalytics(
+    @Body(new ZodValidationPipe(consumptionAnalyticsSchema)) data: ConsumptionAnalyticsFormData,
+    @UserId() userId: string,
+  ): Promise<ConsumptionAnalyticsResponse> {
+    return this.consumptionAnalyticsService.getConsumptionAnalytics(data);
   }
 
   // Dynamic routes (must come after static routes)
