@@ -12,8 +12,19 @@ import type { ACTIVITY_OPERATION } from '@constants';
  * - items: Simple view showing items only
  * - sectors: Sector vs sector comparison
  * - users: User vs user comparison
+ * - periods: Period vs period comparison (e.g., month-over-month)
  */
-export type ConsumptionComparisonMode = 'items' | 'sectors' | 'users';
+export type ConsumptionComparisonMode = 'items' | 'sectors' | 'users' | 'periods';
+
+/**
+ * Period definition for period comparison mode
+ */
+export interface ConsumptionPeriod {
+  id: string; // e.g., "2024-01"
+  label: string; // e.g., "Janeiro 2024"
+  startDate: Date;
+  endDate: Date;
+}
 
 /**
  * Entity comparison data (for sector or user comparisons)

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { OrderService } from './order.service';
 import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
+import { OrderAnalyticsService } from './order-analytics.service';
 import { OrderController, OrderItemController, OrderScheduleController } from './order.controller';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { OrderRepository } from './repositories/order/order.repository';
@@ -22,6 +23,7 @@ import { FileModule } from '@modules/common/file/file.module';
     OrderService,
     OrderItemService,
     OrderScheduleService,
+    OrderAnalyticsService,
     {
       provide: OrderRepository,
       useClass: OrderPrismaRepository,
