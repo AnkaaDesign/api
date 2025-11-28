@@ -57,6 +57,22 @@ export class WarningService {
   ) {}
 
   /**
+   * Get user's managed sector for team-based filtering
+   */
+  async getUserManagedSector(userId: string): Promise<{ managedSectorId: string | null } | null> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { managedSectorId: true },
+      });
+      return user;
+    } catch (error: any) {
+      this.logger.error('Error fetching user managed sector:', error);
+      return null;
+    }
+  }
+
+  /**
    * Buscar muitas advertências com filtros
    */
   async findMany(query: WarningGetManyFormData): Promise<WarningGetManyResponse> {
