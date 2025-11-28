@@ -93,31 +93,24 @@ model ChangeLog {
 }
 
 model Bonus {
-  id                     String          @id @default(uuid())
-  userId                 String
-  baseBonus              Decimal         @default(0) @db.Decimal(10, 2)
-  year                   Int
-  month                  Int
-  performanceLevel       Int
-  createdAt              DateTime        @default(now())
-  updatedAt              DateTime        @updatedAt
-  payrollId              String?         @unique
-  ponderedTaskCount      Decimal         @default(0) @db.Decimal(10, 4)
-  averageTasksPerUser    Decimal         @default(0) @db.Decimal(10, 4)
-  calculationPeriodStart DateTime        @default(now())
-  calculationPeriodEnd   DateTime        @default(now())
-  payroll                Payroll?        @relation(fields: [payrollId], references: [id])
-  user                   User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
-  bonusDiscounts         BonusDiscount[]
-  users                  User[]          @relation("BonusPeriodUsers")
-  tasks                  Task[]          @relation("BonusTasks")
+  id               String          @id @default(uuid())
+  userId           String
+  baseBonus        Decimal         @default(0) @db.Decimal(10, 2)
+  year             Int
+  month            Int
+  performanceLevel Int
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  payrollId        String?         @unique
+  payroll          Payroll?        @relation(fields: [payrollId], references: [id])
+  user             User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
+  bonusDiscounts   BonusDiscount[]
+  users            User[]          @relation("BonusPeriodUsers")
+  tasks            Task[]          @relation("BonusTasks")
 
   @@unique([userId, year, month])
   @@index([userId])
   @@index([year, month])
-  @@index([calculationPeriodStart, calculationPeriodEnd])
-  @@index([ponderedTaskCount])
-  @@index([averageTasksPerUser])
 }
 
 model Payroll {
@@ -1067,7 +1060,6 @@ model Truck {
 model Layout {
   id             String          @id @default(uuid())
   height         Float
-  sections       Json?
   photoId        String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -1083,7 +1075,7 @@ model LayoutSection {
   layoutId   String
   width      Float
   isDoor     Boolean  @default(false)
-  doorOffset Float?
+  doorHeight Float?   // Height of the door from bottom of layout to top of door opening (in meters)
   position   Int
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

@@ -1277,30 +1277,30 @@ const taskTruckCreateSchema = z.object({
 const taskLayoutDataSchema = z.object({
   leftSide: z.object({
     height: z.number().positive(),
-    sections: z.array(z.object({
+    layoutSections: z.array(z.object({
       width: z.number().positive(),
       isDoor: z.boolean(),
-      doorOffset: z.number().nullable(),
+      doorHeight: z.number().nullable(),
       position: z.number(),
     })),
     photoId: z.string().uuid().nullable().optional(),
   }).nullable().optional(),
   rightSide: z.object({
     height: z.number().positive(),
-    sections: z.array(z.object({
+    layoutSections: z.array(z.object({
       width: z.number().positive(),
       isDoor: z.boolean(),
-      doorOffset: z.number().nullable(),
+      doorHeight: z.number().nullable(),
       position: z.number(),
     })),
     photoId: z.string().uuid().nullable().optional(),
   }).nullable().optional(),
   backSide: z.object({
     height: z.number().positive(),
-    sections: z.array(z.object({
+    layoutSections: z.array(z.object({
       width: z.number().positive(),
       isDoor: z.boolean(),
-      doorOffset: z.number().nullable(),
+      doorHeight: z.number().nullable(),
       position: z.number(),
     })),
     photoId: z.string().uuid().nullable().optional(),

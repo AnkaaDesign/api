@@ -1,10 +1,15 @@
 // repositories/bonus.repository.ts
+// Clean bonus repository - simplified structure
+// Period dates and task counts are computed from year/month and tasks relation
 
 import { BaseStringRepository } from '@modules/common/base/base-string.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { BatchCreateResult, CreateManyOptions } from '../../../../../types';
 
-// Temporary interfaces for bonus until schemas are created
+// =====================
+// Form Data Types
+// =====================
+
 interface BonusCreateFormData {
   userId: string;
   baseBonus: number;
@@ -12,21 +17,17 @@ interface BonusCreateFormData {
   month: number;
   performanceLevel: number;
   payrollId?: string;
-  ponderedTaskCount?: number;
-  averageTasksPerUser?: number;
-  calculationPeriodStart?: Date;
-  calculationPeriodEnd?: Date;
 }
 
 interface BonusUpdateFormData {
   baseBonus?: number;
   performanceLevel?: number;
-  payrollId?: string;
-  ponderedTaskCount?: number;
-  averageTasksPerUser?: number;
-  calculationPeriodStart?: Date;
-  calculationPeriodEnd?: Date;
+  payrollId?: string | null;
 }
+
+// =====================
+// Query Types
+// =====================
 
 interface BonusInclude {
   user?: boolean;
@@ -43,6 +44,7 @@ interface BonusOrderBy {
   performanceLevel?: 'asc' | 'desc';
   createdAt?: 'asc' | 'desc';
   user?: { name?: 'asc' | 'desc' };
+  tasks?: { _count?: 'asc' | 'desc' };
 }
 
 interface BonusWhere {
@@ -61,7 +63,10 @@ interface BonusWhere {
   };
 }
 
-// Temporary Bonus interface
+// =====================
+// Entity Type
+// =====================
+
 interface Bonus {
   id: string;
   userId: string;
@@ -69,19 +74,26 @@ interface Bonus {
   year: number;
   month: number;
   performanceLevel: number;
-  payrollId?: string;
-  ponderedTaskCount: number;
-  averageTasksPerUser: number;
-  calculationPeriodStart: Date;
-  calculationPeriodEnd: Date;
+  payrollId?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  // Relations (populated based on query)
   user?: any;
   bonusDiscounts?: any[];
   payroll?: any;
   tasks?: any[];
   users?: any[];
+  // Computed fields (added by service layer)
+  _computed?: {
+    ponderedTaskCount?: number;
+    periodStart?: Date;
+    periodEnd?: Date;
+  };
 }
+
+// =====================
+// Repository Abstract Class
+// =====================
 
 export abstract class BonusRepository extends BaseStringRepository<
   Bonus,

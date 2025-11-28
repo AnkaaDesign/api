@@ -1,12 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { BonusService } from '../../human-resources/bonus/bonus.service';
+import { PayrollService } from '../../human-resources/payroll/payroll.service';
 
 @Injectable()
 export class BonusCronService {
   private readonly logger = new Logger(BonusCronService.name);
 
-  constructor(private readonly bonusService: BonusService) {}
+  constructor(
+    private readonly bonusService: BonusService,
+    private readonly payrollService: PayrollService,
+  ) {}
 
   // Run daily at 02:00 AM to update DRAFT bonuses
   @Cron('0 2 * * *')
@@ -14,9 +18,9 @@ export class BonusCronService {
     const now = new Date();
     const currentDay = now.getDate();
 
-    // Only update drafts before day 26
-    if (currentDay >= 26) {
-      this.logger.debug('Skipping daily bonus update - past day 26');
+    // Only update drafts before day 25 (period ends on 25th)
+    if (currentDay >= 25) {
+      this.logger.debug('Skipping daily bonus update - past day 25');
       return;
     }
 
@@ -28,7 +32,7 @@ export class BonusCronService {
 
       this.logger.log(`Updating DRAFT bonuses for period: ${year}/${month}`);
 
-      // Calculate and update bonuses (will be DRAFT status before day 26)
+      // Calculate and update bonuses (will be DRAFT status before day 25)
       const result = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
 
       this.logger.log(`Daily bonus update completed. Success: ${result.totalSuccess}, Failed: ${result.totalFailed}`);
@@ -37,48 +41,46 @@ export class BonusCronService {
     }
   }
 
-  // Run at 23:59 on the 26th of every month to finalize bonuses
-  @Cron('59 23 26 * *')
-  async handleMonthlyBonusFinalization() {
-    this.logger.log('Starting monthly bonus finalization (CONFIRMED status)...');
+  // Run at midnight (00:00) on the 25th of every month to finalize bonuses and create payrolls
+  // Period: 26th of previous month to 25th of current month
+  @Cron('0 0 25 * *')
+  async handleMonthlyBonusAndPayrollFinalization() {
+    this.logger.log('Starting monthly bonus and payroll finalization...');
 
     try {
       const now = new Date();
       const year = now.getFullYear().toString();
       const month = (now.getMonth() + 1).toString().padStart(2, '0');
 
-      this.logger.log(`Finalizing bonuses for period: ${year}/${month}`);
+      this.logger.log(`Finalizing bonuses and payrolls for period: ${year}/${month}`);
 
-      // Get payroll data for the current period to validate calculation
-      const payrollData = await this.bonusService.getPayrollData({
-        year,
-        month: [month],
-        includeInactive: false
-      }, 'system');
+      // Step 1: Generate payrolls for all active users
+      this.logger.log('Step 1: Generating payrolls for all active users...');
+      const payrollResult = await this.payrollService.generateForMonth(
+        parseInt(year),
+        parseInt(month),
+        'system'
+      );
+      this.logger.log(`Payroll generation completed. Created: ${payrollResult.created}, Skipped: ${payrollResult.skipped}`);
 
-      this.logger.log(`Found ${payrollData.bonuses.length} eligible users for bonus calculation`);
-
-      // Calculate and save bonuses for all eligible users
-      // This will automatically set CONFIRMED status since we're running on day 26
-      const result = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
-
-      this.logger.log(`Monthly bonus finalization completed. Success: ${result.totalSuccess}, Failed: ${result.totalFailed}`);
+      // Step 2: Calculate and save bonuses for all users with payroll
+      // This creates bonus records even for non-eligible users (with value 0)
+      this.logger.log('Step 2: Calculating and saving bonuses...');
+      const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
+      this.logger.log(`Bonus calculation completed. Success: ${bonusResult.totalSuccess}, Failed: ${bonusResult.totalFailed}`);
 
       // Log warning if there were failures
-      if (result.totalFailed > 0) {
-        this.logger.error(`Failed to calculate bonuses for ${result.totalFailed} users`);
-        // You could add notification logic here to alert HR team
+      if (bonusResult.totalFailed > 0) {
+        this.logger.error(`Failed to calculate bonuses for ${bonusResult.totalFailed} users`);
       }
 
       // Log success summary
-      if (result.totalSuccess > 0) {
-        this.logger.log(`Successfully finalized bonuses for ${result.totalSuccess} users with CONFIRMED status`);
-      }
+      this.logger.log(`Monthly finalization completed successfully.`);
+      this.logger.log(`- Payrolls: ${payrollResult.created} created, ${payrollResult.skipped} skipped`);
+      this.logger.log(`- Bonuses: ${bonusResult.totalSuccess} calculated`);
 
     } catch (error) {
-      this.logger.error('Failed to run monthly bonus calculation', error);
-      // You could add alerting logic here to notify administrators
-      // For example: await this.notificationService.alertAdmins('Cron job failed', error);
+      this.logger.error('Failed to run monthly bonus and payroll finalization', error);
     }
   }
 
@@ -121,20 +123,20 @@ export class BonusCronService {
 
     let nextExecution: Date;
 
-    // If we're before the 26th of this month, next execution is this month's 26th
-    if (currentDay < 26) {
-      nextExecution = new Date(currentYear, currentMonth, 26, 0, 0, 0);
+    // If we're before the 25th of this month, next execution is this month's 25th at midnight
+    if (currentDay < 25) {
+      nextExecution = new Date(currentYear, currentMonth, 25, 0, 0, 0);
     } else {
-      // Otherwise, it's the 26th of next month
-      nextExecution = new Date(currentYear, currentMonth + 1, 26, 0, 0, 0);
+      // Otherwise, it's the 25th of next month
+      nextExecution = new Date(currentYear, currentMonth + 1, 25, 0, 0, 0);
     }
 
     return nextExecution;
   }
 
-  // Optional: Check if today is bonus calculation day
+  // Optional: Check if today is bonus/payroll calculation day
   isBonusCalculationDay(): boolean {
     const now = new Date();
-    return now.getDate() === 26;
+    return now.getDate() === 25;
   }
 }
