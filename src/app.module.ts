@@ -14,7 +14,6 @@ import { SecurityModule } from './modules/common/security/security.module';
 import { ActivityModule } from './modules/inventory/activity/activity.module';
 import { AirbrushingModule } from './modules/production/airbrushing/airbrushing.module';
 import { AuthModule } from './modules/common/auth/auth.module';
-import { BonusModule } from './modules/people/bonus/bonus.module';
 import { BorrowModule } from './modules/inventory/borrow/borrow.module';
 import { CustomerModule } from './modules/production/customer/customer.module';
 import { CutModule } from './modules/production/cut/cut.module';
@@ -83,8 +82,7 @@ import { AppsModule } from './modules/system/app/app.module';
     ThrottlerModule,
     ActivityModule,
     AirbrushingModule,
-    BonusModule,
-    HumanResourcesModule,
+    HumanResourcesModule, // Includes BonusModule and PayrollModule
     BorrowModule,
     CustomerModule,
     CutModule,

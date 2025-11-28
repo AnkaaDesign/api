@@ -12,10 +12,14 @@ import {
   UsePipes,
   Res,
   HttpStatus,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { ZodValidationPipe } from '@modules/common/pipes/zod-validation.pipe';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { LayoutService } from './layout.service';
 import {
   layoutCreateSchema,
@@ -97,13 +101,26 @@ export class LayoutController {
   }
 
   @Post('truck/:truckId/:side')
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig),
+  )
   async createOrUpdateTruckLayout(
     @Param('truckId') truckId: string,
     @Param('side') side: 'left' | 'right' | 'back',
     @Body(new ZodValidationPipe(layoutCreateSchema)) data: LayoutCreateFormData,
     @UserId() userId: string,
+    @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ) {
-    const layout = await this.layoutService.createOrUpdateTruckLayout(truckId, side, data, userId);
+    // Extract photo file if uploaded
+    const photoFile = files?.photo?.[0];
+
+    const layout = await this.layoutService.createOrUpdateTruckLayout(
+      truckId,
+      side,
+      data,
+      userId,
+      photoFile,
+    );
 
     return {
       success: true,

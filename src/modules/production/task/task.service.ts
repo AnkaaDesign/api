@@ -145,10 +145,10 @@ export class TaskService {
                 height: data.truckLayoutData.leftSide.height,
                 ...(data.truckLayoutData.leftSide.photoId && { photo: { connect: { id: data.truckLayoutData.leftSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.leftSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },
@@ -168,10 +168,10 @@ export class TaskService {
                 height: data.truckLayoutData.rightSide.height,
                 ...(data.truckLayoutData.rightSide.photoId && { photo: { connect: { id: data.truckLayoutData.rightSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.rightSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },
@@ -191,10 +191,10 @@ export class TaskService {
                 height: data.truckLayoutData.backSide.height,
                 ...(data.truckLayoutData.backSide.photoId && { photo: { connect: { id: data.truckLayoutData.backSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.backSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },
@@ -607,10 +607,10 @@ export class TaskService {
                 height: data.truckLayoutData.leftSide.height,
                 ...(data.truckLayoutData.leftSide.photoId && { photo: { connect: { id: data.truckLayoutData.leftSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.leftSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },
@@ -630,10 +630,10 @@ export class TaskService {
                 height: data.truckLayoutData.rightSide.height,
                 ...(data.truckLayoutData.rightSide.photoId && { photo: { connect: { id: data.truckLayoutData.rightSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.rightSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },
@@ -653,10 +653,10 @@ export class TaskService {
                 height: data.truckLayoutData.backSide.height,
                 ...(data.truckLayoutData.backSide.photoId && { photo: { connect: { id: data.truckLayoutData.backSide.photoId } } }),
                 layoutSections: {
-                  create: data.truckLayoutData.backSide.sections.map((section, index) => ({
+                  create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
-                    doorOffset: section.doorOffset,
+                    doorHeight: section.doorHeight,
                     position: section.position ?? index,
                   })),
                 },

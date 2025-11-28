@@ -482,13 +482,104 @@ export class ZodValidationPipe implements PipeTransform {
       return this.convertToArray(obj);
     }
 
-    // Recursively fix nested objects
+    // Recursively fix nested objects and convert string values to proper types
     const fixed: any = {};
     for (const [key, value] of Object.entries(obj)) {
+      // Convert boolean strings to booleans (FormData sends "true"/"false" as strings)
+      if (typeof value === 'string') {
+        if (value === 'true') {
+          fixed[key] = true;
+          continue;
+        }
+        if (value === 'false') {
+          fixed[key] = false;
+          continue;
+        }
+        // Convert numeric strings to numbers for known numeric fields
+        if (this.isNumericField(key) && this.isNumericString(value)) {
+          const numValue = Number(value);
+          if (!isNaN(numValue)) {
+            fixed[key] = numValue;
+            continue;
+          }
+        }
+      }
       fixed[key] = this.fixArrays(value);
     }
 
     return fixed;
+  }
+
+  private isNumericField(fieldName: string): boolean {
+    // Fields that should be converted from string to number when they contain numeric strings
+    // This is necessary because FormData sends everything as strings
+    const numericFields = [
+      // Layout fields
+      'height',
+      'width',
+      'doorHeight',
+      'doorOffset',
+      'position',
+      // Order/Item fields
+      'price',
+      'unitPrice',
+      'amount',
+      'quantity',
+      'orderedQuantity',
+      'receivedQuantity',
+      'total',
+      'subtotal',
+      'discount',
+      'tax',
+      'fee',
+      'ipi',
+      'icms',
+      'boxQuantity',
+      'maxQuantity',
+      'minQuantity',
+      'leadTime',
+      'stockQuantity',
+      // Maintenance/Schedule fields
+      'timeTaken',
+      'frequencyCount',
+      'dayOfMonth',
+      'rescheduleCount',
+      // User/HR fields
+      'performanceLevel',
+      'payrollNumber',
+      'statusOrder',
+      // Measure fields
+      'value',
+      // Task fields
+      'xPosition',
+      'yPosition',
+      // Time clock/Geolocation fields
+      'dayType',
+      'latitude',
+      'longitude',
+      'accuracy',
+      // Filter/Range fields (when sent in body)
+      'min',
+      'max',
+      'from',
+      'to',
+      // Paint formula fields
+      'componentQuantity',
+      'componentPercentage',
+      'percentage',
+      // Cut fields
+      '_fileIndex',
+      // Bonus fields
+      'bonusAmount',
+      'deductionAmount',
+      // EPI/PPE fields
+      'deliveryQuantity',
+      'requestedQuantity',
+      // Commission fields
+      'commission',
+      'rate',
+    ];
+    return numericFields.includes(fieldName);
   }
 
   protected isSerializedArray(obj: any): boolean {

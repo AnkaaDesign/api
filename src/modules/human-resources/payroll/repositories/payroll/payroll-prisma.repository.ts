@@ -133,7 +133,21 @@ export class PayrollPrismaRepository
 
   protected mapOrderByToDatabaseOrderBy(
     orderBy?: PayrollOrderBy,
-  ): Prisma.PayrollOrderByWithRelationInput | undefined {
+  ): Prisma.PayrollOrderByWithRelationInput | Prisma.PayrollOrderByWithRelationInput[] | undefined {
+    if (!orderBy) return undefined;
+
+    // If it's already an array, return as is
+    if (Array.isArray(orderBy)) {
+      return orderBy as Prisma.PayrollOrderByWithRelationInput[];
+    }
+
+    // If it's an object with multiple keys, convert to array of single-key objects
+    const keys = Object.keys(orderBy);
+    if (keys.length > 1) {
+      return keys.map(key => ({ [key]: (orderBy as any)[key] })) as Prisma.PayrollOrderByWithRelationInput[];
+    }
+
+    // Single key object, return as is
     return orderBy as Prisma.PayrollOrderByWithRelationInput;
   }
 
@@ -792,6 +806,7 @@ export class PayrollPrismaRepository
       const users = await this.prisma.user.findMany({
         where: {
           status: { in: ACTIVE_USER_STATUSES as any },
+          payrollNumber: { not: null }, // Only users with payroll number
           payrolls: {
             none: {
               year,

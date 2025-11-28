@@ -24,10 +24,7 @@ interface LiveBonusData {
   month: number;
   performanceLevel: number;
   baseBonus: number;
-  ponderedTaskCount: number;
-  averageTasksPerUser: number;
-  calculationPeriodStart: Date;
-  calculationPeriodEnd: Date;
+  tasks?: any[];
   payrollId?: string;
 }
 
@@ -63,8 +60,6 @@ export class BonusPrismaRepository
     return {
       ...databaseEntity,
       baseBonus: Number(databaseEntity.baseBonus),
-      ponderedTaskCount: Number(databaseEntity.ponderedTaskCount),
-      averageTasksPerUser: Number(databaseEntity.averageTasksPerUser),
     } as Bonus;
   }
 
@@ -74,10 +69,6 @@ export class BonusPrismaRepository
       month: data.month,
       performanceLevel: data.performanceLevel,
       baseBonus: data.baseBonus,
-      ponderedTaskCount: data.ponderedTaskCount || 0,
-      averageTasksPerUser: data.averageTasksPerUser || 0,
-      calculationPeriodStart: data.calculationPeriodStart || new Date(),
-      calculationPeriodEnd: data.calculationPeriodEnd || new Date(),
       user: {
         connect: { id: data.userId },
       },
@@ -93,10 +84,6 @@ export class BonusPrismaRepository
     return {
       ...(data.baseBonus !== undefined && { baseBonus: data.baseBonus }),
       ...(data.performanceLevel !== undefined && { performanceLevel: data.performanceLevel }),
-      ...(data.ponderedTaskCount !== undefined && { ponderedTaskCount: data.ponderedTaskCount }),
-      ...(data.averageTasksPerUser !== undefined && { averageTasksPerUser: data.averageTasksPerUser }),
-      ...(data.calculationPeriodStart !== undefined && { calculationPeriodStart: data.calculationPeriodStart }),
-      ...(data.calculationPeriodEnd !== undefined && { calculationPeriodEnd: data.calculationPeriodEnd }),
       ...(data.payrollId !== undefined && {
         payroll: data.payrollId
           ? { connect: { id: data.payrollId } }
@@ -156,17 +143,33 @@ export class BonusPrismaRepository
     };
   }
 
-  protected mapOrderByToDatabaseOrderBy(orderBy?: BonusOrderBy): Prisma.BonusOrderByWithRelationInput | undefined {
-    if (!orderBy) return { year: 'desc', month: 'desc', createdAt: 'desc' }; // Default ordering
+  protected mapOrderByToDatabaseOrderBy(
+    orderBy?: BonusOrderBy,
+  ): Prisma.BonusOrderByWithRelationInput | Prisma.BonusOrderByWithRelationInput[] | undefined {
+    // Default ordering as array of single-key objects
+    if (!orderBy) return [{ year: 'desc' }, { month: 'desc' }, { createdAt: 'desc' }];
 
-    return {
-      ...(orderBy.year && { year: orderBy.year }),
-      ...(orderBy.month && { month: orderBy.month }),
-      ...(orderBy.baseBonus && { baseBonus: orderBy.baseBonus }),
-      ...(orderBy.performanceLevel && { performanceLevel: orderBy.performanceLevel }),
-      ...(orderBy.createdAt && { createdAt: orderBy.createdAt }),
-      ...(orderBy.user && { user: { name: orderBy.user.name } }),
-    };
+    // If it's already an array, return as is
+    if (Array.isArray(orderBy)) {
+      return orderBy as Prisma.BonusOrderByWithRelationInput[];
+    }
+
+    // Build orderBy from input
+    const result: Record<string, any> = {};
+    if (orderBy.year) result.year = orderBy.year;
+    if (orderBy.month) result.month = orderBy.month;
+    if (orderBy.baseBonus) result.baseBonus = orderBy.baseBonus;
+    if (orderBy.performanceLevel) result.performanceLevel = orderBy.performanceLevel;
+    if (orderBy.createdAt) result.createdAt = orderBy.createdAt;
+    if (orderBy.user) result.user = { name: orderBy.user.name };
+
+    // If multiple keys, convert to array
+    const keys = Object.keys(result);
+    if (keys.length > 1) {
+      return keys.map(key => ({ [key]: result[key] })) as Prisma.BonusOrderByWithRelationInput[];
+    }
+
+    return result as Prisma.BonusOrderByWithRelationInput;
   }
 
   protected mapWhereToDatabaseWhere(where?: BonusWhere): Prisma.BonusWhereInput | undefined {
@@ -452,7 +455,7 @@ export class BonusPrismaRepository
       // Calculate bonus using the calculation service if not provided
       let calculatedData = { ...data };
       if (!data.baseBonus || data.baseBonus === 0) {
-        const { ponderedTaskCount, averageTasksPerUser } = await this.calculatePeriodMetrics(
+        const { averageTasksPerUser } = await this.calculatePeriodMetrics(
           data.year,
           data.month,
           transaction
@@ -467,10 +470,6 @@ export class BonusPrismaRepository
         calculatedData = {
           ...data,
           baseBonus: bonusValue,
-          ponderedTaskCount,
-          averageTasksPerUser,
-          calculationPeriodStart: data.calculationPeriodStart || this.getPeriodStartDate(data.year, data.month),
-          calculationPeriodEnd: data.calculationPeriodEnd || this.getPeriodEndDate(data.year, data.month),
         };
       }
 
@@ -656,6 +655,7 @@ export class BonusPrismaRepository
       const liveData = await this.generateLiveBonusData(userId, year, month, tx);
 
       // Return a live bonus object (not saved to database)
+      // Period dates and task counts are computed from year/month and tasks relation
       return {
         id: `live-${userId}-${year}-${month}`,
         userId: liveData.userId,
@@ -663,13 +663,10 @@ export class BonusPrismaRepository
         year: liveData.year,
         month: liveData.month,
         performanceLevel: liveData.performanceLevel,
-        ponderedTaskCount: liveData.ponderedTaskCount,
-        averageTasksPerUser: liveData.averageTasksPerUser,
-        calculationPeriodStart: liveData.calculationPeriodStart,
-        calculationPeriodEnd: liveData.calculationPeriodEnd,
         payrollId: liveData.payrollId,
         createdAt: new Date(),
         updatedAt: new Date(),
+        tasks: liveData.tasks,
       } as Bonus;
     } catch (error) {
       this.logger.error('Error in findOrGenerateLive:', error);
@@ -826,7 +823,7 @@ export class BonusPrismaRepository
     }
 
     // Calculate metrics for the period
-    const { ponderedTaskCount, averageTasksPerUser } = await this.calculatePeriodMetrics(year, month, tx);
+    const { averageTasksPerUser } = await this.calculatePeriodMetrics(year, month, tx);
 
     // Calculate bonus
     const bonusValue = this.bonusCalculationService.calculateBonus(
@@ -841,16 +838,31 @@ export class BonusPrismaRepository
       select: { id: true },
     });
 
+    // Get user's tasks for this period
+    const startDate = this.getPeriodStartDate(year, month);
+    const endDate = this.getPeriodEndDate(year, month);
+    const userTasks = await model.task.findMany({
+      where: {
+        createdById: userId,
+        commission: { in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION'] },
+        status: 'COMPLETED',
+        finishedAt: { gte: startDate, lte: endDate },
+      },
+      select: {
+        id: true,
+        name: true,
+        commission: true,
+        finishedAt: true,
+      },
+    });
+
     return {
       userId,
       year,
       month,
       performanceLevel: user.performanceLevel,
       baseBonus: bonusValue,
-      ponderedTaskCount,
-      averageTasksPerUser,
-      calculationPeriodStart: this.getPeriodStartDate(year, month),
-      calculationPeriodEnd: this.getPeriodEndDate(year, month),
+      tasks: userTasks,
       payrollId: payroll?.id,
     };
   }

@@ -81,10 +81,10 @@ export class LayoutPrismaRepository implements LayoutRepository {
         height: data.height,
         ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
         layoutSections: {
-          create: data.sections.map((section, index) => ({
+          create: data.layoutSections.map((section, index) => ({
             width: section.width,
             isDoor: section.isDoor,
-            doorOffset: section.doorOffset,
+            doorHeight: section.doorHeight,
             position: section.position ?? index,
           })),
         },
@@ -104,7 +104,7 @@ export class LayoutPrismaRepository implements LayoutRepository {
     // Use a transaction to update layout and replace all sections
     const layout = await this.prisma.$transaction(async (tx) => {
       // Delete existing sections if we're updating them
-      if (data.sections) {
+      if (data.layoutSections) {
         await tx.layoutSection.deleteMany({
           where: { layoutId: id },
         });
@@ -117,12 +117,12 @@ export class LayoutPrismaRepository implements LayoutRepository {
           ...(data.height !== undefined && { height: data.height }),
           ...(data.photoId !== undefined && data.photoId && { photo: { connect: { id: data.photoId } } }),
           ...(data.photoId === null && { photo: { disconnect: true } }),
-          ...(data.sections && {
+          ...(data.layoutSections && {
             layoutSections: {
-              create: data.sections.map((section, index) => ({
+              create: data.layoutSections.map((section, index) => ({
                 width: section.width,
                 isDoor: section.isDoor,
-                doorOffset: section.doorOffset,
+                doorHeight: section.doorHeight,
                 position: section.position ?? index,
               })),
             },

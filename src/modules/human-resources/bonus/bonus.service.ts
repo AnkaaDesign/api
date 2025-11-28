@@ -1,4 +1,7 @@
 // bonus.service.ts
+// Clean implementation with separation of concerns:
+// - Regular CRUD operations (like any other entity)
+// - Live calculation service (only when current period is requested)
 
 import {
   BadRequestException,
@@ -20,31 +23,77 @@ import {
   TASK_STATUS,
   USER_STATUS,
 } from '../../../constants/enums';
-import {
-  trackFieldChanges,
-  trackAndLogFieldChanges,
-  logEntityChange,
-} from '@modules/common/changelog/utils/changelog-helpers';
+import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import { roundAverage, roundCurrency } from '../../../utils/currency-precision.util';
+import {
+  getCurrentPeriod,
+  isCurrentPeriod,
+  filterIncludesCurrentPeriod,
+  getBonusPeriodStart,
+  getBonusPeriodEnd,
+} from '../../../utils/bonus';
 
-// Types for bonus calculations
-interface BonusCalculationData {
+// =====================
+// Types
+// =====================
+
+interface LiveBonusData {
   userId: string;
   userName: string;
   positionName: string;
   performanceLevel: number;
-  bonusValue: number;
-  totalTasks: number;
-  weightedTaskCount: number;
+  baseBonus: number;
+  tasks: any[];
+  isLive: true;
 }
 
-interface PayrollData {
-  year: string;
-  month: string;
-  bonuses: BonusCalculationData[];
+interface LiveBonusCalculationResult {
+  year: number;
+  month: number;
+  bonuses: LiveBonusData[];
   totalActiveUsers: number;
+  totalWeightedTasks: number;
   averageTasksPerEmployee: number;
   calculatedAt: Date;
+  isLive: true;
+}
+
+// =====================
+// Utility Functions
+// =====================
+
+/**
+ * Calculate weighted task count from tasks array
+ * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5
+ */
+function calculatePonderedTaskCount(tasks: any[]): number {
+  if (!tasks || tasks.length === 0) return 0;
+
+  return tasks.reduce((sum, task) => {
+    if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+      return sum + 1.0;
+    } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+      return sum + 0.5;
+    }
+    return sum;
+  }, 0);
+}
+
+/**
+ * Get period start date (26th of previous month)
+ */
+function getPeriodStart(year: number, month: number): Date {
+  if (month === 1) {
+    return new Date(year - 1, 11, 26, 0, 0, 0, 0);
+  }
+  return new Date(year, month - 2, 26, 0, 0, 0, 0);
+}
+
+/**
+ * Get period end date (25th of current month)
+ */
+function getPeriodEnd(year: number, month: number): Date {
+  return new Date(year, month - 1, 25, 23, 59, 59, 999);
 }
 
 @Injectable()
@@ -58,427 +107,12 @@ export class BonusService {
     private readonly bonusRepository: BonusRepository,
   ) {}
 
-  /**
-   * Calculate bonus for a user based on performance level and weighted task count
-   * Uses the EXACT spreadsheet algorithm implementation with position-based matrix
-   */
-  private calculateBonus(
-    performanceLevel: number,
-    weightedTaskCount: number,
-    positionName: string = 'DEFAULT',
-  ): number {
-    // Use the exact algorithm from the spreadsheet with the user's position
-    return this.exactBonusCalculationService.calculateBonus(
-      positionName,
-      performanceLevel,
-      weightedTaskCount,
-    );
-  }
-
+  // =====================
+  // Regular CRUD Operations (like any other entity)
+  // =====================
 
   /**
-   * Get bonus calculation details for debugging/transparency
-   * Uses the EXACT spreadsheet algorithm for transparency
-   */
-  getBonusCalculationDetails(
-    performanceLevel: number,
-    weightedTaskCount?: number,
-  ): any {
-    return this.exactBonusCalculationService.getCalculationDetails(
-      'DEFAULT',
-      performanceLevel,
-      weightedTaskCount || 0,
-    );
-  }
-
-
-  /**
-   * Get payroll data with live calculated bonuses for the current period
-   */
-  async getPayrollData(
-    filters?: {
-      year?: string | number;
-      month?: string | number | string[];
-      includeInactive?: boolean;
-    },
-    userId?: string,
-  ): Promise<PayrollData>;
-  async getPayrollData(year?: string | number, month?: string | number): Promise<PayrollData>;
-  async getPayrollData(
-    filtersOrYear?: string | number | { year?: string | number; month?: string | number | string[]; includeInactive?: boolean; },
-    monthOrUserId?: string | number,
-  ): Promise<PayrollData> {
-    try {
-      const now = new Date();
-
-      // Handle overloaded parameters
-      let targetYear: string;
-      let targetMonth: string;
-      let includeInactive = false;
-
-      if (typeof filtersOrYear === 'string' || typeof filtersOrYear === 'number') {
-        // Legacy call: getPayrollData(year?, month?)
-        targetYear = filtersOrYear.toString() || now.getFullYear().toString();
-        targetMonth = monthOrUserId?.toString() || (now.getMonth() + 1).toString().padStart(2, '0');
-      } else {
-        // New call: getPayrollData(filters?, userId?)
-        const filters = filtersOrYear || {};
-        targetYear = filters.year?.toString() || now.getFullYear().toString();
-
-        if (Array.isArray(filters.month)) {
-          targetMonth = filters.month[0] || (now.getMonth() + 1).toString().padStart(2, '0');
-        } else {
-          targetMonth = filters.month?.toString() || (now.getMonth() + 1).toString().padStart(2, '0');
-        }
-
-        includeInactive = filters.includeInactive || false;
-      }
-
-      // Get users with performance levels > 0
-      const userWhereClause: any = {
-        performanceLevel: {
-          gt: 0,
-        },
-      };
-
-      // Only filter by status if not including inactive
-      if (!includeInactive) {
-        // Only EFFECTED users are eligible for bonuses (not experience periods)
-        userWhereClause.status = USER_STATUS.EFFECTED;
-      }
-
-      const users = await this.prisma.user.findMany({
-        where: userWhereClause,
-        select: {
-          id: true,
-          name: true,
-          performanceLevel: true,
-          position: {
-            select: {
-              name: true,
-              bonifiable: true,
-            },
-          },
-        },
-      });
-
-      // Filter to only users with bonifiable positions
-      const eligibleUsers = users.filter(user => user.position?.bonifiable === true);
-
-      const bonuses: BonusCalculationData[] = [];
-
-      // Calculate sector-wide task distribution for all users
-      // Get all eligible tasks in the period (not per user, but for the entire organization/sector)
-      const startDate = this.getStartDate(parseInt(targetYear), parseInt(targetMonth));
-      const endDate = this.getEndDate(parseInt(targetYear), parseInt(targetMonth));
-
-      this.logger.log(`Looking for tasks between ${startDate.toISOString()} and ${endDate.toISOString()} for period ${targetMonth}/${targetYear}`);
-
-      const allEligibleTasks = await this.prisma.task.findMany({
-        where: {
-          commission: {
-            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
-          },
-          finishedAt: {
-            gte: startDate, // Previous month 26th
-            lte: endDate, // Current month 25th
-          },
-          status: TASK_STATUS.COMPLETED,
-        },
-        select: {
-          id: true,
-          commission: true,
-          finishedAt: true,
-          createdById: true,
-          sectorId: true,
-          customerId: true,
-          sector: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          customer: {
-            select: {
-              id: true,
-              fantasyName: true,
-            },
-          },
-        },
-      });
-
-      this.logger.log(`Found ${allEligibleTasks.length} eligible tasks for period ${targetMonth}/${targetYear}`);
-
-      if (allEligibleTasks.length > 0) {
-        this.logger.log(`Sample tasks found:`, allEligibleTasks.slice(0, 3).map(t => ({
-          id: t.id,
-          commission: t.commission,
-          finishedAt: t.finishedAt
-        })));
-      }
-
-      // Calculate weighted task count for the entire period
-      let totalWeightedTasks = 0;
-      for (const task of allEligibleTasks) {
-        if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
-          totalWeightedTasks += 1.0;
-        } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
-          totalWeightedTasks += 0.5;
-        }
-      }
-
-      // Calculate average tasks per user using ONLY eligible users (EFFECTED + bonifiable + performance > 0)
-      const totalEligibleUsers = eligibleUsers.length;
-      // CRITICAL: Use centralized rounding utility for consistency
-      const averageTasksPerUser = totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
-
-      this.logger.log(`Period ${targetMonth}/${targetYear}: ${totalWeightedTasks} weighted tasks ÷ ${totalEligibleUsers} eligible users = ${averageTasksPerUser.toFixed(2)} tasks per user`);
-
-      // Calculate bonuses for each eligible user using the sector-wide average
-      for (const user of eligibleUsers) {
-        // Get position name for the calculation (uses position level in matrix)
-        const positionName = user.position?.name || 'DEFAULT';
-
-        // Calculate bonus using position name, performance level, and sector-wide average tasks
-        const bonusValue = this.calculateBonus(
-          user.performanceLevel,
-          averageTasksPerUser,
-          positionName,
-        );
-
-        bonuses.push({
-          userId: user.id,
-          userName: user.name,
-          positionName,
-          performanceLevel: user.performanceLevel,
-          bonusValue,
-          totalTasks: allEligibleTasks.length, // Total tasks in the period
-          weightedTaskCount: averageTasksPerUser, // Average tasks per user (what's used in calculation)
-        });
-      }
-
-      return {
-        year: targetYear,
-        month: targetMonth,
-        bonuses,
-        totalActiveUsers: eligibleUsers.length,
-        averageTasksPerEmployee: averageTasksPerUser,
-        calculatedAt: new Date(),
-      };
-    } catch (error) {
-      this.logger.error('Error getting payroll data:', error);
-      throw new InternalServerErrorException(
-        'Erro ao obter dados da folha de pagamento.',
-      );
-    }
-  }
-
-  /**
-   * Calculate and save bonuses - Auto-creates at month end (day 26)
-   */
-  async calculateAndSaveBonuses(
-    year: string,
-    month: string,
-    userId?: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number }> {
-    try {
-      const payrollData = await this.getPayrollData(year, month);
-      let successCount = 0;
-      let failedCount = 0;
-
-      // Collect all user IDs receiving bonuses this period
-      const allBonusUserIds = payrollData.bonuses.map(b => b.userId);
-
-      // Get all tasks for this period to connect to bonuses
-      const allTasksForPeriod = await this.prisma.task.findMany({
-        where: {
-          commission: {
-            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
-          },
-          finishedAt: {
-            gte: this.getStartDate(parseInt(year), parseInt(month)),
-            lte: this.getEndDate(parseInt(year), parseInt(month)),
-          },
-          status: TASK_STATUS.COMPLETED,
-        },
-        select: {
-          id: true,
-        },
-      });
-      const allTaskIds = allTasksForPeriod.map(t => t.id);
-
-      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        const createdBonusIds: string[] = [];
-        const updatedBonusIds: string[] = [];
-
-        for (const bonusData of payrollData.bonuses) {
-          try {
-            // Verify user still exists
-            const user = await tx.user.findUnique({
-              where: { id: bonusData.userId },
-            });
-
-            if (!user) {
-              this.logger.warn(`User ${bonusData.userId} not found`);
-              failedCount++;
-              continue;
-            }
-
-            // Check if bonus already exists for this period
-            const existingBonus = await tx.bonus.findFirst({
-              where: {
-                userId: bonusData.userId,
-                year: parseInt(year),
-                month: parseInt(month),
-              },
-            });
-
-            // Check for existing payroll
-            const existingPayroll = await tx.payroll.findFirst({
-              where: {
-                year: parseInt(year),
-                month: parseInt(month),
-              },
-            });
-
-            const bonusData_new = {
-              userId: bonusData.userId,
-              year: parseInt(year),
-              month: parseInt(month),
-              performanceLevel: user.performanceLevel,
-              baseBonus: bonusData.bonusValue,
-              payrollId: existingPayroll?.id || null,
-            };
-
-            if (existingBonus) {
-              // Update existing bonus
-              await tx.bonus.update({
-                where: { id: existingBonus.id },
-                data: {
-                  ...bonusData_new,
-                  updatedAt: new Date(),
-                },
-              });
-
-              updatedBonusIds.push(existingBonus.id);
-
-              await logEntityChange({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.BONUS,
-                entityId: existingBonus.id,
-                action: CHANGE_ACTION.UPDATE,
-                entity: bonusData_new,
-                reason: `Bônus atualizado para ${month}/${year}`,
-                userId: userId || null,
-                triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULED_JOB,
-                transaction: tx,
-              });
-            } else {
-              // Create new bonus
-              const newBonus = await tx.bonus.create({
-                data: bonusData_new,
-              });
-
-              createdBonusIds.push(newBonus.id);
-
-              await logEntityChange({
-                changeLogService: this.changeLogService,
-                entityType: ENTITY_TYPE.BONUS,
-                entityId: newBonus.id,
-                action: CHANGE_ACTION.CREATE,
-                entity: newBonus,
-                reason: `Bônus criado para ${month}/${year} via cron job`,
-                userId: userId || null,
-                triggeredBy: CHANGE_TRIGGERED_BY.SCHEDULED_JOB,
-                transaction: tx,
-              });
-            }
-
-            successCount++;
-          } catch (error) {
-            this.logger.error(`Error saving bonus for user ${bonusData.userId}:`, error);
-            failedCount++;
-          }
-        }
-
-        // After all bonuses are created/updated, connect them to all users and tasks for this period
-        const allBonusIds = [...createdBonusIds, ...updatedBonusIds];
-        if (allBonusIds.length > 0) {
-          this.logger.log(`Linking ${allBonusUserIds.length} users and ${allTaskIds.length} tasks to ${allBonusIds.length} bonuses (${createdBonusIds.length} new, ${updatedBonusIds.length} updated) for ${month}/${year}`);
-
-          for (const bonusId of allBonusIds) {
-            try {
-              const updateData: any = {};
-
-              // For updated bonuses, we need to clear existing relations and reconnect
-              const isUpdate = updatedBonusIds.includes(bonusId);
-
-              if (isUpdate) {
-                // Disconnect existing users and tasks
-                if (allBonusUserIds.length > 0) {
-                  updateData.users = {
-                    set: allBonusUserIds.map(uid => ({ id: uid })),
-                  };
-                }
-                if (allTaskIds.length > 0) {
-                  updateData.tasks = {
-                    set: allTaskIds.map(tid => ({ id: tid })),
-                  };
-                }
-              } else {
-                // For new bonuses, just connect
-                if (allBonusUserIds.length > 0) {
-                  updateData.users = {
-                    connect: allBonusUserIds.map(uid => ({ id: uid })),
-                  };
-                }
-                if (allTaskIds.length > 0) {
-                  updateData.tasks = {
-                    connect: allTaskIds.map(tid => ({ id: tid })),
-                  };
-                }
-              }
-
-              if (Object.keys(updateData).length > 0) {
-                await tx.bonus.update({
-                  where: { id: bonusId },
-                  data: updateData,
-                });
-              }
-            } catch (error) {
-              this.logger.error(`Error linking users/tasks to bonus ${bonusId}:`, error);
-            }
-          }
-        }
-      });
-
-      this.logger.log(
-        `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed`,
-      );
-
-      return { totalSuccess: successCount, totalFailed: failedCount };
-    } catch (error) {
-      this.logger.error('Error calculating and saving bonuses:', error);
-      throw new InternalServerErrorException(
-        'Erro ao calcular e salvar bônus mensais.',
-      );
-    }
-  }
-
-  /**
-   * Save monthly bonuses - DEPRECATED, use calculateAndSaveBonuses instead
-   */
-  async saveMonthlyBonuses(
-    year: string,
-    month: string,
-    userId?: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number }> {
-    this.logger.warn('saveMonthlyBonuses is deprecated, redirecting to calculateAndSaveBonuses');
-    return this.calculateAndSaveBonuses(year, month, userId);
-  }
-
-  /**
-   * Get bonus by ID with validation
+   * Find bonus by ID - standard entity retrieval
    */
   async findById(id: string, include?: any, userId?: string): Promise<any> {
     try {
@@ -488,6 +122,19 @@ export class BonusService {
             id: true,
             name: true,
             performanceLevel: true,
+            position: {
+              select: {
+                id: true,
+                name: true,
+                bonifiable: true,
+              },
+            },
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
         tasks: {
@@ -497,6 +144,12 @@ export class BonusService {
             status: true,
             finishedAt: true,
             commission: true,
+            customer: {
+              select: {
+                id: true,
+                fantasyName: true,
+              },
+            },
           },
         },
         bonusDiscounts: {
@@ -528,14 +181,13 @@ export class BonusService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Erro ao buscar bônus.',
-      );
+      throw new InternalServerErrorException('Erro ao buscar bônus.');
     }
   }
 
   /**
-   * Get many bonuses with filters
+   * Find many bonuses - standard entity list with optional filters
+   * Returns data directly from database without live calculations
    */
   async findMany(filters?: {
     year?: string | number;
@@ -543,50 +195,74 @@ export class BonusService {
     userId?: string;
     skip?: number;
     take?: number;
+    include?: any;
   }): Promise<any> {
     try {
       const where: any = {};
 
-      // Convert to numbers since Prisma expects integers
       if (filters?.year) where.year = typeof filters.year === 'string' ? parseInt(filters.year) : filters.year;
       if (filters?.month) where.month = typeof filters.month === 'string' ? parseInt(filters.month) : filters.month;
       if (filters?.userId) where.userId = filters.userId;
+
+      const defaultInclude = filters?.include || {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            cpf: true,
+            email: true,
+            performanceLevel: true,
+            position: {
+              select: {
+                id: true,
+                name: true,
+                bonifiable: true,
+                remunerations: true,
+              },
+            },
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        tasks: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            finishedAt: true,
+            commission: true,
+          },
+        },
+        bonusDiscounts: {
+          select: {
+            id: true,
+            percentage: true,
+            value: true,
+            reference: true,
+            calculationOrder: true,
+          },
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      };
 
       const [bonuses, total] = await Promise.all([
         this.prisma.bonus.findMany({
           where,
           skip: filters?.skip || 0,
           take: filters?.take || 50,
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                performanceLevel: true,
-              },
-            },
-            tasks: {
-              select: {
-                id: true,
-                name: true,
-                status: true,
-                finishedAt: true,
-                commission: true,
-              },
-            },
-            bonusDiscounts: {
-              select: {
-                id: true,
-                percentage: true,
-                value: true,
-                reference: true,
-                calculationOrder: true,
-              },
-              orderBy: {
-                calculationOrder: 'asc',
-              },
-            },
-          },
+          include: defaultInclude,
           orderBy: [
             { year: 'desc' },
             { month: 'desc' },
@@ -616,67 +292,15 @@ export class BonusService {
       };
     } catch (error) {
       this.logger.error('Error finding bonuses:', error);
-      throw new InternalServerErrorException(
-        'Erro ao buscar bônus.',
-      );
+      throw new InternalServerErrorException('Erro ao buscar bônus.');
     }
   }
 
   /**
-   * Calculate average tasks per employee for bonus calculation
-   * Updated to use 26-25 period calculation
-   */
-  async calculateAverageTasksPerEmployee(): Promise<number> {
-    try {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-
-      // Calculate period dates (26th to 25th)
-      const startDate = this.getStartDate(year, month);
-      const endDate = this.getEndDate(year, month);
-
-      // Count total tasks with commission status
-      const totalTasks = await this.prisma.task.count({
-        where: {
-          finishedAt: {
-            gte: startDate,
-            lte: endDate,
-          },
-          status: TASK_STATUS.COMPLETED,
-          commission: {
-            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
-          },
-        },
-      });
-
-      // Count users with performance > 0
-      const performanceUsers = await this.prisma.user.count({
-        where: {
-          performanceLevel: { gt: 0 },
-          status: { not: USER_STATUS.DISMISSED },
-        },
-      });
-
-      if (performanceUsers === 0) {
-        return 0;
-      }
-
-      return totalTasks / performanceUsers;
-    } catch (error) {
-      this.logger.error('Error calculating average tasks per employee:', error);
-      throw new InternalServerErrorException(
-        'Erro ao calcular média de tarefas por funcionário.',
-      );
-    }
-  }
-
-  /**
-   * Create a new bonus
+   * Create a new bonus - standard entity creation
    */
   async create(data: any, userId: string): Promise<any> {
     try {
-      // Verify user exists
       const user = await this.prisma.user.findUnique({
         where: { id: data.userId },
       });
@@ -685,7 +309,6 @@ export class BonusService {
         throw new BadRequestException('Usuário não encontrado.');
       }
 
-      // Check for duplicate bonus
       const existingBonus = await this.prisma.bonus.findFirst({
         where: {
           userId: data.userId,
@@ -741,10 +364,7 @@ export class BonusService {
       return bonus;
     } catch (error) {
       this.logger.error('Error creating bonus:', error);
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar bônus.');
@@ -752,7 +372,7 @@ export class BonusService {
   }
 
   /**
-   * Update an existing bonus
+   * Update an existing bonus - standard entity update
    */
   async update(id: string, data: any, userId: string): Promise<any> {
     try {
@@ -803,10 +423,7 @@ export class BonusService {
       return updatedBonus;
     } catch (error) {
       this.logger.error('Error updating bonus:', error);
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao atualizar bônus.');
@@ -814,7 +431,7 @@ export class BonusService {
   }
 
   /**
-   * Delete a bonus
+   * Delete a bonus - standard entity deletion
    */
   async delete(id: string, userId: string): Promise<void> {
     try {
@@ -852,13 +469,11 @@ export class BonusService {
     }
   }
 
-  /**
-   * Batch create bonuses
-   */
-  async batchCreate(
-    data: { bonuses: any[] },
-    userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
+  // =====================
+  // Batch Operations
+  // =====================
+
+  async batchCreate(data: { bonuses: any[] }, userId: string): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
     const success: any[] = [];
     const failed: any[] = [];
 
@@ -881,13 +496,7 @@ export class BonusService {
     };
   }
 
-  /**
-   * Batch update bonuses
-   */
-  async batchUpdate(
-    data: { bonuses: { id: string; data: any }[] },
-    userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
+  async batchUpdate(data: { bonuses: { id: string; data: any }[] }, userId: string): Promise<{ totalSuccess: number; totalFailed: number; data: any[] }> {
     const success: any[] = [];
     const failed: any[] = [];
 
@@ -911,13 +520,7 @@ export class BonusService {
     };
   }
 
-  /**
-   * Batch delete bonuses
-   */
-  async batchDelete(
-    data: { ids: string[] },
-    userId: string,
-  ): Promise<{ totalSuccess: number; totalFailed: number }> {
+  async batchDelete(data: { ids: string[] }, userId: string): Promise<{ totalSuccess: number; totalFailed: number }> {
     const success: string[] = [];
     const failed: any[] = [];
 
@@ -939,12 +542,12 @@ export class BonusService {
     };
   }
 
-  /**
-   * Create bonus discount
-   */
+  // =====================
+  // Discount Management
+  // =====================
+
   async createDiscount(bonusId: string, data: { reason: string; percentage: number }, userId?: string): Promise<any> {
     try {
-      // Verify bonus exists
       const bonus = await this.prisma.bonus.findUnique({
         where: { id: bonusId },
       });
@@ -953,7 +556,6 @@ export class BonusService {
         throw new NotFoundException('Bônus não encontrado.');
       }
 
-      // Create discount
       const discount = await this.prisma.bonusDiscount.create({
         data: {
           bonusId,
@@ -968,7 +570,7 @@ export class BonusService {
         entityType: ENTITY_TYPE.BONUS,
         entityId: bonusId,
         action: CHANGE_ACTION.UPDATE,
-        entity: { discount: discount },
+        entity: { discount },
         reason: `Desconto adicionado: ${data.reason} (${data.percentage}%)`,
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER,
@@ -984,15 +586,10 @@ export class BonusService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Erro ao criar desconto de bônus.',
-      );
+      throw new InternalServerErrorException('Erro ao criar desconto de bônus.');
     }
   }
 
-  /**
-   * Delete bonus discount
-   */
   async deleteDiscount(discountId: string, userId?: string): Promise<void> {
     try {
       const discount = await this.prisma.bonusDiscount.findUnique({
@@ -1023,30 +620,530 @@ export class BonusService {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Erro ao remover desconto de bônus.',
+      throw new InternalServerErrorException('Erro ao remover desconto de bônus.');
+    }
+  }
+
+  // =====================
+  // Live Calculation Service (NEW - Clean Implementation)
+  // =====================
+
+  /**
+   * Calculate live bonuses for a given period.
+   * This is used when the current period is requested and we need real-time calculations.
+   *
+   * @param year The year
+   * @param month The month (1-12)
+   * @returns Live calculated bonus data for all eligible users
+   */
+  async calculateLiveBonuses(year: number, month: number): Promise<LiveBonusCalculationResult> {
+    try {
+      // Get period dates (26th to 25th) - computed from year/month
+      const startDate = getPeriodStart(year, month);
+      const endDate = getPeriodEnd(year, month);
+
+      this.logger.log(`Calculating live bonuses for ${month}/${year} (${startDate.toISOString()} to ${endDate.toISOString()})`);
+
+      // Get all eligible users: EFFECTED status, performance > 0, bonifiable position
+      const eligibleUsers = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EFFECTED,
+          performanceLevel: { gt: 0 },
+          position: {
+            bonifiable: true,
+          },
+        },
+        select: {
+          id: true,
+          name: true,
+          performanceLevel: true,
+          position: {
+            select: {
+              id: true,
+              name: true,
+              bonifiable: true,
+            },
+          },
+          sector: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Get all eligible tasks in the period
+      const eligibleTasks = await this.prisma.task.findMany({
+        where: {
+          commission: {
+            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+          },
+          finishedAt: {
+            gte: startDate,
+            lte: endDate,
+          },
+          status: TASK_STATUS.COMPLETED,
+        },
+        select: {
+          id: true,
+          name: true,
+          commission: true,
+          finishedAt: true,
+          createdById: true,
+          customer: {
+            select: {
+              id: true,
+              fantasyName: true,
+            },
+          },
+          sector: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Calculate weighted task count using utility function
+      const totalWeightedTasks = calculatePonderedTaskCount(eligibleTasks);
+
+      // Calculate average tasks per user (for bonus calculation formula)
+      const totalEligibleUsers = eligibleUsers.length;
+      const averageTasksPerUser = totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
+
+      this.logger.log(`Period ${month}/${year}: ${totalWeightedTasks} weighted tasks / ${totalEligibleUsers} eligible users = ${averageTasksPerUser.toFixed(2)} tasks per user`);
+
+      // Calculate bonus for each eligible user
+      const bonuses: LiveBonusData[] = eligibleUsers.map(user => {
+        const positionName = user.position?.name || 'DEFAULT';
+        const bonusValue = this.exactBonusCalculationService.calculateBonus(
+          positionName,
+          user.performanceLevel,
+          averageTasksPerUser,
+        );
+
+        // Get tasks created by this user in the period
+        const userTasks = eligibleTasks.filter(t => t.createdById === user.id);
+
+        return {
+          userId: user.id,
+          userName: user.name,
+          positionName,
+          performanceLevel: user.performanceLevel,
+          baseBonus: roundCurrency(bonusValue),
+          tasks: userTasks,
+          isLive: true as const,
+        };
+      });
+
+      return {
+        year,
+        month,
+        bonuses,
+        totalActiveUsers: totalEligibleUsers,
+        totalWeightedTasks,
+        averageTasksPerEmployee: averageTasksPerUser,
+        calculatedAt: new Date(),
+        isLive: true,
+      };
+    } catch (error) {
+      this.logger.error('Error calculating live bonuses:', error);
+      throw new InternalServerErrorException('Erro ao calcular bônus ao vivo.');
+    }
+  }
+
+  /**
+   * Calculate live bonus for a single user.
+   * Used when getting individual user data for the current period.
+   */
+  async calculateLiveBonusForUser(userId: string, year: number, month: number): Promise<LiveBonusData | null> {
+    try {
+      // Get all live calculations (we need the average which is shared across all users)
+      const liveData = await this.calculateLiveBonuses(year, month);
+
+      // Find this user's bonus
+      const userBonus = liveData.bonuses.find(b => b.userId === userId);
+
+      return userBonus || null;
+    } catch (error) {
+      this.logger.error(`Error calculating live bonus for user ${userId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get bonuses with live calculation for current period.
+   * This is the main method for the frontend - combines saved data with live calculations.
+   *
+   * Logic:
+   * 1. If filter does NOT include current period: Return saved data only
+   * 2. If filter includes current period: Calculate live bonuses first, then merge with saved data
+   */
+  async getBonusesWithLiveCalculation(filters: {
+    year?: number;
+    month?: number;
+    userId?: string;
+    skip?: number;
+    take?: number;
+    include?: any;
+  }): Promise<any> {
+    try {
+      const currentPeriod = getCurrentPeriod();
+      const filterYear = filters.year;
+      const filterMonth = filters.month;
+
+      // Check if filter includes current period
+      const includesCurrentPeriod = filterIncludesCurrentPeriod(
+        filterYear,
+        filterMonth ? [filterMonth] : undefined
       );
+
+      // If not querying current period, just return saved data
+      if (!includesCurrentPeriod) {
+        return this.findMany(filters);
+      }
+
+      // Get saved bonuses from database
+      const savedResult = await this.findMany(filters);
+
+      // Calculate live bonuses for current period
+      const liveData = await this.calculateLiveBonuses(currentPeriod.year, currentPeriod.month);
+
+      // Create a map of saved bonuses by userId for quick lookup
+      const savedBonusMap = new Map<string, any>();
+      if (savedResult.data) {
+        for (const bonus of savedResult.data) {
+          if (bonus.year === currentPeriod.year && bonus.month === currentPeriod.month) {
+            savedBonusMap.set(bonus.userId, bonus);
+          }
+        }
+      }
+
+      // Merge: Use live data for current period users who don't have saved bonuses
+      const mergedBonuses: any[] = [];
+
+      // Add saved bonuses that are NOT for current period
+      if (savedResult.data) {
+        for (const bonus of savedResult.data) {
+          if (bonus.year !== currentPeriod.year || bonus.month !== currentPeriod.month) {
+            mergedBonuses.push(bonus);
+          }
+        }
+      }
+
+      // Get all eligible users with full data for live calculation
+      const eligibleUsers = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EFFECTED,
+          performanceLevel: { gt: 0 },
+          position: { bonifiable: true },
+        },
+        select: {
+          id: true,
+          name: true,
+          cpf: true,
+          email: true,
+          performanceLevel: true,
+          position: {
+            select: {
+              id: true,
+              name: true,
+              bonifiable: true,
+              remunerations: true,
+            },
+          },
+          sector: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+
+      // Create a map of users for quick lookup
+      const userMap = new Map(eligibleUsers.map(u => [u.id, u]));
+
+      // For current period: use saved if exists, otherwise use live
+      for (const liveBonus of liveData.bonuses) {
+        const savedBonus = savedBonusMap.get(liveBonus.userId);
+        if (savedBonus) {
+          // User has saved bonus - use it but mark as not live
+          // Also add the users array for totalCollaborators
+          mergedBonuses.push({
+            ...savedBonus,
+            users: eligibleUsers, // All eligible users in the period
+            isLive: false,
+          });
+        } else {
+          // No saved bonus - use live calculation
+          const userData = userMap.get(liveBonus.userId);
+          mergedBonuses.push({
+            id: `live-${liveBonus.userId}-${currentPeriod.year}-${currentPeriod.month}`,
+            userId: liveBonus.userId,
+            year: currentPeriod.year,
+            month: currentPeriod.month,
+            baseBonus: liveBonus.baseBonus,
+            performanceLevel: liveBonus.performanceLevel,
+            user: userData || {
+              id: liveBonus.userId,
+              name: liveBonus.userName,
+              performanceLevel: liveBonus.performanceLevel,
+            },
+            tasks: liveBonus.tasks,
+            bonusDiscounts: [],
+            users: eligibleUsers, // All eligible users in the period
+            isLive: true,
+          });
+        }
+      }
+
+      // Sort by year, month desc, then by user name
+      mergedBonuses.sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        if (a.month !== b.month) return b.month - a.month;
+        const nameA = a.user?.name || '';
+        const nameB = b.user?.name || '';
+        return nameA.localeCompare(nameB);
+      });
+
+      return {
+        success: true,
+        data: mergedBonuses,
+        meta: {
+          ...savedResult.meta,
+          totalRecords: mergedBonuses.length,
+          currentPeriod,
+          isLiveCalculationIncluded: true,
+          // Stats computed from live data for transparency
+          liveCalculationStats: {
+            totalActiveUsers: liveData.totalActiveUsers,
+            totalWeightedTasks: liveData.totalWeightedTasks,
+          },
+        },
+        message: 'Bônus carregados com sucesso (incluindo cálculos ao vivo).',
+      };
+    } catch (error) {
+      this.logger.error('Error getting bonuses with live calculation:', error);
+      throw new InternalServerErrorException('Erro ao buscar bônus.');
+    }
+  }
+
+  // =====================
+  // Legacy Methods (for backward compatibility)
+  // =====================
+
+  /**
+   * Get payroll data with live calculated bonuses for the current period
+   * @deprecated Use getBonusesWithLiveCalculation instead
+   */
+  async getPayrollData(
+    filters?: {
+      year?: string | number;
+      month?: string | number | string[];
+      includeInactive?: boolean;
+    },
+    userId?: string,
+  ): Promise<any> {
+    try {
+      const now = new Date();
+      let targetYear: number;
+      let targetMonth: number;
+
+      if (filters) {
+        targetYear = typeof filters.year === 'string' ? parseInt(filters.year) : (filters.year || now.getFullYear());
+        const monthValue = Array.isArray(filters.month) ? filters.month[0] : filters.month;
+        targetMonth = typeof monthValue === 'string' ? parseInt(monthValue) : (monthValue || now.getMonth() + 1);
+      } else {
+        targetYear = now.getFullYear();
+        targetMonth = now.getMonth() + 1;
+      }
+
+      const liveData = await this.calculateLiveBonuses(targetYear, targetMonth);
+
+      // Transform to legacy format
+      return {
+        year: targetYear.toString(),
+        month: targetMonth.toString(),
+        bonuses: liveData.bonuses.map(b => ({
+          userId: b.userId,
+          userName: b.userName,
+          positionName: b.positionName,
+          performanceLevel: b.performanceLevel,
+          bonusValue: b.baseBonus,
+          totalTasks: b.tasks.length,
+          weightedTaskCount: calculatePonderedTaskCount(b.tasks),
+        })),
+        totalActiveUsers: liveData.totalActiveUsers,
+        averageTasksPerEmployee: liveData.averageTasksPerEmployee,
+        calculatedAt: liveData.calculatedAt,
+      };
+    } catch (error) {
+      this.logger.error('Error getting payroll data:', error);
+      throw new InternalServerErrorException('Erro ao obter dados da folha de pagamento.');
     }
   }
 
   /**
-   * Get start date for bonus calculation period (26th of previous month at start of day)
+   * Calculate and save bonuses for a period.
+   * Creates bonus records for ALL active users with payroll numbers.
+   * Non-eligible users get bonus value 0 and performance level 0.
    */
-  private getStartDate(year: number, month: number): Date {
-    // Start is day 26 of previous month at 00:00:00
-    if (month === 1) {
-      // For January, start from December 26 of previous year
-      return new Date(year - 1, 11, 26, 0, 0, 0, 0);
+  async calculateAndSaveBonuses(
+    year: string,
+    month: string,
+    userId?: string,
+  ): Promise<{ totalSuccess: number; totalFailed: number }> {
+    try {
+      const yearNum = parseInt(year);
+      const monthNum = parseInt(month);
+
+      // Get live calculation data for eligible users
+      const liveData = await this.calculateLiveBonuses(yearNum, monthNum);
+
+      // Get ALL active users with payroll numbers (not just eligible ones)
+      const allActiveUsers = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EFFECTED,
+          payrollNumber: { not: null },
+        },
+        select: {
+          id: true,
+          name: true,
+          performanceLevel: true,
+          position: {
+            select: {
+              id: true,
+              name: true,
+              bonifiable: true,
+            },
+          },
+        },
+      });
+
+      let successCount = 0;
+      let failedCount = 0;
+
+      // Create a map of eligible user bonuses for quick lookup
+      const eligibleBonusMap = new Map<string, LiveBonusData>();
+      for (const bonus of liveData.bonuses) {
+        eligibleBonusMap.set(bonus.userId, bonus);
+      }
+
+      // Calculate period dates from year/month
+      const periodStart = getPeriodStart(yearNum, monthNum);
+      const periodEnd = getPeriodEnd(yearNum, monthNum);
+
+      // Get all tasks for this period WITH createdById to link to correct user
+      const allTasksForPeriod = await this.prisma.task.findMany({
+        where: {
+          commission: {
+            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+          },
+          finishedAt: {
+            gte: periodStart,
+            lte: periodEnd,
+          },
+          status: TASK_STATUS.COMPLETED,
+        },
+        select: { id: true, createdById: true },
+      });
+
+      // Create a map of tasks by createdById for quick lookup
+      const tasksByUserId = new Map<string, string[]>();
+      for (const task of allTasksForPeriod) {
+        if (task.createdById) {
+          const userTasks = tasksByUserId.get(task.createdById) || [];
+          userTasks.push(task.id);
+          tasksByUserId.set(task.createdById, userTasks);
+        }
+      }
+
+      const allBonusUserIds = liveData.bonuses.map(b => b.userId);
+
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Create/update bonus for ALL active users with payroll numbers
+        for (const user of allActiveUsers) {
+          try {
+            const eligibleBonus = eligibleBonusMap.get(user.id);
+            const isEligible = eligibleBonus !== undefined;
+
+            const existingBonus = await tx.bonus.findFirst({
+              where: {
+                userId: user.id,
+                year: yearNum,
+                month: monthNum,
+              },
+            });
+
+            // Get only this user's tasks
+            const userTaskIds = tasksByUserId.get(user.id) || [];
+
+            // Eligible users get calculated values, non-eligible get 0
+            const bonusPayload = {
+              userId: user.id,
+              year: yearNum,
+              month: monthNum,
+              performanceLevel: isEligible ? eligibleBonus.performanceLevel : 0,
+              baseBonus: isEligible ? eligibleBonus.baseBonus : 0,
+            };
+
+            if (existingBonus) {
+              await tx.bonus.update({
+                where: { id: existingBonus.id },
+                data: {
+                  ...bonusPayload,
+                  // Connect only this user's tasks and all eligible users for reference
+                  tasks: { set: userTaskIds.map(tid => ({ id: tid })) },
+                  users: { set: allBonusUserIds.map(uid => ({ id: uid })) },
+                },
+              });
+            } else {
+              await tx.bonus.create({
+                data: {
+                  ...bonusPayload,
+                  // Connect only this user's tasks and all eligible users for reference
+                  tasks: { connect: userTaskIds.map(tid => ({ id: tid })) },
+                  users: { connect: allBonusUserIds.map(uid => ({ id: uid })) },
+                },
+              });
+            }
+
+            successCount++;
+          } catch (error) {
+            this.logger.error(`Error saving bonus for user ${user.id}:`, error);
+            failedCount++;
+          }
+        }
+      });
+
+      this.logger.log(`Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users)`);
+
+      return { totalSuccess: successCount, totalFailed: failedCount };
+    } catch (error) {
+      this.logger.error('Error calculating and saving bonuses:', error);
+      throw new InternalServerErrorException('Erro ao calcular e salvar bônus mensais.');
     }
-    return new Date(year, month - 2, 26, 0, 0, 0, 0); // month-2 because JS months are 0-indexed
   }
 
   /**
-   * Get end date for bonus calculation period (25th of current month)
+   * @deprecated Use calculateAndSaveBonuses instead
    */
-  private getEndDate(year: number, month: number): Date {
-    // End is day 25 of current month
-    return new Date(year, month - 1, 25, 23, 59, 59, 999);
+  async saveMonthlyBonuses(year: string, month: string, userId?: string): Promise<{ totalSuccess: number; totalFailed: number }> {
+    this.logger.warn('saveMonthlyBonuses is deprecated, redirecting to calculateAndSaveBonuses');
+    return this.calculateAndSaveBonuses(year, month, userId);
   }
 
+  /**
+   * Get bonus calculation details for debugging/transparency
+   */
+  getBonusCalculationDetails(performanceLevel: number, weightedTaskCount?: number): any {
+    return this.exactBonusCalculationService.getCalculationDetails(
+      'DEFAULT',
+      performanceLevel,
+      weightedTaskCount || 0,
+    );
+  }
 }

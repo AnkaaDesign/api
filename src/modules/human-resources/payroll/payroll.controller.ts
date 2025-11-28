@@ -1,3 +1,6 @@
+// payroll.controller.ts
+// Clean implementation - Regular CRUD + Live calculation endpoints
+
 import {
   Body,
   Controller,
@@ -48,79 +51,38 @@ import {
   type DiscountCreateFormData,
 } from '../../../schemas/payroll';
 
-// Response types - these should be properly defined in @types
-type PayrollCreateResponse = any;
-type PayrollDeleteResponse = any;
-type PayrollGetManyResponse = any;
-type PayrollGetUniqueResponse = any;
-type PayrollUpdateResponse = any;
-type PayrollBatchResponse = any;
-type PayrollGenerateMonthResponse = any;
-type PayrollLiveCalculationResponse = any;
-
 @Controller('payroll')
 @UseGuards(AuthGuard)
 export class PayrollController {
   constructor(private readonly payrollService: PayrollService) {}
 
   // =====================
-  // Basic CRUD Operations
+  // Regular CRUD Operations (like any other entity)
   // =====================
 
+  /**
+   * Get many payrolls - Standard entity list
+   * Returns data from database, automatically includes live calculations for current period
+   */
   @Get()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async findMany(
     @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
     @UserId() userId: string,
-  ): Promise<PayrollGetManyResponse> {
-    // The service will handle live calculations internally when needed
-    return this.payrollService.findMany(query);
+  ) {
+    // Use the new method that handles live calculations automatically
+    return this.payrollService.getPayrollsWithLiveCalculation({
+      where: query.where,
+      include: query.include,
+      page: query.page,
+      limit: query.take,
+    });
   }
 
-  // This endpoint handles legacy calls to /payroll/bonuses
-  // It simply delegates to the standard findMany with bonus included
-  @Get('bonuses')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @ReadRateLimit()
-  async getPayrollWithBonuses(
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollGetManyResponse> {
-    // Convert the query to include bonus data
-    const payrollQuery: PayrollGetManyFormData = {
-      where: {
-        year: query.year,
-        month: query.month,
-        userId: query.userId,
-      },
-      include: {
-        user: {
-          include: {
-            position: true,
-            sector: true,
-          },
-        },
-        bonus: {
-          include: {
-            tasks: {
-              include: {
-                customer: true,
-                createdBy: true,
-                sector: true,
-                services: true,
-              },
-            },
-            users: true,
-          },
-        },
-        discounts: true,
-      },
-    };
-
-    return this.payrollService.findMany(payrollQuery);
-  }
-
+  /**
+   * Get payroll by ID - Standard entity retrieval
+   */
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
@@ -128,231 +90,7 @@ export class PayrollController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
     @UserId() userId: string,
-  ): Promise<PayrollGetUniqueResponse> {
-    try {
-      // Always use well-defined includes instead of relying on query params
-      // Complex nested objects cannot be properly transmitted through URL query parameters
-      const defaultInclude = {
-        user: {
-          include: {
-            position: true,
-            sector: true,
-          },
-        },
-        bonus: {
-          include: {
-            tasks: {
-              include: {
-                customer: true,
-                createdBy: true,
-                sector: true,
-                services: true,
-              },
-            },
-            users: true,
-          },
-        },
-        discounts: true,
-      };
-
-      const payroll = await this.payrollService.findById(id, defaultInclude);
-
-      if (!payroll) {
-        return {
-          success: false,
-          message: 'Folha de pagamento não encontrada.',
-          data: null,
-        };
-      }
-
-      return {
-        success: true,
-        message: 'Folha de pagamento obtida com sucesso.',
-        data: payroll,
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  @Post()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body(new ZodValidationPipe(payrollCreateSchema)) data: PayrollCreateFormData,
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollCreateResponse> {
-    return this.payrollService.create(data, userId);
-  }
-
-  @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(payrollUpdateSchema)) data: PayrollUpdateFormData,
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollUpdateResponse> {
-    return this.payrollService.update(id, data, userId);
-  }
-
-  @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.OK)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<PayrollDeleteResponse> {
-    await this.payrollService.delete(id, userId);
-    return {
-      success: true,
-      message: 'Folha de pagamento excluída com sucesso',
-    };
-  }
-
-  // =====================
-  // Batch Operations
-  // =====================
-
-  @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.CREATED)
-  async batchCreate(
-    @Body(new ZodValidationPipe(payrollBatchCreateSchema)) data: PayrollBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollBatchResponse> {
-    return this.payrollService.batchCreate(data.payrolls, userId);
-  }
-
-  @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  async batchUpdate(
-    @Body(new ZodValidationPipe(payrollBatchUpdateSchema)) data: PayrollBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollBatchResponse> {
-    return this.payrollService.batchUpdate(data.updates!.map(u => ({ id: u.id!, data: u.data! })), userId);
-  }
-
-  @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.OK)
-  async batchDelete(
-    @Body(new ZodValidationPipe(payrollBatchDeleteSchema)) data: PayrollBatchDeleteFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollBatchResponse> {
-    return this.payrollService.batchDelete(data.ids, userId);
-  }
-
-  // =====================
-  // Special Endpoints
-  // =====================
-
-  @Post('generate-month')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.CREATED)
-  async generateMonthlyPayrolls(
-    @Body(new ZodValidationPipe(payrollGenerateMonthSchema)) data: PayrollGenerateMonthParams,
-    @UserId() userId: string,
-  ): Promise<PayrollGenerateMonthResponse> {
-    return this.payrollService.generateForMonth(data.year, data.month, userId);
-  }
-
-  @Get('live')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @ReadRateLimit()
-  async getLiveCalculations(
-    @Query(new ZodQueryValidationPipe(payrollLiveCalculationSchema)) query: PayrollLiveCalculationParams,
-    @UserId() userId: string,
-  ): Promise<PayrollLiveCalculationResponse> {
-    // Return live calculations for current user in current month/year
-    const now = new Date();
-    return this.payrollService.calculateLivePayrollData(
-      userId,
-      now.getFullYear(),
-      now.getMonth() + 1,
-    );
-  }
-
-  // =====================
-  // Filtering Endpoints
-  // =====================
-
-  @Get('user/:userId')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @ReadRateLimit()
-  async findByUser(
-    @Param('userId', ParseUUIDPipe) targetUserId: string,
-    @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollGetManyResponse> {
-    const queryWithUserFilter = {
-      ...query,
-      where: {
-        ...query.where,
-        userId: targetUserId,
-      },
-    };
-    return this.payrollService.findMany(queryWithUserFilter);
-  }
-
-  @Get('month/:year/:month')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @ReadRateLimit()
-  async findByMonth(
-    @Param('year', ParseIntPipe) year: number,
-    @Param('month', ParseIntPipe) month: number,
-    @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollGetManyResponse> {
-    // Validate month and year
-    if (month < 1 || month > 12) {
-      throw new Error('Mês deve estar entre 1 e 12');
-    }
-    if (year < 2020 || year > 2030) {
-      throw new Error('Ano deve estar entre 2020 e 2030');
-    }
-
-    const queryWithDateFilter = {
-      ...query,
-      where: {
-        ...query.where,
-        year,
-        month,
-      },
-    };
-    return this.payrollService.findMany(queryWithDateFilter);
-  }
-
-  @Get('user/:userId/month/:year/:month')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @ReadRateLimit()
-  async findByUserAndMonth(
-    @Param('userId', ParseUUIDPipe) targetUserId: string,
-    @Param('year', ParseIntPipe) year: number,
-    @Param('month', ParseIntPipe) month: number,
-    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PayrollGetUniqueResponse> {
-    // Validate month and year
-    if (month < 1 || month > 12) {
-      throw new Error('Mês deve estar entre 1 e 12');
-    }
-    if (year < 2020 || year > 2030) {
-      throw new Error('Ano deve estar entre 2020 e 2030');
-    }
-
-    // Always use well-defined includes instead of relying on query params
-    // Complex nested objects cannot be properly transmitted through URL query parameters
+  ) {
     const defaultInclude = {
       user: {
         include: {
@@ -362,28 +100,172 @@ export class PayrollController {
       },
       bonus: {
         include: {
-          tasks: {
-            include: {
-              customer: true,
-              createdBy: true,
-              sector: true,
-              services: true,
-            },
-          },
-          users: true,
+          tasks: true,
+          bonusDiscounts: true,
         },
       },
       discounts: true,
     };
 
-    return this.payrollService.findByUserAndMonth(
-      targetUserId,
-      year,
-      month,
-      defaultInclude,
+    const payroll = await this.payrollService.findById(id, defaultInclude);
+
+    if (!payroll) {
+      return {
+        success: false,
+        message: 'Folha de pagamento não encontrada.',
+        data: null,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Folha de pagamento obtida com sucesso.',
+      data: payroll,
+    };
+  }
+
+  /**
+   * Update payroll - Standard entity update
+   * Note: Payrolls are created by cronjob on the 25th at midnight, and can be edited
+   * between the period end (25th) and payment date (5th).
+   */
+  @Put(':id')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @WriteRateLimit()
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(payrollUpdateSchema)) data: PayrollUpdateFormData,
+    @UserId() userId: string,
+  ) {
+    const result = await this.payrollService.update(id, data, userId);
+    return {
+      success: true,
+      data: result,
+      message: 'Folha de pagamento atualizada com sucesso.',
+    };
+  }
+
+  /**
+   * Delete payroll - Standard entity deletion
+   * Note: Should be used with caution. Payrolls are generated by cronjob.
+   */
+  @Delete(':id')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ) {
+    await this.payrollService.delete(id, userId);
+    return {
+      success: true,
+      message: 'Folha de pagamento excluída com sucesso.',
+    };
+  }
+
+  // =====================
+  // Batch Operations
+  // =====================
+
+  /**
+   * Batch update payrolls
+   */
+  @Put('batch')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @WriteRateLimit()
+  async batchUpdate(
+    @Body(new ZodValidationPipe(payrollBatchUpdateSchema)) data: PayrollBatchUpdateFormData,
+    @UserId() userId: string,
+  ) {
+    const result = await this.payrollService.batchUpdate(
+      data.updates!.map(u => ({ id: u.id!, data: u.data! })),
+      userId
+    );
+    return {
+      success: true,
+      data: result,
+      message: `Atualização em lote: ${result.success.length} sucessos, ${result.failed.length} falhas.`,
+    };
+  }
+
+  /**
+   * Batch delete payrolls
+   */
+  @Delete('batch')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async batchDelete(
+    @Body(new ZodValidationPipe(payrollBatchDeleteSchema)) data: PayrollBatchDeleteFormData,
+    @UserId() userId: string,
+  ) {
+    const result = await this.payrollService.batchDelete(data.ids, userId);
+    return {
+      success: true,
+      data: result,
+      message: `Exclusão em lote: ${result.success.length} sucessos, ${result.failed.length} falhas.`,
+    };
+  }
+
+  // =====================
+  // Cronjob/System Endpoints
+  // =====================
+
+  /**
+   * Generate payrolls for all active users for a specific month.
+   * This is called by the cronjob on the 25th at midnight (00:00).
+   * Creates payroll records for all active users with payroll numbers.
+   */
+  @Post('generate-month')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.CREATED)
+  async generateMonthlyPayrolls(
+    @Body(new ZodValidationPipe(payrollGenerateMonthSchema)) data: PayrollGenerateMonthParams,
+    @UserId() userId: string,
+  ) {
+    // Validate month and year
+    if (data.month < 1 || data.month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (data.year < 2020 || data.year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+
+    const result = await this.payrollService.generateForMonth(data.year, data.month, userId);
+    return {
+      success: true,
+      data: result,
+      message: `Folhas geradas: ${result.created} criadas, ${result.skipped} puladas.`,
+    };
+  }
+
+  // =====================
+  // Live Calculation Endpoints
+  // =====================
+
+  /**
+   * Get live payroll calculation for the current user
+   */
+  @Get('live')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @ReadRateLimit()
+  async getLiveCalculations(
+    @Query(new ZodQueryValidationPipe(payrollLiveCalculationSchema)) query: PayrollLiveCalculationParams,
+    @UserId() userId: string,
+  ) {
+    const now = new Date();
+    return this.payrollService.calculateLivePayrollData(
+      userId,
+      now.getFullYear(),
+      now.getMonth() + 1,
     );
   }
 
+  /**
+   * Get live payroll calculation for a specific user and period
+   */
   @Get('live/:userId/:year/:month')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
@@ -392,7 +274,7 @@ export class PayrollController {
     @Param('year', ParseIntPipe) year: number,
     @Param('month', ParseIntPipe) month: number,
     @UserId() userId: string,
-  ): Promise<PayrollLiveCalculationResponse> {
+  ) {
     // Validate month and year
     if (month < 1 || month > 12) {
       throw new Error('Mês deve estar entre 1 e 12');
@@ -405,9 +287,129 @@ export class PayrollController {
   }
 
   // =====================
+  // Filtering Endpoints
+  // =====================
+
+  /**
+   * Get payrolls by user
+   */
+  @Get('user/:userId')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @ReadRateLimit()
+  async findByUser(
+    @Param('userId', ParseUUIDPipe) targetUserId: string,
+    @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
+    @UserId() userId: string,
+  ) {
+    return this.payrollService.getPayrollsWithLiveCalculation({
+      where: {
+        ...query.where,
+        userId: targetUserId,
+      },
+      include: query.include,
+      page: query.page,
+      limit: query.take,
+    });
+  }
+
+  /**
+   * Get payrolls by month
+   */
+  @Get('month/:year/:month')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @ReadRateLimit()
+  async findByMonth(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+    @Query(new ZodQueryValidationPipe(payrollGetManyFormDataSchema)) query: PayrollGetManyFormData,
+    @UserId() userId: string,
+  ) {
+    // Validate month and year
+    if (month < 1 || month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+
+    return this.payrollService.getPayrollsWithLiveCalculation({
+      where: {
+        ...query.where,
+        year,
+        month,
+      },
+      include: query.include,
+      page: query.page,
+      limit: query.take,
+    });
+  }
+
+  /**
+   * Get payroll by user and month
+   */
+  @Get('user/:userId/month/:year/:month')
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @ReadRateLimit()
+  async findByUserAndMonth(
+    @Param('userId', ParseUUIDPipe) targetUserId: string,
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+    @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
+    @UserId() userId: string,
+  ) {
+    // Validate month and year
+    if (month < 1 || month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+
+    const defaultInclude = {
+      user: {
+        include: {
+          position: true,
+          sector: true,
+        },
+      },
+      bonus: {
+        include: {
+          tasks: true,
+          bonusDiscounts: true,
+        },
+      },
+      discounts: true,
+    };
+
+    const payroll = await this.payrollService.findByUserAndMonth(
+      targetUserId,
+      year,
+      month,
+      defaultInclude,
+    );
+
+    if (!payroll) {
+      return {
+        success: false,
+        message: 'Folha de pagamento não encontrada para este usuário e período.',
+        data: null,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Folha de pagamento obtida com sucesso.',
+      data: payroll,
+    };
+  }
+
+  // =====================
   // Bonus Simulation
   // =====================
 
+  /**
+   * Simulate bonuses for all users with optional filters (GET)
+   */
   @Get('bonuses/simulate')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
@@ -429,6 +431,9 @@ export class PayrollController {
     return this.payrollService.simulateBonuses(params);
   }
 
+  /**
+   * Simulate bonuses for all users with optional filters (POST)
+   */
   @Post('simulate-bonuses')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
@@ -443,43 +448,5 @@ export class PayrollController {
     @UserId() userId: string,
   ) {
     return this.payrollService.simulateBonuses(params);
-  }
-
-  // =====================
-  // Discount Management
-  // =====================
-
-  @Post(':payrollId/discount')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.CREATED)
-  async addDiscount(
-    @Param('payrollId', ParseUUIDPipe) payrollId: string,
-    @Body(new ZodValidationPipe(discountCreateSchema)) data: DiscountCreateFormData,
-    @UserId() userId: string,
-  ) {
-    // Note: These methods may need to be implemented in the service
-    // For now, returning a placeholder response
-    return {
-      success: false,
-      message: 'Funcionalidade de descontos ainda não implementada no serviço',
-    };
-  }
-
-  @Delete(':payrollId/discount/:discountId')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  @HttpCode(HttpStatus.OK)
-  async removeDiscount(
-    @Param('payrollId', ParseUUIDPipe) payrollId: string,
-    @Param('discountId', ParseUUIDPipe) discountId: string,
-    @UserId() userId: string,
-  ) {
-    // Note: These methods may need to be implemented in the service
-    // For now, returning a placeholder response
-    return {
-      success: false,
-      message: 'Funcionalidade de descontos ainda não implementada no serviço',
-    };
   }
 }
