@@ -98,6 +98,49 @@ export class WarningController {
     return this.warningService.findMany(filteredQuery);
   }
 
+  // Team warnings endpoint for team leaders (must be before dynamic :id route)
+  @Get('team-warnings')
+  @Roles(
+    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+  )
+  async getTeamWarnings(
+    @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
+    @UserId() userId: string,
+  ): Promise<WarningGetManyResponse> {
+    // Get the user's managed sector to filter team members
+    const userWithSector = await this.warningService.getUserManagedSector(userId);
+
+    if (!userWithSector?.managedSectorId) {
+      // User is not a team leader, return empty result
+      return {
+        success: true,
+        data: [],
+        meta: {
+          currentPage: 1,
+          lastPage: 1,
+          perPage: query.limit || 25,
+          totalRecords: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+    }
+
+    // Filter warnings by collaborators in the leader's managed sector
+    const filteredQuery: WarningGetManyFormData = {
+      ...query,
+      where: {
+        ...query.where,
+        collaborator: {
+          sectorId: userWithSector.managedSectorId,
+        },
+      },
+    };
+    return this.warningService.findMany(filteredQuery);
+  }
+
   @Post()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)

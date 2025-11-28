@@ -3821,19 +3821,38 @@ async function migrateTasks() {
       }
 
       // Handle serial_number vs plate detection
+      // IMPORTANT: Keep the original serial number for identification even when it's a plate format
+      // This ensures tasks with plate-format serials (like RPQ-0I03, BWK-2J66) are still migrated correctly
       let serialNumber: string | null = cleanValue(work.serial_number);
       let plate: string | null = cleanValue(work.plate);
 
-      // If serial_number contains a plate pattern, move it to plate and clear serial_number
+      // If serial_number contains a plate pattern, ALSO populate the plate field
+      // but keep the serial number as-is for task identification
       if (serialNumber) {
         const detectedPlate = detectBrazilianPlate(serialNumber);
         if (detectedPlate) {
-          // Serial number is actually a plate - move it and clear serial number
-          plate = detectedPlate;
-          serialNumber = null;
+          // Serial number looks like a plate - populate plate field but KEEP serial number
+          // This allows the task to be identified by its original serial AND have proper plate data
+          if (!plate) {
+            plate = detectedPlate;
+          }
           console.log(
-            `  🚗 Moved plate from serial_number: "${work.serial_number}" → plate: "${plate}"`,
+            `  🚗 Detected plate format in serial_number: "${serialNumber}" → plate: "${plate}" (keeping serialNumber)`,
           );
+          // Still track the serial number to handle duplicates
+          if (usedSerialNumbers.has(serialNumber)) {
+            let counter = 1;
+            let uniqueSerial = `${serialNumber}-${counter}`;
+            while (usedSerialNumbers.has(uniqueSerial)) {
+              counter++;
+              uniqueSerial = `${serialNumber}-${counter}`;
+            }
+            console.log(
+              `  ⚠️  Duplicate plate-format serial "${serialNumber}" found, using "${uniqueSerial}"`,
+            );
+            serialNumber = uniqueSerial;
+          }
+          usedSerialNumbers.add(serialNumber);
         } else {
           // Check for duplicate serial numbers and make them unique
           if (usedSerialNumbers.has(serialNumber)) {

@@ -19,7 +19,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b67cb7a1ff3d9a82422,Soquete Sextavado 16,Gedore,Ferramenta,"1/2""",,20,5,false,0,0,641292871045,,,,,641292871045,,,,
 65e87b67cb7a1ff3d9a82424,Ouro Villa Rica,Lazzuril,Tinta,,,,1,false,0,0,644973151437,,,,,644973151437,,,,
 65e87b67cb7a1ff3d9a82432,Soquete Sextavado 13 Longo,Outras,Ferramenta,,,,1,false,0,0,745459916067,,,,,745459916067,,,,
-65e87b67cb7a1ff3d9a82434,Pacote Estopa,Brasil Sul,Outras,,20,9,110,false,0,12,751320578341,,,,,751320578341,,1,kg,
+65e87b67cb7a1ff3d9a82434,Pacote Estopa,Brasil Sul,Outras,,20,9,108,false,0,10,751320578341,,,,,751320578341,,1,kg,
 65e87b67cb7a1ff3d9a82438,Serra Tico Tico,Dewalt,Ferramenta, DWE300-B2,,400,1,,0,0,789168437941,,,,,789168437941,,,,
 65e87b67cb7a1ff3d9a8243a,Soquete Sextavado 11 Longo,Outras,Ferramenta,,,,1,false,0,0,846716010300,,,,,846716010300,,,,
 65e87b67cb7a1ff3d9a82440,Chave Catraca Media,Gedore,Ferramenta,"3/8""",,,1,false,0,0,63713567463,,,,,63713567463,,,,
@@ -30,14 +30,14 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b68cb7a1ff3d9a82450,Soquete Torx T-45,King Tony,Outras,"1/2""",,26,39,,0,1,4712755618329,,,,,4712755618329,,,,
 65e87b68cb7a1ff3d9a82454,Martelete Pneumatico,Outras,Ferramenta,PRO-300,,200,1,,0,1,6982263411734,,,,,6982263411734,,,,
 65e87b68cb7a1ff3d9a82456,Faixa Refletiva Lateral Direita,DM,Outras,DMB9300R,100,1.87,1300,true,0,241,7811595001984,,669f8d752c1d6d1d26e04fb2,,,7811595001984,,1,un,13.75
-65e87b68cb7a1ff3d9a82458,Faixa Refletiva Para Choque,DM,Outras,,10,35,117,true,0,4,7812595001984,,669f8d752c1d6d1d26e04fb2,,,7812595001984,,1,un,13.75
+65e87b68cb7a1ff3d9a82458,Faixa Refletiva Para Choque,DM,Outras,,10,35,116,true,0,3,7812595001984,,669f8d752c1d6d1d26e04fb2,,,7812595001984,,1,un,13.75
 65e87b68cb7a1ff3d9a8245a,Esmerilhadeira,Bosch,Ferramenta,GWS-9-125S,,480,1,,0,0,7831454879494,,6667568212dbd4d908e415b2,,,7831454879494,,,,
 65e87b68cb7a1ff3d9a8245c,Rebitadeira Pneumatica,PDR,Ferramenta,PRO-316,,377,1,,0,1,7837097820624,,666824e08c8e77b54bf64798,,,7837097820624,,,,
 65e87b68cb7a1ff3d9a8245e,Alicate Pressão,Gedore,Ferramenta,"10""",,40,3,,0,0,7868940729257,,,,,7868940729257,,,,
-65e87b68cb7a1ff3d9a82460,Fita Crepe Amarela,3M,Outras,18mm x 40m,12,5.39,0,false,0,92,7891040216031,,6667568212dbd4d908e415b2,,,7891040216031,,,,
+65e87b68cb7a1ff3d9a82460,Fita Crepe Amarela,3M,Outras,18mm x 40m,12,5.39,-24,false,0,36,7891040216031,,6667568212dbd4d908e415b2,,,7891040216031,,,,
 65e87b68cb7a1ff3d9a82462,Lixa Hookit  P80,3M,Outras,,50,3.03,300,true,0,17,7891040299133,,6667568212dbd4d908e415b2,,,7891040299133,,1,un,
-65e87b68cb7a1ff3d9a82464,Lixa Hookit P150,3M,Outras,,50,3.03,100,true,0,34,7891040299140,,6667568212dbd4d908e415b2,,,7891040299140,,1,un,
-65e87b68cb7a1ff3d9a82466,Lixa Hookit P220,3M,Outras,,50,3.03,600,true,0,84,7891040299157,,6667568212dbd4d908e415b2,,,7891040299157,,1,un,
+65e87b68cb7a1ff3d9a82464,Lixa Hookit P150,3M,Outras,,50,3.03,50,true,0,50,7891040299140,,6667568212dbd4d908e415b2,,,7891040299140,,1,un,
+65e87b68cb7a1ff3d9a82466,Lixa Hookit P220,3M,Outras,,50,3.03,550,true,0,34,7891040299157,,6667568212dbd4d908e415b2,,,7891040299157,,1,un,
 65e87b68cb7a1ff3d9a82468,Desingripante ,TekBond,Outras,Tek Lub,6,8.5,20,false,0,10,7898543397373,,666824e08c8e77b54bf64798,,,7898543397373,,300,,
 65e87b68cb7a1ff3d9a8246a,Lapis 6B,Outras,Outras,,,,-9,true,0,4,7891360502098,,,,,7891360502098,,,,
 65e87b68cb7a1ff3d9a8246c,Aplicador Calafetador Manual,Outras,Ferramenta,,,20,1,,0,0,7891450109090,,,,,7891450109090,,,,
@@ -45,11 +45,11 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b68cb7a1ff3d9a82470,Endurecedor Wash Primer,Lazzuril,Endurecedor,051,6,11.58,62,,0,2,7891452011774,,,,,7891452011774,,300,,
 65e87b68cb7a1ff3d9a82472,Wash Primer,Lazzuril,Outras,045,6,34.25,11,,0,1,7891452011798,,,,,7891452011798,,600,ml,
 65e87b68cb7a1ff3d9a82474,PU Branco,Lazzuril,Outras,LP550,,,-1,,0,0,7891452030003,,,,,7891452030003,,,,
-65e87b68cb7a1ff3d9a82476,Diluente Alta Temperatura ,Lazzuril,Diluente,490,4,110,30,true,0,2,7891452119104,,,,,7891452119104,,5,l,
+65e87b68cb7a1ff3d9a82476,Diluente Alta Temperatura ,Lazzuril,Diluente,490,4,110,28,true,0,0,7891452119104,,,,,7891452119104,,5,l,
 65e87b68cb7a1ff3d9a82478,Acelerador de Secagem,Lazzuril,Endurecedor,0068,,,9,,0,0,7891452138945,,,,,7891452138945,,,,
 65e87b68cb7a1ff3d9a8247a,Aditivo Anticratera,Lazzuril,Outras,08780,,,13,,0,0,7891452139195,,,,,7891452139195,,,,
 65e87b68cb7a1ff3d9a8247c,Peneira,2001,Outras,,50,0.73,0,true,0,50,7891452179092,,,,,7891452179092,,1,un,
-65e87b68cb7a1ff3d9a8247e,Massa Poliester,Lazzuril,Outras,M3500,12,27.98,101,,0,4,7891452194965,,,,,7891452194965,,,,
+65e87b68cb7a1ff3d9a8247e,Massa Poliester,Lazzuril,Outras,M3500,12,27.98,100,,0,3,7891452194965,,,,,7891452194965,,,,
 65e87b68cb7a1ff3d9a82482,Primer 8200,Lazzuril,Outras,,,34,54,,0,0,7891452273011,,,,,7891452273011,,,,
 65e87b68cb7a1ff3d9a82484,PU Preto Intenso,Lazzuril,Outras,LP513,,,0,,0,0,7891452280682,,,,,7891452280682,,,,
 65e87b68cb7a1ff3d9a82486,Verniz Fosco,Lazzuril,Verniz,VF001,,64,39,,0,0,7891452372820,,,,,7891452372820,,,,
@@ -57,11 +57,11 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b68cb7a1ff3d9a8248a,Seladora Plastico,Lazzuril,Outras,081,,,1,,0,1,7891452463481,,,,,7891452463481,,,,
 65e87b68cb7a1ff3d9a8248c,Endurecedor,Lazzuril,Endurecedor,00065,6,45.51,74,false,0,1,7891452501442,,,,,7891452501442,,900,,
 65e87b68cb7a1ff3d9a8248e,Verniz,Lazzuril,Verniz,8937,,164.82,18,false,0,0,7891452768913,,,,,7891452768913,,5000,,
-65e87b68cb7a1ff3d9a82494,Escova de Aço Latonado,ACR,Outras,,,6,141,,0,3,7891454179492,,,,,7891454179492,,,,
-65e87b68cb7a1ff3d9a82496,Espatula Rigida Adesivo,ExFak,Outras,50-2022 Paralelograma,20,5.33,60,,0,8,7891454379494,,,,,7891454379494,,1,un,
+65e87b68cb7a1ff3d9a82494,Escova de Aço Latonado,ACR,Outras,,,6,140,,0,2,7891454179492,,,,,7891454179492,,,,
+65e87b68cb7a1ff3d9a82496,Espatula Rigida Adesivo,ExFak,Outras,50-2022 Paralelograma,20,5.33,58,,0,6,7891454379494,,,,,7891454379494,,1,un,
 65e87b68cb7a1ff3d9a82498,Conjunto Chave Allen,Gedore,Ferramenta,2mm - 10mm,,43,3,false,0,0,7891504121031,,,,,7891504121031,,,,
-65e87b69cb7a1ff3d9a8249a,Rolo Anti Respingo,Roma,Outras,23cm,,15,11,,0,0,7891595001984,,,,,7891595001984,,,,
-65e87b69cb7a1ff3d9a8249c,Soprador Térmico,Vonder,Outras,STV200 2000W,,195,4,,0,2,7893946563882,,,,,7893946563882,,,,
+65e87b69cb7a1ff3d9a8249a,Rolo Anti Respingo,Roma,Outras,23cm,,15,9,,0,1,7891595001984,,,,,7891595001984,,,,
+65e87b69cb7a1ff3d9a8249c,Soprador Térmico,Vonder,Outras,STV200 2000W,,195,3,,0,1,7893946563882,,,,,7893946563882,,,,
 65e87b69cb7a1ff3d9a8249e,Alicate Universal,Gedore,Ferramenta,"8""",,30,3,,0,3,7894353320097,,,,,7894353320097,,,,
 65e87b69cb7a1ff3d9a824a0,Hookit,PDR,Outras,PRO-406,,240,4,,0,0,7894595301584,,,,,7894595301584,,,,
 65e87b69cb7a1ff3d9a824a2,Endurecedor Primer Epoxi,PPG,Endurecedor,F366.11,,184,0,,0,0,7895860012729,,,,,7895860012729,,900,,
@@ -72,46 +72,46 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b69cb7a1ff3d9a824ac,Endurecedor Medio PPG,PPG,Endurecedor,END010.10,,631.6,5,,0,0,7895860078442,,,,,7895860078442,,5000,,
 65e87b69cb7a1ff3d9a824ae,Primer Multfill,PPG,Outras,,,,2,,0,0,7895860079821,,,,,7895860079821,,,,
 65e87b69cb7a1ff3d9a824b0,Massa de Polir,Pérola,Ferramenta,,,30,1,,0,1,7896067720813,,,,,7896067720813,,,,
-65e87b69cb7a1ff3d9a824b2,Luva Neoprene,Volk,Outras,G,144,6.54,163,,0,27,7896353820098,,668d8148bde8fadf6747ee14,,,7896353820098,,,,
+65e87b69cb7a1ff3d9a824b2,Luva Neoprene,Volk,Outras,G,144,6.54,157,,0,26,7896353820098,,668d8148bde8fadf6747ee14,,,7896353820098,,,,
 65e87b69cb7a1ff3d9a824b4,Lamina Norma,Outras,Outras,,,,1319,,0,1,7897097800629,,,,,7897097800629,,,,
 65e87b69cb7a1ff3d9a824b6,Macho,Outras,Ferramenta,,,,0,,0,1,7897154702013,,,,,7897154702013,,,,
 65e87b69cb7a1ff3d9a824b8,Espatula de Aço,Paceta,Outras,,12,18.9,11,,0,1,7897157701019,,,,,7897157701019,,1,un,
 65e87b69cb7a1ff3d9a824ba,Espatula Celuloide,Lazzuril,Outras,,500,5.5,83,false,0,1,7898406981633,,,,,7898406981633,,,,
 65e87b69cb7a1ff3d9a824bc,Massa Plastica,2001,Outras,,,,1,,0,1,7898406989158,,,,,7898406989158,,,,
 65e87b69cb7a1ff3d9a824be,Furadeira,Bosch,Ferramenta,GSB 13 RE,,380,1,,0,2,7898452479091,,6667568212dbd4d908e415b2,,,7898452479091,,,,
-65e87b69cb7a1ff3d9a824c0,Diluente,Farben,Diluente,558.400,4,96.6488,223,,0,62,7898540476378,,66674e5912dbd4d908e415af,,,7898540476378,,5,l,6.5
-65e87b69cb7a1ff3d9a824c2,Palha de aço,Vega,Outras,,10,,177,,0,19,7898917588178,,,,,7898917588178,,,,
-65e87b69cb7a1ff3d9a824c4,Luva Neoprene,Volk,Outras,M,144,6.54,172,,0,24,7898940749256,,668d8148bde8fadf6747ee14,,,7898940749256,,,,
-65e87b69cb7a1ff3d9a824c6,Removedor,Farben,Outras,290.010,4,110.18,53,false,0,48,7899381651801,,,,,7899381651801,,3600,,6.5
+65e87b69cb7a1ff3d9a824c0,Diluente,Farben,Diluente,558.400,4,96.6488,183,,0,48,7898540476378,,66674e5912dbd4d908e415af,,,7898540476378,,5,l,6.5
+65e87b69cb7a1ff3d9a824c2,Palha de aço,Vega,Outras,,10,,174,,0,15,7898917588178,,,,,7898917588178,,,,
+65e87b69cb7a1ff3d9a824c4,Luva Neoprene,Volk,Outras,M,144,6.54,165,,0,18,7898940749256,,668d8148bde8fadf6747ee14,,,7898940749256,,,,
+65e87b69cb7a1ff3d9a824c6,Removedor,Farben,Outras,290.010,4,110.18,85,false,0,45,7899381651801,,,,,7899381651801,,3600,,6.5
 65e87b69cb7a1ff3d9a824c8,Preto Chassis,Farben,Tinta,113.042,,112.5,15,false,0,0,7899381655526,,66674e5912dbd4d908e415af,,,7899381655526,,,,
-65e87b69cb7a1ff3d9a824ca,Desengraxante,Farben,Outras,559.500,12,15.31,368,false,0,186,7899381687657,,66674e5912dbd4d908e415af,,,7899381687657,,900,,
+65e87b69cb7a1ff3d9a824ca,Desengraxante,Farben,Outras,559.500,12,15.31,280,false,0,175,7899381687657,,66674e5912dbd4d908e415af,,,7899381687657,,900,,
 65e87b69cb7a1ff3d9a824cc,Violeta,Farben,Pigmento,AC121,4,541.18,6,true,0,1,7899381696871,,66674e5912dbd4d908e415af,,,7899381696871,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824ce,Vermelho Vivo,Farben,Pigmento,AC135,4,245.38,8,true,0,4,7899381696895,,66674e5912dbd4d908e415af,,,7899381696895,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824d0,Amarelo Ouro,Farben,Pigmento,AC172,4,311.08,8,true,0,3,7899381696918,,66674e5912dbd4d908e415af,,,7899381696918,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824ce,Vermelho Vivo,Farben,Pigmento,AC135,4,245.38,7,true,0,3,7899381696895,,66674e5912dbd4d908e415af,,,7899381696895,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824d0,Amarelo Ouro,Farben,Pigmento,AC172,4,311.08,6,true,0,3,7899381696918,,66674e5912dbd4d908e415af,,,7899381696918,,3600,ml,3.25
 65e87b69cb7a1ff3d9a824d2,Amarelo Limão,Farben,Pigmento,AC173,4,337.88,8,true,0,2,7899381696932,,66674e5912dbd4d908e415af,,,7899381696932,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824d4,Amarelo Oxido,Farben,Pigmento,AC174,4,168,3,true,0,1,7899381696956,,66674e5912dbd4d908e415af,,,7899381696956,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824d6,Laranja,Farben,Pigmento,AC175,4,367.61,20,true,0,1,7899381696970,,66674e5912dbd4d908e415af,,,7899381696970,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824d4,Amarelo Oxido,Farben,Pigmento,AC174,4,168,2,true,0,1,7899381696956,,66674e5912dbd4d908e415af,,,7899381696956,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824d6,Laranja,Farben,Pigmento,AC175,4,367.61,18,true,0,1,7899381696970,,66674e5912dbd4d908e415af,,,7899381696970,,3600,ml,3.25
 65e87b69cb7a1ff3d9a824d8,Vermelho Oxido,Farben,Pigmento,AC176,4,242.23,5,true,0,1,7899381696994,,66674e5912dbd4d908e415af,,,7899381696994,,3600,ml,3.25
 65e87b69cb7a1ff3d9a824da,Azul,Farben,Pigmento,AC177,4,144.98,10,true,0,3,7899381697014,,66674e5912dbd4d908e415af,,,7899381697014,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824dc,Verde,Farben,Pigmento,AC178,4,145.33,8,true,0,5,7899381697038,,66674e5912dbd4d908e415af,,,7899381697038,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824de,Preto,Farben,Pigmento,AC180,4,110.05,17,true,0,3,7899381697090,,66674e5912dbd4d908e415af,,,7899381697090,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824dc,Verde,Farben,Pigmento,AC178,4,145.33,7,true,0,4,7899381697038,,66674e5912dbd4d908e415af,,,7899381697038,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824de,Preto,Farben,Pigmento,AC180,4,110.05,15,true,0,3,7899381697090,,66674e5912dbd4d908e415af,,,7899381697090,,3600,ml,3.25
 65e87b69cb7a1ff3d9a824e0,Vinho Oxido,Farben,Pigmento,AC186,4,305.32,7,true,0,0,7899381697175,,66674e5912dbd4d908e415af,,,7899381697175,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824e2,Rosa,Farben,Pigmento,AC189,4,524.3,2,true,0,1,7899381697212,,66674e5912dbd4d908e415af,,,7899381697212,,3600,ml,3.25
-65e87b69cb7a1ff3d9a824e4,Base Branca,Farben,Base,ANC50,4,138.23,19,true,0,16,7899381697410,,66674e5912dbd4d908e415af,,,7899381697410,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824e2,Rosa,Farben,Pigmento,AC189,4,524.3,1,true,0,1,7899381697212,,66674e5912dbd4d908e415af,,,7899381697212,,3600,ml,3.25
+65e87b69cb7a1ff3d9a824e4,Base Branca,Farben,Base,ANC50,4,138.23,27,true,0,13,7899381697410,,66674e5912dbd4d908e415af,,,7899381697410,,3600,ml,3.25
 65e87b69cb7a1ff3d9a824e8,Flexibilizante ,Farben,Outras,509.080,,,11,,0,1,7899381702695,,,,,7899381702695,,,,
-65e87b69cb7a1ff3d9a824ea,Branco,Farben,Pigmento,AC171,4,232.26,14,true,0,5,7899381711062,,66674e5912dbd4d908e415af,,,7899381711062,,3600,ml,3.25
-65e87b6acb7a1ff3d9a824ec,Verniz,Farben,Verniz,543.850,4,214.8553,131,false,0,36,7899802396021,,66674e5912dbd4d908e415af,,,7899802396021,,5,l,3.25
+65e87b69cb7a1ff3d9a824ea,Branco,Farben,Pigmento,AC171,4,232.26,12,true,0,3,7899381711062,,66674e5912dbd4d908e415af,,,7899381711062,,3600,ml,3.25
+65e87b6acb7a1ff3d9a824ec,Verniz,Farben,Verniz,543.850,4,214.8553,113,false,0,28,7899802396021,,66674e5912dbd4d908e415af,,,7899802396021,,5,l,3.25
 65e87b6acb7a1ff3d9a824ee,Serra Marmore,Makita,Ferramenta,4100NH2Z ,,400,1,,0,0,7912895931989,,,,,7912895931989,,,,
-65e87b6acb7a1ff3d9a824f0,Pacote Pincel de Retoque,Outras,Outras,,,64,1,true,0,0,17891395008883,,,,,17891395008883,,,,
-65e87b6acb7a1ff3d9a824f2,Trena 5M,Lufkin,Outras,,6,20.64,21,,0,1,17891645034105,,6667568212dbd4d908e415b2,666739238bc8fd55ccaa78d7,66995ffabde8fadf674adb56,17891645034105,,,,
-65e87b6acb7a1ff3d9a824f4,Pincel,Atlas,Outras,"2.1/2"" 395",100,6.82,102,,0,13,17896380103550,,,,,17896380103550,,,,
+65e87b6acb7a1ff3d9a824f0,Pacote Pincel de Retoque,Outras,Outras,,50,64,7,true,0,1,17891395008883,,,,,17891395008883,,1,un,
+65e87b6acb7a1ff3d9a824f2,Trena 5M,Lufkin,Outras,,6,20.64,20,,0,1,17891645034105,,6667568212dbd4d908e415b2,666739238bc8fd55ccaa78d7,66995ffabde8fadf674adb56,17891645034105,,,,
+65e87b6acb7a1ff3d9a824f4,Pincel,Atlas,Outras,"2.1/2"" 395",100,6.82,98,,0,7,17896380103550,,,,,17896380103550,,,,
 65e87b6acb7a1ff3d9a824f6,Parafusadeira ,Bosch,Ferramenta,GSB 18V-50,,1069,0,,0,2,17897380123550,,6667568212dbd4d908e415b2,,,17897380123550,,,,
-65e87b6acb7a1ff3d9a824f8,Fita Crepe Automotiva,Adere,Outras,425,36,11.61,0,,0,468,27896193320837,,6667523312dbd4d908e415b1,,,27896193320837,,1,un,3.25
-65e87b6acb7a1ff3d9a824fa,Máscara ,Adere,Outras,328,8,107.26,115,false,0,35,27896193323920,,,,,27896193323920,,1,un,
-65e87b6acb7a1ff3d9a824fc,Scotch Brite,3M,Outras,134X240 AMF,100,1.81,500,true,0,267,27896195320838,,668d8148bde8fadf6747ee14,,,27896195320838,,,,
+65e87b6acb7a1ff3d9a824f8,Fita Crepe Automotiva,Adere,Outras,425,36,11.61,-30,,0,180,27896193320837,,6667523312dbd4d908e415b1,,,27896193320837,,1,un,3.25
+65e87b6acb7a1ff3d9a824fa,Máscara ,Adere,Outras,328,8,107.26,95,false,0,37,27896193323920,,,,,27896193323920,,1,un,
+65e87b6acb7a1ff3d9a824fc,Scotch Brite,3M,Outras,134X240 AMF,100,1.81,300,true,0,200,27896195320838,,668d8148bde8fadf6747ee14,,,27896195320838,,,,
 65e87b6acb7a1ff3d9a824fe,Primer PU Cinza,Farben,Outras,513.030,6,141.04,8,false,0,0,7899381692927,,66674e5912dbd4d908e415af,,,7899381692927,,3.6,l,
 65e87b6acb7a1ff3d9a82500,Fita Isolante,Prysmian,Ferramenta,P22 20M,1,6.85,4,false,0,0,557150872341,,,,,557150872341,,,,
-65e87b6acb7a1ff3d9a82502,Intercap,Outras,Outras,,5,4.4,2,true,0,0,7892960747256,,,,,7892960747256,,1000,,
+65e87b6acb7a1ff3d9a82502,Intercap,Outras,Outras,,5,4.4,1,true,0,0,7892960747256,,,,,7892960747256,,1000,,
 65e87b6acb7a1ff3d9a82504,Soquete Sextavado 19,Gedore,Ferramenta,"1/2""",,,1,false,0,0,885850212604,,,,,885850212604,,,,
 65e87b6acb7a1ff3d9a82506,Soquete Sextavado 18,Outras,Ferramenta,"1/2""",,,1,false,0,1,748458916061,,,,,748458916061,,,,
 65e87b6acb7a1ff3d9a82508,Soquete Sextavado 10,Outras,Ferramenta,"3/8""",,,1,false,0,0,771503597489,,,,,771503597489,,,,
@@ -182,58 +182,58 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 65e87b6bcb7a1ff3d9a8258a,Seladora Poliuretano,PPG,Outras,D854.11,,,8,false,0,0,5025427706972,,,,,5025427706972,,,,
 65e87b6bcb7a1ff3d9a82590,Refletor Led,Outras,Ferramenta,100W 6500K,,19,0,false,0,0,128087946736,,666824e08c8e77b54bf64798,,,128087946736,,,,
 65e87b6bcb7a1ff3d9a82592,Trena 8M,Lufkin,Outras,,6,40.37,9,false,0,1,7891645034115,,6667568212dbd4d908e415b2,666739238bc8fd55ccaa78d7,66995ffabde8fadf674adb56,7891645034115,,,,
-65e87b6ccb7a1ff3d9a82594,Endurecedor PU,Farben,Endurecedor,573.009,6,57.14,116,false,0,30,7898540472738,,66674e5912dbd4d908e415af,,,7898540472738,,900,ml,6.5
-65e87b6ccb7a1ff3d9a82596,Verniz PU Acrilico,Farben,Verniz,543.950,4,157.838226,224,false,0,34,7898540459838,,66674e5912dbd4d908e415af,,,7898540459838,,3.6,l,3.25
+65e87b6ccb7a1ff3d9a82594,Endurecedor PU,Farben,Endurecedor,573.009,6,57.14,71,false,0,40,7898540472738,,66674e5912dbd4d908e415af,,,7898540472738,,900,ml,6.5
+65e87b6ccb7a1ff3d9a82596,Verniz PU Acrilico,Farben,Verniz,543.950,4,157.838226,180,false,0,34,7898540459838,,66674e5912dbd4d908e415af,,,7898540459838,,3.6,l,3.25
 65e87b6ccb7a1ff3d9a82598,Clear PU,Farben,Base,113.0050,4,113.55,3,false,0,2,7899802331619,,66674e5912dbd4d908e415af,,,7899802331619,,3600,ml,3.25
-65e87b6ccb7a1ff3d9a8259c,Lixa Hookit P320,3M,Outras,,50,3.03,400,true,0,67,7891040325337,,6667568212dbd4d908e415b2,,,7891040325337,,1,un,
+65e87b6ccb7a1ff3d9a8259c,Lixa Hookit P320,3M,Outras,,50,3.03,250,true,0,67,7891040325337,,6667568212dbd4d908e415b2,,,7891040325337,,1,un,
 65e87b6ccb7a1ff3d9a8259e,Banqueta Dobravel,Vonder,Outras,45cm P/150kg,,78.89,3,false,0,0,7893946688745,,666824e08c8e77b54bf64798,,,7893946688745,,,,
 65e87b6ccb7a1ff3d9a825a0,Soquete Torx T-27,Gedore,Ferramenta,"1/2""",,30,4,false,0,0,46151590108,,,,,46151590108,,,,
 65e87b6ccb7a1ff3d9a825a8,Lixa Hookit P500,3M,Outras,,50,3.03,300,true,0,0,7891040241897,,6667568212dbd4d908e415b2,,,7891040241897,,1,un,
 65e87b6ccb7a1ff3d9a825aa,Lixa Hookit P400,3M,Outras,,50,3.03,0,true,0,34,7891040241880,,6667568212dbd4d908e415b2,,,7891040241880,,1,un,
-65d4801aad922a23eb762489,Clear Laca,Farben,Base,ANC55,4,127.06,50,true,0,73,7899381697458,,66674e5912dbd4d908e415af,,,7899381697458,,3600,ml,3.25
-65e9ffd93766f39fe76fb94d,Clear Acrilico,Farben,Base,APA85,4,105.42,38,true,0,14,7899381697496,,66674e5912dbd4d908e415af,,,7899381697496,,3600,ml,6.5
+65d4801aad922a23eb762489,Clear Laca,Farben,Base,ANC55,4,127.06,53,true,0,76,7899381697458,,66674e5912dbd4d908e415af,,,7899381697458,,3600,ml,3.25
+65e9ffd93766f39fe76fb94d,Clear Acrilico,Farben,Base,APA85,4,105.42,28,true,0,11,7899381697496,,66674e5912dbd4d908e415af,,,7899381697496,,3600,ml,6.5
 65ea01b0ccec70770504976a,Solução Ajuste Metalico,Farben,Pigmento,UC580,4,67.02,18,true,0,1,7899381699148,,66674e5912dbd4d908e415af,,,7899381699148,,900,ml,6.5
 65ea02c3fd35a7ec8989460d,Perolizado Azul Graudo,Farben,Pigmento,UC625,4,200.67,22,true,0,1,7899381699445,,66674e5912dbd4d908e415af,,,7899381699445,,900,ml,6.5
 65ea0352ccec707705049770,Aluminio Medio Brilhante,Farben,Pigmento,UC643,4,313.69,10,true,0,1,7899381708734,,66674e5912dbd4d908e415af,,,7899381708734,,900,ml,6.5
 65ea03c1e3fddb288cb30d87,Aluminio Brilhante,Farben,Pigmento,UC680,4,161.8,32,true,0,0,7899381699681,,66674e5912dbd4d908e415af,,,7899381699681,,900,ml,6.5
 65ea0450e3fddb288cb30d8b,Aluminio Medio Limpo,Farben,Pigmento,UC685,4,96.75,14,true,0,0,7899381699711,,66674e5912dbd4d908e415af,,,7899381699711,,900,ml,6.5
 65ea047ee3fddb288cb30d8f,Perolizado Branco Fino,Farben,Pigmento,UC601,4,161.15,7,true,0,0,7899381699179,,,,,7899381699179,,900,ml,6.5
-65ea0c15caee68804da3dfac,Azul Esverdeado,Farben,Pigmento,UC297,4,85.86,6,true,0,1,7899381699094,,66674e5912dbd4d908e415af,,,7899381699094,,900,ml,6.5
+65ea0c15caee68804da3dfac,Azul Esverdeado,Farben,Pigmento,UC297,4,85.86,4,true,0,1,7899381699094,,66674e5912dbd4d908e415af,,,7899381699094,,900,ml,6.5
 65ea0c3ccaee68804da3dfb0,Vermelho Intenso,Farben,Pigmento,UC269,4,396.34,5,true,0,1,7898540457810,,66674e5912dbd4d908e415af,,,7898540457810,,900,ml,6.5
 65ea0c5acaee68804da3dfb4,Preto Intenso,Farben,Pigmento,UC270,4,396.34,13,true,0,1,7899381702619,,66674e5912dbd4d908e415af,,,7899381702619,,900,ml,6.5
 65ea0c76caee68804da3dfb8,Azul Escuro,Farben,Pigmento,UC298,4,155.47,10,true,0,2,7899381712946,,66674e5912dbd4d908e415af,,,7899381712946,,3600,ml,6.5
 65ea0cbc88af5449465bf4d0,Laranja,Farben,Pigmento,UC285,4,232.34,4,true,0,1,7899381698820,,66674e5912dbd4d908e415af,,,7899381698820,,3600,ml,6.5
-65ea0cda88af5449465bf4d4,Amarelo Oxido,Farben,Pigmento,UC284,4,75.54,10,true,0,1,7899381698790,,66674e5912dbd4d908e415af,,,7899381698790,,900,ml,6.5
-65ea0cf588af5449465bf4d8,Azul,Farben,Pigmento,UC287,4,289.84,7,true,0,1,7899381698882,,66674e5912dbd4d908e415af,,,7899381698882,,3600,ml,6.5
+65ea0cda88af5449465bf4d4,Amarelo Oxido,Farben,Pigmento,UC284,4,75.54,9,true,0,0,7899381698790,,66674e5912dbd4d908e415af,,,7899381698790,,900,ml,6.5
+65ea0cf588af5449465bf4d8,Azul,Farben,Pigmento,UC287,4,289.84,5,true,0,1,7899381698882,,66674e5912dbd4d908e415af,,,7899381698882,,3600,ml,6.5
 65ea0d1f88af5449465bf4dc,Amarelo Alaranjado,Farben,Pigmento,UC272,4,375.7,10,true,0,1,7899381698516,,66674e5912dbd4d908e415af,,,7899381698516,,900,,6.5
 65ea0d5d88af5449465bf4e0,Amarelo Ouro,Farben,Pigmento,UC282,4,564.34,10,true,0,1,7899381698738,,66674e5912dbd4d908e415af,,,7899381698738,,3600,ml,6.5
 65ea0d7b88af5449465bf4e4,Preto,Farben,Pigmento,UC290,4,94.37,11,true,0,1,7899381698974,,66674e5912dbd4d908e415af,,,7899381698974,,3600,ml,6.5
-65ea0d9588af5449465bf4e8,Preto Azulado,Farben,Pigmento,UC280,4,295.58,12,true,0,1,7899381698677,,66674e5912dbd4d908e415af,,,7899381698677,,3600,ml,6.5
+65ea0d9588af5449465bf4e8,Preto Azulado,Farben,Pigmento,UC280,4,295.58,11,true,0,0,7899381698677,,66674e5912dbd4d908e415af,,,7899381698677,,3600,ml,6.5
 65ea0e3988af5449465bf4ec,Vermelho Limpo,Farben,Pigmento,UC291,4,409.62,11,true,0,1,7899381699001,,66674e5912dbd4d908e415af,,,7899381699001,,3.6,l,6.5
-65ea0e5788af5449465bf4f0,Vermelho Avioletado,Farben,Pigmento,UC279,4,181.16,7,true,0,0,7899381698646,,66674e5912dbd4d908e415af,,,7899381698646,,3600,ml,6.5
+65ea0e5788af5449465bf4f0,Vermelho Avioletado,Farben,Pigmento,UC279,4,181.16,6,true,0,0,7899381698646,,66674e5912dbd4d908e415af,,,7899381698646,,3600,ml,6.5
 65ea0e9d88af5449465bf4f4,Verde,Farben,Pigmento,UC288,4,94.22,12,true,0,2,7899381698912,,66674e5912dbd4d908e415af,,,7899381698912,,900,ml,6.5
 65ea0eb988af5449465bf4f8,Vermelho Extra Limpo,Farben,Pigmento,UC295,4,153.67,14,true,0,0,7898540489583,,66674e5912dbd4d908e415af,,,7898540489583,,900,ml,6.5
 65ea0edb88af5449465bf4fc,Verde Amarelado,Farben,Pigmento,UC293,4,423.36,3,true,0,1,7899802336584,,66674e5912dbd4d908e415af,,,7899802336584,,3600,ml,6.5
 65ea0f0c88af5449465bf500,Azul Avermelhado,Farben,Pigmento,UC277,4,220.41,22,true,0,3,7899381698608,,66674e5912dbd4d908e415af,,,7899381698608,,900,ml,6.5
 65ea0f4e88af5449465bf504,Amarelo Limpo,Farben,Pigmento,UC273,4,600.11,9,true,0,1,7899381708758,,66674e5912dbd4d908e415af,,,7899381708758,,900,ml,6.5
 65ea0f9b88af5449465bf508,Vermelho Azulado,Farben,Pigmento,UC274,4,387.96,9,true,0,1,7899381698523,,66674e5912dbd4d908e415af,,,7899381698523,,900,ml,6.5
-65ea0fba88af5449465bf50c,Vermelho Oxido,Farben,Pigmento,UC286,4,69.65,12,true,0,0,7899381698851,,66674e5912dbd4d908e415af,,,7899381698851,,900,ml,6.5
+65ea0fba88af5449465bf50c,Vermelho Oxido,Farben,Pigmento,UC286,4,69.65,11,true,0,0,7899381698851,,66674e5912dbd4d908e415af,,,7899381698851,,900,ml,6.5
 65ea105788af5449465bf510,Violeta,Farben,Pigmento,UC221,4,232.84,6,true,0,1,7899381698455,,66674e5912dbd4d908e415af,,,7899381698455,,900,ml,6.5
 65ea107388af5449465bf514,Rosa,Farben,Pigmento,UC275,4,178.93,13,true,0,0,7899381698547,,66674e5912dbd4d908e415af,,,7899381698547,,900,ml,6.5
-65eef5c2c6ade12d4088a291,Amarelo Limão,Farben,Pigmento,UC283,4,132.8,15,true,0,3,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
+65eef5c2c6ade12d4088a291,Amarelo Limão,Farben,Pigmento,UC283,4,132.8,14,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 65eef66bc6ade12d4088a2b6,Perolizado Dourado,Farben,Pigmento,UC605,4,263.6,9,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
-65eef6bea888e47e817333ef,Clear Poliester,Farben,Base,APE75,4,111.42,42,true,0,10,7899381697533,,66674e5912dbd4d908e415af,,,7899381697533,,3600,ml,6.5
+65eef6bea888e47e817333ef,Clear Poliester,Farben,Base,APE75,4,111.42,34,true,0,9,7899381697533,,66674e5912dbd4d908e415af,,,7899381697533,,3600,ml,6.5
 65eef727447ccdec47ac0b0d,Clear Epoxi,Farben,Base,IEP340,4,131.5,11,true,0,4,7899381697755,,66674e5912dbd4d908e415af,,,7899381697755,,3600,ml,6.5
 65f81f8b21502206e1869fda,Perolizado Amarelo,Farben,Pigmento,UC606,4,198.3,15,true,0,2,7899381699230,,66674e5912dbd4d908e415af,,,7899381699230,,900,ml,6.5
-65f81fd221502206e1869fde,Perolizado Vermelho Fino,Farben,Pigmento,UC608,,296.31,12,true,0,2,7899381699261,,66674e5912dbd4d908e415af,,,7899381699261,,900,ml,6.5
-65f8200421502206e1869fe2,Perolizado Red Violet,Farben,Pigmento,UC617,4,265.29,9,true,0,1,7898540463224,,66674e5912dbd4d908e415af,,,7898540463224,,900,ml,6.5
+65f81fd221502206e1869fde,Perolizado Vermelho Fino,Farben,Pigmento,UC608,,296.31,10,true,0,1,7899381699261,,66674e5912dbd4d908e415af,,,7899381699261,,900,ml,6.5
+65f8200421502206e1869fe2,Perolizado Red Violet,Farben,Pigmento,UC617,4,265.29,7,true,0,1,7898540463224,,66674e5912dbd4d908e415af,,,7898540463224,,900,ml,6.5
 65f8204821502206e1869fe6,Perolizado Azul Fino,Farben,Pigmento,UC626,4,288.64,8,true,0,1,7899381699476,,66674e5912dbd4d908e415af,,,7899381699476,,900,ml,6.5
 65f820b9ae3e279cf0b2a253,Aluminio Fino Brilhante,Farben,Pigmento,UC642,4,172.6,11,true,0,1,7899381665877,,66674e5912dbd4d908e415af,,,7899381665877,,900,ml,6.5
 65f8213606bf9ed72aefbd4f,Perolizado Vermelho Graudo,Farben,Pigmento,UC609,4,241.47,19,true,0,1,7899381699292,,66674e5912dbd4d908e415af,,,7899381699292,,900,ml,6.5
-65f980aa091f0f385e34562a,Massa Poliester Fibras,Farben,Outras,508.800,,,9,false,0,3,7899381748068,,,,,7899381748068,,750,,
+65f980aa091f0f385e34562a,Massa Poliester Fibras,Farben,Outras,508.800,,,21,false,0,1,7899381748068,,,,,7899381748068,,750,,
 65f9922d215d085232a162b5,Primer Spectra 2K,Lazzuril,Outras,P30W Branco,6,77.98,24,false,0,1,7891452170402,,6682eb544c67be05ec5bfd54,,,7891452170402,,900,ml,
 65fc1b22c2c16328413b05e1,Mangueira Irrigação,Outras,Outras,3/8,,8,100,true,0,0,,,,,,,,,,
-66015136454b098035e4124a,Branco Acrilico Puro,Farben,Base,536.1080,4,157.91,6,false,0,12,7899381685912,,66674e5912dbd4d908e415af,,,7899381685912,,3600,ml,3.25
+66015136454b098035e4124a,Branco Acrilico Puro,Farben,Base,536.1080,4,157.91,5,false,0,8,7899381685912,,66674e5912dbd4d908e415af,,,7899381685912,,3600,ml,3.25
 660305a8e10753b345fade09,Caixa Pote Redondo,Outras,Outras,PP 145ml,0,172.5,2,true,0,0,,,,,,,,145,,
 660bdc5569f57858b25b403c,Politriz,Bosch,Ferramenta,GPO 14 CE,,1310,1,false,0,1,,,,,,,,,,
 660bdd2652ac83534907bae1,Rebite de Repuxo 516,Outras,Outras,"5,0 x 16,0",100,0.15,1000,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
@@ -251,16 +251,16 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 660da5722fd6df2c5cc9e6be,Amarelo Transparente,Farben,Pigmento,UC294,4,103.79,9,true,0,0,7899381699032,,66674e5912dbd4d908e415af,,,7899381699032,,900,ml,6.5
 660da5b52fd6df2c5cc9e6c2,Marrom Transparente,Farben,Pigmento,UC276,4,79.22,9,true,0,0,7899381699063,,66674e5912dbd4d908e415af,,,7899381699063,,900,ml,6.5
 660da5f01da388a666db73ae,Vermelho Transparente,Farben,Pigmento,UC296,4,168.16,7,true,0,0,7899381698578,,66674e5912dbd4d908e415af,,,7899381698578,,900,ml,6.5
-660da6221da388a666db73b2,Aluminio Graudo,Farben,Pigmento,UC645,4,137.49,19,true,0,1,7899381699568,,66674e5912dbd4d908e415af,,,7899381699568,,900,ml,6.5
-660da6d11da388a666db73f6,Thinner 7000,Farben,Diluente,,,1980,3,false,0,6,,,66674e5912dbd4d908e415af,,,,,200,l,6.5
-661698b1a2218a01dc97d448,Adesivo,HCR,Outras,1.52mt,50,327,413,true,0,25,,,66829c67abbe23effdb7fbca,,,,,,,0
+660da6221da388a666db73b2,Aluminio Graudo,Farben,Pigmento,UC645,4,137.49,18,true,0,1,7899381699568,,66674e5912dbd4d908e415af,,,7899381699568,,900,ml,6.5
+660da6d11da388a666db73f6,Thinner 7000,Farben,Diluente,,,1980,1,false,0,5,,,66674e5912dbd4d908e415af,,,,,200,l,6.5
+661698b1a2218a01dc97d448,Adesivo,HCR,Outras,1.52mt,50,327,410,true,0,20,,,66829c67abbe23effdb7fbca,,,,,,,0
 6616993da2218a01dc97d45b,Lixa Folha   80,3M,Outras,,50,3.12,1600,true,0,0,,,6667568212dbd4d908e415b2,,,,,1,un,
 66169955a2218a01dc97d45f,Lixa Folha  150,3M,Outras,,50,3.2,1450,true,0,0,,,6667568212dbd4d908e415b2,,,,,1,un,
 66169980a2218a01dc97d463,Lixa Folha  320,3M,Outras,,50,3.12,1850,true,0,17,,,6667568212dbd4d908e415b2,,,,,1,un,
 661699b3a2218a01dc97d46a,Lixa Folha  400,3M,Outras,,50,2.31,550,true,0,0,,,6667568212dbd4d908e415b2,,,,,1,un,
 661699cea2218a01dc97d46e,Lixa Folha  600,3M,Outras,,50,2.12,150,true,0,0,,,6667568212dbd4d908e415b2,,,,,1,un,
 66194ad680031c05f26afe21,Pincel Médio,Roma,Outras,302-007,,9.5,0,false,0,2,,,,,,,,,,
-6620073ab18ad27a975a662b,Branco,Farben,Pigmento,UC281,4,338.6,10,true,0,2,,,66674e5912dbd4d908e415af,,,,,3600,ml,6.5
+6620073ab18ad27a975a662b,Branco,Farben,Pigmento,UC281,4,338.6,9,true,0,2,,,66674e5912dbd4d908e415af,,,,,3600,ml,6.5
 662287df995b20f4fcc4f3d4,Vermelho Scarlat Transparente,Farben,Pigmento,UC268,4,393.41,6,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 66266b4ca189ac8bbc53a7bb,Rolo Fibra Sintética,Riberfibras,Outras,4mm 4kg,,78.8,0,true,0,0,,,666824e08c8e77b54bf64798,,,,,,,
 6628112cb51173de0ebda815,Amarelo Esverdeado Transparente,Farben,Pigmento,UC278,,386.7,16,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
@@ -291,15 +291,15 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 6647bcd4141b36233cc153f3,Resina Laminação,Farben,Outras,508.080,,32.8,5,false,0,1,,,,,,,,900,,
 664b9f39141b36233cc1905c,Perolizado Azul Esverdeado,Farben,Pigmento,UC627,,440,11,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 664b9f69141b36233cc19071,Perolizado Verde Luminoso,Farben,Pigmento,UC622,,325,4,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
-664b9fcc141b36233cc19115,Aluminio Super Fino,Farben,Pigmento,UC648,,227,7,true,0,0,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
+664b9fcc141b36233cc19115,Aluminio Super Fino,Farben,Pigmento,UC648,,227,6,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 664ba047141b36233cc19120,Perolizado Verde,Farben,Pigmento,UC628,,438,18,true,0,0,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 664ba52c141b36233cc192c7,Aluminio Médio,Farben,Pigmento,UC655,,163,14,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
-664ba583141b36233cc192cc,Aluminio Super Graúdo,Farben,Pigmento,UC675,4,347,10,true,0,0,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
+664ba583141b36233cc192cc,Aluminio Super Graúdo,Farben,Pigmento,UC675,4,347,8,true,0,1,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
 6655b9e829a1568248b125ea,Abraçadeira Nylon Preta,Outras,Outras,4.8 x 200,100,0.1,700,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
 6655bb0529a1568248b12674,Abraçadeira Nylon Preta  ,Outras,Outras,"7,2 x 200",100,0.39,700,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
 6655bc1229a1568248b12781,Abraçadeira Radial Inox,Outras,Outras,12.8 x 15.2,10,1.59,400,true,0,0,,,666824e08c8e77b54bf64798,,,,,,,
 6655bc4529a1568248b12786,Fita Veda Rosca,Outras,Ferramenta,12MM X 25M,,3.58,5,false,0,0,,,,,,,,,,
-6655bd1329a1568248b12798,Lixa Hookit  P40 ,3M,Outras,,50,3.82,0,true,0,17,,,6667568212dbd4d908e415b2,,,,,1,un,19.5
+6655bd1329a1568248b12798,Lixa Hookit  P40 ,3M,Outras,,50,3.82,-50,true,0,17,,,6667568212dbd4d908e415b2,,,,,1,un,19.5
 6655be0229a1568248b12838,Super Bonder,TekBond,Ferramenta,793,,22,1,false,0,0,,,666b53827b3c5eb42bcb79ec,,,,,,,
 6655bf0029a1568248b1295d,Plugue Macho,Outras,Ferramenta,2P 20A,,7.42,10,true,0,0,,,,,,,,,,
 6655bf5329a1568248b12965,Plugue Femea ,Outras,Ferramenta,2P 20A,,6.8,10,true,0,0,,,,,,,,,,
@@ -309,17 +309,17 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 665dbc10630dded4026d9e64,Preto Acrilico Puro,Farben,Base,536.8540,4,156.8,27,false,0,3,,,66674e5912dbd4d908e415af,,,,,3600,ml,3.25
 665dbc64630dded4026d9e69,Primer PU 3000,Farben,Outras,513.000,4,29.68,1,false,0,0,,,,,,,,900,,
 665e224d37a2d1e56471c745,Lixa Folha D'Agua P1200,3M,Outras,,50,6.63,0,true,0,0,,,6667568212dbd4d908e415b2,,,,,1,un,19.5
-666315ff29953840aa6e68a6,Preto Fosco Chassi,Farben,Outras,113.8780E,,125.41,47,false,0,3,,,,,,,,3600,,
+666315ff29953840aa6e68a6,Preto Fosco Chassi,Farben,Pigmento,113.8780E,4,125.41,46,true,0,2,,,66674e5912dbd4d908e415af,,,,,3600,,
 666c1a33a67b6d3b18b10f70,Cabo Flexivel ,Outras,Ferramenta,25mm 1kv,,29.9,12,true,0,0,,,,,,,,,,
 666c1a62a67b6d3b18b10f7a,Garra jacaré 400a,ROTONY ,Ferramenta,400A,2,55,0,true,0,0,,,,,,,,1,un,
 666c2106b32b96717726380e,Fita Dupla Face,3M,Ferramenta,12MM x 20M,,46.28,1,false,0,0,,,,,,,,,,19.5
-666c8e319f14eab9a6d4db7f,Endurecedor PU ,Farben,Endurecedor,573.950,6,60.91799,273,false,0,236,,,66674e5912dbd4d908e415af,,,,,900,ml,3.25
+666c8e319f14eab9a6d4db7f,Endurecedor PU ,Farben,Endurecedor,573.950,6,60.91799,162,false,0,160,,,66674e5912dbd4d908e415af,,,,,900,ml,3.25
 66701df8ac92cd09cc2abb76,Papel Kraft,Outras,Outras,70GR,,15,286,true,0,0,,,66b3ab2fd29869b042d5715e,,,,,,,
 66704337ac92cd09cc2add83,Laranja,Lazzuril,Pigmento,LL117,4,,12,true,0,0,,,,,,,,3600,,
 66704368ac92cd09cc2add8a,Branco,Lazzuril,Pigmento,LL130,4,,4,true,0,0,,,,,,,,3600,,
 66704394ac92cd09cc2adda9,Vermelho Oxido,Lazzuril,Pigmento,LL143,3,,3,true,0,0,,,,,,,,900,,
 66730badac92cd09cc2d00b9,Xirallic Radiant Red,Farben,Pigmento,UC611,,,0,true,0,0,,,66674e5912dbd4d908e415af,,,,,900,ml,6.5
-6674329eac92cd09cc2d986c,Bit T-45,King Tony,Outras,32mm 5/16,20,7.95,18,false,0,8,,,67068c43607ddce94cc868bd,671a874f2de7c77f6fc84abb,,,,,un,
+6674329eac92cd09cc2d986c,Bit T-45,King Tony,Outras,32mm 5/16,20,7.95,17,false,0,8,,,67068c43607ddce94cc868bd,671a874f2de7c77f6fc84abb,,,,,un,
 6674604ac85f6aefb1cc9f8c,Carvão em Pó,Outras,Outras,,,,0,true,0,0,,,,,,,,,,
 6674835636f4d1e9c10f8e2c,Rebitadeira de Rosca Pneumatica,Sigma,Ferramenta,SGT0738,,1261.3,1,true,0,0,,,,,,,,,,
 667946cf4d69e5f065dbda0c,Tampa P/ Condulete 2 Modulos,Hidrossol,Outras,,,2.35,20,true,0,0,,,,,,,,,,
@@ -334,7 +334,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 66853fd3644aafff5a10a06f,Chave Boca Catraca Articulada  8,Belzer,Ferramenta,,,39,0,false,0,1,,,,,,,,,,
 66853fe4644aafff5a10a073,Chave Philips Média,Outras,Ferramenta,,,,1,false,0,2,,,,,,,,,,
 668541a6644aafff5a10ab58,Soquete Sextavado  6,Outras,Ferramenta,"1/4""",,,1,false,0,1,,,,,,,,,,
-6686901871c5f018dd3d64a7,Máscara,Adere,Outras,321,8,,3,false,0,9,,,,,,,,,,
+6686901871c5f018dd3d64a7,Máscara,Adere,Outras,321,8,,-7,false,0,8,,,,,,,,,,
 668be64ebde8fadf67469f3f,Maçarico,Outras,Ferramenta,,,,1,false,0,1,,,,,,,,,,
 668d8228bde8fadf6747ee74,Rolo de Fita para Arquear,Outras,Outras,10x0.8mm,,79,4,true,0,0,,,668d8148bde8fadf6747ee14,,,,,6,kg,
 668d8259bde8fadf6747eeb5,Selo Metalico para Arquear,Outras,Outras,10MM,,21.9,3,true,0,0,,,668d8148bde8fadf6747ee14,,,,,1,kg,
@@ -345,10 +345,10 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 669e92dfbde8fadf674ea964,Martelo Pena Cabo Fibra,Gedore,Ferramenta,500g,,,0,false,0,1,,,666739238bc8fd55ccaa78d7,,,,,,,
 669e93e4bde8fadf674ea9e2,Chave Inglesa,Gedore,Ferramenta,"12""",,100,1,false,0,1,,,,,,,,,,
 669fbd0c3a11deb1db44245d,Faixa Refletiva Lateral Esquerda,DM,Outras,DMB9300L,100,1.87,1300,true,0,221,,,669f8d752c1d6d1d26e04fb2,,,,,-2,un,13.75
-669fe6688f3b6980f5db3e3a,Disco de Interface,Sigma,Outras,6P,,25,9,false,0,0,,,666824e08c8e77b54bf64798,,,,,,,
+669fe6688f3b6980f5db3e3a,Disco de Interface,Sigma,Outras,6P,,25,8,false,0,1,,,666824e08c8e77b54bf64798,,,,,,,
 66a0e54eaffe4f371ee3969e,Lixadeira Orbital,3M,Ferramenta,6IN 3/16 CV PRO,,1.349,3,false,0,0,,,6667568212dbd4d908e415b2,,,,,,,
 66a12817affe4f371ee44fb5,Engate Rapido Fêmea,Japonês,Outras,SP-40,,6.24,104,false,0,1,,,66a12784affe4f371ee44ba0,66f2a3b0d69ba29408dce417,,,,,,3.25
-66a12860affe4f371ee44fbd,Engate Rapido Macho (Int),Japonês,Outras,PF-20,,1.31,135,false,0,5,,,66a12784affe4f371ee44ba0,66f2a3b0d69ba29408dce417,,,,,,3.25
+66a12860affe4f371ee44fbd,Engate Rapido Macho (Int),Japonês,Outras,PF-20,,1.31,129,false,0,2,,,66a12784affe4f371ee44ba0,66f2a3b0d69ba29408dce417,,,,,,3.25
 66a1292eaffe4f371ee44fe1,Soprador Térmico Bateria,Outras,Outras,18V,,257,2,false,0,1,,,66a12784affe4f371ee44ba0,,,,,,,0
 66a129dcaffe4f371ee4537d,Bateria Litio,Makita,Ferramenta,18V 6Ah,,166,2,false,0,0,,,66a12784affe4f371ee44ba0,,,,,,,19
 66a12b1eaffe4f371ee4574f,Carregador de Bateria,Makita,Ferramenta,DC18RD,,268.39,1,false,0,0,,,66a12784affe4f371ee44ba0,,,,,,,19
@@ -395,7 +395,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 66bbb0d0e00fb7aa524f15e1,Aerógrafo,Neoeco,Ferramenta,,,177,1,false,0,0,,,66a12784affe4f371ee44ba0,,,,,,,19
 66bde2e3e00fb7aa5251c591,Chave Canhão  6,Gedore,Ferramenta,,,25,0,false,0,0,,,,,,,,,,
 66bf43f3e00fb7aa52540cd2,Primer Spectra 2K ,Lazzuril,Outras,P30 Cinza,6,129.95,32,false,0,1,,,6682eb544c67be05ec5bfd54,,,,,900,ml,
-66c3828ee00fb7aa52575542,Aerógrafo ,Vonder,Outras,AJ008,,100,6,true,0,1,,,6667568212dbd4d908e415b2,,,,,,,
+66c3828ee00fb7aa52575542,Aerógrafo ,Vonder,Ferramenta,AJ008,,100,12,true,0,1,,,6667568212dbd4d908e415b2,,,,,,,
 66c791b0c6f2db25b1a746d9,Bobina Papel Ondulado,Outras,Outras,25mts,,60,1,false,0,0,,,66c7917ec6f2db25b1a74694,,,,,,,
 66c79278c6f2db25b1a74707,Copo Cristal,Outras,Outras,50ml C/100,,2.5,0,false,0,0,,,66c7917ec6f2db25b1a74694,,,,,,,
 66c792f3c6f2db25b1a7470f,Pacote Saco de Lixo,Outras,Outras,20lts C/100,,15,10,false,0,0,,,66c7917ec6f2db25b1a74694,,,,,,,
@@ -419,7 +419,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 66cce2aa0ad0ecdcf476c3d6,Botina ,Kadesh,Epi,n° 42 ,,,0,false,0,0,,,,,,,,,,
 66cce2cb0ad0ecdcf476c3ec,Botina  ,Kadesh,Epi,n° 43  ,,,3,false,0,0,,,,,,,,,,
 66cde07c0ad0ecdcf4775cdd,Tampa Para Bisnaga,Nalgon,Outras,,,4.16,33,false,0,0,,,,,,,,,,
-66ce10620ad0ecdcf4777458,Copo Pistola de Pintura,PDR,Outras,550/600ml,,30,40,false,0,3,,,,,,,,,,
+66ce10620ad0ecdcf4777458,Copo Pistola de Pintura,PDR,Outras,550/600ml,,30,39,false,0,1,,,,,,,,,,
 66ce227c0ad0ecdcf4777f99,Pistola de Pintura,PDR,Outras,PR550/1.7m,,170,5,false,0,4,,,,,,,,,,
 66ce23210ad0ecdcf4777fb5,Pistola Pintura K3,PDR,Outras,PR503 ,,140,0,false,0,0,,,,,,,,,,
 66ce23d80ad0ecdcf4777fbd,Pistola Pintura K3 ,Outras,Outras,,,,7,false,0,0,,,,,,,,,,
@@ -432,7 +432,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 66cf51520ad0ecdcf477abfb,Lanterna Led ,Outras,Outras,,,209,1,false,0,0,,,,,,,,,,
 66cf53900ad0ecdcf477ad6d,Refil de Gás ,Eos,Outras,400gr,,30,3,false,0,0,,,,,,,,,,
 66d056122537cfd91d21dfdb,Lanterna de Cabeça,Headlamp,Ferramenta,,,35.5,9,false,0,0,,,666824e08c8e77b54bf64798,,,,,,,
-66d056bf2537cfd91d21dfe3,Óculos de Proteção,Delta Plus,Epi,RJ,10,3.6,27,false,0,4,,,666824e08c8e77b54bf64798,,,,,1,un,
+66d056bf2537cfd91d21dfe3,Óculos de Proteção,Delta Plus,Epi,RJ,10,3.6,26,false,0,3,,,666824e08c8e77b54bf64798,,,,,1,un,
 66d85fef515b5eecdb486666,Cavalete Para Pintura,Outras,Outras,100cm x 60cm x 88cm,,202.18,0,false,0,5,,,666824e08c8e77b54bf64798,,,,,,,
 66d8605b515b5eecdb486b59,Cartão De Memória,SanDisk,Outras,128gb,,115,1,false,0,0,,,666824e08c8e77b54bf64798,,,,,,,
 66d8608b515b5eecdb486b61,Pilha,Elgin,Outras,AAA ,,0.33,40,false,0,0,,,666824e08c8e77b54bf64798,,,,,,,
@@ -473,15 +473,15 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 66ed89a2d69ba29408d9a924,Espaguete Termoretratil,Outras,Outras,5m x 35mm,,106,0,false,0,0,,,,,,,,,,
 66ed8a5ed69ba29408d9a929,Trava Rosca,Loctite,Ferramenta,271,,153.88,1,false,0,0,,,,,,,,,,
 66ed8abdd69ba29408d9a92f,Abraçadeira Emborrachada,Norma,Outras,14mm 6mm,,2.84,20,false,0,0,,,666739238bc8fd55ccaa78d7,,,,,,,
-66f2a590d69ba29408dcf2a2,Bobina Papel TK,Del Rey,Outras,40grs Madeira,,15.5,1092,false,0,64,,,66f2a352d69ba29408dce32b,,,,,,,
+66f2a590d69ba29408dcf2a2,Bobina Papel TK,Del Rey,Outras,40grs Madeira,,15.5,1006,false,0,74,,,66f2a352d69ba29408dce32b,,,,,,,
 66f311095ba08fb3b6cd0f10,Trava Porta Macho,Outras,Outras,90mm,,7.5,0,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,,,
 66f311245ba08fb3b6cd0f19,Trava Porta Fêmea,Outras,Outras,90mm,,7.5,0,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,,,
 66f311a15ba08fb3b6cd0f88,Batente Borracha,Outras,Outras,38mm X 25mm,,7,12,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,1,un,
 66f311fb5ba08fb3b6cd0f92,Espatula Feltro,Outras,Ferramenta,,,15,5,false,0,0,,,,,,,,,,
 66f4176b5ba08fb3b6ce17be,Conjunto de Chaves Fenda Phillips,Gedore,Ferramenta,8pçs,,,3,false,0,0,,,,,,,,,,
 66f448d35ba08fb3b6cf55b6,Suporte Garfo Rolo de Pintura,Atlas,Ferramenta,23cm,,18.25,0,false,0,0,,,,,,,,,,
-66f469725ba08fb3b6cf6e63,Wash Primer,Farben,Outras,517.600,,140.7,3,false,0,4,,,66674e5912dbd4d908e415af,,,,,3.6,l,
-66f469be5ba08fb3b6cf6e6a,Catalisador Wash Primer,Farben,Outras,577.000,,29.7775,14,false,0,6,,,66674e5912dbd4d908e415af,,,,,900,ml,
+66f469725ba08fb3b6cf6e63,Wash Primer,Farben,Outras,517.600,,140.7,15,false,0,4,,,66674e5912dbd4d908e415af,,,,,3.6,l,
+66f469be5ba08fb3b6cf6e6a,Catalisador Wash Primer,Farben,Outras,577.000,,29.7775,62,false,0,6,,,66674e5912dbd4d908e415af,,,,,900,ml,
 66fab9775145464d10e6ee89,Mangueira de Água ,Ibirá,Outras,"1/2""",,7.65,0,false,0,0,,,669a95e1bde8fadf674c3690,,,,,1,m,
 66fda69d5145464d10eff14c,Parafuso Torx Inox,Furgão,Outras,"3/8""",,,161,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,1,un,
 66fee7f15145464d10f2a662,Pacote Papel Higiênico,POP,Outras,8un,,47.6,8,false,0,0,,,66c7917ec6f2db25b1a74694,,,,,300,m,
@@ -493,7 +493,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 670687c6607ddce94cc83f09,Manguito,Pro Tour,Epi,GG,,15.92,3,false,0,0,,,666824e08c8e77b54bf64798,,,,,,,
 67068bbc607ddce94cc8666a,Bit T-30,King Tony,Outras,32mm 5/16,20,5.1,26,false,0,0,,,67068c43607ddce94cc868bd,671a874f2de7c77f6fc84abb,,,,,,
 670827ac607ddce94ccd4bb7,Pigmento Flourescente Verde,Saturn,Pigmento,,,50,2,true,0,0,,,,,,,,100,g,
-67090718607ddce94ccf900e,Primer PU Fast Dry,Farben,Outras,513.540,,146.41,6,false,0,3,,,66674e5912dbd4d908e415af,,,,,3.6,l,
+67090718607ddce94ccf900e,Primer PU Fast Dry,Farben,Outras,513.540,,146.41,13,false,0,3,,,66674e5912dbd4d908e415af,,,,,3.6,l,
 670d6601607ddce94cd944ac,Adesivo Vinil King Blue,Oracal,Outras,651 #049 126mm,,58,10.5,true,0,0,,,669aad73bde8fadf674c78dc,,,,,1,m,
 670d669a607ddce94cd94a7d,Adesivo Vinil White,Oracal,Outras,651 #010 126mm,,58,2,true,0,0,,,669aad73bde8fadf674c78dc,671665dd18ce94802ed2251d,,,,1,m,
 67110491607ddce94ce15cef,Niple Duplo galv,Outra,Outras,"1/2""",1,17.75,23,false,0,0,,,,,,,,1,un,
@@ -513,13 +513,13 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 674a08a6fbdc4b7107ceefc9, Bermuda ,Via Grafit ,Epi,n° 44 ,,,6,false,0,0,,,66e4929563f404c3c0464b9c,,,,,,,
 674debdffbdc4b7107d2ad35,Garrafa Quadrada  ,Outras,Outras,1000ml,10,1.45,10,true,0,0,,,66c7917ec6f2db25b1a74694,,,,,1,un,
 6761e211fbdc4b7107181a5e,Verniz PU Auto Semi Fosco,Farben,Verniz,543.010,,36.36,14,false,0,1,,,,,,,,3.6,l,
-6761e260fbdc4b7107181d9a,Verniz PU acrilico fosco,Farben,Verniz,543.005,,254.38,13,false,0,1,,,66674e5912dbd4d908e415af,,,,,3.6,l,
+6761e260fbdc4b7107181d9a,Verniz PU acrilico fosco,Farben,Verniz,543.005,,254.38,12,false,0,0,,,66674e5912dbd4d908e415af,,,,,3.6,l,
 678815adfe42c8b0f09a2e97,Botina,RHINO,Epi,n° 39,,,2,false,0,0,,,66f2a3e7d69ba29408dce988,,,,,,,
 67890394fe42c8b0f09ab895,Botina ,RHINO,Epi,n° 41,,,1,false,0,1,,,66f2a3e7d69ba29408dce988,,,,,,,
 678903eefe42c8b0f09ab8a4,botina,RHINO,Epi,n° 44,,,2,false,0,0,,,66f2a3e7d69ba29408dce988,,,,,,,
 67890490fe42c8b0f09ab920,Botina ,rhino ,Epi,n° 45,,,2,false,0,0,,,66f2a3e7d69ba29408dce988,,,,,,,
-6797ca97fe42c8b0f0c4b501,Adesivo Selante Cinza,IIESA,Outras,U-400,12,22.9,88,false,0,8,,,669fb9473a11deb1db442317,,,,,900,g,
-6797cac1fe42c8b0f0c4b5bb,Adesivo Selante Preto,IIESA,Outras,U-400,12,22.9,50,false,0,2,,,669fb9473a11deb1db442317,,,,,900,g,
+6797ca97fe42c8b0f0c4b501,Adesivo Selante Cinza,IIESA,Outras,U-400,12,22.9,87,false,0,5,,,669fb9473a11deb1db442317,,,,,900,g,
+6797cac1fe42c8b0f0c4b5bb,Adesivo Selante Preto,IIESA,Outras,U-400,12,22.9,49,false,0,2,,,669fb9473a11deb1db442317,,,,,900,g,
 67b4c01a75e6540426375bdd,Rebite de Repuxo 640,Outras,Outras,"6,2 x 40",,0.55,200,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
 67b4c0d775e6540426376532,Abraçadeira Nylon Natural,Outras,Outras,4.8 x 200,,0.12,400,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
 67b4cf7975e654042637c38a,Parafuso Sextavado Inox,Outras,Outras,M8 x 25,,1.01,0,true,0,0,,,666739238bc8fd55ccaa78d7,,,,,1,un,
@@ -535,7 +535,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 680a8bedb84edfb3697f0269,Filtro de Oleo,Outras,Outras,CD39329602,,235,1,true,0,0,,,680a8b65b84edfb3697ef856,,,,,1,un,
 680a8c12b84edfb3697f0271,Pad Pre Filtro,Outra,Outras,CD24286676,,243,2,true,0,1,,,680a8b65b84edfb3697ef856,,,,,1,un,
 680a8c34b84edfb3697f027b,Elemento Separador Ar/Oleo,Outras,Outras,CD24121212,,1063,1,true,0,0,,,680a8b65b84edfb3697ef856,,,,,1,un,
-682e0e4b864e55cc095d2060,Estilete Snap Off,Irwin,Outras,18mm,,9.33,46,false,0,5,,,,,,,,1,un,
+682e0e4b864e55cc095d2060,Estilete Snap Off,Irwin,Outras,18mm,,9.33,43,false,0,3,,,,,,,,1,un,
 682f3bbb864e55cc096785fe,Lanterna Led Âmbar ,Outras,Outras,12/24V POS/RETRO,,39,0,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,1,un,
 682f3bfd864e55cc09678606,Lanterna Side Marker Led Âmbar,Braslux,Outras,12/24V 116,,44,0,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,1,un,
 682f3c2f864e55cc0967860e,Conjunto Mancal Intermediário ,Outras,Outras,4 Furos 25mm,,11,0,false,0,0,,,66f310e75ba08fb3b6cd09d1,,,,,1,un,
@@ -554,12 +554,12 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 6835d514864e55cc097d3085,Disco desbaste,verg,Outras,"115x6x22,22mm",5,5.2,12,false,0,0,,,,,,,,,,
 6849dcaa2325917ba7fb8621,Extensão Elétrica ,Daneva,Outras,"2x2,50mm 20A",,293.55,5,false,0,1,,,,,,,,21,m,
 686274ed059b88ed28f2310d,Plotter de Recorte,Velve,Ferramenta,PJK1351,1,2799,4,true,0,0,,,,,,,,1,un,
-65e87b68cb7a1ff3d9a82490,Adesivo Selante Cinza,Autofix,Outras,PU40,20,18.75,0,,0,4,7891453179092,,6667568212dbd4d908e415b2,,,,,,,
+65e87b68cb7a1ff3d9a82490,Adesivo Selante Cinza,Autofix,Outras,PU40,20,18.75,-3,,0,1,7891453179092,,6667568212dbd4d908e415b2,,,,,,,
 6862a8d482f71cb4e104da62,Adesivo Selante Preto,Autofix,Outras,PU40,12,17.95,0,false,0,1,7891454179092,,6667568212dbd4d908e415b2,,,,,,,
 6862a91f82f71cb4e104da63,Massa Poliester,Farben,Outras,,6,,0,false,0,2,,,66674e5912dbd4d908e415af,,,,,900,g,
 6862ccb8059b88ed28f72521,bico de ar,luft,Outras,dg-10-01,,25,4,false,0,1,,,6862cbfc059b88ed28f71a24,,,,,,un,
 686428b6059b88ed2802418b,primer pu p/plastico 1k,Farben,Outras,"513,030",,,0,false,0,0,,,66674e5912dbd4d908e415af,,,,,,un,
-686d6f24059b88ed2853fa95,Fita Crepe Premium Azul,Farben,Outras,PR539.003,48,4.315833,276,false,0,33,,,66674e5912dbd4d908e415af,,,,,40,m,
+686d6f24059b88ed2853fa95,Fita Crepe Premium Azul,Farben,Outras,PR539.003,48,4.315833,242,false,0,44,,,66674e5912dbd4d908e415af,,,,,40,m,
 686d6fdb059b88ed2853fe49,Fita Crepe Uso Geral,Farben,Outras,PR539.002,24,8.48708,0,false,0,0,,,,,,,,40,m,
 6874e4b0059b88ed2877fe02,refletor led 50w-6500k,easy,Outras,399021376,,,12,false,0,0,,,,,,,,,un,
 6877d80d059b88ed288c48fc,Rolo Antirespingo,Roma,Outras,15cm,,,29,false,0,0,,,,,,,,29,un,
@@ -572,7 +572,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 687aa35b059b88ed28a4b49e,Lixa Folha D'Agua P600,3M,Outras,,50,,200,true,0,0,,,666750f912dbd4d908e415b0,,,,,1,un,
 6883b15d059b88ed28ee29d9,adapitador boina polimento,Makita,Ferramenta,m14,1,18,1,false,0,0,,,666739238bc8fd55ccaa78d7,,,,,,un,
 6883b30a059b88ed28ee3542,Micro retifica Worker 190 peças,WORKER,Ferramenta,130w/127v,1,600,1,false,0,0,,,666739238bc8fd55ccaa78d7,,,,,,un,
-689cdc87059b88ed28650b07,Fita Crepe Automotiva,Adere,Outras,425 45x50,,10.49,2010,false,0,280,,,6667523312dbd4d908e415b1,,,,,50,m,
+689cdc87059b88ed28650b07,Fita Crepe Automotiva,Adere,Outras,425 45x50,,10.49,1560,false,0,432,,,6667523312dbd4d908e415b1,,,,,50,m,
 68b1e1d4059b88ed28ae21b8,coturno ,Ecosafety,Epi,N-40,2,,11,false,0,1,,,,,,,,,un,
 68b1e472059b88ed28ae21c1,coturno ,Ecosafety ,Epi,N-42,1,,11,false,0,1,,,,,,,,1,un,
 68b1e4e4059b88ed28ae21dc,coturno  ,Ecosafety ,Epi,N-44 ,,,4,false,0,1,,,,,,,,1,un,
@@ -606,12 +606,12 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 68d400735e4696f7e4393629,coturno  ,Ecosafety   ,Epi,N-43,1,,7,false,0,0,,,,,,,,1,un,
 68d400b95e4696f7e4393635,coturno   ,Ecosafety  ,Epi,n° 41,1,,10,false,0,0,,,,,,,,1,un,
 68d401d75e4696f7e43936c1,Parafusadeira impc 18v,Makita ,Ferramenta,DTD-157Z,1,758.84,1,false,0,0,,,,,,,,1,un,
-68d444255e4696f7e43984ab,Primer PU Preto RODO,Farben,Base,9042,4,,8,true,0,0,,,66674e5912dbd4d908e415af,,,,,3600,l,
+68d444255e4696f7e43984ab,Primer PU Preto RODO,Farben,Base,9042,4,,7,true,0,0,,,66674e5912dbd4d908e415af,,,,,3600,l,
 68dc069e07ea6dd4df959d2a,Manguito ,Pro Tour ,Epi,P ,,,5,false,0,0,,,,,,,,,,
 68dd198407ea6dd4df999fdc,Garra jacaré 600A,ROTONY,Ferramenta,R-3611,2,39.9,2,true,0,0,,,669a95e1bde8fadf674c3690,,,,,1,un,
-68dfc1b4610e04d1f2d928ac,Respirador Descartável - c/ válvula,Camper,Epi,PFF2-S,,,39,false,0,1,,,,,,,,1,un,
-68dfc71b610e04d1f2d95097,Par Protetor Auric. Auditivo,Valeplast,Epi,70.031,10,,21,false,0,0,CA. 41681,,,,,,,1,un,
-68dfca0d610e04d1f2d96b11,Par Protetor Auric. Auditivo ,3M,Epi,3M 1100,,,5,false,0,0,CA.5674,,,,,,,1,un,
+68dfc1b4610e04d1f2d928ac,Respirador Descartável - c/ válvula,Camper,Epi,PFF2-S,,,38,false,0,2,,,,,,,,1,un,
+68dfc71b610e04d1f2d95097,Par Protetor Auric. Auditivo,Valeplast,Epi,70.031,10,,20,false,0,0,CA. 41681,,,,,,,1,un,
+68dfca0d610e04d1f2d96b11,Par Protetor Auric. Auditivo ,3M,Epi,3M 1100,,,3,false,0,1,CA.5674,,,,,,,1,un,
 68e3aec7610e04d1f2e13cb2,Camiseta    ,Via Grafit ,Epi,EXG,,,12,false,0,0,,,66e4929563f404c3c0464b9c,,,,,1,un,
 68e7ae97610e04d1f2f62e5a,Boné Cinza,Rhino Size,Epi,,,,14,false,0,3,,,,,,,,,un,
 68e7aefc610e04d1f2f63ba5,Boné Cinza c/ tela,Rhino Size ,Epi,,,,20,false,0,1,,,,,,,,,un,
@@ -634,6 +634,7 @@ _id,name,brand,category,uni_code,box_quantity,price,quantity,stock_item,__v,spen
 68efea82610e04d1f20f64b9,"Motoesmiril 1,0cv/220v",Motomil,Ferramenta,MM-1001,1,959.9,1,false,0,0,,,,,,,,1,un,
 68efec05610e04d1f20f8059,Disco corte super,Norton,Outras,14x2TX1,1,62.88,1,false,0,0,,,,,,,,1,un,
 68efed49610e04d1f20f8e7a,Escova Aço Motoesmeril,Norton ,Outras,E-05/15,1,62.4,1,false,0,0,,,,,,,,1,un,
-68f225fc674e26ada79ab196,Balde p/ pçs de Varão,Gerplast,Outras,10 L,12,,42,false,0,4,,,,,,,,1,un,
+68f225fc674e26ada79ab196,Balde p/ pçs de Varão,Gerplast,Outras,10 L,12,,39,false,0,5,,,,,,,,1,un,
 68f6417b674e26ada7a577a6,Aluminio ouro,Farben,Pigmento,UC690,,716.33,0,false,0,0,,,,,,,,900,ml,
 68f64318674e26ada7a59cb2,Xirallic Solaris Red,Farben,Pigmento,UC612,,,0,false,0,0,,,,,,,,900,ml,
+691c9ea477701417247e6524,Líq. de Mascaramento,Farben,Outras,506.000-5.0,,38.43,4,false,0,0,,,66674e5912dbd4d908e415af,,,,,5,kg,
