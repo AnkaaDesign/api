@@ -4,6 +4,93 @@
 // The correct bonus calculation is implemented in the API using polynomial-based algorithm
 // from db:seed script and ExactBonusCalculationService
 
+// =====================
+// Period Detection Utilities (5th day rule)
+// =====================
+
+/**
+ * Get the current payroll/bonus period based on the 5th day rule.
+ *
+ * The rule is: The "current" period only changes after the 5th of the month.
+ * - Before day 5 (1st-5th): Current period is the PREVIOUS month
+ * - After day 5 (6th-31st): Current period is the CURRENT month
+ *
+ * This is because:
+ * - Bonus/Payroll period runs from 26th to 25th
+ * - Payment happens on the 5th
+ * - Until payment, we're still in the "previous" period
+ *
+ * @param referenceDate Optional date to calculate from (defaults to now)
+ * @returns Object with year, month for the current period
+ */
+export function getCurrentPeriod(referenceDate?: Date): { year: number; month: number } {
+  const now = referenceDate || new Date();
+  const currentDay = now.getDate();
+  const currentMonth = now.getMonth() + 1; // JS months are 0-indexed
+  const currentYear = now.getFullYear();
+
+  // If we're on or before the 5th, we're still in the previous month's period
+  if (currentDay <= 5) {
+    if (currentMonth === 1) {
+      // January 1-5: Previous period is December of previous year
+      return { year: currentYear - 1, month: 12 };
+    }
+    return { year: currentYear, month: currentMonth - 1 };
+  }
+
+  // After the 5th, we're in the current month's period
+  return { year: currentYear, month: currentMonth };
+}
+
+/**
+ * Check if a given year/month represents the "current" period.
+ * Uses the 5th day rule to determine what "current" means.
+ *
+ * @param year The year to check
+ * @param month The month to check (1-12)
+ * @param referenceDate Optional date to calculate from (defaults to now)
+ * @returns true if the given year/month is the current period
+ */
+export function isCurrentPeriod(year: number, month: number, referenceDate?: Date): boolean {
+  const current = getCurrentPeriod(referenceDate);
+  return year === current.year && month === current.month;
+}
+
+/**
+ * Check if a filter includes the current period.
+ * This is used to determine if live calculation should be performed.
+ *
+ * @param filterYear Year from filter (optional)
+ * @param filterMonths Array of months from filter (optional)
+ * @param referenceDate Optional date to calculate from (defaults to now)
+ * @returns true if the filter includes the current period
+ */
+export function filterIncludesCurrentPeriod(
+  filterYear?: number,
+  filterMonths?: number[],
+  referenceDate?: Date
+): boolean {
+  const current = getCurrentPeriod(referenceDate);
+
+  // If no filter specified, we're showing all data (including current)
+  if (!filterYear && (!filterMonths || filterMonths.length === 0)) {
+    return true;
+  }
+
+  // If year is specified but doesn't match, current period is not included
+  if (filterYear && filterYear !== current.year) {
+    return false;
+  }
+
+  // If months are specified, check if current month is in the list
+  if (filterMonths && filterMonths.length > 0) {
+    return filterMonths.includes(current.month);
+  }
+
+  // Year matches and no month filter, so current period is included
+  return true;
+}
+
 /**
  * Get position level from position name (1=junior, 2=pleno, 3=senior)
  * @param positionName The name of the position

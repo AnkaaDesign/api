@@ -1,3 +1,9 @@
+// payroll.service.ts
+// Clean implementation with separation of concerns:
+// - Regular CRUD operations (like any other entity)
+// - Live calculation service (only when current period is requested)
+// - Uses BonusService for bonus calculations (no duplication)
+
 import {
   Injectable,
   NotFoundException,
@@ -15,13 +21,14 @@ import {
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
   USER_STATUS,
-  ACTIVE_USER_STATUSES,
 } from '../../../constants';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   calculateNetSalary,
   getPayrollCalculationBreakdown,
-  getPayrollPeriod
+  getCurrentPeriod,
+  isCurrentPeriod,
+  filterIncludesCurrentPeriod,
 } from '../../../utils';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import type {
@@ -31,6 +38,26 @@ import type {
   PayrollInclude,
 } from '../../../schemas';
 import type { Payroll, PayrollGetManyResponse } from '../../../types';
+
+// =====================
+// Types
+// =====================
+
+interface LivePayrollData {
+  id: string;
+  userId: string;
+  year: number;
+  month: number;
+  baseRemuneration: number;
+  positionId: string | null;
+  user: any;
+  bonus: any | null;
+  discounts: any[];
+  isLive: true;
+  isTemporary: true;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 @Injectable()
 export class PayrollService {
@@ -44,25 +71,39 @@ export class PayrollService {
     private readonly changeLogService: ChangeLogService,
   ) {}
 
+  // =====================
+  // Regular CRUD Operations (like any other entity)
+  // =====================
+
   /**
-   * Find payroll by ID
+   * Find payroll by ID - standard entity retrieval
    */
   async findById(id: string, include?: PayrollInclude): Promise<Payroll | null> {
     try {
-      const payroll = await this.payrollRepository.findById(id, include ? { include } : undefined);
+      const defaultInclude = include || {
+        user: {
+          include: {
+            position: true,
+            sector: true,
+          },
+        },
+        bonus: {
+          include: {
+            tasks: true,
+            bonusDiscounts: true,
+          },
+        },
+        discounts: {
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+      };
+
+      const payroll = await this.payrollRepository.findById(id, { include: defaultInclude });
 
       if (!payroll) {
-        return null; // Return null instead of throwing error for missing payroll
-      }
-
-      // If no bonus exists, calculate live data
-      if (!payroll.bonus) {
-        const liveBonus = await this.calculateLiveBonusData(
-          payroll.userId,
-          payroll.year,
-          payroll.month,
-        );
-        return { ...payroll, bonus: liveBonus };
+        return null;
       }
 
       return payroll;
@@ -73,7 +114,8 @@ export class PayrollService {
   }
 
   /**
-   * Find many payrolls with pagination and optional live calculations
+   * Find many payrolls - standard entity list
+   * Returns data directly from database without live calculations
    */
   async findMany(params: PayrollGetManyParams): Promise<PayrollGetManyResponse> {
     try {
@@ -86,63 +128,34 @@ export class PayrollService {
         },
         bonus: {
           include: {
-            tasks: {
-              include: {
-                customer: true,
-                createdBy: true,
-                sector: true,
-                services: true,
-              },
-            },
-            users: true,
+            tasks: true,
+            bonusDiscounts: true,
           },
         },
-        discounts: true,
+        discounts: {
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
       };
 
-      // Check if querying for a specific period to generate live payrolls
-      const year = params.where?.year;
-      const month = params.where?.month;
-
-      // Log for debugging
-
-      const isSpecificPeriod = year !== undefined && month !== undefined;
-
-      if (isSpecificPeriod) {
-        // Ensure we have numbers for the period calculation
-        const yearNum = typeof year === 'number' ? year : parseInt(year as any);
-        const monthNum = typeof month === 'number' ? month : parseInt(month as any);
-
-        if (!isNaN(yearNum) && !isNaN(monthNum)) {
-          return this.findManyForPeriod(yearNum, monthNum, defaultInclude, params);
+      // Normalize orderBy to array format for Prisma
+      let orderBy = params.orderBy;
+      if (orderBy && !Array.isArray(orderBy)) {
+        // If orderBy is an object with multiple keys, convert to array of single-key objects
+        const keys = Object.keys(orderBy);
+        if (keys.length > 1) {
+          orderBy = keys.map(key => ({ [key]: (orderBy as any)[key] }));
         }
       }
 
-      // Standard repository query for non-period queries
       const result = await this.payrollRepository.findMany({
         where: params.where,
         include: defaultInclude,
-        orderBy: params.orderBy || { createdAt: 'desc' },
+        orderBy: orderBy || [{ createdAt: 'desc' }],
         page: params.page,
         take: params.limit,
       });
-
-      // Add live bonus data for payrolls without bonuses
-      if (result.data && Array.isArray(result.data)) {
-        result.data = await Promise.all(
-          result.data.map(async (payroll) => {
-            if (!payroll.bonus) {
-              const liveBonus = await this.calculateLiveBonusData(
-                payroll.userId,
-                payroll.year,
-                payroll.month,
-              );
-              return { ...payroll, bonus: liveBonus };
-            }
-            return payroll;
-          })
-        );
-      }
 
       return {
         success: true,
@@ -157,7 +170,7 @@ export class PayrollService {
   }
 
   /**
-   * Find payroll by user and month
+   * Find payroll by user and month - standard entity retrieval
    */
   async findByUserAndMonth(
     userId: string,
@@ -166,58 +179,14 @@ export class PayrollService {
     include?: PayrollInclude,
   ): Promise<Payroll | null> {
     try {
-      let payroll = await this.payrollRepository.findByUserAndPeriod(
+      const payroll = await this.payrollRepository.findByUserAndPeriod(
         userId,
         year,
         month,
         include,
       );
 
-      // If no payroll exists, create a temporary one with live calculations
-      if (!payroll) {
-        const userResponse = await this.userService.findById(userId, {
-          position: {
-            include: {
-              remunerations: true,
-            },
-          },
-        });
-
-        if (!userResponse.data || userResponse.data.status === USER_STATUS.DISMISSED) {
-          return null;
-        }
-
-        const user = userResponse.data;
-        const baseRemuneration = user.position?.remunerations?.[0]?.value || 0;
-        const liveBonus = await this.calculateLiveBonusData(userId, year, month);
-
-        // Use a UUID-like format for temporary IDs to avoid validation issues
-        // Include year and month in the ID to ensure uniqueness
-        const yearMonth = `${year.toString().padStart(4, '0')}${month.toString().padStart(2, '0')}`;
-        const tempId = `00000000-${yearMonth}-0000-0000-${userId.substring(0, 12)}`;
-
-        payroll = {
-          id: tempId,
-          userId,
-          year,
-          month,
-          baseRemuneration,
-          positionId: user.position?.id || null,
-          user,
-          bonus: liveBonus,
-          discounts: [],
-          isLive: true,  // Mark as live calculation
-          isTemporary: true, // Additional flag for clarity
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        } as Payroll;
-      } else if (!payroll.bonus) {
-        // Add live bonus data if payroll exists but has no bonus
-        const liveBonus = await this.calculateLiveBonusData(userId, year, month);
-        payroll = { ...payroll, bonus: liveBonus };
-      }
-
-      return payroll;
+      return payroll || null;
     } catch (error) {
       this.logger.error('Error finding payroll by user and month:', error);
       throw new InternalServerErrorException(
@@ -227,17 +196,15 @@ export class PayrollService {
   }
 
   /**
-   * Create a new payroll
+   * Create a new payroll - standard entity creation
    */
   async create(data: PayrollCreateFormData, userId: string): Promise<Payroll> {
     try {
-      // Validate user exists and is not dismissed
       const userResponse = await this.userService.findById(data.userId);
       if (!userResponse.data || userResponse.data.status === USER_STATUS.DISMISSED) {
         throw new BadRequestException('Usuário não encontrado ou desligado.');
       }
 
-      // Check for duplicate payroll
       const existingPayroll = await this.payrollRepository.findByUserAndPeriod(
         data.userId,
         data.year,
@@ -277,10 +244,7 @@ export class PayrollService {
       return payroll!;
     } catch (error) {
       this.logger.error('Error creating payroll:', error);
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao criar folha de pagamento.');
@@ -288,13 +252,9 @@ export class PayrollService {
   }
 
   /**
-   * Update an existing payroll
+   * Update an existing payroll - standard entity update
    */
-  async update(
-    id: string,
-    data: PayrollUpdateFormData,
-    userId: string,
-  ): Promise<Payroll> {
+  async update(id: string, data: PayrollUpdateFormData, userId: string): Promise<Payroll> {
     try {
       const existingPayroll = await this.payrollRepository.findById(id, {
         include: {
@@ -340,20 +300,15 @@ export class PayrollService {
       return updatedPayroll!;
     } catch (error) {
       this.logger.error('Error updating payroll:', error);
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new InternalServerErrorException(
-        'Erro ao atualizar folha de pagamento.',
-      );
+      throw new InternalServerErrorException('Erro ao atualizar folha de pagamento.');
     }
   }
 
   /**
-   * Delete a payroll
+   * Delete a payroll - standard entity deletion
    */
   async delete(id: string, userId: string): Promise<void> {
     try {
@@ -387,45 +342,11 @@ export class PayrollService {
     }
   }
 
-  /**
-   * Generate payrolls for all active users for a specific month
-   */
-  async generateForMonth(
-    year: number,
-    month: number,
-    userId: string,
-  ): Promise<{ created: number; skipped: number }> {
-    try {
+  // =====================
+  // Batch Operations
+  // =====================
 
-      const created = await this.payrollRepository.createManyForMonth(year, month);
-
-      // Calculate skipped payrolls
-      const totalActiveUsers = await this.prisma.user.count({
-        where: { status: { not: USER_STATUS.DISMISSED } },
-      });
-
-      const skipped = Math.max(0, totalActiveUsers - created);
-
-      this.logger.log(
-        `Payroll generation completed: ${created} created, ${skipped} skipped`,
-      );
-
-      return { created, skipped };
-    } catch (error) {
-      this.logger.error('Error generating payrolls for month:', error);
-      throw new InternalServerErrorException(
-        'Erro ao gerar folhas de pagamento do mês.',
-      );
-    }
-  }
-
-  /**
-   * Batch create payrolls
-   */
-  async batchCreate(
-    payrolls: PayrollCreateFormData[],
-    userId: string,
-  ): Promise<{ success: Payroll[]; failed: any[] }> {
+  async batchCreate(payrolls: PayrollCreateFormData[], userId: string): Promise<{ success: Payroll[]; failed: any[] }> {
     const success: Payroll[] = [];
     const failed: any[] = [];
 
@@ -444,13 +365,7 @@ export class PayrollService {
     return { success, failed };
   }
 
-  /**
-   * Batch update payrolls
-   */
-  async batchUpdate(
-    updates: { id: string; data: PayrollUpdateFormData }[],
-    userId: string,
-  ): Promise<{ success: Payroll[]; failed: any[] }> {
+  async batchUpdate(updates: { id: string; data: PayrollUpdateFormData }[], userId: string): Promise<{ success: Payroll[]; failed: any[] }> {
     const success: Payroll[] = [];
     const failed: any[] = [];
 
@@ -470,13 +385,7 @@ export class PayrollService {
     return { success, failed };
   }
 
-  /**
-   * Batch delete payrolls
-   */
-  async batchDelete(
-    ids: string[],
-    userId: string,
-  ): Promise<{ success: string[]; failed: any[] }> {
+  async batchDelete(ids: string[], userId: string): Promise<{ success: string[]; failed: any[] }> {
     const success: string[] = [];
     const failed: any[] = [];
 
@@ -495,16 +404,47 @@ export class PayrollService {
     return { success, failed };
   }
 
+  // =====================
+  // Generate Payrolls
+  // =====================
+
   /**
-   * Calculate live payroll data including net salary
+   * Generate payrolls for all active users for a specific month
    */
-  async calculateLivePayrollData(
-    userId: string,
-    year: number,
-    month: number,
-  ): Promise<any> {
+  async generateForMonth(year: number, month: number, userId: string): Promise<{ created: number; skipped: number }> {
     try {
-      const payroll = await this.findByUserAndMonth(userId, year, month, {
+      const created = await this.payrollRepository.createManyForMonth(year, month);
+
+      const totalActiveUsers = await this.prisma.user.count({
+        where: {
+          status: { not: USER_STATUS.DISMISSED },
+          payrollNumber: { not: null }, // Only users with payroll number
+        },
+      });
+
+      const skipped = Math.max(0, totalActiveUsers - created);
+
+      this.logger.log(`Payroll generation completed: ${created} created, ${skipped} skipped`);
+
+      return { created, skipped };
+    } catch (error) {
+      this.logger.error('Error generating payrolls for month:', error);
+      throw new InternalServerErrorException('Erro ao gerar folhas de pagamento do mês.');
+    }
+  }
+
+  // =====================
+  // Live Calculation Service (NEW - Clean Implementation)
+  // =====================
+
+  /**
+   * Calculate live payroll data for a single user.
+   * Uses BonusService for bonus calculations.
+   */
+  async calculateLivePayrollData(userId: string, year: number, month: number): Promise<any> {
+    try {
+      // Try to get saved payroll first
+      let payroll = await this.findByUserAndMonth(userId, year, month, {
         discounts: true,
         user: {
           include: {
@@ -512,14 +452,56 @@ export class PayrollService {
             sector: true,
           },
         },
+        bonus: {
+          include: {
+            tasks: true,
+            bonusDiscounts: true,
+          },
+        },
       });
 
+      // If no saved payroll, create a temporary one
       if (!payroll) {
-        throw new NotFoundException('Usuário não encontrado ou inativo.');
+        const userResponse = await this.userService.findById(userId, {
+          position: {
+            include: {
+              remunerations: true,
+            },
+          },
+        });
+
+        if (!userResponse.data || userResponse.data.status === USER_STATUS.DISMISSED) {
+          throw new NotFoundException('Usuário não encontrado ou inativo.');
+        }
+
+        const user = userResponse.data;
+        const baseRemuneration = user.position?.remunerations?.[0]?.value || 0;
+
+        payroll = {
+          id: `temp-${userId}-${year}-${month}`,
+          userId,
+          year,
+          month,
+          baseRemuneration,
+          positionId: user.position?.id || null,
+          user,
+          bonus: null,
+          discounts: [],
+          isLive: true,
+          isTemporary: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any;
       }
 
-      const bonusValue = payroll.bonus?.baseBonus ? Number(payroll.bonus.baseBonus) : 0;
-      const discounts = payroll.discounts?.map(d => ({
+      // Calculate live bonus if needed (for current period)
+      let bonus = payroll.bonus;
+      if (!bonus && isCurrentPeriod(year, month)) {
+        bonus = await this.bonusService.calculateLiveBonusForUser(userId, year, month);
+      }
+
+      const bonusValue = bonus?.baseBonus ? Number(bonus.baseBonus) : 0;
+      const discounts = payroll.discounts?.map((d: any) => ({
         percentage: d.percentage,
         fixedValue: d.value,
         calculationOrder: d.calculationOrder,
@@ -543,20 +525,22 @@ export class PayrollService {
             baseRemuneration: payroll.baseRemuneration,
             user: payroll.user,
             discounts: payroll.discounts || [],
+            isLive: (payroll as any).isLive || false,
           },
-          bonus: {
-            value: bonusValue,
-          },
+          bonus: bonus ? {
+            id: bonus.id,
+            baseBonus: bonusValue,
+            performanceLevel: bonus.performanceLevel,
+            tasks: bonus.tasks || [],
+            isLive: bonus.isLive || false,
+          } : null,
           calculations: breakdown,
           calculatedAt: new Date(),
         },
       };
     } catch (error) {
       this.logger.error('Error calculating live payroll data:', error);
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao calcular folha de pagamento.');
@@ -564,233 +548,173 @@ export class PayrollService {
   }
 
   /**
-   * Find many payrolls for a specific period with live calculations
-   * @private
+   * Get payrolls with live calculation for current period.
+   * This is the main method for the frontend - combines saved data with live calculations.
+   *
+   * Logic:
+   * 1. If filter does NOT include current period: Return saved data only
+   * 2. If filter includes current period: Generate live payrolls, then merge with saved data
    */
-  private async findManyForPeriod(
-    year: number,
-    month: number,
-    defaultInclude: any,
-    params: PayrollGetManyParams,
-  ): Promise<PayrollGetManyResponse> {
+  async getPayrollsWithLiveCalculation(params: PayrollGetManyParams): Promise<PayrollGetManyResponse> {
+    try {
+      const currentPeriod = getCurrentPeriod();
+      const filterYear = params.where?.year;
+      const filterMonth = params.where?.month;
 
-    // Get all non-dismissed users with their positions
-    const allActiveUsers = await this.prisma.user.findMany({
-      where: {
-        status: { not: USER_STATUS.DISMISSED },
-      },
-      include: {
-        position: {
-          include: {
-            remunerations: true,
-          },
+      // Parse filter values
+      const yearNum = typeof filterYear === 'number' ? filterYear : (filterYear ? parseInt(filterYear as any) : undefined);
+      const monthNum = typeof filterMonth === 'number' ? filterMonth : (filterMonth ? parseInt(filterMonth as any) : undefined);
+
+      // Check if filter includes current period
+      const includesCurrentPeriod = filterIncludesCurrentPeriod(
+        yearNum,
+        monthNum ? [monthNum] : undefined
+      );
+
+      // If not querying current period, just return saved data
+      if (!includesCurrentPeriod) {
+        return this.findMany(params);
+      }
+
+      // For current period, generate live payrolls for all active users with payroll number
+      const allActiveUsers = await this.prisma.user.findMany({
+        where: {
+          status: { not: USER_STATUS.DISMISSED },
+          payrollNumber: { not: null }, // Only users with payroll number
         },
-        sector: true,
-      },
-    });
+        include: {
+          position: {
+            include: {
+              remunerations: true,
+            },
+          },
+          sector: true,
+        },
+      });
 
+      // Get saved payrolls for this period
+      const savedPayrolls = await this.payrollRepository.findMany({
+        where: {
+          year: yearNum || currentPeriod.year,
+          month: monthNum || currentPeriod.month,
+        },
+        include: {
+          user: {
+            include: {
+              position: true,
+              sector: true,
+            },
+          },
+          bonus: {
+            include: {
+              tasks: true,
+              bonusDiscounts: true,
+            },
+          },
+          discounts: true,
+        },
+        page: 1,
+        take: 1000,
+      });
 
-    // Get existing payrolls for this period
-    const existingPayrolls = await this.payrollRepository.findMany({
-      where: {
-        year,
-        month,
-      },
-      include: defaultInclude,
-      orderBy: params.orderBy || { createdAt: 'desc' },
-      page: 1,
-      take: 1000, // Get all for this period
-    });
+      // Create map of saved payrolls by userId
+      const savedPayrollMap = new Map(
+        savedPayrolls.data.map(p => [p.userId, p])
+      );
 
-    // Create a map of existing payrolls by userId
-    const existingPayrollMap = new Map(
-      existingPayrolls.data.map(p => [p.userId, p])
-    );
+      // Get live bonus data for current period
+      const liveBonusData = await this.bonusService.calculateLiveBonuses(
+        yearNum || currentPeriod.year,
+        monthNum || currentPeriod.month
+      );
+      const liveBonusMap = new Map(
+        liveBonusData.bonuses.map(b => [b.userId, b])
+      );
 
-    // Check if the bonus period is closed
-    const now = new Date();
-    const currentDay = now.getDate();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = now.getFullYear();
+      // Generate payrolls for all active users
+      const allPayrolls = allActiveUsers.map(user => {
+        const savedPayroll = savedPayrollMap.get(user.id);
+        const liveBonus = liveBonusMap.get(user.id);
 
-    // Period closes on day 26 of the month
-    const isPeriodClosed = (
-      year < currentYear ||
-      (year === currentYear && month < currentMonth) ||
-      (year === currentYear && month === currentMonth && currentDay >= 26)
-    );
-
-
-    // Generate payrolls for all active users
-    const allPayrolls = await Promise.all(
-      allActiveUsers.map(async (user) => {
-        // Check if user is eligible for bonus
-        const isEligibleForBonus = user.performanceLevel > 0 && user.position?.bonifiable === true;
-
-        // If payroll exists, use it (adding live bonus if needed)
-        if (existingPayrollMap.has(user.id)) {
-          const existingPayroll = existingPayrollMap.get(user.id)!;
-
-          // If no bonus but eligible, calculate live data
-          if (!existingPayroll.bonus && isEligibleForBonus) {
-            const liveBonus = await this.calculateLiveBonusData(
-              user.id,
-              year,
-              month,
-            );
-            return {
-              ...existingPayroll,
-              bonus: liveBonus,
-              isLive: false, // Payroll is saved, only bonus is live
-            };
-          }
-
+        if (savedPayroll) {
+          // Use saved payroll, but add live bonus if no saved bonus
           return {
-            ...existingPayroll,
-            isLive: false, // Saved payroll
+            ...savedPayroll,
+            bonus: savedPayroll.bonus || (liveBonus ? {
+              id: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+              userId: user.id,
+              year: currentPeriod.year,
+              month: currentPeriod.month,
+              baseBonus: liveBonus.baseBonus,
+              performanceLevel: liveBonus.performanceLevel,
+              tasks: liveBonus.tasks,
+              bonusDiscounts: [],
+              isLive: true,
+            } : null),
+            isLive: false,
           };
         }
 
-        // No saved payroll exists - create temporary one
+        // No saved payroll - create temporary one
         const baseRemuneration = user.position?.remunerations?.[0]?.value || 0;
-
-        // Calculate live bonus only if eligible
-        const liveBonus = isEligibleForBonus
-          ? await this.calculateLiveBonusData(user.id, year, month)
-          : null;
-
-        // Use a UUID-like format for temporary IDs to avoid validation issues
-        // Include year and month in the ID to ensure uniqueness
-        const yearMonth = `${year.toString().padStart(4, '0')}${month.toString().padStart(2, '0')}`;
-        const userIdPrefix = user.id.substring(0, 12);
-        const tempId = `00000000-${yearMonth}-0000-0000-${userIdPrefix}`;
+        const tempId = `temp-${user.id}-${currentPeriod.year}-${currentPeriod.month}`;
 
         return {
           id: tempId,
           userId: user.id,
-          year,
-          month,
+          year: yearNum || currentPeriod.year,
+          month: monthNum || currentPeriod.month,
           baseRemuneration,
           positionId: user.position?.id || null,
           user,
-          bonus: liveBonus,
+          bonus: liveBonus ? {
+            id: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+            userId: user.id,
+            year: currentPeriod.year,
+            month: currentPeriod.month,
+            baseBonus: liveBonus.baseBonus,
+            performanceLevel: liveBonus.performanceLevel,
+            tasks: liveBonus.tasks,
+            bonusDiscounts: [],
+            isLive: true,
+          } : null,
           discounts: [],
-          isLive: true,  // Mark as live calculation
-          isTemporary: true, // Additional flag for clarity
+          isLive: true,
+          isTemporary: true,
           createdAt: new Date(),
           updatedAt: new Date(),
         };
-      })
-    );
-
-    const totalRecords = allPayrolls.length;
-    const page = 1;
-    const take = totalRecords;
-    const totalPages = 1;
-
-    return {
-      success: true,
-      message: 'Folhas de pagamento obtidas com sucesso.',
-      data: allPayrolls as any,
-      meta: {
-        totalRecords,
-        page,
-        take,
-        totalPages,
-        hasNextPage: false,
-        hasPreviousPage: false,
-      },
-    };
-  }
-
-  /**
-   * Calculate live bonus data for a user when no bonus exists
-   * @private
-   */
-  private async calculateLiveBonusData(
-    userId: string,
-    year: number,
-    month: number,
-  ): Promise<any> {
-    try {
-
-      // Calculate live bonus using bonus service directly
-      const payrollData = await this.bonusService.getPayrollData({
-        year: year.toString(),
-        month: month.toString(),
-      });
-
-      const userBonus = payrollData.bonuses.find(b => b.userId === userId);
-      const bonusValue = userBonus?.bonusValue || 0;
-
-      // Get user details for performance level
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { performanceLevel: true },
-      });
-
-
-      // Also get the actual tasks for this period to show in UI
-      const startDate = new Date(year, month - 2, 26); // Previous month 26th
-      const endDate = new Date(year, month - 1, 25, 23, 59, 59); // Current month 25th
-
-      const tasks = await this.prisma.task.findMany({
-        where: {
-          commission: {
-            in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION'],
-          },
-          finishedAt: {
-            gte: startDate,
-            lte: endDate,
-          },
-          status: 'COMPLETED',
-          createdById: userId, // Filter tasks for this specific user only
-        },
-        include: {
-          customer: true,
-          createdBy: true,
-          sector: true,
-          services: true,
-        },
-        orderBy: {
-          finishedAt: 'desc', // Order by completion date for better display
-        },
       });
 
       return {
-        id: `live-${userId}-${year}-${month}`,
-        year,
-        month,
-        userId,
-        baseBonus: bonusValue,
-        performanceLevel: user?.performanceLevel || 0,
-        tasks: tasks || [],
-        users: [],
-        isLive: true,
-        totalTasks: userBonus?.totalTasks || 0,
-        weightedTaskCount: userBonus?.weightedTaskCount || 0,
-        totalUsers: payrollData.totalActiveUsers || 0, // Total eligible users (EFFECTED + bonifiable + performance > 0)
+        success: true,
+        message: 'Folhas de pagamento obtidas com sucesso (incluindo cálculos ao vivo).',
+        data: allPayrolls as any,
+        meta: {
+          totalRecords: allPayrolls.length,
+          page: 1,
+          take: allPayrolls.length,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+          currentPeriod,
+          isLiveCalculationIncluded: true,
+          liveCalculationStats: {
+            totalActiveUsers: liveBonusData.totalActiveUsers,
+            averageTasksPerEmployee: liveBonusData.averageTasksPerEmployee,
+            totalWeightedTasks: liveBonusData.totalWeightedTasks,
+          },
+        },
       };
     } catch (error) {
-      this.logger.error('Error calculating live bonus data:', error);
-
-      // Return minimal structure on error
-      return {
-        id: `live-${userId}-${year}-${month}`,
-        year,
-        month,
-        userId,
-        baseBonus: 0,
-        performanceLevel: 0,
-        tasks: [],
-        users: [],
-        isLive: true,
-        totalTasks: 0,
-        weightedTaskCount: 0,
-        totalUsers: 0,
-      };
+      this.logger.error('Error getting payrolls with live calculation:', error);
+      throw new InternalServerErrorException('Erro ao buscar folhas de pagamento.');
     }
   }
+
+  // =====================
+  // Bonus Simulation
+  // =====================
 
   /**
    * Simulate bonuses for all users with optional filters
@@ -804,32 +728,22 @@ export class PayrollService {
     excludeUserIds?: string[];
   }): Promise<any> {
     try {
-      const { year, month, taskQuantity, sectorIds = [], excludeUserIds = [] } = params;
+      const { year, month, sectorIds = [], excludeUserIds = [] } = params;
 
+      // Get live bonus data from BonusService
+      const liveBonusData = await this.bonusService.calculateLiveBonuses(year, month);
 
-      // Get all payroll data for the period
-      // This returns live calculations with bonuses already calculated
-      const payrollData = await this.bonusService.getPayrollData({
-        year: year.toString(),
-        month: month.toString(),
-      });
-
-      // Get all users from the bonus calculation to add their full details
-      const userIds = payrollData.bonuses.map((b: any) => b.userId);
-
+      // Get all user details
+      const userIds = liveBonusData.bonuses.map(b => b.userId);
       const users = await this.prisma.user.findMany({
-        where: {
-          id: { in: userIds },
-        },
+        where: { id: { in: userIds } },
         include: {
           position: {
             select: {
               id: true,
               name: true,
               remunerations: {
-                orderBy: {
-                  createdAt: 'desc',
-                },
+                orderBy: { createdAt: 'desc' },
                 take: 1,
               },
             },
@@ -843,67 +757,51 @@ export class PayrollService {
         },
       });
 
-      // Apply filters AFTER getting all bonus data (for display purposes only)
-      let filteredBonuses = payrollData.bonuses;
+      // Apply filters
+      let filteredBonuses = liveBonusData.bonuses;
 
       if (sectorIds.length > 0) {
-        filteredBonuses = filteredBonuses.filter((bonus: any) => {
+        filteredBonuses = filteredBonuses.filter(bonus => {
           const user = users.find(u => u.id === bonus.userId);
           return user && sectorIds.includes(user.sector?.id || '');
         });
       }
 
       if (excludeUserIds.length > 0) {
-        filteredBonuses = filteredBonuses.filter((bonus: any) => {
+        filteredBonuses = filteredBonuses.filter(bonus => {
           return !excludeUserIds.includes(bonus.userId);
         });
       }
 
-      // Map the filtered bonuses to include full user details
-      const usersWithBonuses = filteredBonuses.map((bonus: any) => {
+      // Map bonuses to include full user details
+      const usersWithBonuses = filteredBonuses.map(bonus => {
         const user = users.find(u => u.id === bonus.userId);
         if (!user) return null;
 
-        // Get the latest remuneration value
         const latestRemuneration = user.position?.remunerations?.[0]?.value || 0;
 
         return {
           userId: user.id,
           userName: user.name,
-          userEmail: user.email || '',
           sectorId: user.sector?.id || '',
           sectorName: user.sector?.name || 'Sem setor',
           positionId: user.position?.id || '',
           positionName: user.position?.name || 'Sem cargo',
           remuneration: latestRemuneration,
           performanceLevel: user.performanceLevel,
-          bonusAmount: bonus.bonusValue || 0,
-          totalTasks: bonus.totalTasks || 0,
-          weightedTaskCount: bonus.weightedTaskCount || 0,
+          bonusAmount: bonus.baseBonus,
+          weightedTaskCount: bonus.tasks.reduce((sum: number, t: any) => {
+            if (t.commission === 'FULL_COMMISSION') return sum + 1.0;
+            if (t.commission === 'PARTIAL_COMMISSION') return sum + 0.5;
+            return sum;
+          }, 0),
         };
       }).filter(Boolean);
 
-      // Calculate summary statistics
-      // IMPORTANT: Calculate from ALL bonuses (payrollData.bonuses), not just filtered ones
-      // This gives the true totals regardless of frontend filters
-      const allBonusesData = payrollData.bonuses.map((bonus: any) => {
-        const user = users.find(u => u.id === bonus.userId);
-        return {
-          bonusAmount: bonus.bonusValue || 0,
-          weightedTaskCount: bonus.weightedTaskCount || 0,
-        };
-      });
-
-      const totalBonusAmount = allBonusesData.reduce((sum, b: any) => sum + b.bonusAmount, 0);
-      const averageBonusAmount = allBonusesData.length > 0 ? totalBonusAmount / allBonusesData.length : 0;
-
-      // The weightedTaskCount is the same for all users (sector-wide average)
-      const averageTasksPerUser = allBonusesData.length > 0 && allBonusesData[0]?.weightedTaskCount
-        ? allBonusesData[0].weightedTaskCount
-        : 0;
-
-      // For filtered results, calculate their specific totals
-      const filteredTotalBonus = usersWithBonuses.reduce((sum, user: any) => sum + (user.bonusAmount || 0), 0);
+      // Calculate summary
+      const totalBonusAmount = liveBonusData.bonuses.reduce((sum, b) => sum + b.baseBonus, 0);
+      const averageBonusAmount = liveBonusData.bonuses.length > 0 ? totalBonusAmount / liveBonusData.bonuses.length : 0;
+      const filteredTotalBonus = usersWithBonuses.reduce((sum, u: any) => sum + (u.bonusAmount || 0), 0);
       const filteredAverageBonus = usersWithBonuses.length > 0 ? filteredTotalBonus / usersWithBonuses.length : 0;
 
       return {
@@ -912,12 +810,10 @@ export class PayrollService {
         data: {
           users: usersWithBonuses,
           summary: {
-            // Global summary (all eligible users)
-            totalUsers: allBonusesData.length,
+            totalUsers: liveBonusData.totalActiveUsers,
             totalBonusAmount,
             averageBonusAmount,
-            averageTasksPerUser,
-            // Filtered summary (visible users)
+            averageTasksPerUser: liveBonusData.averageTasksPerEmployee,
             filteredUsers: usersWithBonuses.length,
             filteredTotalBonus,
             filteredAverageBonus,
@@ -925,12 +821,11 @@ export class PayrollService {
           parameters: {
             year,
             month,
-            taskQuantity: taskQuantity || 0,
-            userQuantity: allBonusesData.length,
+            userQuantity: liveBonusData.totalActiveUsers,
             filteredUserQuantity: usersWithBonuses.length,
             sectorFilter: sectorIds.length > 0 ? sectorIds : null,
             excludedUsers: excludeUserIds.length > 0 ? excludeUserIds : null,
-            averageTasksPerUser,
+            averageTasksPerUser: liveBonusData.averageTasksPerEmployee,
           },
         },
       };
@@ -939,5 +834,4 @@ export class PayrollService {
       throw new InternalServerErrorException('Erro ao simular bonificações.');
     }
   }
-
 }

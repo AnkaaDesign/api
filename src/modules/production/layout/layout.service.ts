@@ -4,6 +4,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { Layout } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { FileService } from '@modules/common/file/file.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
 import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../schemas';
 import { LayoutPrismaRepository } from './repositories/layout-prisma.repository';
@@ -16,6 +17,7 @@ export class LayoutService {
     private readonly prisma: PrismaService,
     private readonly layoutRepository: LayoutPrismaRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly fileService: FileService,
   ) {}
 
   async findById(id: string, include?: any): Promise<Layout | null> {
@@ -96,6 +98,7 @@ export class LayoutService {
     side: 'left' | 'right' | 'back',
     data: LayoutCreateFormData,
     userId?: string,
+    photoFile?: Express.Multer.File,
   ): Promise<Layout> {
     this.logger.log('');
     this.logger.log('═══════════════════════════════════════════════════════════════');
@@ -105,16 +108,18 @@ export class LayoutService {
       truckId,
       side,
       userId,
+      hasPhotoFile: !!photoFile,
+      photoFileName: photoFile?.originalname,
       data: {
         height: data.height,
-        sectionsCount: data.sections?.length,
-        sections: data.sections?.map(s => ({
+        layoutSectionsCount: data.layoutSections?.length,
+        layoutSections: data.layoutSections?.map(s => ({
           width: s.width,
           isDoor: s.isDoor,
-          doorOffset: s.doorOffset,
+          doorHeight: s.doorHeight,
           position: s.position,
         })),
-        totalWidth: data.sections?.reduce((sum, s) => sum + s.width, 0),
+        totalWidth: data.layoutSections?.reduce((sum, s) => sum + s.width, 0),
         photoId: data.photoId,
       },
     });
@@ -168,6 +173,26 @@ export class LayoutService {
         existingLayoutId: existingLayout?.id,
       });
 
+      // Upload photo file if provided (only for backside)
+      let photoId = data.photoId || null;
+      if (photoFile && side === 'back') {
+        this.logger.log(`[BACKEND] 📷 Uploading layout photo for ${side} side`);
+        const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
+          tx,
+          photoFile,
+          'layoutPhotos',
+          userId || '',
+          {
+            entityType: 'LAYOUT',
+          },
+        );
+        photoId = uploadedPhoto.id;
+        this.logger.log(`[BACKEND] ✅ Photo uploaded successfully:`, {
+          photoId,
+          filename: photoFile.originalname,
+        });
+      }
+
       let layout: Layout;
 
       if (existingLayout) {
@@ -200,12 +225,12 @@ export class LayoutService {
         layout = await tx.layout.create({
           data: {
             height: data.height,
-            ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
+            ...(photoId && { photo: { connect: { id: photoId } } }),
             layoutSections: {
-              create: data.sections.map((section, index) => ({
+              create: data.layoutSections.map((section, index) => ({
                 width: section.width,
                 isDoor: section.isDoor,
-                doorOffset: section.doorOffset,
+                doorHeight: section.doorHeight,
                 position: section.position ?? index,
               })),
             },
@@ -252,12 +277,12 @@ export class LayoutService {
         layout = await tx.layout.create({
           data: {
             height: data.height,
-            ...(data.photoId && { photo: { connect: { id: data.photoId } } }),
+            ...(photoId && { photo: { connect: { id: photoId } } }),
             layoutSections: {
-              create: data.sections.map((section, index) => ({
+              create: data.layoutSections.map((section, index) => ({
                 width: section.width,
                 isDoor: section.isDoor,
-                doorOffset: section.doorOffset,
+                doorHeight: section.doorHeight,
                 position: section.position ?? index,
               })),
             },
@@ -273,7 +298,7 @@ export class LayoutService {
         this.logger.log(`[BACKEND] ✅ New layout created successfully:`, {
           layoutId: layout.id,
           height: layout.height,
-          sectionsCount: (layout as any).layoutSections?.length || 0,
+          layoutSectionsCount: (layout as any).layoutSections?.length || 0,
         });
 
         // Update truck with new layout
@@ -302,7 +327,7 @@ export class LayoutService {
       this.logger.log(`[BACKEND] 🎉 FINAL RESULT:`, {
         layoutId: layout.id,
         height: layout.height,
-        sectionsCount: (layout as any).layoutSections?.length || 0,
+        layoutSectionsCount: (layout as any).layoutSections?.length || 0,
         side,
         truckId,
       });
@@ -319,10 +344,10 @@ export class LayoutService {
       throw new NotFoundException('Layout não encontrado');
     }
 
-    // Handle both old JSON format and new LayoutSection entity format
-    const sections = (layout.sections as any[]) || [];
+    // Use layoutSections from database
+    const layoutSections = (layout as any).layoutSections || [];
     const height = layout.height * 1000; // Convert to mm
-    const totalLength = sections.reduce((sum, s) => sum + s.width * 1000, 0);
+    const totalLength = layoutSections.reduce((sum: number, s: any) => sum + s.width * 1000, 0);
 
     const marginX = 50;
     const marginY = 50;
@@ -339,21 +364,24 @@ export class LayoutService {
 
     // Draw vertical section lines and door lines
     let currentX = marginX;
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i];
+    for (let i = 0; i < layoutSections.length; i++) {
+      const section = layoutSections[i];
       const sectionWidth = section.width * 1000;
 
       // Draw vertical line between sections (except for the last one)
-      if (i < sections.length - 1) {
+      if (i < layoutSections.length - 1) {
         svgContent += `
     <line x1="${currentX + sectionWidth}" y1="${marginY}" x2="${currentX + sectionWidth}" y2="${marginY + height}" stroke="#000" stroke-width="1"/>`;
       }
 
       // Draw door top line if this section is a door
-      if (section.isDoor && section.doorOffset !== null && section.doorOffset !== undefined) {
-        const doorOffset = section.doorOffset * 1000;
+      // doorHeight is measured from bottom of layout to top of door opening
+      // So the door top line Y position = marginY + (height - doorHeight)
+      if (section.isDoor && section.doorHeight !== null && section.doorHeight !== undefined) {
+        const doorHeightMm = section.doorHeight * 1000;
+        const doorTopY = marginY + (height - doorHeightMm);
         svgContent += `
-    <line x1="${currentX}" y1="${marginY + doorOffset}" x2="${currentX + sectionWidth}" y2="${marginY + doorOffset}" stroke="#000" stroke-width="1"/>`;
+    <line x1="${currentX}" y1="${doorTopY}" x2="${currentX + sectionWidth}" y2="${doorTopY}" stroke="#000" stroke-width="1"/>`;
       }
 
       currentX += sectionWidth;
@@ -372,8 +400,8 @@ export class LayoutService {
 
     // Add width dimensions for each section
     currentX = marginX;
-    for (let i = 0; i < sections.length; i++) {
-      const section = sections[i];
+    for (let i = 0; i < layoutSections.length; i++) {
+      const section = layoutSections[i];
       const sectionWidth = section.width * 1000;
 
       svgContent += `
@@ -386,18 +414,20 @@ export class LayoutService {
     <polygon points="${currentX + sectionWidth - 5},${marginY + height + 20} ${currentX + sectionWidth - 10},${marginY + height + 17} ${currentX + sectionWidth - 10},${marginY + height + 23}" fill="#0066cc"/>
     <text x="${currentX + sectionWidth / 2}" y="${marginY + height + 35}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc">${sectionWidth} mm</text>`;
 
-      // Add door offset dimension if this section is a door
-      if (section.isDoor && section.doorOffset !== null && section.doorOffset !== undefined) {
-        const doorOffset = section.doorOffset * 1000;
+      // Add door height dimension if this section is a door
+      // doorHeight is measured from bottom of layout to top of door opening
+      if (section.isDoor && section.doorHeight !== null && section.doorHeight !== undefined) {
+        const doorHeightMm = section.doorHeight * 1000;
+        const doorTopY = marginY + (height - doorHeightMm);
         svgContent += `
 
-    <!-- Door offset for section ${i + 1} -->
-    <line x1="${currentX + sectionWidth + 20}" y1="${marginY}" x2="${currentX + sectionWidth + 20}" y2="${marginY + doorOffset}" stroke="#0066cc" stroke-width="0.5"/>
-    <line x1="${currentX + sectionWidth + 15}" y1="${marginY}" x2="${currentX + sectionWidth + 25}" y2="${marginY}" stroke="#0066cc" stroke-width="0.5"/>
-    <line x1="${currentX + sectionWidth + 15}" y1="${marginY + doorOffset}" x2="${currentX + sectionWidth + 25}" y2="${marginY + doorOffset}" stroke="#0066cc" stroke-width="0.5"/>
-    <polygon points="${currentX + sectionWidth + 20},${marginY + 5} ${currentX + sectionWidth + 17},${marginY + 10} ${currentX + sectionWidth + 23},${marginY + 10}" fill="#0066cc"/>
-    <polygon points="${currentX + sectionWidth + 20},${marginY + doorOffset - 5} ${currentX + sectionWidth + 17},${marginY + doorOffset - 10} ${currentX + sectionWidth + 23},${marginY + doorOffset - 10}" fill="#0066cc"/>
-    <text x="${currentX + sectionWidth + 30}" y="${marginY + doorOffset / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(90, ${currentX + sectionWidth + 30}, ${marginY + doorOffset / 2})">${doorOffset} mm</text>`;
+    <!-- Door height for section ${i + 1} -->
+    <line x1="${currentX + sectionWidth + 20}" y1="${doorTopY}" x2="${currentX + sectionWidth + 20}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
+    <line x1="${currentX + sectionWidth + 15}" y1="${doorTopY}" x2="${currentX + sectionWidth + 25}" y2="${doorTopY}" stroke="#0066cc" stroke-width="0.5"/>
+    <line x1="${currentX + sectionWidth + 15}" y1="${marginY + height}" x2="${currentX + sectionWidth + 25}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
+    <polygon points="${currentX + sectionWidth + 20},${doorTopY + 5} ${currentX + sectionWidth + 17},${doorTopY + 10} ${currentX + sectionWidth + 23},${doorTopY + 10}" fill="#0066cc"/>
+    <polygon points="${currentX + sectionWidth + 20},${marginY + height - 5} ${currentX + sectionWidth + 17},${marginY + height - 10} ${currentX + sectionWidth + 23},${marginY + height - 10}" fill="#0066cc"/>
+    <text x="${currentX + sectionWidth + 30}" y="${doorTopY + doorHeightMm / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(90, ${currentX + sectionWidth + 30}, ${doorTopY + doorHeightMm / 2})">${doorHeightMm} mm</text>`;
       }
 
       currentX += sectionWidth;

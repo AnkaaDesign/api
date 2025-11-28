@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { PayrollController } from './payroll.controller';
 import { PayrollService } from './payroll.service';
 import { PayrollRepository } from './repositories/payroll/payroll.repository';
@@ -16,7 +16,7 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
   imports: [
     PrismaModule,
     UserModule,
-    BonusModule,
+    forwardRef(() => BonusModule),
     ChangeLogModule,
   ],
   controllers: [PayrollController, DiscountController],
