@@ -207,7 +207,7 @@ export class SecullumController {
    */
   @Get('calculations')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER)
   @HttpCode(HttpStatus.OK)
   async getCalculations(
     @UserId() userId: string,
