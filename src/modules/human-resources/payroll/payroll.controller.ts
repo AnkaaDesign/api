@@ -245,6 +245,7 @@ export class PayrollController {
 
   /**
    * Get live payroll calculation for the current user
+   * Returns payroll in the SAME structure as saved payroll (with bonus as relation)
    */
   @Get('live')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
@@ -255,15 +256,22 @@ export class PayrollController {
     @UserId() userId: string,
   ) {
     const now = new Date();
-    return this.payrollService.calculateLivePayrollData(
+    const payroll = await this.payrollService.calculateLivePayrollData(
       userId,
       now.getFullYear(),
       now.getMonth() + 1,
     );
+
+    return {
+      success: true,
+      message: 'Cálculo da folha de pagamento obtido com sucesso.',
+      data: payroll,
+    };
   }
 
   /**
    * Get live payroll calculation for a specific user and period
+   * Returns payroll in the SAME structure as saved payroll (with bonus as relation)
    */
   @Get('live/:userId/:year/:month')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
@@ -282,7 +290,13 @@ export class PayrollController {
       throw new Error('Ano deve estar entre 2020 e 2030');
     }
 
-    return this.payrollService.calculateLivePayrollData(targetUserId, year, month);
+    const payroll = await this.payrollService.calculateLivePayrollData(targetUserId, year, month);
+
+    return {
+      success: true,
+      message: 'Cálculo da folha de pagamento obtido com sucesso.',
+      data: payroll,
+    };
   }
 
   // =====================
@@ -448,9 +462,14 @@ export class PayrollController {
       defaultInclude,
     );
 
-    // If no saved payroll, calculate live
+    // If no saved payroll, calculate live (returns same structure as saved)
     if (!payroll) {
-      return this.payrollService.calculateLivePayrollData(userId, year, month);
+      const livePayroll = await this.payrollService.calculateLivePayrollData(userId, year, month);
+      return {
+        success: true,
+        message: 'Folha de pagamento obtida com sucesso (cálculo ao vivo).',
+        data: livePayroll,
+      };
     }
 
     return {

@@ -103,10 +103,9 @@ export class PayrollPrismaRepository
     // Handle nested discounts creation
     if (discounts && discounts.length > 0) {
       createInput.discounts = {
-        create: discounts.map((discount, index) => ({
+        create: discounts.map((discount) => ({
           percentage: discount.percentage,
           value: discount.value,
-          calculationOrder: discount.calculationOrder || index + 1,
           reference: discount.reference,
         })),
       };
@@ -135,10 +134,9 @@ export class PayrollPrismaRepository
     if (discounts !== undefined) {
       updateInput.discounts = {
         deleteMany: {}, // Delete all existing discounts
-        create: discounts.map((discount, index) => ({
+        create: discounts.map((discount) => ({
           percentage: discount.percentage,
           value: discount.value,
-          calculationOrder: discount.calculationOrder || index + 1,
           reference: discount.reference,
         })),
       };
@@ -215,7 +213,7 @@ export class PayrollPrismaRepository
         },
       },
       discounts: {
-        orderBy: { calculationOrder: 'asc' },
+        orderBy: { createdAt: 'asc' },
       },
       position: {
         include: {

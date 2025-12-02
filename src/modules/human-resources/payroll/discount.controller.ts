@@ -128,27 +128,6 @@ export class DiscountController {
     };
   }
 
-  @Put('order/:payrollId')
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @WriteRateLimit()
-  async updateDiscountOrder(
-    @Param('payrollId', ParseUUIDPipe) payrollId: string,
-    @Body() data: { updates: { id: string; calculationOrder: number }[] },
-    @UserId() userId: string,
-  ) {
-    const updatedDiscounts = await this.discountService.updateDiscountOrder(
-      payrollId,
-      data.updates,
-      userId,
-    );
-
-    return {
-      success: true,
-      message: 'Ordem dos descontos atualizada com sucesso',
-      data: updatedDiscounts,
-    };
-  }
-
   // Dynamic routes (must come after static routes)
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)

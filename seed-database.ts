@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, PayrollDiscountType } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 const csv = require('csv-parser');
 import { createReadStream } from 'fs';
 import * as bcrypt from 'bcrypt';
+import axios from 'axios';
 
 // Import validation utilities for data quality
-import { isValidCPF, isValidCNPJ, isValidPhone } from './src/utils/validators';
+import { isValidCPF, isValidCNPJ, isValidPhone, isValidPIS } from './src/utils/validators';
 
 // Import enums and sort orders from constants (ADAPTED: using local constants instead of package)
 import {
@@ -105,6 +106,396 @@ const dataQuality = {
     withOldTaxField: 0,
   },
 };
+
+/**
+ * Persistent Discounts Data - extracted from payroll receipts (Aug-Oct 2025)
+ *
+ * Discount types:
+ * - ADVANCE (Code 981 - DESC.ADIANT.SALARIAL): Salary advance paid on 15th (~40% of base salary)
+ *   This is a COMPANY-WIDE policy - all employees receive an advance on the 15th
+ *   The advance is then discounted from their end-of-month payroll
+ *
+ * - LOAN (Code 9750 - DESC. EMP. CRED. TRAB): Employee loans (specific employees only)
+ * - ALIMONY (Code 205 - PENSAO ALIMENTICIA): Court-ordered child support (specific employees)
+ * - AUTHORIZED_DISCOUNT (Code 211 - DESCONTOS AUTORIZADOS): Other authorized deductions
+ */
+interface PersistentDiscountConfig {
+  type: PayrollDiscountType;
+  value?: number; // Fixed value in BRL
+  percentage?: number; // Percentage of gross salary (0-100)
+  reference: string; // Description for the discount
+  expirationDate?: Date; // When the discount expires (for loans)
+}
+
+/**
+ * Company-wide salary advance percentage
+ * All employees receive an advance on the 15th of each month
+ * This is approximately 40% of their base salary
+ */
+const COMPANY_ADVANCE_PERCENTAGE = 40;
+
+/**
+ * Employee-specific LOANS (not advances - advances are company-wide)
+ * Maps payroll number (barcode) to loan discounts
+ * These are employee credit/loan deductions from specific financial arrangements
+ */
+const employeeLoanDiscounts: Record<number, PersistentDiscountConfig[]> = {
+  // Alisson Nantes da Silva (barcode 34) - Employee Loan
+  34: [
+    { type: PayrollDiscountType.LOAN, value: 569.30, reference: 'Empréstimo Funcionário - Crédito Trabalhador R$ 569,30' },
+  ],
+  // José Antônio de Almeida Júnior (barcode 7) - Employee Loan
+  7: [
+    { type: PayrollDiscountType.LOAN, value: 885.10, reference: 'Empréstimo Funcionário - Crédito Trabalhador R$ 885,10' },
+  ],
+};
+
+/**
+ * Employee-specific ALIMONY (court-ordered)
+ * Maps employee names to alimony percentage
+ * Alimony is calculated as a percentage of gross salary (typically bonus/gratificação)
+ */
+const employeeAlimonyByName: Record<string, { percentage: number; reference: string }> = {
+  'Davyd Jefferson Sobral Alves': { percentage: 30, reference: 'Pensão Alimentícia 30%' },
+};
+
+/**
+ * Hardcoded bonus values from payroll PDFs
+ * Maps payroll number (barcode) -> month -> bonus value
+ * Used for testing payroll calculations against real PDF data
+ *
+ * Format: { [payrollNumber]: { [month]: bonusValue } }
+ * Month: 8 = August, 9 = September, 10 = October
+ */
+// Hardcoded bonus values (GRATIFICACOES) from payroll PDFs
+// Format: { [payrollNumber]: { [month]: bonusValue } }
+// Month: 8 = August, 9 = September, 10 = October
+const hardcodedBonusByPayrollNumber: Record<number, Record<number, number>> = {
+  3: { 8: 1110.73, 9: 2393.73, 10: 2157.42 },   // Gleverton Armangni Costa
+  6: { 8: 1216.06, 9: 2470.42, 10: 1968.66 },   // Celio Lourenço dos Santos
+  7: { 8: 564.01, 9: 1336.38, 10: 1280.00 },    // Jose Antonio de Almeida Junior
+  10: { 8: 838.00, 9: 2653.43, 10: 2157.42 },   // Michael Alves Ferreira
+  13: { 8: 707.02, 9: 1029.02, 10: 985.72 },    // Davyd Jefferson Sobral Alves
+  19: { 8: 299.66, 9: 834.04, 10: 985.72 },     // Fabio Aparecido Rodrigues
+  20: { 8: 836.74, 9: 1336.38, 10: 1194.67 },   // Pedro Antonio de Oliveira
+  24: { 8: 836.74, 9: 1336.38, 10: 1280.00 },   // Breno Willian dos Santos Silva
+  25: { 8: 201.21, 9: 1086.38, 10: 1030.00 },   // Pedro Henrique Canheti
+  33: { 8: 836.74, 9: 1477.06, 10: 1280.00 },   // Igor Santos de Faria
+  34: { 8: 707.02, 9: 1191.50, 10: 985.72 },    // Alisson Nantes da Silva
+  35: { 8: 299.66, 9: 834.04, 10: 688.66 },     // Wellington Modenuti de Souza
+  37: { 8: 176.80, 9: 432.18, 10: 413.19 },     // Joao Vitor Neves Silva
+  43: { 8: 176.80, 9: 432.18, 10: 413.19 },     // Fabio Martins Nunes
+  46: { 8: 352.29, 9: 238.84, 10: 277.17 },     // João Paulo dos Santos Neto
+  49: { 8: 0, 9: 0, 10: 0 },                     // Alisson Souza da Silva (no bonus)
+  50: { 8: 352.29, 9: 216.10, 10: 277.17 },     // Matheus Henrique Jaco de Souza
+  51: { 8: 272.73, 9: 0, 10: 0 },                // Lucas Eduardo Ferreira (only Aug)
+  52: { 8: 0, 9: 0, 10: 0 },                     // Gabriel Aparecido dos Santos (no bonus)
+  53: { 8: 272.73, 9: 0, 10: 0 },                // Gustavo Costa de Oliveira (only Aug)
+  57: { 8: 0, 9: 0, 10: 0 },                     // Alessandro Junior (no bonus)
+  58: { 8: 0, 9: 0, 10: 0 },                     // Henrique Natan (no bonus)
+  59: { 8: 0, 9: 0, 10: 0 },                     // Gabriel Kaick (no bonus - only Oct)
+  60: { 8: 0, 9: 0, 10: 0 },                     // Weverton Aparecido (no bonus - only Oct)
+};
+
+// ============================================================================
+// SECULLUM INTEGRATION FOR SEED DATA
+// ============================================================================
+// Fetches real overtime, absence, and night differential data from Secullum API
+// Uses OAuth2 authentication and maps employees by CPF/PIS/payrollNumber
+
+interface SecullumPayrollData {
+  employeeId: string;
+  secullumId: string;
+  period: { year: number; month: number; startDate: string; endDate: string };
+  normalHours: number;
+  nightHours: number;
+  overtime50: number;
+  overtime100: number;
+  absenceHours: number;
+  absenceDays: number;
+  lateArrivalMinutes: number;
+  dsrDays: number;
+  dsrHours: number;
+  workingDaysInMonth: number;
+  workedDays: number;
+  sundays: number;
+  holidays: number;
+}
+
+// Cache for Secullum employees to avoid repeated API calls
+let secullumEmployeesCache: any[] | null = null;
+let secullumTokenCache: { token: string; expiresAt: Date } | null = null;
+
+/**
+ * Secullum API integration for seed script
+ * Provides real overtime, absence, and time tracking data
+ */
+class SecullumSeedIntegration {
+  private baseUrl = process.env.SECULLUM_BASE_URL || 'https://pontoweb.secullum.com.br';
+  private authUrl = 'https://autenticador.secullum.com.br/Token';
+  private email = process.env.SECULLUM_EMAIL;
+  private password = process.env.SECULLUM_PASSWORD;
+  private databaseId = process.env.SECULLUM_DATABASE_ID || '4c8681f2e79a4b7ab58cc94503106736';
+  private clientId = process.env.SECULLUM_CLIENT_ID || '3';
+
+  /**
+   * Check if Secullum credentials are configured
+   */
+  isConfigured(): boolean {
+    return !!(this.email && this.password);
+  }
+
+  /**
+   * Authenticate with Secullum OAuth2
+   */
+  private async authenticate(): Promise<string | null> {
+    // Check cache first
+    if (secullumTokenCache && secullumTokenCache.expiresAt > new Date()) {
+      return secullumTokenCache.token;
+    }
+
+    if (!this.email || !this.password) {
+      console.log('    ⚠️  Secullum credentials not configured - using zero values for time tracking');
+      return null;
+    }
+
+    try {
+      const formData = new URLSearchParams();
+      formData.append('grant_type', 'password');
+      formData.append('username', this.email);
+      formData.append('password', this.password);
+      formData.append('client_id', this.clientId);
+      formData.append('scope', 'api');
+
+      const response = await axios.post(this.authUrl, formData.toString(), {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 10000,
+      });
+
+      if (response.data?.access_token) {
+        const expiresIn = response.data.expires_in || 3600;
+        secullumTokenCache = {
+          token: response.data.access_token,
+          expiresAt: new Date(Date.now() + expiresIn * 1000 - 60000), // 1 min buffer
+        };
+        return response.data.access_token;
+      }
+      return null;
+    } catch (error: any) {
+      console.log('    ⚠️  Secullum authentication failed:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Get all Secullum employees (cached)
+   */
+  private async getEmployees(): Promise<any[]> {
+    if (secullumEmployeesCache) return secullumEmployeesCache;
+
+    const token = await this.authenticate();
+    if (!token) return [];
+
+    try {
+      const response = await axios.get(`${this.baseUrl}/Funcionarios`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          secullumbancoselecionado: this.databaseId,
+        },
+        timeout: 30000,
+      });
+
+      secullumEmployeesCache = response.data || [];
+      return secullumEmployeesCache;
+    } catch (error: any) {
+      console.log('    ⚠️  Failed to fetch Secullum employees:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * Find Secullum employee by CPF, PIS, or payroll number
+   */
+  private async findSecullumEmployee(params: {
+    cpf?: string | null;
+    pis?: string | null;
+    payrollNumber?: number | null;
+  }): Promise<{ secullumId: string; nome: string } | null> {
+    const employees = await this.getEmployees();
+    if (employees.length === 0) return null;
+
+    const normalizeCpf = (cpf: string | null): string => cpf ? cpf.replace(/[.-]/g, '') : '';
+    const userCpf = normalizeCpf(params.cpf || null);
+    const userPis = params.pis || '';
+    const userPayrollNumber = params.payrollNumber?.toString() || '';
+
+    const match = employees.find((emp: any) => {
+      const empCpf = normalizeCpf(emp.Cpf || '');
+      const empPis = emp.NumeroPis || '';
+      const empPayrollNumber = (emp.NumeroFolha || '').toString();
+
+      return (userCpf && empCpf === userCpf) ||
+             (userPis && empPis === userPis) ||
+             (userPayrollNumber && empPayrollNumber === userPayrollNumber);
+    });
+
+    return match ? { secullumId: match.Id.toString(), nome: match.Nome } : null;
+  }
+
+  /**
+   * Get payroll period dates (26th to 25th)
+   */
+  private getPayrollPeriodDates(year: number, month: number): { startDate: string; endDate: string } {
+    const startMonth = month === 1 ? 12 : month - 1;
+    const startYear = month === 1 ? year - 1 : year;
+    const startDate = `${startYear}-${startMonth.toString().padStart(2, '0')}-26`;
+    const endDate = `${year}-${month.toString().padStart(2, '0')}-25`;
+    return { startDate, endDate };
+  }
+
+  /**
+   * Parse time string to decimal hours (e.g., "08:30" -> 8.5)
+   */
+  private parseTimeToDecimalHours(timeStr: string | null): number {
+    if (!timeStr || timeStr === '--:--' || timeStr === '00:00') return 0;
+    if (timeStr.includes(':')) {
+      const parts = timeStr.split(':');
+      const hours = parseInt(parts[0]) || 0;
+      const minutes = parseInt(parts[1]) || 0;
+      const seconds = parseInt(parts[2]) || 0;
+      return hours + minutes / 60 + seconds / 3600;
+    }
+    return parseFloat(timeStr) || 0;
+  }
+
+  /**
+   * Get working days info for a month
+   */
+  private getWorkingDaysInMonth(year: number, month: number): { workingDays: number; sundays: number } {
+    const lastDay = new Date(year, month, 0);
+    let workingDays = 0;
+    let sundays = 0;
+
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      const date = new Date(year, month - 1, day);
+      if (date.getDay() === 0) sundays++;
+      else workingDays++;
+    }
+
+    return { workingDays, sundays };
+  }
+
+  /**
+   * Get payroll data from Secullum for an employee
+   */
+  async getPayrollData(params: {
+    userId: string;
+    cpf?: string | null;
+    pis?: string | null;
+    payrollNumber?: number | null;
+    year: number;
+    month: number;
+  }): Promise<SecullumPayrollData> {
+    const { userId, cpf, pis, payrollNumber, year, month } = params;
+    const { workingDays, sundays } = this.getWorkingDaysInMonth(year, month);
+
+    // Default empty data
+    const emptyData: SecullumPayrollData = {
+      employeeId: userId,
+      secullumId: '',
+      period: { year, month, ...this.getPayrollPeriodDates(year, month) },
+      normalHours: 0,
+      nightHours: 0,
+      overtime50: 0,
+      overtime100: 0,
+      absenceHours: 0,
+      absenceDays: 0,
+      lateArrivalMinutes: 0,
+      dsrDays: sundays,
+      dsrHours: 0,
+      workingDaysInMonth: workingDays,
+      workedDays: workingDays,
+      sundays,
+      holidays: 0,
+    };
+
+    // Find the Secullum employee
+    const secullumEmployee = await this.findSecullumEmployee({ cpf, pis, payrollNumber });
+    if (!secullumEmployee) return emptyData;
+
+    const token = await this.authenticate();
+    if (!token) return emptyData;
+
+    try {
+      const { startDate, endDate } = this.getPayrollPeriodDates(year, month);
+      const endpoint = `/Calculos/${secullumEmployee.secullumId}/${startDate}/${endDate}`;
+
+      const response = await axios.get(`${this.baseUrl}${endpoint}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          secullumbancoselecionado: this.databaseId,
+        },
+        timeout: 30000,
+      });
+
+      const calcData = response.data;
+      if (!calcData) return emptyData;
+
+      // Parse Secullum calculation data
+      const columns = calcData.Colunas || [];
+      const totals = calcData.Totais || [];
+
+      // Find column indexes by name patterns
+      const findColumnIndex = (searchTerms: string[]): number => {
+        return columns.findIndex((col: any) =>
+          searchTerms.some(term =>
+            col.Nome?.toLowerCase().includes(term.toLowerCase()) ||
+            col.NomeExibicao?.toLowerCase().includes(term.toLowerCase())
+          )
+        );
+      };
+
+      const normalHoursIdx = findColumnIndex(['normais', 'horas trabalhadas', 'horas normais']);
+      const nightHoursIdx = findColumnIndex(['not.', 'noturnas', 'horas noturnas']);
+      const overtime50Idx = findColumnIndex(['ex50%', '50%', 'extra 50']);
+      const overtime100Idx = findColumnIndex(['ex100%', '100%', 'extra 100']);
+      const absenceIdx = findColumnIndex(['faltas', 'ausências', 'horas falta']);
+      const lateIdx = findColumnIndex(['atras', 'atrasos', 'atraso']);
+
+      const normalHours = normalHoursIdx >= 0 ? this.parseTimeToDecimalHours(totals[normalHoursIdx]) : 0;
+      const nightHours = nightHoursIdx >= 0 ? this.parseTimeToDecimalHours(totals[nightHoursIdx]) : 0;
+      const overtime50 = overtime50Idx >= 0 ? this.parseTimeToDecimalHours(totals[overtime50Idx]) : 0;
+      const overtime100 = overtime100Idx >= 0 ? this.parseTimeToDecimalHours(totals[overtime100Idx]) : 0;
+      const absenceHours = absenceIdx >= 0 ? this.parseTimeToDecimalHours(totals[absenceIdx]) : 0;
+      const lateMinutes = lateIdx >= 0 ? this.parseTimeToDecimalHours(totals[lateIdx]) * 60 : 0;
+
+      return {
+        employeeId: userId,
+        secullumId: secullumEmployee.secullumId,
+        period: { year, month, startDate, endDate },
+        normalHours,
+        nightHours,
+        overtime50,
+        overtime100,
+        absenceHours,
+        absenceDays: absenceHours > 0 ? Math.ceil(absenceHours / 8) : 0,
+        lateArrivalMinutes: lateMinutes,
+        dsrDays: sundays,
+        dsrHours: 0,
+        workingDaysInMonth: workingDays,
+        workedDays: workingDays - (absenceHours > 0 ? Math.ceil(absenceHours / 8) : 0),
+        sundays,
+        holidays: 0,
+      };
+    } catch (error: any) {
+      // Silently fall back to empty data - don't spam logs for each employee/month
+      return emptyData;
+    }
+  }
+}
+
+// Global instance for seed script
+const secullumIntegration = new SecullumSeedIntegration();
 
 // Utility functions
 function cleanValue(value: any): any {
@@ -267,6 +658,189 @@ function parseBoolean(value: any): boolean {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return false;
+}
+
+/**
+ * Parse a date string in DD/MM/YYYY format (Brazilian format)
+ * Returns null if invalid or empty
+ */
+function parseBrazilianDate(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || typeof dateStr !== 'string' || dateStr.trim() === '') return null;
+
+  const trimmed = dateStr.trim();
+  const parts = trimmed.split('/');
+
+  if (parts.length !== 3) return null;
+
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const year = parseInt(parts[2], 10);
+
+  // Validate parts
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  if (day < 1 || day > 31) return null;
+  if (month < 1 || month > 12) return null;
+  if (year < 1900 || year > 2100) return null;
+
+  // Create date (month is 0-indexed in JS)
+  const date = new Date(year, month - 1, day);
+
+  // Validate the date is valid (handles cases like 31/02/2025)
+  if (date.getDate() !== day || date.getMonth() !== month - 1 || date.getFullYear() !== year) {
+    return null;
+  }
+
+  return date;
+}
+
+/**
+ * Adjust a date to Friday if it falls on a weekend
+ * Per Brazilian labor law, experience period end dates adjust to Friday
+ */
+function adjustToFridayIfWeekend(date: Date): Date {
+  const dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday
+
+  if (dayOfWeek === 0) {
+    // Sunday -> Friday (subtract 2 days)
+    return new Date(date.getTime() - 2 * 24 * 60 * 60 * 1000);
+  } else if (dayOfWeek === 6) {
+    // Saturday -> Friday (subtract 1 day)
+    return new Date(date.getTime() - 1 * 24 * 60 * 60 * 1000);
+  }
+
+  return date;
+}
+
+/**
+ * Calculate user status and status dates based on admission date
+ * Experience periods are 45 days each (total 90 days trial)
+ *
+ * Status transitions:
+ * - EXPERIENCE_PERIOD_1: First 45 days after admission
+ * - EXPERIENCE_PERIOD_2: Days 46-90 after admission
+ * - EFFECTED: After 90 days of admission
+ * - DISMISSED: Terminated employee
+ */
+function calculateUserStatusFromAdmission(
+  admissionDate: Date | null,
+  isDismissed: boolean,
+  dismissalDate: Date | null = null,
+): {
+  status: USER_STATUS;
+  statusOrder: number;
+  exp1StartAt: Date | null;
+  exp1EndAt: Date | null;
+  exp2StartAt: Date | null;
+  exp2EndAt: Date | null;
+  effectedAt: Date | null;
+  dismissedAt: Date | null;
+  isActive: boolean;
+} {
+  const now = new Date();
+
+  // Default values
+  let status: USER_STATUS = USER_STATUS.EFFECTED;
+  let exp1StartAt: Date | null = null;
+  let exp1EndAt: Date | null = null;
+  let exp2StartAt: Date | null = null;
+  let exp2EndAt: Date | null = null;
+  let effectedAt: Date | null = null;
+  let dismissedAt: Date | null = null;
+  let isActive = true;
+
+  // If dismissed, set dismissed status
+  if (isDismissed) {
+    status = USER_STATUS.DISMISSED;
+    dismissedAt = dismissalDate || new Date();
+    isActive = false;
+
+    // Still calculate experience dates for history
+    if (admissionDate) {
+      exp1StartAt = new Date(admissionDate);
+      const rawExp1EndAt = new Date(admissionDate.getTime() + 45 * 24 * 60 * 60 * 1000);
+      exp1EndAt = adjustToFridayIfWeekend(rawExp1EndAt);
+
+      exp2StartAt = new Date(exp1EndAt.getTime() + 1 * 24 * 60 * 60 * 1000);
+      const rawExp2EndAt = new Date(exp2StartAt.getTime() + 45 * 24 * 60 * 60 * 1000);
+      exp2EndAt = adjustToFridayIfWeekend(rawExp2EndAt);
+
+      // If they were dismissed after experience, assume they completed experience (set effectedAt)
+      // Effected date is the day AFTER experience period ends (exp2EndAt + 1 day)
+      if (dismissedAt > exp2EndAt) {
+        effectedAt = new Date(exp2EndAt.getTime() + 1 * 24 * 60 * 60 * 1000);
+      }
+    }
+
+    return {
+      status,
+      statusOrder: USER_STATUS_ORDER[status],
+      exp1StartAt,
+      exp1EndAt,
+      exp2StartAt,
+      exp2EndAt,
+      effectedAt,
+      dismissedAt,
+      isActive,
+    };
+  }
+
+  // Active employee - calculate status based on admission date
+  if (!admissionDate) {
+    // No admission date - assume already effected (legacy employees)
+    return {
+      status: USER_STATUS.EFFECTED,
+      statusOrder: USER_STATUS_ORDER[USER_STATUS.EFFECTED],
+      exp1StartAt: null,
+      exp1EndAt: null,
+      exp2StartAt: null,
+      exp2EndAt: null,
+      effectedAt: null,
+      dismissedAt: null,
+      isActive: true,
+    };
+  }
+
+  // Calculate experience period dates
+  exp1StartAt = new Date(admissionDate);
+  const rawExp1EndAt = new Date(admissionDate.getTime() + 45 * 24 * 60 * 60 * 1000);
+  exp1EndAt = adjustToFridayIfWeekend(rawExp1EndAt);
+
+  exp2StartAt = new Date(exp1EndAt.getTime() + 1 * 24 * 60 * 60 * 1000);
+  const rawExp2EndAt = new Date(exp2StartAt.getTime() + 45 * 24 * 60 * 60 * 1000);
+  exp2EndAt = adjustToFridayIfWeekend(rawExp2EndAt);
+
+  // Determine current status based on today's date
+  // Compare using start of day to avoid time-of-day issues
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const exp1EndStart = new Date(exp1EndAt.getFullYear(), exp1EndAt.getMonth(), exp1EndAt.getDate());
+  const exp2EndStart = new Date(exp2EndAt.getFullYear(), exp2EndAt.getMonth(), exp2EndAt.getDate());
+
+  if (todayStart <= exp1EndStart) {
+    // Still in first experience period (end date is INCLUSIVE)
+    status = USER_STATUS.EXPERIENCE_PERIOD_1;
+    effectedAt = null;
+  } else if (todayStart <= exp2EndStart) {
+    // In second experience period (end date is INCLUSIVE)
+    status = USER_STATUS.EXPERIENCE_PERIOD_2;
+    effectedAt = null;
+  } else {
+    // Completed both experience periods - effected
+    // Effected date is the day AFTER experience period ends (exp2EndAt + 1 day)
+    status = USER_STATUS.EFFECTED;
+    effectedAt = new Date(exp2EndAt.getTime() + 1 * 24 * 60 * 60 * 1000);
+  }
+
+  return {
+    status,
+    statusOrder: USER_STATUS_ORDER[status],
+    exp1StartAt,
+    exp1EndAt,
+    exp2StartAt,
+    exp2EndAt,
+    effectedAt,
+    dismissedAt: null,
+    isActive: true,
+  };
 }
 
 function parseFloatValue(value: any): number {
@@ -508,7 +1082,12 @@ async function migrateUsers() {
   let fabioEmailComData: any = null;
   let fabioEmailComEmployeeData: any = null;
 
-  // First pass: find kennedy.kobra@gmail.com, save plotter data, and handle fabio unification
+  // Track the primary user ID for Wellington (modenuti2@gmail.com is the employee, we1993.www@gmail.com is the admin)
+  let wellingtonPrimaryUserId: string | null = null;
+  let wellingtonAdminData: any = null;
+  let wellingtonAdminEmployeeData: any = null;
+
+  // First pass: find kennedy.kobra@gmail.com, save plotter data, and handle fabio/wellington unification
   for (const user of users) {
     const userEmail = user.email?.toLowerCase();
 
@@ -528,6 +1107,15 @@ async function migrateUsers() {
       fabioEmailComEmployeeData = userEmployeeMap.get(user._id);
       console.log(
         `  📌 Found 1603fabiorodrigues@email.com, will unify with 1603fabiorodrigues@gmail.com`,
+      );
+    }
+
+    // Wellington admin account (we1993.www@gmail.com) should be unified with employee account (modenuti2@gmail.com)
+    if (userEmail === 'we1993.www@gmail.com') {
+      wellingtonAdminData = user;
+      wellingtonAdminEmployeeData = userEmployeeMap.get(user._id);
+      console.log(
+        `  📌 Found we1993.www@gmail.com (Wellington admin), will unify with modenuti2@gmail.com`,
       );
     }
   }
@@ -582,6 +1170,27 @@ async function migrateUsers() {
             // Fabio (gmail) hasn't been created yet, store for later mapping
             fabioEmailComData = user;
             fabioEmailComEmployeeData = userEmployeeMap.get(user._id);
+          }
+          continue;
+        }
+
+        // Handle unification of we1993.www@gmail.com (admin) and modenuti2@gmail.com (employee)
+        if (userEmail === 'we1993.www@gmail.com') {
+          console.log(
+            `  ⏭️  Skipping we1993.www@gmail.com (unified with modenuti2@gmail.com)`,
+          );
+
+          // Map this user's ID to wellington's employee ID for later references
+          if (wellingtonPrimaryUserId) {
+            idMappings.users[user._id] = wellingtonPrimaryUserId;
+            const employee = userEmployeeMap.get(user._id);
+            if (employee) {
+              idMappings.users[employee._id] = wellingtonPrimaryUserId;
+            }
+          } else {
+            // Wellington employee hasn't been created yet, store for later mapping
+            wellingtonAdminData = user;
+            wellingtonAdminEmployeeData = userEmployeeMap.get(user._id);
           }
           continue;
         }
@@ -660,7 +1269,38 @@ async function migrateUsers() {
         let email = user.email?.toLowerCase() || null;
         let phone = cleanPhoneNumber(user.number);
         let cpf = employee ? cleanCPF(employee.cpf) : null;
-        let pis = employee?.pis || null;
+        let pis: string | null = null;
+
+        // The old API stored both PIS and CPF in the 'pis' field
+        // Detect which one it actually is and assign to the correct field
+        if (employee?.pis) {
+          const pisValue = employee.pis.replace(/[^\d]/g, ''); // Clean to digits only
+          if (pisValue.length === 11) {
+            const isPIS = isValidPIS(pisValue);
+            const isCPF = isValidCPF(pisValue);
+
+            if (isPIS && !isCPF) {
+              // It's a valid PIS
+              pis = pisValue;
+              console.log(`  📋 PIS detected for ${user.name}: ${pisValue}`);
+            } else if (isCPF && !isPIS) {
+              // It's actually a CPF stored in the pis field
+              if (!cpf) {
+                cpf = pisValue;
+                console.log(`  🔄 CPF detected in PIS field for ${user.name}: ${pisValue} → moved to CPF`);
+              } else {
+                console.log(`  ⚠️  CPF in PIS field for ${user.name}: ${pisValue} but user already has CPF: ${cpf}`);
+              }
+            } else if (isPIS && isCPF) {
+              // Valid for both (rare) - prefer PIS since that's what the field was named
+              pis = pisValue;
+              console.log(`  📋 Value valid as both PIS and CPF for ${user.name}: ${pisValue} → using as PIS`);
+            } else {
+              // Invalid for both
+              console.log(`  ⚠️  Invalid PIS/CPF value for ${user.name}: ${pisValue} (skipping)`);
+            }
+          }
+        }
 
         // Track data quality
         dataQuality.users.total++;
@@ -745,70 +1385,77 @@ async function migrateUsers() {
               Math.floor(Math.random() * 28) + 1,
             );
 
-        // Admissional date: random date between 2015 and 2024
-        const admissional = employee?.admissional
-          ? new Date(employee.admissional)
-          : new Date(
-              2015 + Math.floor(Math.random() * 10),
-              Math.floor(Math.random() * 12),
-              Math.floor(Math.random() * 28) + 1,
-            );
+        // Admissional date: parse from DD/MM/YYYY format (Brazilian format) or use existing ISO format
+        // The 'admission' field is in users.csv (DD/MM/YYYY format), employees.csv may also have it
+        let admissional: Date | null = null;
+        let admissionSource: string = '';
 
-        // ADAPTED: Calculate status timestamp fields based on status
+        // First try to parse from user's 'admission' field (DD/MM/YYYY format from users.csv)
+        if (user?.admission) {
+          admissional = parseBrazilianDate(user.admission);
+          if (admissional) {
+            admissionSource = `users.csv: ${user.admission}`;
+          }
+        }
+
+        // Try employee's 'admission' field if user didn't have it
+        if (!admissional && employee?.admission) {
+          admissional = parseBrazilianDate(employee.admission);
+          if (admissional) {
+            admissionSource = `employees.csv: ${employee.admission}`;
+          }
+        }
+
+        // Fallback to 'admissional' field (legacy ISO format) if no admission date found
+        if (!admissional && employee?.admissional) {
+          admissional = new Date(employee.admissional);
+          if (isNaN(admissional.getTime())) {
+            admissional = null;
+          } else {
+            admissionSource = `employees.csv (ISO): ${employee.admissional}`;
+          }
+        }
+
+        // Log parsed admission date
+        if (admissional && admissionSource) {
+          console.log(`  📅 Parsed admission for ${user.name}: ${admissional.toISOString().split('T')[0]} (from ${admissionSource})`);
+        }
+
+        // If still no admissional date, generate a random one for demo/seed data
+        if (!admissional) {
+          admissional = new Date(
+            2015 + Math.floor(Math.random() * 10),
+            Math.floor(Math.random() * 12),
+            Math.floor(Math.random() * 28) + 1,
+          );
+        }
+
+        // Calculate status and all date fields based on admission date
+        // This uses proper logic from web frontend: 45-day experience periods with weekend adjustments
         const isDismissed = employee?.status === 'DESLIGADO';
-        const userStatus = isDismissed ? USER_STATUS.DISMISSED : USER_STATUS.EFFECTED;
+        const dismissalDate = employee?.dismissal ? new Date(employee.dismissal) : null;
 
-        // Calculate lifecycle dates based on status
-        // Note: Old API doesn't have experience period data, so we calculate reasonable estimates
-        let effectedAt: Date | null = null;
-        let dismissedAt: Date | null = null;
-        let exp1StartAt: Date | null = null;
-        let exp1EndAt: Date | null = null;
-        let exp2StartAt: Date | null = null;
-        let exp2EndAt: Date | null = null;
-        let isActive = true;
+        const statusResult = calculateUserStatusFromAdmission(
+          admissional,
+          isDismissed,
+          dismissalDate,
+        );
 
-        if (isDismissed) {
-          // Dismissed user
-          dismissedAt = employee?.dismissal ? new Date(employee.dismissal) : null;
-          isActive = false;
+        const {
+          status: userStatus,
+          statusOrder,
+          exp1StartAt,
+          exp1EndAt,
+          exp2StartAt,
+          exp2EndAt,
+          effectedAt,
+          dismissedAt,
+          isActive,
+        } = statusResult;
 
-          // If they were dismissed, they must have been effected before
-          // Set effected date to admissional (assuming they completed experience periods)
-          if (admissional) {
-            const admissionalDate = new Date(admissional);
-            // Experience period 1: 45 days from admissional
-            exp1StartAt = new Date(admissionalDate);
-            exp1EndAt = new Date(admissionalDate.getTime() + 45 * 24 * 60 * 60 * 1000);
-
-            // Experience period 2: next 45 days (total 90 days)
-            exp2StartAt = new Date(exp1EndAt);
-            exp2EndAt = new Date(exp1EndAt.getTime() + 45 * 24 * 60 * 60 * 1000);
-
-            // Effected date: after experience periods
-            effectedAt = new Date(exp2EndAt);
-          }
-        } else {
-          // Active/Effected user
-          effectedAt = admissional;
-          isActive = true;
-
-          // Calculate experience periods (45 days each, total 90 days trial)
-          if (admissional) {
-            const admissionalDate = new Date(admissional);
-            exp1StartAt = new Date(admissionalDate);
-            exp1EndAt = new Date(admissionalDate.getTime() + 45 * 24 * 60 * 60 * 1000);
-            exp2StartAt = new Date(exp1EndAt);
-            exp2EndAt = new Date(exp1EndAt.getTime() + 45 * 24 * 60 * 60 * 1000);
-
-            // If current date is before experience end, adjust effected date
-            const now = new Date();
-            if (now < exp2EndAt) {
-              effectedAt = null; // Still in experience period
-            } else {
-              effectedAt = exp2EndAt; // Effected after experience
-            }
-          }
+        // Log status for users with admission dates (only for newer employees in experience periods)
+        if (admissional && (userStatus === USER_STATUS.EXPERIENCE_PERIOD_1 || userStatus === USER_STATUS.EXPERIENCE_PERIOD_2)) {
+          console.log(`  👤 Status for ${user.name}: ${userStatus}`);
         }
 
         // Get payroll number from employee barcode
@@ -835,9 +1482,7 @@ async function migrateUsers() {
             sectorId,
             payrollNumber, // Assign from employee barcode
             status: userStatus,
-            statusOrder: isDismissed
-              ? USER_STATUS_ORDER[USER_STATUS.DISMISSED]
-              : USER_STATUS_ORDER[USER_STATUS.EFFECTED],
+            statusOrder, // Use calculated statusOrder from admission date logic
             verified: true, // Set all users as verified
             // ENHANCED: Set lifecycle timestamp fields
             effectedAt,
@@ -897,6 +1542,23 @@ async function migrateUsers() {
             }
             console.log(
               `  🔗 Mapped 1603fabiorodrigues@email.com references to 1603fabiorodrigues@gmail.com`,
+            );
+          }
+        }
+
+        // Save Wellington's user ID for unification (modenuti2@gmail.com is the employee account)
+        if (userEmail === 'modenuti2@gmail.com') {
+          wellingtonPrimaryUserId = created.id;
+          console.log(`  📌 Saved Wellington's primary user ID for unification`);
+
+          // If wellington admin was found earlier, map it now
+          if (wellingtonAdminData) {
+            idMappings.users[wellingtonAdminData._id] = created.id;
+            if (wellingtonAdminEmployeeData) {
+              idMappings.users[wellingtonAdminEmployeeData._id] = created.id;
+            }
+            console.log(
+              `  🔗 Mapped we1993.www@gmail.com references to modenuti2@gmail.com`,
             );
           }
         }
@@ -994,10 +1656,171 @@ async function migrateUsers() {
       const employee = userEmployeeMap.get(user._id);
       if (employee) {
         idMappings.users[employee._id] = dbUser.id;
+
+        // Update user with employee data (payrollNumber, position, etc.) if not already set
+        let payrollNumber: number | null = null;
+        if (employee.barcode) {
+          const barcodeNum = parseInt(employee.barcode);
+          if (!isNaN(barcodeNum) && barcodeNum > 0) {
+            payrollNumber = barcodeNum;
+          }
+        }
+
+        const positionId = employee.position ? idMappings.positions[employee.position] : null;
+        const admissional = parseBrazilianDate(user.admission || employee.admission);
+        const isDismissed = employee.status === 'DESLIGADO';
+        const statusInfo = admissional
+          ? calculateUserStatusFromAdmission(admissional, isDismissed)
+          : { status: isDismissed ? USER_STATUS.DISMISSED : USER_STATUS.EFFECTED };
+
+        // Update user with employee data
+        try {
+          // Detect if employee.pis is actually a CPF
+          let updatePis: string | null = dbUser.pis;
+          let updateCpf: string | null = dbUser.cpf;
+
+          if (employee.pis) {
+            const pisValue = employee.pis.replace(/[^\d]/g, '');
+            if (pisValue.length === 11) {
+              const isPISValid = isValidPIS(pisValue);
+              const isCPFValid = isValidCPF(pisValue);
+
+              if (isPISValid && !isCPFValid) {
+                updatePis = pisValue;
+              } else if (isCPFValid && !isPISValid) {
+                // It's a CPF stored in pis field
+                if (!dbUser.cpf) {
+                  updateCpf = pisValue;
+                  console.log(`    🔄 CPF detected in PIS field for ${userName}: ${pisValue}`);
+                }
+              } else if (isPISValid && isCPFValid) {
+                updatePis = pisValue; // Valid for both, prefer PIS
+              }
+            }
+          }
+
+          const updateData: any = {
+            payrollNumber: payrollNumber ?? dbUser.payrollNumber,
+            positionId: positionId ?? dbUser.positionId,
+            status: statusInfo.status,
+            admissional: admissional ?? dbUser.admissional,
+            pis: updatePis,
+            cpf: updateCpf,
+          };
+
+          // Add status dates if calculated from admission
+          if ('exp1StartAt' in statusInfo) {
+            updateData.exp1StartAt = statusInfo.exp1StartAt;
+            updateData.exp1EndAt = statusInfo.exp1EndAt;
+            updateData.exp2StartAt = statusInfo.exp2StartAt;
+            updateData.exp2EndAt = statusInfo.exp2EndAt;
+            updateData.effectedAt = statusInfo.effectedAt;
+            updateData.dismissedAt = statusInfo.dismissedAt;
+          }
+
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: updateData,
+          });
+
+          // Log payrollNumber assignment for debugging
+          if (payrollNumber && payrollNumber !== dbUser.payrollNumber) {
+            console.log(`    📋 Updated ${userName}: payrollNumber=${payrollNumber}, position=${positionId ? 'set' : 'null'}, status=${updateData.status}`);
+          }
+        } catch (updateError) {
+          console.error(`  ⚠️  Failed to update employee data for ${userName}:`, updateError);
+        }
       }
       console.log(`  ✅ Mapped CSV user "${userName}" to DB user "${dbUser.name}"`);
     } else {
       console.log(`  ⚠️  No matching user found for "${userName}" (${userEmail || 'no email'})`);
+    }
+  }
+
+  // ============================================================================
+  // MERGE DUPLICATE USERS
+  // ============================================================================
+  // Some users appear twice: once without payrollNumber/position (incomplete record)
+  // and once with proper data. Merge them by keeping the most complete record.
+  console.log('\n🔀 Merging duplicate users...');
+
+  const duplicatesToMerge = [
+    {
+      // Wellington: keep "Wellington Modenuti de Souza" (payrollNumber 35, has position)
+      keepName: 'Wellington Modenuti de Souza',
+      deleteName: 'Wellington Modenuti',
+    },
+    {
+      // Fabio: keep "Fábio Aparecido Rodrigues" (payrollNumber 19, has position)
+      keepName: 'Fábio Aparecido Rodrigues',
+      deleteName: 'Fabio Aparecido Rodrigues',
+    },
+  ];
+
+  for (const duplicate of duplicatesToMerge) {
+    try {
+      // Find the user to keep (the one with more complete data)
+      const keepUser = await prisma.user.findFirst({
+        where: { name: { equals: duplicate.keepName, mode: 'insensitive' } },
+      });
+
+      // Find the user to delete (the incomplete one)
+      const deleteUser = await prisma.user.findFirst({
+        where: {
+          name: { equals: duplicate.deleteName, mode: 'insensitive' },
+          id: { not: keepUser?.id }, // Make sure we don't match the same user
+        },
+      });
+
+      if (keepUser && deleteUser) {
+        console.log(`  🔄 Merging "${deleteUser.name}" into "${keepUser.name}"...`);
+
+        // Update any references from deleteUser to keepUser
+        // Update bonuses
+        await prisma.bonus.updateMany({
+          where: { userId: deleteUser.id },
+          data: { userId: keepUser.id },
+        });
+
+        // Update payrolls
+        await prisma.payroll.updateMany({
+          where: { userId: deleteUser.id },
+          data: { userId: keepUser.id },
+        });
+
+        // Update tasks created by
+        await prisma.task.updateMany({
+          where: { createdById: deleteUser.id },
+          data: { createdById: keepUser.id },
+        });
+
+        // Update activities
+        await prisma.activity.updateMany({
+          where: { userId: deleteUser.id },
+          data: { userId: keepUser.id },
+        });
+
+        // Update withdrawals
+        await prisma.withdrawal.updateMany({
+          where: { userId: deleteUser.id },
+          data: { userId: keepUser.id },
+        });
+
+        // Delete the duplicate user
+        await prisma.user.delete({
+          where: { id: deleteUser.id },
+        });
+
+        console.log(`  ✅ Merged and deleted duplicate "${deleteUser.name}"`);
+      } else if (keepUser && !deleteUser) {
+        console.log(`  ℹ️  No duplicate found for "${duplicate.keepName}" (already clean)`);
+      } else if (!keepUser && deleteUser) {
+        console.log(`  ⚠️  Primary user "${duplicate.keepName}" not found, skipping merge`);
+      } else {
+        console.log(`  ℹ️  Neither "${duplicate.keepName}" nor "${duplicate.deleteName}" found`);
+      }
+    } catch (error: any) {
+      console.error(`  ❌ Error merging ${duplicate.deleteName}:`, error.message);
     }
   }
 
@@ -3992,7 +4815,7 @@ async function migrateTasks() {
         status,
         statusOrder,
         serialNumber,
-        plate,
+        // Note: plate is stored on the Truck record, not Task (Task model doesn't have plate field)
         commission: commissionStatus as COMMISSION_STATUS, // Use varied commission status
         term: parseMongoDate(work.term),
         startedAt: parseMongoDate(work.started_at),
@@ -4639,16 +5462,13 @@ async function createBonusesForEligibleUsers() {
   console.log('💰 Creating bonuses for eligible users with spreadsheet calculation algorithm...');
 
   try {
-    // Get all users with bonifiable positions and performanceLevel > 0
-    // performanceLevel comes from the old 'aliquot' field (1-5 scale)
+    // Get all users with bonifiable positions (regardless of performanceLevel)
+    // Users with performanceLevel = 0 will have bonus value of 0, but all other fields populated
     const eligibleUsers = await prisma.user.findMany({
       where: {
         status: { not: USER_STATUS.DISMISSED },
         position: {
           bonifiable: true,
-        },
-        performanceLevel: {
-          gt: 0, // Only users with performance level > 0 (migrated from aliquot)
         },
       },
       include: {
@@ -4658,9 +5478,8 @@ async function createBonusesForEligibleUsers() {
 
     if (eligibleUsers.length === 0) {
       console.log(
-        '  ⚠️  No eligible users found with bonifiable positions and performanceLevel > 0',
+        '  ⚠️  No eligible users found with bonifiable positions',
       );
-      console.log('  💡 Note: performanceLevel is migrated from the old "aliquot" field');
       return;
     }
 
@@ -4673,18 +5492,11 @@ async function createBonusesForEligibleUsers() {
 
     let totalBonusesCreated = 0;
 
-    // Create bonuses for each month from January to current month (but at least 3 months for demo data)
-    // IMPORTANT: Bonuses are saved to database on the 6th of the following month
-    // Current month bonuses should remain as live calculations until next month's 6th
-    const monthsToCreate = Math.max(3, currentMonth);
+    // Create bonuses only for August, September, and October (months 8, 9, 10)
+    // These are the months with hardcoded bonus values from payroll PDFs
+    const monthsToCreate = [8, 9, 10]; // Aug, Sept, Oct
 
-    for (let month = 1; month <= monthsToCreate; month++) {
-      // Skip current month - bonuses are only saved on the 6th of the NEXT month
-      // Bonus payment is on the 5th, cronjob saves data at midnight on the 6th of next month
-      if (month === currentMonth) {
-        console.log(`  ⏭️  Skipping ${getMonthName(month)} ${currentYear} bonuses - not yet finalized (saves on ${getMonthName(currentMonth + 1)} 6th)`);
-        continue;
-      }
+    for (const month of monthsToCreate) {
 
       console.log(`  📅 Processing bonuses for ${month}/${currentYear}`);
 
@@ -4730,7 +5542,6 @@ async function createBonusesForEligibleUsers() {
           const eligibleUserCount = await prisma.user.count({
             where: {
               status: { not: USER_STATUS.DISMISSED },
-              performanceLevel: { gt: 0 },
               position: {
                 bonifiable: true,
               },
@@ -4810,13 +5621,34 @@ async function createBonusesForEligibleUsers() {
             );
           }
 
-          // Use cascading algorithm to calculate bonus
+          // Get performance level
           const performanceLevel = user.performanceLevel || 1;
-          const bonusValue = calculateBonusValue(
-            user.position!.name,
-            performanceLevel,
-            averageTasksPerUser,
-          );
+
+          // Check if we have hardcoded bonus value for this user/month (only the bonus value is hardcoded)
+          const userPayrollNumber = user.payrollNumber;
+          const hardcodedBonus = userPayrollNumber && hardcodedBonusByPayrollNumber[userPayrollNumber]
+            ? hardcodedBonusByPayrollNumber[userPayrollNumber][month] ?? 0
+            : 0;
+
+          // Use hardcoded bonus value if available, otherwise fall back to calculated value
+          const bonusValue = hardcodedBonus > 0
+            ? hardcodedBonus
+            : calculateBonusValue(
+                user.position!.name,
+                performanceLevel,
+                averageTasksPerUser,
+              );
+
+          // Calculate weighted tasks from REAL task data (FULL_COMMISSION = 1, PARTIAL_COMMISSION = 0.5)
+          // This uses ALL tasks in the period, not filtered by user
+          let userWeightedTasks = 0;
+          for (const task of tasksForB1) {
+            if (task.commission === 'FULL_COMMISSION') {
+              userWeightedTasks += 1;
+            } else if (task.commission === 'PARTIAL_COMMISSION') {
+              userWeightedTasks += 0.5;
+            }
+          }
 
           console.log(`      📊 Calculation details for ${user.name}:`);
           console.log(
@@ -4824,7 +5656,8 @@ async function createBonusesForEligibleUsers() {
           );
           console.log(`         Performance Level: ${performanceLevel}`);
           console.log(`         B1 (Avg Tasks/User): ${averageTasksPerUser}`);
-          console.log(`         Bonus Value: R$ ${bonusValue.toFixed(2)}`);
+          console.log(`         Bonus Value: R$ ${bonusValue.toFixed(2)}${hardcodedBonus > 0 ? ' (FROM PDF)' : ' (calculated)'}`);
+          console.log(`         Weighted Tasks: ${userWeightedTasks}`);
 
           // Determine bonus status based on current date and month
           // For past months or if we're past day 26 of current month, use CONFIRMED
@@ -4835,32 +5668,6 @@ async function createBonusesForEligibleUsers() {
           }
 
           // For demo purposes, all past months should be CONFIRMED
-
-          // Get tasks created by THIS user in the period (for weighted task count)
-          const userTasks = await prisma.task.findMany({
-            where: {
-              createdById: user.id,
-              status: TASK_STATUS.COMPLETED,
-              finishedAt: {
-                gte: startDate,
-                lte: endDate,
-              },
-            },
-            select: {
-              id: true,
-              commission: true,
-            },
-          });
-
-          // Calculate weighted tasks for THIS user
-          let userWeightedTasks = 0;
-          for (const task of userTasks) {
-            if (task.commission === 'FULL_COMMISSION') {
-              userWeightedTasks += 1;
-            } else if (task.commission === 'PARTIAL_COMMISSION') {
-              userWeightedTasks += 0.5;
-            }
-          }
 
           // Create the bonus with all new fields
           const bonus = await prisma.bonus.create({
@@ -4879,52 +5686,8 @@ async function createBonusesForEligibleUsers() {
           bonusesCreatedThisMonth.push(bonus.id);
           totalBonusesCreated++;
 
-          // Create sample bonus discounts for some bonuses to demonstrate calculation scenarios
-          if (Math.random() < 0.3) {
-            // 30% chance of having discounts
-            const discountScenarios = [
-              { reference: 'Faltas injustificadas', percentage: 5, calculationOrder: 1 },
-              { reference: 'Atraso', percentage: 2.5, calculationOrder: 2 },
-              { reference: 'Desconto manual', value: 50, calculationOrder: 3 },
-            ];
-
-            const numDiscounts = Math.floor(Math.random() * 2) + 1; // 1-2 discounts
-            let remainingBonus = bonusValue;
-
-            for (let i = 0; i < numDiscounts; i++) {
-              const discount = discountScenarios[i % discountScenarios.length];
-              await prisma.bonusDiscount.create({
-                data: {
-                  bonusId: bonus.id,
-                  reference: discount.reference,
-                  percentage: discount.percentage
-                    ? new Prisma.Decimal(discount.percentage)
-                    : undefined,
-                  value: discount.value ? new Prisma.Decimal(discount.value) : undefined,
-                  calculationOrder: discount.calculationOrder,
-                },
-              });
-
-              // Calculate discount amount and subtract from remaining bonus
-              if (discount.percentage) {
-                remainingBonus -= remainingBonus * (discount.percentage / 100);
-              } else if (discount.value) {
-                remainingBonus -= discount.value;
-              }
-            }
-
-            // Update netBonus with the discounted amount
-            await prisma.bonus.update({
-              where: { id: bonus.id },
-              data: {
-                netBonus: Math.max(0, remainingBonus), // Ensure not negative
-              },
-            });
-
-            console.log(
-              `      📉 Added ${numDiscounts} sample discount(s) to bonus for ${user.name} - Net: R$ ${Math.max(0, remainingBonus).toFixed(2)}`,
-            );
-          }
+          // NO bonus discounts - using clean bonus values from PDFs for testing
+          // Bonus discounts were removed to ensure payroll calculations match PDF data
 
           console.log(
             `    ✅ Created bonus for ${user.name} - ${month}/${currentYear}: R$ ${bonusValue.toFixed(2)} (B1=${averageTasksPerUser})`,
@@ -5388,6 +6151,8 @@ function calculateFGTS(grossSalary: number, isApprentice: boolean = false): numb
 
 /**
  * Calculate complete payroll for a user
+ * Now includes persistent discounts from payroll receipts data
+ * Fetches real overtime, absence, and night differential data from Secullum API
  */
 async function calculateCompletePayroll(params: {
   userId: string;
@@ -5399,6 +6164,10 @@ async function calculateCompletePayroll(params: {
   useSimplifiedDeduction?: boolean;
   unionMember?: boolean;
   isApprentice?: boolean;
+  payrollNumber?: number | null;
+  userName?: string;
+  cpf?: string | null;
+  pis?: string | null;
 }) {
   const {
     userId,
@@ -5410,32 +6179,56 @@ async function calculateCompletePayroll(params: {
     useSimplifiedDeduction = true,
     unionMember = false,
     isApprentice = false,
+    payrollNumber = null,
+    userName = '',
+    cpf = null,
+    pis = null,
   } = params;
 
-  // Working days defaults
-  const workingDaysInMonth = 22;
-  const workedDaysInMonth = 22;
+  // ========================================================================
+  // SECULLUM INTEGRATION - Fetch real time tracking data
+  // ========================================================================
+  const secullumData = await secullumIntegration.getPayrollData({
+    userId,
+    cpf,
+    pis,
+    payrollNumber,
+    year,
+    month,
+  });
 
-  // For seed data, we'll use simple overtime calculations
-  // Real system would fetch from Secullum
+  // Working days from Secullum or defaults
+  const workingDaysInMonth = secullumData.workingDaysInMonth || 22;
+  const workedDaysInMonth = secullumData.workedDays || workingDaysInMonth;
+
+  // Monthly hours and hourly rate calculation
   const monthlyHours = 220;
   const hourlyRate = baseSalary / monthlyHours;
 
-  // Random overtime for demo (0-20 hours at 50%, 0-8 hours at 100%)
-  const overtime50Hours = Math.random() < 0.5 ? roundCurrency(Math.random() * 20) : 0;
+  // ========================================================================
+  // OVERTIME FROM SECULLUM
+  // ========================================================================
+  // Overtime 50% - normal days (Secullum column: "Ex50%")
+  const overtime50Hours = secullumData.overtime50;
   const overtime50Amount = roundCurrency(overtime50Hours * hourlyRate * 1.5);
 
-  const overtime100Hours = Math.random() < 0.3 ? roundCurrency(Math.random() * 8) : 0;
+  // Overtime 100% - Sundays/holidays (Secullum column: "Ex100%")
+  const overtime100Hours = secullumData.overtime100;
   const overtime100Amount = roundCurrency(overtime100Hours * hourlyRate * 2.0);
 
-  // Night differential (20% on night hours)
-  const nightHours = Math.random() < 0.2 ? roundCurrency(Math.random() * 15) : 0;
+  // ========================================================================
+  // NIGHT DIFFERENTIAL FROM SECULLUM
+  // ========================================================================
+  // Night hours (22h-5h) with 20% additional (Secullum column: "Not.")
+  const nightHours = secullumData.nightHours;
   const nightDifferentialAmount = roundCurrency(nightHours * hourlyRate * 0.2);
 
-  // DSR on overtime (required by law)
+  // ========================================================================
+  // DSR (Descanso Semanal Remunerado) - reflexo sobre horas extras
+  // ========================================================================
   const totalOvertimeAmount = overtime50Amount + overtime100Amount;
-  const sundays = 4;
-  const holidays = 0;
+  const sundays = secullumData.sundays || 4;
+  const holidays = secullumData.holidays || 0;
   const dsrDays = sundays + holidays;
   const dsrAmount =
     workingDaysInMonth > 0
@@ -5443,14 +6236,12 @@ async function calculateCompletePayroll(params: {
       : 0;
 
   // ========================================================================
-  // ABSENCE DEDUCTIONS
+  // ABSENCE DEDUCTIONS FROM SECULLUM
   // ========================================================================
-  // For seed data: NO absences or lateness - these should come from Secullum
-  // In production, the CompletePayrollCalculatorService fetches this from Secullum API
-  const absenceHours = 0;
-  const absenceAmount = 0;
-  const lateArrivalMinutes = 0;
-  const lateArrivalAmount = 0;
+  const absenceHours = secullumData.absenceHours;
+  const absenceAmount = roundCurrency(absenceHours * hourlyRate);
+  const lateArrivalMinutes = secullumData.lateArrivalMinutes;
+  const lateArrivalAmount = roundCurrency((lateArrivalMinutes / 60) * hourlyRate);
 
   // GROSS SALARY (before deductions)
   const grossSalary = roundCurrency(
@@ -5497,16 +6288,62 @@ async function calculateCompletePayroll(params: {
   const unionContribution =
     unionMember && month === 3 ? roundCurrency(baseSalary / 30) : 0;
 
-  // NO random legal deductions - these must come from actual court orders/records
-  const alimony = 0;
+  // Alimony - check by user name (from payroll receipts)
+  // Uses partial matching to handle name variations (e.g., "Davyd Jefferson" vs "Davyd Jefferson Sobral Alves")
+  let alimony = 0;
+  let alimonyConfig: { percentage: number; reference: string } | null = null;
+  if (userName) {
+    // Try exact match first
+    alimonyConfig = employeeAlimonyByName[userName] || null;
+    // If no exact match, try partial matching (key is contained in userName or userName is contained in key)
+    if (!alimonyConfig) {
+      const userNameLower = userName.toLowerCase();
+      for (const [key, value] of Object.entries(employeeAlimonyByName)) {
+        const keyLower = key.toLowerCase();
+        if (userNameLower.includes(keyLower) || keyLower.includes(userNameLower)) {
+          alimonyConfig = value;
+          break;
+        }
+      }
+    }
+  }
+  if (alimonyConfig && alimonyConfig.percentage > 0) {
+    // Alimony is typically calculated on gross salary (or bonus amount if specified)
+    alimony = roundCurrency((grossSalary * alimonyConfig.percentage) / 100);
+  }
+
+  // Garnishment - no garnishments in current payroll data
   const garnishment = 0;
 
   // ========================================================================
-  // LOAN DEDUCTIONS
+  // PERSISTENT DISCOUNTS (from payroll receipts data)
   // ========================================================================
-  // NO random loans - these must come from actual loan records
-  const loans = 0;
-  const advances = 0;
+  const persistentDiscounts: PersistentDiscountConfig[] = [];
+
+  // COMPANY-WIDE ADVANCE: All employees receive an advance on the 15th
+  // This is calculated as ~40% of base salary and discounted from payroll
+  const advances = roundCurrency((baseSalary * COMPANY_ADVANCE_PERCENTAGE) / 100);
+
+  // Add the advance as a persistent discount for all employees
+  persistentDiscounts.push({
+    type: PayrollDiscountType.ADVANCE,
+    value: advances,
+    percentage: COMPANY_ADVANCE_PERCENTAGE,
+    reference: 'Adiantamento Salarial',
+  });
+
+  // EMPLOYEE-SPECIFIC LOANS: Only specific employees have loans
+  let loans = 0;
+  if (payrollNumber && employeeLoanDiscounts[payrollNumber]) {
+    const loanDiscounts = employeeLoanDiscounts[payrollNumber];
+
+    for (const discount of loanDiscounts) {
+      persistentDiscounts.push(discount);
+      loans += discount.value || 0;
+    }
+  }
+
+  loans = roundCurrency(loans);
 
   // ========================================================================
   // FGTS (employer contribution, tracked but not deducted from employee)
@@ -5552,8 +6389,9 @@ async function calculateCompletePayroll(params: {
     nightHours,
     nightDifferentialAmount,
 
-    // DSR
+    // DSR (DSR reflexo = DSR sobre horas extras)
     dsrAmount,
+    dsrDays,
 
     // Bonus
     bonusAmount,
@@ -5573,7 +6411,6 @@ async function calculateCompletePayroll(params: {
     fgtsAmount,
 
     // Absence deductions
-    absenceHours,
     absenceAmount,
     lateArrivalMinutes,
     lateArrivalAmount,
@@ -5592,11 +6429,24 @@ async function calculateCompletePayroll(params: {
     // Loan deductions
     loans,
     advances,
+
+    // Persistent discounts for creating discount records
+    persistentDiscounts,
+    alimonyConfig,
   };
 }
 
 async function createPayrollsForActiveUsers() {
   console.log('\n🔄 Creating Payrolls for Active Users with Complete Calculations...');
+
+  // Check Secullum integration status
+  if (secullumIntegration.isConfigured()) {
+    console.log('  🔗 Secullum integration ENABLED - fetching real overtime/absence data');
+  } else {
+    console.log('  ⚠️  Secullum credentials not configured - using zero values for overtime/absences');
+    console.log('     Set SECULLUM_EMAIL and SECULLUM_PASSWORD environment variables to enable');
+  }
+
   try {
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear();
@@ -5627,16 +6477,21 @@ async function createPayrollsForActiveUsers() {
 
     let totalPayrollsCreated = 0;
 
-    // Create payrolls for each month of the current year (at least 3 months for demo data)
-    // IMPORTANT: Payrolls are saved to database on the 6th of the following month
-    // Current month payrolls should remain as live calculations until next month's 6th
-    const monthsToCreate = Math.max(3, 12);
+    // Create payrolls only for August, September, and October (months 8, 9, 10)
+    // These are the most recent completed months for demo/testing purposes
+    const monthsToCreate = [8, 9, 10]; // August, September, October
 
-    for (let month = 1; month <= monthsToCreate; month++) {
+    for (const month of monthsToCreate) {
       // Skip current month - payrolls are only saved on the 6th of the NEXT month
       // Payroll payment is on the 5th, cronjob saves data at midnight on the 6th of next month
       if (month === currentMonth) {
         console.log(`  ⏭️  Skipping ${getMonthName(month)} ${currentYear} payrolls - not yet finalized (saves on ${getMonthName(currentMonth + 1)} 6th)`);
+        continue;
+      }
+
+      // Skip future months - can't create payrolls for months that haven't happened yet
+      if (month > currentMonth) {
+        console.log(`  ⏭️  Skipping ${getMonthName(month)} ${currentYear} payrolls - future month`);
         continue;
       }
 
@@ -5666,7 +6521,16 @@ async function createPayrollsForActiveUsers() {
             },
           });
 
-          if (existingPayroll) {
+          // Check if existing payroll needs Secullum data update
+          // If Secullum is configured and payroll has zero overtime, we should update it
+          const needsSecullumUpdate = existingPayroll &&
+            secullumIntegration.isConfigured() &&
+            Number(existingPayroll.overtime50Hours) === 0 &&
+            Number(existingPayroll.overtime100Hours) === 0 &&
+            Number(existingPayroll.nightHours) === 0 &&
+            Number(existingPayroll.absenceHours) === 0;
+
+          if (existingPayroll && !needsSecullumUpdate) {
             continue;
           }
 
@@ -5681,9 +6545,11 @@ async function createPayrollsForActiveUsers() {
             },
           });
 
-          const bonusAmount = existingBonus ? Number(existingBonus.total) : 0;
+          const bonusAmount = existingBonus ? Number(existingBonus.netBonus) : 0;
 
           // Calculate complete payroll using the same logic as the API
+          // Now includes persistent discounts from payroll receipts data
+          // Fetches real overtime, absence, and night differential data from Secullum API
           const calculation = await calculateCompletePayroll({
             userId: user.id,
             year: currentYear,
@@ -5694,71 +6560,98 @@ async function createPayrollsForActiveUsers() {
             useSimplifiedDeduction: user.hasSimplifiedDeduction ?? true,
             unionMember: user.unionMember ?? false,
             isApprentice: false,
+            payrollNumber: user.payrollNumber,
+            userName: user.name,
+            cpf: user.cpf,
+            pis: user.pis,
           });
 
-          // Create payroll with all calculated fields
-          const payroll = await prisma.payroll.create({
-            data: {
-              userId: user.id,
-              positionId: user.position!.id,
-              year: currentYear,
-              month: month,
+          // Create or update payroll with all calculated fields
+          // Uses upsert to handle both new payrolls and updates with Secullum data
+          const payrollData = {
+            positionId: user.position!.id,
 
-              // Base values
-              baseRemuneration: calculation.baseRemuneration,
-              workingDaysInMonth: calculation.workingDaysInMonth,
-              workedDaysInMonth: calculation.workedDaysInMonth,
-              absenceHours: calculation.absenceHours,
+            // Base values
+            baseRemuneration: calculation.baseRemuneration,
+            workingDaysInMonth: calculation.workingDaysInMonth,
+            workedDaysInMonth: calculation.workedDaysInMonth,
+            absenceHours: calculation.absenceHours,
 
-              // Overtime
-              overtime50Hours: calculation.overtime50Hours,
-              overtime50Amount: calculation.overtime50Amount,
-              overtime100Hours: calculation.overtime100Hours,
-              overtime100Amount: calculation.overtime100Amount,
-              nightHours: calculation.nightHours,
-              nightDifferentialAmount: calculation.nightDifferentialAmount,
+            // Overtime (from Secullum integration)
+            overtime50Hours: calculation.overtime50Hours,
+            overtime50Amount: calculation.overtime50Amount,
+            overtime100Hours: calculation.overtime100Hours,
+            overtime100Amount: calculation.overtime100Amount,
+            nightHours: calculation.nightHours,
+            nightDifferentialAmount: calculation.nightDifferentialAmount,
 
-              // DSR
-              dsrAmount: calculation.dsrAmount,
+            // DSR (DSR reflexo sobre horas extras)
+            dsrAmount: calculation.dsrAmount,
+            dsrDays: calculation.dsrDays,
 
-              // Totals
-              grossSalary: calculation.grossSalary,
-              totalDiscounts: calculation.totalDiscounts,
-              netSalary: calculation.netSalary,
+            // Totals
+            grossSalary: calculation.grossSalary,
+            totalDiscounts: calculation.totalDiscounts,
+            netSalary: calculation.netSalary,
 
-              // Tax details
-              inssBase: calculation.inssBase,
-              inssAmount: calculation.inssAmount,
-              irrfBase: calculation.irrfBase,
-              irrfAmount: calculation.irrfAmount,
+            // Tax details
+            inssBase: calculation.inssBase,
+            inssAmount: calculation.inssAmount,
+            irrfBase: calculation.irrfBase,
+            irrfAmount: calculation.irrfAmount,
 
-              // FGTS
-              fgtsAmount: calculation.fgtsAmount,
+            // FGTS
+            fgtsAmount: calculation.fgtsAmount,
+          };
 
-              // Create discount records for traceability (ONLY for items that exist)
-              discounts: {
-                create: [
-                  // INSS (mandatory)
+          let payroll;
+
+          if (needsSecullumUpdate && existingPayroll) {
+            // Update existing payroll with Secullum data
+            payroll = await prisma.payroll.update({
+              where: { id: existingPayroll.id },
+              data: payrollData,
+            });
+            console.log(`      🔄 Updated ${user.name}'s ${getMonthName(month)} payroll with Secullum data`);
+          } else {
+            // Create new payroll with discount records
+            payroll = await prisma.payroll.create({
+              data: {
+                userId: user.id,
+                year: currentYear,
+                month: month,
+                ...payrollData,
+
+                // Create discount records for traceability
+                // Schema: discountType, reference, value, percentage, isPersistent, isActive, baseValue
+                discounts: {
+                  create: [
+                  // ========== AUTO-GENERATED TAX DISCOUNTS (monthly recalculated) ==========
+                  // INSS (mandatory) - simplified reference with percentage
                   ...(calculation.inssAmount > 0
                     ? [
                         {
-                          discountType: 'INSS',
-                          reference: 'INSS - Contribuição Previdenciária',
+                          discountType: PayrollDiscountType.INSS,
+                          reference: 'INSS',
                           value: calculation.inssAmount,
-                          calculationOrder: 1,
-                          isAutoGenerated: true,
+                          percentage: calculation.inssBase > 0 ? roundCurrency((calculation.inssAmount / calculation.inssBase) * 100) : null,
+                          baseValue: calculation.inssBase,
+                          isPersistent: false,
+                          isActive: true,
                         },
                       ]
                     : []),
-                  // IRRF (mandatory if applicable)
+                  // IRRF (mandatory if applicable) - simplified reference
                   ...(calculation.irrfAmount > 0
                     ? [
                         {
-                          discountType: 'IRRF',
-                          reference: 'IRRF - Imposto de Renda Retido na Fonte',
+                          discountType: PayrollDiscountType.IRRF,
+                          reference: 'IRRF',
                           value: calculation.irrfAmount,
-                          calculationOrder: 2,
-                          isAutoGenerated: true,
+                          percentage: calculation.irrfBase > 0 ? roundCurrency((calculation.irrfAmount / calculation.irrfBase) * 100) : null,
+                          baseValue: calculation.irrfBase,
+                          isPersistent: false,
+                          isActive: true,
                         },
                       ]
                     : []),
@@ -5766,18 +6659,46 @@ async function createPayrollsForActiveUsers() {
                   ...(calculation.unionContribution > 0
                     ? [
                         {
-                          discountType: 'UNION_CONTRIBUTION',
+                          discountType: PayrollDiscountType.UNION,
                           reference: 'Contribuição Sindical',
                           value: calculation.unionContribution,
-                          calculationOrder: 3,
-                          isAutoGenerated: true,
+                          isPersistent: false,
+                          isActive: true,
                         },
                       ]
                     : []),
-                ],
+
+                  // ========== PERSISTENT DISCOUNTS (from payroll receipts) ==========
+                  // Alimony (if applicable)
+                  ...(calculation.alimony > 0 && calculation.alimonyConfig
+                    ? [
+                        {
+                          discountType: PayrollDiscountType.ALIMONY,
+                          reference: calculation.alimonyConfig.reference,
+                          value: calculation.alimony,
+                          percentage: calculation.alimonyConfig.percentage,
+                          baseValue: calculation.grossSalary,
+                          isPersistent: true,
+                          isActive: true,
+                        },
+                      ]
+                    : []),
+
+                  // Salary advances and loans (from persistent discounts mapping)
+                  ...calculation.persistentDiscounts.map((discount) => ({
+                    discountType: discount.type,
+                    reference: discount.reference,
+                    value: discount.value || 0,
+                    percentage: discount.percentage || null,
+                    isPersistent: true,
+                    isActive: true,
+                    expirationDate: discount.expirationDate || null,
+                  })),
+                  ],
+                },
               },
-            },
-          });
+            });
+          }
 
           // Link bonus to payroll
           if (existingBonus && !existingBonus.payrollId) {
@@ -5785,6 +6706,23 @@ async function createPayrollsForActiveUsers() {
               where: { id: existingBonus.id },
               data: { payrollId: payroll.id },
             });
+          }
+
+          // Log persistent discounts for the first month only (to avoid spam)
+          if (month === 1 && calculation.persistentDiscounts.length > 0) {
+            console.log(
+              `      💰 ${user.name} (Code ${user.payrollNumber}): ${calculation.persistentDiscounts.length} persistent discount(s) - ` +
+                calculation.persistentDiscounts
+                  .map((d) => `${d.type}: R$ ${d.value?.toFixed(2)}`)
+                  .join(', '),
+            );
+          }
+
+          // Log alimony for first month
+          if (month === 1 && calculation.alimony > 0) {
+            console.log(
+              `      ⚖️  ${user.name}: Alimony R$ ${calculation.alimony.toFixed(2)} (${calculation.alimonyConfig?.percentage}% of gross)`,
+            );
           }
 
           monthPayrollsCreated++;
@@ -5820,7 +6758,7 @@ async function main() {
     const deletions = [
       { name: 'BonusDiscount', fn: () => prisma.bonusDiscount.deleteMany({}) },
       { name: 'Bonus', fn: () => prisma.bonus.deleteMany({}) },
-      { name: 'Discount', fn: () => prisma.discount.deleteMany({}) },
+      { name: 'PayrollDiscount', fn: () => prisma.payrollDiscount.deleteMany({}) },
       { name: 'Payroll', fn: () => prisma.payroll.deleteMany({}) },
       { name: 'TaxBracket', fn: () => prisma.taxBracket.deleteMany({}) },
       { name: 'TaxTable', fn: () => prisma.taxTable.deleteMany({}) },
