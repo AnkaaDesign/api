@@ -75,10 +75,7 @@ export class PersonalService {
    * @param query - Query parameters for filtering/pagination
    * @returns User's active borrows
    */
-  async getMyLoans(
-    userId: string,
-    query: BorrowGetManyFormData,
-  ): Promise<BorrowGetManyResponse> {
+  async getMyLoans(userId: string, query: BorrowGetManyFormData): Promise<BorrowGetManyResponse> {
     // Merge user filter with query - user can only see their own borrows
     const userFilteredQuery: BorrowGetManyFormData = {
       ...query,
@@ -138,14 +135,21 @@ export class PersonalService {
       statusOrder: 1, // PENDING order
     };
 
-    this.logger.log(`[PPE Request Service] Final delivery data: ${JSON.stringify(ppeDeliveryData)}`);
+    this.logger.log(
+      `[PPE Request Service] Final delivery data: ${JSON.stringify(ppeDeliveryData)}`,
+    );
 
     try {
       const result = await this.ppeDeliveryService.create(ppeDeliveryData, undefined, userId);
-      this.logger.log(`[PPE Request Service] Request created successfully. Delivery ID: ${result.data.id}`);
+      this.logger.log(
+        `[PPE Request Service] Request created successfully. Delivery ID: ${result.data.id}`,
+      );
       return result;
     } catch (error) {
-      this.logger.error(`[PPE Request Service] Failed to create request for user: ${userId}`, error);
+      this.logger.error(
+        `[PPE Request Service] Failed to create request for user: ${userId}`,
+        error,
+      );
       throw error;
     }
   }
@@ -196,7 +200,7 @@ export class PersonalService {
     // Transform Secullum holidays to match the Holiday interface
     // Secullum returns: { Id, Data, Descricao }
     // Holiday interface requires: { id, name, date, type, createdAt, updatedAt }
-    const transformedHolidays = (secullumResponse.data || []).map((holiday) => ({
+    const transformedHolidays = (secullumResponse.data || []).map(holiday => ({
       id: `secullum-${holiday.Id}`,
       name: holiday.Descricao,
       date: new Date(holiday.Data),

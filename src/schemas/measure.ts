@@ -1,7 +1,7 @@
 // packages/schemas/src/measure.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Measure } from '@types';
 import { MEASURE_UNIT, MEASURE_TYPE } from '@constants';
 
@@ -173,19 +173,19 @@ export const measureWhereSchema: z.ZodSchema = z.lazy(() =>
 // Create schema with validation for SIZE type measures
 export const measureCreateSchema = z
   .object({
-    value: z.number().positive("Valor da medida deve ser positivo").nullish(),
+    value: z.number().positive('Valor da medida deve ser positivo').nullish(),
     unit: z
       .enum(Object.values(MEASURE_UNIT) as [string, ...string[]], {
-        errorMap: () => ({ message: "Unidade de medida inválida" }),
+        errorMap: () => ({ message: 'Unidade de medida inválida' }),
       })
       .nullish(),
     measureType: z.enum(Object.values(MEASURE_TYPE) as [string, ...string[]], {
-      errorMap: () => ({ message: "Tipo de medida inválido" }),
+      errorMap: () => ({ message: 'Tipo de medida inválido' }),
     }),
-    itemId: z.string().uuid({ message: "Item inválido" }),
+    itemId: z.string().uuid({ message: 'Item inválido' }),
   })
   .refine(
-    (data) => {
+    data => {
       // For SIZE type measures (PPE sizes), validate value and unit requirements
       if (data.measureType === MEASURE_TYPE.SIZE) {
         // At least one of value or unit must be provided
@@ -196,31 +196,37 @@ export const measureCreateSchema = z
       }
 
       // For other measure types, both value and unit are required
-      return data.value !== undefined && data.value !== null && data.unit !== undefined && data.unit !== null;
+      return (
+        data.value !== undefined &&
+        data.value !== null &&
+        data.unit !== undefined &&
+        data.unit !== null
+      );
     },
     {
-      message: "Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.",
+      message:
+        'Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.',
     },
   );
 
 // Update schema with same validation
 export const measureUpdateSchema = z
   .object({
-    value: z.number().positive("Valor da medida deve ser positivo").nullish(),
+    value: z.number().positive('Valor da medida deve ser positivo').nullish(),
     unit: z
       .enum(Object.values(MEASURE_UNIT) as [string, ...string[]], {
-        errorMap: () => ({ message: "Unidade de medida inválida" }),
+        errorMap: () => ({ message: 'Unidade de medida inválida' }),
       })
       .nullish(),
     measureType: z
       .enum(Object.values(MEASURE_TYPE) as [string, ...string[]], {
-        errorMap: () => ({ message: "Tipo de medida inválido" }),
+        errorMap: () => ({ message: 'Tipo de medida inválido' }),
       })
       .optional(),
-    itemId: z.string().uuid({ message: "Item inválido" }).optional(),
+    itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // If measureType is being updated to SIZE, validate accordingly
       if (data.measureType === MEASURE_TYPE.SIZE) {
         // At least one of value or unit must be provided
@@ -233,9 +239,19 @@ export const measureUpdateSchema = z
       // For other measure types, if provided, both value and unit should be provided
       if (data.measureType && data.measureType !== MEASURE_TYPE.SIZE) {
         // If updating measureType to non-SIZE type, ensure both value and unit are provided if either is being updated
-        if ((data.value !== undefined && data.value !== null) || (data.unit !== undefined && data.unit !== null)) {
+        if (
+          (data.value !== undefined && data.value !== null) ||
+          (data.unit !== undefined && data.unit !== null)
+        ) {
           // If one is provided, both must be provided for non-SIZE types
-          if (!(data.value !== undefined && data.value !== null && data.unit !== undefined && data.unit !== null)) {
+          if (
+            !(
+              data.value !== undefined &&
+              data.value !== null &&
+              data.unit !== undefined &&
+              data.unit !== null
+            )
+          ) {
             return false;
           }
         }
@@ -244,7 +260,8 @@ export const measureUpdateSchema = z
       return true;
     },
     {
-      message: "Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.",
+      message:
+        'Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.',
     },
   );
 
@@ -289,7 +306,7 @@ export const measureGetManySchema = z
       })
       .optional(),
   })
-  .transform((data) => {
+  .transform(data => {
     // Normalize orderBy to Prisma format
     if (data.orderBy) {
       data.orderBy = normalizeOrderBy(data.orderBy);
@@ -313,10 +330,10 @@ export const measureGetManySchema = z
       delete data.units;
     }
 
-    if (data.valueRange && typeof data.valueRange === "object") {
+    if (data.valueRange && typeof data.valueRange === 'object') {
       const condition: any = {};
-      if (typeof data.valueRange.min === "number") condition.gte = data.valueRange.min;
-      if (typeof data.valueRange.max === "number") condition.lte = data.valueRange.max;
+      if (typeof data.valueRange.min === 'number') condition.gte = data.valueRange.min;
+      if (typeof data.valueRange.max === 'number') condition.lte = data.valueRange.max;
       if (Object.keys(condition).length > 0) {
         andConditions.push({ value: condition });
       }
@@ -359,22 +376,24 @@ export const measureGetByIdSchema = z.object({
 // =====================
 
 export const measureBatchCreateSchema = z.object({
-  measures: z.array(measureCreateSchema).min(1, "Pelo menos uma medida deve ser fornecida"),
+  measures: z.array(measureCreateSchema).min(1, 'Pelo menos uma medida deve ser fornecida'),
 });
 
 export const measureBatchUpdateSchema = z.object({
   measures: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Medida inválida" }),
+        id: z.string().uuid({ message: 'Medida inválida' }),
         data: measureUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const measureBatchDeleteSchema = z.object({
-  measureIds: z.array(z.string().uuid({ message: "Medida inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  measureIds: z
+    .array(z.string().uuid({ message: 'Medida inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -405,9 +424,11 @@ export type MeasureWhere = z.infer<typeof measureWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapMeasureToFormData = createMapToFormDataHelper<Measure, MeasureUpdateFormData>((measure) => ({
-  value: measure.value || undefined,
-  unit: measure.unit || undefined,
-  measureType: measure.measureType,
-  itemId: measure.itemId,
-}));
+export const mapMeasureToFormData = createMapToFormDataHelper<Measure, MeasureUpdateFormData>(
+  measure => ({
+    value: measure.value || undefined,
+    unit: measure.unit || undefined,
+    measureType: measure.measureType,
+    itemId: measure.itemId,
+  }),
+);

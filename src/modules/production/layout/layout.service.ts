@@ -141,7 +141,7 @@ export class LayoutService {
       if (!truck) {
         this.logger.error(`[BACKEND] ❌ Truck NOT FOUND: ${truckId}`);
         throw new NotFoundException(
-          `Caminhão não encontrado para ID ${truckId}. Certifique-se de que a tarefa foi criada corretamente antes de adicionar layouts.`
+          `Caminhão não encontrado para ID ${truckId}. Certifique-se de que a tarefa foi criada corretamente antes de adicionar layouts.`,
         );
       }
 
@@ -197,7 +197,9 @@ export class LayoutService {
 
       if (existingLayout) {
         this.logger.log(`[BACKEND] ⚙️  REPLACE MODE - Existing layout found for ${side} side`);
-        this.logger.log(`[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (delete-then-create approach)`);
+        this.logger.log(
+          `[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (delete-then-create approach)`,
+        );
 
         // First, disconnect the layout from the truck
         await tx.truck.update({

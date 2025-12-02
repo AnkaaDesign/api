@@ -1,9 +1,17 @@
 // packages/interfaces/src/warning.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { WARNING_CATEGORY, WARNING_SEVERITY, ORDER_BY_DIRECTION } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
-import type { File, FileIncludes } from "./file";
+import type { User, UserIncludes, UserOrderBy } from './user';
+import type { File, FileIncludes } from './file';
 
 // =====================
 // Main Entity Interface
@@ -93,5 +101,7 @@ export interface WarningDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface WarningBatchCreateResponse<T> extends BaseBatchResponse<Warning, T> {}
-export interface WarningBatchUpdateResponse<T> extends BaseBatchResponse<Warning, T & { id: string }> {}
-export interface WarningBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface WarningBatchUpdateResponse<T>
+  extends BaseBatchResponse<Warning, T & { id: string }> {}
+export interface WarningBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

@@ -1,10 +1,26 @@
 // packages/interfaces/src/order.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { ORDER_STATUS, SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, ORDER_TRIGGER_TYPE, ORDER_BY_DIRECTION, RESCHEDULE_REASON } from '@constants';
-import type { Supplier, SupplierIncludes, SupplierOrderBy } from "./supplier";
-import type { Item, ItemIncludes, ItemOrderBy, ItemWhere } from "./item";
-import type { File, FileIncludes } from "./file";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  ORDER_BY_DIRECTION,
+} from './common';
+import {
+  ORDER_STATUS,
+  SCHEDULE_FREQUENCY,
+  WEEK_DAY,
+  MONTH,
+  ORDER_TRIGGER_TYPE,
+  RESCHEDULE_REASON,
+} from '@constants';
+import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
+import type { Item, ItemIncludes, ItemOrderBy, ItemWhere } from './item';
+import type { File, FileIncludes } from './file';
 import type {
   PpeDeliverySchedule,
   PpeDeliveryScheduleIncludes,
@@ -14,8 +30,8 @@ import type {
   WeeklyScheduleConfigIncludes,
   MonthlyScheduleConfigIncludes,
   YearlyScheduleConfigIncludes,
-} from "./ppe";
-import type { Activity, ActivityIncludes, ActivityOrderBy } from "./activity";
+} from './ppe';
+import type { Activity, ActivityIncludes, ActivityOrderBy } from './activity';
 
 // =====================
 // Order Schedule Interfaces
@@ -281,11 +297,30 @@ export interface OrderRuleIncludes {
 
 export interface OrderWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  description?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive" };
-  status?: ORDER_STATUS | { equals?: ORDER_STATUS; not?: ORDER_STATUS; in?: ORDER_STATUS[]; notIn?: ORDER_STATUS[] };
-  statusOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  supplierId?: string | null | { equals?: string | null; not?: string | null; in?: string[]; notIn?: string[] };
-  forecast?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
+  description?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+      };
+  status?:
+    | ORDER_STATUS
+    | { equals?: ORDER_STATUS; not?: ORDER_STATUS; in?: ORDER_STATUS[]; notIn?: ORDER_STATUS[] };
+  statusOrder?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  supplierId?:
+    | string
+    | null
+    | { equals?: string | null; not?: string | null; in?: string[]; notIn?: string[] };
+  forecast?:
+    | Date
+    | null
+    | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   AND?: OrderWhere | OrderWhere[];
@@ -297,13 +332,29 @@ export interface OrderItemWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   orderId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  orderedQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  receivedQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  price?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  icms?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  ipi?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
-  receivedAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
-  fulfilledAt?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
+  orderedQuantity?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  receivedQuantity?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  price?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  icms?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  ipi?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  receivedAt?:
+    | Date
+    | null
+    | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
+  fulfilledAt?:
+    | Date
+    | null
+    | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   AND?: OrderItemWhere | OrderItemWhere[];
@@ -313,10 +364,23 @@ export interface OrderItemWhere {
 
 export interface OrderScheduleWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  frequency?: SCHEDULE_FREQUENCY | { equals?: SCHEDULE_FREQUENCY; not?: SCHEDULE_FREQUENCY; in?: SCHEDULE_FREQUENCY[]; notIn?: SCHEDULE_FREQUENCY[] };
+  frequency?:
+    | SCHEDULE_FREQUENCY
+    | {
+        equals?: SCHEDULE_FREQUENCY;
+        not?: SCHEDULE_FREQUENCY;
+        in?: SCHEDULE_FREQUENCY[];
+        notIn?: SCHEDULE_FREQUENCY[];
+      };
   isActive?: boolean | { equals?: boolean; not?: boolean };
-  nextRun?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
-  lastRun?: Date | null | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
+  nextRun?:
+    | Date
+    | null
+    | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
+  lastRun?:
+    | Date
+    | null
+    | { equals?: Date | null; not?: Date | null; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   AND?: OrderScheduleWhere | OrderScheduleWhere[];
@@ -327,10 +391,22 @@ export interface OrderScheduleWhere {
 export interface OrderRuleWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  supplierId?: string | null | { equals?: string | null; not?: string | null; in?: string[]; notIn?: string[] };
+  supplierId?:
+    | string
+    | null
+    | { equals?: string | null; not?: string | null; in?: string[]; notIn?: string[] };
   isActive?: boolean | { equals?: boolean; not?: boolean };
-  triggerType?: ORDER_TRIGGER_TYPE | { equals?: ORDER_TRIGGER_TYPE; not?: ORDER_TRIGGER_TYPE; in?: ORDER_TRIGGER_TYPE[]; notIn?: ORDER_TRIGGER_TYPE[] };
-  priority?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
+  triggerType?:
+    | ORDER_TRIGGER_TYPE
+    | {
+        equals?: ORDER_TRIGGER_TYPE;
+        not?: ORDER_TRIGGER_TYPE;
+        in?: ORDER_TRIGGER_TYPE[];
+        notIn?: ORDER_TRIGGER_TYPE[];
+      };
+  priority?:
+    | number
+    | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number };
   createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
   AND?: OrderRuleWhere | OrderRuleWhere[];
@@ -436,19 +512,26 @@ export interface OrderRuleDeleteResponse extends BaseDeleteResponse {}
 // Order batch operations
 export interface OrderBatchCreateResponse<T> extends BaseBatchResponse<Order, T> {}
 export interface OrderBatchUpdateResponse<T> extends BaseBatchResponse<Order, T & { id: string }> {}
-export interface OrderBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // OrderItem batch operations
 export interface OrderItemBatchCreateResponse<T> extends BaseBatchResponse<OrderItem, T> {}
-export interface OrderItemBatchUpdateResponse<T> extends BaseBatchResponse<OrderItem, T & { id: string }> {}
-export interface OrderItemBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderItemBatchUpdateResponse<T>
+  extends BaseBatchResponse<OrderItem, T & { id: string }> {}
+export interface OrderItemBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // OrderSchedule batch operations
 export interface OrderScheduleBatchCreateResponse<T> extends BaseBatchResponse<OrderSchedule, T> {}
-export interface OrderScheduleBatchUpdateResponse<T> extends BaseBatchResponse<OrderSchedule, T & { id: string }> {}
-export interface OrderScheduleBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderScheduleBatchUpdateResponse<T>
+  extends BaseBatchResponse<OrderSchedule, T & { id: string }> {}
+export interface OrderScheduleBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // OrderRule batch operations
 export interface OrderRuleBatchCreateResponse<T> extends BaseBatchResponse<OrderRule, T> {}
-export interface OrderRuleBatchUpdateResponse<T> extends BaseBatchResponse<OrderRule, T & { id: string }> {}
-export interface OrderRuleBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderRuleBatchUpdateResponse<T>
+  extends BaseBatchResponse<OrderRule, T & { id: string }> {}
+export interface OrderRuleBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

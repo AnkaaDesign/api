@@ -1,7 +1,10 @@
 // packages/utils/src/navigation.ts
 // Navigation utility functions moved from constants package
 
-import { SECTOR_PRIVILEGES, TABLER_ICONS, type MenuItem } from '@constants';
+import type { MenuItem } from '@constants';
+import { SECTOR_PRIVILEGES, TABLER_ICONS } from '@constants';
+
+export type { MenuItem };
 
 // Define minimal user interface for navigation
 interface NavigationUser {
@@ -18,7 +21,11 @@ interface NavigationUser {
 /**
  * Get filtered menu for a specific user and platform
  */
-export function getFilteredMenuForUser(menuItems: MenuItem[], user: NavigationUser, platform: "web" | "mobile"): MenuItem[] {
+export function getFilteredMenuForUser(
+  menuItems: MenuItem[],
+  user: NavigationUser,
+  platform: 'web' | 'mobile',
+): MenuItem[] {
   let filteredMenu = filterMenuByPlatform(menuItems, platform);
 
   // Apply privilege filtering if user has sector/privileges
@@ -72,10 +79,13 @@ function hasMenuItemAccess(item: MenuItem, userPrivilege?: SECTOR_PRIVILEGES): b
  * Filter menu items based on user privileges
  * Now supports both single privileges and arrays of privileges
  */
-export function filterMenuByPrivileges(menuItems: MenuItem[], userPrivilege?: SECTOR_PRIVILEGES): MenuItem[] {
+export function filterMenuByPrivileges(
+  menuItems: MenuItem[],
+  userPrivilege?: SECTOR_PRIVILEGES,
+): MenuItem[] {
   return menuItems
-    .filter((item) => hasMenuItemAccess(item, userPrivilege))
-    .map((item) => {
+    .filter(item => hasMenuItemAccess(item, userPrivilege))
+    .map(item => {
       // Recursively filter children
       if (item.children) {
         return {
@@ -85,7 +95,7 @@ export function filterMenuByPrivileges(menuItems: MenuItem[], userPrivilege?: SE
       }
       return item;
     })
-    .filter((item) => {
+    .filter(item => {
       // Remove items with no children after filtering
       if (item.children && item.children.length === 0) return false;
       return true;
@@ -96,13 +106,16 @@ export function filterMenuByPrivileges(menuItems: MenuItem[], userPrivilege?: SE
  * Filter menu items by platform
  * Note: MenuItem interface doesn't have platforms field anymore, but keeping for backward compatibility
  */
-export function filterMenuByPlatform(menuItems: MenuItem[], platform: "web" | "mobile"): MenuItem[] {
+export function filterMenuByPlatform(
+  menuItems: MenuItem[],
+  platform: 'web' | 'mobile',
+): MenuItem[] {
   return menuItems
     .filter(() => {
       // Since platforms field was removed, show all items on all platforms
       return true;
     })
-    .map((item) => {
+    .map(item => {
       // Recursively filter children
       if (item.children) {
         return {
@@ -121,7 +134,7 @@ export function getControlPanelItems(menuItems: MenuItem[]): MenuItem[] {
   const controlPanels: MenuItem[] = [];
 
   function extractControlPanels(items: MenuItem[]) {
-    items.forEach((item) => {
+    items.forEach(item => {
       if (item.isControlPanel) {
         controlPanels.push(item);
       }
@@ -142,7 +155,7 @@ export function getAllRoutes(menuItems: MenuItem[]): string[] {
   const routes: string[] = [];
 
   function extractRoutes(items: MenuItem[]) {
-    items.forEach((item) => {
+    items.forEach(item => {
       if (item.path && !item.isDynamic) {
         routes.push(item.path);
       }
@@ -183,10 +196,10 @@ export function getBreadcrumbs(menuItems: MenuItem[], path: string): MenuItem[] 
     if (menuPath === actualPath) return true;
 
     // Dynamic route match
-    if (menuPath.includes(":")) {
+    if (menuPath.includes(':')) {
       // Convert route pattern to regex
       // /estoque/produtos/detalhes/:id -> /estoque/produtos/detalhes/[^/]+
-      const pattern = menuPath.replace(/:[^/]+/g, "[^/]+");
+      const pattern = menuPath.replace(/:[^/]+/g, '[^/]+');
       const regex = new RegExp(`^${pattern}$`);
       return regex.test(actualPath);
     }
@@ -220,7 +233,7 @@ export function getBreadcrumbs(menuItems: MenuItem[], path: string): MenuItem[] 
  * Get menu items for a specific domain
  */
 export function getMenuItemsByDomain(menuItems: MenuItem[], domain: string): MenuItem | undefined {
-  return menuItems.find((item) => item.id === domain);
+  return menuItems.find(item => item.id === domain);
 }
 
 /**

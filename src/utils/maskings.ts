@@ -1,7 +1,7 @@
 // packages/utils/src/masking.ts
 
-import { cleanCPF, cleanCNPJ, cleanPhone, cleanPIS } from "./cleaners";
-import { formatCPF, formatCNPJ, formatPhone, formatPIS } from "./formatters";
+import { cleanCPF, cleanCNPJ, cleanPhone, cleanPIS } from './cleaners';
+import { formatCPF, formatCNPJ, formatPhone, formatPIS } from './formatters';
 
 export const maskCPF = (value: string): string => {
   try {

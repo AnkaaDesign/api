@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   EconomicActivity,
@@ -68,7 +63,10 @@ export class EconomicActivityService {
   /**
    * Find one economic activity by ID
    */
-  async findOne(id: string, query?: EconomicActivityGetByIdFormData): Promise<EconomicActivityGetUniqueResponse> {
+  async findOne(
+    id: string,
+    query?: EconomicActivityGetByIdFormData,
+  ): Promise<EconomicActivityGetUniqueResponse> {
     const economicActivity = await this.prisma.economicActivity.findUnique({
       where: { id },
       include: query?.include,
@@ -179,7 +177,9 @@ export class EconomicActivityService {
 
     // Check if has customers
     if (existing.customers && existing.customers.length > 0) {
-      throw new BadRequestException('Não é possível excluir uma atividade econômica com clientes vinculados');
+      throw new BadRequestException(
+        'Não é possível excluir uma atividade econômica com clientes vinculados',
+      );
     }
 
     await this.prisma.economicActivity.delete({
@@ -285,9 +285,17 @@ export class EconomicActivityService {
   /**
    * Batch delete economic activities
    */
-  async batchDelete(data: EconomicActivityBatchDeleteFormData): Promise<EconomicActivityBatchDeleteResponse> {
+  async batchDelete(
+    data: EconomicActivityBatchDeleteFormData,
+  ): Promise<EconomicActivityBatchDeleteResponse> {
     const success: Array<{ id: string; deleted: boolean }> = [];
-    const failed: Array<{ index: number; id: string; error: string; errorCode?: string; data: { id: string } }> = [];
+    const failed: Array<{
+      index: number;
+      id: string;
+      error: string;
+      errorCode?: string;
+      data: { id: string };
+    }> = [];
 
     for (let i = 0; i < data.economicActivityIds.length; i++) {
       const id = data.economicActivityIds[i];

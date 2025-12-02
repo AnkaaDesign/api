@@ -1,7 +1,12 @@
 // packages/schemas/src/truck.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  createNameSchema,
+} from './common';
 import type { Truck } from '@types';
 
 // =====================
@@ -128,15 +133,39 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([truckWhereSchema, z.array(truckWhereSchema)]).optional(),
       OR: z.array(truckWhereSchema).optional(),
       NOT: z.union([truckWhereSchema, z.array(truckWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      plate: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
-      chassisNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      xPosition: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
-      yPosition: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      plate: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      chassisNumber: z
+        .union([z.string(), z.object({ contains: z.string().optional() })])
+        .optional(),
+      xPosition: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
+      yPosition: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
       taskId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       garageId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
       // Relations
       task: z.any().optional(),
       garage: z.any().optional(),
@@ -152,7 +181,7 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 // =====================
 
 const truckTransform = (data: any): any => {
-  console.log("[TruckTransform] Input data:", {
+  console.log('[TruckTransform] Input data:', {
     searchingFor: data.searchingFor,
     hasWhere: !!data.where,
     whereKeys: data.where ? Object.keys(data.where) : [],
@@ -172,19 +201,19 @@ const truckTransform = (data: any): any => {
   const andConditions: any[] = [];
 
   // Enhanced search filter - search across multiple fields and relations
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
-    console.log("[TruckTransform] Processing search term:", searchTerm);
+    console.log('[TruckTransform] Processing search term:', searchTerm);
     andConditions.push({
       OR: [
         // Direct truck fields
-        { plate: { contains: searchTerm, mode: "insensitive" } },
-        { chassisNumber: { contains: searchTerm, mode: "insensitive" } },
+        { plate: { contains: searchTerm, mode: 'insensitive' } },
+        { chassisNumber: { contains: searchTerm, mode: 'insensitive' } },
         // Related task
-        { task: { name: { contains: searchTerm, mode: "insensitive" } } },
-        { task: { serialNumber: { contains: searchTerm, mode: "insensitive" } } },
+        { task: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { task: { serialNumber: { contains: searchTerm, mode: 'insensitive' } } },
         // Related garage
-        { garage: { name: { contains: searchTerm, mode: "insensitive" } } },
+        { garage: { name: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -219,19 +248,21 @@ const truckTransform = (data: any): any => {
   }
 
   // Date range filters
-  if (data.createdAtRange && typeof data.createdAtRange === "object") {
+  if (data.createdAtRange && typeof data.createdAtRange === 'object') {
     const condition: any = {};
     if (data.createdAtRange.from) {
-      const fromDate = data.createdAtRange.from instanceof Date
-        ? data.createdAtRange.from
-        : new Date(data.createdAtRange.from);
+      const fromDate =
+        data.createdAtRange.from instanceof Date
+          ? data.createdAtRange.from
+          : new Date(data.createdAtRange.from);
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.createdAtRange.to) {
-      const toDate = data.createdAtRange.to instanceof Date
-        ? data.createdAtRange.to
-        : new Date(data.createdAtRange.to);
+      const toDate =
+        data.createdAtRange.to instanceof Date
+          ? data.createdAtRange.to
+          : new Date(data.createdAtRange.to);
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
     }
@@ -241,19 +272,21 @@ const truckTransform = (data: any): any => {
     delete data.createdAtRange;
   }
 
-  if (data.updatedAtRange && typeof data.updatedAtRange === "object") {
+  if (data.updatedAtRange && typeof data.updatedAtRange === 'object') {
     const condition: any = {};
     if (data.updatedAtRange.from) {
-      const fromDate = data.updatedAtRange.from instanceof Date
-        ? data.updatedAtRange.from
-        : new Date(data.updatedAtRange.from);
+      const fromDate =
+        data.updatedAtRange.from instanceof Date
+          ? data.updatedAtRange.from
+          : new Date(data.updatedAtRange.from);
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.updatedAtRange.to) {
-      const toDate = data.updatedAtRange.to instanceof Date
-        ? data.updatedAtRange.to
-        : new Date(data.updatedAtRange.to);
+      const toDate =
+        data.updatedAtRange.to instanceof Date
+          ? data.updatedAtRange.to
+          : new Date(data.updatedAtRange.to);
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
     }
@@ -276,7 +309,7 @@ const truckTransform = (data: any): any => {
 
   // Merge with existing where conditions
   if (andConditions.length > 0) {
-    console.log("[TruckTransform] andConditions count:", andConditions.length);
+    console.log('[TruckTransform] andConditions count:', andConditions.length);
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
         data.where.AND = [...data.where.AND, ...andConditions];
@@ -288,7 +321,7 @@ const truckTransform = (data: any): any => {
     }
   }
 
-  console.log("[TruckTransform] Final output:", {
+  console.log('[TruckTransform] Final output:', {
     hasWhere: !!data.where,
     whereKeys: data.where ? Object.keys(data.where) : [],
     searchingFor: data.searchingFor,
@@ -321,15 +354,15 @@ export const truckGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -339,15 +372,15 @@ export const truckGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -357,15 +390,15 @@ export const truckGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -375,15 +408,15 @@ export const truckGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -402,30 +435,30 @@ export const truckCreateSchema = z.object({
   // Identification fields
   plate: z
     .string()
-    .max(8, "Placa deve ter no máximo 8 caracteres")
-    .transform((val) => val.toUpperCase())
-    .refine((val) => /^[A-Z0-9-]+$/.test(val), {
-      message: "A placa deve conter apenas letras maiúsculas, números e hífens",
+    .max(8, 'Placa deve ter no máximo 8 caracteres')
+    .transform(val => val.toUpperCase())
+    .refine(val => /^[A-Z0-9-]+$/.test(val), {
+      message: 'A placa deve conter apenas letras maiúsculas, números e hífens',
     })
     .nullable()
     .optional()
-    .transform((val) => (val === "" ? null : val)),
+    .transform(val => (val === '' ? null : val)),
   chassisNumber: z
     .string()
     .nullable()
     .optional()
-    .transform((val) => (val === "" ? null : val)),
+    .transform(val => (val === '' ? null : val)),
 
   // Position fields
   xPosition: z.number().nullable().optional(),
   yPosition: z.number().nullable().optional(),
 
   // Relations
-  taskId: z.string().uuid("Tarefa inválida"),
-  garageId: z.string().uuid("Garagem inválida").nullable().optional(),
-  leftSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
-  rightSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
-  backSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
+  taskId: z.string().uuid('Tarefa inválida'),
+  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
+  leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
 });
 
 // Update schema
@@ -433,30 +466,30 @@ export const truckUpdateSchema = z.object({
   // Identification fields
   plate: z
     .string()
-    .max(8, "Placa deve ter no máximo 8 caracteres")
-    .transform((val) => val.toUpperCase())
-    .refine((val) => /^[A-Z0-9-]+$/.test(val), {
-      message: "A placa deve conter apenas letras maiúsculas, números e hífens",
+    .max(8, 'Placa deve ter no máximo 8 caracteres')
+    .transform(val => val.toUpperCase())
+    .refine(val => /^[A-Z0-9-]+$/.test(val), {
+      message: 'A placa deve conter apenas letras maiúsculas, números e hífens',
     })
     .nullable()
     .optional()
-    .transform((val) => (val === "" ? null : val)),
+    .transform(val => (val === '' ? null : val)),
   chassisNumber: z
     .string()
     .nullable()
     .optional()
-    .transform((val) => (val === "" ? null : val)),
+    .transform(val => (val === '' ? null : val)),
 
   // Position fields
   xPosition: z.number().nullable().optional(),
   yPosition: z.number().nullable().optional(),
 
   // Relations
-  taskId: z.string().uuid("Tarefa inválida").optional(),
-  garageId: z.string().uuid("Garagem inválida").nullable().optional(),
-  leftSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
-  rightSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
-  backSideLayoutId: z.string().uuid("Layout inválido").nullable().optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
+  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
+  leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
+  backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
 });
 
 // =====================
@@ -464,22 +497,24 @@ export const truckUpdateSchema = z.object({
 // =====================
 
 export const truckBatchCreateSchema = z.object({
-  trucks: z.array(truckCreateSchema).min(1, "Pelo menos um caminhão deve ser fornecido"),
+  trucks: z.array(truckCreateSchema).min(1, 'Pelo menos um caminhão deve ser fornecido'),
 });
 
 export const truckBatchUpdateSchema = z.object({
   trucks: z
     .array(
       z.object({
-        id: z.string().uuid("Caminhão inválido"),
+        id: z.string().uuid('Caminhão inválido'),
         data: truckUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um caminhão deve ser fornecido"),
+    .min(1, 'Pelo menos um caminhão deve ser fornecido'),
 });
 
 export const truckBatchDeleteSchema = z.object({
-  truckIds: z.array(z.string().uuid("Caminhão inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  truckIds: z
+    .array(z.string().uuid('Caminhão inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -493,7 +528,7 @@ export const truckQuerySchema = z.object({
 
 export const truckGetByIdSchema = z.object({
   include: truckIncludeSchema.optional(),
-  id: z.string().uuid("Caminhão inválido"),
+  id: z.string().uuid('Caminhão inválido'),
 });
 
 // =====================
@@ -519,7 +554,7 @@ export type TruckWhere = z.infer<typeof truckWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>((truck) => ({
+export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>(truck => ({
   plate: truck.plate,
   chassisNumber: truck.chassisNumber,
   xPosition: truck.xPosition,
@@ -552,7 +587,7 @@ export const truckBulkPositionUpdateSchema = z.object({
       xPosition: z.number().nullable().optional(),
       yPosition: z.number().nullable().optional(),
       garageId: z.string().uuid().nullable().optional(),
-    })
+    }),
   ),
 });
 

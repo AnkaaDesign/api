@@ -9,7 +9,10 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PpeSizeRepository, PrismaTransaction } from './repositories/ppe-size/ppe-size.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION, MASK_SIZE } from '../../../constants';
-import { trackFieldChanges, trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
+import {
+  trackFieldChanges,
+  trackAndLogFieldChanges,
+} from '@modules/common/changelog/utils/changelog-helpers';
 import {
   PpeSize,
   PpeSizeGetUniqueResponse,

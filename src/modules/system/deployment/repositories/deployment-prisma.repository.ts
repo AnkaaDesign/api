@@ -335,10 +335,7 @@ export class DeploymentPrismaRepository
     }
   }
 
-  async deleteWithTransaction(
-    transaction: PrismaTransaction,
-    id: string,
-  ): Promise<Deployment> {
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Deployment> {
     try {
       const result = await transaction.deployment.delete({
         where: { id },
@@ -381,12 +378,15 @@ export class DeploymentPrismaRepository
     return deployment ? this.mapDatabaseEntityToEntity(deployment) : null;
   }
 
-  async findLatestByEnvironment(environment: string, tx?: PrismaTransaction): Promise<Deployment | null> {
+  async findLatestByEnvironment(
+    environment: string,
+    tx?: PrismaTransaction,
+  ): Promise<Deployment | null> {
     const delegate = this.getModelDelegate(tx);
     const deployment = await delegate.findFirst({
       where: {
         environment: environment as any,
-        status: { in: ['COMPLETED', 'IN_PROGRESS'] }
+        status: { in: ['COMPLETED', 'IN_PROGRESS'] },
       },
       orderBy: { createdAt: 'desc' },
     });

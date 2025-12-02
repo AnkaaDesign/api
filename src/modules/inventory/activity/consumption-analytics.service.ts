@@ -1,6 +1,11 @@
 // consumption-analytics.service.ts
 
-import { Injectable, Logger, InternalServerErrorException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  InternalServerErrorException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type {
   ConsumptionAnalyticsResponse,
@@ -82,16 +87,23 @@ export class ConsumptionAnalyticsService {
   /**
    * Validate that comparison mode is correctly configured
    */
-  private validateComparisonMode(query: ConsumptionAnalyticsFormData, mode: ConsumptionComparisonMode): void {
+  private validateComparisonMode(
+    query: ConsumptionAnalyticsFormData,
+    mode: ConsumptionComparisonMode,
+  ): void {
     // Count active comparison modes
     const hasSectorComparison = query.sectorIds && query.sectorIds.length >= 2;
     const hasUserComparison = query.userIds && query.userIds.length >= 2;
     const hasPeriodComparison = query.periods && query.periods.length >= 2;
 
-    const activeComparisons = [hasSectorComparison, hasUserComparison, hasPeriodComparison].filter(Boolean).length;
+    const activeComparisons = [hasSectorComparison, hasUserComparison, hasPeriodComparison].filter(
+      Boolean,
+    ).length;
 
     if (activeComparisons > 1) {
-      throw new BadRequestException('Não é possível usar múltiplos modos de comparação simultaneamente');
+      throw new BadRequestException(
+        'Não é possível usar múltiplos modos de comparação simultaneamente',
+      );
     }
   }
 
@@ -109,7 +121,20 @@ export class ConsumptionAnalyticsService {
    * Get simple consumption (no comparison)
    */
   private async getSimpleConsumption(query: ConsumptionAnalyticsFormData) {
-    const { startDate, endDate, sectorIds, userIds, itemIds, brandIds, categoryIds, offset, limit, sortBy, sortOrder, operation } = query;
+    const {
+      startDate,
+      endDate,
+      sectorIds,
+      userIds,
+      itemIds,
+      brandIds,
+      categoryIds,
+      offset,
+      limit,
+      sortBy,
+      sortOrder,
+      operation,
+    } = query;
 
     // Build where clause
     const where: Prisma.ActivityWhereInput = {
@@ -119,18 +144,22 @@ export class ConsumptionAnalyticsService {
       },
       operation: this.buildOperationFilter(operation || ACTIVITY_OPERATION.OUTBOUND),
       ...(itemIds && itemIds.length > 0 && { itemId: { in: itemIds } }),
-      ...(sectorIds && sectorIds.length > 0 && {
-        user: { sectorId: { in: sectorIds } },
-      }),
-      ...(userIds && userIds.length > 0 && {
-        userId: { in: userIds },
-      }),
-      ...(brandIds && brandIds.length > 0 && {
-        item: { brandId: { in: brandIds } },
-      }),
-      ...(categoryIds && categoryIds.length > 0 && {
-        item: { categoryId: { in: categoryIds } },
-      }),
+      ...(sectorIds &&
+        sectorIds.length > 0 && {
+          user: { sectorId: { in: sectorIds } },
+        }),
+      ...(userIds &&
+        userIds.length > 0 && {
+          userId: { in: userIds },
+        }),
+      ...(brandIds &&
+        brandIds.length > 0 && {
+          item: { brandId: { in: brandIds } },
+        }),
+      ...(categoryIds &&
+        categoryIds.length > 0 && {
+          item: { categoryId: { in: categoryIds } },
+        }),
     };
 
     // Get aggregated data grouped by item using raw SQL for better performance
@@ -167,7 +196,7 @@ export class ConsumptionAnalyticsService {
     const totalCount = await this.prisma.activity.count({ where });
 
     // Get unique item IDs
-    const itemIdsToFetch = aggregatedData.map((d) => d.itemId);
+    const itemIdsToFetch = aggregatedData.map(d => d.itemId);
 
     // Fetch item details
     const items = await this.prisma.item.findMany({
@@ -183,12 +212,12 @@ export class ConsumptionAnalyticsService {
     });
 
     // Create a map for quick lookup
-    const itemMap = new Map(items.map((item) => [item.id, item]));
-    const aggregatedDataMap = new Map(aggregatedData.map((data) => [data.itemId, data]));
+    const itemMap = new Map(items.map(item => [item.id, item]));
+    const aggregatedDataMap = new Map(aggregatedData.map(data => [data.itemId, data]));
 
     // Build consumption items
     const consumptionItems: ConsumptionItemSimple[] = itemIdsToFetch
-      .map((itemId) => {
+      .map(itemId => {
         const item = itemMap.get(itemId);
         const data = aggregatedDataMap.get(itemId);
 
@@ -234,11 +263,13 @@ export class ConsumptionAnalyticsService {
       itemCount: consumptionItems.length,
       averageConsumptionPerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) /
+            consumptionItems.length
           : 0,
       averageValuePerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) /
+            consumptionItems.length
           : 0,
     };
 
@@ -257,7 +288,19 @@ export class ConsumptionAnalyticsService {
    * Get sector comparison data
    */
   private async getSectorComparison(query: ConsumptionAnalyticsFormData) {
-    const { startDate, endDate, sectorIds, itemIds, brandIds, categoryIds, offset, limit, sortBy, sortOrder, operation } = query;
+    const {
+      startDate,
+      endDate,
+      sectorIds,
+      itemIds,
+      brandIds,
+      categoryIds,
+      offset,
+      limit,
+      sortBy,
+      sortOrder,
+      operation,
+    } = query;
 
     if (!sectorIds || sectorIds.length < 2) {
       throw new BadRequestException('Comparação de setores requer pelo menos 2 setores');
@@ -295,7 +338,10 @@ export class ConsumptionAnalyticsService {
     `;
 
     // Group by item
-    const itemsMap = new Map<string, Map<string, { sectorName: string; quantity: number; movementCount: bigint }>>();
+    const itemsMap = new Map<
+      string,
+      Map<string, { sectorName: string; quantity: number; movementCount: bigint }>
+    >();
 
     for (const row of aggregatedData) {
       if (!itemsMap.has(row.itemId)) {
@@ -317,12 +363,16 @@ export class ConsumptionAnalyticsService {
     // Sort by total quantity or name
     if (sortBy === 'quantity' || sortBy === 'value') {
       itemTotals.sort((a, b) => {
-        return sortOrder === 'asc' ? a.totalQuantity - b.totalQuantity : b.totalQuantity - a.totalQuantity;
+        return sortOrder === 'asc'
+          ? a.totalQuantity - b.totalQuantity
+          : b.totalQuantity - a.totalQuantity;
       });
     }
 
     // Apply pagination
-    const paginatedItemIds = itemTotals.slice(offset || 0, (offset || 0) + (limit || 20)).map((t) => t.itemId);
+    const paginatedItemIds = itemTotals
+      .slice(offset || 0, (offset || 0) + (limit || 20))
+      .map(t => t.itemId);
 
     // Fetch item details
     const items = await this.prisma.item.findMany({
@@ -338,11 +388,11 @@ export class ConsumptionAnalyticsService {
     });
 
     // Create item map
-    const itemMap = new Map(items.map((item) => [item.id, item]));
+    const itemMap = new Map(items.map(item => [item.id, item]));
 
     // Build consumption items with comparisons
     const consumptionItems: ConsumptionItemComparison[] = paginatedItemIds
-      .map((itemId) => {
+      .map(itemId => {
         const item = itemMap.get(itemId);
         const sectorData = itemsMap.get(itemId);
 
@@ -369,7 +419,7 @@ export class ConsumptionAnalyticsService {
         }
 
         // Calculate percentages
-        comparisons.forEach((c) => {
+        comparisons.forEach(c => {
           c.percentage = totalQuantity > 0 ? (c.quantity / totalQuantity) * 100 : 0;
         });
 
@@ -412,11 +462,13 @@ export class ConsumptionAnalyticsService {
       entityCount: sectorIds.length,
       averageConsumptionPerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) /
+            consumptionItems.length
           : 0,
       averageValuePerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) /
+            consumptionItems.length
           : 0,
     };
 
@@ -435,7 +487,19 @@ export class ConsumptionAnalyticsService {
    * Get user comparison data
    */
   private async getUserComparison(query: ConsumptionAnalyticsFormData) {
-    const { startDate, endDate, userIds, itemIds, brandIds, categoryIds, offset, limit, sortBy, sortOrder, operation } = query;
+    const {
+      startDate,
+      endDate,
+      userIds,
+      itemIds,
+      brandIds,
+      categoryIds,
+      offset,
+      limit,
+      sortBy,
+      sortOrder,
+      operation,
+    } = query;
 
     if (!userIds || userIds.length < 2) {
       throw new BadRequestException('Comparação de usuários requer pelo menos 2 usuários');
@@ -472,7 +536,10 @@ export class ConsumptionAnalyticsService {
     `;
 
     // Group by item
-    const itemsMap = new Map<string, Map<string, { userName: string; quantity: number; movementCount: bigint }>>();
+    const itemsMap = new Map<
+      string,
+      Map<string, { userName: string; quantity: number; movementCount: bigint }>
+    >();
 
     for (const row of aggregatedData) {
       if (!itemsMap.has(row.itemId)) {
@@ -494,12 +561,16 @@ export class ConsumptionAnalyticsService {
     // Sort by total quantity or name
     if (sortBy === 'quantity' || sortBy === 'value') {
       itemTotals.sort((a, b) => {
-        return sortOrder === 'asc' ? a.totalQuantity - b.totalQuantity : b.totalQuantity - a.totalQuantity;
+        return sortOrder === 'asc'
+          ? a.totalQuantity - b.totalQuantity
+          : b.totalQuantity - a.totalQuantity;
       });
     }
 
     // Apply pagination
-    const paginatedItemIds = itemTotals.slice(offset || 0, (offset || 0) + (limit || 20)).map((t) => t.itemId);
+    const paginatedItemIds = itemTotals
+      .slice(offset || 0, (offset || 0) + (limit || 20))
+      .map(t => t.itemId);
 
     // Fetch item details
     const items = await this.prisma.item.findMany({
@@ -515,11 +586,11 @@ export class ConsumptionAnalyticsService {
     });
 
     // Create item map
-    const itemMap = new Map(items.map((item) => [item.id, item]));
+    const itemMap = new Map(items.map(item => [item.id, item]));
 
     // Build consumption items with comparisons
     const consumptionItems: ConsumptionItemComparison[] = paginatedItemIds
-      .map((itemId) => {
+      .map(itemId => {
         const item = itemMap.get(itemId);
         const userData = itemsMap.get(itemId);
 
@@ -546,7 +617,7 @@ export class ConsumptionAnalyticsService {
         }
 
         // Calculate percentages
-        comparisons.forEach((c) => {
+        comparisons.forEach(c => {
           c.percentage = totalQuantity > 0 ? (c.quantity / totalQuantity) * 100 : 0;
         });
 
@@ -589,11 +660,13 @@ export class ConsumptionAnalyticsService {
       entityCount: userIds.length,
       averageConsumptionPerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) /
+            consumptionItems.length
           : 0,
       averageValuePerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) /
+            consumptionItems.length
           : 0,
     };
 
@@ -612,14 +685,29 @@ export class ConsumptionAnalyticsService {
    * Get period comparison data (compare consumption across different time periods)
    */
   private async getPeriodComparison(query: ConsumptionAnalyticsFormData) {
-    const { periods, sectorIds, userIds, itemIds, brandIds, categoryIds, offset, limit, sortBy, sortOrder, operation } = query;
+    const {
+      periods,
+      sectorIds,
+      userIds,
+      itemIds,
+      brandIds,
+      categoryIds,
+      offset,
+      limit,
+      sortBy,
+      sortOrder,
+      operation,
+    } = query;
 
     if (!periods || periods.length < 2) {
       throw new BadRequestException('Comparação de períodos requer pelo menos 2 períodos');
     }
 
     // Create a map to store aggregated data by item and period
-    const itemsMap = new Map<string, Map<string, { periodLabel: string; quantity: number; value: number; movementCount: bigint }>>();
+    const itemsMap = new Map<
+      string,
+      Map<string, { periodLabel: string; quantity: number; value: number; movementCount: bigint }>
+    >();
 
     // Query each period separately and aggregate
     for (const period of periods) {
@@ -670,12 +758,16 @@ export class ConsumptionAnalyticsService {
     // Sort by total quantity or name
     if (sortBy === 'quantity' || sortBy === 'value') {
       itemTotals.sort((a, b) => {
-        return sortOrder === 'asc' ? a.totalQuantity - b.totalQuantity : b.totalQuantity - a.totalQuantity;
+        return sortOrder === 'asc'
+          ? a.totalQuantity - b.totalQuantity
+          : b.totalQuantity - a.totalQuantity;
       });
     }
 
     // Apply pagination
-    const paginatedItemIds = itemTotals.slice(offset || 0, (offset || 0) + (limit || 20)).map((t) => t.itemId);
+    const paginatedItemIds = itemTotals
+      .slice(offset || 0, (offset || 0) + (limit || 20))
+      .map(t => t.itemId);
 
     // Fetch item details
     const items = await this.prisma.item.findMany({
@@ -691,11 +783,11 @@ export class ConsumptionAnalyticsService {
     });
 
     // Create item map
-    const itemMap = new Map(items.map((item) => [item.id, item]));
+    const itemMap = new Map(items.map(item => [item.id, item]));
 
     // Build consumption items with comparisons
     const consumptionItems: ConsumptionItemComparison[] = paginatedItemIds
-      .map((itemId) => {
+      .map(itemId => {
         const item = itemMap.get(itemId);
         const periodData = itemsMap.get(itemId);
 
@@ -723,7 +815,7 @@ export class ConsumptionAnalyticsService {
         }
 
         // Calculate percentages
-        comparisons.forEach((c) => {
+        comparisons.forEach(c => {
           c.percentage = totalQuantity > 0 ? (c.quantity / totalQuantity) * 100 : 0;
         });
 
@@ -766,11 +858,13 @@ export class ConsumptionAnalyticsService {
       entityCount: periods.length,
       averageConsumptionPerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalQuantity, 0) /
+            consumptionItems.length
           : 0,
       averageValuePerItem:
         consumptionItems.length > 0
-          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) / consumptionItems.length
+          ? consumptionItems.reduce((sum, item) => sum + item.totalValue, 0) /
+            consumptionItems.length
           : 0,
     };
 

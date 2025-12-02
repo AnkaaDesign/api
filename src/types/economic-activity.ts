@@ -1,8 +1,16 @@
 // packages/interfaces/src/economic-activity.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Customer, CustomerIncludes } from "./customer";
+import type { Customer, CustomerIncludes } from './customer';
 
 // =====================
 // Main Entity Interface
@@ -56,7 +64,8 @@ export interface EconomicActivityOrderBy {
 // Response Interfaces
 // =====================
 
-export interface EconomicActivityGetUniqueResponse extends BaseGetUniqueResponse<EconomicActivity> {}
+export interface EconomicActivityGetUniqueResponse
+  extends BaseGetUniqueResponse<EconomicActivity> {}
 export interface EconomicActivityGetManyResponse extends BaseGetManyResponse<EconomicActivity> {}
 export interface EconomicActivityCreateResponse extends BaseCreateResponse<EconomicActivity> {}
 export interface EconomicActivityUpdateResponse extends BaseUpdateResponse<EconomicActivity> {}
@@ -66,9 +75,12 @@ export interface EconomicActivityDeleteResponse extends BaseDeleteResponse {}
 // Batch Operation Responses
 // =====================
 
-export interface EconomicActivityBatchCreateResponse<T> extends BaseBatchResponse<EconomicActivity, T> {}
-export interface EconomicActivityBatchUpdateResponse<T> extends BaseBatchResponse<EconomicActivity, T & { id: string }> {}
-export interface EconomicActivityBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface EconomicActivityBatchCreateResponse<T>
+  extends BaseBatchResponse<EconomicActivity, T> {}
+export interface EconomicActivityBatchUpdateResponse<T>
+  extends BaseBatchResponse<EconomicActivity, T & { id: string }> {}
+export interface EconomicActivityBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // =====================
 // Form Data Types

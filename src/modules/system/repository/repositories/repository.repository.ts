@@ -70,10 +70,7 @@ export class RepositoryRepository {
     });
   }
 
-  async delete(
-    id: string,
-    options?: { tx?: PrismaTransaction },
-  ): Promise<Repository> {
+  async delete(id: string, options?: { tx?: PrismaTransaction }): Promise<Repository> {
     const prisma = options?.tx || this.prisma;
     return prisma.repository.delete({
       where: { id },

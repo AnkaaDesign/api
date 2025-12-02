@@ -1,15 +1,16 @@
 // packages/schemas/src/service.ts
 
-import { z } from "zod";
+import { z } from 'zod';
 import {
   createMapToFormDataHelper,
-  orderByDirectionSchema, normalizeOrderBy,
+  orderByDirectionSchema,
+  normalizeOrderBy,
   createDescriptionSchema,
   createStringWhereSchema,
   createDateWhereSchema,
   mergeAndConditions,
   createSearchTransform,
-} from "./common";
+} from './common';
 import type { Service } from '@types';
 
 // =====================
@@ -18,7 +19,9 @@ import type { Service } from '@types';
 
 export const serviceIncludeSchema = z
   .object({
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .optional();
 
@@ -117,7 +120,7 @@ const serviceTransform = (data: any) => {
 
   // Search filter
   if (data.searchingFor) {
-    const searchConditions = createSearchTransform(data.searchingFor, ["description"]);
+    const searchConditions = createSearchTransform(data.searchingFor, ['description']);
     if (searchConditions) andConditions.push(searchConditions);
     delete data.searchingFor;
   }
@@ -169,7 +172,7 @@ export const serviceGetManySchema = z
 
 export const serviceGetByIdSchema = z.object({
   include: serviceIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Serviço inválido" }),
+  id: z.string().uuid({ message: 'Serviço inválido' }),
 });
 
 // =====================
@@ -193,22 +196,26 @@ export const serviceUpdateSchema = z
 // =====================
 
 export const serviceBatchCreateSchema = z.object({
-  services: z.array(serviceCreateSchema).min(1, "Pelo menos uma ordem de serviço deve ser fornecida"),
+  services: z
+    .array(serviceCreateSchema)
+    .min(1, 'Pelo menos uma ordem de serviço deve ser fornecida'),
 });
 
 export const serviceBatchUpdateSchema = z.object({
   services: z
     .array(
       z.object({
-        id: z.string().uuid("Serviço inválido"),
+        id: z.string().uuid('Serviço inválido'),
         data: serviceUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um serviço deve ser fornecida"),
+    .min(1, 'Pelo menos um serviço deve ser fornecida'),
 });
 
 export const serviceBatchDeleteSchema = z.object({
-  serviceIds: z.array(z.string().uuid("Serviço inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  serviceIds: z
+    .array(z.string().uuid('Serviço inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -243,6 +250,8 @@ export type ServiceWhere = z.infer<typeof serviceWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapServiceToFormData = createMapToFormDataHelper<Service, ServiceUpdateFormData>((service) => ({
-  description: service.description,
-}));
+export const mapServiceToFormData = createMapToFormDataHelper<Service, ServiceUpdateFormData>(
+  service => ({
+    description: service.description,
+  }),
+);

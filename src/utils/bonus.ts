@@ -68,7 +68,7 @@ export function isCurrentPeriod(year: number, month: number, referenceDate?: Dat
 export function filterIncludesCurrentPeriod(
   filterYear?: number,
   filterMonths?: number[],
-  referenceDate?: Date
+  referenceDate?: Date,
 ): boolean {
   const current = getCurrentPeriod(referenceDate);
 
@@ -102,20 +102,26 @@ export function getPositionLevel(positionName: string | null | undefined | any):
   }
   const normalizedName = positionName.toLowerCase();
 
-  if (normalizedName.includes('junior') ||
-      normalizedName.includes('auxiliar') ||
-      normalizedName.includes('estagiário') ||
-      normalizedName.includes('trainee')) {
+  if (
+    normalizedName.includes('junior') ||
+    normalizedName.includes('auxiliar') ||
+    normalizedName.includes('estagiário') ||
+    normalizedName.includes('trainee')
+  ) {
     return 1; // Junior
-  } else if (normalizedName.includes('pleno') ||
-             normalizedName.includes('médio') ||
-             normalizedName.includes('analista') ||
-             normalizedName.includes('especialista')) {
+  } else if (
+    normalizedName.includes('pleno') ||
+    normalizedName.includes('médio') ||
+    normalizedName.includes('analista') ||
+    normalizedName.includes('especialista')
+  ) {
     return 2; // Pleno
-  } else if (normalizedName.includes('senior') ||
-             normalizedName.includes('coordenador') ||
-             normalizedName.includes('gerente') ||
-             normalizedName.includes('supervisor')) {
+  } else if (
+    normalizedName.includes('senior') ||
+    normalizedName.includes('coordenador') ||
+    normalizedName.includes('gerente') ||
+    normalizedName.includes('supervisor')
+  ) {
     return 3; // Senior
   } else {
     // Default to pleno (level 2) for unclear positions
@@ -160,7 +166,7 @@ export function getBonusPeriodEnd(year: number, month: number): Date {
 export function getPayrollPeriod(year: number, month: number) {
   return {
     start: getBonusPeriodStart(year, month),
-    end: getBonusPeriodEnd(year, month)
+    end: getBonusPeriodEnd(year, month),
   };
 }
 
@@ -178,6 +184,67 @@ export function getBonusPeriod(year: number, month: number): { startDate: Date; 
   };
 }
 
+// =====================
+// Composite ID Utilities for Live Bonuses/Payrolls
+// =====================
+
+/**
+ * Parse a composite live bonus/payroll ID
+ * Format: live-{userId}-{year}-{month}
+ * Example: live-550e8400-e29b-41d4-a716-446655440000-2024-11
+ *
+ * @param id The composite ID to parse
+ * @returns Object with userId, year, month or null if invalid
+ */
+export function parseLiveId(id: string): { userId: string; year: number; month: number } | null {
+  if (!id || !id.startsWith('live-')) {
+    return null;
+  }
+
+  const parts = id.replace('live-', '').split('-');
+  if (parts.length < 7) {
+    // UUID has 5 parts, plus year and month = 7 parts minimum
+    return null;
+  }
+
+  const month = parseInt(parts[parts.length - 1], 10);
+  const year = parseInt(parts[parts.length - 2], 10);
+  const userId = parts.slice(0, -2).join('-');
+
+  // Validate month and year
+  if (isNaN(month) || isNaN(year) || month < 1 || month > 12 || year < 2000 || year > 2100) {
+    return null;
+  }
+
+  // Validate userId is a UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(userId)) {
+    return null;
+  }
+
+  return { userId, year, month };
+}
+
+/**
+ * Create a composite live ID for bonuses/payrolls
+ * @param userId The user's UUID
+ * @param year The year (2000-2100)
+ * @param month The month (1-12)
+ * @returns Composite ID in format: live-{userId}-{year}-{month}
+ */
+export function createLiveId(userId: string, year: number, month: number): string {
+  return `live-${userId}-${year}-${month}`;
+}
+
+/**
+ * Check if an ID is a live calculation ID (not a database UUID)
+ * @param id The ID to check
+ * @returns True if it's a live ID, false otherwise
+ */
+export function isLiveId(id: string): boolean {
+  return id?.startsWith('live-') ?? false;
+}
+
 /**
  * Determine position category from position name
  * @param positionName The name of the position
@@ -186,11 +253,23 @@ export function getBonusPeriod(year: number, month: number): { startDate: Date; 
 export function getPositionCategory(positionName: string): 'junior' | 'pleno' | 'senior' {
   const normalizedName = positionName.toLowerCase();
 
-  if (normalizedName.includes('junior') || normalizedName.includes('auxiliar') || normalizedName.includes('estagiário')) {
+  if (
+    normalizedName.includes('junior') ||
+    normalizedName.includes('auxiliar') ||
+    normalizedName.includes('estagiário')
+  ) {
     return 'junior';
-  } else if (normalizedName.includes('pleno') || normalizedName.includes('médio') || normalizedName.includes('analista')) {
+  } else if (
+    normalizedName.includes('pleno') ||
+    normalizedName.includes('médio') ||
+    normalizedName.includes('analista')
+  ) {
     return 'pleno';
-  } else if (normalizedName.includes('senior') || normalizedName.includes('coordenador') || normalizedName.includes('gerente')) {
+  } else if (
+    normalizedName.includes('senior') ||
+    normalizedName.includes('coordenador') ||
+    normalizedName.includes('gerente')
+  ) {
     return 'senior';
   } else {
     // Default to pleno if unclear
@@ -225,25 +304,25 @@ export function isValidPerformanceLevel(performanceLevel: number): boolean {
  * These are the exact values from the Excel spreadsheet
  */
 const positionFactorsFromPosition9: Record<number, number> = {
-  1: 0.0972,  // Position 1: 9.72% of Position 9
-  2: 0.1932,  // Position 2: 19.32% of Position 9
-  3: 0.3220,  // Position 3: 32.20% of Position 9
-  4: 0.4609,  // Position 4: 46.09% of Position 9
-  5: 0.5985,  // Position 5: 59.85% of Position 9
-  6: 0.7210,  // Position 6: 72.10% of Position 9
-  7: 0.8283,  // Position 7: 82.83% of Position 9
-  8: 0.9205,  // Position 8: 92.05% of Position 9
+  1: 0.0972, // Position 1: 9.72% of Position 9
+  2: 0.1932, // Position 2: 19.32% of Position 9
+  3: 0.322, // Position 3: 32.20% of Position 9
+  4: 0.4609, // Position 4: 46.09% of Position 9
+  5: 0.5985, // Position 5: 59.85% of Position 9
+  6: 0.721, // Position 6: 72.10% of Position 9
+  7: 0.8283, // Position 7: 82.83% of Position 9
+  8: 0.9205, // Position 8: 92.05% of Position 9
 };
 
 /**
  * EXACT performance level multipliers from Excel
  */
 const performanceMultipliers: Record<number, number> = {
-  1: 1.0,   // Base value
-  2: 2.0,   // Exactly 2x base
-  3: 3.0,   // Exactly 3x base
-  4: 3.5,   // Exactly 3.5x base
-  5: 4.0,   // Exactly 4x base
+  1: 1.0, // Base value
+  2: 2.0, // Exactly 2x base
+  3: 3.0, // Exactly 3x base
+  4: 3.5, // Exactly 3.5x base
+  5: 4.0, // Exactly 4x base
 };
 
 /**
@@ -277,8 +356,12 @@ function getDetailedPositionLevel(positionName: string): number {
   if (normalized === 'senior' || normalized === 'sênior') return 11; // Default senior to III
 
   // Fallback based on category
-  if (normalized.includes('junior') || normalized.includes('júnior') ||
-      normalized.includes('auxiliar') || normalized.includes('estagiário')) {
+  if (
+    normalized.includes('junior') ||
+    normalized.includes('júnior') ||
+    normalized.includes('auxiliar') ||
+    normalized.includes('estagiário')
+  ) {
     return 1;
   }
   if (normalized.includes('pleno')) {
@@ -298,14 +381,13 @@ function getDetailedPositionLevel(positionName: string): number {
  */
 function calculatePosition11Base(averageTasksPerUser: number): number {
   const b1 = averageTasksPerUser;
-  const polynomial = (
+  const polynomial =
     3.31 * Math.pow(b1, 5) -
     61.07 * Math.pow(b1, 4) +
     364.82 * Math.pow(b1, 3) -
     719.54 * Math.pow(b1, 2) +
     465.16 * b1 -
-    3.24
-  );
+    3.24;
   return polynomial * 0.4; // 40% as per Excel formula
 }
 
@@ -347,7 +429,7 @@ function calculateCascadeValues(position11Base: number): Map<number, number> {
 export function calculateBonusForPosition(
   positionName: string,
   performanceLevel: number,
-  averageTasksPerUser: number
+  averageTasksPerUser: number,
 ): number {
   try {
     const positionLevel = getDetailedPositionLevel(positionName);
@@ -455,7 +537,7 @@ export function applyFixedValueDiscount(value: number, fixedValue: number): numb
  */
 export function applyDiscounts(
   originalValue: number,
-  discounts: BonusDiscount[]
+  discounts: BonusDiscount[],
 ): {
   finalValue: number;
   totalPercentageDiscount: number;
@@ -481,8 +563,12 @@ export function applyDiscounts(
   const sortedDiscounts = [...discounts].sort((a, b) => a.order - b.order);
 
   // Separate percentage and fixed discounts
-  const percentageDiscounts = sortedDiscounts.filter(d => d.percentage !== undefined && d.percentage > 0);
-  const fixedDiscounts = sortedDiscounts.filter(d => d.fixedValue !== undefined && d.fixedValue > 0);
+  const percentageDiscounts = sortedDiscounts.filter(
+    d => d.percentage !== undefined && d.percentage > 0,
+  );
+  const fixedDiscounts = sortedDiscounts.filter(
+    d => d.fixedValue !== undefined && d.fixedValue > 0,
+  );
 
   let currentValue = originalValue;
   let totalPercentageDiscount = 0;
@@ -553,10 +639,7 @@ export function calculateTotalDiscount(originalValue: number, discounts: BonusDi
  * @param discounts Array of discounts to apply
  * @returns The final bonus value after discounts
  */
-export function calculateFinalBonusValue(
-  baseValue: number,
-  discounts?: BonusDiscount[]
-): number {
+export function calculateFinalBonusValue(baseValue: number, discounts?: BonusDiscount[]): number {
   if (!discounts || discounts.length === 0) {
     return baseValue;
   }
@@ -573,7 +656,7 @@ export function calculateFinalBonusValue(
  */
 export function getDiscountBreakdown(
   originalValue: number,
-  discounts: BonusDiscount[]
+  discounts: BonusDiscount[],
 ): {
   originalValue: number;
   finalValue: number;
@@ -594,9 +677,10 @@ export function getDiscountBreakdown(
     discounts: result.appliedDiscounts.map(d => ({
       reason: d.reason,
       type: d.type,
-      displayValue: d.type === 'percentage'
-        ? `${(d.amount / originalValue * 100).toFixed(2)}%`
-        : `R$ ${d.amount.toFixed(2)}`,
+      displayValue:
+        d.type === 'percentage'
+          ? `${((d.amount / originalValue) * 100).toFixed(2)}%`
+          : `R$ ${d.amount.toFixed(2)}`,
       discountAmount: d.amount,
     })),
   };
@@ -666,7 +750,7 @@ export interface PayrollDiscount {
  */
 export function calculatePayrollDiscounts(
   baseRemuneration: number,
-  discounts: PayrollDiscount[]
+  discounts: PayrollDiscount[],
 ): number {
   if (!discounts || discounts.length === 0 || baseRemuneration <= 0) {
     return 0;
@@ -706,7 +790,7 @@ export function calculatePayrollDiscounts(
 export function calculateNetSalary(
   baseRemuneration: number,
   discounts: PayrollDiscount[],
-  bonus?: number
+  bonus?: number,
 ): number {
   if (baseRemuneration <= 0) {
     return 0;
@@ -730,7 +814,7 @@ export function calculateNetSalary(
 export function getPayrollCalculationBreakdown(
   baseRemuneration: number,
   discounts: PayrollDiscount[],
-  bonus?: number
+  bonus?: number,
 ): {
   baseRemuneration: number;
   bonusAmount: number;

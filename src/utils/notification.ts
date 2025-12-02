@@ -1,8 +1,22 @@
 import type { Notification, SeenNotification } from '@types';
-import { NOTIFICATION_IMPORTANCE, NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, NOTIFICATION_ACTION_TYPE } from '@constants';
-import { NOTIFICATION_TYPE_LABELS, NOTIFICATION_IMPORTANCE_LABELS, NOTIFICATION_CHANNEL_LABELS } from '@constants';
-import { dateUtils } from "./date";
-import type { NotificationType, NotificationImportance, NotificationChannel, NotificationActionType } from "@prisma/client";
+import {
+  NOTIFICATION_IMPORTANCE,
+  NOTIFICATION_TYPE,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_ACTION_TYPE,
+} from '@constants';
+import {
+  NOTIFICATION_TYPE_LABELS,
+  NOTIFICATION_IMPORTANCE_LABELS,
+  NOTIFICATION_CHANNEL_LABELS,
+} from '@constants';
+import { dateUtils } from './date';
+import type {
+  NotificationType,
+  NotificationImportance,
+  NotificationChannel,
+  NotificationActionType,
+} from '@prisma/client';
 
 /**
  * Map NOTIFICATION_TYPE enum to Prisma NotificationType enum
@@ -16,7 +30,9 @@ export function mapNotificationTypeToPrisma(type: NOTIFICATION_TYPE | string): N
  * Map NOTIFICATION_IMPORTANCE enum to Prisma NotificationImportance enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapNotificationImportanceToPrisma(importance: NOTIFICATION_IMPORTANCE | string): NotificationImportance {
+export function mapNotificationImportanceToPrisma(
+  importance: NOTIFICATION_IMPORTANCE | string,
+): NotificationImportance {
   return importance as NotificationImportance;
 }
 
@@ -24,7 +40,9 @@ export function mapNotificationImportanceToPrisma(importance: NOTIFICATION_IMPOR
  * Map NOTIFICATION_ACTION_TYPE enum to Prisma NotificationActionType enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapNotificationActionTypeToPrisma(actionType: NOTIFICATION_ACTION_TYPE | string): NotificationActionType {
+export function mapNotificationActionTypeToPrisma(
+  actionType: NOTIFICATION_ACTION_TYPE | string,
+): NotificationActionType {
   return actionType as NotificationActionType;
 }
 
@@ -32,8 +50,10 @@ export function mapNotificationActionTypeToPrisma(actionType: NOTIFICATION_ACTIO
  * Map NOTIFICATION_CHANNEL array to Prisma NotificationChannel enum array
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapNotificationChannelArrayToPrisma(channels: NOTIFICATION_CHANNEL[] | string[]): NotificationChannel[] {
-  return channels.map((channel) => channel as NotificationChannel);
+export function mapNotificationChannelArrayToPrisma(
+  channels: NOTIFICATION_CHANNEL[] | string[],
+): NotificationChannel[] {
+  return channels.map(channel => channel as NotificationChannel);
 }
 
 export function getNotificationTypeLabel(type: NOTIFICATION_TYPE): string {
@@ -53,12 +73,12 @@ export function getNotificationChannelLabel(channel: NOTIFICATION_CHANNEL): stri
  */
 export function getNotificationImportanceColor(importance: NOTIFICATION_IMPORTANCE): string {
   const colors: Record<NOTIFICATION_IMPORTANCE, string> = {
-    [NOTIFICATION_IMPORTANCE.LOW]: "gray",
-    [NOTIFICATION_IMPORTANCE.NORMAL]: "blue",
-    [NOTIFICATION_IMPORTANCE.HIGH]: "yellow",
-    [NOTIFICATION_IMPORTANCE.URGENT]: "red",
+    [NOTIFICATION_IMPORTANCE.LOW]: 'gray',
+    [NOTIFICATION_IMPORTANCE.NORMAL]: 'blue',
+    [NOTIFICATION_IMPORTANCE.HIGH]: 'yellow',
+    [NOTIFICATION_IMPORTANCE.URGENT]: 'red',
   };
-  return colors[importance] || "default";
+  return colors[importance] || 'default';
 }
 
 /**
@@ -66,7 +86,7 @@ export function getNotificationImportanceColor(importance: NOTIFICATION_IMPORTAN
  */
 export function isNotificationReadByUser(notification: Notification, userId: string): boolean {
   if (!notification.seenBy) return false;
-  return notification.seenBy.some((seen) => seen.userId === userId);
+  return notification.seenBy.some(seen => seen.userId === userId);
 }
 
 /**
@@ -101,26 +121,26 @@ export function isNotificationRecent(notification: Notification): boolean {
 /**
  * Get notification status
  */
-export function getNotificationStatus(notification: Notification): "scheduled" | "sent" | "draft" {
-  if (isNotificationSent(notification)) return "sent";
-  if (isNotificationScheduled(notification)) return "scheduled";
-  return "draft";
+export function getNotificationStatus(notification: Notification): 'scheduled' | 'sent' | 'draft' {
+  if (isNotificationSent(notification)) return 'sent';
+  if (isNotificationScheduled(notification)) return 'scheduled';
+  return 'draft';
 }
 
 /**
  * Format notification channels
  */
 export function formatNotificationChannels(channels: NOTIFICATION_CHANNEL[]): string {
-  if (!channels || channels.length === 0) return "Sem canais";
+  if (!channels || channels.length === 0) return 'Sem canais';
 
   const labels: Record<NOTIFICATION_CHANNEL, string> = {
-    [NOTIFICATION_CHANNEL.EMAIL]: "E-mail",
-    [NOTIFICATION_CHANNEL.SMS]: "SMS",
-    [NOTIFICATION_CHANNEL.PUSH]: "Push",
-    [NOTIFICATION_CHANNEL.IN_APP]: "No App",
+    [NOTIFICATION_CHANNEL.EMAIL]: 'E-mail',
+    [NOTIFICATION_CHANNEL.SMS]: 'SMS',
+    [NOTIFICATION_CHANNEL.PUSH]: 'Push',
+    [NOTIFICATION_CHANNEL.IN_APP]: 'No App',
   };
 
-  return channels.map((channel) => labels[channel] || channel).join(", ");
+  return channels.map(channel => labels[channel] || channel).join(', ');
 }
 
 /**
@@ -131,32 +151,34 @@ export function formatNotificationDate(notification: Notification): string {
 
   if (hoursAgo < 1) {
     const minutesAgo = Math.floor(hoursAgo * 60);
-    return `${minutesAgo} ${minutesAgo === 1 ? "minuto" : "minutos"} atrás`;
+    return `${minutesAgo} ${minutesAgo === 1 ? 'minuto' : 'minutos'} atrás`;
   }
 
   if (hoursAgo < 24) {
     const hours = Math.floor(hoursAgo);
-    return `${hours} ${hours === 1 ? "hora" : "horas"} atrás`;
+    return `${hours} ${hours === 1 ? 'hora' : 'horas'} atrás`;
   }
 
   const daysAgo = dateUtils.getDaysAgo(notification.createdAt);
   if (daysAgo < 7) {
-    return `${daysAgo} ${daysAgo === 1 ? "dia" : "dias"} atrás`;
+    return `${daysAgo} ${daysAgo === 1 ? 'dia' : 'dias'} atrás`;
   }
 
-  return dateUtils.formatDate(notification.createdAt, "dd/MM/yyyy");
+  return dateUtils.formatDate(notification.createdAt, 'dd/MM/yyyy');
 }
 
 /**
  * Group notifications by date
  */
-export function groupNotificationsByDate(notifications: Notification[]): Record<string, Notification[]> {
+export function groupNotificationsByDate(
+  notifications: Notification[],
+): Record<string, Notification[]> {
   const groups: Record<string, Notification[]> = {
     Hoje: [],
     Ontem: [],
-    "Esta semana": [],
-    "Este mês": [],
-    "Mais antigas": [],
+    'Esta semana': [],
+    'Este mês': [],
+    'Mais antigas': [],
   };
 
   const today = new Date();
@@ -167,24 +189,24 @@ export function groupNotificationsByDate(notifications: Notification[]): Record<
   const monthAgo = new Date(today);
   monthAgo.setMonth(monthAgo.getMonth() - 1);
 
-  notifications.forEach((notification) => {
+  notifications.forEach(notification => {
     const notificationDate = new Date(notification.createdAt);
 
     if (dateUtils.isSameDay(notificationDate, today)) {
-      groups["Hoje"].push(notification);
+      groups['Hoje'].push(notification);
     } else if (dateUtils.isSameDay(notificationDate, yesterday)) {
-      groups["Ontem"].push(notification);
+      groups['Ontem'].push(notification);
     } else if (notificationDate > weekAgo) {
-      groups["Esta semana"].push(notification);
+      groups['Esta semana'].push(notification);
     } else if (notificationDate > monthAgo) {
-      groups["Este mês"].push(notification);
+      groups['Este mês'].push(notification);
     } else {
-      groups["Mais antigas"].push(notification);
+      groups['Mais antigas'].push(notification);
     }
   });
 
   // Remove empty groups
-  Object.keys(groups).forEach((key) => {
+  Object.keys(groups).forEach(key => {
     if (groups[key].length === 0) {
       delete groups[key];
     }
@@ -196,16 +218,18 @@ export function groupNotificationsByDate(notifications: Notification[]): Record<
 /**
  * Group notifications by type
  */
-export function groupNotificationsByType(notifications: Notification[]): Record<NOTIFICATION_TYPE, Notification[]> {
+export function groupNotificationsByType(
+  notifications: Notification[],
+): Record<NOTIFICATION_TYPE, Notification[]> {
   const groups = {} as Record<NOTIFICATION_TYPE, Notification[]>;
 
   // Initialize all types
-  Object.values(NOTIFICATION_TYPE).forEach((type) => {
+  Object.values(NOTIFICATION_TYPE).forEach(type => {
     groups[type as NOTIFICATION_TYPE] = [];
   });
 
   // Group notifications
-  notifications.forEach((notification) => {
+  notifications.forEach(notification => {
     groups[notification.type].push(notification);
   });
 
@@ -222,18 +246,24 @@ export function filterUnreadNotifications(notifications: Notification[]): Notifi
 /**
  * Filter notifications by user (that haven't been seen by the user)
  */
-export function filterUnseenNotificationsByUser(notifications: Notification[], userId: string): Notification[] {
-  return notifications.filter((notification) => !isNotificationReadByUser(notification, userId));
+export function filterUnseenNotificationsByUser(
+  notifications: Notification[],
+  userId: string,
+): Notification[] {
+  return notifications.filter(notification => !isNotificationReadByUser(notification, userId));
 }
 
 /**
  * Sort notifications by date
  */
-export function sortNotificationsByDate(notifications: Notification[], order: "asc" | "desc" = "desc"): Notification[] {
+export function sortNotificationsByDate(
+  notifications: Notification[],
+  order: 'asc' | 'desc' = 'desc',
+): Notification[] {
   return [...notifications].sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -279,7 +309,7 @@ export function calculateNotificationStats(notifications: Notification[]) {
 
   const byChannel = notifications.reduce(
     (acc, notification) => {
-      notification.channel.forEach((ch) => {
+      notification.channel.forEach(ch => {
         acc[ch] = (acc[ch] || 0) + 1;
       });
       return acc;
@@ -303,7 +333,7 @@ export function calculateNotificationStats(notifications: Notification[]) {
  * Format seen notification info
  */
 export function formatSeenNotificationInfo(seen: SeenNotification): string {
-  const userName = seen.user?.name || "Usuário desconhecido";
-  const seenDate = dateUtils.formatDate(seen.seenAt, "dd/MM/yyyy HH:mm");
+  const userName = seen.user?.name || 'Usuário desconhecido';
+  const seenDate = dateUtils.formatDate(seen.seenAt, 'dd/MM/yyyy HH:mm');
   return `Visto por ${userName} em ${seenDate}`;
 }

@@ -1,9 +1,9 @@
 import { TASK_OBSERVATION_TYPE, TASK_STATUS } from '@constants';
 import { TASK_OBSERVATION_TYPE_LABELS, TASK_STATUS_LABELS } from '@constants';
 import type { Task } from '@types';
-import { dateUtils } from "./date";
-import { numberUtils } from "./number";
-import type { TaskStatus } from "@prisma/client";
+import { dateUtils } from './date';
+import { numberUtils } from './number';
+import type { TaskStatus } from '@prisma/client';
 
 /**
  * Map TASK_STATUS enum to Prisma TaskStatus enum
@@ -16,10 +16,17 @@ export function mapTaskStatusToPrisma(status: TASK_STATUS | string): TaskStatus 
 /**
  * Check if task status transition is valid
  */
-export function isValidTaskStatusTransition(fromStatus: TASK_STATUS, toStatus: TASK_STATUS): boolean {
+export function isValidTaskStatusTransition(
+  fromStatus: TASK_STATUS,
+  toStatus: TASK_STATUS,
+): boolean {
   const validTransitions: Record<TASK_STATUS, TASK_STATUS[]> = {
     [TASK_STATUS.PENDING]: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.ON_HOLD, TASK_STATUS.CANCELLED],
-    [TASK_STATUS.IN_PRODUCTION]: [TASK_STATUS.COMPLETED, TASK_STATUS.ON_HOLD, TASK_STATUS.CANCELLED],
+    [TASK_STATUS.IN_PRODUCTION]: [
+      TASK_STATUS.COMPLETED,
+      TASK_STATUS.ON_HOLD,
+      TASK_STATUS.CANCELLED,
+    ],
     [TASK_STATUS.ON_HOLD]: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.PENDING, TASK_STATUS.CANCELLED],
     [TASK_STATUS.COMPLETED]: [TASK_STATUS.INVOICED], // Can transition to invoiced
     [TASK_STATUS.INVOICED]: [TASK_STATUS.SETTLED], // Can transition to settled
@@ -42,31 +49,33 @@ export function getTaskStatusLabel(status: TASK_STATUS): string {
  */
 export function getTaskStatusColor(status: TASK_STATUS): string {
   const colors: Record<TASK_STATUS, string> = {
-    [TASK_STATUS.PENDING]: "pending",
-    [TASK_STATUS.IN_PRODUCTION]: "inProgress",
-    [TASK_STATUS.COMPLETED]: "completed",
-    [TASK_STATUS.CANCELLED]: "cancelled",
-    [TASK_STATUS.ON_HOLD]: "onHold",
-    [TASK_STATUS.INVOICED]: "invoiced",
-    [TASK_STATUS.SETTLED]: "settled",
+    [TASK_STATUS.PENDING]: 'pending',
+    [TASK_STATUS.IN_PRODUCTION]: 'inProgress',
+    [TASK_STATUS.COMPLETED]: 'completed',
+    [TASK_STATUS.CANCELLED]: 'cancelled',
+    [TASK_STATUS.ON_HOLD]: 'onHold',
+    [TASK_STATUS.INVOICED]: 'invoiced',
+    [TASK_STATUS.SETTLED]: 'settled',
   };
-  return colors[status] || "default";
+  return colors[status] || 'default';
 }
 
 /**
  * Get task status variant for badges
  */
-export function getTaskStatusVariant(status: TASK_STATUS): "default" | "secondary" | "destructive" | "outline" {
-  const variants: Record<TASK_STATUS, "default" | "secondary" | "destructive" | "outline"> = {
-    [TASK_STATUS.PENDING]: "outline",
-    [TASK_STATUS.IN_PRODUCTION]: "default",
-    [TASK_STATUS.COMPLETED]: "secondary",
-    [TASK_STATUS.CANCELLED]: "destructive",
-    [TASK_STATUS.ON_HOLD]: "outline",
-    [TASK_STATUS.INVOICED]: "secondary",
-    [TASK_STATUS.SETTLED]: "secondary",
+export function getTaskStatusVariant(
+  status: TASK_STATUS,
+): 'default' | 'secondary' | 'destructive' | 'outline' {
+  const variants: Record<TASK_STATUS, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+    [TASK_STATUS.PENDING]: 'outline',
+    [TASK_STATUS.IN_PRODUCTION]: 'default',
+    [TASK_STATUS.COMPLETED]: 'secondary',
+    [TASK_STATUS.CANCELLED]: 'destructive',
+    [TASK_STATUS.ON_HOLD]: 'outline',
+    [TASK_STATUS.INVOICED]: 'secondary',
+    [TASK_STATUS.SETTLED]: 'secondary',
   };
-  return variants[status] || "default";
+  return variants[status] || 'default';
 }
 
 /**
@@ -180,7 +189,7 @@ export function formatTaskIdentifier(task: Task): string {
  */
 export function formatTaskSummary(task: Task): string {
   const identifier = formatTaskIdentifier(task);
-  const customerName = task.customer?.fantasyName || "Cliente desconhecido";
+  const customerName = task.customer?.fantasyName || 'Cliente desconhecido';
   const status = getTaskStatusLabel(task.status);
   return `${identifier} - ${customerName} - ${status}`;
 }
@@ -197,11 +206,10 @@ export function calculateTaskPrice(task: Task): number {
  * Format task price from budget total
  */
 export function formatTaskPrice(task: Task): string {
-  if (!task.budget || !task.budget.total) return "Sem valor";
+  if (!task.budget || !task.budget.total) return 'Sem valor';
   const totalValue = calculateTaskPrice(task);
   return numberUtils.formatCurrency(totalValue);
 }
-
 
 /**
  * Group tasks by status
@@ -210,12 +218,12 @@ export function groupTasksByStatus(tasks: Task[]): Record<TASK_STATUS, Task[]> {
   const groups = {} as Record<TASK_STATUS, Task[]>;
 
   // Initialize all statuses
-  Object.values(TASK_STATUS).forEach((status) => {
+  Object.values(TASK_STATUS).forEach(status => {
     groups[status as TASK_STATUS] = [];
   });
 
   // Group tasks
-  tasks.forEach((task) => {
+  tasks.forEach(task => {
     groups[task.status].push(task);
   });
 
@@ -228,7 +236,7 @@ export function groupTasksByStatus(tasks: Task[]): Record<TASK_STATUS, Task[]> {
 export function groupTasksBySector(tasks: Task[]): Record<string, Task[]> {
   return tasks.reduce(
     (groups, task) => {
-      const sectorName = task.sector?.name || "Sem setor";
+      const sectorName = task.sector?.name || 'Sem setor';
       if (!groups[sectorName]) {
         groups[sectorName] = [];
       }
@@ -245,7 +253,7 @@ export function groupTasksBySector(tasks: Task[]): Record<string, Task[]> {
 export function groupTasksByCustomer(tasks: Task[]): Record<string, Task[]> {
   return tasks.reduce(
     (groups, task) => {
-      const customerName = task.customer?.fantasyName || "Sem cliente";
+      const customerName = task.customer?.fantasyName || 'Sem cliente';
       if (!groups[customerName]) {
         groups[customerName] = [];
       }
@@ -270,7 +278,7 @@ export function sortTasksByPriority(tasks: Task[]): Task[] {
 /**
  * Sort tasks by deadline
  */
-export function sortTasksByDeadline(tasks: Task[], order: "asc" | "desc" = "asc"): Task[] {
+export function sortTasksByDeadline(tasks: Task[], order: 'asc' | 'desc' = 'asc'): Task[] {
   return [...tasks].sort((a, b) => {
     if (!a.term && !b.term) return 0;
     if (!a.term) return 1;
@@ -278,7 +286,7 @@ export function sortTasksByDeadline(tasks: Task[], order: "asc" | "desc" = "asc"
 
     const dateA = new Date(a.term).getTime();
     const dateB = new Date(b.term).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -293,7 +301,7 @@ export function filterOverdueTasks(tasks: Task[]): Task[] {
  * Filter tasks by date range
  */
 export function filterTasksByDateRange(tasks: Task[], startDate: Date, endDate: Date): Task[] {
-  return tasks.filter((task) => {
+  return tasks.filter(task => {
     const taskDate = task.entryDate || task.createdAt;
     return new Date(taskDate) >= startDate && new Date(taskDate) <= endDate;
   });

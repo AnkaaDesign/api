@@ -1,9 +1,17 @@
 // packages/interfaces/src/airbrushing.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { AIRBRUSHING_STATUS, ORDER_BY_DIRECTION } from '@constants';
-import type { Task, TaskIncludes, TaskOrderBy } from "./task";
-import type { File, FileIncludes } from "./file";
+import type { Task, TaskIncludes, TaskOrderBy } from './task';
+import type { File, FileIncludes } from './file';
 
 // =====================
 // Main Entity Interface
@@ -106,5 +114,7 @@ export interface AirbrushingDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface AirbrushingBatchCreateResponse<T> extends BaseBatchResponse<Airbrushing, T> {}
-export interface AirbrushingBatchUpdateResponse<T> extends BaseBatchResponse<Airbrushing, T & { id: string }> {}
-export interface AirbrushingBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface AirbrushingBatchUpdateResponse<T>
+  extends BaseBatchResponse<Airbrushing, T & { id: string }> {}
+export interface AirbrushingBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

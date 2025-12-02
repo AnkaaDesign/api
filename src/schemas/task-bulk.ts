@@ -43,10 +43,10 @@ export const taskBulkCuttingPlansSchema = z.object({
   taskIds: z.array(z.string().uuid()).min(1, 'Pelo menos uma tarefa deve ser selecionada'),
   cutData: z.object({
     fileId: z.string().uuid('ID do arquivo inválido'),
-    type: z.string(),
-    origin: z.string().optional().default('PLAN'),
-    reason: z.string().optional().nullable(),
-    quantity: z.number().int().min(1).optional().default(1),
+    type: z.string().min(1, 'Tipo é obrigatório'),
+    origin: z.string().default('PLAN'),
+    reason: z.string().optional(),
+    quantity: z.number().int().min(1).default(1),
   }),
 });
 
@@ -63,7 +63,7 @@ export const bulkOperationResultSchema = z.object({
     z.object({
       taskId: z.string(),
       error: z.string(),
-    })
+    }),
   ),
 });
 

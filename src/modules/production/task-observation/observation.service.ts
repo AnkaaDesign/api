@@ -93,8 +93,6 @@ export class ObservationService {
     }
   }
 
-
-
   /**
    * Buscar muitas observações com filtros
    */
@@ -199,7 +197,12 @@ export class ObservationService {
         // Process file uploads if provided
         let newFileIds: string[] = [];
         if (files?.files && files.files.length > 0) {
-          newFileIds = await this.processObservationFileUploads(newObservation.id, files, userId, tx);
+          newFileIds = await this.processObservationFileUploads(
+            newObservation.id,
+            files,
+            userId,
+            tx,
+          );
         }
 
         // Registrar anexação de arquivos se houver
@@ -218,7 +221,6 @@ export class ObservationService {
             transaction: tx,
           });
         }
-
 
         return newObservation;
       });
@@ -282,9 +284,7 @@ export class ObservationService {
         const combinedFileIds = [...(data.fileIds || []), ...newFileIds];
 
         // Update data with combined file IDs if any new files were uploaded
-        const updateData = newFileIds.length > 0
-          ? { ...data, fileIds: combinedFileIds }
-          : data;
+        const updateData = newFileIds.length > 0 ? { ...data, fileIds: combinedFileIds } : data;
 
         // Atualizar a observação
         const updatedObservation = await this.observationRepository.updateWithTransaction(

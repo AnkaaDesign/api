@@ -1,48 +1,61 @@
 import type { Item, MonetaryValue } from '@types';
-import { dateUtils } from "./date";
-import { numberUtils } from "./number";
+import { dateUtils } from './date';
+import { numberUtils } from './number';
 import { MEASURE_UNIT_LABELS, STOCK_LEVEL_LABELS, ITEM_ISSUE_TYPE_LABELS } from '@constants';
-import { MEASURE_UNIT, STOCK_LEVEL, ITEM_ISSUE_TYPE, PPE_TYPE, PPE_SIZE, PPE_DELIVERY_MODE } from '@constants';
-import type { PpeType, PpeSize, PpeDeliveryMode } from "@prisma/client";
+import {
+  MEASURE_UNIT,
+  STOCK_LEVEL,
+  ITEM_ISSUE_TYPE,
+  PPE_TYPE,
+  PPE_SIZE,
+  PPE_DELIVERY_MODE,
+} from '@constants';
+import type { PpeType, PpeSize, PpeDeliveryMode } from '@prisma/client';
 
 /**
  * Map PPE enum values to Prisma enums
  */
-export function mapPpeTypeToPrisma(type: PPE_TYPE | string | null | undefined): PpeType | null | undefined {
+export function mapPpeTypeToPrisma(
+  type: PPE_TYPE | string | null | undefined,
+): PpeType | null | undefined {
   return type as PpeType | null | undefined;
 }
 
-export function mapPpeSizeToPrisma(size: PPE_SIZE | string | null | undefined): PpeSize | null | undefined {
+export function mapPpeSizeToPrisma(
+  size: PPE_SIZE | string | null | undefined,
+): PpeSize | null | undefined {
   return size as unknown as PpeSize | null | undefined;
 }
 
-export function mapPpeDeliveryModeToPrisma(mode: PPE_DELIVERY_MODE | string | null | undefined): PpeDeliveryMode | null | undefined {
+export function mapPpeDeliveryModeToPrisma(
+  mode: PPE_DELIVERY_MODE | string | null | undefined,
+): PpeDeliveryMode | null | undefined {
   return mode as PpeDeliveryMode | null | undefined;
 }
 
 /**
  * Get stock status based on quantity
  */
-export function getStockStatus(item: Item): "critical" | "low" | "normal" | "high" {
+export function getStockStatus(item: Item): 'critical' | 'low' | 'normal' | 'high' {
   const quantity = item.quantity || 0;
   const reorderPoint = item.reorderPoint || 0;
   const maxQuantity = item.maxQuantity || Infinity;
 
-  if (quantity === 0) return "critical";
-  if (quantity <= reorderPoint) return "low";
-  if (quantity >= maxQuantity) return "high";
-  return "normal";
+  if (quantity === 0) return 'critical';
+  if (quantity <= reorderPoint) return 'low';
+  if (quantity >= maxQuantity) return 'high';
+  return 'normal';
 }
 
 /**
  * Get stock status label
  */
-export function getStockStatusLabel(status: "critical" | "low" | "normal" | "high"): string {
+export function getStockStatusLabel(status: 'critical' | 'low' | 'normal' | 'high'): string {
   const labels = {
-    critical: "Crítico",
-    low: "Baixo",
-    normal: "Normal",
-    high: "Alto",
+    critical: 'Crítico',
+    low: 'Baixo',
+    normal: 'Normal',
+    high: 'Alto',
   };
   return labels[status];
 }
@@ -50,12 +63,12 @@ export function getStockStatusLabel(status: "critical" | "low" | "normal" | "hig
 /**
  * Get stock status color
  */
-export function getStockStatusColor(status: "critical" | "low" | "normal" | "high"): string {
+export function getStockStatusColor(status: 'critical' | 'low' | 'normal' | 'high'): string {
   const colors = {
-    critical: "red",
-    low: "yellow",
-    normal: "green",
-    high: "blue",
+    critical: 'red',
+    low: 'yellow',
+    normal: 'green',
+    high: 'blue',
   };
   return colors[status];
 }
@@ -130,7 +143,9 @@ export function getDaysSinceUpdate(item: Item): number | null {
 export function getLatestItemPrice(item: Item): number {
   if (!item.prices || item.prices.length === 0) return 0;
   // Sort by createdAt to ensure we get the latest
-  const sortedPrices = [...item.prices].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const sortedPrices = [...item.prices].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
   return sortedPrices[0].value;
 }
 
@@ -167,7 +182,9 @@ export function getItemTotalCost(item: Item): number {
 export function getPriceHistory(item: Item): MonetaryValue[] {
   if (!item.prices) return [];
 
-  return item.prices.slice().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return item.prices
+    .slice()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 /**
@@ -190,7 +207,7 @@ export function getPriceChangePercentage(item: Item): number | null {
 export function groupItemsByCategory(items: Item[]): Record<string, Item[]> {
   return items.reduce(
     (groups, item) => {
-      const category = item.category?.name || "Sem categoria";
+      const category = item.category?.name || 'Sem categoria';
       if (!groups[category]) {
         groups[category] = [];
       }
@@ -204,36 +221,39 @@ export function groupItemsByCategory(items: Item[]): Record<string, Item[]> {
 /**
  * Filter items by stock status
  */
-export function filterItemsByStockStatus(items: Item[], statuses: Array<"critical" | "low" | "normal" | "high">): Item[] {
-  return items.filter((item) => statuses.includes(getStockStatus(item)));
+export function filterItemsByStockStatus(
+  items: Item[],
+  statuses: Array<'critical' | 'low' | 'normal' | 'high'>,
+): Item[] {
+  return items.filter(item => statuses.includes(getStockStatus(item)));
 }
 
 /**
  * Filter active items
  */
 export function filterActiveItems(items: Item[]): Item[] {
-  return items.filter((item) => item.isActive);
+  return items.filter(item => item.isActive);
 }
 
 /**
  * Filter PPE items
  */
 export function filterPpeItems(items: Item[]): Item[] {
-  return items.filter((item) => isPpe(item));
+  return items.filter(item => isPpe(item));
 }
 
 /**
  * Filter PPE items by type
  */
 export function filterPpeItemsByType(items: Item[], ppeType: PPE_TYPE): Item[] {
-  return items.filter((item) => item.ppeType === ppeType);
+  return items.filter(item => item.ppeType === ppeType);
 }
 
 /**
  * Filter PPE items by size (size stored in measures)
  */
 export function filterPpeItemsBySize(items: Item[], ppeSize: string): Item[] {
-  return items.filter((item) => {
+  return items.filter(item => {
     const itemSize = getPpeSize(item);
     return itemSize === ppeSize;
   });
@@ -242,8 +262,12 @@ export function filterPpeItemsBySize(items: Item[], ppeSize: string): Item[] {
 /**
  * Filter PPE items by type and size (size stored in measures)
  */
-export function filterPpeItemsByTypeAndSize(items: Item[], ppeType: PPE_TYPE, ppeSize: string): Item[] {
-  return items.filter((item) => {
+export function filterPpeItemsByTypeAndSize(
+  items: Item[],
+  ppeType: PPE_TYPE,
+  ppeSize: string,
+): Item[] {
+  return items.filter(item => {
     const itemSize = getPpeSize(item);
     return item.ppeType === ppeType && itemSize === ppeSize;
   });
@@ -256,7 +280,7 @@ export function groupPpeItemsByType(items: Item[]): Record<PPE_TYPE, Item[]> {
   const ppeItems = filterPpeItems(items);
   const groups: Partial<Record<PPE_TYPE, Item[]>> = {};
 
-  ppeItems.forEach((item) => {
+  ppeItems.forEach(item => {
     if (item.ppeType) {
       if (!groups[item.ppeType]) {
         groups[item.ppeType] = [];
@@ -275,7 +299,7 @@ export function groupPpeItemsBySize(items: Item[]): Record<string, Item[]> {
   const ppeItems = filterPpeItems(items);
   const groups: Record<string, Item[]> = {};
 
-  ppeItems.forEach((item) => {
+  ppeItems.forEach(item => {
     const itemSize = getPpeSize(item);
     if (itemSize) {
       if (!groups[itemSize]) {
@@ -295,7 +319,10 @@ export function calculateInventoryStats(items: Item[]) {
   const total = items.length;
   const totalValue = items.reduce((sum, item) => sum + getItemValue(item), 0);
   const totalQuantity = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-  const totalMonthlyConsumption = items.reduce((sum, item) => sum + (item.monthlyConsumption || 0), 0);
+  const totalMonthlyConsumption = items.reduce(
+    (sum, item) => sum + (item.monthlyConsumption || 0),
+    0,
+  );
 
   const stockStatus = {
     critical: 0,
@@ -304,7 +331,7 @@ export function calculateInventoryStats(items: Item[]) {
     high: 0,
   };
 
-  items.forEach((item) => {
+  items.forEach(item => {
     const status = getStockStatus(item);
     stockStatus[status]++;
   });
@@ -312,8 +339,8 @@ export function calculateInventoryStats(items: Item[]) {
   const outOfStock = items.filter(isOutOfStock).length;
   const lowStock = items.filter(isLowStock).length;
   const needsReorderCount = items.filter(needsReorder).length;
-  const activeItems = items.filter((item) => item.isActive).length;
-  const ppeItems = items.filter((item) => isPpe(item)).length;
+  const activeItems = items.filter(item => item.isActive).length;
+  const ppeItems = items.filter(item => isPpe(item)).length;
 
   return {
     total,
@@ -332,11 +359,11 @@ export function calculateInventoryStats(items: Item[]) {
 /**
  * Sort items by update date
  */
-export function sortItemsByUpdateDate(items: Item[], order: "asc" | "desc" = "desc"): Item[] {
+export function sortItemsByUpdateDate(items: Item[], order: 'asc' | 'desc' = 'desc'): Item[] {
   return [...items].sort((a, b) => {
     const dateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
     const dateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -346,8 +373,8 @@ export function sortItemsByUpdateDate(items: Item[], order: "asc" | "desc" = "de
 export function getItemSummary(item: Item): string {
   const stock = formatItemQuantity(item);
   const price = getFormattedPrice(item);
-  const brand = item.brand?.name || "";
-  return `${item.name}${brand ? ` - ${brand}` : ""} | ${stock} | ${price}`;
+  const brand = item.brand?.name || '';
+  return `${item.name}${brand ? ` - ${brand}` : ''} | ${stock} | ${price}`;
 }
 
 /**
@@ -363,7 +390,7 @@ export function hasBarcode(item: Item): boolean {
 export function hasCA(item: Item): boolean {
   // CA is now stored directly on item as ppeCA
   if (!item.ppeCA) return false;
-  return item.ppeCA !== null && item.ppeCA !== "";
+  return item.ppeCA !== null && item.ppeCA !== '';
 }
 
 /**
@@ -385,7 +412,7 @@ export function getPpeType(item: Item): PPE_TYPE | null {
  */
 export function getPpeSize(item: Item): string | null {
   if (!item.measures || item.measures.length === 0) return null;
-  const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+  const sizeMeasure = item.measures.find(m => m.measureType === 'SIZE');
   return sizeMeasure?.unit || null;
 }
 
@@ -400,7 +427,7 @@ export function hasPpeConfiguration(item: Item): boolean {
  * Check if item has UniCode
  */
 export function hasUniCode(item: Item): boolean {
-  return item.uniCode !== null && item.uniCode !== "";
+  return item.uniCode !== null && item.uniCode !== '';
 }
 
 /**
@@ -483,7 +510,7 @@ export function formatItemQuantityWithMeasureValue(item: Item): string {
  */
 export function getPpeSizeFromItem(item: Item): string | null {
   if (!item.measures || item.measures.length === 0) return null;
-  const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+  const sizeMeasure = item.measures.find(m => m.measureType === 'SIZE');
   if (!sizeMeasure) return null;
 
   // Letter sizes (P, M, G, GG, XG) are stored in unit field
@@ -520,7 +547,7 @@ export function filterItemsByPpeSize(items: Item[], size: string): Item[] {
  */
 export function itemHasSizeMeasure(item: Item): boolean {
   if (!item.measures || item.measures.length === 0) return false;
-  return item.measures.some(m => m.measureType === "SIZE");
+  return item.measures.some(m => m.measureType === 'SIZE');
 }
 
 /**
@@ -529,9 +556,13 @@ export function itemHasSizeMeasure(item: Item): boolean {
  * @param size - The size value (e.g., "P", "M", "G", "SIZE_40", etc.)
  * @returns A measure object for the SIZE type
  */
-export function createPpeSizeMeasure(size: string): { measureType: string; unit: string; value: null } {
+export function createPpeSizeMeasure(size: string): {
+  measureType: string;
+  unit: string;
+  value: null;
+} {
   return {
-    measureType: "SIZE",
+    measureType: 'SIZE',
     unit: size,
     value: null,
   };

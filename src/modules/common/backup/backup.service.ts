@@ -26,7 +26,15 @@ export interface BackupMetadata {
   encrypted?: boolean;
   autoDelete?: {
     enabled: boolean;
-    retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+    retention:
+      | '1_day'
+      | '3_days'
+      | '1_week'
+      | '2_weeks'
+      | '1_month'
+      | '3_months'
+      | '6_months'
+      | '1_year';
     deleteAfter?: string; // ISO date string when backup should be deleted
   };
 }
@@ -46,7 +54,15 @@ export interface CreateBackupDto {
   encrypted?: boolean;
   autoDelete?: {
     enabled: boolean;
-    retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+    retention:
+      | '1_day'
+      | '3_days'
+      | '1_week'
+      | '2_weeks'
+      | '1_month'
+      | '3_months'
+      | '6_months'
+      | '1_year';
   };
 }
 
@@ -59,32 +75,36 @@ export class BackupService implements OnModuleInit {
   private readonly productionBasePath = '/home/kennedy/ankaa';
 
   // RAID-aware and priority-based backup paths (production only)
-  private readonly criticalPaths = this.isDevelopment ? [] : [
-    `${this.productionBasePath}`,
-    `${this.productionBasePath}/.env`,
-    `${this.productionBasePath}/apps/api/.env`,
-  ];
+  private readonly criticalPaths = this.isDevelopment
+    ? []
+    : [
+        `${this.productionBasePath}`,
+        `${this.productionBasePath}/.env`,
+        `${this.productionBasePath}/apps/api/.env`,
+      ];
 
-  private readonly highPriorityPaths = this.isDevelopment ? [] : [
-    `${this.productionBasePath}/apps`,
-    `${this.productionBasePath}/packages`,
-    `${this.productionBasePath}/scripts`,
-    '/etc/nginx',
-    '/etc/ssl',
-  ];
+  private readonly highPriorityPaths = this.isDevelopment
+    ? []
+    : [
+        `${this.productionBasePath}/apps`,
+        `${this.productionBasePath}/packages`,
+        `${this.productionBasePath}/scripts`,
+        '/etc/nginx',
+        '/etc/ssl',
+      ];
 
-  private readonly mediumPriorityPaths = this.isDevelopment ? [] : [
-    `${this.productionBasePath}/docs`,
-    `${this.productionBasePath}/test-examples`,
-    '/var/log/nginx',
-    '/var/www',
-  ];
+  private readonly mediumPriorityPaths = this.isDevelopment
+    ? []
+    : [
+        `${this.productionBasePath}/docs`,
+        `${this.productionBasePath}/test-examples`,
+        '/var/log/nginx',
+        '/var/www',
+      ];
 
-  private readonly lowPriorityPaths = this.isDevelopment ? [] : [
-    `${this.productionBasePath}/node_modules`,
-    `${this.productionBasePath}/.git`,
-    '/tmp',
-  ];
+  private readonly lowPriorityPaths = this.isDevelopment
+    ? []
+    : [`${this.productionBasePath}/node_modules`, `${this.productionBasePath}/.git`, '/tmp'];
 
   constructor(
     @InjectQueue('backup-queue') private backupQueue: Queue,
@@ -110,7 +130,9 @@ export class BackupService implements OnModuleInit {
    * Get full backup directory path with date organization
    * Example: /srv/webdav/Backup/database/2025/10/25/
    */
-  private getBackupDirectoryPath(type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema'): string {
+  private getBackupDirectoryPath(
+    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema',
+  ): string {
     let typeFolder: string = type;
     if (type === 'files') typeFolder = 'arquivos';
     if (type === 'system') typeFolder = 'sistema';
@@ -145,7 +167,10 @@ export class BackupService implements OnModuleInit {
    * Ensure date-based directory exists for a specific backup type
    * Creates structure: /database/2025/10/25/backup_XXX/
    */
-  private async ensureDateBasedDirectory(type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema', backupId: string): Promise<string> {
+  private async ensureDateBasedDirectory(
+    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema',
+    backupId: string,
+  ): Promise<string> {
     const dateBasedPath = this.getBackupDirectoryPath(type);
     const backupFolderPath = path.join(dateBasedPath, backupId);
 
@@ -157,7 +182,9 @@ export class BackupService implements OnModuleInit {
           await execAsync(`sudo chown -R www-data:www-data "${backupFolderPath}"`);
           await execAsync(`sudo chmod -R 2775 "${backupFolderPath}"`);
         } catch (permError) {
-          this.logger.warn(`Could not set permissions on ${backupFolderPath}: ${permError.message}`);
+          this.logger.warn(
+            `Could not set permissions on ${backupFolderPath}: ${permError.message}`,
+          );
         }
       }
       return backupFolderPath;
@@ -245,7 +272,11 @@ export class BackupService implements OnModuleInit {
           // Recursively search subdirectories
           const subFiles = await this.findAllMetadataFiles(fullPath);
           metadataFiles.push(...subFiles);
-        } else if (entry.isFile() && entry.name.endsWith('.json') && !entry.name.includes('latest.json')) {
+        } else if (
+          entry.isFile() &&
+          entry.name.endsWith('.json') &&
+          !entry.name.includes('latest.json')
+        ) {
           metadataFiles.push(fullPath);
         }
       }
@@ -471,7 +502,9 @@ export class BackupService implements OnModuleInit {
           backupPath = oldBackupPath;
           this.logger.log(`Using old structure backup: ${backupPath}`);
         } catch (oldError) {
-          this.logger.error(`Backup file not found in new path: ${newBackupPath} or old path: ${oldBackupPath}`);
+          this.logger.error(
+            `Backup file not found in new path: ${newBackupPath} or old path: ${oldBackupPath}`,
+          );
           throw new Error('Backup file not found');
         }
       }
@@ -528,7 +561,10 @@ export class BackupService implements OnModuleInit {
           if (tarCommand.includes('.sql')) {
             // For database backup, estimate based on compression ratio (usually 10-20% of original)
             const estimatedCompressed = totalFilesOrBytes * 0.15;
-            progress = Math.min(95, Math.round((filesProcessed * 10000) / estimatedCompressed * 100));
+            progress = Math.min(
+              95,
+              Math.round(((filesProcessed * 10000) / estimatedCompressed) * 100),
+            );
           } else {
             // For multiple files, use file count
             progress = Math.min(95, Math.round((filesProcessed / totalFilesOrBytes) * 100));
@@ -539,8 +575,8 @@ export class BackupService implements OnModuleInit {
         }
 
         const now = Date.now();
-        const shouldEmit = (progress > lastProgress && (now - lastEmitTime) >= EMIT_INTERVAL) ||
-                          progress === 95;
+        const shouldEmit =
+          (progress > lastProgress && now - lastEmitTime >= EMIT_INTERVAL) || progress === 95;
 
         if (shouldEmit) {
           lastProgress = progress;
@@ -576,7 +612,7 @@ export class BackupService implements OnModuleInit {
       tarProcess.stdout.on('data', processOutput);
       tarProcess.stderr.on('data', processOutput);
 
-      tarProcess.on('close', (code) => {
+      tarProcess.on('close', code => {
         if (code === 0) {
           // Send final 100% progress
           const finalData = {
@@ -597,7 +633,7 @@ export class BackupService implements OnModuleInit {
         }
       });
 
-      tarProcess.on('error', (error) => {
+      tarProcess.on('error', error => {
         reject(error);
       });
     });
@@ -608,8 +644,9 @@ export class BackupService implements OnModuleInit {
    */
   private async sendProgressWebhook(backupId: string, progressData: any): Promise<void> {
     // Use subdomain webhook URL or fallback to configured URL
-    const webhookUrl = this.configService.get<string>('BACKUP_PROGRESS_WEBHOOK_URL') ||
-                      'https://webhook.ankaa.live/backup/progress';
+    const webhookUrl =
+      this.configService.get<string>('BACKUP_PROGRESS_WEBHOOK_URL') ||
+      'https://webhook.ankaa.live/backup/progress';
 
     try {
       // Create HMAC signature if secret is configured
@@ -833,11 +870,13 @@ export class BackupService implements OnModuleInit {
         '/etc/samba',
         '/etc/systemd/system',
         '/var/www',
-        ...(this.isDevelopment ? [] : [
-          `${this.productionBasePath}/.env`,
-          `${this.productionBasePath}/apps/api/.env`,
-          `${this.productionBasePath}/ecosystem.production.js`,
-        ]),
+        ...(this.isDevelopment
+          ? []
+          : [
+              `${this.productionBasePath}/.env`,
+              `${this.productionBasePath}/apps/api/.env`,
+              `${this.productionBasePath}/ecosystem.production.js`,
+            ]),
       ];
 
       // Validate paths
@@ -1196,9 +1235,7 @@ export class BackupService implements OnModuleInit {
       const parts = stdout.trim().split(/\s+/);
 
       // Get available space in bytes for calculations
-      const { stdout: bytesOutput } = await execAsync(
-        `df -B1 ${this.backupBasePath} | tail -1`,
-      );
+      const { stdout: bytesOutput } = await execAsync(`df -B1 ${this.backupBasePath} | tail -1`);
       const bytesParts = bytesOutput.trim().split(/\s+/);
       const availableBytes = parseInt(bytesParts[3]);
 
@@ -1431,7 +1468,7 @@ export class BackupService implements OnModuleInit {
       const compressionLevel = options?.compressionLevel || 6;
       const pathsStr = validPaths.map(p => `"${p}"`).join(' ');
 
-      let tarCommand = `tar ${excludePatterns.join(' ')} --use-compress-program="gzip -${compressionLevel}" -cf ${finalBackupPath} ${pathsStr}`;
+      const tarCommand = `tar ${excludePatterns.join(' ')} --use-compress-program="gzip -${compressionLevel}" -cf ${finalBackupPath} ${pathsStr}`;
 
       await execAsync(tarCommand);
 

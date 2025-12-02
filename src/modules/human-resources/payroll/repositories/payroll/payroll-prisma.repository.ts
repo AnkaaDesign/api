@@ -11,7 +11,13 @@ import {
   PayrollWhere,
   PayrollBatchCreateFormData,
 } from '../../../../../schemas';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions, BatchOperationResult } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+  BatchOperationResult,
+} from '../../../../../types';
 import { PayrollRepository } from './payroll.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -22,7 +28,7 @@ import {
   calculateBonusForPosition,
   calculatePayrollDiscounts,
   calculateNetSalary,
-  getPayrollCalculationBreakdown
+  getPayrollCalculationBreakdown,
 } from '../../../../../utils';
 import { ACTIVE_USER_STATUSES } from '../../../../../constants';
 
@@ -58,6 +64,22 @@ export class PayrollPrismaRepository
     return {
       ...databaseEntity,
       baseRemuneration: Number(databaseEntity.baseRemuneration),
+      overtime50Hours: databaseEntity.overtime50Hours ? Number(databaseEntity.overtime50Hours) : null,
+      overtime50Amount: databaseEntity.overtime50Amount ? Number(databaseEntity.overtime50Amount) : null,
+      overtime100Hours: databaseEntity.overtime100Hours ? Number(databaseEntity.overtime100Hours) : null,
+      overtime100Amount: databaseEntity.overtime100Amount ? Number(databaseEntity.overtime100Amount) : null,
+      nightHours: databaseEntity.nightHours ? Number(databaseEntity.nightHours) : null,
+      nightDifferentialAmount: databaseEntity.nightDifferentialAmount ? Number(databaseEntity.nightDifferentialAmount) : null,
+      dsrAmount: databaseEntity.dsrAmount ? Number(databaseEntity.dsrAmount) : null,
+      dsrDays: databaseEntity.dsrDays || null,
+      grossSalary: databaseEntity.grossSalary ? Number(databaseEntity.grossSalary) : null,
+      inssBase: databaseEntity.inssBase ? Number(databaseEntity.inssBase) : null,
+      inssAmount: databaseEntity.inssAmount ? Number(databaseEntity.inssAmount) : null,
+      irrfBase: databaseEntity.irrfBase ? Number(databaseEntity.irrfBase) : null,
+      irrfAmount: databaseEntity.irrfAmount ? Number(databaseEntity.irrfAmount) : null,
+      fgtsAmount: databaseEntity.fgtsAmount ? Number(databaseEntity.fgtsAmount) : null,
+      netSalary: databaseEntity.netSalary ? Number(databaseEntity.netSalary) : null,
+      totalDiscounts: databaseEntity.totalDiscounts ? Number(databaseEntity.totalDiscounts) : null,
     } as Payroll;
   }
 
@@ -134,20 +156,21 @@ export class PayrollPrismaRepository
   protected mapOrderByToDatabaseOrderBy(
     orderBy?: PayrollOrderBy,
   ): Prisma.PayrollOrderByWithRelationInput | Prisma.PayrollOrderByWithRelationInput[] | undefined {
-    if (!orderBy) return undefined;
+    if (!orderBy) return { createdAt: 'desc' };
 
     // If it's already an array, return as is
     if (Array.isArray(orderBy)) {
       return orderBy as Prisma.PayrollOrderByWithRelationInput[];
     }
 
-    // If it's an object with multiple keys, convert to array of single-key objects
+    // Check if it's a multi-field sort (has both year and month, or multiple fields)
     const keys = Object.keys(orderBy);
     if (keys.length > 1) {
-      return keys.map(key => ({ [key]: (orderBy as any)[key] })) as Prisma.PayrollOrderByWithRelationInput[];
+      // Convert to array format: {year: "desc", month: "desc"} => [{year: "desc"}, {month: "desc"}]
+      return keys.map(key => ({ [key]: orderBy[key] })) as Prisma.PayrollOrderByWithRelationInput[];
     }
 
-    // Single key object, return as is
+    // Single field sort - return as object
     return orderBy as Prisma.PayrollOrderByWithRelationInput;
   }
 
@@ -215,7 +238,13 @@ export class PayrollPrismaRepository
   async findMany(
     options?: FindManyOptions<PayrollOrderBy, PayrollWhere, PayrollInclude>,
   ): Promise<FindManyResult<Payroll>> {
-    const { where, include, page = 1, take = 20, orderBy = { year: 'desc', month: 'desc' } } = options || {};
+    const {
+      where,
+      include,
+      page = 1,
+      take = 20,
+      orderBy = { year: 'desc', month: 'desc' },
+    } = options || {};
     const skip = page && take ? (page - 1) * take : undefined;
 
     try {
@@ -269,7 +298,11 @@ export class PayrollPrismaRepository
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
-      this.logError('buscar folha de pagamento por usuário e período', error, { userId, year, month });
+      this.logError('buscar folha de pagamento por usuário e período', error, {
+        userId,
+        year,
+        month,
+      });
       throw error;
     }
   }
@@ -285,7 +318,9 @@ export class PayrollPrismaRepository
       // Validate that payroll doesn't already exist for this user/period
       const existing = await this.findByUserAndMonth(data.userId, data.year, data.month);
       if (existing) {
-        throw new BadRequestException(`Folha de pagamento já existe para este usuário em ${data.month}/${data.year}`);
+        throw new BadRequestException(
+          `Folha de pagamento já existe para este usuário em ${data.month}/${data.year}`,
+        );
       }
 
       // Get user with position to calculate bonus
@@ -480,14 +515,12 @@ export class PayrollPrismaRepository
   /**
    * Create multiple payrolls in transaction
    */
-  async batchCreate(
-    data: PayrollBatchCreateFormData,
-  ): Promise<BatchOperationResult<Payroll>> {
+  async batchCreate(data: PayrollBatchCreateFormData): Promise<BatchOperationResult<Payroll>> {
     const results: Payroll[] = [];
     const errors: Array<{ index: number; error: string; data: any }> = [];
 
     try {
-      await this.prisma.$transaction(async (tx) => {
+      await this.prisma.$transaction(async tx => {
         for (let i = 0; i < data.payrolls.length; i++) {
           try {
             const payrollData = data.payrolls[i];
@@ -686,7 +719,13 @@ export class PayrollPrismaRepository
     transaction: PrismaTransaction,
     options?: FindManyOptions<PayrollOrderBy, PayrollWhere, PayrollInclude>,
   ): Promise<FindManyResult<Payroll>> {
-    const { where, include, page = 1, take = 20, orderBy = { year: 'desc', month: 'desc' } } = options || {};
+    const {
+      where,
+      include,
+      page = 1,
+      take = 20,
+      orderBy = { year: 'desc', month: 'desc' },
+    } = options || {};
     const skip = page && take ? (page - 1) * take : undefined;
 
     try {
@@ -708,7 +747,12 @@ export class PayrollPrismaRepository
         meta: this.calculatePagination(total, page, take),
       };
     } catch (error) {
-      this.logError('buscar múltiplas folhas de pagamento (transação)', error, { where, orderBy, page, take });
+      this.logError('buscar múltiplas folhas de pagamento (transação)', error, {
+        where,
+        orderBy,
+        page,
+        take,
+      });
       throw error;
     }
   }
@@ -760,7 +804,11 @@ export class PayrollPrismaRepository
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
-      this.logError('buscar folha de pagamento por usuário e período (transação)', error, { userId, year, month });
+      this.logError('buscar folha de pagamento por usuário e período (transação)', error, {
+        userId,
+        year,
+        month,
+      });
       throw error;
     }
   }

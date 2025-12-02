@@ -9,7 +9,10 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileRepository, PrismaTransaction } from './repositories/file.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
-import { detectFileRelationshipChanges, getFileRelationshipChangeDescription } from '../../../utils';
+import {
+  detectFileRelationshipChanges,
+  getFileRelationshipChangeDescription,
+} from '../../../utils';
 import { promises as fs, existsSync, unlinkSync, statSync } from 'fs';
 import { join, extname, resolve } from 'path';
 import {
@@ -222,7 +225,8 @@ export class FileService {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
       // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
-      const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
+      const useXAccelRedirect =
+        process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
@@ -236,7 +240,11 @@ export class FileService {
           // WebDAV file: Map /srv/webdav/... to /internal-files/...
           const relativePath = file.path.replace(webdavRoot, '');
           nginxInternalPath = `/internal-files${relativePath}`;
-        } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+        } else if (
+          file.path.startsWith(uploadsDir) ||
+          file.path.startsWith('./uploads') ||
+          file.path.startsWith('uploads')
+        ) {
           // Local upload file: Map uploads/... to /internal-uploads/...
           const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
           nginxInternalPath = `/internal-uploads/${relativePath}`;
@@ -298,7 +306,8 @@ export class FileService {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 
       // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
-      const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
+      const useXAccelRedirect =
+        process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
@@ -312,7 +321,11 @@ export class FileService {
           // WebDAV file: Map /srv/webdav/... to /internal-files/...
           const relativePath = file.path.replace(webdavRoot, '');
           nginxInternalPath = `/internal-files${relativePath}`;
-        } else if (file.path.startsWith(uploadsDir) || file.path.startsWith('./uploads') || file.path.startsWith('uploads')) {
+        } else if (
+          file.path.startsWith(uploadsDir) ||
+          file.path.startsWith('./uploads') ||
+          file.path.startsWith('uploads')
+        ) {
           // Local upload file: Map uploads/... to /internal-uploads/...
           const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
           nginxInternalPath = `/internal-uploads/${relativePath}`;
@@ -382,7 +395,14 @@ export class FileService {
       const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
         'thumbnails',
         'image/webp',
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
         thumbnailSizeStr, // Pass thumbnail size - folder already includes this
       );
 
@@ -409,9 +429,7 @@ export class FileService {
             this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
             try {
               // Resolve file path to absolute if it's relative
-              const absoluteFilePath = file.path.startsWith('/')
-                ? file.path
-                : resolve(file.path);
+              const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
 
               this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
 
@@ -422,7 +440,9 @@ export class FileService {
                 { format: 'webp', quality: 80 },
               );
 
-              this.logger.log(`Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`);
+              this.logger.log(
+                `Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`,
+              );
 
               if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
                 actualPath = result.thumbnailPath;
@@ -431,15 +451,24 @@ export class FileService {
 
                 // Update database with thumbnailUrl if it wasn't set
                 if (!file.thumbnailUrl && result.thumbnailUrl) {
-                  await this.fileRepository.update(file.id, { thumbnailUrl: result.thumbnailUrl }, {});
+                  await this.fileRepository.update(
+                    file.id,
+                    { thumbnailUrl: result.thumbnailUrl },
+                    {},
+                  );
                   this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
                 }
               } else {
-                this.logger.error(`Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`);
+                this.logger.error(
+                  `Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`,
+                );
                 throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
               }
             } catch (genError: any) {
-              this.logger.error(`Failed to generate thumbnail on-demand: ${genError.message}`, genError.stack);
+              this.logger.error(
+                `Failed to generate thumbnail on-demand: ${genError.message}`,
+                genError.stack,
+              );
               throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
             }
           }
@@ -1345,7 +1374,6 @@ export class FileService {
     );
   }
 
-
   /**
    * Create file from uploaded file within an existing transaction
    * This method is used when files need to be created as part of entity creation
@@ -1369,7 +1397,9 @@ export class FileService {
     include?: FileInclude,
   ): Promise<File> {
     try {
-      this.logger.log(`Processing transactional upload for file: ${file.originalname} with context: ${fileContext}`);
+      this.logger.log(
+        `Processing transactional upload for file: ${file.originalname} with context: ${fileContext}`,
+      );
 
       // Validate source file exists before processing
       if (!existsSync(file.path)) {
@@ -1431,7 +1461,9 @@ export class FileService {
         this.logger.log(`Moved file to WebDAV: ${file.path} → ${webdavPath}`);
       } catch (error: any) {
         this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
-        throw new InternalServerErrorException(`Falha ao mover arquivo para WebDAV: ${error.message}`);
+        throw new InternalServerErrorException(
+          `Falha ao mover arquivo para WebDAV: ${error.message}`,
+        );
       }
 
       // For images, generate thumbnail synchronously so it's ready immediately
@@ -1451,7 +1483,7 @@ export class FileService {
               quality: 85,
               format: 'webp',
               fit: 'contain',
-            }
+            },
           );
 
           if (thumbnailResult.success && thumbnailResult.thumbnailUrl) {
@@ -1461,10 +1493,14 @@ export class FileService {
               data: { thumbnailUrl: thumbnailResult.thumbnailUrl },
               include,
             });
-            this.logger.log(`Thumbnail generated and saved for ${newFile.id}: ${thumbnailResult.thumbnailUrl}`);
+            this.logger.log(
+              `Thumbnail generated and saved for ${newFile.id}: ${thumbnailResult.thumbnailUrl}`,
+            );
             return updatedFile as unknown as File;
           } else {
-            this.logger.warn(`Thumbnail generation failed for ${newFile.id}: ${thumbnailResult.error}`);
+            this.logger.warn(
+              `Thumbnail generation failed for ${newFile.id}: ${thumbnailResult.error}`,
+            );
           }
         } catch (error: any) {
           // Don't fail the transaction if thumbnail generation fails
@@ -1473,7 +1509,9 @@ export class FileService {
       } else {
         // Queue thumbnail generation for videos/PDFs (fire-and-forget)
         this.queueThumbnailGeneration(newFile).catch(err => {
-          this.logger.warn(`Failed to queue thumbnail generation for ${newFile.id}: ${err.message}`);
+          this.logger.warn(
+            `Failed to queue thumbnail generation for ${newFile.id}: ${err.message}`,
+          );
         });
       }
 
@@ -1490,7 +1528,6 @@ export class FileService {
       );
     }
   }
-
 
   /**
    * Create file from uploaded file (convenience wrapper that creates its own transaction)
@@ -1517,7 +1554,7 @@ export class FileService {
     try {
       this.logger.warn(
         `[DEPRECATED] createFromUpload called for file ${file.originalname}. ` +
-        `Consider using createFromUploadWithTransaction within entity transactions instead.`
+          `Consider using createFromUploadWithTransaction within entity transactions instead.`,
       );
 
       // Create file within its own transaction

@@ -1,8 +1,16 @@
 // packages/types/src/measure.ts
 
-import type { BaseEntity, BaseGetManyResponse, BatchOperationResult, BaseGetUniqueResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetManyResponse,
+  BatchOperationResult,
+  BaseGetUniqueResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+} from './common';
 import { MEASURE_UNIT, MEASURE_TYPE } from '@constants';
-import type { Item } from "./item";
+import type { Item } from './item';
 
 // =====================
 // Core Measure Interface
@@ -48,9 +56,11 @@ export interface MeasureDeleteResponse extends BaseDeleteResponse {}
 // Batch Operation Response Types
 // =====================
 
-export interface MeasureBatchCreateResponse extends BaseCreateResponse<BatchOperationResult<Measure>> {}
+export interface MeasureBatchCreateResponse
+  extends BaseCreateResponse<BatchOperationResult<Measure>> {}
 
-export interface MeasureBatchUpdateResponse extends BaseUpdateResponse<BatchOperationResult<Measure>> {}
+export interface MeasureBatchUpdateResponse
+  extends BaseUpdateResponse<BatchOperationResult<Measure>> {}
 
 export interface MeasureBatchDeleteResponse extends BaseDeleteResponse {
   data?: BatchOperationResult<string>;
@@ -84,16 +94,16 @@ export interface BulkConversionResponse
 // =====================
 
 export const MEASURE_CATEGORIES = {
-  WEIGHT: "Peso",
-  VOLUME: "Volume",
-  LENGTH: "Comprimento",
-  WIDTH: "Largura",
-  AREA: "Área",
-  COUNT: "Contagem",
-  PACKAGING: "Embalagem",
-  DIAMETER: "Diâmetro",
-  THREAD: "Rosca",
-  ELECTRICAL: "Elétrico",
+  WEIGHT: 'Peso',
+  VOLUME: 'Volume',
+  LENGTH: 'Comprimento',
+  WIDTH: 'Largura',
+  AREA: 'Área',
+  COUNT: 'Contagem',
+  PACKAGING: 'Embalagem',
+  DIAMETER: 'Diâmetro',
+  THREAD: 'Rosca',
+  ELECTRICAL: 'Elétrico',
 } as const;
 
 export type MeasureCategory = (typeof MEASURE_CATEGORIES)[keyof typeof MEASURE_CATEGORIES];
@@ -102,50 +112,165 @@ export type MeasureCategory = (typeof MEASURE_CATEGORIES)[keyof typeof MEASURE_C
 // Unit Conversion Factors (relative to base units)
 // =====================
 
-export const UNIT_CONVERSION_FACTORS: Record<MEASURE_UNIT, { baseUnit: MEASURE_UNIT; factor: number; category: MeasureCategory }> = {
+export const UNIT_CONVERSION_FACTORS: Record<
+  MEASURE_UNIT,
+  { baseUnit: MEASURE_UNIT; factor: number; category: MeasureCategory }
+> = {
   // Weight units (base: GRAM)
-  [MEASURE_UNIT.GRAM]: { baseUnit: MEASURE_UNIT.GRAM, factor: 1, category: MEASURE_CATEGORIES.WEIGHT },
-  [MEASURE_UNIT.KILOGRAM]: { baseUnit: MEASURE_UNIT.GRAM, factor: 1000, category: MEASURE_CATEGORIES.WEIGHT },
+  [MEASURE_UNIT.GRAM]: {
+    baseUnit: MEASURE_UNIT.GRAM,
+    factor: 1,
+    category: MEASURE_CATEGORIES.WEIGHT,
+  },
+  [MEASURE_UNIT.KILOGRAM]: {
+    baseUnit: MEASURE_UNIT.GRAM,
+    factor: 1000,
+    category: MEASURE_CATEGORIES.WEIGHT,
+  },
 
   // Volume units (base: MILLILITER)
-  [MEASURE_UNIT.MILLILITER]: { baseUnit: MEASURE_UNIT.MILLILITER, factor: 1, category: MEASURE_CATEGORIES.VOLUME },
-  [MEASURE_UNIT.LITER]: { baseUnit: MEASURE_UNIT.MILLILITER, factor: 1000, category: MEASURE_CATEGORIES.VOLUME },
-  [MEASURE_UNIT.CUBIC_CENTIMETER]: { baseUnit: MEASURE_UNIT.MILLILITER, factor: 1, category: MEASURE_CATEGORIES.VOLUME }, // 1 cm³ = 1 ml
-  [MEASURE_UNIT.CUBIC_METER]: { baseUnit: MEASURE_UNIT.MILLILITER, factor: 1000000, category: MEASURE_CATEGORIES.VOLUME }, // 1 m³ = 1,000,000 ml
+  [MEASURE_UNIT.MILLILITER]: {
+    baseUnit: MEASURE_UNIT.MILLILITER,
+    factor: 1,
+    category: MEASURE_CATEGORIES.VOLUME,
+  },
+  [MEASURE_UNIT.LITER]: {
+    baseUnit: MEASURE_UNIT.MILLILITER,
+    factor: 1000,
+    category: MEASURE_CATEGORIES.VOLUME,
+  },
+  [MEASURE_UNIT.CUBIC_CENTIMETER]: {
+    baseUnit: MEASURE_UNIT.MILLILITER,
+    factor: 1,
+    category: MEASURE_CATEGORIES.VOLUME,
+  }, // 1 cm³ = 1 ml
+  [MEASURE_UNIT.CUBIC_METER]: {
+    baseUnit: MEASURE_UNIT.MILLILITER,
+    factor: 1000000,
+    category: MEASURE_CATEGORIES.VOLUME,
+  }, // 1 m³ = 1,000,000 ml
 
   // Length units (base: MILLIMETER)
-  [MEASURE_UNIT.MILLIMETER]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 1, category: MEASURE_CATEGORIES.LENGTH },
-  [MEASURE_UNIT.CENTIMETER]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 10, category: MEASURE_CATEGORIES.LENGTH },
-  [MEASURE_UNIT.METER]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 1000, category: MEASURE_CATEGORIES.LENGTH },
-  [MEASURE_UNIT.INCHES]: { baseUnit: MEASURE_UNIT.MILLIMETER, factor: 25.4, category: MEASURE_CATEGORIES.LENGTH }, // 1 inch = 25.4 mm
+  [MEASURE_UNIT.MILLIMETER]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 1,
+    category: MEASURE_CATEGORIES.LENGTH,
+  },
+  [MEASURE_UNIT.CENTIMETER]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 10,
+    category: MEASURE_CATEGORIES.LENGTH,
+  },
+  [MEASURE_UNIT.METER]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 1000,
+    category: MEASURE_CATEGORIES.LENGTH,
+  },
+  [MEASURE_UNIT.INCHES]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 25.4,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1 inch = 25.4 mm
 
   // Area units (base: SQUARE_CENTIMETER)
-  [MEASURE_UNIT.SQUARE_CENTIMETER]: { baseUnit: MEASURE_UNIT.SQUARE_CENTIMETER, factor: 1, category: MEASURE_CATEGORIES.AREA },
-  [MEASURE_UNIT.SQUARE_METER]: { baseUnit: MEASURE_UNIT.SQUARE_CENTIMETER, factor: 10000, category: MEASURE_CATEGORIES.AREA }, // 1 m² = 10,000 cm²
+  [MEASURE_UNIT.SQUARE_CENTIMETER]: {
+    baseUnit: MEASURE_UNIT.SQUARE_CENTIMETER,
+    factor: 1,
+    category: MEASURE_CATEGORIES.AREA,
+  },
+  [MEASURE_UNIT.SQUARE_METER]: {
+    baseUnit: MEASURE_UNIT.SQUARE_CENTIMETER,
+    factor: 10000,
+    category: MEASURE_CATEGORIES.AREA,
+  }, // 1 m² = 10,000 cm²
 
   // Count units (base: UNIT)
-  [MEASURE_UNIT.UNIT]: { baseUnit: MEASURE_UNIT.UNIT, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.PAIR]: { baseUnit: MEASURE_UNIT.UNIT, factor: 2, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.DOZEN]: { baseUnit: MEASURE_UNIT.UNIT, factor: 12, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.HUNDRED]: { baseUnit: MEASURE_UNIT.UNIT, factor: 100, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.THOUSAND]: { baseUnit: MEASURE_UNIT.UNIT, factor: 1000, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.UNIT]: {
+    baseUnit: MEASURE_UNIT.UNIT,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.PAIR]: {
+    baseUnit: MEASURE_UNIT.UNIT,
+    factor: 2,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.DOZEN]: {
+    baseUnit: MEASURE_UNIT.UNIT,
+    factor: 12,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.HUNDRED]: {
+    baseUnit: MEASURE_UNIT.UNIT,
+    factor: 100,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.THOUSAND]: {
+    baseUnit: MEASURE_UNIT.UNIT,
+    factor: 1000,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
 
   // Packaging units (base: PACKAGE)
-  [MEASURE_UNIT.PACKAGE]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
-  [MEASURE_UNIT.BOX]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
-  [MEASURE_UNIT.ROLL]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
-  [MEASURE_UNIT.SHEET]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
-  [MEASURE_UNIT.SET]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
-  [MEASURE_UNIT.SACK]: { baseUnit: MEASURE_UNIT.PACKAGE, factor: 1, category: MEASURE_CATEGORIES.PACKAGING },
+  [MEASURE_UNIT.PACKAGE]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
+  [MEASURE_UNIT.BOX]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
+  [MEASURE_UNIT.ROLL]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
+  [MEASURE_UNIT.SHEET]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
+  [MEASURE_UNIT.SET]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
+  [MEASURE_UNIT.SACK]: {
+    baseUnit: MEASURE_UNIT.PACKAGE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.PACKAGING,
+  },
 
   // Thread units (no conversion between mm and TPI as they measure different properties)
-  [MEASURE_UNIT.THREAD_MM]: { baseUnit: MEASURE_UNIT.THREAD_MM, factor: 1, category: MEASURE_CATEGORIES.THREAD }, // Thread pitch in mm
-  [MEASURE_UNIT.THREAD_TPI]: { baseUnit: MEASURE_UNIT.THREAD_TPI, factor: 1, category: MEASURE_CATEGORIES.THREAD }, // Threads per inch
+  [MEASURE_UNIT.THREAD_MM]: {
+    baseUnit: MEASURE_UNIT.THREAD_MM,
+    factor: 1,
+    category: MEASURE_CATEGORIES.THREAD,
+  }, // Thread pitch in mm
+  [MEASURE_UNIT.THREAD_TPI]: {
+    baseUnit: MEASURE_UNIT.THREAD_TPI,
+    factor: 1,
+    category: MEASURE_CATEGORIES.THREAD,
+  }, // Threads per inch
 
   // Electrical units (no conversion between different electrical properties)
-  [MEASURE_UNIT.WATT]: { baseUnit: MEASURE_UNIT.WATT, factor: 1, category: MEASURE_CATEGORIES.ELECTRICAL }, // Power
-  [MEASURE_UNIT.VOLT]: { baseUnit: MEASURE_UNIT.VOLT, factor: 1, category: MEASURE_CATEGORIES.ELECTRICAL }, // Voltage
-  [MEASURE_UNIT.AMPERE]: { baseUnit: MEASURE_UNIT.AMPERE, factor: 1, category: MEASURE_CATEGORIES.ELECTRICAL }, // Current
+  [MEASURE_UNIT.WATT]: {
+    baseUnit: MEASURE_UNIT.WATT,
+    factor: 1,
+    category: MEASURE_CATEGORIES.ELECTRICAL,
+  }, // Power
+  [MEASURE_UNIT.VOLT]: {
+    baseUnit: MEASURE_UNIT.VOLT,
+    factor: 1,
+    category: MEASURE_CATEGORIES.ELECTRICAL,
+  }, // Voltage
+  [MEASURE_UNIT.AMPERE]: {
+    baseUnit: MEASURE_UNIT.AMPERE,
+    factor: 1,
+    category: MEASURE_CATEGORIES.ELECTRICAL,
+  }, // Current
 
   // PPE Size units (letter sizes - no conversion between sizes)
   [MEASURE_UNIT.P]: { baseUnit: MEASURE_UNIT.P, factor: 1, category: MEASURE_CATEGORIES.COUNT }, // Small size
@@ -155,20 +280,76 @@ export const UNIT_CONVERSION_FACTORS: Record<MEASURE_UNIT, { baseUnit: MEASURE_U
   [MEASURE_UNIT.XG]: { baseUnit: MEASURE_UNIT.XG, factor: 1, category: MEASURE_CATEGORIES.COUNT }, // Extra extra large size
 
   // PPE Size units (numeric sizes - no conversion between sizes)
-  [MEASURE_UNIT.SIZE_35]: { baseUnit: MEASURE_UNIT.SIZE_35, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_36]: { baseUnit: MEASURE_UNIT.SIZE_36, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_37]: { baseUnit: MEASURE_UNIT.SIZE_37, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_38]: { baseUnit: MEASURE_UNIT.SIZE_38, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_39]: { baseUnit: MEASURE_UNIT.SIZE_39, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_40]: { baseUnit: MEASURE_UNIT.SIZE_40, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_41]: { baseUnit: MEASURE_UNIT.SIZE_41, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_42]: { baseUnit: MEASURE_UNIT.SIZE_42, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_43]: { baseUnit: MEASURE_UNIT.SIZE_43, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_44]: { baseUnit: MEASURE_UNIT.SIZE_44, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_45]: { baseUnit: MEASURE_UNIT.SIZE_45, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_46]: { baseUnit: MEASURE_UNIT.SIZE_46, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_47]: { baseUnit: MEASURE_UNIT.SIZE_47, factor: 1, category: MEASURE_CATEGORIES.COUNT },
-  [MEASURE_UNIT.SIZE_48]: { baseUnit: MEASURE_UNIT.SIZE_48, factor: 1, category: MEASURE_CATEGORIES.COUNT },
+  [MEASURE_UNIT.SIZE_35]: {
+    baseUnit: MEASURE_UNIT.SIZE_35,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_36]: {
+    baseUnit: MEASURE_UNIT.SIZE_36,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_37]: {
+    baseUnit: MEASURE_UNIT.SIZE_37,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_38]: {
+    baseUnit: MEASURE_UNIT.SIZE_38,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_39]: {
+    baseUnit: MEASURE_UNIT.SIZE_39,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_40]: {
+    baseUnit: MEASURE_UNIT.SIZE_40,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_41]: {
+    baseUnit: MEASURE_UNIT.SIZE_41,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_42]: {
+    baseUnit: MEASURE_UNIT.SIZE_42,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_43]: {
+    baseUnit: MEASURE_UNIT.SIZE_43,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_44]: {
+    baseUnit: MEASURE_UNIT.SIZE_44,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_45]: {
+    baseUnit: MEASURE_UNIT.SIZE_45,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_46]: {
+    baseUnit: MEASURE_UNIT.SIZE_46,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_47]: {
+    baseUnit: MEASURE_UNIT.SIZE_47,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
+  [MEASURE_UNIT.SIZE_48]: {
+    baseUnit: MEASURE_UNIT.SIZE_48,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
 };
 
 // =====================
@@ -217,7 +398,11 @@ export function getConversionFactor(fromUnit: MEASURE_UNIT, toUnit: MEASURE_UNIT
 /**
  * Convert a value between two units
  */
-export function convertValue(value: number, fromUnit: MEASURE_UNIT, toUnit: MEASURE_UNIT): number | null {
+export function convertValue(
+  value: number,
+  fromUnit: MEASURE_UNIT,
+  toUnit: MEASURE_UNIT,
+): number | null {
   const factor = getConversionFactor(fromUnit, toUnit);
   if (factor === null) {
     return null;

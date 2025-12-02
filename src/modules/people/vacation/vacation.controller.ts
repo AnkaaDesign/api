@@ -94,11 +94,7 @@ export class VacationController {
 
   // Team-specific endpoint for leaders (must be before dynamic :id route)
   @Get('team-vacations')
-  @Roles(
-    SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-  )
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async getTeamVacations(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
     @UserId() userId: string,
@@ -110,11 +106,12 @@ export class VacationController {
     if (!userWithSector?.managedSectorId) {
       return {
         success: true,
+        message: 'Nenhuma férias encontrada',
         data: [],
         meta: {
           totalRecords: 0,
           page: 1,
-          pageSize: query.limit || 25,
+          take: query.limit || 25,
           totalPages: 0,
           hasNextPage: false,
           hasPreviousPage: false,

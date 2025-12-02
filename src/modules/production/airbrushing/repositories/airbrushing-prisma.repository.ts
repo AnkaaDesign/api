@@ -51,7 +51,16 @@ export class AirbrushingPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: AirbrushingCreateFormData,
   ): Prisma.AirbrushingCreateInput {
-    const { taskId, budgetIds, invoiceIds, receiptIds, reimbursementIds, reimbursementInvoiceIds, artworkIds, ...rest } = formData;
+    const {
+      taskId,
+      budgetIds,
+      invoiceIds,
+      receiptIds,
+      reimbursementIds,
+      reimbursementInvoiceIds,
+      artworkIds,
+      ...rest
+    } = formData;
 
     const createInput: Prisma.AirbrushingCreateInput = {
       ...rest,
@@ -103,7 +112,17 @@ export class AirbrushingPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: AirbrushingUpdateFormData,
   ): Prisma.AirbrushingUpdateInput {
-    const { taskId, status, budgetIds, invoiceIds, receiptIds, reimbursementIds, reimbursementInvoiceIds, artworkIds, ...rest } = formData;
+    const {
+      taskId,
+      status,
+      budgetIds,
+      invoiceIds,
+      receiptIds,
+      reimbursementIds,
+      reimbursementInvoiceIds,
+      artworkIds,
+      ...rest
+    } = formData;
 
     const updateData: Prisma.AirbrushingUpdateInput = {
       ...rest,

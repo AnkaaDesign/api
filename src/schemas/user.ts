@@ -1,7 +1,18 @@
 // packages/schemas/src/user.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, orderByWithNullsSchema, normalizeOrderBy, emailSchema, phoneSchema, cpfSchema, pisSchema, createNameSchema, nullableDate } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  orderByWithNullsSchema,
+  normalizeOrderBy,
+  emailSchema,
+  phoneSchema,
+  cpfSchema,
+  pisSchema,
+  createNameSchema,
+  nullableDate,
+} from './common';
 import type { User } from '@types';
 import { USER_STATUS, VERIFICATION_TYPE } from '@constants';
 
@@ -176,7 +187,9 @@ export const userIncludeSchema = z
     ppeSchedules: z.boolean().optional(),
     changeLogs: z.boolean().optional(),
     seenNotification: z.boolean().optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -342,7 +355,7 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -356,7 +369,7 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -758,29 +771,36 @@ const userTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
     const searchNumber = parseInt(searchTerm, 10);
-    console.log("[UserTransform] Processing searchingFor:", searchTerm);
-    console.log("[UserTransform] Parsed number:", searchNumber, "isNaN:", isNaN(searchNumber), "toString match:", searchNumber.toString() === searchTerm);
+    console.log('[UserTransform] Processing searchingFor:', searchTerm);
+    console.log(
+      '[UserTransform] Parsed number:',
+      searchNumber,
+      'isNaN:',
+      isNaN(searchNumber),
+      'toString match:',
+      searchNumber.toString() === searchTerm,
+    );
 
     // If the search term is purely numeric, search ONLY in payrollNumber for exact match
     if (!isNaN(searchNumber) && searchNumber.toString() === searchTerm) {
-      console.log("[UserTransform] Searching ONLY by payrollNumber:", searchNumber);
+      console.log('[UserTransform] Searching ONLY by payrollNumber:', searchNumber);
       andConditions.push({ payrollNumber: searchNumber });
     } else {
-      console.log("[UserTransform] Searching text fields");
+      console.log('[UserTransform] Searching text fields');
 
       // Otherwise, search across text fields
       const orConditions: any[] = [
-        { name: { contains: searchTerm, mode: "insensitive" } },
-        { email: { contains: searchTerm, mode: "insensitive" } },
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { email: { contains: searchTerm, mode: 'insensitive' } },
         { phone: { contains: searchTerm } },
         { cpf: { contains: searchTerm } },
         { pis: { contains: searchTerm } },
-        { position: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
-        { sector: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
-        { managedSector: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { position: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { sector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { managedSector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
       ];
 
       andConditions.push({ OR: orConditions });
@@ -796,7 +816,11 @@ const userTransform = (data: any) => {
   }
 
   // Handle managedSectorIds filter
-  if (data.managedSectorIds && Array.isArray(data.managedSectorIds) && data.managedSectorIds.length > 0) {
+  if (
+    data.managedSectorIds &&
+    Array.isArray(data.managedSectorIds) &&
+    data.managedSectorIds.length > 0
+  ) {
     andConditions.push({ managedSectorId: { in: data.managedSectorIds } });
     delete data.managedSectorIds;
   }
@@ -815,23 +839,23 @@ const userTransform = (data: any) => {
 
   // Handle isActive filter
   // isActive now means "not dismissed" since we no longer have ACTIVE/INACTIVE statuses
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({
       status: data.isActive
-        ? { not: USER_STATUS.DISMISSED }  // Active = not dismissed (any employment status)
-        : USER_STATUS.DISMISSED            // Inactive = dismissed
+        ? { not: USER_STATUS.DISMISSED } // Active = not dismissed (any employment status)
+        : USER_STATUS.DISMISSED, // Inactive = dismissed
     });
     delete data.isActive;
   }
 
   // Handle isVerified filter
-  if (typeof data.isVerified === "boolean") {
+  if (typeof data.isVerified === 'boolean') {
     andConditions.push({ verified: data.isVerified });
     delete data.isVerified;
   }
 
   // Handle hasPosition filter
-  if (typeof data.hasPosition === "boolean") {
+  if (typeof data.hasPosition === 'boolean') {
     if (data.hasPosition) {
       andConditions.push({ positionId: { not: null } });
     } else {
@@ -841,7 +865,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasSector filter
-  if (typeof data.hasSector === "boolean") {
+  if (typeof data.hasSector === 'boolean') {
     if (data.hasSector) {
       andConditions.push({ sectorId: { not: null } });
     } else {
@@ -851,7 +875,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasManagedSector filter
-  if (typeof data.hasManagedSector === "boolean") {
+  if (typeof data.hasManagedSector === 'boolean') {
     if (data.hasManagedSector) {
       andConditions.push({ managedSectorId: { not: null } });
     } else {
@@ -861,7 +885,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasPpeSize filter
-  if (typeof data.hasPpeSize === "boolean") {
+  if (typeof data.hasPpeSize === 'boolean') {
     if (data.hasPpeSize) {
       andConditions.push({ ppeSize: { is: { id: { not: undefined } } } });
     } else {
@@ -871,7 +895,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasActivities filter
-  if (typeof data.hasActivities === "boolean") {
+  if (typeof data.hasActivities === 'boolean') {
     if (data.hasActivities) {
       andConditions.push({ activities: { some: {} } });
     } else {
@@ -881,7 +905,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasTasks filter
-  if (typeof data.hasTasks === "boolean") {
+  if (typeof data.hasTasks === 'boolean') {
     if (data.hasTasks) {
       andConditions.push({ createdTasks: { some: {} } });
     } else {
@@ -891,7 +915,7 @@ const userTransform = (data: any) => {
   }
 
   // Handle hasVacations filter
-  if (typeof data.hasVacations === "boolean") {
+  if (typeof data.hasVacations === 'boolean') {
     if (data.hasVacations) {
       andConditions.push({ vacations: { some: {} } });
     } else {
@@ -901,10 +925,12 @@ const userTransform = (data: any) => {
   }
 
   // Handle performanceLevelRange filter
-  if (data.performanceLevelRange && typeof data.performanceLevelRange === "object") {
+  if (data.performanceLevelRange && typeof data.performanceLevelRange === 'object') {
     const levelCondition: any = {};
-    if (typeof data.performanceLevelRange.min === "number") levelCondition.gte = data.performanceLevelRange.min;
-    if (typeof data.performanceLevelRange.max === "number") levelCondition.lte = data.performanceLevelRange.max;
+    if (typeof data.performanceLevelRange.min === 'number')
+      levelCondition.gte = data.performanceLevelRange.min;
+    if (typeof data.performanceLevelRange.max === 'number')
+      levelCondition.lte = data.performanceLevelRange.max;
     if (Object.keys(levelCondition).length > 0) {
       andConditions.push({ performanceLevel: levelCondition });
     }
@@ -923,8 +949,11 @@ const userTransform = (data: any) => {
   }
 
   // Merge with existing where conditions
-  console.log("[UserTransform] andConditions count:", andConditions.length);
-  console.log("[UserTransform] Existing data.where:", JSON.stringify(data.where || {}).substring(0, 200));
+  console.log('[UserTransform] andConditions count:', andConditions.length);
+  console.log(
+    '[UserTransform] Existing data.where:',
+    JSON.stringify(data.where || {}).substring(0, 200),
+  );
   if (andConditions.length > 0) {
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
@@ -937,7 +966,10 @@ const userTransform = (data: any) => {
     }
   }
 
-  console.log("[UserTransform] Final data.where:", JSON.stringify(data.where || {}).substring(0, 300));
+  console.log(
+    '[UserTransform] Final data.where:',
+    JSON.stringify(data.where || {}).substring(0, 300),
+  );
   return data;
 };
 
@@ -1000,29 +1032,29 @@ const ppeSizeCreateNestedSchema = z.object({
 const notificationPreferenceCreateNestedSchema = z.object({
   notificationType: z.string(),
   enabled: z.boolean().default(true),
-  channels: z.array(z.string()).default(["EMAIL"]),
-  importance: z.string().default("MEDIUM"),
+  channels: z.array(z.string()).default(['EMAIL']),
+  importance: z.string().default('MEDIUM'),
 });
 
 export const userCreateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
-    name: createNameSchema(2, 200, "Nome"),
-    avatarId: z.string().uuid("ID de avatar inválido").nullable().optional(),
+    name: createNameSchema(2, 200, 'Nome'),
+    avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     status: z
       .enum(Object.values(USER_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .default(USER_STATUS.EXPERIENCE_PERIOD_1),
     phone: phoneSchema.nullable().optional(),
-    positionId: z.string().uuid("Cargo inválido").nullable().optional(),
+    positionId: z.string().uuid('Cargo inválido').nullable().optional(),
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().default(false),
     performanceLevel: z.number().int().min(0).max(5).default(0),
-    sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    managedSectorId: z.string().uuid("Setor gerenciado inválido").nullable().optional(),
-    password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres").nullable().optional(),
+    sectorId: z.string().uuid('Setor inválido').nullable().optional(),
+    managedSectorId: z.string().uuid('Setor gerenciado inválido').nullable().optional(),
+    password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres').nullable().optional(),
 
     // Address fields
     address: z.string().nullable().optional(),
@@ -1030,25 +1062,31 @@ export const userCreateSchema = z
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().nullable().optional().refine((val) => !val || val.length === 2, {
-      message: "Estado deve ter 2 caracteres"
-    }),
+    state: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(val => !val || val.length === 2, {
+        message: 'Estado deve ter 2 caracteres',
+      }),
     zipCode: z.string().nullable().optional(),
-    site: z.string().nullable().optional().refine((val) => !val || z.string().url().safeParse(val).success, {
-      message: "URL inválida"
-    }),
+    site: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(val => !val || z.string().url().safeParse(val).success, {
+        message: 'URL inválida',
+      }),
 
     // Additional dates - birth is required
-    birth: z.coerce
-      .date()
-      .refine(
-        (date) => {
-          const eighteenYearsAgo = new Date();
-          eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
-          return date <= eighteenYearsAgo;
-        },
-        { message: "O colaborador deve ter pelo menos 18 anos" }
-      ),
+    birth: z.coerce.date().refine(
+      date => {
+        const eighteenYearsAgo = new Date();
+        eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
+        return date <= eighteenYearsAgo;
+      },
+      { message: 'O colaborador deve ter pelo menos 18 anos' },
+    ),
 
     // Status timestamp tracking
     effectedAt: nullableDate.optional(),
@@ -1059,7 +1097,12 @@ export const userCreateSchema = z
     dismissedAt: nullableDate.optional(),
 
     // Payroll info
-    payrollNumber: z.number().int().positive("Número da folha deve ser positivo").nullable().optional(),
+    payrollNumber: z
+      .number()
+      .int()
+      .positive('Número da folha deve ser positivo')
+      .nullable()
+      .optional(),
 
     // Nested PPE size creation for new users
     ppeSize: ppeSizeCreateNestedSchema.optional(),
@@ -1068,30 +1111,30 @@ export const userCreateSchema = z
     // Required for changelog tracking
     userId: z.string().optional(),
   })
-  .refine((data) => data.email || data.phone, {
-    message: "Email ou telefone deve ser fornecido",
-    path: ["email"], // Show error on email field
+  .refine(data => data.email || data.phone, {
+    message: 'Email ou telefone deve ser fornecido',
+    path: ['email'], // Show error on email field
   });
 
 export const userUpdateSchema = z
   .object({
     email: emailSchema.nullable().optional(),
-    name: createNameSchema(2, 200, "Nome").optional(),
-    avatarId: z.string().uuid("ID de avatar inválido").nullable().optional(),
+    name: createNameSchema(2, 200, 'Nome').optional(),
+    avatarId: z.string().uuid('ID de avatar inválido').nullable().optional(),
     status: z
       .enum(Object.values(USER_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .optional(),
     phone: phoneSchema.nullable().optional(),
-    positionId: z.string().uuid("Cargo inválido").nullable().optional(),
+    positionId: z.string().uuid('Cargo inválido').nullable().optional(),
     pis: pisSchema.nullable().optional(),
     cpf: cpfSchema.nullable().optional(),
     verified: z.boolean().optional(),
     performanceLevel: z.number().int().min(0).max(5).optional(),
-    sectorId: z.string().uuid("Setor inválido").nullable().optional(),
-    managedSectorId: z.string().uuid("Setor gerenciado inválido").nullable().optional(),
-    password: z.string().min(8, "Senha deve ter pelo menos 8 caracteres").nullable().optional(),
+    sectorId: z.string().uuid('Setor inválido').nullable().optional(),
+    managedSectorId: z.string().uuid('Setor gerenciado inválido').nullable().optional(),
+    password: z.string().min(8, 'Senha deve ter pelo menos 8 caracteres').nullable().optional(),
 
     // Address fields
     address: z.string().nullable().optional(),
@@ -1099,24 +1142,32 @@ export const userUpdateSchema = z
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().nullable().optional().refine((val) => !val || val.length === 2, {
-      message: "Estado deve ter 2 caracteres"
-    }),
+    state: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(val => !val || val.length === 2, {
+        message: 'Estado deve ter 2 caracteres',
+      }),
     zipCode: z.string().nullable().optional(),
-    site: z.string().nullable().optional().refine((val) => !val || z.string().url().safeParse(val).success, {
-      message: "URL inválida"
-    }),
+    site: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(val => !val || z.string().url().safeParse(val).success, {
+        message: 'URL inválida',
+      }),
 
     // Additional dates
     birth: z.coerce
       .date()
       .refine(
-        (date) => {
+        date => {
           const eighteenYearsAgo = new Date();
           eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
           return date <= eighteenYearsAgo;
         },
-        { message: "O colaborador deve ter pelo menos 18 anos" }
+        { message: 'O colaborador deve ter pelo menos 18 anos' },
       )
       .optional(),
 
@@ -1129,7 +1180,12 @@ export const userUpdateSchema = z
     dismissedAt: nullableDate.optional(),
 
     // Payroll info
-    payrollNumber: z.number().int().positive("Número da folha deve ser positivo").nullable().optional(),
+    payrollNumber: z
+      .number()
+      .int()
+      .positive('Número da folha deve ser positivo')
+      .nullable()
+      .optional(),
     secullumId: z.string().nullable().optional(),
 
     verificationCode: z.string().nullable().optional(),
@@ -1151,7 +1207,7 @@ export const userUpdateSchema = z
     currentStatus: z.nativeEnum(USER_STATUS).optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // If dismissedAt date is provided, status must be DISMISSED
       if (data.dismissedAt && data.status && data.status !== USER_STATUS.DISMISSED) {
         return false;
@@ -1159,12 +1215,12 @@ export const userUpdateSchema = z
       return true;
     },
     {
-      message: "Quando a data de demissão é fornecida, o status deve ser DISMISSED",
-      path: ["status"],
-    }
+      message: 'Quando a data de demissão é fornecida, o status deve ser DISMISSED',
+      path: ['status'],
+    },
   )
   .refine(
-    (data) => {
+    data => {
       // If status is DISMISSED, dismissedAt date is required
       if (data.status === USER_STATUS.DISMISSED && !data.dismissedAt) {
         return false;
@@ -1172,42 +1228,47 @@ export const userUpdateSchema = z
       return true;
     },
     {
-      message: "Data de demissão é obrigatória quando o status é DISMISSED",
-      path: ["dismissedAt"],
-    }
+      message: 'Data de demissão é obrigatória quando o status é DISMISSED',
+      path: ['dismissedAt'],
+    },
   )
   .refine(
-    (data) => {
+    data => {
       // Prevent EFFECTED users from being set to experience periods
       if (
         data.currentStatus === USER_STATUS.EFFECTED &&
         data.status &&
-        (data.status === USER_STATUS.EXPERIENCE_PERIOD_1 || data.status === USER_STATUS.EXPERIENCE_PERIOD_2)
+        (data.status === USER_STATUS.EXPERIENCE_PERIOD_1 ||
+          data.status === USER_STATUS.EXPERIENCE_PERIOD_2)
       ) {
         return false;
       }
       return true;
     },
     {
-      message: "Colaboradores CONTRATADOS não podem ser alterados para períodos de experiência",
-      path: ["status"],
-    }
+      message: 'Colaboradores CONTRATADOS não podem ser alterados para períodos de experiência',
+      path: ['status'],
+    },
   )
   .refine(
-    (data) => {
+    data => {
       // DISMISSED status cannot be changed to any other status
-      if (data.currentStatus === USER_STATUS.DISMISSED && data.status && data.status !== USER_STATUS.DISMISSED) {
+      if (
+        data.currentStatus === USER_STATUS.DISMISSED &&
+        data.status &&
+        data.status !== USER_STATUS.DISMISSED
+      ) {
         return false;
       }
       return true;
     },
     {
-      message: "Colaboradores DEMITIDOS não podem ter o status alterado",
-      path: ["status"],
-    }
+      message: 'Colaboradores DEMITIDOS não podem ter o status alterado',
+      path: ['status'],
+    },
   )
   .refine(
-    (data) => {
+    data => {
       // Validate status transition using helper function
       if (data.currentStatus && data.status && data.currentStatus !== data.status) {
         return isValidStatusTransition(data.currentStatus, data.status);
@@ -1215,9 +1276,9 @@ export const userUpdateSchema = z
       return true;
     },
     {
-      message: "Transição de status inválida",
-      path: ["status"],
-    }
+      message: 'Transição de status inválida',
+      path: ['status'],
+    },
   );
 
 // =====================
@@ -1232,23 +1293,25 @@ export const userBatchUpdateSchema = z.object({
   users: z
     .array(
       z.object({
-        id: z.string().uuid("Usuário inválido"),
+        id: z.string().uuid('Usuário inválido'),
         data: userUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const userBatchDeleteSchema = z.object({
-  userIds: z.array(z.string().uuid("Usuário inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  userIds: z
+    .array(z.string().uuid('Usuário inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 export const userMergeSchema = z.object({
-  targetUserId: z.string().uuid({ message: "ID do usuário principal inválido" }),
+  targetUserId: z.string().uuid({ message: 'ID do usuário principal inválido' }),
   sourceUserIds: z
-    .array(z.string().uuid({ message: "ID de usuário inválido" }))
-    .min(1, { message: "É necessário selecionar pelo menos 1 usuário para mesclar" })
-    .max(10, { message: "Máximo de 10 usuários podem ser mesclados por vez" }),
+    .array(z.string().uuid({ message: 'ID de usuário inválido' }))
+    .min(1, { message: 'É necessário selecionar pelo menos 1 usuário para mesclar' })
+    .max(10, { message: 'Máximo de 10 usuários podem ser mesclados por vez' }),
   conflictResolutions: z.record(z.any()).optional(),
 });
 
@@ -1306,7 +1369,10 @@ export const USER_STATUS_TRANSITIONS: Record<USER_STATUS, USER_STATUS[]> = {
  * @param newStatus - The desired new status
  * @returns true if the transition is allowed, false otherwise
  */
-export function isValidStatusTransition(currentStatus: USER_STATUS | string, newStatus: USER_STATUS | string): boolean {
+export function isValidStatusTransition(
+  currentStatus: USER_STATUS | string,
+  newStatus: USER_STATUS | string,
+): boolean {
   // Same status is always allowed
   if (currentStatus === newStatus) {
     return true;
@@ -1325,29 +1391,35 @@ export function isValidStatusTransition(currentStatus: USER_STATUS | string, new
  * @param newStatus - The attempted new status
  * @returns Error message in Portuguese
  */
-export function getStatusTransitionError(currentStatus: USER_STATUS | string, newStatus: USER_STATUS | string): string {
+export function getStatusTransitionError(
+  currentStatus: USER_STATUS | string,
+  newStatus: USER_STATUS | string,
+): string {
   const statusLabels: Record<string, string> = {
-    [USER_STATUS.EXPERIENCE_PERIOD_1]: "Experiência 1",
-    [USER_STATUS.EXPERIENCE_PERIOD_2]: "Experiência 2",
-    [USER_STATUS.EFFECTED]: "Efetivado",
-    [USER_STATUS.DISMISSED]: "Demitido",
+    [USER_STATUS.EXPERIENCE_PERIOD_1]: 'Experiência 1',
+    [USER_STATUS.EXPERIENCE_PERIOD_2]: 'Experiência 2',
+    [USER_STATUS.EFFECTED]: 'Efetivado',
+    [USER_STATUS.DISMISSED]: 'Demitido',
   };
 
   if (currentStatus === USER_STATUS.DISMISSED) {
-    return "Colaboradores demitidos não podem ter o status alterado";
+    return 'Colaboradores demitidos não podem ter o status alterado';
   }
 
-  if (currentStatus === USER_STATUS.EFFECTED && (newStatus === USER_STATUS.EXPERIENCE_PERIOD_1 || newStatus === USER_STATUS.EXPERIENCE_PERIOD_2)) {
-    return "Colaboradores efetivados não podem retornar ao período de experiência";
+  if (
+    currentStatus === USER_STATUS.EFFECTED &&
+    (newStatus === USER_STATUS.EXPERIENCE_PERIOD_1 || newStatus === USER_STATUS.EXPERIENCE_PERIOD_2)
+  ) {
+    return 'Colaboradores efetivados não podem retornar ao período de experiência';
   }
 
   const allowedTransitions = USER_STATUS_TRANSITIONS[currentStatus as USER_STATUS] || [];
-  const allowedLabels = allowedTransitions.map((s: USER_STATUS) => statusLabels[s]).join(", ");
+  const allowedLabels = allowedTransitions.map((s: USER_STATUS) => statusLabels[s]).join(', ');
 
   return `Transição inválida de ${statusLabels[currentStatus] || currentStatus} para ${statusLabels[newStatus] || newStatus}. Transições permitidas: ${allowedLabels}`;
 }
 
-export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormData>((user) => ({
+export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormData>(user => ({
   email: user.email || undefined,
   name: user.name,
   avatarId: user.avatarId || undefined,

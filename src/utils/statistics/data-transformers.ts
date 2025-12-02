@@ -1,5 +1,5 @@
-import { format, startOfDay, startOfMonth } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { format, startOfDay, startOfMonth } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 
 // Types for raw data from API
 export interface RawActivityData {
@@ -74,7 +74,7 @@ export const transformToTimeSeries = (
   data: RawActivityData[],
   dateField: keyof RawActivityData,
   aggregationType: 'day' | 'week' | 'month' = 'day',
-  metrics: string[] = ['count']
+  metrics: string[] = ['count'],
 ): TimeSeriesData[] => {
   const groupedData = new Map<string, any>();
 
@@ -147,7 +147,7 @@ export const transformToCategoryBreakdown = (
   data: RawStockData[],
   groupByField: keyof RawStockData,
   valueField: keyof RawStockData = 'value',
-  colors?: string[]
+  colors?: string[],
 ): CategoryData[] => {
   const grouped = new Map<string, { value: number; count: number }>();
 
@@ -220,17 +220,32 @@ export const transformToStockAnalysis = (data: RawStockData[]) => {
   });
 
   // Calculate averages
-  analysis.categories.forEach((category) => {
-    category.avgStock = category.items.reduce((sum: number, item: RawStockData) =>
-      sum + (item.currentStock / item.maxStock), 0) / category.total;
+  analysis.categories.forEach(category => {
+    category.avgStock =
+      category.items.reduce(
+        (sum: number, item: RawStockData) => sum + item.currentStock / item.maxStock,
+        0,
+      ) / category.total;
   });
 
   return {
     distribution: [
-      { status: 'Normal', count: analysis.normal, percentage: (analysis.normal / analysis.total) * 100 },
+      {
+        status: 'Normal',
+        count: analysis.normal,
+        percentage: (analysis.normal / analysis.total) * 100,
+      },
       { status: 'Baixo', count: analysis.low, percentage: (analysis.low / analysis.total) * 100 },
-      { status: 'Crítico', count: analysis.critical, percentage: (analysis.critical / analysis.total) * 100 },
-      { status: 'Excesso', count: analysis.overstock, percentage: (analysis.overstock / analysis.total) * 100 },
+      {
+        status: 'Crítico',
+        count: analysis.critical,
+        percentage: (analysis.critical / analysis.total) * 100,
+      },
+      {
+        status: 'Excesso',
+        count: analysis.overstock,
+        percentage: (analysis.overstock / analysis.total) * 100,
+      },
     ],
     categories: Array.from(analysis.categories.entries()).map(([name, data]) => ({
       name,
@@ -243,7 +258,7 @@ export const transformToStockAnalysis = (data: RawStockData[]) => {
 // User performance analysis
 export const transformToUserPerformance = (
   data: RawActivityData[],
-  dateRange: { from: Date; to: Date }
+  dateRange: { from: Date; to: Date },
 ): Array<{
   userId: string;
   userName: string;
@@ -254,7 +269,9 @@ export const transformToUserPerformance = (
   activityTypes: Record<string, number>;
 }> => {
   const users = new Map<string, any>();
-  const totalDays = Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24));
+  const totalDays = Math.ceil(
+    (dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24),
+  );
 
   data.forEach(activity => {
     if (!users.has(activity.userId)) {
@@ -331,7 +348,9 @@ export const transformToOrderFulfillment = (data: RawOrderData[]) => {
         supplier.lateDeliveries++;
       }
 
-      const fulfillmentDays = Math.ceil((actual.getTime() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+      const fulfillmentDays = Math.ceil(
+        (actual.getTime() - new Date(order.createdAt).getTime()) / (1000 * 60 * 60 * 24),
+      );
       totalFulfillmentTime += fulfillmentDays;
       fulfilledOrders++;
     }
@@ -349,7 +368,8 @@ export const transformToOrderFulfillment = (data: RawOrderData[]) => {
   // Calculate averages
   analysis.bySupplier.forEach(supplier => {
     supplier.avgValue = supplier.totalValue / supplier.orderCount;
-    supplier.onTimeRate = supplier.onTimeDeliveries / (supplier.onTimeDeliveries + supplier.lateDeliveries) * 100;
+    supplier.onTimeRate =
+      (supplier.onTimeDeliveries / (supplier.onTimeDeliveries + supplier.lateDeliveries)) * 100;
   });
 
   analysis.avgFulfillmentTime = fulfilledOrders > 0 ? totalFulfillmentTime / fulfilledOrders : 0;
@@ -367,7 +387,10 @@ export const transformToOrderFulfillment = (data: RawOrderData[]) => {
 };
 
 // Trend calculation utilities
-export const calculateTrend = (data: number[], periods: number = 7): {
+export const calculateTrend = (
+  data: number[],
+  periods: number = 7,
+): {
   direction: 'up' | 'down' | 'stable';
   percentage: number;
   confidence: number;
@@ -390,7 +413,8 @@ export const calculateTrend = (data: number[], periods: number = 7): {
   const absChange = Math.abs(change);
 
   let direction: 'up' | 'down' | 'stable' = 'stable';
-  if (absChange > 5) { // 5% threshold
+  if (absChange > 5) {
+    // 5% threshold
     direction = change > 0 ? 'up' : 'down';
   }
 
@@ -398,7 +422,7 @@ export const calculateTrend = (data: number[], periods: number = 7): {
   const recentVariance = calculateStatisticalVariance(recent);
   const previousVariance = calculateStatisticalVariance(previous);
   const avgVariance = (recentVariance + previousVariance) / 2;
-  const confidence = Math.max(0, Math.min(100, 100 - (avgVariance / recentAvg * 100)));
+  const confidence = Math.max(0, Math.min(100, 100 - (avgVariance / recentAvg) * 100));
 
   return {
     direction,
@@ -428,7 +452,10 @@ export const calculateMovingAverage = (data: number[], window: number): number[]
 };
 
 // Outlier detection
-export const detectOutliers = (data: number[], threshold: number = 2): {
+export const detectOutliers = (
+  data: number[],
+  threshold: number = 2,
+): {
   outliers: number[];
   indices: number[];
   cleanData: number[];
@@ -458,7 +485,7 @@ export const detectOutliers = (data: number[], threshold: number = 2): {
 // Seasonal pattern detection
 export const detectSeasonalPatterns = (
   data: TimeSeriesData[],
-  valueField: string
+  valueField: string,
 ): {
   hasSeasonality: boolean;
   pattern: 'weekly' | 'monthly' | 'none';
@@ -493,7 +520,8 @@ export const detectSeasonalPatterns = (
   }));
 
   const weeklyVariance = calculateStatisticalVariance(weeklyAverages.map(item => item.average));
-  const overallAverage = data.reduce((sum, item) => sum + (Number(item[valueField]) || 0), 0) / data.length;
+  const overallAverage =
+    data.reduce((sum, item) => sum + (Number(item[valueField]) || 0), 0) / data.length;
   const weeklyStrength = weeklyVariance / (overallAverage * overallAverage);
 
   // Calculate monthly pattern strength (if enough data)
@@ -525,13 +553,13 @@ export const detectSeasonalPatterns = (
   // Find peaks
   const peaks: string[] = [];
   if (pattern === 'weekly') {
-    const topDays = weeklyAverages
-      .sort((a, b) => b.average - a.average)
-      .slice(0, 2);
-    peaks.push(...topDays.map(item => {
-      const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-      return dayNames[item.day];
-    }));
+    const topDays = weeklyAverages.sort((a, b) => b.average - a.average).slice(0, 2);
+    peaks.push(
+      ...topDays.map(item => {
+        const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+        return dayNames[item.day];
+      }),
+    );
   }
 
   return {
@@ -558,14 +586,9 @@ export interface ExportTransformConfig {
  */
 export const transformForExport = (
   data: any[],
-  config: ExportTransformConfig = {}
-): { data: any[], metadata: Record<string, any> } => {
-  const {
-    fieldMappings = {},
-    excludeFields = [],
-    formatters = {},
-    maxRecords = 10000,
-  } = config;
+  config: ExportTransformConfig = {},
+): { data: any[]; metadata: Record<string, any> } => {
+  const { fieldMappings = {}, excludeFields = [], formatters = {}, maxRecords = 10000 } = config;
 
   let transformedData = [...data];
 
@@ -605,7 +628,8 @@ export const transformForExport = (
   };
 
   if (data.length > maxRecords) {
-    metadata['Observação'] = `Dados limitados a ${maxRecords} registros para otimização. Use filtros para dados específicos.`;
+    metadata['Observação'] =
+      `Dados limitados a ${maxRecords} registros para otimização. Use filtros para dados específicos.`;
   }
 
   return { data: processedData, metadata };
@@ -642,12 +666,20 @@ const formatValueForExport = (value: any, fieldName: string): any => {
     const fieldLower = fieldName.toLowerCase();
 
     // Currency fields
-    if (fieldLower.includes('valor') || fieldLower.includes('preco') || fieldLower.includes('custo')) {
+    if (
+      fieldLower.includes('valor') ||
+      fieldLower.includes('preco') ||
+      fieldLower.includes('custo')
+    ) {
       return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     }
 
     // Percentage fields
-    if (fieldLower.includes('percentual') || fieldLower.includes('taxa') || fieldLower.includes('percent')) {
+    if (
+      fieldLower.includes('percentual') ||
+      fieldLower.includes('taxa') ||
+      fieldLower.includes('percent')
+    ) {
       return `${value.toFixed(1)}%`;
     }
 
@@ -670,7 +702,7 @@ const formatValueForExport = (value: any, fieldName: string): any => {
 export const createChartExportData = (
   chartTitle: string,
   data: any[],
-  config: ExportTransformConfig = {}
+  config: ExportTransformConfig = {},
 ): { chartTitle: string; data: any[]; metadata: Record<string, any> } => {
   const { data: transformedData, metadata } = transformForExport(data, config);
 
@@ -701,18 +733,26 @@ export const transformInventoryStatisticsForExport = (statistics: any) => {
         [
           { metrica: 'Total de Itens', valor: statistics.totalItems, categoria: 'Inventário' },
           { metrica: 'Valor Total', valor: statistics.totalValue, categoria: 'Financeiro' },
-          { metrica: 'Itens em Baixo Estoque', valor: statistics.lowStockItems, categoria: 'Alerta' },
+          {
+            metrica: 'Itens em Baixo Estoque',
+            valor: statistics.lowStockItems,
+            categoria: 'Alerta',
+          },
           { metrica: 'Taxa de Giro', valor: statistics.turnoverRate, categoria: 'Performance' },
-          { metrica: 'Atividades do Mês', valor: statistics.monthlyActivities, categoria: 'Movimentação' },
+          {
+            metrica: 'Atividades do Mês',
+            valor: statistics.monthlyActivities,
+            categoria: 'Movimentação',
+          },
           { metrica: 'Usuários Ativos', valor: statistics.activeUsers, categoria: 'Colaboradores' },
         ],
         {
           subtitle: 'Indicadores principais do sistema de estoque',
           formatters: {
-            valor: (value) => formatValueForExport(value, 'valor'),
+            valor: value => formatValueForExport(value, 'valor'),
           },
-        }
-      )
+        },
+      ),
     );
   }
 
@@ -722,15 +762,21 @@ export const transformInventoryStatisticsForExport = (statistics: any) => {
       createChartExportData(
         'Atividade Recente (24h)',
         [
-          { atividade: 'Produtos Adicionados', quantidade: statistics.recentActivity.productsAdded },
+          {
+            atividade: 'Produtos Adicionados',
+            quantidade: statistics.recentActivity.productsAdded,
+          },
           { atividade: 'Movimentações', quantidade: statistics.recentActivity.movements },
           { atividade: 'Pedidos Criados', quantidade: statistics.recentActivity.ordersCreated },
-          { atividade: 'Atualizações de Preço', quantidade: statistics.recentActivity.priceUpdates },
+          {
+            atividade: 'Atualizações de Preço',
+            quantidade: statistics.recentActivity.priceUpdates,
+          },
         ],
         {
           subtitle: 'Resumo das principais atividades nas últimas 24 horas',
-        }
-      )
+        },
+      ),
     );
   }
 
@@ -742,7 +788,7 @@ export const transformInventoryStatisticsForExport = (statistics: any) => {
  */
 export const createExportSummary = (
   data: any[],
-  numericalFields: string[] = []
+  numericalFields: string[] = [],
 ): Record<string, any> => {
   const summary: Record<string, any> = {
     'Total de Registros': data.length,

@@ -25,7 +25,9 @@ export const PPE_SIZE_TO_NUMERIC: Record<string, number> = {
 /**
  * Maps numeric values back to PPE size enum values
  */
-export const NUMERIC_TO_PPE_SIZE: Record<number, string> = Object.fromEntries(Object.entries(PPE_SIZE_TO_NUMERIC).map(([size, value]) => [value, size]));
+export const NUMERIC_TO_PPE_SIZE: Record<number, string> = Object.fromEntries(
+  Object.entries(PPE_SIZE_TO_NUMERIC).map(([size, value]) => [value, size]),
+);
 
 /**
  * Convert PPE size string to numeric value for storage
@@ -44,8 +46,10 @@ export function numericToPpeSize(value: number): string | null {
 /**
  * Get PPE size from an item's measures
  */
-export function getPpeSizeFromMeasures(measures: Array<{ measureType: string; value: number }>): string | null {
-  const sizeMeasure = measures.find((m) => m.measureType === "SIZE");
+export function getPpeSizeFromMeasures(
+  measures: Array<{ measureType: string; value: number }>,
+): string | null {
+  const sizeMeasure = measures.find(m => m.measureType === 'SIZE');
   if (!sizeMeasure) return null;
   return numericToPpeSize(sizeMeasure.value);
 }
@@ -60,9 +64,9 @@ export function createPpeSizeMeasureDeprecated(size: string, itemId: string) {
   if (!numericValue) return null;
 
   return {
-    measureType: "SIZE",
+    measureType: 'SIZE',
     value: numericValue,
-    unit: "UNIT", // SIZE measures use UNIT as the unit
+    unit: 'UNIT', // SIZE measures use UNIT as the unit
     itemId,
   };
 }

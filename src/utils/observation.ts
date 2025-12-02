@@ -4,20 +4,26 @@ export const getObservationWordCount = (description: string): number => {
   return description
     .trim()
     .split(/\s+/)
-    .filter((word) => word.length > 0).length;
+    .filter(word => word.length > 0).length;
 };
 
-export const extractObservationKeywords = (description: string, minLength: number = 3): string[] => {
+export const extractObservationKeywords = (
+  description: string,
+  minLength: number = 3,
+): string[] => {
   const words = description
     .toLowerCase()
-    .replace(/[^\w\s]/g, "")
+    .replace(/[^\w\s]/g, '')
     .split(/\s+/)
-    .filter((word) => word.length >= minLength);
+    .filter(word => word.length >= minLength);
 
   return [...new Set(words)];
 };
 
-export const isObservationRecent = (observation: Observation, hoursThreshold: number = 24): boolean => {
+export const isObservationRecent = (
+  observation: Observation,
+  hoursThreshold: number = 24,
+): boolean => {
   const now = new Date();
   const observationDate = new Date(observation.createdAt);
   const hoursDiff = (now.getTime() - observationDate.getTime()) / (1000 * 60 * 60);
@@ -28,7 +34,7 @@ export const isObservationRecent = (observation: Observation, hoursThreshold: nu
 export const getObservationFileTypes = (observation: Observation): string[] => {
   if (!observation.files) return [];
 
-  return [...new Set(observation.files.map((file) => file.mimetype))];
+  return [...new Set(observation.files.map(file => file.mimetype))];
 };
 
 export const calculateObservationFileSize = (observation: Observation): number => {

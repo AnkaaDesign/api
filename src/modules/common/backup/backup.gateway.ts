@@ -23,9 +23,7 @@ import { OnEvent } from '@nestjs/event-emitter';
     credentials: true,
   },
 })
-export class BackupGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class BackupGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -56,10 +54,7 @@ export class BackupGateway
    * Subscribe to backup progress updates
    */
   @SubscribeMessage('subscribe')
-  handleSubscribe(
-    @MessageBody() data: { backupId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
+  handleSubscribe(@MessageBody() data: { backupId: string }, @ConnectedSocket() client: Socket) {
     const { backupId } = data;
 
     if (!this.activeBackups.has(backupId)) {
@@ -78,10 +73,7 @@ export class BackupGateway
    * Unsubscribe from backup progress updates
    */
   @SubscribeMessage('unsubscribe')
-  handleUnsubscribe(
-    @MessageBody() data: { backupId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
+  handleUnsubscribe(@MessageBody() data: { backupId: string }, @ConnectedSocket() client: Socket) {
     const { backupId } = data;
 
     const clients = this.activeBackups.get(backupId);

@@ -1,18 +1,40 @@
 // packages/schemas/src/item.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableString, createNameSchema, optionalNonNegativeNumber, optionalPositiveNumber } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableString,
+  createNameSchema,
+  optionalNonNegativeNumber,
+  optionalPositiveNumber,
+} from './common';
 import type { Item, ItemBrand, ItemCategory } from '@types';
-import { MEASURE_UNIT, MEASURE_TYPE, ABC_CATEGORY, XYZ_CATEGORY, PPE_TYPE, PPE_SIZE, PPE_DELIVERY_MODE, STOCK_LEVEL, ITEM_CATEGORY_TYPE } from '@constants';
-import { activityIncludeSchema, activityWhereSchema, activityOrderBySchema } from "./activity";
-import { borrowIncludeSchema, borrowWhereSchema, borrowOrderBySchema } from "./borrow";
-import { ppeDeliveryIncludeSchema, ppeDeliveryWhereSchema, ppeDeliveryOrderBySchema } from "./epi";
-import { monetaryValueIncludeSchema, monetaryValueWhereSchema, monetaryValueOrderBySchema } from "./position";
+import {
+  MEASURE_UNIT,
+  MEASURE_TYPE,
+  ABC_CATEGORY,
+  XYZ_CATEGORY,
+  PPE_TYPE,
+  PPE_SIZE,
+  PPE_DELIVERY_MODE,
+  STOCK_LEVEL,
+  ITEM_CATEGORY_TYPE,
+} from '@constants';
+import { activityIncludeSchema, activityWhereSchema, activityOrderBySchema } from './activity';
+import { borrowIncludeSchema, borrowWhereSchema, borrowOrderBySchema } from './borrow';
+import { ppeDeliveryIncludeSchema, ppeDeliveryWhereSchema, ppeDeliveryOrderBySchema } from './epi';
+import {
+  monetaryValueIncludeSchema,
+  monetaryValueWhereSchema,
+  monetaryValueOrderBySchema,
+} from './position';
 
 // =====================
 // Import Measure Schemas
 // =====================
-import { measureIncludeSchema, measureWhereSchema, measureOrderBySchema } from "./measure";
+import { measureIncludeSchema, measureWhereSchema, measureOrderBySchema } from './measure';
 
 // =====================
 // ItemBrand Schemas
@@ -144,7 +166,7 @@ export const itemBrandWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -327,7 +349,7 @@ export const itemCategoryWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -527,8 +549,8 @@ export const itemIncludeSchema = z
                   z.object({
                     orderBy: z
                       .object({
-                        createdAt: z.enum(["asc", "desc"]).optional(),
-                        value: z.enum(["asc", "desc"]).optional(),
+                        createdAt: z.enum(['asc', 'desc']).optional(),
+                        value: z.enum(['asc', 'desc']).optional(),
                       })
                       .optional(),
                     take: z.coerce.number().optional(),
@@ -561,8 +583,8 @@ export const itemIncludeSchema = z
                   z.object({
                     orderBy: z
                       .object({
-                        createdAt: z.enum(["asc", "desc"]).optional(),
-                        value: z.enum(["asc", "desc"]).optional(),
+                        createdAt: z.enum(['asc', 'desc']).optional(),
+                        value: z.enum(['asc', 'desc']).optional(),
                       })
                       .optional(),
                     take: z.coerce.number().optional(),
@@ -797,7 +819,7 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -1265,15 +1287,15 @@ const itemTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Search filter
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { uniCode: { contains: data.searchingFor.trim(), mode: "insensitive" } },
+        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { uniCode: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         { barcodes: { has: data.searchingFor.trim() } },
-        { brand: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { category: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { brand: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -1281,10 +1303,10 @@ const itemTransform = (data: any) => {
 
   // Boolean filters - check both root level and where clause
   // isActive can be at root or in where
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
-  } else if (data.where && typeof data.where.isActive === "boolean") {
+  } else if (data.where && typeof data.where.isActive === 'boolean') {
     andConditions.push({ isActive: data.where.isActive });
     delete data.where.isActive;
   }
@@ -1305,10 +1327,10 @@ const itemTransform = (data: any) => {
   }
 
   // shouldAssignToUser filter
-  if (typeof data.shouldAssignToUser === "boolean") {
+  if (typeof data.shouldAssignToUser === 'boolean') {
     andConditions.push({ shouldAssignToUser: data.shouldAssignToUser });
     delete data.shouldAssignToUser;
-  } else if (data.where && typeof data.where.shouldAssignToUser === "boolean") {
+  } else if (data.where && typeof data.where.shouldAssignToUser === 'boolean') {
     andConditions.push({ shouldAssignToUser: data.where.shouldAssignToUser });
     delete data.where.shouldAssignToUser;
   }
@@ -1452,8 +1474,8 @@ const itemTransform = (data: any) => {
 
   if (data.brandIds && Array.isArray(data.brandIds) && data.brandIds.length > 0) {
     // Check if the special "null" value is included
-    const hasNullBrand = data.brandIds.includes("null");
-    const actualBrandIds = data.brandIds.filter((id: string) => id !== "null");
+    const hasNullBrand = data.brandIds.includes('null');
+    const actualBrandIds = data.brandIds.filter((id: string) => id !== 'null');
 
     if (hasNullBrand && actualBrandIds.length > 0) {
       // Include both null and specific brands
@@ -1472,8 +1494,8 @@ const itemTransform = (data: any) => {
 
   if (data.categoryIds && Array.isArray(data.categoryIds) && data.categoryIds.length > 0) {
     // Check if the special "null" value is included
-    const hasNullCategory = data.categoryIds.includes("null");
-    const actualCategoryIds = data.categoryIds.filter((id: string) => id !== "null");
+    const hasNullCategory = data.categoryIds.includes('null');
+    const actualCategoryIds = data.categoryIds.filter((id: string) => id !== 'null');
 
     if (hasNullCategory && actualCategoryIds.length > 0) {
       // Include both null and specific categories
@@ -1492,8 +1514,8 @@ const itemTransform = (data: any) => {
 
   if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
     // Check if the special "null" value is included
-    const hasNullSupplier = data.supplierIds.includes("null");
-    const actualSupplierIds = data.supplierIds.filter((id: string) => id !== "null");
+    const hasNullSupplier = data.supplierIds.includes('null');
+    const actualSupplierIds = data.supplierIds.filter((id: string) => id !== 'null');
 
     if (hasNullSupplier && actualSupplierIds.length > 0) {
       // Include both null and specific suppliers
@@ -1531,50 +1553,52 @@ const itemTransform = (data: any) => {
   }
 
   // Range filters
-  if (data.quantityRange && typeof data.quantityRange === "object") {
+  if (data.quantityRange && typeof data.quantityRange === 'object') {
     const condition: any = {};
-    if (typeof data.quantityRange.min === "number") condition.gte = data.quantityRange.min;
-    if (typeof data.quantityRange.max === "number") condition.lte = data.quantityRange.max;
+    if (typeof data.quantityRange.min === 'number') condition.gte = data.quantityRange.min;
+    if (typeof data.quantityRange.max === 'number') condition.lte = data.quantityRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ quantity: condition });
     }
     delete data.quantityRange;
   }
 
-  if (data.icmsRange && typeof data.icmsRange === "object") {
+  if (data.icmsRange && typeof data.icmsRange === 'object') {
     const condition: any = {};
-    if (typeof data.icmsRange.min === "number") condition.gte = data.icmsRange.min;
-    if (typeof data.icmsRange.max === "number") condition.lte = data.icmsRange.max;
+    if (typeof data.icmsRange.min === 'number') condition.gte = data.icmsRange.min;
+    if (typeof data.icmsRange.max === 'number') condition.lte = data.icmsRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ icms: condition });
     }
     delete data.icmsRange;
   }
 
-  if (data.ipiRange && typeof data.ipiRange === "object") {
+  if (data.ipiRange && typeof data.ipiRange === 'object') {
     const condition: any = {};
-    if (typeof data.ipiRange.min === "number") condition.gte = data.ipiRange.min;
-    if (typeof data.ipiRange.max === "number") condition.lte = data.ipiRange.max;
+    if (typeof data.ipiRange.min === 'number') condition.gte = data.ipiRange.min;
+    if (typeof data.ipiRange.max === 'number') condition.lte = data.ipiRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ ipi: condition });
     }
     delete data.ipiRange;
   }
 
-  if (data.monthlyConsumptionRange && typeof data.monthlyConsumptionRange === "object") {
+  if (data.monthlyConsumptionRange && typeof data.monthlyConsumptionRange === 'object') {
     const condition: any = {};
-    if (typeof data.monthlyConsumptionRange.min === "number") condition.gte = data.monthlyConsumptionRange.min;
-    if (typeof data.monthlyConsumptionRange.max === "number") condition.lte = data.monthlyConsumptionRange.max;
+    if (typeof data.monthlyConsumptionRange.min === 'number')
+      condition.gte = data.monthlyConsumptionRange.min;
+    if (typeof data.monthlyConsumptionRange.max === 'number')
+      condition.lte = data.monthlyConsumptionRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ monthlyConsumption: condition });
     }
     delete data.monthlyConsumptionRange;
   }
 
-  if (data.totalPriceRange && typeof data.totalPriceRange === "object") {
+  if (data.totalPriceRange && typeof data.totalPriceRange === 'object') {
     const condition: any = {};
-    if (typeof data.totalPriceRange.min === "number") condition.gte = data.totalPriceRange.min;
-    if (typeof data.totalPriceRange.max === "number") condition.lte = data.totalPriceRange.max;
+    if (typeof data.totalPriceRange.min === 'number') condition.gte = data.totalPriceRange.min;
+    if (typeof data.totalPriceRange.max === 'number') condition.lte = data.totalPriceRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ totalPrice: condition });
     }
@@ -1631,9 +1655,9 @@ const itemBrandTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: "insensitive" },
+      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
     });
     delete data.searchingFor;
   }
@@ -1689,9 +1713,9 @@ const itemCategoryTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: "insensitive" },
+      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
     });
     delete data.searchingFor;
   }
@@ -1706,7 +1730,7 @@ const itemCategoryTransform = (data: any) => {
     delete data.names;
   }
 
-  if (typeof data.isPpe === "boolean") {
+  if (typeof data.isPpe === 'boolean') {
     // Backwards compatibility - convert isPpe boolean to type enum
     if (data.isPpe === true) {
       andConditions.push({ type: ITEM_CATEGORY_TYPE.PPE });
@@ -1716,7 +1740,7 @@ const itemCategoryTransform = (data: any) => {
     delete data.isPpe;
   }
 
-  if (data.type && typeof data.type === "string") {
+  if (data.type && typeof data.type === 'string') {
     andConditions.push({ type: data.type });
     delete data.type;
   }
@@ -1856,31 +1880,54 @@ export const itemCategoryGetManySchema = z
 
 // Item CRUD - Base schemas without transform
 export const itemCreateSchemaBase = z.object({
-  name: createNameSchema(1, 255, "Nome do item"),
+  name: createNameSchema(1, 255, 'Nome do item'),
   uniCode: nullableString.optional(),
-  quantity: z.number().min(0, "Quantidade deve ser não-negativa").default(0),
-  maxQuantity: optionalNonNegativeNumber.refine((val) => val === null || val === undefined || val >= 0, "Quantidade máxima deve ser não-negativa"),
-  reorderPoint: optionalNonNegativeNumber.refine((val) => val === null || val === undefined || val >= 0, "Ponto de reposição deve ser não-negativo"),
-  reorderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade de reposição deve ser positiva"),
+  quantity: z.number().min(0, 'Quantidade deve ser não-negativa').default(0),
+  maxQuantity: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Quantidade máxima deve ser não-negativa',
+  ),
+  reorderPoint: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Ponto de reposição deve ser não-negativo',
+  ),
+  reorderQuantity: optionalPositiveNumber.refine(
+    val => val === null || val === undefined || val > 0,
+    'Quantidade de reposição deve ser positiva',
+  ),
   boxQuantity: z.number().int().nullable().optional(),
-  icms: z.number().min(0, "ICMS deve ser não-negativo").max(100, "ICMS não pode exceder 100%").default(0).optional(),
-  ipi: z.number().min(0, "IPI deve ser não-negativo").max(100, "IPI não pode exceder 100%").default(0).optional(),
-  monthlyConsumption: z.number().min(0, "Consumo mensal deve ser não-negativo").default(0).optional(),
+  icms: z
+    .number()
+    .min(0, 'ICMS deve ser não-negativo')
+    .max(100, 'ICMS não pode exceder 100%')
+    .default(0)
+    .optional(),
+  ipi: z
+    .number()
+    .min(0, 'IPI deve ser não-negativo')
+    .max(100, 'IPI não pode exceder 100%')
+    .default(0)
+    .optional(),
+  monthlyConsumption: z
+    .number()
+    .min(0, 'Consumo mensal deve ser não-negativo')
+    .default(0)
+    .optional(),
   monthlyConsumptionTrendPercent: z
     .number()
-    .min(-100, "Tendência não pode ser menor que -100%")
-    .max(1000, "Tendência não pode ser maior que 1000%")
+    .min(-100, 'Tendência não pode ser menor que -100%')
+    .max(1000, 'Tendência não pode ser maior que 1000%')
     .nullable()
     .optional()
     .default(null),
-  barcodes: z.array(z.string().min(1, "Código de barras não pode ser vazio")).default([]),
+  barcodes: z.array(z.string().min(1, 'Código de barras não pode ser vazio')).default([]),
 
   shouldAssignToUser: z.boolean().default(true),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
-  brandId: z.string().uuid({ message: "Marca inválida" }).nullable().optional(),
-  categoryId: z.string().uuid({ message: "Categoria inválida" }).nullable().optional(),
-  supplierId: z.string().uuid({ message: "Fornecedor inválido" }).nullable().optional(),
+  brandId: z.string().uuid({ message: 'Marca inválida' }).nullable().optional(),
+  categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
+  supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().default(30).optional(),
   isActive: z.boolean().default(true),
   price: optionalNonNegativeNumber,
@@ -1890,18 +1937,18 @@ export const itemCreateSchemaBase = z.object({
     .array(
       z
         .object({
-          value: z.number().positive("Valor da medida deve ser positivo").nullish(),
+          value: z.number().positive('Valor da medida deve ser positivo').nullish(),
           unit: z
             .enum(Object.values(MEASURE_UNIT) as [string, ...string[]], {
-              errorMap: () => ({ message: "Unidade de medida inválida" }),
+              errorMap: () => ({ message: 'Unidade de medida inválida' }),
             })
             .nullish(),
           measureType: z.enum(Object.values(MEASURE_TYPE) as [string, ...string[]], {
-            errorMap: () => ({ message: "Tipo de medida inválido" }),
+            errorMap: () => ({ message: 'Tipo de medida inválido' }),
           }),
         })
         .refine(
-          (data) => {
+          data => {
             // For SIZE type measures (PPE sizes), validate value and unit requirements
             if (data.measureType === MEASURE_TYPE.SIZE) {
               // At least one of value or unit must be provided
@@ -1912,10 +1959,16 @@ export const itemCreateSchemaBase = z.object({
             }
 
             // For other measure types, both value and unit are required
-            return data.value !== undefined && data.value !== null && data.unit !== undefined && data.unit !== null;
+            return (
+              data.value !== undefined &&
+              data.value !== null &&
+              data.unit !== undefined &&
+              data.unit !== null
+            );
           },
           {
-            message: "Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.",
+            message:
+              'Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.',
           },
         ),
     )
@@ -1936,22 +1989,36 @@ export const itemUpdateSchemaBase = z.object({
   name: z.string().min(1).max(255).optional(),
   uniCode: nullableString.optional(),
   quantity: z.number().min(0).optional(),
-  maxQuantity: optionalNonNegativeNumber.refine((val) => val === null || val === undefined || val >= 0, "Quantidade máxima deve ser não-negativa"),
-  reorderPoint: optionalNonNegativeNumber.refine((val) => val === null || val === undefined || val >= 0, "Ponto de reposição deve ser não-negativo"),
-  reorderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade de reposição deve ser positiva"),
+  maxQuantity: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Quantidade máxima deve ser não-negativa',
+  ),
+  reorderPoint: optionalNonNegativeNumber.refine(
+    val => val === null || val === undefined || val >= 0,
+    'Ponto de reposição deve ser não-negativo',
+  ),
+  reorderQuantity: optionalPositiveNumber.refine(
+    val => val === null || val === undefined || val > 0,
+    'Quantidade de reposição deve ser positiva',
+  ),
   boxQuantity: z.number().int().nullable().optional(),
   icms: z.number().min(0).max(100).optional(),
   ipi: z.number().min(0).max(100).optional(),
-  monthlyConsumption: z.number().min(0, "Consumo mensal deve ser não-negativo").optional(),
-  monthlyConsumptionTrendPercent: z.number().min(-100, "Tendência não pode ser menor que -100%").max(1000, "Tendência não pode ser maior que 1000%").nullable().optional(),
-  barcodes: z.array(z.string().min(1, "Código de barras não pode ser vazio")).optional(),
+  monthlyConsumption: z.number().min(0, 'Consumo mensal deve ser não-negativo').optional(),
+  monthlyConsumptionTrendPercent: z
+    .number()
+    .min(-100, 'Tendência não pode ser menor que -100%')
+    .max(1000, 'Tendência não pode ser maior que 1000%')
+    .nullable()
+    .optional(),
+  barcodes: z.array(z.string().min(1, 'Código de barras não pode ser vazio')).optional(),
 
   shouldAssignToUser: z.boolean().optional(),
   abcCategory: z.nativeEnum(ABC_CATEGORY).nullable().optional(),
   xyzCategory: z.nativeEnum(XYZ_CATEGORY).nullable().optional(),
-  brandId: z.string().uuid({ message: "Marca inválida" }).nullable().optional(),
-  categoryId: z.string().uuid({ message: "Categoria inválida" }).nullable().optional(),
-  supplierId: z.string().uuid({ message: "Fornecedor inválido" }).nullable().optional(),
+  brandId: z.string().uuid({ message: 'Marca inválida' }).nullable().optional(),
+  categoryId: z.string().uuid({ message: 'Categoria inválida' }).nullable().optional(),
+  supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
   estimatedLeadTime: z.number().int().nullable().optional(),
   isActive: z.boolean().optional(),
   abcCategoryOrder: z.number().int().nullable().optional(),
@@ -1963,18 +2030,18 @@ export const itemUpdateSchemaBase = z.object({
     .array(
       z
         .object({
-          value: z.number().positive("Valor da medida deve ser positivo").nullish(),
+          value: z.number().positive('Valor da medida deve ser positivo').nullish(),
           unit: z
             .enum(Object.values(MEASURE_UNIT) as [string, ...string[]], {
-              errorMap: () => ({ message: "Unidade de medida inválida" }),
+              errorMap: () => ({ message: 'Unidade de medida inválida' }),
             })
             .nullish(),
           measureType: z.enum(Object.values(MEASURE_TYPE) as [string, ...string[]], {
-            errorMap: () => ({ message: "Tipo de medida inválido" }),
+            errorMap: () => ({ message: 'Tipo de medida inválido' }),
           }),
         })
         .refine(
-          (data) => {
+          data => {
             // For SIZE type measures (PPE sizes), validate value and unit requirements
             if (data.measureType === MEASURE_TYPE.SIZE) {
               // At least one of value or unit must be provided
@@ -1985,10 +2052,16 @@ export const itemUpdateSchemaBase = z.object({
             }
 
             // For other measure types, both value and unit are required
-            return data.value !== undefined && data.value !== null && data.unit !== undefined && data.unit !== null;
+            return (
+              data.value !== undefined &&
+              data.value !== null &&
+              data.unit !== undefined &&
+              data.unit !== null
+            );
           },
           {
-            message: "Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.",
+            message:
+              'Para medidas de tamanho (PPE), pelo menos valor OU unidade deve ser fornecido. Para outros tipos, ambos valor e unidade são obrigatórios.',
           },
         ),
     )
@@ -2014,11 +2087,11 @@ export const itemUpdateSchema = itemUpdateSchemaBase.transform(toFormData);
 // ItemBrand CRUD
 export const itemBrandCreateSchema = z
   .object({
-    name: createNameSchema(1, 255, "Nome da marca"),
+    name: createNameSchema(1, 255, 'Nome da marca'),
     itemIds: z
-      .array(z.string().uuid({ message: "Item inválido" }))
-      .refine((arr) => new Set(arr).size === arr.length, {
-        message: "Lista de IDs contém duplicatas",
+      .array(z.string().uuid({ message: 'Item inválido' }))
+      .refine(arr => new Set(arr).size === arr.length, {
+        message: 'Lista de IDs contém duplicatas',
       })
       .optional(),
   })
@@ -2028,9 +2101,9 @@ export const itemBrandUpdateSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
     itemIds: z
-      .array(z.string().uuid({ message: "Item inválido" }))
-      .refine((arr) => new Set(arr).size === arr.length, {
-        message: "Lista de IDs contém duplicatas",
+      .array(z.string().uuid({ message: 'Item inválido' }))
+      .refine(arr => new Set(arr).size === arr.length, {
+        message: 'Lista de IDs contém duplicatas',
       })
       .optional(),
   })
@@ -2039,12 +2112,12 @@ export const itemBrandUpdateSchema = z
 // ItemCategory CRUD
 export const itemCategoryCreateSchema = z
   .object({
-    name: createNameSchema(1, 255, "Nome da categoria"),
+    name: createNameSchema(1, 255, 'Nome da categoria'),
     type: z.nativeEnum(ITEM_CATEGORY_TYPE).default(ITEM_CATEGORY_TYPE.REGULAR),
     itemIds: z
-      .array(z.string().uuid({ message: "Item inválido" }))
-      .refine((arr) => new Set(arr).size === arr.length, {
-        message: "Lista de IDs contém duplicatas",
+      .array(z.string().uuid({ message: 'Item inválido' }))
+      .refine(arr => new Set(arr).size === arr.length, {
+        message: 'Lista de IDs contém duplicatas',
       })
       .optional(),
   })
@@ -2055,9 +2128,9 @@ export const itemCategoryUpdateSchema = z
     name: z.string().min(1).max(255).optional(),
     type: z.nativeEnum(ITEM_CATEGORY_TYPE).optional(),
     itemIds: z
-      .array(z.string().uuid({ message: "Item inválido" }))
-      .refine((arr) => new Set(arr).size === arr.length, {
-        message: "Lista de IDs contém duplicatas",
+      .array(z.string().uuid({ message: 'Item inválido' }))
+      .refine(arr => new Set(arr).size === arr.length, {
+        message: 'Lista de IDs contém duplicatas',
       })
       .optional(),
   })
@@ -2092,11 +2165,11 @@ export const itemBatchUpdateSchema = z.object({
   items: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Item inválido" }),
+        id: z.string().uuid({ message: 'Item inválido' }),
         data: itemUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 // Query schema for include parameter
@@ -2105,7 +2178,9 @@ export const itemQuerySchema = z.object({
 });
 
 export const itemBatchDeleteSchema = z.object({
-  itemIds: z.array(z.string().uuid({ message: "Item inválido" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  itemIds: z
+    .array(z.string().uuid({ message: 'Item inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // ItemBrand batch operations
@@ -2117,15 +2192,17 @@ export const itemBrandBatchUpdateSchema = z.object({
   itemBrands: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Marca inválida" }),
+        id: z.string().uuid({ message: 'Marca inválida' }),
         data: itemBrandUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const itemBrandBatchDeleteSchema = z.object({
-  itemBrandIds: z.array(z.string().uuid({ message: "Marca inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  itemBrandIds: z
+    .array(z.string().uuid({ message: 'Marca inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -2142,15 +2219,17 @@ export const itemCategoryBatchUpdateSchema = z.object({
   itemCategories: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Categoria inválida" }),
+        id: z.string().uuid({ message: 'Categoria inválida' }),
         data: itemCategoryUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const itemCategoryBatchDeleteSchema = z.object({
-  itemCategoryIds: z.array(z.string().uuid({ message: "Categoria inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  itemCategoryIds: z
+    .array(z.string().uuid({ message: 'Categoria inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -2216,7 +2295,7 @@ export type ItemCategoryWhere = z.infer<typeof itemCategoryWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormData>((item) => ({
+export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormData>(item => ({
   name: item.name,
   uniCode: item.uniCode || undefined,
   quantity: item.quantity,
@@ -2241,18 +2320,21 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   xyzCategoryOrder: item.xyzCategoryOrder,
   // PPE fields
   ppeType: item.ppeType || undefined,
-  ppeSize: item.ppeSize || undefined,
-  ppeSizeOrder: item.ppeSizeOrder || undefined,
   ppeCA: item.ppeCA || undefined,
   ppeDeliveryMode: item.ppeDeliveryMode || undefined,
   ppeStandardQuantity: item.ppeStandardQuantity || undefined,
 }));
 
-export const mapItemBrandToFormData = createMapToFormDataHelper<ItemBrand, ItemBrandUpdateFormData>((brand) => ({
-  name: brand.name,
-}));
+export const mapItemBrandToFormData = createMapToFormDataHelper<ItemBrand, ItemBrandUpdateFormData>(
+  brand => ({
+    name: brand.name,
+  }),
+);
 
-export const mapItemCategoryToFormData = createMapToFormDataHelper<ItemCategory, ItemCategoryUpdateFormData>((category) => ({
+export const mapItemCategoryToFormData = createMapToFormDataHelper<
+  ItemCategory,
+  ItemCategoryUpdateFormData
+>(category => ({
   name: category.name,
   type: category.type,
 }));
@@ -2270,14 +2352,16 @@ export const itemMergeConflictsSchema = z
   })
   .optional();
 
-export const itemMergeSchema = z.object({
-  targetItemId: z.string().uuid({ message: "ID do item principal inválido" }),
-  sourceItemIds: z
-    .array(z.string().uuid({ message: "ID de item inválido" }))
-    .min(1, { message: "É necessário selecionar pelo menos 1 item para mesclar" })
-    .max(10, { message: "Máximo de 10 itens podem ser mesclados por vez" }),
-  conflictResolutions: itemMergeConflictsSchema,
-}).strict();
+export const itemMergeSchema = z
+  .object({
+    targetItemId: z.string().uuid({ message: 'ID do item principal inválido' }),
+    sourceItemIds: z
+      .array(z.string().uuid({ message: 'ID de item inválido' }))
+      .min(1, { message: 'É necessário selecionar pelo menos 1 item para mesclar' })
+      .max(10, { message: 'Máximo de 10 itens podem ser mesclados por vez' }),
+    conflictResolutions: itemMergeConflictsSchema,
+  })
+  .strict();
 
 export type ItemMergeConflicts = z.infer<typeof itemMergeConflictsSchema>;
 export type ItemMergeFormData = z.infer<typeof itemMergeSchema>;

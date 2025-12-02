@@ -1,7 +1,7 @@
 // packages/schemas/src/sector.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Sector } from '@types';
 import { SECTOR_PRIVILEGES } from '@constants';
 
@@ -161,7 +161,7 @@ export const sectorWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -170,30 +170,30 @@ export const sectorWhereSchema: z.ZodSchema = z.lazy(() =>
       privileges: z
         .union([
           z.enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-            errorMap: () => ({ message: "privilégio inválido" }),
+            errorMap: () => ({ message: 'privilégio inválido' }),
           }),
           z.object({
             equals: z
               .enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-                errorMap: () => ({ message: "privilégio inválido" }),
+                errorMap: () => ({ message: 'privilégio inválido' }),
               })
               .optional(),
             not: z
               .enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-                errorMap: () => ({ message: "privilégio inválido" }),
+                errorMap: () => ({ message: 'privilégio inválido' }),
               })
               .optional(),
             in: z
               .array(
                 z.enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-                  errorMap: () => ({ message: "privilégio inválido" }),
+                  errorMap: () => ({ message: 'privilégio inválido' }),
                 }),
               )
               .optional(),
             notIn: z
               .array(
                 z.enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-                  errorMap: () => ({ message: "privilégio inválido" }),
+                  errorMap: () => ({ message: 'privilégio inválido' }),
                 }),
               )
               .optional(),
@@ -258,7 +258,7 @@ const sectorFilters = {
   searchingFor: z.string().optional(),
   privilege: z
     .enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-      errorMap: () => ({ message: "privilégio inválido" }),
+      errorMap: () => ({ message: 'privilégio inválido' }),
     })
     .optional(),
   hasUsers: z.boolean().optional(),
@@ -286,7 +286,7 @@ const sectorTransform = (data: any): any => {
 
   if (searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: searchingFor, mode: "insensitive" } }],
+      OR: [{ name: { contains: searchingFor, mode: 'insensitive' } }],
     });
   }
 
@@ -302,7 +302,11 @@ const sectorTransform = (data: any): any => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -357,14 +361,14 @@ export const sectorCreateSchema = z
   .object({
     name: z
       .string({
-        required_error: "Nome do setor é obrigatório",
-        invalid_type_error: "Nome do setor inválido",
+        required_error: 'Nome do setor é obrigatório',
+        invalid_type_error: 'Nome do setor inválido',
       })
-      .min(2, "Nome do setor deve ter pelo menos 2 caracteres")
-      .max(100, "Nome do setor deve ter no máximo 100 caracteres"),
+      .min(2, 'Nome do setor deve ter pelo menos 2 caracteres')
+      .max(100, 'Nome do setor deve ter no máximo 100 caracteres'),
     privileges: z
       .enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-        errorMap: () => ({ message: "privilégio inválido" }),
+        errorMap: () => ({ message: 'privilégio inválido' }),
       })
       .default(SECTOR_PRIVILEGES.BASIC),
   })
@@ -374,14 +378,14 @@ export const sectorUpdateSchema = z
   .object({
     name: z
       .string({
-        invalid_type_error: "Nome do setor inválido",
+        invalid_type_error: 'Nome do setor inválido',
       })
-      .min(2, "Nome do setor deve ter pelo menos 2 caracteres")
-      .max(100, "Nome do setor deve ter no máximo 100 caracteres")
+      .min(2, 'Nome do setor deve ter pelo menos 2 caracteres')
+      .max(100, 'Nome do setor deve ter no máximo 100 caracteres')
       .optional(),
     privileges: z
       .enum(Object.values(SECTOR_PRIVILEGES) as [string, ...string[]], {
-        errorMap: () => ({ message: "privilégio inválido" }),
+        errorMap: () => ({ message: 'privilégio inválido' }),
       })
       .optional(),
   })
@@ -392,22 +396,24 @@ export const sectorUpdateSchema = z
 // =====================
 
 export const sectorBatchCreateSchema = z.object({
-  sectors: z.array(sectorCreateSchema).min(1, "Pelo menos um setor deve ser fornecido"),
+  sectors: z.array(sectorCreateSchema).min(1, 'Pelo menos um setor deve ser fornecido'),
 });
 
 export const sectorBatchUpdateSchema = z.object({
   sectors: z
     .array(
       z.object({
-        id: z.string().uuid("Setor inválido"),
+        id: z.string().uuid('Setor inválido'),
         data: sectorUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um setor deve ser fornecido"),
+    .min(1, 'Pelo menos um setor deve ser fornecido'),
 });
 
 export const sectorBatchDeleteSchema = z.object({
-  sectorIds: z.array(z.string().uuid("Setor inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  sectorIds: z
+    .array(z.string().uuid('Setor inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -417,7 +423,7 @@ export const sectorQuerySchema = z.object({
 
 export const sectorGetByIdSchema = z.object({
   include: sectorIncludeSchema.optional(),
-  id: z.string().uuid("Setor inválido"),
+  id: z.string().uuid('Setor inválido'),
 });
 
 // =====================
@@ -438,7 +444,9 @@ export type SectorInclude = z.infer<typeof sectorIncludeSchema>;
 export type SectorOrderBy = z.infer<typeof sectorOrderBySchema>;
 export type SectorWhere = z.infer<typeof sectorWhereSchema>;
 
-export const mapSectorToFormData = createMapToFormDataHelper<Sector, SectorUpdateFormData>((sector) => ({
-  privileges: sector.privileges,
-  name: sector.name,
-}));
+export const mapSectorToFormData = createMapToFormDataHelper<Sector, SectorUpdateFormData>(
+  sector => ({
+    privileges: sector.privileges,
+    name: sector.name,
+  }),
+);

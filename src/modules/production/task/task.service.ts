@@ -70,7 +70,6 @@ export class TaskService {
     private readonly fileService: FileService,
   ) {}
 
-
   /**
    * Create a new task with complete changelog tracking and file uploads
    */
@@ -79,11 +78,11 @@ export class TaskService {
     include?: TaskInclude,
     userId?: string,
     files?: {
-      budgets?: Express.Multer.File[],
-      invoices?: Express.Multer.File[],
-      receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[],
-      cutFiles?: Express.Multer.File[]
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+      cutFiles?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -94,7 +93,14 @@ export class TaskService {
 
         // Process cut files BEFORE creating the task (so fileIds are available for cut creation)
         if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
-          const customerName = data.customerId ? (await tx.customer.findUnique({ where: { id: data.customerId }, select: { fantasyName: true } }))?.fantasyName : undefined;
+          const customerName = data.customerId
+            ? (
+                await tx.customer.findUnique({
+                  where: { id: data.customerId },
+                  select: { fantasyName: true },
+                })
+              )?.fantasyName
+            : undefined;
 
           // Upload each cut file and update the corresponding cut with its fileId
           for (let i = 0; i < Math.min(files.cutFiles.length, data.cuts.length); i++) {
@@ -119,7 +125,12 @@ export class TaskService {
         const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
 
         // Create truck and layouts if layout data is provided
-        if (data.truckLayoutData && (data.truckLayoutData.leftSide || data.truckLayoutData.rightSide || data.truckLayoutData.backSide)) {
+        if (
+          data.truckLayoutData &&
+          (data.truckLayoutData.leftSide ||
+            data.truckLayoutData.rightSide ||
+            data.truckLayoutData.backSide)
+        ) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
           // Create truck with optional plate and manufacturer
@@ -130,7 +141,9 @@ export class TaskService {
               yPosition: null,
               garageId: null,
               ...(data.truckLayoutData.plate && { plate: data.truckLayoutData.plate }),
-              ...(data.truckLayoutData.manufacturer && { manufacturer: data.truckLayoutData.manufacturer }),
+              ...(data.truckLayoutData.manufacturer && {
+                manufacturer: data.truckLayoutData.manufacturer,
+              }),
             },
           });
           this.logger.log(`[Task Create] Truck created: ${truck.id}`);
@@ -143,7 +156,9 @@ export class TaskService {
             const leftLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.leftSide.height,
-                ...(data.truckLayoutData.leftSide.photoId && { photo: { connect: { id: data.truckLayoutData.leftSide.photoId } } }),
+                ...(data.truckLayoutData.leftSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.leftSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -166,7 +181,9 @@ export class TaskService {
             const rightLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.rightSide.height,
-                ...(data.truckLayoutData.rightSide.photoId && { photo: { connect: { id: data.truckLayoutData.rightSide.photoId } } }),
+                ...(data.truckLayoutData.rightSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.rightSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -189,7 +206,9 @@ export class TaskService {
             const backLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.backSide.height,
-                ...(data.truckLayoutData.backSide.photoId && { photo: { connect: { id: data.truckLayoutData.backSide.photoId } } }),
+                ...(data.truckLayoutData.backSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.backSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -318,9 +337,15 @@ export class TaskService {
           }
 
           // Airbrushing files - process files for each airbrushing
-          const airbrushingFileFields = Object.keys(files).filter(key => key.startsWith('airbrushings['));
+          const airbrushingFileFields = Object.keys(files).filter(key =>
+            key.startsWith('airbrushings['),
+          );
           if (airbrushingFileFields.length > 0 && newTask.airbrushings) {
-            console.log('[TaskService] Processing airbrushing files:', airbrushingFileFields.length, 'fields');
+            console.log(
+              '[TaskService] Processing airbrushing files:',
+              airbrushingFileFields.length,
+              'fields',
+            );
 
             for (const fieldName of airbrushingFileFields) {
               // Parse field name: airbrushings[0].receipts -> index: 0, type: receipts
@@ -338,7 +363,9 @@ export class TaskService {
               }
 
               const airbrushing = newTask.airbrushings[index];
-              console.log(`[TaskService] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`);
+              console.log(
+                `[TaskService] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
+              );
 
               const fileIds: string[] = [];
               for (const file of airbrushingFiles) {
@@ -364,7 +391,9 @@ export class TaskService {
                     [fileType]: { connect: fileIds.map(id => ({ id })) },
                   },
                 });
-                console.log(`[TaskService] Connected ${fileIds.length} ${fileType} to airbrushing ${airbrushing.id}`);
+                console.log(
+                  `[TaskService] Connected ${fileIds.length} ${fileType} to airbrushing ${airbrushing.id}`,
+                );
               }
             }
           }
@@ -523,12 +552,12 @@ export class TaskService {
     userId?: string,
     userPrivilege?: string,
     files?: {
-      budgets?: Express.Multer.File[],
-      invoices?: Express.Multer.File[],
-      receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[],
-      cutFiles?: Express.Multer.File[],
-      observationFiles?: Express.Multer.File[]
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+      cutFiles?: Express.Multer.File[];
+      observationFiles?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -554,14 +583,19 @@ export class TaskService {
         await this.validateTask(data, id, tx);
 
         // Handle truck and layout creation/update if layout data is provided
-        if (data.truckLayoutData && (data.truckLayoutData.leftSide || data.truckLayoutData.rightSide || data.truckLayoutData.backSide)) {
+        if (
+          data.truckLayoutData &&
+          (data.truckLayoutData.leftSide ||
+            data.truckLayoutData.rightSide ||
+            data.truckLayoutData.backSide)
+        ) {
           this.logger.log(`[Task Update] Processing truck layouts for task ${id}`);
 
           // Get or create truck
           let truckId = existingTask.truck?.id;
-          let leftLayoutId = existingTask.truck?.leftSideLayoutId;
-          let rightLayoutId = existingTask.truck?.rightSideLayoutId;
-          let backLayoutId = existingTask.truck?.backSideLayoutId;
+          const leftLayoutId = existingTask.truck?.leftSideLayoutId;
+          const rightLayoutId = existingTask.truck?.rightSideLayoutId;
+          const backLayoutId = existingTask.truck?.backSideLayoutId;
 
           if (!truckId) {
             this.logger.log(`[Task Update] No truck exists - creating one`);
@@ -605,7 +639,9 @@ export class TaskService {
             const leftLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.leftSide.height,
-                ...(data.truckLayoutData.leftSide.photoId && { photo: { connect: { id: data.truckLayoutData.leftSide.photoId } } }),
+                ...(data.truckLayoutData.leftSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.leftSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -628,7 +664,9 @@ export class TaskService {
             const rightLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.rightSide.height,
-                ...(data.truckLayoutData.rightSide.photoId && { photo: { connect: { id: data.truckLayoutData.rightSide.photoId } } }),
+                ...(data.truckLayoutData.rightSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.rightSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -651,7 +689,9 @@ export class TaskService {
             const backLayout = await tx.layout.create({
               data: {
                 height: data.truckLayoutData.backSide.height,
-                ...(data.truckLayoutData.backSide.photoId && { photo: { connect: { id: data.truckLayoutData.backSide.photoId } } }),
+                ...(data.truckLayoutData.backSide.photoId && {
+                  photo: { connect: { id: data.truckLayoutData.backSide.photoId } },
+                }),
                 layoutSections: {
                   create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
                     width: section.width,
@@ -712,17 +752,21 @@ export class TaskService {
                   };
 
                   const layoutIdField = layoutFieldMap[side];
-                  const layoutId = await tx.truck.findUnique({
-                    where: { id: truckId },
-                    select: { [layoutIdField]: true }
-                  }).then(truck => truck?.[layoutIdField]);
+                  const layoutId = await tx.truck
+                    .findUnique({
+                      where: { id: truckId },
+                      select: { [layoutIdField]: true },
+                    })
+                    .then(truck => truck?.[layoutIdField]);
 
                   if (layoutId) {
                     await tx.layout.update({
                       where: { id: layoutId },
                       data: { photoId: uploadedPhoto.id },
                     });
-                    this.logger.log(`[Task Update] Layout ${layoutId} updated with photo ${uploadedPhoto.id}`);
+                    this.logger.log(
+                      `[Task Update] Layout ${layoutId} updated with photo ${uploadedPhoto.id}`,
+                    );
                   }
                 }
               }
@@ -766,7 +810,16 @@ export class TaskService {
 
         // Process cut files BEFORE updating the task (so fileIds are available for cut creation)
         if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
-          const customerName = existingTask.customer?.fantasyName || (data.customerId ? (await tx.customer.findUnique({ where: { id: data.customerId }, select: { fantasyName: true } }))?.fantasyName : undefined);
+          const customerName =
+            existingTask.customer?.fantasyName ||
+            (data.customerId
+              ? (
+                  await tx.customer.findUnique({
+                    where: { id: data.customerId },
+                    select: { fantasyName: true },
+                  })
+                )?.fantasyName
+              : undefined);
 
           // Upload each unique file once and store the file records
           const uploadedFileRecords = [];
@@ -798,13 +851,17 @@ export class TaskService {
 
         // Process observation files BEFORE task update (to replace temporary IDs with real UUIDs)
         if (files?.observationFiles && files.observationFiles.length > 0 && data.observation) {
-          console.log('[TaskService] Processing observation files BEFORE task update:', files.observationFiles.length);
+          console.log(
+            '[TaskService] Processing observation files BEFORE task update:',
+            files.observationFiles.length,
+          );
           const customerName = existingTask.customer?.fantasyName;
 
           // Get existing observation file IDs (only real UUIDs, not temporary IDs)
-          const existingFileIds = data.observation.fileIds?.filter(id =>
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-          ) || [];
+          const existingFileIds =
+            data.observation.fileIds?.filter(id =>
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+            ) || [];
           console.log('[TaskService] Existing valid file IDs:', existingFileIds);
 
           const newFileIds: string[] = [...existingFileIds];
@@ -832,9 +889,12 @@ export class TaskService {
         } else if (data.observation?.fileIds) {
           // No new files to upload, but observation has fileIds - filter out temporary IDs
           data.observation.fileIds = data.observation.fileIds.filter(id =>
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
           );
-          console.log('[TaskService] Filtered observation.fileIds (no new files):', data.observation.fileIds);
+          console.log(
+            '[TaskService] Filtered observation.fileIds (no new files):',
+            data.observation.fileIds,
+          );
         }
 
         // Ensure statusOrder is updated when status changes
@@ -855,9 +915,12 @@ export class TaskService {
         // This ensures files are only created if the task update succeeds
         if (files) {
           const fileUpdates: any = {};
-          const customerName = updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
+          const customerName =
+            updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
 
-          this.logger.log(`[Task Update] Processing files with customer name: "${customerName}" (from updatedTask: ${!!updatedTask.customer?.fantasyName}, from existingTask: ${!!existingTask.customer?.fantasyName})`);
+          this.logger.log(
+            `[Task Update] Processing files with customer name: "${customerName}" (from updatedTask: ${!!updatedTask.customer?.fantasyName}, from existingTask: ${!!existingTask.customer?.fantasyName})`,
+          );
 
           // Budget files (multiple)
           // Process if new files are being uploaded OR if budgetIds is explicitly provided (for deletions)
@@ -886,7 +949,9 @@ export class TaskService {
 
             // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
             fileUpdates.budgets = { set: budgetIds.map(id => ({ id })) };
-            this.logger.log(`[Task Update] Setting budgets to ${budgetIds.length} files (${data.budgetIds?.length || 0} existing + ${files.budgets?.length || 0} new)`);
+            this.logger.log(
+              `[Task Update] Setting budgets to ${budgetIds.length} files (${data.budgetIds?.length || 0} existing + ${files.budgets?.length || 0} new)`,
+            );
           }
 
           // NFe files (multiple)
@@ -916,7 +981,9 @@ export class TaskService {
 
             // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
             fileUpdates.invoices = { set: invoiceIds.map(id => ({ id })) };
-            this.logger.log(`[Task Update] Setting invoices to ${invoiceIds.length} files (${data.invoiceIds?.length || 0} existing + ${files.invoices?.length || 0} new)`);
+            this.logger.log(
+              `[Task Update] Setting invoices to ${invoiceIds.length} files (${data.invoiceIds?.length || 0} existing + ${files.invoices?.length || 0} new)`,
+            );
           }
 
           // Receipt files (multiple)
@@ -946,18 +1013,25 @@ export class TaskService {
 
             // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
             fileUpdates.receipts = { set: receiptIds.map(id => ({ id })) };
-            this.logger.log(`[Task Update] Setting receipts to ${receiptIds.length} files (${data.receiptIds?.length || 0} existing + ${files.receipts?.length || 0} new)`);
+            this.logger.log(
+              `[Task Update] Setting receipts to ${receiptIds.length} files (${data.receiptIds?.length || 0} existing + ${files.receipts?.length || 0} new)`,
+            );
           }
 
           // Artwork files
           // Process if new files are being uploaded OR if artworkIds/fileIds is explicitly provided (for deletions)
           // Note: The schema transforms artworkIds to fileIds, so we check both
           const artworkIdsFromRequest = (data as any).artworkIds || (data as any).fileIds;
-          if ((files.artworks && files.artworks.length > 0) || artworkIdsFromRequest !== undefined) {
+          if (
+            (files.artworks && files.artworks.length > 0) ||
+            artworkIdsFromRequest !== undefined
+          ) {
             // Start with the artworkIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
             const artworkIds: string[] = artworkIdsFromRequest ? [...artworkIdsFromRequest] : [];
-            this.logger.log(`[Task Update] Processing artworks - Received ${artworkIdsFromRequest?.length || 0} existing IDs: [${artworkIdsFromRequest?.join(', ') || 'none'}]`);
+            this.logger.log(
+              `[Task Update] Processing artworks - Received ${artworkIdsFromRequest?.length || 0} existing IDs: [${artworkIdsFromRequest?.join(', ') || 'none'}]`,
+            );
 
             // Upload new files and add their IDs
             if (files.artworks && files.artworks.length > 0) {
@@ -974,16 +1048,22 @@ export class TaskService {
                     customerName,
                   },
                 );
-                this.logger.log(`[Task Update] Created new artwork file with ID: ${artworkRecord.id}`);
+                this.logger.log(
+                  `[Task Update] Created new artwork file with ID: ${artworkRecord.id}`,
+                );
                 artworkIds.push(artworkRecord.id);
               }
             }
 
             // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
             // This ensures removed files are actually removed from the relationship
-            this.logger.log(`[Task Update] Final artworkIds array (${artworkIds.length} total): [${artworkIds.join(', ')}]`);
+            this.logger.log(
+              `[Task Update] Final artworkIds array (${artworkIds.length} total): [${artworkIds.join(', ')}]`,
+            );
             fileUpdates.artworks = { set: artworkIds.map(id => ({ id })) };
-            this.logger.log(`[Task Update] Setting artworks to ${artworkIds.length} files (${artworkIdsFromRequest?.length || 0} existing + ${files.artworks?.length || 0} new)`);
+            this.logger.log(
+              `[Task Update] Setting artworks to ${artworkIds.length} files (${artworkIdsFromRequest?.length || 0} existing + ${files.artworks?.length || 0} new)`,
+            );
           }
 
           // Logo paints (paintIds) - no file upload, just relation management
@@ -993,9 +1073,15 @@ export class TaskService {
           }
 
           // Airbrushing files - process files for each airbrushing
-          const airbrushingFileFields = Object.keys(files).filter(key => key.startsWith('airbrushings['));
+          const airbrushingFileFields = Object.keys(files).filter(key =>
+            key.startsWith('airbrushings['),
+          );
           if (airbrushingFileFields.length > 0 && updatedTask?.airbrushings) {
-            console.log('[TaskService.update] Processing airbrushing files:', airbrushingFileFields.length, 'fields');
+            console.log(
+              '[TaskService.update] Processing airbrushing files:',
+              airbrushingFileFields.length,
+              'fields',
+            );
 
             for (const fieldName of airbrushingFileFields) {
               // Parse field name: airbrushings[0].receipts -> index: 0, type: receipts
@@ -1013,7 +1099,9 @@ export class TaskService {
               }
 
               const airbrushing = updatedTask.airbrushings[index];
-              console.log(`[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`);
+              console.log(
+                `[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
+              );
 
               // Get existing file IDs from the form data for this airbrushing
               // The form should include the IDs of files that should be kept
@@ -1048,7 +1136,9 @@ export class TaskService {
                     [fileType]: { set: fileIds.map(id => ({ id })) },
                   },
                 });
-                console.log(`[TaskService.update] Set ${fileIds.length} ${fileType} for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`);
+                console.log(
+                  `[TaskService.update] Set ${fileIds.length} ${fileType} for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
+                );
               }
             }
           }
@@ -1058,11 +1148,11 @@ export class TaskService {
 
           // Update task with file IDs if any files were uploaded
           if (Object.keys(fileUpdates).length > 0) {
-            updatedTask = await tx.task.update({
+            updatedTask = (await tx.task.update({
               where: { id },
               data: fileUpdates,
               include: include,
-            }) as any;
+            })) as any;
           }
         }
 
@@ -1242,7 +1332,7 @@ export class TaskService {
                       size: c.file.size,
                       thumbnailUrl: c.file.thumbnailUrl,
                       path: c.file.path,
-                    }
+                    },
                   }),
                 });
               }
@@ -1354,21 +1444,25 @@ export class TaskService {
     include?: TaskInclude,
     userId?: string,
     files?: {
-      budgets?: Express.Multer.File[],
-      invoices?: Express.Multer.File[],
-      receipts?: Express.Multer.File[],
-      artworks?: Express.Multer.File[],
-      cutFiles?: Express.Multer.File[],
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+      cutFiles?: Express.Multer.File[];
     },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
     this.logger.log(`[batchUpdate] Number of tasks to update: ${data.tasks?.length || 0}`);
-    this.logger.log(`[batchUpdate] Tasks data: ${JSON.stringify(data.tasks?.map(t => ({ id: t.id, data: t.data })))}`);
+    this.logger.log(
+      `[batchUpdate] Tasks data: ${JSON.stringify(data.tasks?.map(t => ({ id: t.id, data: t.data })))}`,
+    );
     this.logger.log(`[batchUpdate] userId: ${userId}`);
     this.logger.log(`[batchUpdate] include: ${JSON.stringify(include)}`);
 
     // Log files received
-    this.logger.log(`[batchUpdate] Files received: ${files ? Object.keys(files).join(', ') : 'none'}`);
+    this.logger.log(
+      `[batchUpdate] Files received: ${files ? Object.keys(files).join(', ') : 'none'}`,
+    );
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         this.logger.log(`[batchUpdate] ${key}: ${fileArray.length} files`);
@@ -1487,7 +1581,7 @@ export class TaskService {
         }));
 
         // Process file uploads if provided - upload files once and add to all tasks
-        let uploadedFileIds: {
+        const uploadedFileIds: {
           budgets?: string[];
           invoices?: string[];
           receipts?: string[];
@@ -1497,12 +1591,18 @@ export class TaskService {
         if (files && data.tasks.length > 0) {
           this.logger.log('[batchUpdate] Processing file uploads for batch operation');
           this.logger.log(`[batchUpdate] Files object keys: ${Object.keys(files).join(', ')}`);
-          this.logger.log(`[batchUpdate] Has artworks: ${!!files.artworks}, Count: ${files.artworks?.length || 0}`);
+          this.logger.log(
+            `[batchUpdate] Has artworks: ${!!files.artworks}, Count: ${files.artworks?.length || 0}`,
+          );
 
           // Get customer name from first task for file metadata
-          const firstTask = await this.tasksRepository.findByIdWithTransaction(tx, data.tasks[0].id, {
-            include: { customer: true },
-          });
+          const firstTask = await this.tasksRepository.findByIdWithTransaction(
+            tx,
+            data.tasks[0].id,
+            {
+              include: { customer: true },
+            },
+          );
           const customerName = firstTask?.customer?.fantasyName;
 
           // Upload budgets
@@ -1610,7 +1710,10 @@ export class TaskService {
             for (const task of data.tasks) {
               if (task.data.cuts && Array.isArray(task.data.cuts)) {
                 task.data.cuts.forEach((cut: any) => {
-                  if (typeof cut._fileIndex === 'number' && cut._fileIndex < uploadedCutFiles.length) {
+                  if (
+                    typeof cut._fileIndex === 'number' &&
+                    cut._fileIndex < uploadedCutFiles.length
+                  ) {
                     cut.fileId = uploadedCutFiles[cut._fileIndex].id;
                     delete cut._fileIndex; // Clean up the temporary field
                   }
@@ -1622,11 +1725,15 @@ export class TaskService {
           // Add uploaded files to all tasks in the batch
           // We need to merge with existing files to avoid replacing them
           this.logger.log('[batchUpdate] Adding uploaded files to all tasks in batch');
-          this.logger.log(`[batchUpdate] Tasks to update with files: ${updatesWithChangeTracking.length}`);
+          this.logger.log(
+            `[batchUpdate] Tasks to update with files: ${updatesWithChangeTracking.length}`,
+          );
           this.logger.log(`[batchUpdate] Uploaded file IDs:`, uploadedFileIds);
 
           for (const update of updatesWithChangeTracking) {
-            this.logger.log(`[batchUpdate] Processing task ${update.id} for file connections and removals`);
+            this.logger.log(
+              `[batchUpdate] Processing task ${update.id} for file connections and removals`,
+            );
 
             // Get current task to merge existing files and process removals
             const currentTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
@@ -1648,68 +1755,100 @@ export class TaskService {
             // Process file additions (merge with existing)
             if (uploadedFileIds.budgets && uploadedFileIds.budgets.length > 0) {
               const currentBudgetIds = currentTask.budgets?.map(f => f.id) || [];
-              const mergedBudgetIds = [...new Set([...currentBudgetIds, ...uploadedFileIds.budgets])];
+              const mergedBudgetIds = [
+                ...new Set([...currentBudgetIds, ...uploadedFileIds.budgets]),
+              ];
               update.data.budgetIds = mergedBudgetIds;
-              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.budgets.length} budgets to task ${update.id} (total: ${mergedBudgetIds.length})`);
+              this.logger.log(
+                `[batchUpdate] Adding ${uploadedFileIds.budgets.length} budgets to task ${update.id} (total: ${mergedBudgetIds.length})`,
+              );
             }
 
             if (uploadedFileIds.invoices && uploadedFileIds.invoices.length > 0) {
               const currentInvoiceIds = currentTask.invoices?.map(f => f.id) || [];
-              const mergedInvoiceIds = [...new Set([...currentInvoiceIds, ...uploadedFileIds.invoices])];
+              const mergedInvoiceIds = [
+                ...new Set([...currentInvoiceIds, ...uploadedFileIds.invoices]),
+              ];
               update.data.invoiceIds = mergedInvoiceIds;
-              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.invoices.length} invoices to task ${update.id} (total: ${mergedInvoiceIds.length})`);
+              this.logger.log(
+                `[batchUpdate] Adding ${uploadedFileIds.invoices.length} invoices to task ${update.id} (total: ${mergedInvoiceIds.length})`,
+              );
             }
 
             if (uploadedFileIds.receipts && uploadedFileIds.receipts.length > 0) {
               const currentReceiptIds = currentTask.receipts?.map(f => f.id) || [];
-              const mergedReceiptIds = [...new Set([...currentReceiptIds, ...uploadedFileIds.receipts])];
+              const mergedReceiptIds = [
+                ...new Set([...currentReceiptIds, ...uploadedFileIds.receipts]),
+              ];
               update.data.receiptIds = mergedReceiptIds;
-              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.receipts.length} receipts to task ${update.id} (total: ${mergedReceiptIds.length})`);
+              this.logger.log(
+                `[batchUpdate] Adding ${uploadedFileIds.receipts.length} receipts to task ${update.id} (total: ${mergedReceiptIds.length})`,
+              );
             }
 
             if (uploadedFileIds.artworks && uploadedFileIds.artworks.length > 0) {
               const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
-              const mergedArtworkIds = [...new Set([...currentArtworkIds, ...uploadedFileIds.artworks])];
+              const mergedArtworkIds = [
+                ...new Set([...currentArtworkIds, ...uploadedFileIds.artworks]),
+              ];
               // The mapper expects 'fileIds' for artworks relation
               update.data.fileIds = mergedArtworkIds;
-              this.logger.log(`[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (total: ${mergedArtworkIds.length})`);
+              this.logger.log(
+                `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (total: ${mergedArtworkIds.length})`,
+              );
             }
 
             // Process removals
             // Remove artworks
             if (update.data.removeArtworkIds && update.data.removeArtworkIds.length > 0) {
               const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
-              const filteredArtworkIds = currentArtworkIds.filter(id => !update.data.removeArtworkIds.includes(id));
+              const filteredArtworkIds = currentArtworkIds.filter(
+                id => !update.data.removeArtworkIds.includes(id),
+              );
               update.data.fileIds = filteredArtworkIds;
               delete update.data.removeArtworkIds;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeArtworkIds.length} artworks from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeArtworkIds.length} artworks from task ${update.id}`,
+              );
             }
 
             // Remove budgets
             if (update.data.removeBudgetIds && update.data.removeBudgetIds.length > 0) {
               const currentBudgetIds = currentTask.budgets?.map(f => f.id) || [];
-              const filteredBudgetIds = currentBudgetIds.filter(id => !update.data.removeBudgetIds.includes(id));
+              const filteredBudgetIds = currentBudgetIds.filter(
+                id => !update.data.removeBudgetIds.includes(id),
+              );
               update.data.budgetIds = filteredBudgetIds;
               delete update.data.removeBudgetIds;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeBudgetIds.length} budgets from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeBudgetIds.length} budgets from task ${update.id}`,
+              );
             }
 
             // Remove invoices
             if (update.data.removeInvoiceIds && update.data.removeInvoiceIds.length > 0) {
               const currentInvoiceIds = currentTask.invoices?.map(f => f.id) || [];
-              const filteredInvoiceIds = currentInvoiceIds.filter(id => !update.data.removeInvoiceIds.includes(id));
+              const filteredInvoiceIds = currentInvoiceIds.filter(
+                id => !update.data.removeInvoiceIds.includes(id),
+              );
               update.data.invoiceIds = filteredInvoiceIds;
               delete update.data.removeInvoiceIds;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeInvoiceIds.length} invoices from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeInvoiceIds.length} invoices from task ${update.id}`,
+              );
             }
 
             // Remove receipts
             if (update.data.removeReceiptIds && update.data.removeReceiptIds.length > 0) {
               const currentReceiptIds = currentTask.receipts?.map(f => f.id) || [];
-              const filteredReceiptIds = currentReceiptIds.filter(id => !update.data.removeReceiptIds.includes(id));
+              const filteredReceiptIds = currentReceiptIds.filter(
+                id => !update.data.removeReceiptIds.includes(id),
+              );
               update.data.receiptIds = filteredReceiptIds;
               delete update.data.removeReceiptIds;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeReceiptIds.length} receipts from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeReceiptIds.length} receipts from task ${update.id}`,
+              );
             }
 
             // Remove general painting
@@ -1722,10 +1861,14 @@ export class TaskService {
             // Remove logo paints
             if (update.data.removeLogoPaints && update.data.removeLogoPaints.length > 0) {
               const currentLogoPaintIds = currentTask.logoPaints?.map(p => p.id) || [];
-              const filteredLogoPaintIds = currentLogoPaintIds.filter(id => !update.data.removeLogoPaints.includes(id));
+              const filteredLogoPaintIds = currentLogoPaintIds.filter(
+                id => !update.data.removeLogoPaints.includes(id),
+              );
               update.data.paintIds = filteredLogoPaintIds;
               delete update.data.removeLogoPaints;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeLogoPaints.length} logo paints from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeLogoPaints.length} logo paints from task ${update.id}`,
+              );
             }
 
             // Remove cuts
@@ -1738,10 +1881,15 @@ export class TaskService {
                 },
               });
               delete update.data.removeCutIds;
-              this.logger.log(`[batchUpdate] Removing ${update.data.removeCutIds.length} cuts from task ${update.id}`);
+              this.logger.log(
+                `[batchUpdate] Removing ${update.data.removeCutIds.length} cuts from task ${update.id}`,
+              );
             }
 
-            this.logger.log(`[batchUpdate] After merge and removals - update.data:`, JSON.stringify(update.data));
+            this.logger.log(
+              `[batchUpdate] After merge and removals - update.data:`,
+              JSON.stringify(update.data),
+            );
           }
         }
 
@@ -1779,7 +1927,8 @@ export class TaskService {
           // Track individual field changes for batch update
           if (existingTask && updateData && updatedTask) {
             // Track artworks changes
-            const artworkIdsForChangelog = (updateData as any).artworkIds || (updateData as any).fileIds;
+            const artworkIdsForChangelog =
+              (updateData as any).artworkIds || (updateData as any).fileIds;
             if (artworkIdsForChangelog !== undefined) {
               const oldArtworks = existingTask.artworks || [];
               const newArtworks = updatedTask.artworks || [];
@@ -1961,7 +2110,13 @@ export class TaskService {
             }
 
             // Track other simple field changes
-            const simpleFieldsToTrack = ['status', 'sectorId', 'assignedToUserId', 'description', 'observations'];
+            const simpleFieldsToTrack = [
+              'status',
+              'sectorId',
+              'assignedToUserId',
+              'description',
+              'observations',
+            ];
             for (const field of simpleFieldsToTrack) {
               if ((updateData as any)[field] !== undefined) {
                 const oldValue = existingTask[field as keyof typeof existingTask];
@@ -1987,7 +2142,9 @@ export class TaskService {
           }
         }
 
-        this.logger.log(`[batchUpdate] Transaction complete. Success: ${result.totalUpdated}, Failed: ${result.totalFailed}`);
+        this.logger.log(
+          `[batchUpdate] Transaction complete. Success: ${result.totalUpdated}, Failed: ${result.totalFailed}`,
+        );
         return result;
       });
 
@@ -2021,7 +2178,10 @@ export class TaskService {
     } catch (error) {
       this.logger.error('[batchUpdate] ========== BATCH UPDATE FAILED ==========');
       this.logger.error('[batchUpdate] Error details:', error);
-      this.logger.error('[batchUpdate] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      this.logger.error(
+        '[batchUpdate] Error stack:',
+        error instanceof Error ? error.stack : 'No stack trace',
+      );
 
       // Re-throw BadRequestException and other client errors as-is
       if (error instanceof BadRequestException) {
@@ -2030,9 +2190,7 @@ export class TaskService {
 
       // For other errors, provide more detailed information
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-      throw new InternalServerErrorException(
-        `Erro na atualização em lote: ${errorMessage}`,
-      );
+      throw new InternalServerErrorException(`Erro na atualização em lote: ${errorMessage}`);
     }
   }
 
@@ -2155,7 +2313,7 @@ export class TaskService {
    */
   async findById(id: string, include?: TaskInclude): Promise<TaskGetUniqueResponse> {
     try {
-      let task = await this.tasksRepository.findById(id, { include });
+      const task = await this.tasksRepository.findById(id, { include });
 
       if (!task) {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
@@ -2163,10 +2321,14 @@ export class TaskService {
 
       // Debug logging for logo paints
       this.logger.log(`[Task findById] Task ${task.id} (${task.name}):`);
-      this.logger.log(`  - General painting: ${task.generalPainting ? task.generalPainting.name : 'none'}`);
+      this.logger.log(
+        `  - General painting: ${task.generalPainting ? task.generalPainting.name : 'none'}`,
+      );
       this.logger.log(`  - Logo paints count: ${task.logoPaints?.length || 0}`);
       if (task.logoPaints && task.logoPaints.length > 0) {
-        this.logger.log(`  - Logo paints: ${JSON.stringify(task.logoPaints.map(p => ({ id: p.id, name: p.name, paintType: p.paintType?.name, paintBrand: p.paintBrand?.name })))}`);
+        this.logger.log(
+          `  - Logo paints: ${JSON.stringify(task.logoPaints.map(p => ({ id: p.id, name: p.name, paintType: p.paintType?.name, paintBrand: p.paintBrand?.name })))}`,
+        );
       }
 
       return {
@@ -2190,10 +2352,10 @@ export class TaskService {
    */
   async findMany(query: TaskGetManyFormData): Promise<TaskGetManyResponse> {
     try {
-      console.log("[TaskService.findMany] Query received:", {
+      console.log('[TaskService.findMany] Query received:', {
         hasWhere: !!query.where,
         whereKeys: query.where ? Object.keys(query.where) : [],
-        whereStringified: query.where ? JSON.stringify(query.where).substring(0, 200) : "undefined",
+        whereStringified: query.where ? JSON.stringify(query.where).substring(0, 200) : 'undefined',
         searchingFor: (query as any).searchingFor,
         page: query.page,
         limit: query.limit,
@@ -2249,7 +2411,7 @@ export class TaskService {
     if (disallowedFields.length > 0) {
       throw new BadRequestException(
         `Setor Financeiro não tem permissão para atualizar os seguintes campos: ${disallowedFields.join(', ')}. ` +
-        `Campos permitidos: orçamento, cliente, número de série, chassi, documentos.`
+          `Campos permitidos: orçamento, cliente, número de série, chassi, documentos.`,
       );
     }
   }
@@ -2291,7 +2453,6 @@ export class TaskService {
         throw new NotFoundException('Setor não encontrado.');
       }
     }
-
 
     // Validate status-specific requirements
     if (data.status) {
@@ -2410,7 +2571,9 @@ export class TaskService {
       }
       // Handle date fields
       else if (
-        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt'].includes(fieldToRevert)
+        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt'].includes(
+          fieldToRevert,
+        )
       ) {
         // Dates must be either a valid Date object or null, never empty string
         convertedValue = new Date(oldValue as string);
@@ -2425,7 +2588,15 @@ export class TaskService {
       }
       // Handle UUID/string fields - convert empty strings to null for optional fields
       else if (
-        ['customerId', 'sectorId', 'paintId', 'createdById', 'bonusDiscountId', 'serialNumber', 'details'].includes(fieldToRevert)
+        [
+          'customerId',
+          'sectorId',
+          'paintId',
+          'createdById',
+          'bonusDiscountId',
+          'serialNumber',
+          'details',
+        ].includes(fieldToRevert)
       ) {
         convertedValue = oldValue;
         // Note: chassisNumber and plate are now on Truck entity, not Task
@@ -2472,7 +2643,9 @@ export class TaskService {
 
             // Create 'quantity' number of cuts with the same fileId/type/origin
             const quantity = cut.quantity || 1;
-            this.logger.log(`[Rollback] Creating ${quantity} cuts for file ${cut.fileId} (${cut.file?.filename || 'unknown'})`);
+            this.logger.log(
+              `[Rollback] Creating ${quantity} cuts for file ${cut.fileId} (${cut.file?.filename || 'unknown'})`,
+            );
 
             for (let i = 0; i < quantity; i++) {
               const createdCut = await tx.cut.create({
@@ -2489,7 +2662,9 @@ export class TaskService {
             }
           }
         } else {
-          this.logger.log(`[Rollback] No cuts to recreate (parsedOldValue is ${typeof parsedOldValue}, isArray: ${Array.isArray(parsedOldValue)})`);
+          this.logger.log(
+            `[Rollback] No cuts to recreate (parsedOldValue is ${typeof parsedOldValue}, isArray: ${Array.isArray(parsedOldValue)})`,
+          );
         }
 
         this.logger.log(`[Rollback] Total cuts created: ${cutsCreated}`);
@@ -2663,20 +2838,24 @@ export class TaskService {
       // Validate that truck has layout before positioning
       if (!task.truck.leftSideLayout && !task.truck.rightSideLayout && !task.truck.backSideLayout) {
         throw new BadRequestException(
-          `O caminhão da tarefa "${task.name}" não possui layout configurado. Configure pelo menos um layout (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`
+          `O caminhão da tarefa "${task.name}" não possui layout configurado. Configure pelo menos um layout (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
         );
       }
 
       // Validate position if provided
-      if (positionData.xPosition !== undefined && positionData.yPosition !== undefined &&
-          positionData.garageId && positionData.garageId !== null) {
+      if (
+        positionData.xPosition !== undefined &&
+        positionData.yPosition !== undefined &&
+        positionData.garageId &&
+        positionData.garageId !== null
+      ) {
         await this.validateTruckPosition(
           task.truck.id,
           positionData.xPosition,
           positionData.yPosition,
           positionData.garageId,
           task.truck,
-          tx
+          tx,
         );
       }
 
@@ -2711,10 +2890,7 @@ export class TaskService {
       }
 
       // Fetch updated task
-      const updatedTask = await this.tasksRepository.findById(
-        taskId,
-        include
-      );
+      const updatedTask = await this.tasksRepository.findById(taskId, include);
 
       return {
         success: true,
@@ -2738,12 +2914,7 @@ export class TaskService {
     for (let i = 0; i < data.updates.length; i++) {
       const update = data.updates[i];
       try {
-        const result = await this.updateTaskPosition(
-          update.taskId,
-          update,
-          include,
-          userId
-        );
+        const result = await this.updateTaskPosition(update.taskId, update, include, userId);
         results.push(result.data);
       } catch (error) {
         errors.push({
@@ -2756,9 +2927,10 @@ export class TaskService {
 
     return {
       success: errors.length === 0,
-      message: errors.length === 0
-        ? 'Todas as posições foram atualizadas com sucesso'
-        : `${results.length} posições atualizadas, ${errors.length} falharam`,
+      message:
+        errors.length === 0
+          ? 'Todas as posições foram atualizadas com sucesso'
+          : `${results.length} posições atualizadas, ${errors.length} falharam`,
       data: {
         success: results,
         failed: errors,
@@ -2875,7 +3047,7 @@ export class TaskService {
     yPosition: number | null,
     garageId: string,
     truck: any,
-    tx: PrismaTransaction
+    tx: PrismaTransaction,
   ): Promise<void> {
     // If position is null, it means truck is in virtual "Patio" garage
     if (xPosition === null || yPosition === null) {
@@ -2898,13 +3070,13 @@ export class TaskService {
     // Validate truck fits within garage dimensions
     if (xPosition + truckWidth > garage.width) {
       throw new BadRequestException(
-        `Caminhão não cabe na garagem: largura do caminhão (${truckWidth}m) + posição X (${xPosition}m) excede largura da garagem (${garage.width}m)`
+        `Caminhão não cabe na garagem: largura do caminhão (${truckWidth}m) + posição X (${xPosition}m) excede largura da garagem (${garage.width}m)`,
       );
     }
 
     if (yPosition + truckLength > garage.length) {
       throw new BadRequestException(
-        `Caminhão não cabe na garagem: comprimento do caminhão (${truckLength}m) + posição Y (${yPosition}m) excede comprimento da garagem (${garage.length}m)`
+        `Caminhão não cabe na garagem: comprimento do caminhão (${truckLength}m) + posição Y (${yPosition}m) excede comprimento da garagem (${garage.length}m)`,
       );
     }
 
@@ -2934,9 +3106,7 @@ export class TaskService {
         yPosition + truckLength > (otherTruck.yPosition || 0);
 
       if (overlaps) {
-        throw new BadRequestException(
-          `Posição conflita com outro caminhão na garagem`
-        );
+        throw new BadRequestException(`Posição conflita com outro caminhão na garagem`);
       }
     }
   }
@@ -2946,15 +3116,17 @@ export class TaskService {
    */
   private calculateTruckWidth(truck: any): number {
     // Width is typically from the side layouts (left or right)
-    const leftWidth = truck.leftSideLayout?.layoutSections?.reduce(
-      (sum: number, section: any) => sum + section.width,
-      0
-    ) || 0;
+    const leftWidth =
+      truck.leftSideLayout?.layoutSections?.reduce(
+        (sum: number, section: any) => sum + section.width,
+        0,
+      ) || 0;
 
-    const rightWidth = truck.rightSideLayout?.layoutSections?.reduce(
-      (sum: number, section: any) => sum + section.width,
-      0
-    ) || 0;
+    const rightWidth =
+      truck.rightSideLayout?.layoutSections?.reduce(
+        (sum: number, section: any) => sum + section.width,
+        0,
+      ) || 0;
 
     // Use the maximum width from available layouts, default to 2.5m if no layout
     return Math.max(leftWidth, rightWidth) || 2.5;
@@ -2991,7 +3163,9 @@ export class TaskService {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    this.logger.log(`[bulkAddArtworks] Adding ${artworkIds.length} artworks to ${taskIds.length} tasks`);
+    this.logger.log(
+      `[bulkAddArtworks] Adding ${artworkIds.length} artworks to ${taskIds.length} tasks`,
+    );
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
@@ -3006,9 +3180,7 @@ export class TaskService {
       if (tasks.length !== taskIds.length) {
         const foundIds = tasks.map(t => t.id);
         const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tarefas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Verify all artwork files exist
@@ -3020,9 +3192,7 @@ export class TaskService {
       if (artworks.length !== artworkIds.length) {
         const foundIds = artworks.map(a => a.id);
         const missingIds = artworkIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Artes não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Artes não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Add artworks to each task
@@ -3049,11 +3219,11 @@ export class TaskService {
           });
 
           // Log the change
-          await this.changeLogService.createWithTransaction({
+          await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            fieldName: 'artworks',
+            field: 'artworks',
             oldValue: JSON.stringify(currentArtworkIds),
             newValue: JSON.stringify(mergedArtworkIds),
             reason: `Artes adicionadas em lote (${artworkIds.length} artes)`,
@@ -3097,7 +3267,9 @@ export class TaskService {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    this.logger.log(`[bulkAddDocuments] Adding ${documentIds.length} ${documentType}s to ${taskIds.length} tasks`);
+    this.logger.log(
+      `[bulkAddDocuments] Adding ${documentIds.length} ${documentType}s to ${taskIds.length} tasks`,
+    );
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
@@ -3120,9 +3292,7 @@ export class TaskService {
       if (tasks.length !== taskIds.length) {
         const foundIds = tasks.map(t => t.id);
         const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tarefas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Verify all document files exist
@@ -3134,9 +3304,7 @@ export class TaskService {
       if (documents.length !== documentIds.length) {
         const foundIds = documents.map(d => d.id);
         const missingIds = documentIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Documentos não encontrados: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Documentos não encontrados: ${missingIds.join(', ')}`);
       }
 
       // Add documents to each task
@@ -3149,7 +3317,8 @@ export class TaskService {
           });
 
           // Merge current document IDs with new ones (avoid duplicates)
-          const currentDocumentIds = (currentTask as any)?.[relationName]?.map((d: any) => d.id) || [];
+          const currentDocumentIds =
+            (currentTask as any)?.[relationName]?.map((d: any) => d.id) || [];
           const mergedDocumentIds = [...new Set([...currentDocumentIds, ...documentIds])];
 
           // Update task with merged document IDs
@@ -3163,11 +3332,11 @@ export class TaskService {
           });
 
           // Log the change
-          await this.changeLogService.createWithTransaction({
+          await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            fieldName: relationName,
+            field: relationName,
             oldValue: JSON.stringify(currentDocumentIds),
             newValue: JSON.stringify(mergedDocumentIds),
             reason: `Documentos (${documentType}) adicionados em lote (${documentIds.length} documentos)`,
@@ -3225,9 +3394,7 @@ export class TaskService {
       if (tasks.length !== taskIds.length) {
         const foundIds = tasks.map(t => t.id);
         const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tarefas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Verify all paints exist
@@ -3239,9 +3406,7 @@ export class TaskService {
       if (paints.length !== paintIds.length) {
         const foundIds = paints.map(p => p.id);
         const missingIds = paintIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tintas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tintas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Add paints to each task
@@ -3268,11 +3433,11 @@ export class TaskService {
           });
 
           // Log the change
-          await this.changeLogService.createWithTransaction({
+          await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            fieldName: 'logoPaints',
+            field: 'logoPaints',
             oldValue: JSON.stringify(currentPaintIds),
             newValue: JSON.stringify(mergedPaintIds),
             reason: `Tintas adicionadas em lote (${paintIds.length} tintas)`,
@@ -3336,9 +3501,7 @@ export class TaskService {
       if (tasks.length !== taskIds.length) {
         const foundIds = tasks.map(t => t.id);
         const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tarefas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Verify the cut file exists
@@ -3347,9 +3510,7 @@ export class TaskService {
       });
 
       if (!cutFile) {
-        throw new NotFoundException(
-          `Arquivo de corte não encontrado: ${cutData.fileId}`
-        );
+        throw new NotFoundException(`Arquivo de corte não encontrado: ${cutData.fileId}`);
       }
 
       // Create cutting plans for each task
@@ -3375,11 +3536,11 @@ export class TaskService {
           }
 
           // Log the change
-          await this.changeLogService.createWithTransaction({
+          await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            fieldName: 'cuts',
+            field: 'cuts',
             oldValue: null,
             newValue: JSON.stringify(createdCuts.map(c => c.id)),
             reason: `Planos de corte adicionados em lote (${quantity} cortes)`,
@@ -3424,7 +3585,9 @@ export class TaskService {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    this.logger.log(`[bulkUploadFiles] Uploading ${files.length} ${fileType} to ${taskIds.length} tasks`);
+    this.logger.log(
+      `[bulkUploadFiles] Uploading ${files.length} ${fileType} to ${taskIds.length} tasks`,
+    );
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
@@ -3457,9 +3620,7 @@ export class TaskService {
       if (tasks.length !== taskIds.length) {
         const foundIds = tasks.map(t => t.id);
         const missingIds = taskIds.filter(id => !foundIds.includes(id));
-        throw new NotFoundException(
-          `Tarefas não encontradas: ${missingIds.join(', ')}`
-        );
+        throw new NotFoundException(`Tarefas não encontradas: ${missingIds.join(', ')}`);
       }
 
       // Upload all files once
@@ -3482,7 +3643,9 @@ export class TaskService {
         uploadedFileIds.push(fileRecord.id);
       }
 
-      this.logger.log(`[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`);
+      this.logger.log(
+        `[bulkUploadFiles] ${uploadedFileIds.length} files uploaded, adding to ${tasks.length} tasks`,
+      );
 
       // Add uploaded files to each task
       for (const task of tasks) {
@@ -3508,11 +3671,11 @@ export class TaskService {
           });
 
           // Log the change
-          await this.changeLogService.createWithTransaction({
+          await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
-            fieldName: relationName,
+            field: relationName,
             oldValue: JSON.stringify(currentFileIds),
             newValue: JSON.stringify(mergedFileIds),
             reason: `${files.length} arquivo(s) de ${fileType} adicionado(s) em lote`,

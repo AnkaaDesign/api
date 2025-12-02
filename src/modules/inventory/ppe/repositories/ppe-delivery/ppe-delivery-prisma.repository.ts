@@ -240,7 +240,7 @@ export class PpeDeliveryPrismaRepository
       const itemName = item.name || item.uniCode || itemId;
       throw new Error(
         `Quantidade solicitada (${requestedQuantity}) excede o estoque disponível (${availableQuantity}) para o item "${itemName}". ` +
-        `Estoque total: ${item.quantity}, Reservado: ${reservedQuantity}`
+          `Estoque total: ${item.quantity}, Reservado: ${reservedQuantity}`,
       );
     }
   }

@@ -148,8 +148,8 @@ export class ExternalWithdrawalItemService {
 
     // Validate item exists and has sufficient stock
     let item: any;
-    let itemId = ('itemId' in data && data.itemId) || existingItem?.itemId;
-    let withdrawedQuantity =
+    const itemId = ('itemId' in data && data.itemId) || existingItem?.itemId;
+    const withdrawedQuantity =
       ('withdrawedQuantity' in data && data.withdrawedQuantity) ||
       existingItem?.withdrawedQuantity ||
       0;
@@ -431,7 +431,10 @@ export class ExternalWithdrawalItemService {
         });
 
         // Check if returnedQuantity was updated and update withdrawal status accordingly
-        if (data.returnedQuantity !== undefined && existingItem.externalWithdrawal?.type === 'RETURNABLE') {
+        if (
+          data.returnedQuantity !== undefined &&
+          existingItem.externalWithdrawal?.type === 'RETURNABLE'
+        ) {
           // Log the item update in the withdrawal's changelog using a dynamic field name with item name
           const itemName = existingItem.item?.name || `Item ${existingItem.itemId.slice(0, 8)}...`;
           await this.changeLogService.logChange({
@@ -1042,6 +1045,8 @@ export class ExternalWithdrawalItemService {
       [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: 'Totalmente Devolvido',
       [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: 'Cobrado',
       [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: 'Cancelado',
+      [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: 'Liquidado',
+      [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: 'Entregue',
     };
     return labels[status] || status;
   }

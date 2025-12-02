@@ -1,13 +1,13 @@
 import type { Borrow } from '@types';
 import { BORROW_STATUS_LABELS } from '@constants';
 import { BORROW_STATUS } from '@constants';
-import { dateUtils } from "./date";
+import { dateUtils } from './date';
 
 /**
  * Get borrow status
  */
-export function getBorrowStatus(borrow: Borrow): "active" | "returned" {
-  return borrow.returnedAt ? "returned" : "active";
+export function getBorrowStatus(borrow: Borrow): 'active' | 'returned' {
+  return borrow.returnedAt ? 'returned' : 'active';
 }
 
 /**
@@ -21,10 +21,10 @@ export function getBorrowStatusLabel(status: BORROW_STATUS): string {
  * Get display label for borrow status (legacy)
  * @deprecated Use getBorrowStatusLabel with BORROW_STATUS enum instead
  */
-export function getBorrowStatusLabelLegacy(status: "active" | "returned"): string {
+export function getBorrowStatusLabelLegacy(status: 'active' | 'returned'): string {
   const labels = {
-    active: "Em Uso",
-    returned: "Devolvido",
+    active: 'Em Uso',
+    returned: 'Devolvido',
   };
   return labels[status] || status;
 }
@@ -32,12 +32,12 @@ export function getBorrowStatusLabelLegacy(status: "active" | "returned"): strin
 /**
  * Get color for borrow status
  */
-export function getBorrowStatusColor(status: "active" | "returned"): string {
+export function getBorrowStatusColor(status: 'active' | 'returned'): string {
   const colors = {
-    active: "blue",
-    returned: "green",
+    active: 'blue',
+    returned: 'green',
   };
-  return colors[status] || "gray";
+  return colors[status] || 'gray';
 }
 
 /**
@@ -73,7 +73,7 @@ export function isBorrowReturned(borrow: Borrow): boolean {
  * Format borrow details for display
  */
 export function formatBorrowDetails(borrow: Borrow): string {
-  const borrowDate = dateUtils.formatDate(borrow.createdAt, "dd/MM/yyyy");
+  const borrowDate = dateUtils.formatDate(borrow.createdAt, 'dd/MM/yyyy');
   const duration = getBorrowDaysAgo(borrow);
   return `Emprestado em ${borrowDate} (${duration} dias atrás)`;
 }
@@ -82,8 +82,8 @@ export function formatBorrowDetails(borrow: Borrow): string {
  * Get borrow summary text
  */
 export function getBorrowSummary(borrow: Borrow): string {
-  const itemName = borrow.item?.name || "Item desconhecido";
-  const userName = borrow.user?.name || "Usuário desconhecido";
+  const itemName = borrow.item?.name || 'Item desconhecido';
+  const userName = borrow.user?.name || 'Usuário desconhecido';
   const quantity = borrow.quantity;
 
   return `${quantity}x ${itemName} para ${userName}`;
@@ -101,13 +101,13 @@ export function getBorrowValue(borrow: Borrow): number {
 /**
  * Group borrows by status
  */
-export function groupBorrowsByStatus(borrows: Borrow[]): Record<"active" | "returned", Borrow[]> {
-  const groups: Record<"active" | "returned", Borrow[]> = {
+export function groupBorrowsByStatus(borrows: Borrow[]): Record<'active' | 'returned', Borrow[]> {
+  const groups: Record<'active' | 'returned', Borrow[]> = {
     active: [],
     returned: [],
   };
 
-  borrows.forEach((borrow) => {
+  borrows.forEach(borrow => {
     const status = getBorrowStatus(borrow);
     groups[status].push(borrow);
   });
@@ -132,11 +132,11 @@ export function getReturnedBorrows(borrows: Borrow[]): Borrow[] {
 /**
  * Sort borrows by date
  */
-export function sortBorrowsByDate(borrows: Borrow[], order: "asc" | "desc" = "desc"): Borrow[] {
+export function sortBorrowsByDate(borrows: Borrow[], order: 'asc' | 'desc' = 'desc'): Borrow[] {
   return [...borrows].sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -149,7 +149,9 @@ export function calculateBorrowStats(borrows: Borrow[]) {
   const returned = borrows.filter(isBorrowReturned).length;
 
   const totalValue = borrows.reduce((sum, borrow) => sum + getBorrowValue(borrow), 0);
-  const averageDuration = borrows.filter(isBorrowReturned).reduce((sum, borrow) => sum + getBorrowDuration(borrow), 0) / (returned || 1);
+  const averageDuration =
+    borrows.filter(isBorrowReturned).reduce((sum, borrow) => sum + getBorrowDuration(borrow), 0) /
+    (returned || 1);
 
   return {
     total,

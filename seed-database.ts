@@ -118,6 +118,19 @@ function cleanValue(value: any): any {
   return value;
 }
 
+// Get month name in Portuguese
+function getMonthName(month: number): string {
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  // Handle month 13 (would be Janeiro of next year)
+  if (month > 12) {
+    return monthNames[0];
+  }
+  return monthNames[month - 1] || 'Unknown';
+}
+
 // Format name to Title Case (first letter uppercase, rest lowercase)
 function formatNameToTitleCase(name: string | null | undefined): string | null {
   if (!name || typeof name !== 'string') return null;
@@ -632,13 +645,15 @@ async function migrateUsers() {
 
         // Calculate performance level from aliquot or stored level
         let performanceLevel = 0;
-        if (employee?.position && idMappings.positions[`${employee.position}_level`]) {
-          performanceLevel = Number(idMappings.positions[`${employee.position}_level`]);
-        } else if (employee?.aliquot) {
+        if (employee?.aliquot) {
+          // Aliquot is a value 1-5 representing performance level
           const aliquot = parseFloatValue(employee.aliquot);
           if (aliquot > 0) {
-            performanceLevel = Math.ceil(aliquot * 10);
+            // Clamp to valid performance level range (1-5)
+            performanceLevel = Math.max(1, Math.min(5, Math.round(aliquot)));
           }
+        } else if (employee?.position && idMappings.positions[`${employee.position}_level`]) {
+          performanceLevel = Number(idMappings.positions[`${employee.position}_level`]);
         }
 
         // Handle duplicate constraints by making unique values
@@ -796,6 +811,15 @@ async function migrateUsers() {
           }
         }
 
+        // Get payroll number from employee barcode
+        let payrollNumber: number | null = null;
+        if (employee?.barcode) {
+          const barcodeNum = parseInt(employee.barcode);
+          if (!isNaN(barcodeNum) && barcodeNum > 0) {
+            payrollNumber = barcodeNum;
+          }
+        }
+
         const created = await prisma.user.create({
           data: {
             name: formatNameToTitleCase(user.name) || user.name,
@@ -809,6 +833,7 @@ async function migrateUsers() {
             positionId: employee?.position ? idMappings.positions[employee.position] : null,
             performanceLevel,
             sectorId,
+            payrollNumber, // Assign from employee barcode
             status: userStatus,
             statusOrder: isDismissed
               ? USER_STATUS_ORDER[USER_STATUS.DISMISSED]
@@ -4614,7 +4639,8 @@ async function createBonusesForEligibleUsers() {
   console.log('💰 Creating bonuses for eligible users with spreadsheet calculation algorithm...');
 
   try {
-    // Get all users with bonifiable positions
+    // Get all users with bonifiable positions and performanceLevel > 0
+    // performanceLevel comes from the old 'aliquot' field (1-5 scale)
     const eligibleUsers = await prisma.user.findMany({
       where: {
         status: { not: USER_STATUS.DISMISSED },
@@ -4622,7 +4648,7 @@ async function createBonusesForEligibleUsers() {
           bonifiable: true,
         },
         performanceLevel: {
-          gt: 0, // Only users with performance level > 0
+          gt: 0, // Only users with performance level > 0 (migrated from aliquot)
         },
       },
       include: {
@@ -4632,22 +4658,34 @@ async function createBonusesForEligibleUsers() {
 
     if (eligibleUsers.length === 0) {
       console.log(
-        '  ⚠️  No eligible users found with bonifiable positions and performance level > 0',
+        '  ⚠️  No eligible users found with bonifiable positions and performanceLevel > 0',
       );
+      console.log('  💡 Note: performanceLevel is migrated from the old "aliquot" field');
       return;
     }
 
-    console.log(`  📋 Found ${eligibleUsers.length} eligible users`);
+    console.log(`  📋 Found ${eligibleUsers.length} eligible users for bonus calculation`);
 
     const currentDate = new Date();
     const currentYear = currentDate.getFullYear(); // 2025
     const currentMonth = currentDate.getMonth() + 1; // JavaScript months are 0-indexed
+    const currentDay = currentDate.getDate();
 
     let totalBonusesCreated = 0;
 
     // Create bonuses for each month from January to current month (but at least 3 months for demo data)
+    // IMPORTANT: Bonuses are saved to database on the 6th of the following month
+    // Current month bonuses should remain as live calculations until next month's 6th
     const monthsToCreate = Math.max(3, currentMonth);
+
     for (let month = 1; month <= monthsToCreate; month++) {
+      // Skip current month - bonuses are only saved on the 6th of the NEXT month
+      // Bonus payment is on the 5th, cronjob saves data at midnight on the 6th of next month
+      if (month === currentMonth) {
+        console.log(`  ⏭️  Skipping ${getMonthName(month)} ${currentYear} bonuses - not yet finalized (saves on ${getMonthName(currentMonth + 1)} 6th)`);
+        continue;
+      }
+
       console.log(`  📅 Processing bonuses for ${month}/${currentYear}`);
 
       const { startDate, endDate } = getBonusPeriod(currentYear, month);
@@ -4798,7 +4836,33 @@ async function createBonusesForEligibleUsers() {
 
           // For demo purposes, all past months should be CONFIRMED
 
-          // Create the bonus
+          // Get tasks created by THIS user in the period (for weighted task count)
+          const userTasks = await prisma.task.findMany({
+            where: {
+              createdById: user.id,
+              status: TASK_STATUS.COMPLETED,
+              finishedAt: {
+                gte: startDate,
+                lte: endDate,
+              },
+            },
+            select: {
+              id: true,
+              commission: true,
+            },
+          });
+
+          // Calculate weighted tasks for THIS user
+          let userWeightedTasks = 0;
+          for (const task of userTasks) {
+            if (task.commission === 'FULL_COMMISSION') {
+              userWeightedTasks += 1;
+            } else if (task.commission === 'PARTIAL_COMMISSION') {
+              userWeightedTasks += 0.5;
+            }
+          }
+
+          // Create the bonus with all new fields
           const bonus = await prisma.bonus.create({
             data: {
               userId: user.id,
@@ -4806,10 +4870,9 @@ async function createBonusesForEligibleUsers() {
               month: month,
               performanceLevel: performanceLevel,
               baseBonus: bonusValue,
-              ponderedTaskCount: weightedTaskCount, // Weighted task count for bonus calculation
-              averageTasksPerUser: averageTasksPerUser,
-              calculationPeriodStart: startDate,
-              calculationPeriodEnd: endDate,
+              netBonus: bonusValue, // Initially same as baseBonus, will be updated if discounts are added
+              weightedTasks: userWeightedTasks,
+              averageTaskPerUser: averageTasksPerUser,
             },
           });
 
@@ -4826,6 +4889,8 @@ async function createBonusesForEligibleUsers() {
             ];
 
             const numDiscounts = Math.floor(Math.random() * 2) + 1; // 1-2 discounts
+            let remainingBonus = bonusValue;
+
             for (let i = 0; i < numDiscounts; i++) {
               const discount = discountScenarios[i % discountScenarios.length];
               await prisma.bonusDiscount.create({
@@ -4839,9 +4904,25 @@ async function createBonusesForEligibleUsers() {
                   calculationOrder: discount.calculationOrder,
                 },
               });
+
+              // Calculate discount amount and subtract from remaining bonus
+              if (discount.percentage) {
+                remainingBonus -= remainingBonus * (discount.percentage / 100);
+              } else if (discount.value) {
+                remainingBonus -= discount.value;
+              }
             }
+
+            // Update netBonus with the discounted amount
+            await prisma.bonus.update({
+              where: { id: bonus.id },
+              data: {
+                netBonus: Math.max(0, remainingBonus), // Ensure not negative
+              },
+            });
+
             console.log(
-              `      📉 Added ${numDiscounts} sample discount(s) to bonus for ${user.name}`,
+              `      📉 Added ${numDiscounts} sample discount(s) to bonus for ${user.name} - Net: R$ ${Math.max(0, remainingBonus).toFixed(2)}`,
             );
           }
 
@@ -4914,10 +4995,613 @@ async function createBonusesForEligibleUsers() {
   }
 }
 
-async function createPayrollsForActiveUsers() {
-  console.log('\n🔄 Creating Payrolls for Active Users...');
+// ============================================================================
+// TAX TABLES SEED (2025 INSS and IRRF)
+// ============================================================================
+
+async function seedTaxTables() {
+  console.log('\n🌱 Seeding 2025 Tax Tables...');
+
   try {
-    const currentYear = new Date().getFullYear();
+    // ============================================================================
+    // INSS 2025 - Progressive Table
+    // ============================================================================
+    console.log('  📊 Creating INSS 2025 table...');
+
+    const inssTaxTable = await prisma.taxTable.upsert({
+      where: {
+        taxType_year_isActive: {
+          taxType: 'INSS',
+          year: 2025,
+          isActive: true,
+        },
+      },
+      update: {},
+      create: {
+        taxType: 'INSS',
+        year: 2025,
+        effectiveFrom: new Date('2025-01-01'),
+        effectiveTo: null, // Current table
+        calculationMethod: 'PROGRESSIVE',
+        description:
+          'Tabela INSS 2025 - Alíquotas progressivas. Teto: R$ 8.157,41. Desconto máximo: R$ 951,62 (11,69% efetivo).',
+        legalReference: 'Portaria Interministerial MPS/MF - Atualização anual conforme salário mínimo',
+        isActive: true,
+        settings: {
+          salarioMinimo: 1518.0,
+          teto: 8157.41,
+          descontoMaximo: 951.62,
+          aliquotaEfetivaTeto: 11.69,
+        },
+      },
+    });
+
+    // INSS 2025 Brackets
+    const inssBrackets = [
+      {
+        bracketOrder: 1,
+        minValue: 0.0,
+        maxValue: 1518.0,
+        rate: 7.5,
+        description: 'Até R$ 1.518,00',
+      },
+      {
+        bracketOrder: 2,
+        minValue: 1518.01,
+        maxValue: 2793.88,
+        rate: 9.0,
+        description: 'De R$ 1.518,01 até R$ 2.793,88',
+      },
+      {
+        bracketOrder: 3,
+        minValue: 2793.89,
+        maxValue: 4190.83,
+        rate: 12.0,
+        description: 'De R$ 2.793,89 até R$ 4.190,83',
+      },
+      {
+        bracketOrder: 4,
+        minValue: 4190.84,
+        maxValue: 8157.41,
+        rate: 14.0,
+        description: 'De R$ 4.190,84 até R$ 8.157,41',
+      },
+    ];
+
+    for (const bracket of inssBrackets) {
+      await prisma.taxBracket.upsert({
+        where: {
+          taxTableId_bracketOrder: {
+            taxTableId: inssTaxTable.id,
+            bracketOrder: bracket.bracketOrder,
+          },
+        },
+        update: bracket,
+        create: {
+          ...bracket,
+          taxTableId: inssTaxTable.id,
+        },
+      });
+    }
+
+    console.log(`    ✅ Created INSS table with ${inssBrackets.length} brackets`);
+
+    // ============================================================================
+    // IRRF 2025 - Progressive Table (Vigência a partir de MAIO/2025)
+    // ============================================================================
+    console.log('  📊 Creating IRRF 2025 table...');
+
+    const irrfTaxTable = await prisma.taxTable.upsert({
+      where: {
+        taxType_year_isActive: {
+          taxType: 'IRRF',
+          year: 2025,
+          isActive: true,
+        },
+      },
+      update: {},
+      create: {
+        taxType: 'IRRF',
+        year: 2025,
+        effectiveFrom: new Date('2025-05-01'), // Vigência a partir de maio
+        effectiveTo: null, // Current table
+        calculationMethod: 'PROGRESSIVE',
+        description:
+          'Tabela IRRF 2025 - MP 1.294/2025. Nova faixa de isenção: R$ 2.428,80. Isenção prática: R$ 3.036,00 (2 salários mínimos).',
+        legalReference: 'MP 1.294/2025 - Vigência a partir de maio/2025',
+        isActive: true,
+        settings: {
+          faixaIsencao: 2428.8,
+          isencaoPraticaComDesconto: 3036.0,
+          deducaoPorDependente: 189.59,
+          descontoSimplificado: 607.2,
+          descontoSimplificadoPercentual: 25.0,
+        },
+      },
+    });
+
+    // IRRF 2025 Brackets
+    const irrfBrackets = [
+      {
+        bracketOrder: 1,
+        minValue: 0.0,
+        maxValue: 2428.8,
+        rate: 0.0,
+        deduction: 0.0,
+        description: 'Até R$ 2.428,80 - Isento',
+      },
+      {
+        bracketOrder: 2,
+        minValue: 2428.81,
+        maxValue: 2826.65,
+        rate: 7.5,
+        deduction: 182.16,
+        description: 'De R$ 2.428,81 até R$ 2.826,65 - 7,5%',
+      },
+      {
+        bracketOrder: 3,
+        minValue: 2826.66,
+        maxValue: 3751.05,
+        rate: 15.0,
+        deduction: 394.02,
+        description: 'De R$ 2.826,66 até R$ 3.751,05 - 15%',
+      },
+      {
+        bracketOrder: 4,
+        minValue: 3751.06,
+        maxValue: 4664.68,
+        rate: 22.5,
+        deduction: 662.77,
+        description: 'De R$ 3.751,06 até R$ 4.664,68 - 22,5%',
+      },
+      {
+        bracketOrder: 5,
+        minValue: 4664.69,
+        maxValue: null, // Infinity
+        rate: 27.5,
+        deduction: 896.0,
+        description: 'Acima de R$ 4.664,68 - 27,5%',
+      },
+    ];
+
+    for (const bracket of irrfBrackets) {
+      await prisma.taxBracket.upsert({
+        where: {
+          taxTableId_bracketOrder: {
+            taxTableId: irrfTaxTable.id,
+            bracketOrder: bracket.bracketOrder,
+          },
+        },
+        update: bracket,
+        create: {
+          ...bracket,
+          taxTableId: irrfTaxTable.id,
+        },
+      });
+    }
+
+    console.log(`    ✅ Created IRRF table with ${irrfBrackets.length} brackets`);
+    console.log('  ✅ Tax tables seeded successfully');
+  } catch (error: any) {
+    console.error('❌ Error seeding tax tables:', error.message);
+    throw error;
+  }
+}
+
+// ============================================================================
+// PAYROLL CALCULATION UTILITIES (Matching API Implementation)
+// ============================================================================
+
+interface TaxBracket {
+  minValue: number;
+  maxValue: number | null;
+  rate: number;
+  deduction?: number;
+}
+
+/**
+ * Round to 2 decimal places for currency
+ */
+function roundCurrency(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Calculate INSS using progressive brackets (2025 tables)
+ * Each bracket applies only to the portion of income within that bracket
+ */
+async function calculateINSS(
+  grossSalary: number,
+  year: number,
+): Promise<{ amount: number; rate: number; base: number }> {
+  try {
+    // Fetch INSS tax table for the year
+    const taxTable = await prisma.taxTable.findFirst({
+      where: {
+        taxType: 'INSS',
+        year: year,
+        isActive: true,
+      },
+      include: {
+        brackets: {
+          orderBy: {
+            minValue: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!taxTable || taxTable.brackets.length === 0) {
+      // Fallback to 2025 default brackets if table not found
+      const brackets: TaxBracket[] = [
+        { minValue: 0, maxValue: 1518.00, rate: 7.5 },
+        { minValue: 1518.01, maxValue: 2793.88, rate: 9.0 },
+        { minValue: 2793.89, maxValue: 4190.83, rate: 12.0 },
+        { minValue: 4190.84, maxValue: null, rate: 14.0 },
+      ];
+
+      let totalTax = 0;
+      for (const bracket of brackets) {
+        if (grossSalary > bracket.minValue) {
+          const maxForBracket = bracket.maxValue || grossSalary;
+          const incomeInBracket = Math.min(grossSalary, maxForBracket) - bracket.minValue;
+          const taxOnBracket = (incomeInBracket * bracket.rate) / 100;
+          totalTax += taxOnBracket;
+        }
+      }
+
+      return {
+        amount: roundCurrency(totalTax),
+        rate: grossSalary > 0 ? roundCurrency((totalTax / grossSalary) * 100) : 0,
+        base: grossSalary,
+      };
+    }
+
+    // Use database brackets
+    let totalTax = 0;
+    for (const bracket of taxTable.brackets) {
+      if (grossSalary > Number(bracket.minValue)) {
+        const maxForBracket = bracket.maxValue ? Number(bracket.maxValue) : grossSalary;
+        const incomeInBracket = Math.min(grossSalary, maxForBracket) - Number(bracket.minValue);
+        const taxOnBracket = (incomeInBracket * Number(bracket.rate)) / 100;
+        totalTax += taxOnBracket;
+      }
+    }
+
+    return {
+      amount: roundCurrency(totalTax),
+      rate: grossSalary > 0 ? roundCurrency((totalTax / grossSalary) * 100) : 0,
+      base: grossSalary,
+    };
+  } catch (error) {
+    console.error('Error calculating INSS:', error);
+    return { amount: 0, rate: 0, base: grossSalary };
+  }
+}
+
+/**
+ * Calculate IRRF using progressive brackets (2025 tables)
+ * Base = Gross - INSS - Dependents - Simplified Deduction
+ */
+async function calculateIRRF(
+  grossSalary: number,
+  inssAmount: number,
+  dependentsCount: number,
+  useSimplifiedDeduction: boolean,
+  year: number,
+): Promise<{ amount: number; rate: number; base: number }> {
+  try {
+    // Deduction per dependent (2025 value)
+    const DEPENDENT_DEDUCTION = 189.59;
+    const SIMPLIFIED_DEDUCTION = 564.80; // 2025 value
+
+    // Calculate taxable base
+    let taxableIncome = grossSalary - inssAmount;
+    taxableIncome -= dependentsCount * DEPENDENT_DEDUCTION;
+
+    if (useSimplifiedDeduction) {
+      taxableIncome -= SIMPLIFIED_DEDUCTION;
+    }
+
+    if (taxableIncome <= 0) {
+      return { amount: 0, rate: 0, base: 0 };
+    }
+
+    // Fetch IRRF tax table for the year
+    const taxTable = await prisma.taxTable.findFirst({
+      where: {
+        taxType: 'IRRF',
+        year: year,
+        isActive: true,
+      },
+      include: {
+        brackets: {
+          orderBy: {
+            minValue: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!taxTable || taxTable.brackets.length === 0) {
+      // Fallback to 2025 default brackets
+      const brackets: TaxBracket[] = [
+        { minValue: 0, maxValue: 2259.20, rate: 0, deduction: 0 },
+        { minValue: 2259.21, maxValue: 2826.65, rate: 7.5, deduction: 169.44 },
+        { minValue: 2826.66, maxValue: 3751.05, rate: 15.0, deduction: 381.44 },
+        { minValue: 3751.06, maxValue: 4664.68, rate: 22.5, deduction: 662.77 },
+        { minValue: 4664.69, maxValue: null, rate: 27.5, deduction: 896.00 },
+      ];
+
+      let applicableTax = 0;
+      for (let i = brackets.length - 1; i >= 0; i--) {
+        const bracket = brackets[i];
+        if (
+          taxableIncome >= bracket.minValue &&
+          (bracket.maxValue === null || taxableIncome <= bracket.maxValue)
+        ) {
+          applicableTax = (taxableIncome * bracket.rate) / 100 - (bracket.deduction || 0);
+          break;
+        }
+      }
+
+      return {
+        amount: roundCurrency(Math.max(0, applicableTax)),
+        rate: taxableIncome > 0 ? roundCurrency((applicableTax / taxableIncome) * 100) : 0,
+        base: taxableIncome,
+      };
+    }
+
+    // Use database brackets
+    let applicableTax = 0;
+    for (let i = taxTable.brackets.length - 1; i >= 0; i--) {
+      const bracket = taxTable.brackets[i];
+      const minVal = Number(bracket.minValue);
+      const maxVal = bracket.maxValue ? Number(bracket.maxValue) : null;
+
+      if (taxableIncome >= minVal && (maxVal === null || taxableIncome <= maxVal)) {
+        const rate = Number(bracket.rate);
+        const deduction = bracket.deduction ? Number(bracket.deduction) : 0;
+        applicableTax = (taxableIncome * rate) / 100 - deduction;
+        break;
+      }
+    }
+
+    return {
+      amount: roundCurrency(Math.max(0, applicableTax)),
+      rate: taxableIncome > 0 ? roundCurrency((applicableTax / taxableIncome) * 100) : 0,
+      base: taxableIncome,
+    };
+  } catch (error) {
+    console.error('Error calculating IRRF:', error);
+    return { amount: 0, rate: 0, base: 0 };
+  }
+}
+
+/**
+ * Calculate FGTS (8% of gross salary, or 2% for apprentices)
+ */
+function calculateFGTS(grossSalary: number, isApprentice: boolean = false): number {
+  const rate = isApprentice ? 2.0 : 8.0;
+  return roundCurrency((grossSalary * rate) / 100);
+}
+
+/**
+ * Calculate complete payroll for a user
+ */
+async function calculateCompletePayroll(params: {
+  userId: string;
+  year: number;
+  month: number;
+  baseSalary: number;
+  bonusAmount?: number;
+  dependentsCount?: number;
+  useSimplifiedDeduction?: boolean;
+  unionMember?: boolean;
+  isApprentice?: boolean;
+}) {
+  const {
+    userId,
+    year,
+    month,
+    baseSalary,
+    bonusAmount = 0,
+    dependentsCount = 0,
+    useSimplifiedDeduction = true,
+    unionMember = false,
+    isApprentice = false,
+  } = params;
+
+  // Working days defaults
+  const workingDaysInMonth = 22;
+  const workedDaysInMonth = 22;
+
+  // For seed data, we'll use simple overtime calculations
+  // Real system would fetch from Secullum
+  const monthlyHours = 220;
+  const hourlyRate = baseSalary / monthlyHours;
+
+  // Random overtime for demo (0-20 hours at 50%, 0-8 hours at 100%)
+  const overtime50Hours = Math.random() < 0.5 ? roundCurrency(Math.random() * 20) : 0;
+  const overtime50Amount = roundCurrency(overtime50Hours * hourlyRate * 1.5);
+
+  const overtime100Hours = Math.random() < 0.3 ? roundCurrency(Math.random() * 8) : 0;
+  const overtime100Amount = roundCurrency(overtime100Hours * hourlyRate * 2.0);
+
+  // Night differential (20% on night hours)
+  const nightHours = Math.random() < 0.2 ? roundCurrency(Math.random() * 15) : 0;
+  const nightDifferentialAmount = roundCurrency(nightHours * hourlyRate * 0.2);
+
+  // DSR on overtime (required by law)
+  const totalOvertimeAmount = overtime50Amount + overtime100Amount;
+  const sundays = 4;
+  const holidays = 0;
+  const dsrDays = sundays + holidays;
+  const dsrAmount =
+    workingDaysInMonth > 0
+      ? roundCurrency((totalOvertimeAmount / workingDaysInMonth) * dsrDays)
+      : 0;
+
+  // ========================================================================
+  // ABSENCE DEDUCTIONS
+  // ========================================================================
+  // For seed data: NO absences or lateness - these should come from Secullum
+  // In production, the CompletePayrollCalculatorService fetches this from Secullum API
+  const absenceHours = 0;
+  const absenceAmount = 0;
+  const lateArrivalMinutes = 0;
+  const lateArrivalAmount = 0;
+
+  // GROSS SALARY (before deductions)
+  const grossSalary = roundCurrency(
+    baseSalary +
+      overtime50Amount +
+      overtime100Amount +
+      nightDifferentialAmount +
+      dsrAmount +
+      bonusAmount,
+  );
+
+  // ========================================================================
+  // TAX DEDUCTIONS
+  // ========================================================================
+  const inssResult = await calculateINSS(grossSalary, year);
+  const inssAmount = inssResult.amount;
+  const inssBase = inssResult.base;
+
+  const irrfResult = await calculateIRRF(
+    grossSalary,
+    inssAmount,
+    dependentsCount,
+    useSimplifiedDeduction,
+    year,
+  );
+  const irrfAmount = irrfResult.amount;
+  const irrfBase = irrfResult.base;
+
+  // ========================================================================
+  // BENEFIT DEDUCTIONS
+  // ========================================================================
+  // For seed data: NO random benefits!
+  // Benefits should only be added if we have actual records/flags in the database
+  // In production, these come from persistent discount records or employee benefit enrollment
+  const mealVoucher = 0;
+  const transportVoucher = 0;
+  const healthInsurance = 0;
+  const dentalInsurance = 0;
+
+  // ========================================================================
+  // LEGAL DEDUCTIONS
+  // ========================================================================
+  // Union contribution (only if user is actually a union member, only in March)
+  const unionContribution =
+    unionMember && month === 3 ? roundCurrency(baseSalary / 30) : 0;
+
+  // NO random legal deductions - these must come from actual court orders/records
+  const alimony = 0;
+  const garnishment = 0;
+
+  // ========================================================================
+  // LOAN DEDUCTIONS
+  // ========================================================================
+  // NO random loans - these must come from actual loan records
+  const loans = 0;
+  const advances = 0;
+
+  // ========================================================================
+  // FGTS (employer contribution, tracked but not deducted from employee)
+  // ========================================================================
+  const fgtsAmount = calculateFGTS(grossSalary, isApprentice);
+
+  // ========================================================================
+  // TOTAL DEDUCTIONS
+  // ========================================================================
+  const totalDeductions = roundCurrency(
+    inssAmount +
+      irrfAmount +
+      absenceAmount +
+      lateArrivalAmount +
+      mealVoucher +
+      transportVoucher +
+      healthInsurance +
+      dentalInsurance +
+      unionContribution +
+      alimony +
+      garnishment +
+      loans +
+      advances,
+  );
+
+  // ========================================================================
+  // NET SALARY
+  // ========================================================================
+  const netSalary = roundCurrency(grossSalary - totalDeductions);
+
+  return {
+    // Base
+    baseRemuneration: baseSalary,
+    workingDaysInMonth,
+    workedDaysInMonth,
+    absenceHours,
+
+    // Overtime
+    overtime50Hours,
+    overtime50Amount,
+    overtime100Hours,
+    overtime100Amount,
+    nightHours,
+    nightDifferentialAmount,
+
+    // DSR
+    dsrAmount,
+
+    // Bonus
+    bonusAmount,
+
+    // Totals
+    grossSalary,
+    totalDiscounts: totalDeductions,
+    netSalary,
+
+    // Tax details
+    inssBase,
+    inssAmount,
+    irrfBase,
+    irrfAmount,
+
+    // FGTS
+    fgtsAmount,
+
+    // Absence deductions
+    absenceHours,
+    absenceAmount,
+    lateArrivalMinutes,
+    lateArrivalAmount,
+
+    // Benefit deductions
+    mealVoucher,
+    transportVoucher,
+    healthInsurance,
+    dentalInsurance,
+
+    // Legal deductions
+    unionContribution,
+    alimony,
+    garnishment,
+
+    // Loan deductions
+    loans,
+    advances,
+  };
+}
+
+async function createPayrollsForActiveUsers() {
+  console.log('\n🔄 Creating Payrolls for Active Users with Complete Calculations...');
+  try {
+    const currentDate = new Date();
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1;
+    const currentDay = currentDate.getDate();
 
     // Get all active users with positions
     const activeUsers = await prisma.user.findMany({
@@ -4944,8 +5628,18 @@ async function createPayrollsForActiveUsers() {
     let totalPayrollsCreated = 0;
 
     // Create payrolls for each month of the current year (at least 3 months for demo data)
+    // IMPORTANT: Payrolls are saved to database on the 6th of the following month
+    // Current month payrolls should remain as live calculations until next month's 6th
     const monthsToCreate = Math.max(3, 12);
+
     for (let month = 1; month <= monthsToCreate; month++) {
+      // Skip current month - payrolls are only saved on the 6th of the NEXT month
+      // Payroll payment is on the 5th, cronjob saves data at midnight on the 6th of next month
+      if (month === currentMonth) {
+        console.log(`  ⏭️  Skipping ${getMonthName(month)} ${currentYear} payrolls - not yet finalized (saves on ${getMonthName(currentMonth + 1)} 6th)`);
+        continue;
+      }
+
       console.log(`  📅 Creating payrolls for ${month}/${currentYear}`);
 
       let monthPayrollsCreated = 0;
@@ -4958,7 +5652,7 @@ async function createPayrollsForActiveUsers() {
           continue; // Skip users without remuneration
         }
 
-        const baseRemuneration = Number(remunerationValue);
+        const baseSalary = Number(remunerationValue);
 
         try {
           // Check if payroll already exists
@@ -4976,75 +5670,7 @@ async function createPayrollsForActiveUsers() {
             continue;
           }
 
-          // Create payroll for this user and month
-          const payroll = await prisma.payroll.create({
-            data: {
-              userId: user.id,
-              positionId: user.position!.id, // Use the user's current position
-              year: currentYear,
-              month: month,
-              baseRemuneration: baseRemuneration,
-              discounts: {
-                create: [
-                  // Add standard INSS discount (2024 rates)
-                  {
-                    reference: 'INSS',
-                    percentage:
-                      baseRemuneration <= 1412
-                        ? 7.5
-                        : baseRemuneration <= 2666.68
-                          ? 9
-                          : baseRemuneration <= 4000.03
-                            ? 12
-                            : baseRemuneration <= 7786.02
-                              ? 14
-                              : null,
-                    value: baseRemuneration > 7786.02 ? 908.85 : null,
-                    calculationOrder: 1,
-                  },
-                  // Add vale transporte (6% max, only if base > minimum threshold)
-                  ...(baseRemuneration > 1412
-                    ? [
-                        {
-                          reference: 'Vale Transporte',
-                          percentage: 6,
-                          calculationOrder: 2,
-                        },
-                      ]
-                    : []),
-                  // Add IR if applicable (simplified brackets)
-                  ...(baseRemuneration > 2259.2
-                    ? [
-                        {
-                          reference: 'Imposto de Renda',
-                          percentage:
-                            baseRemuneration <= 2826.65
-                              ? 7.5
-                              : baseRemuneration <= 3751.05
-                                ? 15
-                                : baseRemuneration <= 4664.68
-                                  ? 22.5
-                                  : 27.5,
-                          calculationOrder: 3,
-                        },
-                      ]
-                    : []),
-                  // Occasionally add other deductions for variety
-                  ...(Math.random() < 0.2
-                    ? [
-                        {
-                          reference: 'Desconto Adicional',
-                          value: Math.floor(Math.random() * 100) + 20, // R$ 20-120
-                          calculationOrder: 4,
-                        },
-                      ]
-                    : []),
-                ],
-              },
-            },
-          });
-
-          // Try to link with existing bonus if it exists
+          // Get bonus for this month if exists
           const existingBonus = await prisma.bonus.findUnique({
             where: {
               userId_year_month: {
@@ -5055,6 +5681,105 @@ async function createPayrollsForActiveUsers() {
             },
           });
 
+          const bonusAmount = existingBonus ? Number(existingBonus.total) : 0;
+
+          // Calculate complete payroll using the same logic as the API
+          const calculation = await calculateCompletePayroll({
+            userId: user.id,
+            year: currentYear,
+            month: month,
+            baseSalary,
+            bonusAmount,
+            dependentsCount: user.dependentsCount || 0,
+            useSimplifiedDeduction: user.hasSimplifiedDeduction ?? true,
+            unionMember: user.unionMember ?? false,
+            isApprentice: false,
+          });
+
+          // Create payroll with all calculated fields
+          const payroll = await prisma.payroll.create({
+            data: {
+              userId: user.id,
+              positionId: user.position!.id,
+              year: currentYear,
+              month: month,
+
+              // Base values
+              baseRemuneration: calculation.baseRemuneration,
+              workingDaysInMonth: calculation.workingDaysInMonth,
+              workedDaysInMonth: calculation.workedDaysInMonth,
+              absenceHours: calculation.absenceHours,
+
+              // Overtime
+              overtime50Hours: calculation.overtime50Hours,
+              overtime50Amount: calculation.overtime50Amount,
+              overtime100Hours: calculation.overtime100Hours,
+              overtime100Amount: calculation.overtime100Amount,
+              nightHours: calculation.nightHours,
+              nightDifferentialAmount: calculation.nightDifferentialAmount,
+
+              // DSR
+              dsrAmount: calculation.dsrAmount,
+
+              // Totals
+              grossSalary: calculation.grossSalary,
+              totalDiscounts: calculation.totalDiscounts,
+              netSalary: calculation.netSalary,
+
+              // Tax details
+              inssBase: calculation.inssBase,
+              inssAmount: calculation.inssAmount,
+              irrfBase: calculation.irrfBase,
+              irrfAmount: calculation.irrfAmount,
+
+              // FGTS
+              fgtsAmount: calculation.fgtsAmount,
+
+              // Create discount records for traceability (ONLY for items that exist)
+              discounts: {
+                create: [
+                  // INSS (mandatory)
+                  ...(calculation.inssAmount > 0
+                    ? [
+                        {
+                          discountType: 'INSS',
+                          reference: 'INSS - Contribuição Previdenciária',
+                          value: calculation.inssAmount,
+                          calculationOrder: 1,
+                          isAutoGenerated: true,
+                        },
+                      ]
+                    : []),
+                  // IRRF (mandatory if applicable)
+                  ...(calculation.irrfAmount > 0
+                    ? [
+                        {
+                          discountType: 'IRRF',
+                          reference: 'IRRF - Imposto de Renda Retido na Fonte',
+                          value: calculation.irrfAmount,
+                          calculationOrder: 2,
+                          isAutoGenerated: true,
+                        },
+                      ]
+                    : []),
+                  // Union contribution (only if user is union member and it's March)
+                  ...(calculation.unionContribution > 0
+                    ? [
+                        {
+                          discountType: 'UNION_CONTRIBUTION',
+                          reference: 'Contribuição Sindical',
+                          value: calculation.unionContribution,
+                          calculationOrder: 3,
+                          isAutoGenerated: true,
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            },
+          });
+
+          // Link bonus to payroll
           if (existingBonus && !existingBonus.payrollId) {
             await prisma.bonus.update({
               where: { id: existingBonus.id },
@@ -5095,7 +5820,10 @@ async function main() {
     const deletions = [
       { name: 'BonusDiscount', fn: () => prisma.bonusDiscount.deleteMany({}) },
       { name: 'Bonus', fn: () => prisma.bonus.deleteMany({}) },
+      { name: 'Discount', fn: () => prisma.discount.deleteMany({}) },
       { name: 'Payroll', fn: () => prisma.payroll.deleteMany({}) },
+      { name: 'TaxBracket', fn: () => prisma.taxBracket.deleteMany({}) },
+      { name: 'TaxTable', fn: () => prisma.taxTable.deleteMany({}) },
       { name: 'PaintProduction', fn: () => prisma.paintProduction.deleteMany({}) },
       { name: 'PaintFormulaComponent', fn: () => prisma.paintFormulaComponent.deleteMany({}) },
       { name: 'PaintFormula', fn: () => prisma.paintFormula.deleteMany({}) },
@@ -5162,6 +5890,7 @@ async function main() {
     await migrateTasks();
     await migrateActivities();
     await migrateBorrows();
+    await seedTaxTables(); // Seed tax tables before payrolls
     await createBonusesForEligibleUsers();
     await createPayrollsForActiveUsers();
 

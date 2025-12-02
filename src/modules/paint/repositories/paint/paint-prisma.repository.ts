@@ -60,7 +60,11 @@ export class PaintPrismaRepository
 
     // Generate URL from colorPreview path (like task artworks workflow)
     // colorPreview stores the file path, URL is generated at retrieval time
-    if (mapped.colorPreview && !mapped.colorPreview.startsWith('http') && !mapped.colorPreview.startsWith('data:')) {
+    if (
+      mapped.colorPreview &&
+      !mapped.colorPreview.startsWith('http') &&
+      !mapped.colorPreview.startsWith('data:')
+    ) {
       // It's a path, generate URL
       mapped.colorPreview = this.webdavService.getWebDAVUrl(mapped.colorPreview);
     }

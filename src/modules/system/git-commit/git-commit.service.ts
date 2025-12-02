@@ -5,9 +5,7 @@ import { GitCommitRepository } from './repositories/git-commit.repository';
 export class GitCommitService {
   private readonly logger = new Logger(GitCommitService.name);
 
-  constructor(
-    private readonly gitCommitRepository: GitCommitRepository,
-  ) {}
+  constructor(private readonly gitCommitRepository: GitCommitRepository) {}
 
   async findById(id: string, include?: any) {
     const gitCommit = await this.gitCommitRepository.findById(id, { include });

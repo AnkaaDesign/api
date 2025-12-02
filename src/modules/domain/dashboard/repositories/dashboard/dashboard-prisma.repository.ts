@@ -68,9 +68,18 @@ export class DashboardPrismaRepository implements DashboardRepository {
         value !== null &&
         typeof value === 'object' &&
         !Array.isArray(value) &&
-        !['in', 'not', 'equals', 'contains', 'startsWith', 'endsWith', 'lt', 'lte', 'gt', 'gte'].includes(
-          Object.keys(value)[0] || '',
-        )
+        ![
+          'in',
+          'not',
+          'equals',
+          'contains',
+          'startsWith',
+          'endsWith',
+          'lt',
+          'lte',
+          'gt',
+          'gte',
+        ].includes(Object.keys(value)[0] || '')
       ) {
         // Skip nested relation objects
         continue;
@@ -204,7 +213,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       // Check if item has an active order
       const hasActiveOrder =
         item.orderItems?.some(
-          (orderItem) =>
+          orderItem =>
             orderItem.order && activeOrderStatuses.includes(orderItem.order.status as ORDER_STATUS),
         ) || false;
 
@@ -270,7 +279,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     };
 
     // For groupBy queries, don't include nested objects that cause joins
-    let groupByWhere: any = { ...baseWhere };
+    const groupByWhere: any = { ...baseWhere };
 
     // If we need to filter by item properties, get itemIds first
     if (where?.item) {
@@ -886,7 +895,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return result;
   }
 
-
   async getTaskStatistics(
     where?: DashboardUserWhere,
     dateFilter?: DateFilter,
@@ -1389,12 +1397,13 @@ export class DashboardPrismaRepository implements DashboardRepository {
       .map(b => (b as any).paintBrandId as string | null)
       .filter((id): id is string => id !== null);
 
-    const brands = brandIds.length > 0
-      ? await this.prisma.paintBrand.findMany({
-          where: { id: { in: brandIds } },
-          select: { id: true, name: true },
-        })
-      : [];
+    const brands =
+      brandIds.length > 0
+        ? await this.prisma.paintBrand.findMany({
+            where: { id: { in: brandIds } },
+            select: { id: true, name: true },
+          })
+        : [];
 
     const brandMap = new Map(brands.map(b => [b.id, b.name]));
 
@@ -1415,7 +1424,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       byBrand: {
         labels: byBrandId.map(b => {
           const brandId = (b as any).paintBrandId as string | null;
-          return brandId ? (brandMap.get(brandId) || 'Desconhecido') : 'Sem marca';
+          return brandId ? brandMap.get(brandId) || 'Desconhecido' : 'Sem marca';
         }),
         datasets: [
           {
@@ -2304,31 +2313,29 @@ export class DashboardPrismaRepository implements DashboardRepository {
     byType: DashboardChartData;
     byCity: DashboardChartData;
   }> {
-    const [customersWithTasks, customersByTasks, customers] = await Promise.all(
-      [
-        this.prisma.customer.count({
-          where: {
-            ...(where?.customerId && { id: where.customerId }),
-            tasks: { some: {} },
-          },
-        }),
-        this.prisma.customer.findMany({
-          take: 10,
-          include: {
-            _count: { select: { tasks: true } },
-            tasks: { select: { id: true } },
-          },
-          orderBy: { tasks: { _count: 'desc' } },
-        }),
-        this.prisma.customer.findMany({
-          select: {
-            cnpj: true,
-            cpf: true,
-            city: true,
-          },
-        }),
-      ],
-    );
+    const [customersWithTasks, customersByTasks, customers] = await Promise.all([
+      this.prisma.customer.count({
+        where: {
+          ...(where?.customerId && { id: where.customerId }),
+          tasks: { some: {} },
+        },
+      }),
+      this.prisma.customer.findMany({
+        take: 10,
+        include: {
+          _count: { select: { tasks: true } },
+          tasks: { select: { id: true } },
+        },
+        orderBy: { tasks: { _count: 'desc' } },
+      }),
+      this.prisma.customer.findMany({
+        select: {
+          cnpj: true,
+          cpf: true,
+          city: true,
+        },
+      }),
+    ]);
 
     const topByTasks = customersByTasks.map(customer => ({
       id: customer.id,
@@ -2385,6 +2392,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
   async getGarageUtilizationMetrics(garageId?: string): Promise<{
     totalGarages: number;
+    totalLanes: number;
     totalParkingSpots: number;
     occupiedSpots: number;
     spotsByGarage: DashboardChartData;
@@ -2399,6 +2407,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     });
 
     const totalGarages = garages.length;
+    const totalLanes = 0; // lanes field removed from Garage model
     const totalParkingSpots = garages.reduce((sum, garage) => sum + garage._count.trucks, 0);
 
     const spotsByGarage: DashboardChartData = {
@@ -2416,6 +2425,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     return {
       totalGarages,
+      totalLanes,
       totalParkingSpots,
       occupiedSpots,
       spotsByGarage,
@@ -3073,7 +3083,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     return { total, typeDistribution };
   }
-
 
   async getUserActivityByRole(): Promise<{
     byRole: DashboardChartData;

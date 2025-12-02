@@ -95,6 +95,10 @@ export interface Meta {
   totalPages: number;
   hasNextPage: boolean;
   hasPreviousPage: boolean;
+  currentPeriod?: { year: number; month: number };
+  isLiveCalculationIncluded?: boolean;
+  liveCalculationStats?: any;
+  pageSize?: number;
 }
 
 export interface BaseReport {
@@ -317,11 +321,28 @@ export function createSuccessResponse<T>(data: T, message: string): BaseGetUniqu
   };
 }
 
-export function createPaginatedResponse<T>(data: T[], message: string, meta: Meta): BaseGetManyResponse<T> {
+export function createPaginatedResponse<T>(
+  data: T[],
+  message: string,
+  meta: Meta,
+): BaseGetManyResponse<T> {
   return {
     success: true,
     message,
     data,
     meta,
   };
+}
+
+// =====================
+// Missing Exports
+// =====================
+
+// Base Response alias for compatibility
+export type BaseResponse<T> = BaseGetUniqueResponse<T>;
+
+// Order by direction enum
+export enum ORDER_BY_DIRECTION {
+  ASC = 'asc',
+  DESC = 'desc',
 }

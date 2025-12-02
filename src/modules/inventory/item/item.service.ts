@@ -168,10 +168,10 @@ export class ItemService {
               // Compare each measure
               // Sort by measureType for consistent comparison
               const sortedNew = [...newMeasures].sort((a, b) =>
-                a.measureType.localeCompare(b.measureType)
+                a.measureType.localeCompare(b.measureType),
               );
               const sortedExisting = [...existingMeasures].sort((a, b) =>
-                a.measureType.localeCompare(b.measureType)
+                a.measureType.localeCompare(b.measureType),
               );
 
               for (let i = 0; i < sortedNew.length; i++) {
@@ -188,7 +188,11 @@ export class ItemService {
                 }
               }
             }
-          } else if (!hasDifferentAttributes && existingItem.measures && existingItem.measures.length > 0) {
+          } else if (
+            !hasDifferentAttributes &&
+            existingItem.measures &&
+            existingItem.measures.length > 0
+          ) {
             // Existing item has measures but new item doesn't (or vice versa)
             hasDifferentAttributes = true;
           }
@@ -569,7 +573,7 @@ export class ItemService {
     await tx.measure.create({
       data: {
         value: value ?? null,
-        unit: unit ?? null,
+        unit: (unit as any) ?? null,
         measureType,
         itemId,
       },
@@ -1199,10 +1203,7 @@ export class ItemService {
     if (hasOverstocked) {
       // Include all items with maxQuantity set
       conditions.push({
-        AND: [
-          { maxQuantity: { not: null } },
-          { maxQuantity: { gt: 0 } },
-        ],
+        AND: [{ maxQuantity: { not: null } }, { maxQuantity: { gt: 0 } }],
       });
     }
 
@@ -1213,10 +1214,7 @@ export class ItemService {
 
     if (includeAllWithReorderPoint) {
       conditions.push({
-        AND: [
-          { reorderPoint: { not: null } },
-          { reorderPoint: { gt: 0 } },
-        ],
+        AND: [{ reorderPoint: { not: null } }, { reorderPoint: { gt: 0 } }],
       });
     }
 
@@ -2437,7 +2435,7 @@ export class ItemService {
         include: {
           prices: {
             orderBy: {
-              createdAt: 'desc' as const
+              createdAt: 'desc' as const,
             },
             take: 1,
           },

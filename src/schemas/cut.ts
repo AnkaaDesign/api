@@ -1,7 +1,7 @@
 // packages/schemas/src/cut.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Cut } from '@types';
 import { CUT_TYPE, CUT_STATUS, CUT_ORIGIN, CUT_REQUEST_REASON } from '@constants';
 
@@ -60,24 +60,8 @@ export const cutIncludeSchema = z
 export const cutOrderBySchema = z
   .union([
     // Single ordering object
-    z.object({
-      id: orderByDirectionSchema.optional(),
-      fileId: orderByDirectionSchema.optional(),
-      type: orderByDirectionSchema.optional(),
-      status: orderByDirectionSchema.optional(),
-      statusOrder: orderByDirectionSchema.optional(),
-      taskId: orderByDirectionSchema.optional(),
-      origin: orderByDirectionSchema.optional(),
-      reason: orderByDirectionSchema.optional(),
-      parentCutId: orderByDirectionSchema.optional(),
-      startedAt: orderByDirectionSchema.optional(),
-      completedAt: orderByDirectionSchema.optional(),
-      createdAt: orderByDirectionSchema.optional(),
-      updatedAt: orderByDirectionSchema.optional(),
-    }).partial(),
-    // Array of ordering objects for multiple field ordering
-    z.array(
-      z.object({
+    z
+      .object({
         id: orderByDirectionSchema.optional(),
         fileId: orderByDirectionSchema.optional(),
         type: orderByDirectionSchema.optional(),
@@ -91,10 +75,44 @@ export const cutOrderBySchema = z
         completedAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
-      }).partial(),
+      })
+      .partial(),
+    // Array of ordering objects for multiple field ordering
+    z.array(
+      z
+        .object({
+          id: orderByDirectionSchema.optional(),
+          fileId: orderByDirectionSchema.optional(),
+          type: orderByDirectionSchema.optional(),
+          status: orderByDirectionSchema.optional(),
+          statusOrder: orderByDirectionSchema.optional(),
+          taskId: orderByDirectionSchema.optional(),
+          origin: orderByDirectionSchema.optional(),
+          reason: orderByDirectionSchema.optional(),
+          parentCutId: orderByDirectionSchema.optional(),
+          startedAt: orderByDirectionSchema.optional(),
+          completedAt: orderByDirectionSchema.optional(),
+          createdAt: orderByDirectionSchema.optional(),
+          updatedAt: orderByDirectionSchema.optional(),
+        })
+        .partial(),
     ),
     // String enum for simple field names
-    z.enum(["id", "fileId", "type", "status", "statusOrder", "taskId", "origin", "reason", "parentCutId", "startedAt", "completedAt", "createdAt", "updatedAt"]),
+    z.enum([
+      'id',
+      'fileId',
+      'type',
+      'status',
+      'statusOrder',
+      'taskId',
+      'origin',
+      'reason',
+      'parentCutId',
+      'startedAt',
+      'completedAt',
+      'createdAt',
+      'updatedAt',
+    ]),
   ])
   .optional();
 
@@ -326,12 +344,16 @@ const cutTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { file: { filename: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { task: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { task: { customer: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { file: { filename: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { task: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        {
+          task: {
+            customer: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+          },
+        },
       ],
     });
     delete data.searchingFor;
@@ -439,7 +461,7 @@ export const cutGetManySchema = z
     // Convenience filters
     ...cutFilters,
   })
-  .transform((data) => {
+  .transform(data => {
     // Handle take/limit alias
     if (data.take && !data.limit) {
       data.limit = data.take;
@@ -460,7 +482,7 @@ export const cutQuerySchema = z.object({
 // GetById schema
 export const cutGetByIdSchema = z.object({
   include: cutIncludeSchema.optional(),
-  id: z.string().uuid("Corte inválido"),
+  id: z.string().uuid('Corte inválido'),
 });
 
 // Query schema for include parameter only
@@ -480,26 +502,26 @@ const toFormData = <T>(data: T) => data;
 
 export const cutCreateSchema = z
   .object({
-    fileId: z.string().uuid("Arquivo inválido").optional(),
+    fileId: z.string().uuid('Arquivo inválido').optional(),
     type: z.nativeEnum(CUT_TYPE, {
-      errorMap: () => ({ message: "Tipo de corte inválido" }),
+      errorMap: () => ({ message: 'Tipo de corte inválido' }),
     }),
     status: z
       .nativeEnum(CUT_STATUS, {
-        errorMap: () => ({ message: "Status de corte inválido" }),
+        errorMap: () => ({ message: 'Status de corte inválido' }),
       })
       .optional(),
-    taskId: z.string().uuid("Tarefa inválida").nullable().optional(),
+    taskId: z.string().uuid('Tarefa inválida').nullable().optional(),
     origin: z.nativeEnum(CUT_ORIGIN, {
-      errorMap: () => ({ message: "Origem do corte inválida" }),
+      errorMap: () => ({ message: 'Origem do corte inválida' }),
     }),
     reason: z
       .nativeEnum(CUT_REQUEST_REASON, {
-        errorMap: () => ({ message: "Motivo da solicitação inválido" }),
+        errorMap: () => ({ message: 'Motivo da solicitação inválido' }),
       })
       .nullable()
       .optional(),
-    parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
+    parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
     startedAt: z.coerce.date().nullable().optional(),
     completedAt: z.coerce.date().nullable().optional(),
   })
@@ -507,30 +529,30 @@ export const cutCreateSchema = z
 
 export const cutUpdateSchema = z
   .object({
-    fileId: z.string().uuid("Arquivo inválido").optional(),
+    fileId: z.string().uuid('Arquivo inválido').optional(),
     type: z
       .nativeEnum(CUT_TYPE, {
-        errorMap: () => ({ message: "Tipo de corte inválido" }),
+        errorMap: () => ({ message: 'Tipo de corte inválido' }),
       })
       .optional(),
     status: z
       .nativeEnum(CUT_STATUS, {
-        errorMap: () => ({ message: "Status de corte inválido" }),
+        errorMap: () => ({ message: 'Status de corte inválido' }),
       })
       .optional(),
-    taskId: z.string().uuid("Tarefa inválida").nullable().optional(),
+    taskId: z.string().uuid('Tarefa inválida').nullable().optional(),
     origin: z
       .nativeEnum(CUT_ORIGIN, {
-        errorMap: () => ({ message: "Origem do corte inválida" }),
+        errorMap: () => ({ message: 'Origem do corte inválida' }),
       })
       .optional(),
     reason: z
       .nativeEnum(CUT_REQUEST_REASON, {
-        errorMap: () => ({ message: "Motivo da solicitação inválido" }),
+        errorMap: () => ({ message: 'Motivo da solicitação inválido' }),
       })
       .nullable()
       .optional(),
-    parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
+    parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
     startedAt: z.coerce.date().nullable().optional(),
     completedAt: z.coerce.date().nullable().optional(),
   })
@@ -544,31 +566,31 @@ export const cutBatchCreateSchema = z.object({
 export const cutBatchUpdateSchema = z.object({
   cuts: z.array(
     z.object({
-      id: z.string().uuid("Corte inválido"),
-      fileId: z.string().uuid("Arquivo inválido").optional(),
+      id: z.string().uuid('Corte inválido'),
+      fileId: z.string().uuid('Arquivo inválido').optional(),
       type: z
         .nativeEnum(CUT_TYPE, {
-          errorMap: () => ({ message: "Tipo de corte inválido" }),
+          errorMap: () => ({ message: 'Tipo de corte inválido' }),
         })
         .optional(),
       status: z
         .nativeEnum(CUT_STATUS, {
-          errorMap: () => ({ message: "Status de corte inválido" }),
+          errorMap: () => ({ message: 'Status de corte inválido' }),
         })
         .optional(),
-      taskId: z.string().uuid("Tarefa inválida").nullable().optional(),
+      taskId: z.string().uuid('Tarefa inválida').nullable().optional(),
       origin: z
         .nativeEnum(CUT_ORIGIN, {
-          errorMap: () => ({ message: "Origem do corte inválida" }),
+          errorMap: () => ({ message: 'Origem do corte inválida' }),
         })
         .optional(),
       reason: z
         .nativeEnum(CUT_REQUEST_REASON, {
-          errorMap: () => ({ message: "Motivo da solicitação inválido" }),
+          errorMap: () => ({ message: 'Motivo da solicitação inválido' }),
         })
         .nullable()
         .optional(),
-      parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
+      parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
       startedAt: z.date().nullable().optional(),
       completedAt: z.date().nullable().optional(),
     }),
@@ -576,7 +598,7 @@ export const cutBatchUpdateSchema = z.object({
 });
 
 export const cutBatchDeleteSchema = z.object({
-  cutIds: z.array(z.string().uuid("Corte inválido")),
+  cutIds: z.array(z.string().uuid('Corte inválido')),
 });
 
 // =====================
@@ -607,26 +629,26 @@ export type CutWhere = z.infer<typeof cutWhereSchema>;
 // Nested schema for creating cuts from other entities (like tasks)
 export const cutCreateNestedSchema = z
   .object({
-    fileId: z.string().uuid("Arquivo inválido").optional(),
+    fileId: z.string().uuid('Arquivo inválido').optional(),
     type: z.nativeEnum(CUT_TYPE, {
-      errorMap: () => ({ message: "Tipo de corte inválido" }),
+      errorMap: () => ({ message: 'Tipo de corte inválido' }),
     }),
     origin: z.nativeEnum(CUT_ORIGIN, {
-      errorMap: () => ({ message: "Origem do corte inválida" }),
+      errorMap: () => ({ message: 'Origem do corte inválida' }),
     }),
     reason: z
       .nativeEnum(CUT_REQUEST_REASON, {
-        errorMap: () => ({ message: "Motivo da solicitação inválido" }),
+        errorMap: () => ({ message: 'Motivo da solicitação inválido' }),
       })
       .nullable()
       .optional(),
-    parentCutId: z.string().uuid("Corte pai inválido").nullable().optional(),
+    parentCutId: z.string().uuid('Corte pai inválido').nullable().optional(),
     _fileIndex: z.number().optional(), // Temporary field for file mapping (frontend optimization)
   })
   .transform(toFormData);
 
 // Map helper
-export const mapCutToFormData = createMapToFormDataHelper<Cut, CutUpdateFormData>((cut) => ({
+export const mapCutToFormData = createMapToFormDataHelper<Cut, CutUpdateFormData>(cut => ({
   fileId: cut.fileId,
   type: cut.type,
   status: cut.status,

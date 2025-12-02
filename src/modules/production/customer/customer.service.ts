@@ -456,7 +456,13 @@ export class CustomerService {
             }
 
             // Process new logo file
-            logoId = await this.processLogoFile(logoFile, id, existingCustomer.fantasyName, tx, userId);
+            logoId = await this.processLogoFile(
+              logoFile,
+              id,
+              existingCustomer.fantasyName,
+              tx,
+              userId,
+            );
           } catch (fileError: any) {
             this.logger.error(`Logo file processing failed: ${fileError.message}`);
             if (existsSync(logoFile.path)) {
@@ -468,9 +474,14 @@ export class CustomerService {
 
         // Update customer with logo ID if new file was uploaded
         const updateData = logoFile ? { ...data, logoId } : data;
-        const updatedCustomer = await this.customerRepository.updateWithTransaction(tx, id, updateData, {
-          include,
-        });
+        const updatedCustomer = await this.customerRepository.updateWithTransaction(
+          tx,
+          id,
+          updateData,
+          {
+            include,
+          },
+        );
 
         // Registrar mudanças no changelog com rastreamento por campo
         await trackAndLogFieldChanges({
@@ -851,7 +862,9 @@ export class CustomerService {
         });
 
         if (!targetCustomer) {
-          throw new NotFoundException(`Cliente alvo com ID ${data.targetCustomerId} não encontrado`);
+          throw new NotFoundException(
+            `Cliente alvo com ID ${data.targetCustomerId} não encontrado`,
+          );
         }
 
         const sourceCustomers = await tx.customer.findMany({
@@ -865,7 +878,9 @@ export class CustomerService {
         if (sourceCustomers.length !== data.sourceCustomerIds.length) {
           const foundIds = sourceCustomers.map(c => c.id);
           const missingIds = data.sourceCustomerIds.filter(id => !foundIds.includes(id));
-          throw new NotFoundException(`Clientes de origem não encontrados: ${missingIds.join(', ')}`);
+          throw new NotFoundException(
+            `Clientes de origem não encontrados: ${missingIds.join(', ')}`,
+          );
         }
 
         // 2. Merge tasks - move all tasks from source customers to target

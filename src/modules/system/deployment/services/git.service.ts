@@ -34,9 +34,7 @@ export class GitService {
   constructor() {
     // When running from apps/api, go up two directories to get to the monorepo root
     const cwd = process.cwd();
-    this.repoPath = cwd.includes('apps/api')
-      ? path.resolve(cwd, '../..')
-      : path.resolve(cwd);
+    this.repoPath = cwd.includes('apps/api') ? path.resolve(cwd, '../..') : path.resolve(cwd);
     this.git = simpleGit(this.repoPath);
     this.logger.log(`Git initialized at: ${this.repoPath}`);
   }
@@ -51,7 +49,7 @@ export class GitService {
         '--branches': null,
       });
 
-      return log.all.map((commit) => ({
+      return log.all.map(commit => ({
         hash: commit.hash,
         shortHash: commit.hash.substring(0, 7),
         author: commit.author_name,
@@ -76,7 +74,9 @@ export class GitService {
       // Use specific commit hash with -n 1 to get single commit details
       const log: LogResult = await this.git.log(['-n', '1', hash]);
 
-      this.logger.log(`Git log result: ${JSON.stringify({ total: log.total, latest: !!log.latest })}`);
+      this.logger.log(
+        `Git log result: ${JSON.stringify({ total: log.total, latest: !!log.latest })}`,
+      );
 
       if (!log.latest) {
         throw new Error(`Commit ${hash} not found`);
@@ -171,7 +171,7 @@ export class GitService {
         to,
       });
 
-      return log.all.map((commit) => ({
+      return log.all.map(commit => ({
         hash: commit.hash,
         shortHash: commit.hash.substring(0, 7),
         author: commit.author_name,
@@ -181,7 +181,10 @@ export class GitService {
         body: commit.body || '',
       }));
     } catch (error) {
-      this.logger.error(`Error getting commits between ${from} and ${to}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error getting commits between ${from} and ${to}: ${error.message}`,
+        error.stack,
+      );
       throw new InternalServerErrorException('Erro ao buscar histórico de commits');
     }
   }

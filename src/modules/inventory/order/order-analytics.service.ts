@@ -36,7 +36,8 @@ export class OrderAnalyticsService {
    */
   async getOrderAnalytics(query: OrderAnalyticsFormData): Promise<OrderAnalyticsResponse> {
     try {
-      const { startDate, endDate, supplierIds, topSuppliersLimit, topItemsLimit, trendGroupBy } = query;
+      const { startDate, endDate, supplierIds, topSuppliersLimit, topItemsLimit, trendGroupBy } =
+        query;
 
       // Build base where clause
       const baseWhere: Prisma.OrderWhereInput = {
@@ -48,13 +49,7 @@ export class OrderAnalyticsService {
       };
 
       // Get all data in parallel
-      const [
-        orders,
-        statusCounts,
-        topSuppliers,
-        topItems,
-        trends,
-      ] = await Promise.all([
+      const [orders, statusCounts, topSuppliers, topItems, trends] = await Promise.all([
         this.getOrdersForSummary(baseWhere),
         this.getStatusBreakdown(baseWhere),
         this.getTopSuppliers(baseWhere, topSuppliersLimit || 10),
@@ -120,18 +115,22 @@ export class OrderAnalyticsService {
 
       // Calculate fulfillment rate for this order
       if (order.items.length > 0) {
-        const orderFulfillment = order.items.reduce((sum: number, item: any) => {
-          const ordered = Number(item.orderedQuantity) || 0;
-          const received = Number(item.receivedQuantity) || 0;
-          return sum + (ordered > 0 ? (received / ordered) * 100 : 0);
-        }, 0) / order.items.length;
+        const orderFulfillment =
+          order.items.reduce((sum: number, item: any) => {
+            const ordered = Number(item.orderedQuantity) || 0;
+            const received = Number(item.receivedQuantity) || 0;
+            return sum + (ordered > 0 ? (received / ordered) * 100 : 0);
+          }, 0) / order.items.length;
         totalFulfillmentRate += orderFulfillment;
       }
 
       // Count by status type
       if (order.status === ORDER_STATUS.OVERDUE) {
         overdueCount++;
-      } else if (order.status === ORDER_STATUS.RECEIVED || order.status === ORDER_STATUS.CANCELLED) {
+      } else if (
+        order.status === ORDER_STATUS.RECEIVED ||
+        order.status === ORDER_STATUS.CANCELLED
+      ) {
         completedCount++;
       } else {
         activeCount++;
@@ -176,9 +175,12 @@ export class OrderAnalyticsService {
       });
 
       const totalValue = ordersWithItems.reduce((sum, order) => {
-        return sum + order.items.reduce((itemSum, item) => {
-          return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-        }, 0);
+        return (
+          sum +
+          order.items.reduce((itemSum, item) => {
+            return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
+          }, 0)
+        );
       }, 0);
 
       statusCounts.push({
@@ -197,7 +199,10 @@ export class OrderAnalyticsService {
   /**
    * Get top suppliers
    */
-  private async getTopSuppliers(where: Prisma.OrderWhereInput, limit: number): Promise<TopSupplier[]> {
+  private async getTopSuppliers(
+    where: Prisma.OrderWhereInput,
+    limit: number,
+  ): Promise<TopSupplier[]> {
     const supplierGroups = await this.prisma.order.groupBy({
       by: ['supplierId'],
       where: { ...where, supplierId: { not: null } },
@@ -224,14 +229,17 @@ export class OrderAnalyticsService {
       if (!supplier) continue;
 
       const totalValue = ordersWithItems.reduce((sum, order) => {
-        return sum + order.items.reduce((itemSum, item) => {
-          return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
-        }, 0);
+        return (
+          sum +
+          order.items.reduce((itemSum, item) => {
+            return itemSum + Number(item.price) + Number(item.icms || 0) + Number(item.ipi || 0);
+          }, 0)
+        );
       }, 0);
 
       suppliers.push({
         supplierId: supplier.id,
-        supplierName: supplier.name,
+        supplierName: supplier.fantasyName || supplier.corporateName || 'N/A',
         orderCount: group._count,
         totalValue,
         averageOrderValue: group._count > 0 ? totalValue / group._count : 0,
@@ -273,20 +281,24 @@ export class OrderAnalyticsService {
     });
 
     // Group by item
-    const itemMap = new Map<string, {
-      item: any;
-      totalOrdered: number;
-      totalReceived: number;
-      totalValue: number;
-      orderIds: Set<string>;
-    }>();
+    const itemMap = new Map<
+      string,
+      {
+        item: any;
+        totalOrdered: number;
+        totalReceived: number;
+        totalValue: number;
+        orderIds: Set<string>;
+      }
+    >();
 
     for (const orderItem of orderItems) {
       if (!orderItem.itemId || !orderItem.item) continue;
 
       const existing = itemMap.get(orderItem.itemId);
       const orderedQty = Number(orderItem.orderedQuantity);
-      const unitPrice = Number(orderItem.price) + Number(orderItem.icms || 0) + Number(orderItem.ipi || 0);
+      const unitPrice =
+        Number(orderItem.price) + Number(orderItem.icms || 0) + Number(orderItem.ipi || 0);
       const itemValue = unitPrice * orderedQty;
 
       if (existing) {
@@ -307,7 +319,7 @@ export class OrderAnalyticsService {
 
     // Convert to array and sort
     const items: TopOrderedItem[] = Array.from(itemMap.values())
-      .map((data) => ({
+      .map(data => ({
         itemId: data.item.id,
         itemName: data.item.name,
         itemUniCode: data.item.uniCode,
@@ -345,7 +357,10 @@ export class OrderAnalyticsService {
     });
 
     // Group by period
-    const trendMap = new Map<string, { orderCount: number; totalValue: number; itemCount: number }>();
+    const trendMap = new Map<
+      string,
+      { orderCount: number; totalValue: number; itemCount: number }
+    >();
 
     for (const order of orders) {
       const date = order.createdAt;

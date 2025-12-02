@@ -1,8 +1,23 @@
 // packages/interfaces/src/maintenance.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY, ORDER_BY_DIRECTION, WEEK_DAY, MONTH, RESCHEDULE_REASON } from '@constants';
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  ORDER_BY_DIRECTION,
+} from './common';
+import {
+  MAINTENANCE_STATUS,
+  SCHEDULE_FREQUENCY,
+  WEEK_DAY,
+  MONTH,
+  RESCHEDULE_REASON,
+} from '@constants';
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
 import type {
   WeeklyScheduleConfig,
   MonthlyScheduleConfig,
@@ -10,7 +25,7 @@ import type {
   WeeklyScheduleConfigIncludes,
   MonthlyScheduleConfigIncludes,
   YearlyScheduleConfigIncludes,
-} from "./ppe";
+} from './ppe';
 
 // =====================
 // Main Entity Interfaces
@@ -243,31 +258,157 @@ export interface MaintenanceWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
   description?:
     | string
-    | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] }
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      }
     | null;
 
   // Enum fields
-  status?: MAINTENANCE_STATUS | { equals?: MAINTENANCE_STATUS; not?: MAINTENANCE_STATUS; in?: MAINTENANCE_STATUS[]; notIn?: MAINTENANCE_STATUS[] };
+  status?:
+    | MAINTENANCE_STATUS
+    | {
+        equals?: MAINTENANCE_STATUS;
+        not?: MAINTENANCE_STATUS;
+        in?: MAINTENANCE_STATUS[];
+        notIn?: MAINTENANCE_STATUS[];
+      };
 
   // Number fields
-  statusOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  timeTaken?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
+  statusOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  timeTaken?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
 
   // Date fields
-  startedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  finishedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  lastRun?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  scheduledFor?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  startedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  finishedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  lastRun?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  scheduledFor?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Foreign key fields
   itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  maintenanceScheduleId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  originalMaintenanceId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
+  maintenanceScheduleId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
+  originalMaintenanceId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
 
   // Relations
   item?: any; // ItemWhere
@@ -286,45 +427,245 @@ export interface MaintenanceScheduleWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
   description?:
     | string
-    | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] }
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      }
     | null;
-  status?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  status?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Enum fields
-  frequency?: SCHEDULE_FREQUENCY | { equals?: SCHEDULE_FREQUENCY; not?: SCHEDULE_FREQUENCY; in?: SCHEDULE_FREQUENCY[]; notIn?: SCHEDULE_FREQUENCY[] };
-  dayOfWeek?: WEEK_DAY | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] } | null;
+  frequency?:
+    | SCHEDULE_FREQUENCY
+    | {
+        equals?: SCHEDULE_FREQUENCY;
+        not?: SCHEDULE_FREQUENCY;
+        in?: SCHEDULE_FREQUENCY[];
+        notIn?: SCHEDULE_FREQUENCY[];
+      };
+  dayOfWeek?:
+    | WEEK_DAY
+    | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] }
+    | null;
   month?: MONTH | { equals?: MONTH; not?: MONTH; in?: MONTH[]; notIn?: MONTH[] } | null;
-  rescheduleReason?: RESCHEDULE_REASON | { equals?: RESCHEDULE_REASON; not?: RESCHEDULE_REASON; in?: RESCHEDULE_REASON[]; notIn?: RESCHEDULE_REASON[] } | null;
+  rescheduleReason?:
+    | RESCHEDULE_REASON
+    | {
+        equals?: RESCHEDULE_REASON;
+        not?: RESCHEDULE_REASON;
+        in?: RESCHEDULE_REASON[];
+        notIn?: RESCHEDULE_REASON[];
+      }
+    | null;
 
   // Number fields
-  statusOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  frequencyCount?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  dayOfMonth?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  rescheduleCount?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  statusOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  frequencyCount?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  dayOfMonth?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  rescheduleCount?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Boolean fields
   isActive?: boolean | { equals?: boolean; not?: boolean };
 
   // Date fields
-  specificDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  originalDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  lastRescheduleDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  nextRun?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  lastRun?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  finishedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  specificDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  originalDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  lastRescheduleDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  nextRun?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  lastRun?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  finishedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Foreign key fields
   itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  weeklyConfigId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  monthlyConfigId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  yearlyConfigId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
+  weeklyConfigId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
+  monthlyConfigId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
+  yearlyConfigId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
   lastRunId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  originalScheduleId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
+  originalScheduleId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
 
   // Relations
   item?: any; // ItemWhere
@@ -346,11 +687,44 @@ export interface MaintenanceItemWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // Number fields
-  quantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  quantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Foreign key fields
   maintenanceId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
@@ -416,10 +790,14 @@ export interface MaintenanceUpdateResponse extends BaseUpdateResponse<Maintenanc
 export interface MaintenanceDeleteResponse extends BaseDeleteResponse {}
 
 // MaintenanceSchedule responses
-export interface MaintenanceScheduleGetUniqueResponse extends BaseGetUniqueResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleGetManyResponse extends BaseGetManyResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleCreateResponse extends BaseCreateResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleUpdateResponse extends BaseUpdateResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleGetUniqueResponse
+  extends BaseGetUniqueResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleGetManyResponse
+  extends BaseGetManyResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleCreateResponse
+  extends BaseCreateResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleUpdateResponse
+  extends BaseUpdateResponse<MaintenanceSchedule> {}
 export interface MaintenanceScheduleDeleteResponse extends BaseDeleteResponse {}
 
 // MaintenanceItem responses
@@ -435,15 +813,23 @@ export interface MaintenanceItemDeleteResponse extends BaseDeleteResponse {}
 
 // Maintenance batch operations
 export interface MaintenanceBatchCreateResponse<T> extends BaseBatchResponse<Maintenance, T> {}
-export interface MaintenanceBatchUpdateResponse<T> extends BaseBatchResponse<Maintenance, T & { id: string }> {}
-export interface MaintenanceBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceBatchUpdateResponse<T>
+  extends BaseBatchResponse<Maintenance, T & { id: string }> {}
+export interface MaintenanceBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // MaintenanceSchedule batch operations
-export interface MaintenanceScheduleBatchCreateResponse<T> extends BaseBatchResponse<MaintenanceSchedule, T> {}
-export interface MaintenanceScheduleBatchUpdateResponse<T> extends BaseBatchResponse<MaintenanceSchedule, T & { id: string }> {}
-export interface MaintenanceScheduleBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceScheduleBatchCreateResponse<T>
+  extends BaseBatchResponse<MaintenanceSchedule, T> {}
+export interface MaintenanceScheduleBatchUpdateResponse<T>
+  extends BaseBatchResponse<MaintenanceSchedule, T & { id: string }> {}
+export interface MaintenanceScheduleBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // MaintenanceItem batch operations
-export interface MaintenanceItemBatchCreateResponse<T> extends BaseBatchResponse<MaintenanceItem, T> {}
-export interface MaintenanceItemBatchUpdateResponse<T> extends BaseBatchResponse<MaintenanceItem, T & { id: string }> {}
-export interface MaintenanceItemBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceItemBatchCreateResponse<T>
+  extends BaseBatchResponse<MaintenanceItem, T> {}
+export interface MaintenanceItemBatchUpdateResponse<T>
+  extends BaseBatchResponse<MaintenanceItem, T & { id: string }> {}
+export interface MaintenanceItemBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

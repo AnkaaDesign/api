@@ -6,7 +6,7 @@ interface PageAccess {
   lastAccessed: string;
 }
 
-const PAGE_ACCESS_KEY = "ankaa_page_access";
+const PAGE_ACCESS_KEY = 'ankaa_page_access';
 const MAX_TRACKED_PAGES = 20;
 
 export function trackPageAccess(path: string, title: string, icon?: string): void {
@@ -14,7 +14,7 @@ export function trackPageAccess(path: string, title: string, icon?: string): voi
     const storedData = localStorage.getItem(PAGE_ACCESS_KEY);
     const pageAccesses: PageAccess[] = storedData ? JSON.parse(storedData) : [];
 
-    const existingIndex = pageAccesses.findIndex((page) => page.path === path);
+    const existingIndex = pageAccesses.findIndex(page => page.path === path);
 
     if (existingIndex >= 0) {
       // Update existing entry
@@ -42,7 +42,7 @@ export function trackPageAccess(path: string, title: string, icon?: string): voi
     localStorage.setItem(PAGE_ACCESS_KEY, JSON.stringify(pageAccesses));
   } catch (error) {
     // Fail silently if localStorage is not available
-    console.error("Failed to track page access:", error);
+    console.error('Failed to track page access:', error);
   }
 }
 
@@ -61,7 +61,7 @@ export function getMostAccessedPages(limit: number = 6): PageAccess[] {
       })
       .slice(0, limit);
   } catch (error) {
-    console.error("Failed to get most accessed pages:", error);
+    console.error('Failed to get most accessed pages:', error);
     return [];
   }
 }
@@ -70,7 +70,7 @@ export function clearPageAccessHistory(): void {
   try {
     localStorage.removeItem(PAGE_ACCESS_KEY);
   } catch (error) {
-    console.error("Failed to clear page access history:", error);
+    console.error('Failed to clear page access history:', error);
   }
 }
 
@@ -87,7 +87,10 @@ export function getPageAccessStats(): {
 
     const pageAccesses: PageAccess[] = JSON.parse(storedData);
     const totalAccesses = pageAccesses.reduce((sum, page) => sum + page.count, 0);
-    const mostVisited = pageAccesses.length > 0 ? pageAccesses.reduce((prev, current) => (prev.count > current.count ? prev : current)) : null;
+    const mostVisited =
+      pageAccesses.length > 0
+        ? pageAccesses.reduce((prev, current) => (prev.count > current.count ? prev : current))
+        : null;
 
     return {
       totalPages: pageAccesses.length,
@@ -95,7 +98,7 @@ export function getPageAccessStats(): {
       mostVisited,
     };
   } catch (error) {
-    console.error("Failed to get page access stats:", error);
+    console.error('Failed to get page access stats:', error);
     return { totalPages: 0, totalAccesses: 0, mostVisited: null };
   }
 }

@@ -11,7 +11,7 @@ import {
   isValidJwtToken,
   validatePasswordStrength,
   validateAuthData,
-} from "./validators";
+} from './validators';
 
 export function getColorSchemaLabel(schema: COLOR_SCHEMA): string {
   return COLOR_SCHEMA_LABELS[schema] || schema;
@@ -24,7 +24,7 @@ export function getColorSchemaLabel(schema: COLOR_SCHEMA): string {
 /**
  * Determines if a login identifier is an email or phone number
  */
-export const getAuthIdentifierType = (identifier: string): "email" | "phone" | "unknown" => {
+export const getAuthIdentifierType = (identifier: string): 'email' | 'phone' | 'unknown' => {
   return detectContactMethod(identifier);
 };
 
@@ -37,12 +37,12 @@ export const validateAuthCredentials = (
 ): {
   isValid: boolean;
   errors: string[];
-  identifierType?: "email" | "phone";
+  identifierType?: 'email' | 'phone';
 } => {
   return validateAuthData({
     identifier,
     password,
-    type: "login",
+    type: 'login',
   });
 };
 
@@ -57,27 +57,27 @@ export const validateRegistrationData = (data: {
 }): {
   isValid: boolean;
   errors: string[];
-  identifierType?: "email" | "phone";
+  identifierType?: 'email' | 'phone';
 } => {
   const errors: string[] = [];
 
   // Validate name
   if (!data.name || data.name.trim().length < 2) {
-    errors.push("Nome deve ter pelo menos 2 caracteres");
+    errors.push('Nome deve ter pelo menos 2 caracteres');
   }
 
   // Validate identifier and password
   const authValidation = validateAuthData({
     identifier: data.identifier,
     password: data.password,
-    type: "register",
+    type: 'register',
   });
 
   errors.push(...authValidation.errors);
 
   // Validate password confirmation
   if (data.confirmPassword && data.password !== data.confirmPassword) {
-    errors.push("As senhas não coincidem");
+    errors.push('As senhas não coincidem');
   }
 
   return {
@@ -95,11 +95,11 @@ export const validatePasswordResetRequest = (
 ): {
   isValid: boolean;
   errors: string[];
-  identifierType?: "email" | "phone";
+  identifierType?: 'email' | 'phone';
 } => {
   return validateAuthData({
     identifier,
-    type: "reset",
+    type: 'reset',
   });
 };
 
@@ -116,7 +116,7 @@ export const validateSmsVerification = (
   return validateAuthData({
     identifier: phone,
     code,
-    type: "verify",
+    type: 'verify',
   });
 };
 
@@ -132,7 +132,7 @@ export const validateEmailVerification = (
   const errors: string[] = [];
 
   if (!isValidEmailToken(token)) {
-    errors.push("Token de verificação inválido");
+    errors.push('Token de verificação inválido');
   }
 
   return {
@@ -153,7 +153,7 @@ export const validatePasswordResetToken = (
   const errors: string[] = [];
 
   if (!isValidPasswordResetToken(token)) {
-    errors.push("Token de redefinição inválido ou expirado");
+    errors.push('Token de redefinição inválido ou expirado');
   }
 
   return {
@@ -174,7 +174,7 @@ export const validateJwtToken = (
   const errors: string[] = [];
 
   if (!isValidJwtToken(token)) {
-    errors.push("Token de acesso inválido");
+    errors.push('Token de acesso inválido');
   }
 
   return {
@@ -198,7 +198,7 @@ export const validateNewPassword = (
   const validation = validatePasswordStrength(password);
 
   if (confirmPassword && password !== confirmPassword) {
-    validation.errors.push("As senhas não coincidem");
+    validation.errors.push('As senhas não coincidem');
   }
 
   return {
@@ -216,22 +216,25 @@ export const isTwoFactorCapable = (identifier: string): boolean => {
   const contactValidation = validateContactMethod(identifier);
 
   // Both email and phone can be used for 2FA
-  return contactValidation.isValid && (contactValidation.type === "email" || contactValidation.type === "phone");
+  return (
+    contactValidation.isValid &&
+    (contactValidation.type === 'email' || contactValidation.type === 'phone')
+  );
 };
 
 /**
  * Gets the preferred two-factor method based on contact type
  */
-export const getPreferredTwoFactorMethod = (identifier: string): "email" | "sms" | "none" => {
+export const getPreferredTwoFactorMethod = (identifier: string): 'email' | 'sms' | 'none' => {
   const type = detectContactMethod(identifier);
 
   switch (type) {
-    case "email":
-      return "email";
-    case "phone":
-      return "sms";
+    case 'email':
+      return 'email';
+    case 'phone':
+      return 'sms';
     default:
-      return "none";
+      return 'none';
   }
 };
 
@@ -252,30 +255,30 @@ export const validateMfaSetup = (data: {
   // Validate primary method
   const primaryValidation = validateContactMethod(data.primaryMethod);
   if (!primaryValidation.isValid) {
-    errors.push("Método principal inválido");
+    errors.push('Método principal inválido');
   }
 
   // Validate backup method if provided
   if (data.backupMethod) {
     const backupValidation = validateContactMethod(data.backupMethod);
     if (!backupValidation.isValid) {
-      errors.push("Método de backup inválido");
+      errors.push('Método de backup inválido');
     }
 
     // Ensure backup method is different from primary
     if (data.primaryMethod === data.backupMethod) {
-      errors.push("Método de backup deve ser diferente do método principal");
+      errors.push('Método de backup deve ser diferente do método principal');
     }
   }
 
   // Validate phone number if provided
   if (data.phoneNumber && !isValidBrazilianPhoneEnhanced(data.phoneNumber)) {
-    errors.push("Número de telefone inválido");
+    errors.push('Número de telefone inválido');
   }
 
   // Validate email if provided
   if (data.email && !isValidEmail(data.email)) {
-    errors.push("Email inválido");
+    errors.push('Email inválido');
   }
 
   return {
@@ -290,23 +293,28 @@ export const validateMfaSetup = (data: {
 export const maskContactInfo = (contact: string): string => {
   const type = detectContactMethod(contact);
 
-  if (type === "email") {
-    const [local, domain] = contact.split("@");
-    const maskedLocal = local.length > 2 ? local.substring(0, 2) + "*".repeat(local.length - 2) : local;
+  if (type === 'email') {
+    const [local, domain] = contact.split('@');
+    const maskedLocal =
+      local.length > 2 ? local.substring(0, 2) + '*'.repeat(local.length - 2) : local;
     return `${maskedLocal}@${domain}`;
   }
 
-  if (type === "phone") {
-    const cleaned = contact.replace(/\D/g, "");
+  if (type === 'phone') {
+    const cleaned = contact.replace(/\D/g, '');
     if (cleaned.length >= 10) {
       const areaCode = cleaned.substring(0, 2);
       const lastDigits = cleaned.substring(cleaned.length - 4);
-      const masked = "*".repeat(cleaned.length - 6);
+      const masked = '*'.repeat(cleaned.length - 6);
       return `(${areaCode}) ${masked}${lastDigits}`;
     }
   }
 
-  return contact.substring(0, 2) + "*".repeat(Math.max(0, contact.length - 4)) + contact.substring(contact.length - 2);
+  return (
+    contact.substring(0, 2) +
+    '*'.repeat(Math.max(0, contact.length - 4)) +
+    contact.substring(contact.length - 2)
+  );
 };
 
 /**
@@ -331,7 +339,7 @@ export const validateAccountRecovery = (data: {
 
   // Validate recovery code if provided
   if (data.recoveryCode && !isValidSmsCode(data.recoveryCode)) {
-    errors.push("Código de recuperação inválido");
+    errors.push('Código de recuperação inválido');
   }
 
   // Validate new password if provided
@@ -365,19 +373,19 @@ export const validateSession = (data: {
 
   // Validate token
   if (!isValidJwtToken(data.token)) {
-    errors.push("Token de sessão inválido");
+    errors.push('Token de sessão inválido');
   }
 
   // Validate refresh token if provided
   if (data.refreshToken && !isValidJwtToken(data.refreshToken)) {
-    errors.push("Token de atualização inválido");
+    errors.push('Token de atualização inválido');
   }
 
   // Check expiration
   if (data.expiresAt) {
     isExpired = new Date() > data.expiresAt;
     if (isExpired) {
-      errors.push("Sessão expirada");
+      errors.push('Sessão expirada');
     }
   }
 

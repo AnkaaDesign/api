@@ -7,10 +7,16 @@ import { DiscountRepository } from './repositories/discount/discount.repository'
 import { DiscountPrismaRepository } from './repositories/discount/discount-prisma.repository';
 import { DiscountService } from './discount.service';
 import { DiscountController } from './discount.controller';
+import { BrazilianTaxCalculatorService } from './utils/brazilian-tax-calculator.service';
+import { CompletePayrollCalculatorService } from './utils/complete-payroll-calculator.service';
+import { SecullumPayrollIntegrationService } from './services/secullum-payroll-integration.service';
+import { AutoDiscountCreationService } from './services/auto-discount-creation.service';
+import { PersistentDiscountService } from './services/persistent-discount.service';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { BonusModule } from '../bonus/bonus.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
+import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
 
 @Module({
   imports: [
@@ -18,11 +24,17 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
     UserModule,
     forwardRef(() => BonusModule),
     ChangeLogModule,
+    SecullumModule,
   ],
   controllers: [PayrollController, DiscountController],
   providers: [
     PayrollService,
     DiscountService,
+    BrazilianTaxCalculatorService,
+    CompletePayrollCalculatorService,
+    SecullumPayrollIntegrationService,
+    AutoDiscountCreationService,
+    PersistentDiscountService,
     {
       provide: PayrollRepository,
       useClass: PayrollPrismaRepository,
@@ -32,6 +44,14 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
       useClass: DiscountPrismaRepository,
     },
   ],
-  exports: [PayrollService, DiscountService],
+  exports: [
+    PayrollService,
+    DiscountService,
+    BrazilianTaxCalculatorService,
+    CompletePayrollCalculatorService,
+    SecullumPayrollIntegrationService,
+    AutoDiscountCreationService,
+    PersistentDiscountService,
+  ],
 })
 export class PayrollModule {}

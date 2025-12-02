@@ -1,8 +1,16 @@
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION, BONUS_STATUS } from '@constants';
-import type { Bonus, BonusIncludes } from "./bonus";
-import type { User, UserIncludes } from "./user";
-import type { Position, PositionIncludes } from "./position";
+import type { Bonus, BonusIncludes } from './bonus';
+import type { User, UserIncludes } from './user';
+import type { Position, PositionIncludes } from './position';
 
 // =====================
 // Main Entity Interfaces
@@ -95,7 +103,7 @@ export interface DiscountIncludes {
 
 export interface DiscountWhere {
   id?: string | { in?: string[]; notIn?: string[] };
-  reference?: string | { contains?: string; mode?: "default" | "insensitive" };
+  reference?: string | { contains?: string; mode?: 'default' | 'insensitive' };
   payrollId?: string | { in?: string[]; notIn?: string[] };
   percentage?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
   value?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
@@ -141,15 +149,15 @@ export interface PayrollWhere {
   // Relations
   user?: {
     id?: string | { in?: string[] };
-    name?: string | { contains?: string; mode?: "default" | "insensitive" };
-    email?: string | { contains?: string; mode?: "default" | "insensitive" };
+    name?: string | { contains?: string; mode?: 'default' | 'insensitive' };
+    email?: string | { contains?: string; mode?: 'default' | 'insensitive' };
     status?: string | { in?: string[] };
     positionId?: string | { in?: string[] };
     sectorId?: string | { in?: string[] };
   };
   position?: {
     id?: string | { in?: string[] };
-    name?: string | { contains?: string; mode?: "default" | "insensitive" };
+    name?: string | { contains?: string; mode?: 'default' | 'insensitive' };
     bonifiable?: boolean;
   };
   bonus?: {
@@ -260,9 +268,18 @@ export type DiscountDeleteResponse = BaseDeleteResponse;
 export type DiscountBatchResponse<T = any> = BaseBatchResponse<T>;
 
 // Specific batch operation response types for Discount
-export type DiscountBatchCreateResponse<T = DiscountCreateFormData> = BaseBatchResponse<Discount, T>;
-export type DiscountBatchUpdateResponse<T = DiscountUpdateFormData> = BaseBatchResponse<Discount, T>;
-export type DiscountBatchDeleteResponse = BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }>;
+export type DiscountBatchCreateResponse<T = DiscountCreateFormData> = BaseBatchResponse<
+  Discount,
+  T
+>;
+export type DiscountBatchUpdateResponse<T = DiscountUpdateFormData> = BaseBatchResponse<
+  Discount,
+  T
+>;
+export type DiscountBatchDeleteResponse = BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+>;
 
 // =====================
 // Form Data Types (from schemas)

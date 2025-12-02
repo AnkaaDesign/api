@@ -4,7 +4,7 @@ import { DiscountRepository } from './discount.repository';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import type {
   DiscountCreateFormData,
-  DiscountUpdateFormData
+  DiscountUpdateFormData,
 } from '../../../../../schemas/discount';
 import type { Discount } from '../../../../../types';
 
@@ -47,7 +47,11 @@ export class DiscountPrismaRepository extends DiscountRepository {
     }
   }
 
-  async update(id: string, data: DiscountUpdateFormData, tx?: PrismaTransaction): Promise<Discount> {
+  async update(
+    id: string,
+    data: DiscountUpdateFormData,
+    tx?: PrismaTransaction,
+  ): Promise<Discount> {
     const client = tx || this.prisma;
 
     try {
@@ -142,7 +146,10 @@ export class DiscountPrismaRepository extends DiscountRepository {
 
       return discounts.map(discount => this.mapToEntity(discount));
     } catch (error) {
-      this.logger.error(`Erro ao buscar descontos por folha ${payrollId}: ${error.message}`, error.stack);
+      this.logger.error(
+        `Erro ao buscar descontos por folha ${payrollId}: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -172,7 +179,7 @@ export class DiscountPrismaRepository extends DiscountRepository {
   async updateOrder(
     payrollId: string,
     updates: { id: string; calculationOrder: number }[],
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Discount[]> {
     const client = tx || this.prisma;
 
@@ -183,8 +190,8 @@ export class DiscountPrismaRepository extends DiscountRepository {
           client.payrollDiscount.update({
             where: { id, payrollId }, // Ensure discount belongs to payroll
             data: { calculationOrder },
-          })
-        )
+          }),
+        ),
       );
 
       // Return updated discounts for the payroll
@@ -200,10 +207,7 @@ export class DiscountPrismaRepository extends DiscountRepository {
     }
   }
 
-  async createMany(
-    data: DiscountCreateFormData[],
-    tx?: PrismaTransaction
-  ): Promise<Discount[]> {
+  async createMany(data: DiscountCreateFormData[], tx?: PrismaTransaction): Promise<Discount[]> {
     const client = tx || this.prisma;
 
     try {

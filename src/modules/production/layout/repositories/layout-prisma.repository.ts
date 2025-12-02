@@ -102,7 +102,7 @@ export class LayoutPrismaRepository implements LayoutRepository {
 
   async update(id: string, data: LayoutUpdateFormData, userId?: string): Promise<Layout> {
     // Use a transaction to update layout and replace all sections
-    const layout = await this.prisma.$transaction(async (tx) => {
+    const layout = await this.prisma.$transaction(async tx => {
       // Delete existing sections if we're updating them
       if (data.layoutSections) {
         await tx.layoutSection.deleteMany({
@@ -115,7 +115,8 @@ export class LayoutPrismaRepository implements LayoutRepository {
         where: { id },
         data: {
           ...(data.height !== undefined && { height: data.height }),
-          ...(data.photoId !== undefined && data.photoId && { photo: { connect: { id: data.photoId } } }),
+          ...(data.photoId !== undefined &&
+            data.photoId && { photo: { connect: { id: data.photoId } } }),
           ...(data.photoId === null && { photo: { disconnect: true } }),
           ...(data.layoutSections && {
             layoutSections: {

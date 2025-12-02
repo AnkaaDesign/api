@@ -1,7 +1,13 @@
 // packages/schemas/src/budget.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableDate, moneySchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableDate,
+  moneySchema,
+} from './common';
 import type { Budget } from '@types';
 
 // =====================
@@ -183,7 +189,7 @@ export const budgetWhereSchema: z.ZodSchema = z.lazy(() =>
 
 const budgetFilters = {
   searchingFor: z.string().optional(),
-  taskId: z.string().uuid("Tarefa inválida").optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
   hasTask: z.boolean().optional(),
 };
 
@@ -206,21 +212,21 @@ const budgetTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - search in items description
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      items: { some: { description: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+      items: { some: { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
     });
     delete data.searchingFor;
   }
 
   // Handle taskId filter
-  if (data.taskId && typeof data.taskId === "string") {
+  if (data.taskId && typeof data.taskId === 'string') {
     andConditions.push({ taskId: data.taskId });
     delete data.taskId;
   }
 
   // Handle hasTask filter
-  if (typeof data.hasTask === "boolean") {
+  if (typeof data.hasTask === 'boolean') {
     if (data.hasTask) {
       andConditions.push({ taskId: { not: null } });
     } else {
@@ -298,14 +304,17 @@ export const budgetGetManySchema = z
 
 // BudgetItem nested schema
 export const budgetItemCreateNestedSchema = z.object({
-  description: z.string().min(1, "Descrição é obrigatória").max(400, "Máximo de 400 caracteres atingido"),
+  description: z
+    .string()
+    .min(1, 'Descrição é obrigatória')
+    .max(400, 'Máximo de 400 caracteres atingido'),
   amount: moneySchema,
 });
 
 // Budget nested schema for task create/update (matches Prisma Budget model)
 export const budgetCreateNestedSchema = z.object({
-  items: z.array(budgetItemCreateNestedSchema).min(1, "Pelo menos um item é obrigatório"),
-  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }),
+  items: z.array(budgetItemCreateNestedSchema).min(1, 'Pelo menos um item é obrigatório'),
+  expiresIn: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
 });
 
 // =====================
@@ -314,15 +323,20 @@ export const budgetCreateNestedSchema = z.object({
 
 export const budgetCreateSchema = z.object({
   total: moneySchema,
-  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }),
-  taskId: z.string().uuid("Tarefa inválida"),
-  items: z.array(budgetItemCreateNestedSchema).min(1, "Pelo menos um item é obrigatório").optional(),
+  expiresIn: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
+  taskId: z.string().uuid('Tarefa inválida'),
+  items: z
+    .array(budgetItemCreateNestedSchema)
+    .min(1, 'Pelo menos um item é obrigatório')
+    .optional(),
 });
 
 export const budgetUpdateSchema = z.object({
   total: moneySchema.optional(),
-  expiresIn: z.coerce.date({ errorMap: () => ({ message: "Data de validade inválida" }) }).optional(),
-  taskId: z.string().uuid("Tarefa inválida").optional(),
+  expiresIn: z.coerce
+    .date({ errorMap: () => ({ message: 'Data de validade inválida' }) })
+    .optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
   items: z.array(budgetItemCreateNestedSchema).optional(),
 });
 
@@ -331,22 +345,24 @@ export const budgetUpdateSchema = z.object({
 // =====================
 
 export const budgetBatchCreateSchema = z.object({
-  budgets: z.array(budgetCreateSchema).min(1, "Pelo menos um orçamento deve ser fornecido"),
+  budgets: z.array(budgetCreateSchema).min(1, 'Pelo menos um orçamento deve ser fornecido'),
 });
 
 export const budgetBatchUpdateSchema = z.object({
   budgets: z
     .array(
       z.object({
-        id: z.string().uuid("Orçamento inválido"),
+        id: z.string().uuid('Orçamento inválido'),
         data: budgetUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um orçamento deve ser fornecido"),
+    .min(1, 'Pelo menos um orçamento deve ser fornecido'),
 });
 
 export const budgetBatchDeleteSchema = z.object({
-  budgetIds: z.array(z.string().uuid("Orçamento inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  budgetIds: z
+    .array(z.string().uuid('Orçamento inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -365,7 +381,7 @@ export const budgetBatchQuerySchema = z.object({
 
 export const budgetGetByIdSchema = z.object({
   include: budgetIncludeSchema.optional(),
-  id: z.string().uuid("Orçamento inválido"),
+  id: z.string().uuid('Orçamento inválido'),
 });
 
 // =====================
@@ -397,8 +413,10 @@ export type BudgetCreateNestedFormData = z.infer<typeof budgetCreateNestedSchema
 // Helper Functions
 // =====================
 
-export const mapBudgetToFormData = createMapToFormDataHelper<Budget, BudgetUpdateFormData>((budget) => ({
-  total: budget.total,
-  expiresIn: budget.expiresIn,
-  taskId: budget.taskId,
-}));
+export const mapBudgetToFormData = createMapToFormDataHelper<Budget, BudgetUpdateFormData>(
+  budget => ({
+    total: budget.total,
+    expiresIn: budget.expiresIn,
+    taskId: budget.taskId,
+  }),
+);

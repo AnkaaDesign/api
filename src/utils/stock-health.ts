@@ -1,6 +1,6 @@
 import type { Activity, Item, Order, OrderItem } from '@types';
 import { ACTIVITY_OPERATION, ORDER_STATUS, STOCK_LEVEL } from '@constants';
-import { subDays, startOfDay } from "date-fns";
+import { subDays, startOfDay } from 'date-fns';
 
 export interface StockHealthData {
   level: STOCK_LEVEL;
@@ -10,7 +10,7 @@ export interface StockHealthData {
   suggestedMaxQuantity: number;
   hasActiveOrder: boolean;
   projectedStockoutDate: Date | null;
-  consumptionTrend: "increasing" | "stable" | "decreasing";
+  consumptionTrend: 'increasing' | 'stable' | 'decreasing';
 }
 
 export interface StockHealthCalculationOptions {
@@ -25,17 +25,27 @@ export interface StockHealthCalculationOptions {
 /**
  * Calculates the monthly consumption rate based on historical activities
  */
-export function calculateMonthlyConsumption(activities: Activity[], lookbackDays: number = 90): number {
+export function calculateMonthlyConsumption(
+  activities: Activity[],
+  lookbackDays: number = 90,
+): number {
   const cutoffDate = subDays(startOfDay(new Date()), lookbackDays);
 
   // Filter outbound activities within the lookback period
-  const outboundActivities = activities.filter((activity) => activity.operation === ACTIVITY_OPERATION.OUTBOUND && new Date(activity.createdAt) >= cutoffDate);
+  const outboundActivities = activities.filter(
+    activity =>
+      activity.operation === ACTIVITY_OPERATION.OUTBOUND &&
+      new Date(activity.createdAt) >= cutoffDate,
+  );
 
   // Sum total consumption
   const totalConsumption = outboundActivities.reduce((sum, activity) => sum + activity.quantity, 0);
 
   // Calculate monthly average (30 days)
-  const daysInPeriod = Math.min(lookbackDays, Math.ceil((Date.now() - cutoffDate.getTime()) / (1000 * 60 * 60 * 24)));
+  const daysInPeriod = Math.min(
+    lookbackDays,
+    Math.ceil((Date.now() - cutoffDate.getTime()) / (1000 * 60 * 60 * 24)),
+  );
 
   return daysInPeriod > 0 ? (totalConsumption / daysInPeriod) * 30 : 0;
 }
@@ -43,44 +53,56 @@ export function calculateMonthlyConsumption(activities: Activity[], lookbackDays
 /**
  * Calculates consumption trend by comparing recent vs older consumption
  */
-export function calculateConsumptionTrend(activities: Activity[], lookbackDays: number = 90): "increasing" | "stable" | "decreasing" {
+export function calculateConsumptionTrend(
+  activities: Activity[],
+  lookbackDays: number = 90,
+): 'increasing' | 'stable' | 'decreasing' {
   const midPoint = lookbackDays / 2;
   const midDate = subDays(new Date(), midPoint);
 
   const recentConsumption = calculateMonthlyConsumption(
-    activities.filter((a) => new Date(a.createdAt) >= midDate),
+    activities.filter(a => new Date(a.createdAt) >= midDate),
     midPoint,
   );
 
   const olderConsumption = calculateMonthlyConsumption(
-    activities.filter((a) => new Date(a.createdAt) < midDate),
+    activities.filter(a => new Date(a.createdAt) < midDate),
     midPoint,
   );
 
-  if (olderConsumption === 0) return "stable";
+  if (olderConsumption === 0) return 'stable';
 
   const changePercent = ((recentConsumption - olderConsumption) / olderConsumption) * 100;
 
-  if (changePercent > 20) return "increasing";
-  if (changePercent < -20) return "decreasing";
-  return "stable";
+  if (changePercent > 20) return 'increasing';
+  if (changePercent < -20) return 'decreasing';
+  return 'stable';
 }
 
 /**
  * Checks if item has active orders that will replenish stock
  */
-export function hasActiveOrder(itemId: string, orders: Order[] = [], orderItems: OrderItem[] = []): boolean {
-  const activeOrderStatuses = [ORDER_STATUS.CREATED, ORDER_STATUS.PARTIALLY_FULFILLED, ORDER_STATUS.FULFILLED, ORDER_STATUS.PARTIALLY_RECEIVED];
+export function hasActiveOrder(
+  itemId: string,
+  orders: Order[] = [],
+  orderItems: OrderItem[] = [],
+): boolean {
+  const activeOrderStatuses = [
+    ORDER_STATUS.CREATED,
+    ORDER_STATUS.PARTIALLY_FULFILLED,
+    ORDER_STATUS.FULFILLED,
+    ORDER_STATUS.PARTIALLY_RECEIVED,
+  ];
 
-  const activeOrders = orders.filter((order) => activeOrderStatuses.includes(order.status));
+  const activeOrders = orders.filter(order => activeOrderStatuses.includes(order.status));
 
   if (activeOrders.length === 0) return false;
 
   // Check if any active order contains this item with pending quantity
-  return orderItems.some((orderItem) => {
+  return orderItems.some(orderItem => {
     if (orderItem.itemId !== itemId) return false;
 
-    const order = activeOrders.find((o) => o.id === orderItem.orderId);
+    const order = activeOrders.find(o => o.id === orderItem.orderId);
     if (!order) return false;
 
     // Has pending quantity to receive
@@ -95,7 +117,7 @@ export function calculateSuggestedQuantities(
   monthlyConsumption: number,
   leadTimeDays: number,
   safetyStockDays: number = 7,
-  consumptionTrend: "increasing" | "stable" | "decreasing" = "stable",
+  consumptionTrend: 'increasing' | 'stable' | 'decreasing' = 'stable',
 ): { min: number; max: number } {
   if (monthlyConsumption === 0) {
     return { min: 0, max: 0 };
@@ -105,11 +127,13 @@ export function calculateSuggestedQuantities(
 
   // Adjust for trend
   let trendMultiplier = 1;
-  if (consumptionTrend === "increasing") trendMultiplier = 1.2;
-  if (consumptionTrend === "decreasing") trendMultiplier = 0.8;
+  if (consumptionTrend === 'increasing') trendMultiplier = 1.2;
+  if (consumptionTrend === 'decreasing') trendMultiplier = 0.8;
 
   // Min = (Lead time + Safety stock) * Daily consumption * Trend
-  const minQuantity = Math.ceil((leadTimeDays + safetyStockDays) * dailyConsumption * trendMultiplier);
+  const minQuantity = Math.ceil(
+    (leadTimeDays + safetyStockDays) * dailyConsumption * trendMultiplier,
+  );
 
   // Max = Min + One month of consumption
   const maxQuantity = Math.ceil(minQuantity + monthlyConsumption * trendMultiplier);
@@ -168,7 +192,14 @@ export function getStockHealthLevel(
  * Main function to calculate comprehensive stock health
  */
 export function calculateStockHealth(options: StockHealthCalculationOptions): StockHealthData {
-  const { item, activities, activeOrders = [], orderItems = [], lookbackDays = 90, safetyStockDays = 7 } = options;
+  const {
+    item,
+    activities,
+    activeOrders = [],
+    orderItems = [],
+    lookbackDays = 90,
+    safetyStockDays = 7,
+  } = options;
 
   // Calculate monthly consumption
   const monthlyConsumption = calculateMonthlyConsumption(activities, lookbackDays);
@@ -181,10 +212,21 @@ export function calculateStockHealth(options: StockHealthCalculationOptions): St
 
   // Calculate suggested quantities
   const leadTime = item.estimatedLeadTime || 30;
-  const suggested = calculateSuggestedQuantities(monthlyConsumption, leadTime, safetyStockDays, consumptionTrend);
+  const suggested = calculateSuggestedQuantities(
+    monthlyConsumption,
+    leadTime,
+    safetyStockDays,
+    consumptionTrend,
+  );
 
   // Determine stock level
-  const level = getStockHealthLevel(item.quantity, monthlyConsumption, leadTime, hasOrder, item.maxQuantity);
+  const level = getStockHealthLevel(
+    item.quantity,
+    monthlyConsumption,
+    leadTime,
+    hasOrder,
+    item.maxQuantity,
+  );
 
   // Calculate days of stock
   const dailyConsumption = monthlyConsumption / 30;
@@ -237,8 +279,12 @@ export function calculateBatchStockHealth(
 /**
  * Filters items by stock health level
  */
-export function filterItemsByStockHealth(items: Item[], healthData: Map<string, StockHealthData>, levels: STOCK_LEVEL[]): Item[] {
-  return items.filter((item) => {
+export function filterItemsByStockHealth(
+  items: Item[],
+  healthData: Map<string, StockHealthData>,
+  levels: STOCK_LEVEL[],
+): Item[] {
+  return items.filter(item => {
     const health = healthData.get(item.id);
     return health && levels.includes(health.level);
   });
@@ -248,7 +294,10 @@ export function filterItemsByStockHealth(items: Item[], healthData: Map<string, 
  * Calculates consumption variability to determine safety stock level
  * Returns coefficient of variation (standard deviation / mean)
  */
-export function calculateConsumptionVariability(activities: Activity[], lookbackDays: number = 90): { coefficientOfVariation: number; isVariable: boolean } {
+export function calculateConsumptionVariability(
+  activities: Activity[],
+  lookbackDays: number = 90,
+): { coefficientOfVariation: number; isVariable: boolean } {
   const cutoffDate = subDays(startOfDay(new Date()), lookbackDays);
 
   // Get monthly consumption for each month in the period
@@ -262,9 +311,14 @@ export function calculateConsumptionVariability(activities: Activity[], lookback
 
     if (monthEnd < cutoffDate) break;
 
-    const monthActivities = activities.filter((activity) => {
+    const monthActivities = activities.filter(activity => {
       const activityDate = new Date(activity.createdAt);
-      return activity.operation === ACTIVITY_OPERATION.OUTBOUND && activityDate >= monthStart && activityDate <= monthEnd && activityDate >= cutoffDate;
+      return (
+        activity.operation === ACTIVITY_OPERATION.OUTBOUND &&
+        activityDate >= monthStart &&
+        activityDate <= monthEnd &&
+        activityDate >= cutoffDate
+      );
     });
 
     const monthConsumption = monthActivities.reduce((sum, activity) => sum + activity.quantity, 0);
@@ -285,7 +339,9 @@ export function calculateConsumptionVariability(activities: Activity[], lookback
   }
 
   // Calculate standard deviation
-  const variance = monthlyConsumptions.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / monthlyConsumptions.length;
+  const variance =
+    monthlyConsumptions.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) /
+    monthlyConsumptions.length;
   const standardDeviation = Math.sqrt(variance);
 
   // Calculate coefficient of variation
@@ -341,7 +397,10 @@ export function calculateReorderPoint(
 
   // Determine if update is needed (>10% difference from current)
   const currentReorderPoint = item.reorderPoint || 0;
-  const percentageDifference = currentReorderPoint > 0 ? Math.abs((calculatedReorderPoint - currentReorderPoint) / currentReorderPoint) : 1; // Always update if current is 0
+  const percentageDifference =
+    currentReorderPoint > 0
+      ? Math.abs((calculatedReorderPoint - currentReorderPoint) / currentReorderPoint)
+      : 1; // Always update if current is 0
 
   const shouldUpdate = percentageDifference > 0.1;
 
@@ -369,7 +428,11 @@ export interface ReorderPointUpdateResult {
  * Batch calculate reorder points for multiple items
  * Returns items that need updating (>10% difference)
  */
-export function batchCalculateReorderPoints(items: Item[], activitiesByItem: Map<string, Activity[]>, lookbackDays: number = 90): ReorderPointUpdateResult[] {
+export function batchCalculateReorderPoints(
+  items: Item[],
+  activitiesByItem: Map<string, Activity[]>,
+  lookbackDays: number = 90,
+): ReorderPointUpdateResult[] {
   const results: ReorderPointUpdateResult[] = [];
 
   for (const item of items) {
@@ -378,7 +441,10 @@ export function batchCalculateReorderPoints(items: Item[], activitiesByItem: Map
 
     if (calculation.shouldUpdate) {
       const previousReorderPoint = item.reorderPoint || 0;
-      const percentageChange = previousReorderPoint > 0 ? ((calculation.reorderPoint - previousReorderPoint) / previousReorderPoint) * 100 : 100;
+      const percentageChange =
+        previousReorderPoint > 0
+          ? ((calculation.reorderPoint - previousReorderPoint) / previousReorderPoint) * 100
+          : 100;
 
       results.push({
         itemId: item.id,

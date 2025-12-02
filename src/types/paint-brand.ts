@@ -1,9 +1,17 @@
 // packages/types/src/paint-brand.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Paint, PaintIncludes } from "./paint";
-import type { Item } from "./item";
+import type { Paint, PaintIncludes } from './paint';
+import type { Item } from './item';
 
 // =====================
 // Main Entity Interfaces
@@ -66,11 +74,44 @@ export interface PaintBrandWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   paints?: any; // PaintWhere conditions when filtering by related paints
@@ -104,5 +145,7 @@ export interface PaintBrandDeleteResponse extends BaseDeleteResponse {}
 
 // PaintBrand batch operations
 export interface PaintBrandBatchCreateResponse<T> extends BaseBatchResponse<PaintBrand, T> {}
-export interface PaintBrandBatchUpdateResponse<T> extends BaseBatchResponse<PaintBrand, T & { id: string }> {}
-export interface PaintBrandBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintBrandBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintBrand, T & { id: string }> {}
+export interface PaintBrandBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

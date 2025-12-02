@@ -1,7 +1,7 @@
 // packages/schemas/src/holiday.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Holiday } from '@types';
 import { HOLIDAY_TYPE } from '@constants';
 
@@ -11,7 +11,9 @@ import { HOLIDAY_TYPE } from '@constants';
 
 export const holidayIncludeSchema = z
   .object({
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .optional();
 
@@ -81,7 +83,7 @@ export const holidayWhereSchema: z.ZodType<any> = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -166,9 +168,9 @@ const holidayFilters = {
       start: z.coerce.date().optional(),
       end: z.coerce.date().optional(),
     })
-    .refine((data) => !data.start || !data.end || data.end >= data.start, {
-      message: "Data final deve ser posterior à inicial",
-      path: ["end"],
+    .refine(data => !data.start || !data.end || data.end >= data.start, {
+      message: 'Data final deve ser posterior à inicial',
+      path: ['end'],
     })
     .optional(),
   isRecurring: z.boolean().optional(),
@@ -192,14 +194,24 @@ const holidayTransform = (data: any) => {
   }
   delete data.take;
 
-  const { searchingFor, types, names, year, month, dateRange, isRecurring: _isRecurring, isNational, isUpcoming } = data;
+  const {
+    searchingFor,
+    types,
+    names,
+    year,
+    month,
+    dateRange,
+    isRecurring: _isRecurring,
+    isNational,
+    isUpcoming,
+  } = data;
 
   const andConditions: any[] = [];
 
   // Text search
   if (searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: searchingFor, mode: "insensitive" } }],
+      OR: [{ name: { contains: searchingFor, mode: 'insensitive' } }],
     });
   }
 
@@ -255,7 +267,9 @@ const holidayTransform = (data: any) => {
 
   // National holiday filter
   if (isNational !== undefined) {
-    andConditions.push({ type: isNational ? HOLIDAY_TYPE.NATIONAL : { not: HOLIDAY_TYPE.NATIONAL } });
+    andConditions.push({
+      type: isNational ? HOLIDAY_TYPE.NATIONAL : { not: HOLIDAY_TYPE.NATIONAL },
+    });
   }
 
   // Upcoming filter
@@ -270,7 +284,11 @@ const holidayTransform = (data: any) => {
   // Apply conditions to where clause
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -323,8 +341,11 @@ const toFormData = <T>(data: T) => data;
 
 export const holidayCreateSchema = z
   .object({
-    name: z.string().min(1, "Nome do feriado é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres"),
-    date: z.coerce.date({ required_error: "Data é obrigatória" }),
+    name: z
+      .string()
+      .min(1, 'Nome do feriado é obrigatório')
+      .max(100, 'Nome deve ter no máximo 100 caracteres'),
+    date: z.coerce.date({ required_error: 'Data é obrigatória' }),
     type: z
       .enum(Object.values(HOLIDAY_TYPE) as [string, ...string[]])
       .nullable()
@@ -334,7 +355,11 @@ export const holidayCreateSchema = z
 
 export const holidayUpdateSchema = z
   .object({
-    name: z.string().min(1, "Nome do feriado é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres").optional(),
+    name: z
+      .string()
+      .min(1, 'Nome do feriado é obrigatório')
+      .max(100, 'Nome deve ter no máximo 100 caracteres')
+      .optional(),
     date: z.coerce.date().optional(),
     type: z
       .enum(Object.values(HOLIDAY_TYPE) as [string, ...string[]])
@@ -345,7 +370,7 @@ export const holidayUpdateSchema = z
 
 export const holidayGetByIdSchema = z.object({
   include: holidayIncludeSchema.optional(),
-  id: z.string().uuid("Feriado inválido"),
+  id: z.string().uuid('Feriado inválido'),
 });
 
 // =====================
@@ -353,22 +378,24 @@ export const holidayGetByIdSchema = z.object({
 // =====================
 
 export const holidayBatchCreateSchema = z.object({
-  holidays: z.array(holidayCreateSchema).min(1, "Pelo menos um feriado deve ser fornecido"),
+  holidays: z.array(holidayCreateSchema).min(1, 'Pelo menos um feriado deve ser fornecido'),
 });
 
 export const holidayBatchUpdateSchema = z.object({
   holidays: z
     .array(
       z.object({
-        id: z.string().uuid("Feriado inválido"),
+        id: z.string().uuid('Feriado inválido'),
         data: holidayUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um feriado deve ser fornecido"),
+    .min(1, 'Pelo menos um feriado deve ser fornecido'),
 });
 
 export const holidayBatchDeleteSchema = z.object({
-  holidayIds: z.array(z.string().uuid("Feriado inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  holidayIds: z
+    .array(z.string().uuid('Feriado inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -397,8 +424,10 @@ export type HolidayWhere = z.infer<typeof holidayWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapHolidayToFormData = createMapToFormDataHelper<Holiday, HolidayUpdateFormData>((holiday) => ({
-  name: holiday.name,
-  date: holiday.date,
-  type: holiday.type,
-}));
+export const mapHolidayToFormData = createMapToFormDataHelper<Holiday, HolidayUpdateFormData>(
+  holiday => ({
+    name: holiday.name,
+    date: holiday.date,
+    type: holiday.type,
+  }),
+);

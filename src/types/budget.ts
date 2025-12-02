@@ -1,8 +1,17 @@
 // packages/interfaces/src/budget.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Task, TaskIncludes, TaskOrderBy } from "./task";
+import type { Task, TaskIncludes, TaskOrderBy } from './task';
+import type { BudgetItem } from './budgetItem';
 
 // =====================
 // Budget Interface
@@ -16,16 +25,6 @@ export interface Budget extends BaseEntity {
   // Relations
   task?: Task;
   items?: BudgetItem[];
-}
-
-// Import BudgetItem type (will be defined separately)
-export interface BudgetItem {
-  id: string;
-  description: string;
-  amount: number;
-  budgetId: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 // =====================
@@ -69,5 +68,7 @@ export interface BudgetDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface BudgetBatchCreateResponse<T> extends BaseBatchResponse<Budget, T> {}
-export interface BudgetBatchUpdateResponse<T> extends BaseBatchResponse<Budget, T & { id: string }> {}
-export interface BudgetBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface BudgetBatchUpdateResponse<T>
+  extends BaseBatchResponse<Budget, T & { id: string }> {}
+export interface BudgetBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

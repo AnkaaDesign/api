@@ -1,4 +1,4 @@
-import ColorJS from "colorjs.io";
+import ColorJS from 'colorjs.io';
 import type { Paint, PaintFormula, PaintFormulaComponent, Item } from '@types';
 import { PAINT_FINISH_LABELS, COLOR_PALETTE_LABELS, MEASURE_UNIT, MEASURE_TYPE } from '@constants';
 import { PAINT_FINISH, COLOR_PALETTE } from '@constants';
@@ -10,12 +10,15 @@ import { PAINT_FINISH, COLOR_PALETTE } from '@constants';
 /**
  * Get a measure of specific type from item's measures array
  */
-export const getItemMeasureByType = (item: Item, measureType: MEASURE_TYPE): { value: number; unit: MEASURE_UNIT } | null => {
+export const getItemMeasureByType = (
+  item: Item,
+  measureType: MEASURE_TYPE,
+): { value: number; unit: MEASURE_UNIT } | null => {
   if (!item.measures || item.measures.length === 0) {
     return null;
   }
 
-  const measure = item.measures.find((m) => m.measureType === measureType);
+  const measure = item.measures.find(m => m.measureType === measureType);
   if (!measure || measure.value === null || measure.unit === null) {
     return null;
   }
@@ -31,7 +34,7 @@ export const getAnyMeasure = (item: Item): { value: number; unit: MEASURE_UNIT }
   }
 
   // Find the first measure with both value and unit
-  const measure = item.measures.find((m) => m.value !== null && m.unit !== null);
+  const measure = item.measures.find(m => m.value !== null && m.unit !== null);
   if (!measure) {
     return null;
   }
@@ -40,12 +43,12 @@ export const getAnyMeasure = (item: Item): { value: number; unit: MEASURE_UNIT }
 
 export function isColorDark(hex: string): boolean {
   // Strip leading “#” and normalise 3-digit to 6-digit form
-  let clean = hex.replace(/^#/, "");
+  let clean = hex.replace(/^#/, '');
   if (clean.length === 3) {
     clean = clean
-      .split("")
-      .map((ch) => ch + ch)
-      .join("");
+      .split('')
+      .map(ch => ch + ch)
+      .join('');
   }
 
   if (!/^[0-9a-f]{6}$/i.test(clean)) {
@@ -63,7 +66,7 @@ export function isColorDark(hex: string): boolean {
 }
 
 export function shadeColor(hex: string, percent: number): string {
-  let color = hex.replace(/[^0-9a-f]/gi, "");
+  let color = hex.replace(/[^0-9a-f]/gi, '');
   if (color.length < 6) {
     color = color[0] + color[0] + color[1] + color[1] + color[2] + color[2];
   }
@@ -86,9 +89,9 @@ export function findSimilarColors(paints: Paint[], hex: string, threshold: numbe
   try {
     const refColor = new ColorJS(hex);
 
-    const similarColors = paints.map((color) => {
+    const similarColors = paints.map(color => {
       const newColor = new ColorJS(color.hex);
-      const difference = newColor.deltaE(refColor, "2000") + newColor.deltaE(refColor, "76") / 2;
+      const difference = newColor.deltaE(refColor, '2000') + newColor.deltaE(refColor, '76') / 2;
       return { color, difference };
     });
 
@@ -101,7 +104,7 @@ export function findSimilarColors(paints: Paint[], hex: string, threshold: numbe
 
     return { data, total };
   } catch (error) {
-    console.error("Error finding similar colors:", error);
+    console.error('Error finding similar colors:', error);
     return { data: [], total: 0 };
   }
 }
@@ -139,7 +142,7 @@ export const calculateFormulaComponentTotalWithUnits = (
   const total = components.reduce((sum, component) => sum + component.quantity, 0);
 
   // If no units specified, fall back to simple sum
-  if (!components.some((c) => c.unit) || !targetUnit) {
+  if (!components.some(c => c.unit) || !targetUnit) {
     return {
       total,
       unit: targetUnit,
@@ -151,7 +154,7 @@ export const calculateFormulaComponentTotalWithUnits = (
   return {
     total,
     unit: targetUnit,
-    error: "Conversão de unidades não implementada - use measure.convertUnits()",
+    error: 'Conversão de unidades não implementada - use measure.convertUnits()',
   };
 };
 
@@ -270,7 +273,7 @@ export const convertFromMilliliters = (ml: number, targetUnit: MEASURE_UNIT): nu
  */
 export const calculatePaintDensity = (weightInGrams: number, volumeInMl: number): number => {
   if (volumeInMl <= 0) {
-    throw new Error("Volume must be positive for density calculation");
+    throw new Error('Volume must be positive for density calculation');
   }
   return weightInGrams / volumeInMl;
 };
@@ -352,7 +355,7 @@ export const calculateItemDensity = (
  */
 export const calculateVolumeFromWeight = (weightInGrams: number, densityGPerMl: number): number => {
   if (densityGPerMl <= 0) {
-    throw new Error("Density must be positive for volume calculation");
+    throw new Error('Density must be positive for volume calculation');
   }
   return weightInGrams / densityGPerMl;
 };
@@ -362,7 +365,7 @@ export const calculateVolumeFromWeight = (weightInGrams: number, densityGPerMl: 
  */
 export const calculateWeightFromVolume = (volumeInMl: number, densityGPerMl: number): number => {
   if (densityGPerMl <= 0) {
-    throw new Error("Density must be positive for weight calculation");
+    throw new Error('Density must be positive for weight calculation');
   }
   return volumeInMl * densityGPerMl;
 };
@@ -371,9 +374,12 @@ export const calculateWeightFromVolume = (volumeInMl: number, densityGPerMl: num
  * Gets the component quantity in grams for formula calculations
  * Handles different item measure units and weight specifications
  */
-export const getComponentWeightInGrams = (component: PaintFormulaComponent & { item?: Item }, totalWeightInGrams: number): number => {
+export const getComponentWeightInGrams = (
+  component: PaintFormulaComponent & { item?: Item },
+  totalWeightInGrams: number,
+): number => {
   if (!component.item) {
-    throw new Error("Component item is required for weight calculation");
+    throw new Error('Component item is required for weight calculation');
   }
 
   // Calculate component weight based on ratio and total weight
@@ -386,11 +392,13 @@ export const getComponentWeightInGrams = (component: PaintFormulaComponent & { i
  * Validates that a component can be used in paint formulas
  * Checks for proper measure units and weight/density information
  */
-export const validateComponentForFormula = (component: PaintFormulaComponent & { item?: Item }): { isValid: boolean; errors: string[] } => {
+export const validateComponentForFormula = (
+  component: PaintFormulaComponent & { item?: Item },
+): { isValid: boolean; errors: string[] } => {
   const errors: string[] = [];
 
   if (!component.item) {
-    errors.push("Component must have an associated item");
+    errors.push('Component must have an associated item');
     return { isValid: false, errors };
   }
 
@@ -398,7 +406,7 @@ export const validateComponentForFormula = (component: PaintFormulaComponent & {
 
   // Check for basic ratio validation
   if (component.ratio <= 0) {
-    errors.push("Component ratio must be positive");
+    errors.push('Component ratio must be positive');
   }
 
   // Check if we can determine weight for this item
@@ -421,13 +429,17 @@ export const validateComponentForFormula = (component: PaintFormulaComponent & {
       return { isValid: errors.length === 0, errors };
     } else if (measureType === MEASURE_TYPE.VOLUME) {
       // Volume-based items need density information
-      errors.push(`Volume-based item "${item.name}" requires density information or weight specification`);
+      errors.push(
+        `Volume-based item "${item.name}" requires density information or weight specification`,
+      );
     } else {
       // Count-based items need weight specification
       errors.push(`Count-based item "${item.name}" requires weight specification in its measures`);
     }
   } else {
-    errors.push(`Item "${item.name}" has no measures defined. At least one measure is required for formula calculations.`);
+    errors.push(
+      `Item "${item.name}" has no measures defined. At least one measure is required for formula calculations.`,
+    );
   }
 
   return { isValid: errors.length === 0, errors };
@@ -436,7 +448,10 @@ export const validateComponentForFormula = (component: PaintFormulaComponent & {
 /**
  * Calculates total component weight for a formula (ratios should sum to 100%)
  */
-export const calculateFormulaComponentWeight = (components: Array<PaintFormulaComponent & { item?: Item }>, totalWeightInGrams: number): number => {
+export const calculateFormulaComponentWeight = (
+  components: Array<PaintFormulaComponent & { item?: Item }>,
+  totalWeightInGrams: number,
+): number => {
   return components.reduce((total, component) => {
     try {
       return total + getComponentWeightInGrams(component, totalWeightInGrams);
@@ -455,10 +470,12 @@ export const calculateFormulaComponentTotalWeight = calculateFormulaComponentWei
 /**
  * Calculates component ratios within a formula
  */
-export const calculateComponentRatios = (components: Array<PaintFormulaComponent & { item?: Item }>): Array<{ componentId: string; weight: number; ratio: number }> => {
+export const calculateComponentRatios = (
+  components: Array<PaintFormulaComponent & { item?: Item }>,
+): Array<{ componentId: string; weight: number; ratio: number }> => {
   // With the new ratio-based system, ratios are already stored in components
   // This function now just formats the existing data
-  return components.map((component) => ({
+  return components.map(component => ({
     componentId: component.id,
     weight: 0, // Weight depends on production batch size, not stored here
     ratio: component.ratio,
@@ -482,8 +499,8 @@ export const scaleFormulaForProduction = (
 }> => {
   const ratios = calculateComponentRatios(components);
 
-  return components.map((component) => {
-    const ratio = ratios.find((r) => r.componentId === component.id);
+  return components.map(component => {
+    const ratio = ratios.find(r => r.componentId === component.id);
     if (!ratio) {
       throw new Error(`Component ratio not found for ${component.id}`);
     }
@@ -492,7 +509,7 @@ export const scaleFormulaForProduction = (
     const item = component.item!;
 
     let requiredQuantity = scaledWeight; // Default in grams
-    let measureUnit = "GRAM"; // Default unit
+    let measureUnit = 'GRAM'; // Default unit
 
     // Try to get the appropriate measure for this item
     const weightMeasure = getItemMeasureByType(item, MEASURE_TYPE.WEIGHT);
@@ -511,12 +528,19 @@ export const scaleFormulaForProduction = (
         } else if (anyMeasure.value > 0) {
           // For items with non-weight measures, we need to find the weight per unit
           // from the item's weight measure if available, otherwise use the measure value
-          const itemWeightMeasure = item.measures?.find((m) => m.measureType === MEASURE_TYPE.WEIGHT);
-          if (itemWeightMeasure && itemWeightMeasure.value !== null && itemWeightMeasure.unit !== null) {
+          const itemWeightMeasure = item.measures?.find(m => m.measureType === MEASURE_TYPE.WEIGHT);
+          if (
+            itemWeightMeasure &&
+            itemWeightMeasure.value !== null &&
+            itemWeightMeasure.unit !== null
+          ) {
             // Calculate number of units needed based on weight per unit
-            const weightPerUnit = itemWeightMeasure.unit === MEASURE_UNIT.KILOGRAM ? itemWeightMeasure.value * 1000 : itemWeightMeasure.value;
+            const weightPerUnit =
+              itemWeightMeasure.unit === MEASURE_UNIT.KILOGRAM
+                ? itemWeightMeasure.value * 1000
+                : itemWeightMeasure.value;
             requiredQuantity = scaledWeight / weightPerUnit;
-            measureUnit = "UNIT"; // Number of units
+            measureUnit = 'UNIT'; // Number of units
           } else {
             // Fallback: assume the measure value represents weight per unit in grams
             requiredQuantity = scaledWeight / anyMeasure.value;
@@ -545,16 +569,21 @@ export const scaleFormulaForProduction = (
 export const validateFormulaDensity = (
   formula: PaintFormula & { components?: Array<PaintFormulaComponent & { item?: Item }> },
   tolerancePercent: number = 5,
-): { isValid: boolean; calculatedDensity?: number; densityDifference?: number; errors: string[] } => {
+): {
+  isValid: boolean;
+  calculatedDensity?: number;
+  densityDifference?: number;
+  errors: string[];
+} => {
   const errors: string[] = [];
 
   if (!formula.components || formula.components.length === 0) {
-    errors.push("Formula must have components for density validation");
+    errors.push('Formula must have components for density validation');
     return { isValid: false, errors };
   }
 
   if (!formula.density || formula.density <= 0) {
-    errors.push("Formula must have a positive density value");
+    errors.push('Formula must have a positive density value');
     return { isValid: false, errors };
   }
 
@@ -597,13 +626,16 @@ export const validateFormulaDensity = (
 export const calculateFormulaCost = (
   components: Array<PaintFormulaComponent & { item?: Item & { price?: Array<{ value: number }> } }>,
   weightInGrams: number,
-): { totalCost: number; componentCosts: Array<{ itemName: string; cost: number; weight: number }> } => {
+): {
+  totalCost: number;
+  componentCosts: Array<{ itemName: string; cost: number; weight: number }>;
+} => {
   const scaledComponents = scaleFormulaForProduction(components, weightInGrams);
   let totalCost = 0;
   const componentCosts: Array<{ itemName: string; cost: number; weight: number }> = [];
 
-  scaledComponents.forEach((scaledComp) => {
-    const component = components.find((c) => c.id === scaledComp.componentId);
+  scaledComponents.forEach(scaledComp => {
+    const component = components.find(c => c.id === scaledComp.componentId);
     if (!component?.item) return;
 
     const item = component.item;
@@ -648,7 +680,11 @@ export const calculatePaintVolumeNeeded = (
  * Calculate theoretical coverage from paint volume
  * Useful for determining how much area can be covered with available paint
  */
-export const calculatePaintCoverage = (volumeInLiters: number, thicknessMicrons: number, efficiency: number = 0.9): number => {
+export const calculatePaintCoverage = (
+  volumeInLiters: number,
+  thicknessMicrons: number,
+  efficiency: number = 0.9,
+): number => {
   // Formula: Area (m²) = Volume (L) × Efficiency / (Thickness (μm) × 0.001)
   return (volumeInLiters * efficiency) / (thicknessMicrons * 0.001);
 };

@@ -1,5 +1,11 @@
-import { z } from "zod";
-import { orderByDirectionSchema, normalizeOrderBy, nullableDate, createNameSchema, createMapToFormDataHelper } from "./common";
+import { z } from 'zod';
+import {
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableDate,
+  createNameSchema,
+  createMapToFormDataHelper,
+} from './common';
 import type { Discount } from '@types';
 
 // =====================
@@ -116,7 +122,7 @@ export const discountWhereSchema: z.ZodType<any> = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -148,7 +154,7 @@ export const discountWhereSchema: z.ZodType<any> = z.lazy(() =>
               name: z
                 .object({
                   contains: z.string().optional(),
-                  mode: z.enum(["default", "insensitive"]).optional(),
+                  mode: z.enum(['default', 'insensitive']).optional(),
                 })
                 .optional(),
             })
@@ -224,55 +230,52 @@ export const calculationOrderBySchema = z.union([
 
 export const discountCreateSchema = z
   .object({
-    payrollId: z.string().uuid("Folha de pagamento inválida"),
+    payrollId: z.string().uuid('Folha de pagamento inválida'),
     percentage: z
       .number()
-      .min(0, "Percentual deve ser maior ou igual a 0")
-      .max(100, "Percentual deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'Percentual deve ser maior ou igual a 0')
+      .max(100, 'Percentual deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
     value: z
       .number()
-      .min(0, "Valor fixo deve ser maior ou igual a 0")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'Valor fixo deve ser maior ou igual a 0')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
-    reference: createNameSchema(1, 200, "Referência"),
+    reference: createNameSchema(1, 200, 'Referência'),
     calculationOrder: z
       .number()
-      .int("Ordem de desconto deve ser um número inteiro")
-      .min(1, "Ordem de desconto deve ser maior ou igual a 1")
+      .int('Ordem de desconto deve ser um número inteiro')
+      .min(1, 'Ordem de desconto deve ser maior ou igual a 1')
       .default(1),
   })
-  .refine(
-    (data) => data.percentage !== undefined || data.value !== undefined,
-    {
-      message: "Pelo menos um dos campos 'percentual' ou 'valor fixo' deve ser fornecido",
-      path: ["percentage", "value"],
-    }
-  );
+  .refine(data => data.percentage !== undefined || data.value !== undefined, {
+    message: "Pelo menos um dos campos 'percentual' ou 'valor fixo' deve ser fornecido",
+    path: ['percentage', 'value'],
+  });
 
 export const discountUpdateSchema = z
   .object({
     percentage: z
       .number()
-      .min(0, "Percentual deve ser maior ou igual a 0")
-      .max(100, "Percentual deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'Percentual deve ser maior ou igual a 0')
+      .max(100, 'Percentual deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
     value: z
       .number()
-      .min(0, "Valor fixo deve ser maior ou igual a 0")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'Valor fixo deve ser maior ou igual a 0')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
-    reference: createNameSchema(1, 200, "Referência").optional(),
+    reference: createNameSchema(1, 200, 'Referência').optional(),
     calculationOrder: z
       .number()
-      .int("Ordem de desconto deve ser um número inteiro")
-      .min(1, "Ordem de desconto deve ser maior ou igual a 1")
+      .int('Ordem de desconto deve ser um número inteiro')
+      .min(1, 'Ordem de desconto deve ser maior ou igual a 1')
       .optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // If both are provided as null/undefined, that's not valid
       const hasPercentage = data.percentage !== undefined && data.percentage !== null;
       const hasFixedValue = data.value !== undefined && data.value !== null;
@@ -286,8 +289,8 @@ export const discountUpdateSchema = z
     },
     {
       message: "Pelo menos um dos campos 'percentual' ou 'valor fixo' deve ser fornecido",
-      path: ["percentage", "value"],
-    }
+      path: ['percentage', 'value'],
+    },
   );
 
 // =====================
@@ -297,27 +300,27 @@ export const discountUpdateSchema = z
 export const discountBatchCreateSchema = z.object({
   discounts: z
     .array(discountCreateSchema)
-    .min(1, "Pelo menos um desconto deve ser fornecido")
-    .max(100, "Máximo de 100 descontos por operação"),
+    .min(1, 'Pelo menos um desconto deve ser fornecido')
+    .max(100, 'Máximo de 100 descontos por operação'),
 });
 
 export const discountBatchUpdateSchema = z.object({
   discounts: z
     .array(
       z.object({
-        id: z.string().uuid("Desconto inválido"),
+        id: z.string().uuid('Desconto inválido'),
         data: discountUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária")
-    .max(100, "Máximo de 100 atualizações por operação"),
+    .min(1, 'Pelo menos uma atualização é necessária')
+    .max(100, 'Máximo de 100 atualizações por operação'),
 });
 
 export const discountBatchDeleteSchema = z.object({
   discountIds: z
-    .array(z.string().uuid("Desconto inválido"))
-    .min(1, "Pelo menos um ID deve ser fornecido")
-    .max(100, "Máximo de 100 exclusões por operação"),
+    .array(z.string().uuid('Desconto inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(100, 'Máximo de 100 exclusões por operação'),
 });
 
 // =====================
@@ -329,33 +332,37 @@ export const discountGetManySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
   include: discountIncludeSchema.optional(),
   where: discountWhereSchema.optional(),
-  orderBy: calculationOrderBySchema.optional().default({ calculationOrder: "asc", createdAt: "desc" }),
+  orderBy: calculationOrderBySchema
+    .optional()
+    .default({ calculationOrder: 'asc', createdAt: 'desc' }),
   searchingFor: z.string().optional(),
 
   // Specific discount filters
-  payrollId: z.string().uuid("Folha de pagamento inválida").optional(),
+  payrollId: z.string().uuid('Folha de pagamento inválida').optional(),
 });
 
 export const discountGetByIdSchema = z.object({
   include: discountIncludeSchema.optional(),
 });
 
-export const discountQuerySchema = z.object({
-  where: discountWhereSchema.optional(),
-  orderBy: calculationOrderBySchema.optional(),
-  skip: z.coerce.number().int().min(0).optional(),
-  take: z.coerce.number().int().min(1).max(100).optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional()
-}).transform(data => {
-  if (data.page && data.limit) {
-    data.skip = (data.page - 1) * data.limit;
-    data.take = data.limit;
-    delete data.page;
-    delete data.limit;
-  }
-  return data;
-});
+export const discountQuerySchema = z
+  .object({
+    where: discountWhereSchema.optional(),
+    orderBy: calculationOrderBySchema.optional(),
+    skip: z.coerce.number().int().min(0).optional(),
+    take: z.coerce.number().int().min(1).max(100).optional(),
+    page: z.coerce.number().int().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .transform(data => {
+    if (data.page && data.limit) {
+      data.skip = (data.page - 1) * data.limit;
+      data.take = data.limit;
+      delete data.page;
+      delete data.limit;
+    }
+    return data;
+  });
 
 // Transform function for searching
 const discountTransform = (data: any) => {
@@ -364,12 +371,12 @@ const discountTransform = (data: any) => {
     data.orderBy = normalizeOrderBy(data.orderBy);
   }
 
-  if (data.searchingFor && typeof data.searchingFor === "string") {
+  if (data.searchingFor && typeof data.searchingFor === 'string') {
     data.where = {
       ...data.where,
       OR: [
-        { reference: { contains: data.searchingFor, mode: "insensitive" } },
-        { payroll: { user: { name: { contains: data.searchingFor, mode: "insensitive" } } } },
+        { reference: { contains: data.searchingFor, mode: 'insensitive' } },
+        { payroll: { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
       ],
     };
     delete data.searchingFor;
@@ -401,9 +408,11 @@ export type DiscountWhere = z.infer<typeof discountWhereSchema>;
 // Utility Functions
 // =====================
 
-export const mapToDiscountFormData = createMapToFormDataHelper<Discount, DiscountUpdateFormData>((discount) => ({
-  percentage: discount.percentage ?? undefined,
-  value: discount.value ?? undefined,
-  reference: discount.reference,
-  calculationOrder: discount.calculationOrder,
-}));
+export const mapToDiscountFormData = createMapToFormDataHelper<Discount, DiscountUpdateFormData>(
+  discount => ({
+    percentage: discount.percentage ?? undefined,
+    value: discount.value ?? undefined,
+    reference: discount.reference,
+    calculationOrder: discount.calculationOrder,
+  }),
+);

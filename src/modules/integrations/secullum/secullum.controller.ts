@@ -207,7 +207,12 @@ export class SecullumController {
    */
   @Get('calculations')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER)
+  @Roles(
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LEADER,
+  )
   @HttpCode(HttpStatus.OK)
   async getCalculations(
     @UserId() userId: string,
@@ -611,7 +616,9 @@ export class SecullumController {
     @UserId() userId: string,
     @Query('pending') pending?: string,
   ): Promise<SecullumRequestsResponse> {
-    this.logger.log(`User ${userId} fetching Secullum time adjustment requests (pending: ${pending})`);
+    this.logger.log(
+      `User ${userId} fetching Secullum time adjustment requests (pending: ${pending})`,
+    );
 
     const pendingOnly = pending === 'true';
     return await this.secullumService.getRequests(pendingOnly);
@@ -637,7 +644,7 @@ export class SecullumController {
       SolicitacaoId: parseInt(requestId),
       Versao: requestData.Versao,
       AlteracoesFonteDados: requestData.AlteracoesFonteDados || [],
-      TipoSolicitacao: requestData.TipoSolicitacao || 0
+      TipoSolicitacao: requestData.TipoSolicitacao || 0,
     };
 
     return await this.secullumService.approveRequest(approvalData);
@@ -662,8 +669,9 @@ export class SecullumController {
     const rejectionData = {
       SolicitacaoId: parseInt(requestId),
       Versao: requestData.Versao,
-      MotivoDescarte: requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
-      TipoSolicitacao: requestData.TipoSolicitacao || 0
+      MotivoDescarte:
+        requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
+      TipoSolicitacao: requestData.TipoSolicitacao || 0,
     };
 
     return await this.secullumService.rejectRequest(rejectionData);

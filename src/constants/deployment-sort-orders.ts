@@ -1,9 +1,6 @@
 // packages/constants/src/deployment-sort-orders.ts
 
-import {
-  DEPLOYMENT_STATUS,
-  DEPLOYMENT_ENVIRONMENT,
-} from "./enums";
+import { DEPLOYMENT_STATUS, DEPLOYMENT_ENVIRONMENT } from './enums';
 
 export const DEPLOYMENT_STATUS_ORDER: Record<DEPLOYMENT_STATUS, number> = {
   [DEPLOYMENT_STATUS.IN_PROGRESS]: 1,

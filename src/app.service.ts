@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { BuildInfo, DeploymentInfo, HealthCheckResponse, SystemInfo, ServiceHealthStatus } from '@types';
+import {
+  BuildInfo,
+  DeploymentInfo,
+  HealthCheckResponse,
+  SystemInfo,
+  ServiceHealthStatus,
+} from '@types';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -37,7 +43,9 @@ export class AppService {
           const fileContent = fs.readFileSync(filePath, 'utf-8');
           this.buildInfo = JSON.parse(fileContent);
           this.logger.log(`Build info loaded from: ${filePath}`);
-          this.logger.log(`Version: ${this.buildInfo?.version}, Commit: ${this.buildInfo?.gitCommitShort}`);
+          this.logger.log(
+            `Version: ${this.buildInfo?.version}, Commit: ${this.buildInfo?.gitCommitShort}`,
+          );
           return;
         }
       }

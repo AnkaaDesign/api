@@ -95,7 +95,9 @@ export class PaintFormulaService implements OnModuleInit {
         event.changes.price || event.changes.icms || event.changes.ipi || event.changes.measures;
 
       if (!shouldRecalculate) {
-        this.logger.log(`No relevant changes for item ${event.itemId}, skipping formula recalculation`);
+        this.logger.log(
+          `No relevant changes for item ${event.itemId}, skipping formula recalculation`,
+        );
         return;
       }
 
@@ -350,9 +352,7 @@ export class PaintFormulaService implements OnModuleInit {
           totalWeight = data.components.reduce((sum, comp) => sum + comp.weightInGrams, 0);
 
           if (totalWeight === 0) {
-            throw new BadRequestException(
-              'O peso total dos componentes deve ser maior que zero',
-            );
+            throw new BadRequestException('O peso total dos componentes deve ser maior que zero');
           }
 
           // First: Convert weights to ratios
@@ -419,7 +419,8 @@ export class PaintFormulaService implements OnModuleInit {
             }
 
             // Calculate item density (g/ml)
-            const itemDensity = volumePerUnitInMl > 0 ? weightPerUnitInGrams / volumePerUnitInMl : 1.0;
+            const itemDensity =
+              volumePerUnitInMl > 0 ? weightPerUnitInGrams / volumePerUnitInMl : 1.0;
 
             // Calculate component volume in 1L of paint (ratio-based)
             const componentVolumeInMl = 1000 * (componentData.ratio / 100);
@@ -449,7 +450,9 @@ export class PaintFormulaService implements OnModuleInit {
         if (data.components) {
           data.components.forEach(comp => {
             const ratio = totalWeight > 0 ? (comp.weightInGrams / totalWeight) * 100 : 0;
-            this.logger.log(`Component ${comp.itemId}: ${comp.weightInGrams}g = ${ratio.toFixed(2)}%`);
+            this.logger.log(
+              `Component ${comp.itemId}: ${comp.weightInGrams}g = ${ratio.toFixed(2)}%`,
+            );
           });
         }
 
@@ -1079,8 +1082,9 @@ export class PaintFormulaService implements OnModuleInit {
           component.item.measures?.find(m => m.unit === 'KILOGRAM' && m.measureType === 'WEIGHT');
 
         const volumeMeasure =
-          component.item.measures?.find(m => m.unit === 'MILLILITER' && m.measureType === 'VOLUME') ||
-          component.item.measures?.find(m => m.unit === 'LITER' && m.measureType === 'VOLUME');
+          component.item.measures?.find(
+            m => m.unit === 'MILLILITER' && m.measureType === 'VOLUME',
+          ) || component.item.measures?.find(m => m.unit === 'LITER' && m.measureType === 'VOLUME');
 
         if (!weightMeasure) {
           this.logger.warn(`No weight measure found for component ${component.item.name}`);
@@ -1136,11 +1140,14 @@ export class PaintFormulaService implements OnModuleInit {
       // Density should only be recalculated if measures changed
       // Price should be recalculated if price, icms, ipi, or measures changed
       const shouldRecalculateDensity = !changes || changes.measures === true;
-      const shouldRecalculatePrice = !changes || changes.price || changes.icms || changes.ipi || changes.measures;
+      const shouldRecalculatePrice =
+        !changes || changes.price || changes.icms || changes.ipi || changes.measures;
 
       // Only check for changes if we should recalculate
-      const densityChanged = shouldRecalculateDensity && hasValueChanged(originalDensity, calculatedDensity);
-      const priceChanged = shouldRecalculatePrice && hasValueChanged(originalPricePerLiter, pricePerLiter);
+      const densityChanged =
+        shouldRecalculateDensity && hasValueChanged(originalDensity, calculatedDensity);
+      const priceChanged =
+        shouldRecalculatePrice && hasValueChanged(originalPricePerLiter, pricePerLiter);
 
       if (densityChanged || priceChanged) {
         // Build update data - only update fields that changed

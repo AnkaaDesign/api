@@ -1,8 +1,16 @@
 // packages/interfaces/src/budgetItem.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Budget, BudgetIncludes, BudgetOrderBy } from "./budget";
+import type { Budget, BudgetIncludes, BudgetOrderBy } from './budget';
 
 // =====================
 // BudgetItem Interface
@@ -58,5 +66,7 @@ export interface BudgetItemDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface BudgetItemBatchCreateResponse<T> extends BaseBatchResponse<BudgetItem, T> {}
-export interface BudgetItemBatchUpdateResponse<T> extends BaseBatchResponse<BudgetItem, T & { id: string }> {}
-export interface BudgetItemBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface BudgetItemBatchUpdateResponse<T>
+  extends BaseBatchResponse<BudgetItem, T & { id: string }> {}
+export interface BudgetItemBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

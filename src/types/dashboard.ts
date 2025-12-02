@@ -38,10 +38,10 @@ export interface DashboardNotificationWhere {
 
 // Export format types
 export enum ExportFormat {
-  CSV = "csv",
-  EXCEL = "excel",
-  PDF = "pdf",
-  JSON = "json",
+  CSV = 'csv',
+  EXCEL = 'excel',
+  PDF = 'pdf',
+  JSON = 'json',
 }
 
 export interface ExportOptions {
@@ -94,7 +94,7 @@ export interface DashboardMetric {
   value: number;
   change?: number;
   changePercent?: number;
-  trend?: "up" | "down" | "stable";
+  trend?: 'up' | 'down' | 'stable';
   unit?: string;
 }
 
@@ -206,7 +206,7 @@ export interface HRDashboardData {
     tasksCompleted: DashboardMetric; // status = COMPLETED
     tasksInProgress: DashboardMetric; // status = IN_PRODUCTION
     averageTasksPerUser: DashboardMetric;
-    taskProductivityTrend: "up" | "down" | "stable";
+    taskProductivityTrend: 'up' | 'down' | 'stable';
   };
   positionMetrics?: {
     totalPositions: number;
@@ -226,7 +226,7 @@ export interface HRDashboardData {
     deliveriesToday: number;
     pendingDeliveries: number;
     deliveredThisMonth: number;
-    deliveryTrend?: "up" | "down" | "stable";
+    deliveryTrend?: 'up' | 'down' | 'stable';
     deliveryPercent?: number;
   };
   sectorMetrics?: {
@@ -235,7 +235,7 @@ export interface HRDashboardData {
   };
   employeeMetrics?: {
     totalEmployees: number;
-    employeeGrowthTrend?: "up" | "down" | "stable";
+    employeeGrowthTrend?: 'up' | 'down' | 'stable';
     employeeGrowthPercent?: number;
     satisfactionRate?: number;
     employeesByDepartment?: DashboardListItem[];
@@ -309,7 +309,7 @@ export interface AdministrationDashboardData {
     pendingUsers: DashboardMetric;
     newUsersThisWeek: DashboardMetric;
     newUsersToday: DashboardMetric;
-    userGrowthTrend: "up" | "down" | "stable";
+    userGrowthTrend: 'up' | 'down' | 'stable';
     userGrowthPercent: number;
     monthlyGrowth: Array<{ month: string; count: number }>;
   };
@@ -326,7 +326,7 @@ export interface AdministrationDashboardData {
   };
   budgetMetrics: {
     totalBudgets: DashboardMetric;
-    budgetGrowthTrend: "up" | "down" | "stable";
+    budgetGrowthTrend: 'up' | 'down' | 'stable';
     budgetGrowthPercent: number;
   };
   fileMetrics: {
@@ -555,31 +555,40 @@ export interface ProductionDashboardResponse {
 // Unified Dashboard - combines key metrics from all modules
 export interface UnifiedDashboardData {
   inventory: {
-    overview: InventoryDashboardData["overview"];
+    overview: InventoryDashboardData['overview'];
     criticalAlerts: Array<{
       itemId: string;
       itemName: string;
-      alertType: "critical" | "low_stock" | "overstock";
+      alertType: 'critical' | 'low_stock' | 'overstock';
       currentQuantity: number;
       threshold: number;
     }>;
   };
   hr: {
-    overview: Pick<HRDashboardData["overview"], "totalEmployees" | "activeEmployees">;
+    overview: Pick<HRDashboardData['overview'], 'totalEmployees' | 'activeEmployees'>;
     vacationsToday: number;
     tasksInProgress: number;
   };
   administration: {
-    orderSummary: Pick<AdministrationDashboardData["orderOverview"], "totalOrders" | "pendingOrders" | "overdueOrders">;
+    orderSummary: Pick<
+      AdministrationDashboardData['orderOverview'],
+      'totalOrders' | 'pendingOrders' | 'overdueOrders'
+    >;
     revenue: number; // sum of task prices
     missingNfe: number; // count of orders + tasks without nfe
   };
   paint: {
-    productionSummary: Pick<PaintDashboardData["productionOverview"], "totalProductions" | "totalVolumeLiters">;
+    productionSummary: Pick<
+      PaintDashboardData['productionOverview'],
+      'totalProductions' | 'totalVolumeLiters'
+    >;
     activeFormulas: number;
   };
   production: {
-    taskSummary: Pick<ProductionDashboardData["overview"], "totalTasks" | "tasksInProduction" | "tasksCompleted">;
+    taskSummary: Pick<
+      ProductionDashboardData['overview'],
+      'totalTasks' | 'tasksInProduction' | 'tasksCompleted'
+    >;
     garageUtilization: number; // percentage
     activeServiceOrders: number;
   };

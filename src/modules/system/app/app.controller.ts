@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  Query,
-  ParseUUIDPipe,
-} from '@nestjs/common';
+import { Controller, Get, Param, Query, ParseUUIDPipe } from '@nestjs/common';
 import { AppService } from './app.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '../../common/auth/decorators/public.decorator';

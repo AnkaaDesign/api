@@ -1,9 +1,10 @@
 // packages/schemas/src/order-rule.ts
 
-import { z } from "zod";
+import { z } from 'zod';
 import {
   createMapToFormDataHelper,
-  orderByDirectionSchema, normalizeOrderBy,
+  orderByDirectionSchema,
+  normalizeOrderBy,
   createStringWhereSchema,
   createDateWhereSchema,
   createBooleanWhereSchema,
@@ -14,7 +15,7 @@ import {
   createBatchDeleteSchema,
   createBatchQuerySchema,
   optionalPositiveNumber,
-} from "./common";
+} from './common';
 import type { OrderRule } from '@types';
 
 // =====================
@@ -25,7 +26,9 @@ export const orderRuleIncludeSchema = z
   .object({
     item: z.boolean().optional(),
     supplier: z.boolean().optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .optional();
 
@@ -253,7 +256,7 @@ const orderRuleTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Boolean filters
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
   }
@@ -288,30 +291,34 @@ const orderRuleTransform = (data: any) => {
   }
 
   // Range filters
-  if (data.priorityRange && typeof data.priorityRange === "object") {
+  if (data.priorityRange && typeof data.priorityRange === 'object') {
     const condition: any = {};
-    if (typeof data.priorityRange.min === "number") condition.gte = data.priorityRange.min;
-    if (typeof data.priorityRange.max === "number") condition.lte = data.priorityRange.max;
+    if (typeof data.priorityRange.min === 'number') condition.gte = data.priorityRange.min;
+    if (typeof data.priorityRange.max === 'number') condition.lte = data.priorityRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ priority: condition });
     }
     delete data.priorityRange;
   }
 
-  if (data.consumptionDaysRange && typeof data.consumptionDaysRange === "object") {
+  if (data.consumptionDaysRange && typeof data.consumptionDaysRange === 'object') {
     const condition: any = {};
-    if (typeof data.consumptionDaysRange.min === "number") condition.gte = data.consumptionDaysRange.min;
-    if (typeof data.consumptionDaysRange.max === "number") condition.lte = data.consumptionDaysRange.max;
+    if (typeof data.consumptionDaysRange.min === 'number')
+      condition.gte = data.consumptionDaysRange.min;
+    if (typeof data.consumptionDaysRange.max === 'number')
+      condition.lte = data.consumptionDaysRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ consumptionDays: condition });
     }
     delete data.consumptionDaysRange;
   }
 
-  if (data.safetyStockDaysRange && typeof data.safetyStockDaysRange === "object") {
+  if (data.safetyStockDaysRange && typeof data.safetyStockDaysRange === 'object') {
     const condition: any = {};
-    if (typeof data.safetyStockDaysRange.min === "number") condition.gte = data.safetyStockDaysRange.min;
-    if (typeof data.safetyStockDaysRange.max === "number") condition.lte = data.safetyStockDaysRange.max;
+    if (typeof data.safetyStockDaysRange.min === 'number')
+      condition.gte = data.safetyStockDaysRange.min;
+    if (typeof data.safetyStockDaysRange.max === 'number')
+      condition.lte = data.safetyStockDaysRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ safetyStockDays: condition });
     }
@@ -354,7 +361,7 @@ export const orderRuleGetManySchema = z
 
 export const orderRuleGetByIdSchema = z.object({
   include: orderRuleIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Regra de pedido inválida" }),
+  id: z.string().uuid({ message: 'Regra de pedido inválida' }),
 });
 
 // =====================
@@ -365,30 +372,60 @@ const toFormData = <T>(data: T) => data;
 
 export const orderRuleCreateSchema = z
   .object({
-    itemId: z.string().uuid({ message: "Item inválido" }),
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).nullable().optional(),
+    itemId: z.string().uuid({ message: 'Item inválido' }),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
     isActive: z.boolean().default(true),
-    priority: z.number().int().min(0, "Prioridade deve ser maior ou igual a 0").default(0),
-    triggerType: z.string().min(1, "Tipo de gatilho é obrigatório"),
-    consumptionDays: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Dias de consumo deve ser positivo"),
-    safetyStockDays: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Dias de estoque de segurança deve ser positivo"),
-    minOrderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade mínima de pedido deve ser positiva"),
-    maxOrderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade máxima de pedido deve ser positiva"),
-    orderMultiple: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Múltiplo de pedido deve ser positivo"),
+    priority: z.number().int().min(0, 'Prioridade deve ser maior ou igual a 0').default(0),
+    triggerType: z.string().min(1, 'Tipo de gatilho é obrigatório'),
+    consumptionDays: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Dias de consumo deve ser positivo',
+    ),
+    safetyStockDays: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Dias de estoque de segurança deve ser positivo',
+    ),
+    minOrderQuantity: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Quantidade mínima de pedido deve ser positiva',
+    ),
+    maxOrderQuantity: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Quantidade máxima de pedido deve ser positiva',
+    ),
+    orderMultiple: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Múltiplo de pedido deve ser positivo',
+    ),
   })
   .transform(toFormData);
 
 export const orderRuleUpdateSchema = z
   .object({
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).nullable().optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).nullable().optional(),
     isActive: z.boolean().optional(),
-    priority: z.number().int().min(0, "Prioridade deve ser maior ou igual a 0").optional(),
+    priority: z.number().int().min(0, 'Prioridade deve ser maior ou igual a 0').optional(),
     triggerType: z.string().min(1).optional(),
-    consumptionDays: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Dias de consumo deve ser positivo"),
-    safetyStockDays: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Dias de estoque de segurança deve ser positivo"),
-    minOrderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade mínima de pedido deve ser positiva"),
-    maxOrderQuantity: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Quantidade máxima de pedido deve ser positiva"),
-    orderMultiple: optionalPositiveNumber.refine((val) => val === null || val === undefined || val > 0, "Múltiplo de pedido deve ser positivo"),
+    consumptionDays: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Dias de consumo deve ser positivo',
+    ),
+    safetyStockDays: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Dias de estoque de segurança deve ser positivo',
+    ),
+    minOrderQuantity: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Quantidade mínima de pedido deve ser positiva',
+    ),
+    maxOrderQuantity: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Quantidade máxima de pedido deve ser positiva',
+    ),
+    orderMultiple: optionalPositiveNumber.refine(
+      val => val === null || val === undefined || val > 0,
+      'Múltiplo de pedido deve ser positivo',
+    ),
   })
   .transform(toFormData);
 
@@ -396,9 +433,15 @@ export const orderRuleUpdateSchema = z
 // Batch Operations
 // =====================
 
-export const orderRuleBatchCreateSchema = createBatchCreateSchema(orderRuleCreateSchema, "regra de pedido");
-export const orderRuleBatchUpdateSchema = createBatchUpdateSchema(orderRuleUpdateSchema, "regra de pedido");
-export const orderRuleBatchDeleteSchema = createBatchDeleteSchema("regra de pedido");
+export const orderRuleBatchCreateSchema = createBatchCreateSchema(
+  orderRuleCreateSchema,
+  'regra de pedido',
+);
+export const orderRuleBatchUpdateSchema = createBatchUpdateSchema(
+  orderRuleUpdateSchema,
+  'regra de pedido',
+);
+export const orderRuleBatchDeleteSchema = createBatchDeleteSchema('regra de pedido');
 export const orderRuleQuerySchema = createBatchQuerySchema(orderRuleIncludeSchema);
 
 // =====================
@@ -428,14 +471,16 @@ export type OrderRuleWhere = z.infer<typeof orderRuleWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapOrderRuleToFormData = createMapToFormDataHelper<OrderRule, OrderRuleUpdateFormData>((orderRule) => ({
-  supplierId: orderRule.supplierId,
-  isActive: orderRule.isActive,
-  priority: orderRule.priority,
-  triggerType: orderRule.triggerType,
-  consumptionDays: orderRule.consumptionDays,
-  safetyStockDays: orderRule.safetyStockDays,
-  minOrderQuantity: orderRule.minOrderQuantity,
-  maxOrderQuantity: orderRule.maxOrderQuantity,
-  orderMultiple: orderRule.orderMultiple,
-}));
+export const mapOrderRuleToFormData = createMapToFormDataHelper<OrderRule, OrderRuleUpdateFormData>(
+  orderRule => ({
+    supplierId: orderRule.supplierId,
+    isActive: orderRule.isActive,
+    priority: orderRule.priority,
+    triggerType: orderRule.triggerType,
+    consumptionDays: orderRule.consumptionDays,
+    safetyStockDays: orderRule.safetyStockDays,
+    minOrderQuantity: orderRule.minOrderQuantity,
+    maxOrderQuantity: orderRule.maxOrderQuantity,
+    orderMultiple: orderRule.orderMultiple,
+  }),
+);

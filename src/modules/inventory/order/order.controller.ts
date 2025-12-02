@@ -53,7 +53,10 @@ import {
   orderItemBatchUpdateSchema,
   orderItemBatchDeleteSchema,
 } from '../../../schemas/order';
-import { orderAnalyticsSchema, type OrderAnalyticsFormData } from '../../../schemas/order-analytics';
+import {
+  orderAnalyticsSchema,
+  type OrderAnalyticsFormData,
+} from '../../../schemas/order-analytics';
 import type { OrderAnalyticsResponse } from '../../../types/order-analytics';
 import type {
   OrderGetManyFormData,
@@ -171,19 +174,23 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'budgets', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'receipts', maxCount: 10 },
-      { name: 'reimbursements', maxCount: 10 },
-      { name: 'reimbursementInvoices', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'budgets', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'receipts', maxCount: 10 },
+        { name: 'reimbursements', maxCount: 10 },
+        { name: 'reimbursementInvoices', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async create(
     @Body(new ZodValidationPipe(orderCreateSchema)) data: OrderCreateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
@@ -258,20 +265,24 @@ export class OrderController {
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'budgets', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'receipts', maxCount: 10 },
-      { name: 'reimbursements', maxCount: 10 },
-      { name: 'reimbursementInvoices', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'budgets', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'receipts', maxCount: 10 },
+        { name: 'reimbursements', maxCount: 10 },
+        { name: 'reimbursementInvoices', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(orderUpdateSchema)) data: OrderUpdateFormData,
     @Query(new ZodQueryValidationPipe(orderQuerySchema)) query: OrderQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
@@ -288,12 +299,15 @@ export class OrderController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[ORDER UPDATE CONTROLLER] ${key} (${fileArray.length} files):`, fileArray.map(f => ({
-            name: f.originalname,
-            size: f.size,
-            mimetype: f.mimetype,
-            path: f.path
-          })));
+          console.log(
+            `[ORDER UPDATE CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({
+              name: f.originalname,
+              size: f.size,
+              mimetype: f.mimetype,
+              path: f.path,
+            })),
+          );
         } else {
           console.log(`[ORDER UPDATE CONTROLLER] ${key}: empty or undefined`);
         }
@@ -324,7 +338,7 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadBudget() {
     throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "budgets" para enviar arquivos.'
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "budgets" para enviar arquivos.',
     );
   }
 
@@ -332,7 +346,7 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadInvoice() {
     throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "invoices" para enviar arquivos.'
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "invoices" para enviar arquivos.',
     );
   }
 
@@ -340,7 +354,7 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadReceipt() {
     throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "receipts" para enviar arquivos.'
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "receipts" para enviar arquivos.',
     );
   }
 
@@ -348,7 +362,7 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadReimbursement() {
     throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursements" para enviar arquivos.'
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursements" para enviar arquivos.',
     );
   }
 
@@ -356,7 +370,7 @@ export class OrderController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async uploadReimbursementInvoice() {
     throw new BadRequestException(
-      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursementInvoices" para enviar arquivos.'
+      'Este endpoint está obsoleto. Use PUT /orders/:id com campo "reimbursementInvoices" para enviar arquivos.',
     );
   }
 }

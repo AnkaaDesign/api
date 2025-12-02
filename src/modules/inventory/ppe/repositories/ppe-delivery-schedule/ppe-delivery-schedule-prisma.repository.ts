@@ -10,7 +10,12 @@ import {
   PpeDeliveryScheduleOrderBy,
   PpeDeliveryScheduleWhere,
 } from '../../../../../schemas';
-import { CreateOptions, FindManyOptions, FindManyResult, UpdateOptions } from '../../../../../types';
+import {
+  CreateOptions,
+  FindManyOptions,
+  FindManyResult,
+  UpdateOptions,
+} from '../../../../../types';
 import { PpeDeliveryScheduleRepository } from './ppe-delivery-schedule.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -20,7 +25,6 @@ import {
   Month,
   Prisma,
   PpeType,
-  RescheduleReason,
   ScheduleFrequency,
 } from '@prisma/client';
 import { SCHEDULE_FREQUENCY } from '../../../../../constants';
@@ -64,7 +68,6 @@ export class PpeDeliverySchedulePrismaRepository
       dayOfWeek,
       month,
       customMonths,
-      rescheduleReason,
       assignmentType,
       excludedUserIds,
       includedUserIds,
@@ -78,7 +81,6 @@ export class PpeDeliverySchedulePrismaRepository
       dayOfWeek: dayOfWeek as DayOfWeek | null | undefined,
       month: month as Month | null | undefined,
       customMonths: customMonths as Month[] | undefined,
-      rescheduleReason: rescheduleReason as RescheduleReason | null | undefined,
       assignmentType: (assignmentType || 'ALL') as AssignmentType,
       excludedUserIds: excludedUserIds || [],
       includedUserIds: includedUserIds || [],
@@ -101,7 +103,6 @@ export class PpeDeliverySchedulePrismaRepository
       dayOfWeek,
       month,
       customMonths,
-      rescheduleReason,
       assignmentType,
       excludedUserIds,
       includedUserIds,
@@ -127,9 +128,6 @@ export class PpeDeliverySchedulePrismaRepository
     }
     if (customMonths !== undefined) {
       updateInput.customMonths = customMonths as Month[];
-    }
-    if (rescheduleReason !== undefined) {
-      updateInput.rescheduleReason = rescheduleReason as RescheduleReason | null;
     }
     if (assignmentType !== undefined) {
       updateInput.assignmentType = assignmentType as AssignmentType;
@@ -715,5 +713,4 @@ export class PpeDeliverySchedulePrismaRepository
       throw error;
     }
   }
-
 }

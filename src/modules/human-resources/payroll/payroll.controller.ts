@@ -82,12 +82,13 @@ export class PayrollController {
 
   /**
    * Get payroll by ID - Standard entity retrieval
+   * Supports both database UUIDs and composite live IDs (live-{userId}-{year}-{month})
    */
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async findById(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Query(new ZodQueryValidationPipe(payrollQuerySchema)) query: PayrollQueryFormData,
     @UserId() userId: string,
   ) {
@@ -107,7 +108,7 @@ export class PayrollController {
       discounts: true,
     };
 
-    const payroll = await this.payrollService.findById(id, defaultInclude);
+    const payroll = await this.payrollService.findByIdOrLive(id, defaultInclude);
 
     if (!payroll) {
       return {
@@ -153,10 +154,7 @@ export class PayrollController {
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @WriteRateLimit()
   @HttpCode(HttpStatus.OK)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     await this.payrollService.delete(id, userId);
     return {
       success: true,
@@ -180,7 +178,7 @@ export class PayrollController {
   ) {
     const result = await this.payrollService.batchUpdate(
       data.updates!.map(u => ({ id: u.id!, data: u.data! })),
-      userId
+      userId,
     );
     return {
       success: true,
@@ -252,7 +250,8 @@ export class PayrollController {
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async getLiveCalculations(
-    @Query(new ZodQueryValidationPipe(payrollLiveCalculationSchema)) query: PayrollLiveCalculationParams,
+    @Query(new ZodQueryValidationPipe(payrollLiveCalculationSchema))
+    query: PayrollLiveCalculationParams,
     @UserId() userId: string,
   ) {
     const now = new Date();
@@ -404,6 +403,64 @@ export class PayrollController {
   }
 
   // =====================
+  // Personal Payroll Endpoints
+  // =====================
+
+  /**
+   * Get current user's payroll for a specific period
+   * Returns live calculation if not yet saved, or saved data if finalized
+   */
+  @Get('me/:year/:month')
+  @ReadRateLimit()
+  async getMyPayroll(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+    @UserId() userId: string,
+  ) {
+    // Validate month and year
+    if (month < 1 || month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+
+    const defaultInclude = {
+      user: {
+        include: {
+          position: true,
+          sector: true,
+        },
+      },
+      bonus: {
+        include: {
+          tasks: true,
+          bonusDiscounts: true,
+        },
+      },
+      discounts: true,
+    };
+
+    const payroll = await this.payrollService.findByUserAndMonth(
+      userId,
+      year,
+      month,
+      defaultInclude,
+    );
+
+    // If no saved payroll, calculate live
+    if (!payroll) {
+      return this.payrollService.calculateLivePayrollData(userId, year, month);
+    }
+
+    return {
+      success: true,
+      message: 'Folha de pagamento obtida com sucesso.',
+      data: payroll,
+    };
+  }
+
+  // =====================
   // Bonus Simulation
   // =====================
 
@@ -438,7 +495,8 @@ export class PayrollController {
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   async simulateBonuses(
-    @Body() params: {
+    @Body()
+    params: {
       year: number;
       month: number;
       taskQuantity?: number;

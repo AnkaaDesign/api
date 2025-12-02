@@ -13,7 +13,12 @@ import {
 import { CutRepository } from './cut.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { CreateOptions, UpdateOptions, FindManyOptions, FindManyResult } from '../../../../../types';
+import {
+  CreateOptions,
+  UpdateOptions,
+  FindManyOptions,
+  FindManyResult,
+} from '../../../../../types';
 import { Prisma } from '@prisma/client';
 
 @Injectable()

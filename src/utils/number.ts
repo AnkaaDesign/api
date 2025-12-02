@@ -4,14 +4,18 @@
 // Currency Formatting
 // =====================
 
-export const formatCurrency = (value: number, locale: string = "pt-BR", currency: string = "BRL"): string => {
+export const formatCurrency = (
+  value: number,
+  locale: string = 'pt-BR',
+  currency: string = 'BRL',
+): string => {
   return new Intl.NumberFormat(locale, {
-    style: "currency",
+    style: 'currency',
     currency: currency,
   }).format(value);
 };
 
-export const formatCurrencyCompact = (value: number, locale: string = "pt-BR"): string => {
+export const formatCurrencyCompact = (value: number, locale: string = 'pt-BR'): string => {
   if (value >= 1000000000) {
     return `R$ ${(value / 1000000000).toFixed(1)}B`;
   } else if (value >= 1000000) {
@@ -22,7 +26,7 @@ export const formatCurrencyCompact = (value: number, locale: string = "pt-BR"): 
   return formatCurrency(value, locale);
 };
 
-export const formatCurrencyWithoutSymbol = (value: number, locale: string = "pt-BR"): string => {
+export const formatCurrencyWithoutSymbol = (value: number, locale: string = 'pt-BR'): string => {
   return new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -32,9 +36,9 @@ export const formatCurrencyWithoutSymbol = (value: number, locale: string = "pt-
 export const parseCurrency = (value: string): number => {
   // Remove currency symbols and convert to number
   const cleanValue = value
-    .replace(/[R$\s]/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
+    .replace(/[R$\s]/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.');
 
   const number = parseFloat(cleanValue);
   return isNaN(number) ? 0 : number;
@@ -44,26 +48,34 @@ export const parseCurrency = (value: string): number => {
 // Number Formatting
 // =====================
 
-export const formatNumber = (value: number, locale: string = "pt-BR"): string => {
+export const formatNumber = (value: number, locale: string = 'pt-BR'): string => {
   return new Intl.NumberFormat(locale).format(value);
 };
 
-export const formatNumberWithDecimals = (value: number, decimals: number = 2, locale: string = "pt-BR"): string => {
+export const formatNumberWithDecimals = (
+  value: number,
+  decimals: number = 2,
+  locale: string = 'pt-BR',
+): string => {
   return new Intl.NumberFormat(locale, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(value);
 };
 
-export const formatPercentage = (value: number, decimals: number = 1, locale: string = "pt-BR"): string => {
+export const formatPercentage = (
+  value: number,
+  decimals: number = 1,
+  locale: string = 'pt-BR',
+): string => {
   return new Intl.NumberFormat(locale, {
-    style: "percent",
+    style: 'percent',
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(value / 100);
 };
 
-export const formatNumberCompact = (value: number, locale: string = "pt-BR"): string => {
+export const formatNumberCompact = (value: number, locale: string = 'pt-BR'): string => {
   if (value >= 1000000000) {
     return `${(value / 1000000000).toFixed(1)}B`;
   } else if (value >= 1000000) {
@@ -74,13 +86,13 @@ export const formatNumberCompact = (value: number, locale: string = "pt-BR"): st
   return formatNumber(value, locale);
 };
 
-export const formatOrdinal = (value: number, locale: string = "pt-BR"): string => {
-  if (locale === "pt-BR") {
+export const formatOrdinal = (value: number, locale: string = 'pt-BR'): string => {
+  if (locale === 'pt-BR') {
     return `${value}º`;
   }
 
   // English ordinals
-  const suffixes = ["th", "st", "nd", "rd"];
+  const suffixes = ['th', 'st', 'nd', 'rd'];
   const remainder = value % 100;
   const suffix = suffixes[(remainder - 20) % 10] || suffixes[remainder] || suffixes[0];
   return `${value}${suffix}`;
@@ -91,7 +103,7 @@ export const formatOrdinal = (value: number, locale: string = "pt-BR"): string =
 // =====================
 
 export const isValidNumber = (value: unknown): value is number => {
-  return typeof value === "number" && !isNaN(value) && isFinite(value);
+  return typeof value === 'number' && !isNaN(value) && isFinite(value);
 };
 
 export const isPositiveNumber = (value: number): boolean => {
@@ -110,7 +122,12 @@ export const isInRange = (value: number, min: number, max: number): boolean => {
   return isValidNumber(value) && value >= min && value <= max;
 };
 
-export const validateNumberRange = (value: number, min?: number, max?: number, fieldName: string = "Valor"): string[] => {
+export const validateNumberRange = (
+  value: number,
+  min?: number,
+  max?: number,
+  fieldName: string = 'Valor',
+): string[] => {
   const errors: string[] = [];
 
   if (!isValidNumber(value)) {
@@ -133,19 +150,19 @@ export const validateNumberRange = (value: number, min?: number, max?: number, f
 // Number Parsing
 // =====================
 
-export const parseNumber = (value: string, locale: string = "pt-BR"): number => {
-  if (!value || typeof value !== "string") return 0;
+export const parseNumber = (value: string, locale: string = 'pt-BR'): number => {
+  if (!value || typeof value !== 'string') return 0;
 
   let cleanValue = value.trim();
 
-  if (locale === "pt-BR") {
+  if (locale === 'pt-BR') {
     // Brazilian format: 1.234.567,89
     cleanValue = cleanValue
-      .replace(/\./g, "") // Remove thousands separators
-      .replace(",", "."); // Replace decimal comma with dot
+      .replace(/\./g, '') // Remove thousands separators
+      .replace(',', '.'); // Replace decimal comma with dot
   } else {
     // US format: 1,234,567.89
-    cleanValue = cleanValue.replace(/,/g, ""); // Remove thousands separators
+    cleanValue = cleanValue.replace(/,/g, ''); // Remove thousands separators
   }
 
   const number = parseFloat(cleanValue);
@@ -158,7 +175,7 @@ export const parseInteger = (value: string): number => {
 };
 
 export const parsePercentage = (value: string): number => {
-  const cleanValue = value.replace("%", "").trim();
+  const cleanValue = value.replace('%', '').trim();
   const number = parseNumber(cleanValue);
   return number;
 };
@@ -249,7 +266,10 @@ export const calculateDiscount = (originalValue: number, discountPercentage: num
   return roundToDecimals(originalValue * (discountPercentage / 100), 2);
 };
 
-export const calculateDiscountedValue = (originalValue: number, discountPercentage: number): number => {
+export const calculateDiscountedValue = (
+  originalValue: number,
+  discountPercentage: number,
+): number => {
   return roundToDecimals(originalValue * (1 - discountPercentage / 100), 2);
 };
 
@@ -288,12 +308,22 @@ export const calculateSimpleInterest = (principal: number, rate: number, time: n
   return roundToDecimals(principal * (rate / 100) * time, 2);
 };
 
-export const calculateCompoundInterest = (principal: number, rate: number, time: number, compoundingFrequency: number = 1): number => {
-  const amount = principal * Math.pow(1 + rate / 100 / compoundingFrequency, compoundingFrequency * time);
+export const calculateCompoundInterest = (
+  principal: number,
+  rate: number,
+  time: number,
+  compoundingFrequency: number = 1,
+): number => {
+  const amount =
+    principal * Math.pow(1 + rate / 100 / compoundingFrequency, compoundingFrequency * time);
   return roundToDecimals(amount - principal, 2);
 };
 
-export const calculateMonthlyPayment = (principal: number, annualRate: number, years: number): number => {
+export const calculateMonthlyPayment = (
+  principal: number,
+  annualRate: number,
+  years: number,
+): number => {
   const monthlyRate = annualRate / 100 / 12;
   const numberOfPayments = years * 12;
 
@@ -301,7 +331,9 @@ export const calculateMonthlyPayment = (principal: number, annualRate: number, y
     return principal / numberOfPayments;
   }
 
-  const payment = (principal * (monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments))) / (Math.pow(1 + monthlyRate, numberOfPayments) - 1);
+  const payment =
+    (principal * (monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments))) /
+    (Math.pow(1 + monthlyRate, numberOfPayments) - 1);
 
   return roundToDecimals(payment, 2);
 };
@@ -314,7 +346,7 @@ export const calculateStandardDeviation = (numbers: number[]): number => {
   if (numbers.length === 0) return 0;
 
   const avg = calculateAverage(numbers);
-  const squaredDifferences = numbers.map((num) => Math.pow(num - avg, 2));
+  const squaredDifferences = numbers.map(num => Math.pow(num - avg, 2));
   const avgSquaredDiff = calculateAverage(squaredDifferences);
 
   return roundToDecimals(Math.sqrt(avgSquaredDiff), 2);
@@ -367,7 +399,11 @@ export const generateRange = (start: number, end: number, step: number = 1): num
   return range;
 };
 
-export const generateArithmeticSequence = (firstTerm: number, commonDifference: number, numberOfTerms: number): number[] => {
+export const generateArithmeticSequence = (
+  firstTerm: number,
+  commonDifference: number,
+  numberOfTerms: number,
+): number[] => {
   const sequence: number[] = [];
 
   for (let i = 0; i < numberOfTerms; i++) {
@@ -377,7 +413,11 @@ export const generateArithmeticSequence = (firstTerm: number, commonDifference: 
   return sequence;
 };
 
-export const generateGeometricSequence = (firstTerm: number, commonRatio: number, numberOfTerms: number): number[] => {
+export const generateGeometricSequence = (
+  firstTerm: number,
+  commonRatio: number,
+  numberOfTerms: number,
+): number[] => {
   const sequence: number[] = [];
 
   for (let i = 0; i < numberOfTerms; i++) {

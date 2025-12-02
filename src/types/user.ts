@@ -1,20 +1,41 @@
 // packages/interfaces/src/user.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  BaseMergeResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION, USER_STATUS } from '@constants';
-import type { PpeSize, PpeDelivery, PpeDeliverySchedule, PpeSizeIncludes, PpeDeliveryIncludes, PpeDeliveryScheduleIncludes } from "./ppe";
-import type { SeenNotification, Notification, SeenNotificationIncludes, NotificationIncludes } from "./notification";
-import type { Position, PositionIncludes, PositionOrderBy } from "./position";
-import type { Preferences, PreferencesIncludes } from "./preferences";
-import type { Warning, WarningIncludes } from "./warning";
-import type { Sector, SectorIncludes, SectorOrderBy } from "./sector";
-import type { Vacation, VacationIncludes } from "./vacation";
-import type { Task, TaskIncludes } from "./task";
-import type { Activity, ActivityIncludes } from "./activity";
-import type { Borrow, BorrowIncludes } from "./borrow";
-import type { ChangeLog, ChangeLogIncludes } from "./changelog";
-import type { Bonus, BonusIncludes } from "./bonus";
-import type { File } from "./file";
+import type {
+  PpeSize,
+  PpeDelivery,
+  PpeDeliverySchedule,
+  PpeSizeIncludes,
+  PpeDeliveryIncludes,
+  PpeDeliveryScheduleIncludes,
+} from './ppe';
+import type {
+  SeenNotification,
+  Notification,
+  SeenNotificationIncludes,
+  NotificationIncludes,
+} from './notification';
+import type { Position, PositionIncludes, PositionOrderBy } from './position';
+import type { Preferences, PreferencesIncludes } from './preferences';
+import type { Warning, WarningIncludes } from './warning';
+import type { Sector, SectorIncludes, SectorOrderBy } from './sector';
+import type { Vacation, VacationIncludes } from './vacation';
+import type { Task, TaskIncludes } from './task';
+import type { Activity, ActivityIncludes } from './activity';
+import type { Borrow, BorrowIncludes } from './borrow';
+import type { ChangeLog, ChangeLogIncludes } from './changelog';
+import type { Bonus, BonusIncludes } from './bonus';
+import type { File } from './file';
 
 // =====================
 // Main Entity Interface
@@ -273,4 +294,5 @@ export interface UserMergeResponse extends BaseMergeResponse<User> {}
 
 export interface UserBatchCreateResponse<T> extends BaseBatchResponse<User, T> {}
 export interface UserBatchUpdateResponse<T> extends BaseBatchResponse<User, T & { id: string }> {}
-export interface UserBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface UserBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

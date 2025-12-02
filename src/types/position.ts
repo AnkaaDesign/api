@@ -1,8 +1,16 @@
 // packages/interfaces/src/position.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Main Entity Interfaces
@@ -92,4 +100,5 @@ export interface PositionDeleteResponse extends BaseDeleteResponse {}
 // Position batch operations
 export interface PositionBatchCreateResponse<T = any> extends BaseBatchResponse<Position, T> {}
 export interface PositionBatchUpdateResponse<T = any> extends BaseBatchResponse<Position, T> {}
-export interface PositionBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PositionBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

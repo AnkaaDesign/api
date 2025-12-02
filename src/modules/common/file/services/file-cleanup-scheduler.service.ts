@@ -30,13 +30,7 @@ export class FileCleanupSchedulerService {
 
   // Folders managed via Samba that should be excluded from orphaned file cleanup
   // These folders contain files uploaded directly via Samba and won't have database records
-  private readonly sambaExcludedFolders = [
-    'Artes',
-    'Auxiliares',
-    'Fotos',
-    'Aerografias',
-    'Backup',
-  ];
+  private readonly sambaExcludedFolders = ['Artes', 'Auxiliares', 'Fotos', 'Aerografias', 'Backup'];
 
   constructor(
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -100,11 +94,10 @@ export class FileCleanupSchedulerService {
       const missingOnDisk = await this.findFilesInDBWithoutPhysicalFile();
 
       if (missingOnDisk.length > 0) {
-        this.logger.warn(
-          `Found ${missingOnDisk.length} files in database without physical files`,
-        );
+        this.logger.warn(`Found ${missingOnDisk.length} files in database without physical files`);
         // Log them but don't delete - may be temporary network issue
-        for (const file of missingOnDisk.slice(0, 10)) { // Log first 10
+        for (const file of missingOnDisk.slice(0, 10)) {
+          // Log first 10
           this.logger.warn(`Missing file: ${file.path} (ID: ${file.id})`);
         }
       }
@@ -206,11 +199,7 @@ export class FileCleanupSchedulerService {
             continue;
           }
           // Recursively scan subdirectories
-          const subOrphans = await this.scanDirectoryForOrphans(
-            fullPath,
-            dbFilePaths,
-            skipDirs,
-          );
+          const subOrphans = await this.scanDirectoryForOrphans(fullPath, dbFilePaths, skipDirs);
           orphanedFiles.push(...subOrphans);
         } else if (entry.isFile()) {
           // Skip macOS metadata files (created by Samba/macOS clients)

@@ -80,10 +80,7 @@ export class MonitoringController {
   }
 
   @Post('health/refresh')
-  @Roles(
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.MAINTENANCE, SECTOR_PRIVILEGES.ADMIN)
   @ReadRateLimit()
   @HttpCode(HttpStatus.OK)
   async refreshHealth(@UserId() userId: string) {

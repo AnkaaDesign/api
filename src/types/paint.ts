@@ -1,10 +1,30 @@
 // packages/interfaces/src/paint.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
-import type { PAINT_FINISH, ORDER_BY_DIRECTION, COLOR_PALETTE, TRUCK_MANUFACTURER, PAINT_TYPE_ENUM } from '@constants';
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
-import type { Task, TaskIncludes } from "./task";
-import type { PaintBrand, PaintBrandIncludes, PaintBrandOrderBy, PaintBrandWhere } from "./paint-brand";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  BaseMergeResponse,
+} from './common';
+import type {
+  PAINT_FINISH,
+  ORDER_BY_DIRECTION,
+  COLOR_PALETTE,
+  TRUCK_MANUFACTURER,
+  PAINT_TYPE_ENUM,
+} from '@constants';
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
+import type { Task, TaskIncludes } from './task';
+import type {
+  PaintBrand,
+  PaintBrandIncludes,
+  PaintBrandOrderBy,
+  PaintBrandWhere,
+} from './paint-brand';
 
 // =====================
 // Main Entity Interfaces
@@ -305,17 +325,57 @@ export interface PaintTypeWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Type fields
-  type?: PAINT_TYPE_ENUM | { equals?: PAINT_TYPE_ENUM; not?: PAINT_TYPE_ENUM; in?: PAINT_TYPE_ENUM[]; notIn?: PAINT_TYPE_ENUM[] };
+  type?:
+    | PAINT_TYPE_ENUM
+    | {
+        equals?: PAINT_TYPE_ENUM;
+        not?: PAINT_TYPE_ENUM;
+        in?: PAINT_TYPE_ENUM[];
+        notIn?: PAINT_TYPE_ENUM[];
+      };
 
   // Boolean fields
   needGround?: boolean | { equals?: boolean; not?: boolean };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   paints?: any; // Paint where conditions when filtering by related paints
@@ -334,24 +394,107 @@ export interface PaintWhere {
   paintBrandId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
-  hex?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
+  hex?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Enum fields
-  finish?: PAINT_FINISH | { equals?: PAINT_FINISH; not?: PAINT_FINISH; in?: PAINT_FINISH[]; notIn?: PAINT_FINISH[] };
-  manufacturer?: TRUCK_MANUFACTURER | { equals?: TRUCK_MANUFACTURER; not?: TRUCK_MANUFACTURER; in?: TRUCK_MANUFACTURER[]; notIn?: TRUCK_MANUFACTURER[] } | null;
-  palette?: COLOR_PALETTE | { equals?: COLOR_PALETTE; not?: COLOR_PALETTE; in?: COLOR_PALETTE[]; notIn?: COLOR_PALETTE[] };
+  finish?:
+    | PAINT_FINISH
+    | { equals?: PAINT_FINISH; not?: PAINT_FINISH; in?: PAINT_FINISH[]; notIn?: PAINT_FINISH[] };
+  manufacturer?:
+    | TRUCK_MANUFACTURER
+    | {
+        equals?: TRUCK_MANUFACTURER;
+        not?: TRUCK_MANUFACTURER;
+        in?: TRUCK_MANUFACTURER[];
+        notIn?: TRUCK_MANUFACTURER[];
+      }
+    | null;
+  palette?:
+    | COLOR_PALETTE
+    | {
+        equals?: COLOR_PALETTE;
+        not?: COLOR_PALETTE;
+        in?: COLOR_PALETTE[];
+        notIn?: COLOR_PALETTE[];
+      };
 
   // Number fields
-  paletteOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  colorOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  paletteOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  colorOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Array fields
   tags?: string[] | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   paintType?: PaintTypeWhere;
@@ -378,15 +521,68 @@ export interface PaintFormulaWhere {
   // String fields
   description?:
     | string
-    | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Number fields
-  density?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  pricePerLiter?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  density?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  pricePerLiter?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   components?: any; // PaintFormulaComponent where conditions
@@ -406,11 +602,44 @@ export interface PaintFormulaComponentWhere {
   formulaPaintId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // Number fields
-  ratio?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  ratio?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   item?: any; // Item where conditions
@@ -428,11 +657,44 @@ export interface PaintProductionWhere {
   formulaId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // Number fields
-  volumeLiters?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  volumeLiters?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   formula?: PaintFormulaWhere;
@@ -450,8 +712,30 @@ export interface PaintGroundWhere {
   groundPaintId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   paint?: PaintWhere;
@@ -534,10 +818,14 @@ export interface PaintFormulaUpdateResponse extends BaseUpdateResponse<PaintForm
 export interface PaintFormulaDeleteResponse extends BaseDeleteResponse {}
 
 // PaintFormulaComponent responses
-export interface PaintFormulaComponentGetUniqueResponse extends BaseGetUniqueResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentGetManyResponse extends BaseGetManyResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentCreateResponse extends BaseCreateResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentUpdateResponse extends BaseUpdateResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentGetUniqueResponse
+  extends BaseGetUniqueResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentGetManyResponse
+  extends BaseGetManyResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentCreateResponse
+  extends BaseCreateResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentUpdateResponse
+  extends BaseUpdateResponse<PaintFormulaComponent> {}
 export interface PaintFormulaComponentDeleteResponse extends BaseDeleteResponse {}
 
 // PaintProduction responses
@@ -553,32 +841,45 @@ export interface PaintProductionDeleteResponse extends BaseDeleteResponse {}
 
 // PaintType batch operations
 export interface PaintTypeBatchCreateResponse<T> extends BaseBatchResponse<PaintType, T> {}
-export interface PaintTypeBatchUpdateResponse<T> extends BaseBatchResponse<PaintType, T & { id: string }> {}
-export interface PaintTypeBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintTypeBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintType, T & { id: string }> {}
+export interface PaintTypeBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // Paint batch operations
 export interface PaintBatchCreateResponse<T> extends BaseBatchResponse<Paint, T> {}
 export interface PaintBatchUpdateResponse<T> extends BaseBatchResponse<Paint, T & { id: string }> {}
-export interface PaintBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PaintGround batch operations
 export interface PaintGroundBatchCreateResponse<T> extends BaseBatchResponse<PaintGround, T> {}
-export interface PaintGroundBatchUpdateResponse<T> extends BaseBatchResponse<PaintGround, T & { id: string }> {}
-export interface PaintGroundBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintGroundBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintGround, T & { id: string }> {}
+export interface PaintGroundBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PaintFormula batch operations
 export interface PaintFormulaBatchCreateResponse<T> extends BaseBatchResponse<PaintFormula, T> {}
-export interface PaintFormulaBatchUpdateResponse<T> extends BaseBatchResponse<PaintFormula, T & { id: string }> {}
-export interface PaintFormulaBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintFormulaBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintFormula, T & { id: string }> {}
+export interface PaintFormulaBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PaintFormulaComponent batch operations
-export interface PaintFormulaComponentBatchCreateResponse<T> extends BaseBatchResponse<PaintFormulaComponent, T> {}
-export interface PaintFormulaComponentBatchUpdateResponse<T> extends BaseBatchResponse<PaintFormulaComponent, T & { id: string }> {}
-export interface PaintFormulaComponentBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintFormulaComponentBatchCreateResponse<T>
+  extends BaseBatchResponse<PaintFormulaComponent, T> {}
+export interface PaintFormulaComponentBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintFormulaComponent, T & { id: string }> {}
+export interface PaintFormulaComponentBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PaintProduction batch operations
-export interface PaintProductionBatchCreateResponse<T> extends BaseBatchResponse<PaintProduction, T> {}
-export interface PaintProductionBatchUpdateResponse<T> extends BaseBatchResponse<PaintProduction, T & { id: string }> {}
-export interface PaintProductionBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintProductionBatchCreateResponse<T>
+  extends BaseBatchResponse<PaintProduction, T> {}
+export interface PaintProductionBatchUpdateResponse<T>
+  extends BaseBatchResponse<PaintProduction, T & { id: string }> {}
+export interface PaintProductionBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // Dashboard types have been moved to packages/types/src/dashboard.ts

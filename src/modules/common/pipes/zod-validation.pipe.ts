@@ -629,7 +629,10 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
       if ('searchingFor' in value) {
         // Always convert searchingFor to string, even if it arrives as a number
         parsed.searchingFor = String(value.searchingFor);
-        console.log('[ZodQueryValidationPipe] Converted searchingFor to string:', parsed.searchingFor);
+        console.log(
+          '[ZodQueryValidationPipe] Converted searchingFor to string:',
+          parsed.searchingFor,
+        );
       }
 
       for (const [key, val] of Object.entries(value)) {

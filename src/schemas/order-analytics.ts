@@ -30,7 +30,7 @@ export const orderAnalyticsSchema = z
     trendGroupBy: z.enum(['day', 'week', 'month']).default('month').optional(),
   })
   .refine(
-    (data) => {
+    data => {
       return data.endDate >= data.startDate;
     },
     {

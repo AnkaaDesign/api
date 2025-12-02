@@ -1,6 +1,6 @@
 import { MAINTENANCE_STATUS_LABELS, SCHEDULE_FREQUENCY_LABELS } from '@constants';
 import { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY } from '@constants';
-import type { MaintenanceStatus, ScheduleFrequency } from "@prisma/client";
+import type { MaintenanceStatus, ScheduleFrequency } from '@prisma/client';
 
 // Re-export removed - function not needed
 
@@ -8,7 +8,9 @@ import type { MaintenanceStatus, ScheduleFrequency } from "@prisma/client";
  * Map MAINTENANCE_STATUS enum to Prisma MaintenanceStatus enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapMaintenanceStatusToPrisma(status: MAINTENANCE_STATUS | string): MaintenanceStatus {
+export function mapMaintenanceStatusToPrisma(
+  status: MAINTENANCE_STATUS | string,
+): MaintenanceStatus {
   return status as MaintenanceStatus;
 }
 
@@ -16,7 +18,9 @@ export function mapMaintenanceStatusToPrisma(status: MAINTENANCE_STATUS | string
  * Map SCHEDULE_FREQUENCY enum to Prisma ScheduleFrequency enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapScheduleFrequencyToPrisma(frequency: SCHEDULE_FREQUENCY | string): ScheduleFrequency {
+export function mapScheduleFrequencyToPrisma(
+  frequency: SCHEDULE_FREQUENCY | string,
+): ScheduleFrequency {
   return frequency as ScheduleFrequency;
 }
 
@@ -34,7 +38,10 @@ export function getMaintenanceFrequencyLabel(frequency: SCHEDULE_FREQUENCY): str
  * @param frequencyCount - The count for the frequency (e.g., 2 for "every 2 weeks")
  * @returns Formatted frequency label
  */
-export function getDynamicFrequencyLabel(frequency: SCHEDULE_FREQUENCY, frequencyCount?: number | null): string {
+export function getDynamicFrequencyLabel(
+  frequency: SCHEDULE_FREQUENCY,
+  frequencyCount?: number | null,
+): string {
   const baseLabel = SCHEDULE_FREQUENCY_LABELS[frequency] || frequency;
 
   if (!frequencyCount || frequencyCount <= 1) {
@@ -62,7 +69,7 @@ export function getDynamicFrequencyLabel(frequency: SCHEDULE_FREQUENCY, frequenc
  * @returns Formatted string like "2h 30min" or "45min" or "-" if null/undefined
  */
 export function formatMaintenanceDuration(minutes: number | null | undefined): string {
-  if (!minutes || minutes <= 0) return "-";
+  if (!minutes || minutes <= 0) return '-';
 
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;

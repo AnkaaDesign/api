@@ -221,11 +221,15 @@ export class CutService {
     try {
       // Ensure either file was provided or fileId already exists
       if (!file && !data.fileId) {
-        throw new BadRequestException('É necessário fornecer um arquivo ou um fileId para criar um corte.');
+        throw new BadRequestException(
+          'É necessário fornecer um arquivo ou um fileId para criar um corte.',
+        );
       }
 
       // Log quantity for debugging
-      this.logger.log(`[CutService.create] Received quantity: ${quantity} (type: ${typeof quantity})`);
+      this.logger.log(
+        `[CutService.create] Received quantity: ${quantity} (type: ${typeof quantity})`,
+      );
 
       // Validate quantity
       if (quantity < 1) {
@@ -242,7 +246,10 @@ export class CutService {
         if (file) {
           // Parse _context if it's a string (from FormData)
           const dataWithContext = data as any;
-          const context = typeof dataWithContext._context === 'string' ? JSON.parse(dataWithContext._context) : dataWithContext._context;
+          const context =
+            typeof dataWithContext._context === 'string'
+              ? JSON.parse(dataWithContext._context)
+              : dataWithContext._context;
 
           // Upload file using transactional method (shared by all cuts)
           // Use 'plotterAdesivo' as fileContext - the cutType param will determine the actual subfolder
@@ -288,8 +295,12 @@ export class CutService {
             entityType: ENTITY_TYPE.CUT,
             entityId: cut.id,
             action: CHANGE_ACTION.CREATE,
-            entity: extractEssentialFields(cut, getEssentialFields(ENTITY_TYPE.CUT) as (keyof Cut)[]),
-            reason: quantity > 1 ? `Novo corte criado (${i + 1} de ${quantity})` : 'Novo corte criado',
+            entity: extractEssentialFields(
+              cut,
+              getEssentialFields(ENTITY_TYPE.CUT) as (keyof Cut)[],
+            ),
+            reason:
+              quantity > 1 ? `Novo corte criado (${i + 1} de ${quantity})` : 'Novo corte criado',
             userId: userId || null,
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             transaction: tx,
@@ -361,7 +372,7 @@ export class CutService {
                       size: c.file.size,
                       thumbnailUrl: c.file.thumbnailUrl,
                       path: c.file.path,
-                    }
+                    },
                   }),
                 });
               }
@@ -389,9 +400,8 @@ export class CutService {
         return quantity === 1 ? cuts[0] : cuts;
       });
 
-      const message = quantity === 1
-        ? 'Corte criado com sucesso'
-        : `${quantity} cortes criados com sucesso`;
+      const message =
+        quantity === 1 ? 'Corte criado com sucesso' : `${quantity} cortes criados com sucesso`;
 
       return {
         success: true,
@@ -563,7 +573,7 @@ export class CutService {
                       size: c.file.size,
                       thumbnailUrl: c.file.thumbnailUrl,
                       path: c.file.path,
-                    }
+                    },
                   }),
                 });
               }

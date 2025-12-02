@@ -1,12 +1,20 @@
 // packages/schemas/src/task.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema, createDescriptionSchema, nullableDate, moneySchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  createNameSchema,
+  createDescriptionSchema,
+  nullableDate,
+  moneySchema,
+} from './common';
 import type { Task } from '@types';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, COMMISSION_STATUS } from '@constants';
-import { cutCreateNestedSchema } from "./cut";
-import { airbrushingCreateNestedSchema } from "./airbrushing";
-import { budgetCreateNestedSchema } from "./budget";
+import { cutCreateNestedSchema } from './cut';
+import { airbrushingCreateNestedSchema } from './airbrushing';
+import { budgetCreateNestedSchema } from './budget';
 
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
@@ -432,20 +440,60 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([taskWhereSchema, z.array(taskWhereSchema)]).optional(),
       OR: z.array(taskWhereSchema).optional(),
       NOT: z.union([taskWhereSchema, z.array(taskWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      name: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
-      status: z.union([z.nativeEnum(TASK_STATUS), z.object({ in: z.array(z.nativeEnum(TASK_STATUS)).optional() })]).optional(),
-      statusOrder: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      name: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      status: z
+        .union([
+          z.nativeEnum(TASK_STATUS),
+          z.object({ in: z.array(z.nativeEnum(TASK_STATUS)).optional() }),
+        ])
+        .optional(),
+      statusOrder: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
       serialNumber: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
       details: z.union([z.string(), z.object({ contains: z.string().optional() })]).optional(),
-      commission: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      entryDate: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      term: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      startedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      finishedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      customerId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
+      commission: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      entryDate: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      term: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      startedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      finishedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      customerId: z
+        .union([z.string(), z.object({ in: z.array(z.string()).optional() })])
+        .optional(),
       sectorId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       budgetId: z.string().optional(),
@@ -521,7 +569,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 // =====================
 
 const taskTransform = (data: any): any => {
-  console.log("[TaskTransform] Input data:", {
+  console.log('[TaskTransform] Input data:', {
     searchingFor: data.searchingFor,
     hasWhere: !!data.where,
     whereKeys: data.where ? Object.keys(data.where) : [],
@@ -542,34 +590,34 @@ const taskTransform = (data: any): any => {
   const andConditions: any[] = [];
 
   // Enhanced search filter - search across multiple fields and relations
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
-    console.log("[TaskTransform] Processing search term:", searchTerm);
+    console.log('[TaskTransform] Processing search term:', searchTerm);
     andConditions.push({
       OR: [
         // Direct task fields
-        { name: { contains: searchTerm, mode: "insensitive" } },
-        { serialNumber: { contains: searchTerm, mode: "insensitive" } },
-        { details: { contains: searchTerm, mode: "insensitive" } },
+        { name: { contains: searchTerm, mode: 'insensitive' } },
+        { serialNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { details: { contains: searchTerm, mode: 'insensitive' } },
         // Related entities
-        { customer: { fantasyName: { contains: searchTerm, mode: "insensitive" } } },
-        { customer: { corporateName: { contains: searchTerm, mode: "insensitive" } } },
-        { customer: { cpf: { contains: searchTerm, mode: "insensitive" } } },
-        { customer: { cnpj: { contains: searchTerm, mode: "insensitive" } } },
-        { sector: { name: { contains: searchTerm, mode: "insensitive" } } },
-        { createdBy: { name: { contains: searchTerm, mode: "insensitive" } } },
-        { observation: { description: { contains: searchTerm, mode: "insensitive" } } },
+        { customer: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } },
+        { customer: { corporateName: { contains: searchTerm, mode: 'insensitive' } } },
+        { customer: { cpf: { contains: searchTerm, mode: 'insensitive' } } },
+        { customer: { cnpj: { contains: searchTerm, mode: 'insensitive' } } },
+        { sector: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { createdBy: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { observation: { description: { contains: searchTerm, mode: 'insensitive' } } },
         // ServiceOrder only has description field, no name field
-        { services: { some: { description: { contains: searchTerm, mode: "insensitive" } } } },
+        { services: { some: { description: { contains: searchTerm, mode: 'insensitive' } } } },
         // Paint relations - search by paint name
-        { generalPainting: { name: { contains: searchTerm, mode: "insensitive" } } },
-        { generalPainting: { code: { contains: searchTerm, mode: "insensitive" } } },
-        { logoPaints: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
-        { logoPaints: { some: { code: { contains: searchTerm, mode: "insensitive" } } } },
+        { generalPainting: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { generalPainting: { code: { contains: searchTerm, mode: 'insensitive' } } },
+        { logoPaints: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { logoPaints: { some: { code: { contains: searchTerm, mode: 'insensitive' } } } },
         // Truck search - plate, chassisNumber
-        { truck: { plate: { contains: searchTerm, mode: "insensitive" } } },
-        { truck: { chassisNumber: { contains: searchTerm, mode: "insensitive" } } },
-        { truck: { garage: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { truck: { plate: { contains: searchTerm, mode: 'insensitive' } } },
+        { truck: { chassisNumber: { contains: searchTerm, mode: 'insensitive' } } },
+        { truck: { garage: { name: { contains: searchTerm, mode: 'insensitive' } } } },
       ],
     });
     delete data.searchingFor;
@@ -731,7 +779,11 @@ const taskTransform = (data: any): any => {
   // Boolean is* filters
   if (data.isOverdue === true) {
     andConditions.push({
-      AND: [{ term: { not: null } }, { term: { lt: new Date() } }, { status: { notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED] } }],
+      AND: [
+        { term: { not: null } },
+        { term: { lt: new Date() } },
+        { status: { notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED] } },
+      ],
     });
     delete data.isOverdue;
   }
@@ -802,7 +854,7 @@ const taskTransform = (data: any): any => {
   // Assignee filtering - filter by users who created the task
   if (data.assigneeIds && Array.isArray(data.assigneeIds) && data.assigneeIds.length > 0) {
     andConditions.push({
-      createdById: { in: data.assigneeIds }
+      createdById: { in: data.assigneeIds },
     });
     delete data.assigneeIds;
   }
@@ -832,23 +884,24 @@ const taskTransform = (data: any): any => {
     delete data.garageIds;
   }
 
-
   // Date range filters
-  if (data.entryDateRange && typeof data.entryDateRange === "object") {
+  if (data.entryDateRange && typeof data.entryDateRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.entryDateRange.from) {
-      const fromDate = data.entryDateRange.from instanceof Date
-        ? data.entryDateRange.from
-        : new Date(data.entryDateRange.from);
+      const fromDate =
+        data.entryDateRange.from instanceof Date
+          ? data.entryDateRange.from
+          : new Date(data.entryDateRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.entryDateRange.to) {
-      const toDate = data.entryDateRange.to instanceof Date
-        ? data.entryDateRange.to
-        : new Date(data.entryDateRange.to);
+      const toDate =
+        data.entryDateRange.to instanceof Date
+          ? data.entryDateRange.to
+          : new Date(data.entryDateRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -859,21 +912,19 @@ const taskTransform = (data: any): any => {
     delete data.entryDateRange;
   }
 
-  if (data.termRange && typeof data.termRange === "object") {
+  if (data.termRange && typeof data.termRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.termRange.from) {
-      const fromDate = data.termRange.from instanceof Date
-        ? data.termRange.from
-        : new Date(data.termRange.from);
+      const fromDate =
+        data.termRange.from instanceof Date ? data.termRange.from : new Date(data.termRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.termRange.to) {
-      const toDate = data.termRange.to instanceof Date
-        ? data.termRange.to
-        : new Date(data.termRange.to);
+      const toDate =
+        data.termRange.to instanceof Date ? data.termRange.to : new Date(data.termRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -884,21 +935,23 @@ const taskTransform = (data: any): any => {
     delete data.termRange;
   }
 
-  if (data.startedDateRange && typeof data.startedDateRange === "object") {
+  if (data.startedDateRange && typeof data.startedDateRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.startedDateRange.from) {
-      const fromDate = data.startedDateRange.from instanceof Date
-        ? data.startedDateRange.from
-        : new Date(data.startedDateRange.from);
+      const fromDate =
+        data.startedDateRange.from instanceof Date
+          ? data.startedDateRange.from
+          : new Date(data.startedDateRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.startedDateRange.to) {
-      const toDate = data.startedDateRange.to instanceof Date
-        ? data.startedDateRange.to
-        : new Date(data.startedDateRange.to);
+      const toDate =
+        data.startedDateRange.to instanceof Date
+          ? data.startedDateRange.to
+          : new Date(data.startedDateRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -909,21 +962,23 @@ const taskTransform = (data: any): any => {
     delete data.startedDateRange;
   }
 
-  if (data.finishedDateRange && typeof data.finishedDateRange === "object") {
+  if (data.finishedDateRange && typeof data.finishedDateRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.finishedDateRange.from) {
-      const fromDate = data.finishedDateRange.from instanceof Date
-        ? data.finishedDateRange.from
-        : new Date(data.finishedDateRange.from);
+      const fromDate =
+        data.finishedDateRange.from instanceof Date
+          ? data.finishedDateRange.from
+          : new Date(data.finishedDateRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.finishedDateRange.to) {
-      const toDate = data.finishedDateRange.to instanceof Date
-        ? data.finishedDateRange.to
-        : new Date(data.finishedDateRange.to);
+      const toDate =
+        data.finishedDateRange.to instanceof Date
+          ? data.finishedDateRange.to
+          : new Date(data.finishedDateRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -934,21 +989,23 @@ const taskTransform = (data: any): any => {
     delete data.finishedDateRange;
   }
 
-  if (data.createdAtRange && typeof data.createdAtRange === "object") {
+  if (data.createdAtRange && typeof data.createdAtRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.createdAtRange.from) {
-      const fromDate = data.createdAtRange.from instanceof Date
-        ? data.createdAtRange.from
-        : new Date(data.createdAtRange.from);
+      const fromDate =
+        data.createdAtRange.from instanceof Date
+          ? data.createdAtRange.from
+          : new Date(data.createdAtRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.createdAtRange.to) {
-      const toDate = data.createdAtRange.to instanceof Date
-        ? data.createdAtRange.to
-        : new Date(data.createdAtRange.to);
+      const toDate =
+        data.createdAtRange.to instanceof Date
+          ? data.createdAtRange.to
+          : new Date(data.createdAtRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -959,21 +1016,23 @@ const taskTransform = (data: any): any => {
     delete data.createdAtRange;
   }
 
-  if (data.updatedAtRange && typeof data.updatedAtRange === "object") {
+  if (data.updatedAtRange && typeof data.updatedAtRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
     if (data.updatedAtRange.from) {
-      const fromDate = data.updatedAtRange.from instanceof Date
-        ? data.updatedAtRange.from
-        : new Date(data.updatedAtRange.from);
+      const fromDate =
+        data.updatedAtRange.from instanceof Date
+          ? data.updatedAtRange.from
+          : new Date(data.updatedAtRange.from);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.updatedAtRange.to) {
-      const toDate = data.updatedAtRange.to instanceof Date
-        ? data.updatedAtRange.to
-        : new Date(data.updatedAtRange.to);
+      const toDate =
+        data.updatedAtRange.to instanceof Date
+          ? data.updatedAtRange.to
+          : new Date(data.updatedAtRange.to);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -997,7 +1056,7 @@ const taskTransform = (data: any): any => {
 
   // Merge with existing where conditions
   if (andConditions.length > 0) {
-    console.log("[TaskTransform] andConditions count:", andConditions.length);
+    console.log('[TaskTransform] andConditions count:', andConditions.length);
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
         data.where.AND = [...data.where.AND, ...andConditions];
@@ -1009,10 +1068,10 @@ const taskTransform = (data: any): any => {
     }
   }
 
-  console.log("[TaskTransform] Final output:", {
+  console.log('[TaskTransform] Final output:', {
     hasWhere: !!data.where,
     whereKeys: data.where ? Object.keys(data.where) : [],
-    whereStringified: data.where ? JSON.stringify(data.where).substring(0, 200) : "undefined",
+    whereStringified: data.where ? JSON.stringify(data.where).substring(0, 200) : 'undefined',
     searchingFor: data.searchingFor,
   });
 
@@ -1097,15 +1156,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1115,15 +1174,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1133,15 +1192,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1151,15 +1210,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1169,15 +1228,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1187,15 +1246,15 @@ export const taskGetManySchema = z
         to: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.from && data.to) {
             return data.to >= data.from;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["to"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
         },
       )
       .optional(),
@@ -1205,15 +1264,15 @@ export const taskGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -1223,15 +1282,15 @@ export const taskGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -1247,21 +1306,24 @@ export const taskGetManySchema = z
 
 // Observation schema without taskId (will be auto-linked)
 const taskObservationCreateSchema = z.object({
-  description: z.string().min(1, "Descrição é obrigatória"),
+  description: z.string().min(1, 'Descrição é obrigatória'),
   // Accept any string for fileIds to support temporary file IDs (e.g., "1760878145245-xdmtocbjn")
   // These will be replaced with actual UUIDs after upload
-  fileIds: z.array(z.string().min(1, "ID do arquivo inválido")).optional(),
+  fileIds: z.array(z.string().min(1, 'ID do arquivo inválido')).optional(),
 });
 
 // ServiceOrder schema without taskId (will be auto-linked)
 const taskServiceOrderCreateSchema = z.object({
   status: z
     .enum(Object.values(SERVICE_ORDER_STATUS) as [string, ...string[]], {
-      errorMap: () => ({ message: "status inválido" }),
+      errorMap: () => ({ message: 'status inválido' }),
     })
     .default(SERVICE_ORDER_STATUS.PENDING),
   statusOrder: z.number().int().min(1).max(4).default(1).optional(),
-  description: z.string().min(3, { message: "Mínimo de 3 caracteres" }).max(400, { message: "Máximo de 40 caracteres atingido" }),
+  description: z
+    .string()
+    .min(3, { message: 'Mínimo de 3 caracteres' })
+    .max(400, { message: 'Máximo de 40 caracteres atingido' }),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -1270,42 +1332,60 @@ const taskServiceOrderCreateSchema = z.object({
 const taskTruckCreateSchema = z.object({
   xPosition: z.number().nullable().optional(),
   yPosition: z.number().nullable().optional(),
-  garageId: z.string().uuid("Garagem inválida").nullable().optional(),
+  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
 });
 
 // Layout data schema for embedding in task create/update
-const taskLayoutDataSchema = z.object({
-  leftSide: z.object({
-    height: z.number().positive(),
-    layoutSections: z.array(z.object({
-      width: z.number().positive(),
-      isDoor: z.boolean(),
-      doorHeight: z.number().nullable(),
-      position: z.number(),
-    })),
-    photoId: z.string().uuid().nullable().optional(),
-  }).nullable().optional(),
-  rightSide: z.object({
-    height: z.number().positive(),
-    layoutSections: z.array(z.object({
-      width: z.number().positive(),
-      isDoor: z.boolean(),
-      doorHeight: z.number().nullable(),
-      position: z.number(),
-    })),
-    photoId: z.string().uuid().nullable().optional(),
-  }).nullable().optional(),
-  backSide: z.object({
-    height: z.number().positive(),
-    layoutSections: z.array(z.object({
-      width: z.number().positive(),
-      isDoor: z.boolean(),
-      doorHeight: z.number().nullable(),
-      position: z.number(),
-    })),
-    photoId: z.string().uuid().nullable().optional(),
-  }).nullable().optional(),
-}).nullable().optional();
+const taskLayoutDataSchema = z
+  .object({
+    leftSide: z
+      .object({
+        height: z.number().positive(),
+        layoutSections: z.array(
+          z.object({
+            width: z.number().positive(),
+            isDoor: z.boolean(),
+            doorHeight: z.number().nullable(),
+            position: z.number(),
+          }),
+        ),
+        photoId: z.string().uuid().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+    rightSide: z
+      .object({
+        height: z.number().positive(),
+        layoutSections: z.array(
+          z.object({
+            width: z.number().positive(),
+            isDoor: z.boolean(),
+            doorHeight: z.number().nullable(),
+            position: z.number(),
+          }),
+        ),
+        photoId: z.string().uuid().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+    backSide: z
+      .object({
+        height: z.number().positive(),
+        layoutSections: z.array(
+          z.object({
+            width: z.number().positive(),
+            isDoor: z.boolean(),
+            doorHeight: z.number().nullable(),
+            position: z.number(),
+          }),
+        ),
+        photoId: z.string().uuid().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  })
+  .nullable()
+  .optional();
 
 // =====================
 // CRUD Schemas
@@ -1315,48 +1395,48 @@ const taskLayoutDataSchema = z.object({
 export const taskCreateSchema = z
   .object({
     // Basic fields
-    name: createNameSchema(3, 200, "nome da tarefa"),
+    name: createNameSchema(3, 200, 'nome da tarefa'),
     status: z
       .enum(Object.values(TASK_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .default(TASK_STATUS.PENDING),
     serialNumber: z
       .string()
       .optional()
       .nullable()
-      .transform((val) => (val === "" ? null : val))
-      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
-        message: "Número de série deve conter apenas letras maiúsculas, números e hífens",
+      .transform(val => (val === '' ? null : val))
+      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
+        message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
-    paintId: z.string().uuid("Tinta inválida").nullable().optional(),
-    customerId: z.string().uuid("Cliente inválido").min(1, "Cliente é obrigatório"),
-    sectorId: z.string().uuid("Setor inválido").nullable().optional(),
+    paintId: z.string().uuid('Tinta inválida').nullable().optional(),
+    customerId: z.string().uuid('Cliente inválido').min(1, 'Cliente é obrigatório'),
+    sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status de comissão inválido" }),
+        errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
       .default(COMMISSION_STATUS.FULL_COMMISSION),
 
     // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
-    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
-    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
-    artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
-    paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
+    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
+    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
+    artworkIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
+    paintIds: z.array(z.string().uuid('Tinta inválida')).optional(),
     // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
-    budgetId: z.string().uuid("Orçamento inválido").nullable().optional(),
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
+    budgetId: z.string().uuid('Orçamento inválido').nullable().optional(),
+    nfeId: z.string().uuid('NFe inválida').nullable().optional(),
+    receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
-    services: z.array(taskServiceOrderCreateSchema).min(1, "Pelo menos um serviço é obrigatório"),
+    services: z.array(taskServiceOrderCreateSchema).min(1, 'Pelo menos um serviço é obrigatório'),
     budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     truckLayoutData: taskLayoutDataSchema, // Layout data for truck
@@ -1368,24 +1448,24 @@ export const taskCreateSchema = z
     if (data.entryDate && data.term && data.term <= data.entryDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de término deve ser posterior à data de entrada",
-        path: ["term"],
+        message: 'Data de término deve ser posterior à data de entrada',
+        path: ['term'],
       });
     }
 
     if (data.entryDate && data.startedAt && data.startedAt < data.entryDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de início deve ser posterior ou igual à data de entrada",
-        path: ["startedAt"],
+        message: 'Data de início deve ser posterior ou igual à data de entrada',
+        path: ['startedAt'],
       });
     }
 
     if (data.startedAt && data.finishedAt && data.finishedAt <= data.startedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de finalização deve ser posterior à data de início",
-        path: ["finishedAt"],
+        message: 'Data de finalização deve ser posterior à data de início',
+        path: ['finishedAt'],
       });
     }
 
@@ -1393,20 +1473,20 @@ export const taskCreateSchema = z
     if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de início é obrigatória para tarefas em produção",
-        path: ["startedAt"],
+        message: 'Data de início é obrigatória para tarefas em produção',
+        path: ['startedAt'],
       });
     }
 
     if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de conclusão é obrigatória para tarefas concluídas",
-        path: ["finishedAt"],
+        message: 'Data de conclusão é obrigatória para tarefas concluídas',
+        path: ['finishedAt'],
       });
     }
   })
-  .transform((data) => {
+  .transform(data => {
     // Map artworkIds to fileIds for backend compatibility
     const transformed: any = { ...data };
     if (transformed.artworkIds) {
@@ -1420,15 +1500,18 @@ export const taskCreateSchema = z
 export const taskUpdateSchema = z
   .object({
     // Basic fields
-    name: createNameSchema(3, 200, "nome da tarefa").optional(),
+    name: createNameSchema(3, 200, 'nome da tarefa').optional(),
     status: z
       .enum(Object.values(TASK_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .optional(),
     serialNumber: z
       .string()
-      .regex(/^[A-Z0-9-]+$/, "Número de série deve conter apenas letras maiúsculas, números e hífens")
+      .regex(
+        /^[A-Z0-9-]+$/,
+        'Número de série deve conter apenas letras maiúsculas, números e hífens',
+      )
       .nullable()
       .optional(),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
@@ -1436,23 +1519,23 @@ export const taskUpdateSchema = z
     term: nullableDate.optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
-    paintId: z.string().uuid("Tinta inválida").nullable().optional(),
-    customerId: z.string().uuid("Cliente inválido").nullable().optional(),
-    sectorId: z.string().uuid("Setor inválido").nullable().optional(),
+    paintId: z.string().uuid('Tinta inválida').nullable().optional(),
+    customerId: z.string().uuid('Cliente inválido').nullable().optional(),
+    sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status de comissão inválido" }),
+        errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
       .optional(),
 
     // Relations - File arrays
-    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
-    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
-    artworkIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
-    paintIds: z.array(z.string().uuid("Tinta inválida")).optional(),
+    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
+    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
+    artworkIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
+    paintIds: z.array(z.string().uuid('Tinta inválida')).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
@@ -1466,24 +1549,24 @@ export const taskUpdateSchema = z
     if (data.entryDate && data.term && data.term <= data.entryDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de término deve ser posterior à data de entrada",
-        path: ["term"],
+        message: 'Data de término deve ser posterior à data de entrada',
+        path: ['term'],
       });
     }
 
     if (data.entryDate && data.startedAt && data.startedAt < data.entryDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de início deve ser posterior ou igual à data de entrada",
-        path: ["startedAt"],
+        message: 'Data de início deve ser posterior ou igual à data de entrada',
+        path: ['startedAt'],
       });
     }
 
     if (data.startedAt && data.finishedAt && data.finishedAt <= data.startedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de finalização deve ser posterior à data de início",
-        path: ["finishedAt"],
+        message: 'Data de finalização deve ser posterior à data de início',
+        path: ['finishedAt'],
       });
     }
 
@@ -1491,20 +1574,20 @@ export const taskUpdateSchema = z
     if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de início é obrigatória para tarefas em produção",
-        path: ["startedAt"],
+        message: 'Data de início é obrigatória para tarefas em produção',
+        path: ['startedAt'],
       });
     }
 
     if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Data de conclusão é obrigatória para tarefas concluídas",
-        path: ["finishedAt"],
+        message: 'Data de conclusão é obrigatória para tarefas concluídas',
+        path: ['finishedAt'],
       });
     }
   })
-  .transform((data) => {
+  .transform(data => {
     // Map artworkIds to fileIds for backend compatibility
     const transformed: any = { ...data };
     if (transformed.artworkIds) {
@@ -1519,22 +1602,24 @@ export const taskUpdateSchema = z
 // =====================
 
 export const taskBatchCreateSchema = z.object({
-  tasks: z.array(taskCreateSchema).min(1, "Pelo menos uma tarefa deve ser fornecida"),
+  tasks: z.array(taskCreateSchema).min(1, 'Pelo menos uma tarefa deve ser fornecida'),
 });
 
 export const taskBatchUpdateSchema = z.object({
   tasks: z
     .array(
       z.object({
-        id: z.string().uuid("Tarefa inválida"),
+        id: z.string().uuid('Tarefa inválida'),
         data: taskUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma tarefa deve ser fornecida"),
+    .min(1, 'Pelo menos uma tarefa deve ser fornecida'),
 });
 
 export const taskBatchDeleteSchema = z.object({
-  taskIds: z.array(z.string().uuid("Tarefa inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  taskIds: z
+    .array(z.string().uuid('Tarefa inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1547,7 +1632,7 @@ export const taskQuerySchema = z.object({
 // =====================
 
 export const taskDuplicateSchema = z.object({
-  taskId: z.string().uuid("Tarefa inválida"),
+  taskId: z.string().uuid('Tarefa inválida'),
   modifications: taskUpdateSchema.optional(),
 });
 
@@ -1557,7 +1642,7 @@ export const taskDuplicateSchema = z.object({
 
 export const taskGetByIdSchema = z.object({
   include: taskIncludeSchema.optional(),
-  id: z.string().uuid("Tarefa inválida"),
+  id: z.string().uuid('Tarefa inválida'),
 });
 
 // =====================
@@ -1584,7 +1669,7 @@ export type TaskWhere = z.infer<typeof taskWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormData>((task) => ({
+export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormData>(task => ({
   name: task.name,
   status: task.status,
   statusOrder: task.statusOrder || undefined,
@@ -1598,13 +1683,15 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   customerId: task.customerId,
   sectorId: task.sectorId,
   // Relations - File arrays
-  budgetIds: task.budgets?.map((budget) => budget.id),
-  invoiceIds: task.invoices?.map((invoice) => invoice.id),
-  receiptIds: task.receipts?.map((receipt) => receipt.id),
-  reimbursementIds: task.reimbursements?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: task.invoiceReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
-  artworkIds: task.artworks?.map((artwork) => artwork.id),
-  paintIds: task.logoPaints?.map((paint) => paint.id),
+  budgetIds: task.budgets?.map(budget => budget.id),
+  invoiceIds: task.invoices?.map(invoice => invoice.id),
+  receiptIds: task.receipts?.map(receipt => receipt.id),
+  reimbursementIds: task.reimbursements?.map(reimbursement => reimbursement.id),
+  reimbursementInvoiceIds: task.invoiceReimbursements?.map(
+    reimbursementInvoice => reimbursementInvoice.id,
+  ),
+  artworkIds: task.artworks?.map(artwork => artwork.id),
+  paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,
   // Complex relations need to be handled separately
 }));
@@ -1630,7 +1717,7 @@ export const taskBulkPositionUpdateSchema = z.object({
       xPosition: z.number().nullable().optional(),
       yPosition: z.number().nullable().optional(),
       garageId: z.string().uuid().nullable().optional(),
-    })
+    }),
   ),
 });
 

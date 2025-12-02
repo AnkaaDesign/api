@@ -1,19 +1,7 @@
 {
+  "buildTime": "2025-11-30T16:40:08.286Z",
   "version": "0.0.1",
-  "gitCommitSha": "8a9d78565d0968a0e678c2c890d3440bbd248dfa",
-  "gitCommitShort": "8a9d785",
-  "gitBranch": "main",
-  "gitCommitMessage": "Fix and improve the layout form",
-  "gitCommitAuthor": "Kennedy",
-  "gitCommitDate": "2025-11-03 17:32:43 -0300",
-  "buildTimestamp": "2025-11-07T19:18:27.589Z",
-  "buildNumber": "local",
-  "buildId": "local-1762543107592",
-  "environment": "production",
-  "nodeVersion": "v18.19.1",
-  "deployedBy": "kennedy",
-  "deployedAt": "2025-11-07T19:18:27.589Z",
-  "deploymentId": "local-1762543107592",
-  "deploymentMethod": "manual",
-  "ciPlatform": "local"
+  "commit": "d387b71470602fbaf06ae419198fbaa2105cfb6e",
+  "branch": "main",
+  "node": "v25.2.1"
 }

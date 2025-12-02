@@ -1,7 +1,7 @@
 // packages/utils/src/measure.ts
 
 import { MEASURE_UNIT, MEASURE_UNIT_LABELS } from '@constants';
-import { formatNumber, roundToDecimals } from "./number";
+import { formatNumber, roundToDecimals } from './number';
 
 // =====================
 // Types and Interfaces
@@ -47,10 +47,30 @@ export type DensityCalculationResult = DensityCalculationSuccess | DensityCalcul
 
 export const WEIGHT_UNITS = [MEASURE_UNIT.GRAM, MEASURE_UNIT.KILOGRAM] as const;
 export const VOLUME_UNITS = [MEASURE_UNIT.MILLILITER, MEASURE_UNIT.LITER] as const;
-export const LENGTH_UNITS = [MEASURE_UNIT.MILLIMETER, MEASURE_UNIT.CENTIMETER, MEASURE_UNIT.METER] as const;
-export const WIDTH_UNITS = [MEASURE_UNIT.MILLIMETER, MEASURE_UNIT.CENTIMETER, MEASURE_UNIT.METER] as const;
-export const COUNT_UNITS = [MEASURE_UNIT.UNIT, MEASURE_UNIT.PAIR, MEASURE_UNIT.DOZEN, MEASURE_UNIT.HUNDRED, MEASURE_UNIT.THOUSAND] as const;
-export const PACKAGING_UNITS = [MEASURE_UNIT.PACKAGE, MEASURE_UNIT.BOX, MEASURE_UNIT.ROLL, MEASURE_UNIT.SHEET, MEASURE_UNIT.SET] as const;
+export const LENGTH_UNITS = [
+  MEASURE_UNIT.MILLIMETER,
+  MEASURE_UNIT.CENTIMETER,
+  MEASURE_UNIT.METER,
+] as const;
+export const WIDTH_UNITS = [
+  MEASURE_UNIT.MILLIMETER,
+  MEASURE_UNIT.CENTIMETER,
+  MEASURE_UNIT.METER,
+] as const;
+export const COUNT_UNITS = [
+  MEASURE_UNIT.UNIT,
+  MEASURE_UNIT.PAIR,
+  MEASURE_UNIT.DOZEN,
+  MEASURE_UNIT.HUNDRED,
+  MEASURE_UNIT.THOUSAND,
+] as const;
+export const PACKAGING_UNITS = [
+  MEASURE_UNIT.PACKAGE,
+  MEASURE_UNIT.BOX,
+  MEASURE_UNIT.ROLL,
+  MEASURE_UNIT.SHEET,
+  MEASURE_UNIT.SET,
+] as const;
 
 export type WeightUnit = (typeof WEIGHT_UNITS)[number];
 export type VolumeUnit = (typeof VOLUME_UNITS)[number];
@@ -131,19 +151,19 @@ export function isPackagingUnit(unit: MEASURE_UNIT): unit is PackagingUnit {
 }
 
 export function getUnitCategory(unit: MEASURE_UNIT): string {
-  if (isWeightUnit(unit)) return "weight";
-  if (isVolumeUnit(unit)) return "volume";
-  if (isLengthUnit(unit)) return "length";
-  if (isWidthUnit(unit)) return "width";
-  if (isCountUnit(unit)) return "count";
-  if (isPackagingUnit(unit)) return "packaging";
-  return "unknown";
+  if (isWeightUnit(unit)) return 'weight';
+  if (isVolumeUnit(unit)) return 'volume';
+  if (isLengthUnit(unit)) return 'length';
+  if (isWidthUnit(unit)) return 'width';
+  if (isCountUnit(unit)) return 'count';
+  if (isPackagingUnit(unit)) return 'packaging';
+  return 'unknown';
 }
 
 export function areUnitsCompatible(fromUnit: MEASURE_UNIT, toUnit: MEASURE_UNIT): boolean {
   const fromCategory = getUnitCategory(fromUnit);
   const toCategory = getUnitCategory(toUnit);
-  return fromCategory === toCategory && fromCategory !== "unknown" && fromCategory !== "packaging";
+  return fromCategory === toCategory && fromCategory !== 'unknown' && fromCategory !== 'packaging';
 }
 
 // =====================
@@ -155,11 +175,15 @@ export function areUnitsCompatible(fromUnit: MEASURE_UNIT, toUnit: MEASURE_UNIT)
  * Supports weight, volume, length, and count conversions
  * Also supports inches for length measurements
  */
-export function convertUnits(value: number, fromUnit: MEASURE_UNIT | "INCH", toUnit: MEASURE_UNIT | "INCH"): MeasureConversionResult {
+export function convertUnits(
+  value: number,
+  fromUnit: MEASURE_UNIT | 'INCH',
+  toUnit: MEASURE_UNIT | 'INCH',
+): MeasureConversionResult {
   if (value < 0) {
     return {
       success: false,
-      error: "Valor não pode ser negativo",
+      error: 'Valor não pode ser negativo',
     };
   }
 
@@ -172,7 +196,7 @@ export function convertUnits(value: number, fromUnit: MEASURE_UNIT | "INCH", toU
   }
 
   // Handle inch conversions for length
-  if (fromUnit === "INCH" || toUnit === "INCH") {
+  if (fromUnit === 'INCH' || toUnit === 'INCH') {
     return convertWithInches(value, fromUnit, toUnit);
   }
 
@@ -213,7 +237,7 @@ export function convertUnits(value: number, fromUnit: MEASURE_UNIT | "INCH", toU
   } else {
     return {
       success: false,
-      error: "Conversão não suportada",
+      error: 'Conversão não suportada',
     };
   }
 
@@ -227,15 +251,23 @@ export function convertUnits(value: number, fromUnit: MEASURE_UNIT | "INCH", toU
 /**
  * Helper function to handle inch conversions
  */
-function convertWithInches(value: number, fromUnit: MEASURE_UNIT | "INCH", toUnit: MEASURE_UNIT | "INCH"): MeasureConversionResult {
+function convertWithInches(
+  value: number,
+  fromUnit: MEASURE_UNIT | 'INCH',
+  toUnit: MEASURE_UNIT | 'INCH',
+): MeasureConversionResult {
   // Convert from inches to metric
-  if (fromUnit === "INCH") {
+  if (fromUnit === 'INCH') {
     const mmValue = value * LENGTH_CONVERSIONS.INCH;
     if (toUnit === MEASURE_UNIT.MILLIMETER) {
       return { success: true, value: roundToDecimals(mmValue, 4), unit: MEASURE_UNIT.MILLIMETER };
     }
     if (toUnit === MEASURE_UNIT.CENTIMETER) {
-      return { success: true, value: roundToDecimals(mmValue / 10, 4), unit: MEASURE_UNIT.CENTIMETER };
+      return {
+        success: true,
+        value: roundToDecimals(mmValue / 10, 4),
+        unit: MEASURE_UNIT.CENTIMETER,
+      };
     }
     if (toUnit === MEASURE_UNIT.METER) {
       return { success: true, value: roundToDecimals(mmValue / 1000, 4), unit: MEASURE_UNIT.METER };
@@ -243,7 +275,7 @@ function convertWithInches(value: number, fromUnit: MEASURE_UNIT | "INCH", toUni
   }
 
   // Convert from metric to inches
-  if (toUnit === "INCH") {
+  if (toUnit === 'INCH') {
     let mmValue: number;
     if (fromUnit === MEASURE_UNIT.MILLIMETER) {
       mmValue = value;
@@ -259,12 +291,12 @@ function convertWithInches(value: number, fromUnit: MEASURE_UNIT | "INCH", toUni
     }
 
     const inchValue = mmValue / LENGTH_CONVERSIONS.INCH;
-    return { success: true, value: roundToDecimals(inchValue, 4), unit: "INCH" as MEASURE_UNIT };
+    return { success: true, value: roundToDecimals(inchValue, 4), unit: 'INCH' as MEASURE_UNIT };
   }
 
   return {
     success: false,
-    error: "Conversão com polegadas não suportada",
+    error: 'Conversão com polegadas não suportada',
   };
 }
 
@@ -276,32 +308,35 @@ function convertWithInches(value: number, fromUnit: MEASURE_UNIT | "INCH", toUni
  * Calculates density from weight and volume measures
  * Used for paint formulas and material specifications
  */
-export function calculateDensity(weightMeasure: MeasureValue, volumeMeasure: MeasureValue): DensityCalculationResult {
+export function calculateDensity(
+  weightMeasure: MeasureValue,
+  volumeMeasure: MeasureValue,
+): DensityCalculationResult {
   if (!isWeightUnit(weightMeasure.unit)) {
     return {
       success: false,
-      error: "Medida de peso deve usar unidade de peso (g ou kg)",
+      error: 'Medida de peso deve usar unidade de peso (g ou kg)',
     };
   }
 
   if (!isVolumeUnit(volumeMeasure.unit)) {
     return {
       success: false,
-      error: "Medida de volume deve usar unidade de volume (ml ou l)",
+      error: 'Medida de volume deve usar unidade de volume (ml ou l)',
     };
   }
 
   if (volumeMeasure.value <= 0) {
     return {
       success: false,
-      error: "Volume deve ser maior que zero",
+      error: 'Volume deve ser maior que zero',
     };
   }
 
   if (weightMeasure.value <= 0) {
     return {
       success: false,
-      error: "Peso deve ser maior que zero",
+      error: 'Peso deve ser maior que zero',
     };
   }
 
@@ -328,43 +363,50 @@ export function calculateDensity(weightMeasure: MeasureValue, volumeMeasure: Mea
   return {
     success: true,
     density: roundToDecimals(density, 4),
-    unit: "kg/l",
+    unit: 'kg/l',
   };
 }
 
 /**
  * Calculate density in grams per milliliter (common for paint formulas)
  */
-export function calculateDensityInGramsMl(weightMeasure: MeasureValue, volumeMeasure: MeasureValue): DensityCalculationResult {
+export function calculateDensityInGramsMl(
+  weightMeasure: MeasureValue,
+  volumeMeasure: MeasureValue,
+): DensityCalculationResult {
   if (!isWeightUnit(weightMeasure.unit)) {
     return {
       success: false,
-      error: "Medida de peso deve usar unidade de peso (g ou kg)",
+      error: 'Medida de peso deve usar unidade de peso (g ou kg)',
     };
   }
 
   if (!isVolumeUnit(volumeMeasure.unit)) {
     return {
       success: false,
-      error: "Medida de volume deve usar unidade de volume (ml ou l)",
+      error: 'Medida de volume deve usar unidade de volume (ml ou l)',
     };
   }
 
   if (volumeMeasure.value <= 0 || weightMeasure.value <= 0) {
     return {
       success: false,
-      error: "Peso e volume devem ser maiores que zero",
+      error: 'Peso e volume devem ser maiores que zero',
     };
   }
 
   // Convert to grams and milliliters
   const weightResult = convertUnits(weightMeasure.value, weightMeasure.unit, MEASURE_UNIT.GRAM);
-  const volumeResult = convertUnits(volumeMeasure.value, volumeMeasure.unit, MEASURE_UNIT.MILLILITER);
+  const volumeResult = convertUnits(
+    volumeMeasure.value,
+    volumeMeasure.unit,
+    MEASURE_UNIT.MILLILITER,
+  );
 
   if (!weightResult.success || !volumeResult.success) {
     return {
       success: false,
-      error: "Erro na conversão de unidades",
+      error: 'Erro na conversão de unidades',
     };
   }
 
@@ -373,7 +415,7 @@ export function calculateDensityInGramsMl(weightMeasure: MeasureValue, volumeMea
   return {
     success: true,
     density: roundToDecimals(density, 4),
-    unit: "g/ml",
+    unit: 'g/ml',
   };
 }
 
@@ -385,14 +427,20 @@ export function calculateDensityInGramsMl(weightMeasure: MeasureValue, volumeMea
  * Helper to find a specific measure type from an array of measures
  * Useful when working with items that have multiple measurements
  */
-export function getMeasureByType(measures: MeasureValue[], type: "weight" | "volume" | "length" | "width" | "count"): MeasureValue | null {
-  return measures.find((measure) => getUnitCategory(measure.unit) === type) || null;
+export function getMeasureByType(
+  measures: MeasureValue[],
+  type: 'weight' | 'volume' | 'length' | 'width' | 'count',
+): MeasureValue | null {
+  return measures.find(measure => getUnitCategory(measure.unit) === type) || null;
 }
 
 /**
  * Get the primary measure from an item's measureValue and measureUnit
  */
-export function getPrimaryMeasure(measureValue: number | null, measureUnit: MEASURE_UNIT | null): MeasureValue | null {
+export function getPrimaryMeasure(
+  measureValue: number | null,
+  measureUnit: MEASURE_UNIT | null,
+): MeasureValue | null {
   if (measureValue === null || measureUnit === null) {
     return null;
   }
@@ -406,7 +454,11 @@ export function getPrimaryMeasure(measureValue: number | null, measureUnit: MEAS
 /**
  * Format a measure value with Brazilian conventions
  */
-export function formatMeasure(measure: MeasureValue, includeUnit: boolean = true, decimals: number = 2): string {
+export function formatMeasure(
+  measure: MeasureValue,
+  includeUnit: boolean = true,
+  decimals: number = 2,
+): string {
   const formattedValue = formatNumber(roundToDecimals(measure.value, decimals));
 
   if (!includeUnit) {
@@ -423,43 +475,43 @@ export function formatMeasure(measure: MeasureValue, includeUnit: boolean = true
 export function formatMeasureVerbose(measure: MeasureValue, decimals: number = 2): string {
   const formattedValue = formatNumber(roundToDecimals(measure.value, decimals));
 
-  let unitName = "";
+  let unitName = '';
   switch (measure.unit) {
     case MEASURE_UNIT.GRAM:
-      unitName = measure.value === 1 ? "grama" : "gramas";
+      unitName = measure.value === 1 ? 'grama' : 'gramas';
       break;
     case MEASURE_UNIT.KILOGRAM:
-      unitName = measure.value === 1 ? "quilograma" : "quilogramas";
+      unitName = measure.value === 1 ? 'quilograma' : 'quilogramas';
       break;
     case MEASURE_UNIT.MILLILITER:
-      unitName = measure.value === 1 ? "mililitro" : "mililitros";
+      unitName = measure.value === 1 ? 'mililitro' : 'mililitros';
       break;
     case MEASURE_UNIT.LITER:
-      unitName = measure.value === 1 ? "litro" : "litros";
+      unitName = measure.value === 1 ? 'litro' : 'litros';
       break;
     case MEASURE_UNIT.MILLIMETER:
-      unitName = measure.value === 1 ? "milímetro" : "milímetros";
+      unitName = measure.value === 1 ? 'milímetro' : 'milímetros';
       break;
     case MEASURE_UNIT.CENTIMETER:
-      unitName = measure.value === 1 ? "centímetro" : "centímetros";
+      unitName = measure.value === 1 ? 'centímetro' : 'centímetros';
       break;
     case MEASURE_UNIT.METER:
-      unitName = measure.value === 1 ? "metro" : "metros";
+      unitName = measure.value === 1 ? 'metro' : 'metros';
       break;
     case MEASURE_UNIT.UNIT:
-      unitName = measure.value === 1 ? "unidade" : "unidades";
+      unitName = measure.value === 1 ? 'unidade' : 'unidades';
       break;
     case MEASURE_UNIT.PAIR:
-      unitName = measure.value === 1 ? "par" : "pares";
+      unitName = measure.value === 1 ? 'par' : 'pares';
       break;
     case MEASURE_UNIT.DOZEN:
-      unitName = measure.value === 1 ? "dúzia" : "dúzias";
+      unitName = measure.value === 1 ? 'dúzia' : 'dúzias';
       break;
     case MEASURE_UNIT.HUNDRED:
-      unitName = measure.value === 1 ? "centena" : "centenas";
+      unitName = measure.value === 1 ? 'centena' : 'centenas';
       break;
     case MEASURE_UNIT.THOUSAND:
-      unitName = measure.value === 1 ? "milhar" : "milhares";
+      unitName = measure.value === 1 ? 'milhar' : 'milhares';
       break;
     default:
       unitName = MEASURE_UNIT_LABELS[measure.unit];
@@ -475,32 +527,35 @@ export function formatMeasureVerbose(measure: MeasureValue, decimals: number = 2
 /**
  * Validate that two measures can be used together for density calculations
  */
-export function validateDensityMeasures(weightMeasure: MeasureValue, volumeMeasure: MeasureValue): { valid: boolean; error?: string } {
+export function validateDensityMeasures(
+  weightMeasure: MeasureValue,
+  volumeMeasure: MeasureValue,
+): { valid: boolean; error?: string } {
   if (!isWeightUnit(weightMeasure.unit)) {
     return {
       valid: false,
-      error: "Para calcular densidade, a primeira medida deve ser de peso (g ou kg)",
+      error: 'Para calcular densidade, a primeira medida deve ser de peso (g ou kg)',
     };
   }
 
   if (!isVolumeUnit(volumeMeasure.unit)) {
     return {
       valid: false,
-      error: "Para calcular densidade, a segunda medida deve ser de volume (ml ou l)",
+      error: 'Para calcular densidade, a segunda medida deve ser de volume (ml ou l)',
     };
   }
 
   if (weightMeasure.value <= 0) {
     return {
       valid: false,
-      error: "O peso deve ser maior que zero",
+      error: 'O peso deve ser maior que zero',
     };
   }
 
   if (volumeMeasure.value <= 0) {
     return {
       valid: false,
-      error: "O volume deve ser maior que zero",
+      error: 'O volume deve ser maior que zero',
     };
   }
 
@@ -512,24 +567,24 @@ export function validateDensityMeasures(weightMeasure: MeasureValue, volumeMeasu
  */
 export function validateMeasureCombination(
   measures: MeasureValue[],
-  requiredTypes: Array<"weight" | "volume" | "length" | "width" | "count">,
+  requiredTypes: Array<'weight' | 'volume' | 'length' | 'width' | 'count'>,
 ): { valid: boolean; error?: string; missing?: string[] } {
-  const availableTypes = measures.map((m) => getUnitCategory(m.unit));
-  const missing = requiredTypes.filter((type) => !availableTypes.includes(type));
+  const availableTypes = measures.map(m => getUnitCategory(m.unit));
+  const missing = requiredTypes.filter(type => !availableTypes.includes(type));
 
   if (missing.length > 0) {
-    const missingLabels = missing.map((type) => {
+    const missingLabels = missing.map(type => {
       switch (type) {
-        case "weight":
-          return "peso";
-        case "volume":
-          return "volume";
-        case "length":
-          return "comprimento";
-        case "width":
-          return "largura";
-        case "count":
-          return "quantidade";
+        case 'weight':
+          return 'peso';
+        case 'volume':
+          return 'volume';
+        case 'length':
+          return 'comprimento';
+        case 'width':
+          return 'largura';
+        case 'count':
+          return 'quantidade';
         default:
           return type;
       }
@@ -537,7 +592,7 @@ export function validateMeasureCombination(
 
     return {
       valid: false,
-      error: `Medidas obrigatórias faltando: ${missingLabels.join(", ")}`,
+      error: `Medidas obrigatórias faltando: ${missingLabels.join(', ')}`,
       missing: missingLabels,
     };
   }
@@ -552,7 +607,7 @@ export function validateMeasureRange(measure: MeasureValue): { valid: boolean; e
   if (measure.value < 0) {
     return {
       valid: false,
-      error: "Valor da medida não pode ser negativo",
+      error: 'Valor da medida não pode ser negativo',
     };
   }
 

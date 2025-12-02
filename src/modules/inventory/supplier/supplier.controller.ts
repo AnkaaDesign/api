@@ -85,9 +85,7 @@ export class SupplierController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileInterceptor('logo', multerConfig)
-  )
+  @UseInterceptors(FileInterceptor('logo', multerConfig))
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(supplierCreateSchema))
     data: SupplierCreateFormData,
@@ -154,9 +152,7 @@ export class SupplierController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  @UseInterceptors(
-    FileInterceptor('logo', multerConfig)
-  )
+  @UseInterceptors(FileInterceptor('logo', multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(supplierUpdateSchema))
