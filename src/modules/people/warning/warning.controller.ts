@@ -100,11 +100,7 @@ export class WarningController {
 
   // Team warnings endpoint for team leaders (must be before dynamic :id route)
   @Get('team-warnings')
-  @Roles(
-    SECTOR_PRIVILEGES.LEADER,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-  )
+  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async getTeamWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
     @UserId() userId: string,
@@ -116,11 +112,12 @@ export class WarningController {
       // User is not a team leader, return empty result
       return {
         success: true,
+        message: 'Nenhuma advertência encontrada',
         data: [],
         meta: {
-          currentPage: 1,
-          lastPage: 1,
-          perPage: query.limit || 25,
+          page: 1,
+          totalPages: 0,
+          take: query.limit || 25,
           totalRecords: 0,
           hasNextPage: false,
           hasPreviousPage: false,

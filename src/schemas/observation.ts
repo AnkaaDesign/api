@@ -1,7 +1,7 @@
 // packages/schemas/src/observation.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Observation } from '@types';
 
 // =====================
@@ -187,7 +187,7 @@ export const observationWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -265,9 +265,9 @@ const observationTransform = (data: any) => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { description: { contains: searchingFor, mode: "insensitive" } },
-        { task: { name: { contains: searchingFor, mode: "insensitive" } } },
-        { task: { serialNumber: { contains: searchingFor, mode: "insensitive" } } },
+        { description: { contains: searchingFor, mode: 'insensitive' } },
+        { task: { name: { contains: searchingFor, mode: 'insensitive' } } },
+        { task: { serialNumber: { contains: searchingFor, mode: 'insensitive' } } },
       ],
     });
   }
@@ -284,13 +284,17 @@ const observationTransform = (data: any) => {
 
   if (descriptionContains) {
     andConditions.push({
-      description: { contains: descriptionContains, mode: "insensitive" },
+      description: { contains: descriptionContains, mode: 'insensitive' },
     });
   }
 
   if (andConditions.length > 0) {
     if (rest.where) {
-      rest.where = rest.where.AND ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      rest.where = rest.where.AND
+        ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       rest.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -339,7 +343,7 @@ export const observationGetManySchema = z
 
 export const observationGetByIdSchema = z.object({
   include: observationIncludeSchema.optional(),
-  id: z.string().uuid("Observação inválida"),
+  id: z.string().uuid('Observação inválida'),
 });
 
 // =====================
@@ -355,21 +359,21 @@ const toFormData = <T>(data: T) => data;
 export const observationCreateSchema = z.preprocess(
   toFormData,
   z.object({
-    reason: z.string().min(1, "Motivo é obrigatório"),
-    description: z.string().min(1, "Descrição é obrigatória"),
-    taskId: z.string().uuid("Tarefa inválida"),
-    fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
-  })
+    reason: z.string().min(1, 'Motivo é obrigatório'),
+    description: z.string().min(1, 'Descrição é obrigatória'),
+    taskId: z.string().uuid('Tarefa inválida'),
+    fileIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
+  }),
 );
 
 export const observationUpdateSchema = z.preprocess(
   toFormData,
   z.object({
     reason: z.string().optional(),
-    description: z.string().min(1, "Descrição é obrigatória").optional(),
-    taskId: z.string().uuid("Tarefa inválida").optional(),
-    fileIds: z.array(z.string().uuid("Arquivo inválido")).optional(),
-  })
+    description: z.string().min(1, 'Descrição é obrigatória').optional(),
+    taskId: z.string().uuid('Tarefa inválida').optional(),
+    fileIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
+  }),
 );
 
 // =====================
@@ -377,22 +381,26 @@ export const observationUpdateSchema = z.preprocess(
 // =====================
 
 export const observationBatchCreateSchema = z.object({
-  observations: z.array(observationCreateSchema).min(1, "Pelo menos uma observação deve ser fornecida"),
+  observations: z
+    .array(observationCreateSchema)
+    .min(1, 'Pelo menos uma observação deve ser fornecida'),
 });
 
 export const observationBatchUpdateSchema = z.object({
   observations: z
     .array(
       z.object({
-        id: z.string().uuid("Observação inválida"),
+        id: z.string().uuid('Observação inválida'),
         data: observationUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma observação deve ser fornecida"),
+    .min(1, 'Pelo menos uma observação deve ser fornecida'),
 });
 
 export const observationBatchDeleteSchema = z.object({
-  observationIds: z.array(z.string().uuid("Observação inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  observationIds: z
+    .array(z.string().uuid('Observação inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -423,9 +431,12 @@ export type ObservationWhere = z.infer<typeof observationWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapObservationToFormData = createMapToFormDataHelper<Observation, ObservationUpdateFormData>((observation) => ({
+export const mapObservationToFormData = createMapToFormDataHelper<
+  Observation,
+  ObservationUpdateFormData
+>(observation => ({
   reason: observation.reason,
   description: observation.description,
   taskId: observation.taskId,
-  fileIds: observation.files?.map((file) => file.id),
+  fileIds: observation.files?.map(file => file.id),
 }));

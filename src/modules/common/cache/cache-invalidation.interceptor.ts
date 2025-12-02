@@ -1,10 +1,4 @@
-import {
-  Injectable,
-  NestInterceptor,
-  ExecutionContext,
-  CallHandler,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler, Logger } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Reflector } from '@nestjs/core';
@@ -202,7 +196,10 @@ export const InvalidateAllStatisticsCache = () =>
 /**
  * Delayed cache invalidation (useful for batch operations)
  */
-export const InvalidateCacheDelayed = (entityType: CacheInvalidationConfig['entityType'], delay: number = 5000) =>
+export const InvalidateCacheDelayed = (
+  entityType: CacheInvalidationConfig['entityType'],
+  delay: number = 5000,
+) =>
   InvalidateStatisticsCache({
     entityType,
     delay,

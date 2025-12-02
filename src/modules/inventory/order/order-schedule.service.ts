@@ -58,7 +58,7 @@ export class OrderScheduleService {
    */
   private calculateNextRunDate(schedule: OrderSchedule, fromDate?: Date): Date | null {
     const baseDate = fromDate || new Date();
-    let nextRun = new Date(baseDate);
+    const nextRun = new Date(baseDate);
     const interval = schedule.frequencyCount || 1;
 
     switch (schedule.frequency) {

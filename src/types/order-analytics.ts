@@ -85,6 +85,4 @@ export interface OrderAnalyticsData {
 /**
  * Order analytics response
  */
-export interface OrderAnalyticsResponse extends BaseResponse {
-  data: OrderAnalyticsData;
-}
+export interface OrderAnalyticsResponse extends BaseResponse<OrderAnalyticsData> {}

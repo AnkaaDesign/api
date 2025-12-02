@@ -86,9 +86,7 @@ export class ThumbnailRetrySchedulerService {
       stats.filesChecked = filesWithoutThumbnails.length;
       stats.missingThumbnails = filesWithoutThumbnails.length;
 
-      this.logger.log(
-        `Found ${filesWithoutThumbnails.length} files without thumbnails`,
-      );
+      this.logger.log(`Found ${filesWithoutThumbnails.length} files without thumbnails`);
 
       // 2. Find failed or stale thumbnail jobs
       const failedJobs = await this.findFailedThumbnailJobs();
@@ -100,9 +98,7 @@ export class ThumbnailRetrySchedulerService {
       for (const file of filesWithoutThumbnails) {
         // Check if file still exists on disk
         if (!existsSync(file.path)) {
-          this.logger.warn(
-            `Skipping ${file.filename} - file not found on disk: ${file.path}`,
-          );
+          this.logger.warn(`Skipping ${file.filename} - file not found on disk: ${file.path}`);
           continue;
         }
 
@@ -113,9 +109,7 @@ export class ThumbnailRetrySchedulerService {
           });
 
           if (existingJob && existingJob.status === 'processing') {
-            this.logger.log(
-              `Skipping ${file.filename} - job already processing`,
-            );
+            this.logger.log(`Skipping ${file.filename} - job already processing`);
             continue;
           }
 
@@ -143,9 +137,7 @@ export class ThumbnailRetrySchedulerService {
           });
 
           stats.retriesQueued++;
-          this.logger.log(
-            `Queued thumbnail retry for ${file.filename} (${priority} priority)`,
-          );
+          this.logger.log(`Queued thumbnail retry for ${file.filename} (${priority} priority)`);
         } catch (error: any) {
           const errorMsg = `Failed to queue retry for ${file.filename}: ${error.message}`;
           stats.errors.push(errorMsg);
@@ -153,16 +145,11 @@ export class ThumbnailRetrySchedulerService {
         }
       }
 
-      this.logger.log(
-        `Thumbnail retry check completed: ${stats.retriesQueued} retries queued`,
-      );
+      this.logger.log(`Thumbnail retry check completed: ${stats.retriesQueued} retries queued`);
 
       return stats;
     } catch (error: any) {
-      this.logger.error(
-        `Thumbnail retry check failed: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Thumbnail retry check failed: ${error.message}`, error.stack);
       stats.errors.push(error.message);
       return stats;
     }
@@ -196,10 +183,7 @@ export class ThumbnailRetrySchedulerService {
       const files = await this.prisma.file.findMany({
         where: {
           mimetype: { in: supportedMimeTypes },
-          OR: [
-            { thumbnailUrl: null },
-            { thumbnailUrl: '' },
-          ],
+          OR: [{ thumbnailUrl: null }, { thumbnailUrl: '' }],
         },
         select: {
           id: true,
@@ -228,9 +212,7 @@ export class ThumbnailRetrySchedulerService {
 
       return filesWithoutThumbnails;
     } catch (error: any) {
-      this.logger.error(
-        `Failed to find files without thumbnails: ${error.message}`,
-      );
+      this.logger.error(`Failed to find files without thumbnails: ${error.message}`);
       return filesWithoutThumbnails;
     }
   }
@@ -248,9 +230,7 @@ export class ThumbnailRetrySchedulerService {
     }>
   > {
     try {
-      const staleThreshold = new Date(
-        Date.now() - this.staleJobThresholdHours * 60 * 60 * 1000,
-      );
+      const staleThreshold = new Date(Date.now() - this.staleJobThresholdHours * 60 * 60 * 1000);
 
       // Find failed jobs or stale processing jobs
       const failedJobs = await this.prisma.thumbnailJob.findMany({
@@ -275,9 +255,7 @@ export class ThumbnailRetrySchedulerService {
 
       return failedJobs;
     } catch (error: any) {
-      this.logger.error(
-        `Failed to find failed thumbnail jobs: ${error.message}`,
-      );
+      this.logger.error(`Failed to find failed thumbnail jobs: ${error.message}`);
       return [];
     }
   }

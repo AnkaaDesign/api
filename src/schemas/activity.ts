@@ -1,7 +1,13 @@
 // packages/schemas/src/activity.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, quantitySchema, toFormData } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  quantitySchema,
+  toFormData,
+} from './common';
 import type { Activity } from '@types';
 import { ACTIVITY_OPERATION, ACTIVITY_REASON } from '@constants';
 
@@ -120,7 +126,9 @@ export const activityIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -425,34 +433,34 @@ const activityTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - comprehensive search across all related entities
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
 
     andConditions.push({
       OR: [
         // User name search
-        { user: { name: { contains: searchTerm, mode: "insensitive" } } },
+        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
 
         // Direct item fields
-        { item: { name: { contains: searchTerm, mode: "insensitive" } } },
-        { item: { uniCode: { contains: searchTerm, mode: "insensitive" } } },
+        { item: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { item: { uniCode: { contains: searchTerm, mode: 'insensitive' } } },
 
         // Item brand name (nested relation)
-        { item: { brand: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { item: { brand: { name: { contains: searchTerm, mode: 'insensitive' } } } },
 
         // Item category name (nested relation)
-        { item: { category: { name: { contains: searchTerm, mode: "insensitive" } } } },
+        { item: { category: { name: { contains: searchTerm, mode: 'insensitive' } } } },
 
         // Item supplier fields (nested relation)
-        { item: { supplier: { fantasyName: { contains: searchTerm, mode: "insensitive" } } } },
-        { item: { supplier: { corporateName: { contains: searchTerm, mode: "insensitive" } } } },
+        { item: { supplier: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } } },
+        { item: { supplier: { corporateName: { contains: searchTerm, mode: 'insensitive' } } } },
       ],
     });
     delete data.searchingFor;
   }
 
   // Handle hasUser filter
-  if (typeof data.hasUser === "boolean") {
+  if (typeof data.hasUser === 'boolean') {
     if (data.hasUser) {
       andConditions.push({ userId: { not: null } });
     } else {
@@ -529,10 +537,10 @@ const activityTransform = (data: any) => {
   }
 
   // Handle quantityRange filter
-  if (data.quantityRange && typeof data.quantityRange === "object") {
+  if (data.quantityRange && typeof data.quantityRange === 'object') {
     const condition: any = {};
-    if (typeof data.quantityRange.min === "number") condition.gte = data.quantityRange.min;
-    if (typeof data.quantityRange.max === "number") condition.lte = data.quantityRange.max;
+    if (typeof data.quantityRange.min === 'number') condition.gte = data.quantityRange.min;
+    if (typeof data.quantityRange.max === 'number') condition.lte = data.quantityRange.max;
     if (Object.keys(condition).length > 0) {
       andConditions.push({ quantity: condition });
     }
@@ -607,16 +615,19 @@ export const activityGetManySchema = z
 export const activityCreateSchema = z
   .object({
     quantity: quantitySchema,
-    operation: z.union([z.literal(ACTIVITY_OPERATION.INBOUND), z.literal(ACTIVITY_OPERATION.OUTBOUND)], {
-      errorMap: () => ({ message: "operação inválida" }),
-    }),
-    userId: z.string().uuid({ message: "Usuário inválido" }).nullable().optional(),
-    itemId: z.string().uuid({ message: "Item inválido" }),
-    orderId: z.string().uuid({ message: "Pedido inválido" }).nullable().optional(),
-    orderItemId: z.string().uuid({ message: "Item do pedido inválido" }).nullable().optional(),
+    operation: z.union(
+      [z.literal(ACTIVITY_OPERATION.INBOUND), z.literal(ACTIVITY_OPERATION.OUTBOUND)],
+      {
+        errorMap: () => ({ message: 'operação inválida' }),
+      },
+    ),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).nullable().optional(),
+    itemId: z.string().uuid({ message: 'Item inválido' }),
+    orderId: z.string().uuid({ message: 'Pedido inválido' }).nullable().optional(),
+    orderItemId: z.string().uuid({ message: 'Item do pedido inválido' }).nullable().optional(),
     reason: z
       .enum(Object.values(ACTIVITY_REASON) as [string, ...string[]], {
-        errorMap: () => ({ message: "motivo inválido" }),
+        errorMap: () => ({ message: 'motivo inválido' }),
       })
       .nullable()
       .optional(),
@@ -628,14 +639,14 @@ export const activityUpdateSchema = z
     quantity: quantitySchema.optional(),
     operation: z
       .union([z.literal(ACTIVITY_OPERATION.INBOUND), z.literal(ACTIVITY_OPERATION.OUTBOUND)], {
-        errorMap: () => ({ message: "operação inválida" }),
+        errorMap: () => ({ message: 'operação inválida' }),
       })
       .optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }).nullable().optional(),
-    itemId: z.string().uuid({ message: "Item inválido" }).optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).nullable().optional(),
+    itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
     reason: z
       .enum(Object.values(ACTIVITY_REASON) as [string, ...string[]], {
-        errorMap: () => ({ message: "motivo inválido" }),
+        errorMap: () => ({ message: 'motivo inválido' }),
       })
       .nullable()
       .optional(),
@@ -655,15 +666,17 @@ export const activityBatchUpdateSchema = z.object({
   activities: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Atividade inválida" }),
+        id: z.string().uuid({ message: 'Atividade inválida' }),
         data: activityUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atividade é necessária"),
+    .min(1, 'Pelo menos uma atividade é necessária'),
 });
 
 export const activityBatchDeleteSchema = z.object({
-  activityIds: z.array(z.string().uuid({ message: "Atividade inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  activityIds: z
+    .array(z.string().uuid({ message: 'Atividade inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -708,9 +721,11 @@ export type ActivityWhere = z.infer<typeof activityWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapActivityToFormData = createMapToFormDataHelper<Activity, ActivityUpdateFormData>((activity) => ({
-  quantity: activity.quantity,
-  operation: activity.operation,
-  itemId: activity.itemId,
-  reason: activity.reason,
-}));
+export const mapActivityToFormData = createMapToFormDataHelper<Activity, ActivityUpdateFormData>(
+  activity => ({
+    quantity: activity.quantity,
+    operation: activity.operation,
+    itemId: activity.itemId,
+    reason: activity.reason,
+  }),
+);

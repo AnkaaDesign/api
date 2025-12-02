@@ -219,9 +219,7 @@ export class OrderService {
 
     // Validar quantidade positiva
     if (item.orderedQuantity <= 0) {
-      throw new BadRequestException(
-        `Quantidade para o item "${itemName}" deve ser positiva.`,
-      );
+      throw new BadRequestException(`Quantidade para o item "${itemName}" deve ser positiva.`);
     }
 
     // Validar preço unitário não negativo
@@ -233,16 +231,12 @@ export class OrderService {
 
     // Validar ICMS se fornecido
     if (item.icms !== undefined && item.icms < 0) {
-      throw new BadRequestException(
-        `ICMS para o item "${itemName}" não pode ser negativo.`,
-      );
+      throw new BadRequestException(`ICMS para o item "${itemName}" não pode ser negativo.`);
     }
 
     // Validar IPI se fornecido
     if (item.ipi !== undefined && item.ipi < 0) {
-      throw new BadRequestException(
-        `IPI para o item "${itemName}" não pode ser negativo.`,
-      );
+      throw new BadRequestException(`IPI para o item "${itemName}" não pode ser negativo.`);
     }
   }
 
@@ -728,27 +722,17 @@ export class OrderService {
           const existingItems = existingOrder.items || [];
 
           // Create maps for easier lookup
-          const requestedItemsMap = new Map(
-            requestedItems.map(item => [item.itemId, item])
-          );
-          const existingItemsMap = new Map(
-            existingItems.map(item => [item.itemId, item])
-          );
+          const requestedItemsMap = new Map(requestedItems.map(item => [item.itemId, item]));
+          const existingItemsMap = new Map(existingItems.map(item => [item.itemId, item]));
 
           // Determine items to delete (existing items not in requested items)
-          const itemsToDelete = existingItems.filter(
-            item => !requestedItemsMap.has(item.itemId)
-          );
+          const itemsToDelete = existingItems.filter(item => !requestedItemsMap.has(item.itemId));
 
           // Determine items to add (requested items not in existing items)
-          const itemsToAdd = requestedItems.filter(
-            item => !existingItemsMap.has(item.itemId)
-          );
+          const itemsToAdd = requestedItems.filter(item => !existingItemsMap.has(item.itemId));
 
           // Determine items to update (requested items that exist in both)
-          const itemsToUpdate = requestedItems.filter(
-            item => existingItemsMap.has(item.itemId)
-          );
+          const itemsToUpdate = requestedItems.filter(item => existingItemsMap.has(item.itemId));
 
           // Delete removed items
           for (const item of itemsToDelete) {
@@ -778,7 +762,8 @@ export class OrderService {
             const existingItem = existingItemsMap.get(item.itemId);
             if (existingItem) {
               // Track changes for changelog
-              const hasOrderedQuantityChange = existingItem.orderedQuantity !== item.orderedQuantity;
+              const hasOrderedQuantityChange =
+                existingItem.orderedQuantity !== item.orderedQuantity;
               const hasPriceChange = existingItem.price !== item.price;
               const hasIcmsChange = existingItem.icms !== (item.icms || 0);
               const hasIpiChange = existingItem.ipi !== (item.ipi || 0);
@@ -868,7 +853,9 @@ export class OrderService {
           // After modifying items, check if order status should be automatically updated
           // This handles the case where items are removed and all remaining items are received
           if (itemsToDelete.length > 0 || itemsToUpdate.length > 0) {
-            this.logger.log(`Checking order received status after item modifications for order ${id}`);
+            this.logger.log(
+              `Checking order received status after item modifications for order ${id}`,
+            );
             await this.checkAndUpdateOrderReceivedStatus(id, tx);
           }
         }

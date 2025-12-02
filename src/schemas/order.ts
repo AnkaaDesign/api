@@ -1,7 +1,12 @@
 // packages/schemas/src/order.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, moneySchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  moneySchema,
+} from './common';
 import type { Order, OrderItem, OrderSchedule } from '@types';
 import { ORDER_STATUS, SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, MONTH_OCCURRENCE } from '@constants';
 
@@ -328,7 +333,7 @@ export const orderScheduleOrderBySchema = z
         .partial(),
     ),
   ])
-  .default({ nextRun: "asc" });
+  .default({ nextRun: 'asc' });
 
 // =====================
 // Where Schemas
@@ -389,7 +394,7 @@ export const orderWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -725,7 +730,7 @@ const orderFilters = {
   status: z
     .array(
       z.enum(Object.values(ORDER_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       }),
     )
     .optional(),
@@ -737,15 +742,15 @@ const orderFilters = {
       lte: z.coerce.date().optional(),
     })
     .refine(
-      (data) => {
+      data => {
         if (data.gte && data.lte) {
           return data.lte >= data.gte;
         }
         return true;
       },
       {
-        message: "Data final deve ser posterior ou igual à data inicial",
-        path: ["lte"],
+        message: 'Data final deve ser posterior ou igual à data inicial',
+        path: ['lte'],
       },
     )
     .optional(),
@@ -776,7 +781,7 @@ const orderScheduleFilters = {
   frequency: z
     .array(
       z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "frequência inválida" }),
+        errorMap: () => ({ message: 'frequência inválida' }),
       }),
     )
     .optional(),
@@ -788,15 +793,15 @@ const orderScheduleFilters = {
       lte: z.coerce.date().optional(),
     })
     .refine(
-      (data) => {
+      data => {
         if (data.gte && data.lte) {
           return data.lte >= data.gte;
         }
         return true;
       },
       {
-        message: "Data final deve ser posterior ou igual à data inicial",
-        path: ["lte"],
+        message: 'Data final deve ser posterior ou igual à data inicial',
+        path: ['lte'],
       },
     )
     .optional(),
@@ -821,34 +826,42 @@ const orderTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - comprehensive search across order and related entities
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
 
     andConditions.push({
       OR: [
         // Direct order fields
-        { description: { contains: searchTerm, mode: "insensitive" } },
-        { notes: { contains: searchTerm, mode: "insensitive" } },
+        { description: { contains: searchTerm, mode: 'insensitive' } },
+        { notes: { contains: searchTerm, mode: 'insensitive' } },
 
         // Supplier search
-        { supplier: { fantasyName: { contains: searchTerm, mode: "insensitive" } } },
-        { supplier: { corporateName: { contains: searchTerm, mode: "insensitive" } } },
+        { supplier: { fantasyName: { contains: searchTerm, mode: 'insensitive' } } },
+        { supplier: { corporateName: { contains: searchTerm, mode: 'insensitive' } } },
 
         // Search by item name through order items
-        { items: { some: { item: { name: { contains: searchTerm, mode: "insensitive" } } } } },
+        { items: { some: { item: { name: { contains: searchTerm, mode: 'insensitive' } } } } },
 
         // Search by item brand through order items
-        { items: { some: { item: { brand: { name: { contains: searchTerm, mode: "insensitive" } } } } } },
+        {
+          items: {
+            some: { item: { brand: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+          },
+        },
 
         // Search by item category through order items
-        { items: { some: { item: { category: { name: { contains: searchTerm, mode: "insensitive" } } } } } },
+        {
+          items: {
+            some: { item: { category: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+          },
+        },
       ],
     });
     delete data.searchingFor;
   }
 
   // Handle hasItems filter
-  if (typeof data.hasItems === "boolean") {
+  if (typeof data.hasItems === 'boolean') {
     if (data.hasItems) {
       andConditions.push({ items: { some: {} } });
     } else {
@@ -858,7 +871,7 @@ const orderTransform = (data: any) => {
   }
 
   // Handle isFromSchedule filter
-  if (typeof data.isFromSchedule === "boolean") {
+  if (typeof data.isFromSchedule === 'boolean') {
     if (data.isFromSchedule) {
       andConditions.push({ orderScheduleId: { not: null } });
     } else {
@@ -886,20 +899,22 @@ const orderTransform = (data: any) => {
   }
 
   // Handle forecastRange filter
-  if (data.forecastRange && typeof data.forecastRange === "object") {
+  if (data.forecastRange && typeof data.forecastRange === 'object') {
     const forecastCondition: any = {};
     if (data.forecastRange.gte) {
-      const fromDate = data.forecastRange.gte instanceof Date
-        ? data.forecastRange.gte
-        : new Date(data.forecastRange.gte);
+      const fromDate =
+        data.forecastRange.gte instanceof Date
+          ? data.forecastRange.gte
+          : new Date(data.forecastRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       forecastCondition.gte = fromDate;
     }
     if (data.forecastRange.lte) {
-      const toDate = data.forecastRange.lte instanceof Date
-        ? data.forecastRange.lte
-        : new Date(data.forecastRange.lte);
+      const toDate =
+        data.forecastRange.lte instanceof Date
+          ? data.forecastRange.lte
+          : new Date(data.forecastRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       forecastCondition.lte = toDate;
@@ -952,9 +967,9 @@ const orderItemTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      item: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
+      item: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
     });
     delete data.searchingFor;
   }
@@ -972,7 +987,7 @@ const orderItemTransform = (data: any) => {
   }
 
   // Handle isReceived filter
-  if (typeof data.isReceived === "boolean") {
+  if (typeof data.isReceived === 'boolean') {
     if (data.isReceived) {
       andConditions.push({ receivedAt: { not: null } });
     } else {
@@ -982,10 +997,10 @@ const orderItemTransform = (data: any) => {
   }
 
   // Handle quantityRange filter
-  if (data.quantityRange && typeof data.quantityRange === "object") {
+  if (data.quantityRange && typeof data.quantityRange === 'object') {
     const quantityCondition: any = {};
-    if (typeof data.quantityRange.min === "number") quantityCondition.gte = data.quantityRange.min;
-    if (typeof data.quantityRange.max === "number") quantityCondition.lte = data.quantityRange.max;
+    if (typeof data.quantityRange.min === 'number') quantityCondition.gte = data.quantityRange.min;
+    if (typeof data.quantityRange.max === 'number') quantityCondition.lte = data.quantityRange.max;
     if (Object.keys(quantityCondition).length > 0) {
       andConditions.push({ orderedQuantity: quantityCondition });
     }
@@ -993,10 +1008,10 @@ const orderItemTransform = (data: any) => {
   }
 
   // Handle priceRange filter
-  if (data.priceRange && typeof data.priceRange === "object") {
+  if (data.priceRange && typeof data.priceRange === 'object') {
     const priceCondition: any = {};
-    if (typeof data.priceRange.min === "number") priceCondition.gte = data.priceRange.min;
-    if (typeof data.priceRange.max === "number") priceCondition.lte = data.priceRange.max;
+    if (typeof data.priceRange.min === 'number') priceCondition.gte = data.priceRange.min;
+    if (typeof data.priceRange.max === 'number') priceCondition.lte = data.priceRange.max;
     if (Object.keys(priceCondition).length > 0) {
       andConditions.push({ price: priceCondition });
     }
@@ -1045,18 +1060,18 @@ const orderScheduleTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { category: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
+        { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
   }
 
   // Handle isActive filter
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
   }
@@ -1080,20 +1095,22 @@ const orderScheduleTransform = (data: any) => {
   }
 
   // Handle nextRunRange filter
-  if (data.nextRunRange && typeof data.nextRunRange === "object") {
+  if (data.nextRunRange && typeof data.nextRunRange === 'object') {
     const nextRunCondition: any = {};
     if (data.nextRunRange.gte) {
-      const fromDate = data.nextRunRange.gte instanceof Date
-        ? data.nextRunRange.gte
-        : new Date(data.nextRunRange.gte);
+      const fromDate =
+        data.nextRunRange.gte instanceof Date
+          ? data.nextRunRange.gte
+          : new Date(data.nextRunRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       nextRunCondition.gte = fromDate;
     }
     if (data.nextRunRange.lte) {
-      const toDate = data.nextRunRange.lte instanceof Date
-        ? data.nextRunRange.lte
-        : new Date(data.nextRunRange.lte);
+      const toDate =
+        data.nextRunRange.lte instanceof Date
+          ? data.nextRunRange.lte
+          : new Date(data.nextRunRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       nextRunCondition.lte = toDate;
@@ -1257,73 +1274,82 @@ export const orderCreateSchema = z
   .object({
     description: z
       .string({
-        required_error: "Descrição é obrigatória",
+        required_error: 'Descrição é obrigatória',
       })
-      .min(1, "Descrição é obrigatória")
-      .max(500, "Descrição deve ter no máximo 500 caracteres"),
-    forecast: z.coerce.date({ invalid_type_error: "Data de previsão inválida" }).nullable().optional(),
+      .min(1, 'Descrição é obrigatória')
+      .max(500, 'Descrição deve ter no máximo 500 caracteres'),
+    forecast: z.coerce
+      .date({ invalid_type_error: 'Data de previsão inválida' })
+      .nullable()
+      .optional(),
     status: z
       .enum(Object.values(ORDER_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status inválido" }),
+        errorMap: () => ({ message: 'Status inválido' }),
       })
       .default(ORDER_STATUS.CREATED),
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).optional(),
-    orderScheduleId: z.string().uuid({ message: "Cronograma inválido" }).optional(),
-    orderRuleId: z.string().uuid({ message: "Regra de pedido inválida" }).optional(),
-    ppeScheduleId: z.string().uuid({ message: "Agendamento EPI inválido" }).optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
+    orderScheduleId: z.string().uuid({ message: 'Cronograma inválido' }).optional(),
+    orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
+    ppeScheduleId: z.string().uuid({ message: 'Agendamento EPI inválido' }).optional(),
     notes: z.string().optional(),
     // File arrays
-    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
-    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
+    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
+    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
     items: z
       .array(
-        z.object({
-          itemId: z.string().uuid({ message: "Item inválido" }).optional(),
-          temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
-          orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
-          price: moneySchema,
-          icms: z
-            .number()
-            .min(0, "ICMS deve ser maior ou igual a 0")
-            .max(100, "ICMS deve ser menor ou igual a 100")
-            .transform((val) => Math.round(val * 100) / 100)
-            .default(0),
-          ipi: z
-            .number()
-            .min(0, "IPI deve ser maior ou igual a 0")
-            .max(100, "IPI deve ser menor ou igual a 100")
-            .transform((val) => Math.round(val * 100) / 100)
-            .default(0),
-        })
-        .superRefine((data, ctx) => {
-          // Either itemId or temporaryItemDescription must be provided, but not both
-          if (!data.itemId && !data.temporaryItemDescription) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Item de estoque ou descrição de item temporário deve ser fornecido",
-              path: ['itemId'],
-            });
-          }
-          if (data.itemId && data.temporaryItemDescription) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo",
-              path: ['itemId'],
-            });
-          }
-        }),
+        z
+          .object({
+            itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
+            temporaryItemDescription: z
+              .string()
+              .min(1, 'Descrição do item temporário é obrigatória')
+              .max(500, 'Descrição muito longa')
+              .optional(),
+            orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
+            price: moneySchema,
+            icms: z
+              .number()
+              .min(0, 'ICMS deve ser maior ou igual a 0')
+              .max(100, 'ICMS deve ser menor ou igual a 100')
+              .transform(val => Math.round(val * 100) / 100)
+              .default(0),
+            ipi: z
+              .number()
+              .min(0, 'IPI deve ser maior ou igual a 0')
+              .max(100, 'IPI deve ser menor ou igual a 100')
+              .transform(val => Math.round(val * 100) / 100)
+              .default(0),
+          })
+          .superRefine((data, ctx) => {
+            // Either itemId or temporaryItemDescription must be provided, but not both
+            if (!data.itemId && !data.temporaryItemDescription) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Item de estoque ou descrição de item temporário deve ser fornecido',
+                path: ['itemId'],
+              });
+            }
+            if (data.itemId && data.temporaryItemDescription) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                  'Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo',
+                path: ['itemId'],
+              });
+            }
+          }),
       )
       .refine(
-        (items) => {
+        items => {
           // Check for duplicate inventory items (ignore temporary items)
-          const itemIds = items.filter(item => item.itemId).map((item) => item.itemId);
+          const itemIds = items.filter(item => item.itemId).map(item => item.itemId);
           return new Set(itemIds).size === itemIds.length;
         },
         {
-          message: "Lista não pode conter itens de estoque duplicados",
+          message: 'Lista não pode conter itens de estoque duplicados',
         },
       )
       .optional(),
@@ -1333,70 +1359,76 @@ export const orderCreateSchema = z
 export const orderUpdateSchema = z
   .object({
     description: z.string().min(1).max(500).optional(),
-    forecast: z.coerce.date({ invalid_type_error: "Data de previsão inválida" }).optional(),
+    forecast: z.coerce.date({ invalid_type_error: 'Data de previsão inválida' }).optional(),
     status: z
       .enum(Object.values(ORDER_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status inválido" }),
+        errorMap: () => ({ message: 'Status inválido' }),
       })
       .optional(),
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).optional(),
-    orderScheduleId: z.string().uuid({ message: "Cronograma inválido" }).optional(),
-    orderRuleId: z.string().uuid({ message: "Regra de pedido inválida" }).optional(),
-    ppeScheduleId: z.string().uuid({ message: "Agendamento EPI inválido" }).optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
+    orderScheduleId: z.string().uuid({ message: 'Cronograma inválido' }).optional(),
+    orderRuleId: z.string().uuid({ message: 'Regra de pedido inválida' }).optional(),
+    ppeScheduleId: z.string().uuid({ message: 'Agendamento EPI inválido' }).optional(),
     notes: z.string().optional(),
     // File arrays
-    budgetIds: z.array(z.string().uuid("Orçamento inválido")).optional(),
-    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
-    reimbursementIds: z.array(z.string().uuid("Reimbursement inválido")).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid("NFe de reimbursement inválida")).optional(),
+    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
+    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
+    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
     // Items array for updating order items
     items: z
       .array(
-        z.object({
-          itemId: z.string().uuid({ message: "Item inválido" }).optional(),
-          temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
-          orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
-          price: moneySchema,
-          icms: z
-            .number()
-            .min(0, "ICMS deve ser maior ou igual a 0")
-            .max(100, "ICMS deve ser menor ou igual a 100")
-            .transform((val) => Math.round(val * 100) / 100)
-            .default(0),
-          ipi: z
-            .number()
-            .min(0, "IPI deve ser maior ou igual a 0")
-            .max(100, "IPI deve ser menor ou igual a 100")
-            .transform((val) => Math.round(val * 100) / 100)
-            .default(0),
-        })
-        .superRefine((data, ctx) => {
-          // Either itemId or temporaryItemDescription must be provided, but not both
-          if (!data.itemId && !data.temporaryItemDescription) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Item de estoque ou descrição de item temporário deve ser fornecido",
-              path: ['itemId'],
-            });
-          }
-          if (data.itemId && data.temporaryItemDescription) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo",
-              path: ['itemId'],
-            });
-          }
-        }),
+        z
+          .object({
+            itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
+            temporaryItemDescription: z
+              .string()
+              .min(1, 'Descrição do item temporário é obrigatória')
+              .max(500, 'Descrição muito longa')
+              .optional(),
+            orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
+            price: moneySchema,
+            icms: z
+              .number()
+              .min(0, 'ICMS deve ser maior ou igual a 0')
+              .max(100, 'ICMS deve ser menor ou igual a 100')
+              .transform(val => Math.round(val * 100) / 100)
+              .default(0),
+            ipi: z
+              .number()
+              .min(0, 'IPI deve ser maior ou igual a 0')
+              .max(100, 'IPI deve ser menor ou igual a 100')
+              .transform(val => Math.round(val * 100) / 100)
+              .default(0),
+          })
+          .superRefine((data, ctx) => {
+            // Either itemId or temporaryItemDescription must be provided, but not both
+            if (!data.itemId && !data.temporaryItemDescription) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Item de estoque ou descrição de item temporário deve ser fornecido',
+                path: ['itemId'],
+              });
+            }
+            if (data.itemId && data.temporaryItemDescription) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message:
+                  'Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo',
+                path: ['itemId'],
+              });
+            }
+          }),
       )
       .refine(
-        (items) => {
+        items => {
           // Check for duplicate inventory items (ignore temporary items)
-          const itemIds = items.filter(item => item.itemId).map((item) => item.itemId);
+          const itemIds = items.filter(item => item.itemId).map(item => item.itemId);
           return new Set(itemIds).size === itemIds.length;
         },
         {
-          message: "Lista não pode conter itens de estoque duplicados",
+          message: 'Lista não pode conter itens de estoque duplicados',
         },
       )
       .optional(),
@@ -1409,22 +1441,26 @@ export const orderUpdateSchema = z
 
 export const orderItemCreateSchema = z
   .object({
-    orderId: z.string().uuid({ message: "Pedido inválido" }),
-    itemId: z.string().uuid({ message: "Item inválido" }).optional(),
-    temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
-    orderedQuantity: z.number().positive("Quantidade deve ser positiva"),
+    orderId: z.string().uuid({ message: 'Pedido inválido' }),
+    itemId: z.string().uuid({ message: 'Item inválido' }).optional(),
+    temporaryItemDescription: z
+      .string()
+      .min(1, 'Descrição do item temporário é obrigatória')
+      .max(500, 'Descrição muito longa')
+      .optional(),
+    orderedQuantity: z.number().positive('Quantidade deve ser positiva'),
     price: moneySchema,
     icms: z
       .number()
-      .min(0, "ICMS deve ser maior ou igual a 0")
-      .max(100, "ICMS deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'ICMS deve ser maior ou igual a 0')
+      .max(100, 'ICMS deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .default(0),
     ipi: z
       .number()
-      .min(0, "IPI deve ser maior ou igual a 0")
-      .max(100, "IPI deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'IPI deve ser maior ou igual a 0')
+      .max(100, 'IPI deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .default(0),
   })
   .superRefine((data, ctx) => {
@@ -1432,14 +1468,15 @@ export const orderItemCreateSchema = z
     if (!data.itemId && !data.temporaryItemDescription) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Item de estoque ou descrição de item temporário deve ser fornecido",
+        message: 'Item de estoque ou descrição de item temporário deve ser fornecido',
         path: ['itemId'],
       });
     }
     if (data.itemId && data.temporaryItemDescription) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo",
+        message:
+          'Não é possível fornecer item de estoque e descrição de item temporário ao mesmo tempo',
         path: ['itemId'],
       });
     }
@@ -1448,21 +1485,25 @@ export const orderItemCreateSchema = z
 
 export const orderItemUpdateSchema = z
   .object({
-    temporaryItemDescription: z.string().min(1, "Descrição do item temporário é obrigatória").max(500, "Descrição muito longa").optional(),
-    orderedQuantity: z.number().positive("Quantidade deve ser positiva").optional(),
-    receivedQuantity: z.number().min(0, "Quantidade recebida deve ser não negativa").optional(),
+    temporaryItemDescription: z
+      .string()
+      .min(1, 'Descrição do item temporário é obrigatória')
+      .max(500, 'Descrição muito longa')
+      .optional(),
+    orderedQuantity: z.number().positive('Quantidade deve ser positiva').optional(),
+    receivedQuantity: z.number().min(0, 'Quantidade recebida deve ser não negativa').optional(),
     price: moneySchema.optional(),
     icms: z
       .number()
-      .min(0, "ICMS deve ser maior ou igual a 0")
-      .max(100, "ICMS deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'ICMS deve ser maior ou igual a 0')
+      .max(100, 'ICMS deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
     ipi: z
       .number()
-      .min(0, "IPI deve ser maior ou igual a 0")
-      .max(100, "IPI deve ser menor ou igual a 100")
-      .transform((val) => Math.round(val * 100) / 100)
+      .min(0, 'IPI deve ser maior ou igual a 0')
+      .max(100, 'IPI deve ser menor ou igual a 100')
+      .transform(val => Math.round(val * 100) / 100)
       .optional(),
     receivedAt: z.coerce.date().optional(),
     fulfilledAt: z.coerce.date().optional(),
@@ -1473,8 +1514,8 @@ export const orderItemUpdateSchema = z
       if (data.receivedQuantity > data.orderedQuantity) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Quantidade recebida não pode exceder quantidade pedida",
-          path: ["receivedQuantity"],
+          message: 'Quantidade recebida não pode exceder quantidade pedida',
+          path: ['receivedQuantity'],
         });
       }
     }
@@ -1496,12 +1537,20 @@ export const weeklyScheduleSchema = z
     sunday: z.boolean().default(false),
   })
   .refine(
-    (data) => {
+    data => {
       // At least one day must be selected
-      return data.monday || data.tuesday || data.wednesday || data.thursday || data.friday || data.saturday || data.sunday;
+      return (
+        data.monday ||
+        data.tuesday ||
+        data.wednesday ||
+        data.thursday ||
+        data.friday ||
+        data.saturday ||
+        data.sunday
+      );
     },
     {
-      message: "Pelo menos um dia da semana deve ser selecionado",
+      message: 'Pelo menos um dia da semana deve ser selecionado',
     },
   );
 
@@ -1510,76 +1559,92 @@ export const monthlyScheduleSchema = z
     dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
     occurrence: z
       .enum(Object.values(MONTH_OCCURRENCE) as [string, ...string[]], {
-        errorMap: () => ({ message: "Ocorrência inválida" }),
+        errorMap: () => ({ message: 'Ocorrência inválida' }),
       })
       .nullable()
       .optional(),
     dayOfWeek: z
       .enum(Object.values(WEEK_DAY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Dia da semana inválido" }),
+        errorMap: () => ({ message: 'Dia da semana inválido' }),
       })
       .nullable()
       .optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Either dayOfMonth OR (occurrence + dayOfWeek) must be set
       const hasDayOfMonth = data.dayOfMonth !== null && data.dayOfMonth !== undefined;
-      const hasOccurrencePattern = data.occurrence !== null && data.occurrence !== undefined && data.dayOfWeek !== null && data.dayOfWeek !== undefined;
+      const hasOccurrencePattern =
+        data.occurrence !== null &&
+        data.occurrence !== undefined &&
+        data.dayOfWeek !== null &&
+        data.dayOfWeek !== undefined;
       return hasDayOfMonth || hasOccurrencePattern;
     },
     {
-      message: "Deve especificar o dia do mês OU o padrão de ocorrência (ex: primeira segunda-feira)",
+      message:
+        'Deve especificar o dia do mês OU o padrão de ocorrência (ex: primeira segunda-feira)',
     },
   );
 
 export const yearlyScheduleSchema = z
   .object({
     month: z.enum(Object.values(MONTH) as [string, ...string[]], {
-      errorMap: () => ({ message: "Mês inválido" }),
+      errorMap: () => ({ message: 'Mês inválido' }),
     }),
     dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
     occurrence: z
       .enum(Object.values(MONTH_OCCURRENCE) as [string, ...string[]], {
-        errorMap: () => ({ message: "Ocorrência inválida" }),
+        errorMap: () => ({ message: 'Ocorrência inválida' }),
       })
       .nullable()
       .optional(),
     dayOfWeek: z
       .enum(Object.values(WEEK_DAY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Dia da semana inválido" }),
+        errorMap: () => ({ message: 'Dia da semana inválido' }),
       })
       .nullable()
       .optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Either dayOfMonth OR (occurrence + dayOfWeek) must be set
       const hasDayOfMonth = data.dayOfMonth !== null && data.dayOfMonth !== undefined;
-      const hasOccurrencePattern = data.occurrence !== null && data.occurrence !== undefined && data.dayOfWeek !== null && data.dayOfWeek !== undefined;
+      const hasOccurrencePattern =
+        data.occurrence !== null &&
+        data.occurrence !== undefined &&
+        data.dayOfWeek !== null &&
+        data.dayOfWeek !== undefined;
       return hasDayOfMonth || hasOccurrencePattern;
     },
     {
-      message: "Deve especificar o dia do mês OU o padrão de ocorrência (ex: primeira segunda-feira)",
+      message:
+        'Deve especificar o dia do mês OU o padrão de ocorrência (ex: primeira segunda-feira)',
     },
   );
 
 export const orderScheduleCreateSchema = z
   .object({
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).optional(),
-    categoryId: z.string().uuid({ message: "Categoria inválida" }).optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
+    categoryId: z.string().uuid({ message: 'Categoria inválida' }).optional(),
     frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-      errorMap: () => ({ message: "Frequência inválida" }),
+      errorMap: () => ({ message: 'Frequência inválida' }),
     }),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").default(1),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .default(1),
     isActive: z.boolean().default(true),
-    items: z.array(z.string().uuid({ message: "Item inválido" })).min(1, "Deve incluir pelo menos um item"),
+    items: z
+      .array(z.string().uuid({ message: 'Item inválido' }))
+      .min(1, 'Deve incluir pelo menos um item'),
     weeklySchedule: weeklyScheduleSchema.optional(),
     monthlySchedule: monthlyScheduleSchema.optional(),
     yearlySchedule: yearlyScheduleSchema.optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate that appropriate schedule config is provided based on frequency
       switch (data.frequency) {
         case SCHEDULE_FREQUENCY.WEEKLY:
@@ -1595,32 +1660,36 @@ export const orderScheduleCreateSchema = z
       }
     },
     {
-      message: "Configuração de agendamento necessária para a frequência selecionada",
+      message: 'Configuração de agendamento necessária para a frequência selecionada',
     },
   )
   .refine(
-    (data) => {
+    data => {
       // Either supplier or category must be specified
       return data.supplierId || data.categoryId;
     },
     {
-      message: "Deve especificar um fornecedor ou categoria",
+      message: 'Deve especificar um fornecedor ou categoria',
     },
   )
   .transform(toFormData);
 
 export const orderScheduleUpdateSchema = z
   .object({
-    supplierId: z.string().uuid({ message: "Fornecedor inválido" }).optional(),
-    categoryId: z.string().uuid({ message: "Categoria inválida" }).optional(),
+    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
+    categoryId: z.string().uuid({ message: 'Categoria inválida' }).optional(),
     frequency: z
       .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       })
       .optional(),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").optional(),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .optional(),
     isActive: z.boolean().optional(),
-    items: z.array(z.string().uuid({ message: "Item inválido" })).optional(),
+    items: z.array(z.string().uuid({ message: 'Item inválido' })).optional(),
     weeklySchedule: weeklyScheduleSchema.optional(),
     monthlySchedule: monthlyScheduleSchema.optional(),
     yearlySchedule: yearlyScheduleSchema.optional(),
@@ -1632,26 +1701,29 @@ export const orderScheduleUpdateSchema = z
 // =====================
 
 export const orderBatchCreateSchema = z.object({
-  orders: z.array(orderCreateSchema).min(1, "Pelo menos um pedido deve ser fornecido").max(100, "Limite máximo de 100 pedidos por vez"),
+  orders: z
+    .array(orderCreateSchema)
+    .min(1, 'Pelo menos um pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 pedidos por vez'),
 });
 
 export const orderBatchUpdateSchema = z.object({
   orders: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Pedido inválido" }),
+        id: z.string().uuid({ message: 'Pedido inválido' }),
         data: orderUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um pedido deve ser fornecido")
-    .max(100, "Limite máximo de 100 pedidos por vez"),
+    .min(1, 'Pelo menos um pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 pedidos por vez'),
 });
 
 export const orderBatchDeleteSchema = z.object({
   orderIds: z
-    .array(z.string().uuid({ message: "Pedido inválido" }))
-    .min(1, "Pelo menos um ID deve ser fornecido")
-    .max(100, "Limite máximo de 100 pedidos por vez"),
+    .array(z.string().uuid({ message: 'Pedido inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(100, 'Limite máximo de 100 pedidos por vez'),
 });
 
 // Query schema for include parameter
@@ -1665,26 +1737,29 @@ export const orderBatchQuerySchema = z.object({
 });
 
 export const orderItemBatchCreateSchema = z.object({
-  orderItems: z.array(orderItemCreateSchema).min(1, "Pelo menos um item de pedido deve ser fornecido").max(100, "Limite máximo de 100 itens por vez"),
+  orderItems: z
+    .array(orderItemCreateSchema)
+    .min(1, 'Pelo menos um item de pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 itens por vez'),
 });
 
 export const orderItemBatchUpdateSchema = z.object({
   orderItems: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Item inválido" }),
+        id: z.string().uuid({ message: 'Item inválido' }),
         data: orderItemUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um item de pedido deve ser fornecido")
-    .max(100, "Limite máximo de 100 itens por vez"),
+    .min(1, 'Pelo menos um item de pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 itens por vez'),
 });
 
 export const orderItemBatchDeleteSchema = z.object({
   orderItemIds: z
-    .array(z.string().uuid({ message: "Item inválido" }))
-    .min(1, "Pelo menos um ID deve ser fornecido")
-    .max(100, "Limite máximo de 100 itens por vez"),
+    .array(z.string().uuid({ message: 'Item inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(100, 'Limite máximo de 100 itens por vez'),
 });
 
 // Query schema for include parameter
@@ -1698,26 +1773,29 @@ export const orderItemBatchQuerySchema = z.object({
 });
 
 export const orderScheduleBatchCreateSchema = z.object({
-  orderSchedules: z.array(orderScheduleCreateSchema).min(1, "Pelo menos um agendamento de pedido deve ser fornecido").max(100, "Limite máximo de 100 agendamentos por vez"),
+  orderSchedules: z
+    .array(orderScheduleCreateSchema)
+    .min(1, 'Pelo menos um agendamento de pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 agendamentos por vez'),
 });
 
 export const orderScheduleBatchUpdateSchema = z.object({
   orderSchedules: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Cronograma inválido" }),
+        id: z.string().uuid({ message: 'Cronograma inválido' }),
         data: orderScheduleUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um agendamento de pedido deve ser fornecido")
-    .max(100, "Limite máximo de 100 agendamentos por vez"),
+    .min(1, 'Pelo menos um agendamento de pedido deve ser fornecido')
+    .max(100, 'Limite máximo de 100 agendamentos por vez'),
 });
 
 export const orderScheduleBatchDeleteSchema = z.object({
   orderScheduleIds: z
-    .array(z.string().uuid({ message: "Cronograma inválido" }))
-    .min(1, "Pelo menos um ID deve ser fornecido")
-    .max(100, "Limite máximo de 100 agendamentos por vez"),
+    .array(z.string().uuid({ message: 'Cronograma inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(100, 'Limite máximo de 100 agendamentos por vez'),
 });
 
 // Query schema for include parameter
@@ -1794,30 +1872,37 @@ export type YearlyScheduleFormData = z.infer<typeof yearlyScheduleSchema>;
 // FormData Helpers
 // =====================
 
-export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFormData>((order) => ({
+export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFormData>(order => ({
   description: order.description,
   forecast: order.forecast || undefined,
   status: order.status as ORDER_STATUS,
   supplierId: order.supplierId || undefined,
   orderScheduleId: order.orderScheduleId || undefined,
-  budgetIds: order.budgets?.map((budget) => budget.id),
-  invoiceIds: order.invoices?.map((invoice) => invoice.id),
-  receiptIds: order.receipts?.map((receipt) => receipt.id),
-  reimbursementIds: order.reimbursements?.map((reimbursement) => reimbursement.id),
-  reimbursementInvoiceIds: order.invoiceReimbursements?.map((reimbursementInvoice) => reimbursementInvoice.id),
+  budgetIds: order.budgets?.map(budget => budget.id),
+  invoiceIds: order.invoices?.map(invoice => invoice.id),
+  receiptIds: order.receipts?.map(receipt => receipt.id),
+  reimbursementIds: order.reimbursements?.map(reimbursement => reimbursement.id),
+  reimbursementInvoiceIds: order.invoiceReimbursements?.map(
+    reimbursementInvoice => reimbursementInvoice.id,
+  ),
   notes: order.notes || undefined,
 }));
 
-export const mapOrderItemToFormData = createMapToFormDataHelper<OrderItem, OrderItemUpdateFormData>((orderItem) => ({
-  orderedQuantity: orderItem.orderedQuantity,
-  receivedQuantity: orderItem.receivedQuantity,
-  price: orderItem.price,
-  icms: orderItem.icms,
-  ipi: orderItem.ipi,
-  receivedAt: orderItem.receivedAt || undefined,
-}));
+export const mapOrderItemToFormData = createMapToFormDataHelper<OrderItem, OrderItemUpdateFormData>(
+  orderItem => ({
+    orderedQuantity: orderItem.orderedQuantity,
+    receivedQuantity: orderItem.receivedQuantity,
+    price: orderItem.price,
+    icms: orderItem.icms,
+    ipi: orderItem.ipi,
+    receivedAt: orderItem.receivedAt || undefined,
+  }),
+);
 
-export const mapOrderScheduleToFormData = createMapToFormDataHelper<OrderSchedule, OrderScheduleUpdateFormData>((schedule) => ({
+export const mapOrderScheduleToFormData = createMapToFormDataHelper<
+  OrderSchedule,
+  OrderScheduleUpdateFormData
+>(schedule => ({
   frequency: schedule.frequency as SCHEDULE_FREQUENCY,
   frequencyCount: schedule.frequencyCount,
   isActive: schedule.isActive,

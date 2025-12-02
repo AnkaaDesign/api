@@ -1,9 +1,10 @@
 // packages/schemas/src/warning.ts - CORRECTED VERSION
 
-import { z } from "zod";
+import { z } from 'zod';
 import {
   createMapToFormDataHelper,
-  orderByDirectionSchema, normalizeOrderBy,
+  orderByDirectionSchema,
+  normalizeOrderBy,
   paginationSchema,
   createStringWhereSchema,
   createUuidWhereSchema,
@@ -12,7 +13,7 @@ import {
   createNullFilterTransform,
   mergeAndConditions,
   createDescriptionSchema,
-} from "./common";
+} from './common';
 import type { Warning } from '@types';
 import { WARNING_CATEGORY, WARNING_SEVERITY } from '@constants';
 
@@ -278,14 +279,14 @@ const warningFilters = {
   severities: z
     .array(
       z.enum(Object.values(WARNING_SEVERITY) as [string, ...string[]], {
-        errorMap: () => ({ message: "severidade inválida" }),
+        errorMap: () => ({ message: 'severidade inválida' }),
       }),
     )
     .optional(),
   categories: z
     .array(
       z.enum(Object.values(WARNING_CATEGORY) as [string, ...string[]], {
-        errorMap: () => ({ message: "categoria inválida" }),
+        errorMap: () => ({ message: 'categoria inválida' }),
       }),
     )
     .optional(),
@@ -313,12 +314,12 @@ const warningTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { reason: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { description: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { hrNotes: { contains: data.searchingFor.trim(), mode: "insensitive" } },
+        { reason: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { hrNotes: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
         {
           collaborator: {
-            name: { contains: data.searchingFor.trim(), mode: "insensitive" },
+            name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
           },
         },
       ],
@@ -327,14 +328,14 @@ const warningTransform = (data: any) => {
   }
 
   // Handle hasFollowUp filter
-  const followUpFilter = createNullFilterTransform(data.hasFollowUp, "followUpDate");
+  const followUpFilter = createNullFilterTransform(data.hasFollowUp, 'followUpDate');
   if (followUpFilter) {
     andConditions.push(followUpFilter);
     delete data.hasFollowUp;
   }
 
   // Handle hasHrNotes filter
-  const hrNotesFilter = createNullFilterTransform(data.hasHrNotes, "hrNotes");
+  const hrNotesFilter = createNullFilterTransform(data.hasHrNotes, 'hrNotes');
   if (hrNotesFilter) {
     andConditions.push(hrNotesFilter);
     delete data.hasHrNotes;
@@ -347,7 +348,7 @@ const warningTransform = (data: any) => {
   }
 
   // Handle isResolved filter
-  const resolvedFilter = createNullFilterTransform(!data.isResolved, "resolvedAt");
+  const resolvedFilter = createNullFilterTransform(!data.isResolved, 'resolvedAt');
   if (resolvedFilter && data.isResolved !== undefined) {
     andConditions.push(resolvedFilter);
     delete data.isResolved;
@@ -366,7 +367,11 @@ const warningTransform = (data: any) => {
   }
 
   // Handle collaboratorIds filter
-  if (data.collaboratorIds && Array.isArray(data.collaboratorIds) && data.collaboratorIds.length > 0) {
+  if (
+    data.collaboratorIds &&
+    Array.isArray(data.collaboratorIds) &&
+    data.collaboratorIds.length > 0
+  ) {
     andConditions.push({ collaboratorId: { in: data.collaboratorIds } });
     delete data.collaboratorIds;
   }
@@ -430,7 +435,7 @@ export const warningGetManySchema = z
 
 export const warningGetByIdSchema = z.object({
   include: warningIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Advertência inválida" }),
+  id: z.string().uuid({ message: 'Advertência inválida' }),
 });
 
 // =====================
@@ -442,18 +447,18 @@ const toFormData = <T>(data: T) => data;
 export const warningCreateSchema = z
   .object({
     severity: z.enum(Object.values(WARNING_SEVERITY) as [string, ...string[]], {
-      errorMap: () => ({ message: "severidade inválida" }),
+      errorMap: () => ({ message: 'severidade inválida' }),
     }),
     category: z.enum(Object.values(WARNING_CATEGORY) as [string, ...string[]], {
-      errorMap: () => ({ message: "categoria inválida" }),
+      errorMap: () => ({ message: 'categoria inválida' }),
     }),
     reason: createDescriptionSchema(10, 500, true),
     description: createDescriptionSchema(0, 1000).nullable().optional(),
     isActive: z.boolean().default(true),
-    collaboratorId: z.string().uuid({ message: "Colaborador inválido" }),
-    supervisorId: z.string().uuid({ message: "Supervisor inválido" }),
-    witnessIds: z.array(z.string().uuid({ message: "Testemunha inválida" })).optional(),
-    attachmentIds: z.array(z.string().uuid({ message: "Arquivo inválido" })).optional(),
+    collaboratorId: z.string().uuid({ message: 'Colaborador inválido' }),
+    supervisorId: z.string().uuid({ message: 'Supervisor inválido' }),
+    witnessIds: z.array(z.string().uuid({ message: 'Testemunha inválida' })).optional(),
+    attachmentIds: z.array(z.string().uuid({ message: 'Arquivo inválido' })).optional(),
     followUpDate: z.coerce.date(),
     hrNotes: createDescriptionSchema(0, 1000).nullable().optional(),
     resolvedAt: z.coerce.date().nullable().optional(),
@@ -464,21 +469,21 @@ export const warningUpdateSchema = z
   .object({
     severity: z
       .enum(Object.values(WARNING_SEVERITY) as [string, ...string[]], {
-        errorMap: () => ({ message: "severidade inválida" }),
+        errorMap: () => ({ message: 'severidade inválida' }),
       })
       .optional(),
     category: z
       .enum(Object.values(WARNING_CATEGORY) as [string, ...string[]], {
-        errorMap: () => ({ message: "categoria inválida" }),
+        errorMap: () => ({ message: 'categoria inválida' }),
       })
       .optional(),
     reason: createDescriptionSchema(10, 500).optional(),
     description: createDescriptionSchema(0, 1000).nullable().optional(),
     isActive: z.boolean().optional(),
-    collaboratorId: z.string().uuid({ message: "Colaborador inválido" }).optional(),
-    supervisorId: z.string().uuid({ message: "Supervisor inválido" }).optional(),
-    witnessIds: z.array(z.string().uuid({ message: "Testemunha inválida" })).optional(),
-    attachmentIds: z.array(z.string().uuid({ message: "Arquivo inválido" })).optional(),
+    collaboratorId: z.string().uuid({ message: 'Colaborador inválido' }).optional(),
+    supervisorId: z.string().uuid({ message: 'Supervisor inválido' }).optional(),
+    witnessIds: z.array(z.string().uuid({ message: 'Testemunha inválida' })).optional(),
+    attachmentIds: z.array(z.string().uuid({ message: 'Arquivo inválido' })).optional(),
     // CORRECTED: Keep as optional for updates, but removed nullable since Prisma field is required
     followUpDate: z.coerce.date().optional(),
     hrNotes: createDescriptionSchema(0, 1000).nullable().optional(),
@@ -487,22 +492,24 @@ export const warningUpdateSchema = z
   .transform(toFormData);
 
 export const warningBatchCreateSchema = z.object({
-  warnings: z.array(warningCreateSchema).min(1, "Pelo menos uma advertência deve ser fornecida"),
+  warnings: z.array(warningCreateSchema).min(1, 'Pelo menos uma advertência deve ser fornecida'),
 });
 
 export const warningBatchUpdateSchema = z.object({
   warnings: z
     .array(
       z.object({
-        id: z.string().uuid("Advertência inválida"),
+        id: z.string().uuid('Advertência inválida'),
         data: warningUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma advertência deve ser fornecida"),
+    .min(1, 'Pelo menos uma advertência deve ser fornecida'),
 });
 
 export const warningBatchDeleteSchema = z.object({
-  warningIds: z.array(z.string().uuid({ message: "Advertência inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  warningIds: z
+    .array(z.string().uuid({ message: 'Advertência inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -539,15 +546,17 @@ export type WarningWhere = z.infer<typeof warningWhereSchema>;
 // Mapping to Form Data (for API calls)
 // =====================
 
-export const mapToWarningFormData = createMapToFormDataHelper<Warning, WarningUpdateFormData>((warning) => ({
-  severity: warning.severity,
-  category: warning.category,
-  reason: warning.reason,
-  description: warning.description,
-  isActive: warning.isActive,
-  collaboratorId: warning.collaboratorId,
-  supervisorId: warning.supervisorId,
-  followUpDate: warning.followUpDate,
-  hrNotes: warning.hrNotes,
-  resolvedAt: warning.resolvedAt,
-}));
+export const mapToWarningFormData = createMapToFormDataHelper<Warning, WarningUpdateFormData>(
+  warning => ({
+    severity: warning.severity,
+    category: warning.category,
+    reason: warning.reason,
+    description: warning.description,
+    isActive: warning.isActive,
+    collaboratorId: warning.collaboratorId,
+    supervisorId: warning.supervisorId,
+    followUpDate: warning.followUpDate,
+    hrNotes: warning.hrNotes,
+    resolvedAt: warning.resolvedAt,
+  }),
+);

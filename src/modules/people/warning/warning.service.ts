@@ -178,19 +178,15 @@ export class WarningService {
   ): Promise<void> {
     try {
       for (const file of attachments) {
-        await this.fileService.createFromUploadWithTransaction(
-          tx,
-          file,
-          'warning',
-          userId,
-          {
-            entityId: warningId,
-            entityType: 'WARNING',
-            userName: employeeName,
-          },
-        );
+        await this.fileService.createFromUploadWithTransaction(tx, file, 'warning', userId, {
+          entityId: warningId,
+          entityType: 'WARNING',
+          userName: employeeName,
+        });
       }
-      this.logger.log(`${attachments.length} attachment file(s) processed for warning ${warningId}`);
+      this.logger.log(
+        `${attachments.length} attachment file(s) processed for warning ${warningId}`,
+      );
     } catch (error: any) {
       this.logger.error(`Failed to process attachment files: ${error.message}`);
       throw error;
@@ -240,13 +236,7 @@ export class WarningService {
           const employeeName = collaborator?.name || 'Unknown';
 
           try {
-            await this.processAttachmentFiles(
-              attachments,
-              newWarning.id,
-              employeeName,
-              tx,
-              userId,
-            );
+            await this.processAttachmentFiles(attachments, newWarning.id, employeeName, tx, userId);
           } catch (fileError: any) {
             this.logger.error(`Attachment file processing failed: ${fileError.message}`);
             // Clean up temp files
@@ -372,13 +362,7 @@ export class WarningService {
           const employeeName = collaborator?.name || 'Unknown';
 
           try {
-            await this.processAttachmentFiles(
-              attachments,
-              id,
-              employeeName,
-              tx,
-              userId,
-            );
+            await this.processAttachmentFiles(attachments, id, employeeName, tx, userId);
           } catch (fileError: any) {
             this.logger.error(`Attachment file processing failed: ${fileError.message}`);
             // Clean up temp files

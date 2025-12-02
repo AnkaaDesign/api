@@ -80,7 +80,6 @@ export function getVacationStatusOrder(status: string): number {
   return getSortOrder(status, VACATION_STATUS_ORDER);
 }
 
-
 export function getTaskStatusOrder(status: string): number {
   return getSortOrder(status, TASK_STATUS_ORDER);
 }

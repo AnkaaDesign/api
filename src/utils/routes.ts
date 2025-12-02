@@ -16,11 +16,11 @@ export function generateRoute(template: (param: string) => string, param: string
 export function getAllRoutePaths(): string[] {
   const paths: string[] = [];
 
-  function extractPaths(obj: Record<string, unknown>, basePath = "") {
+  function extractPaths(obj: Record<string, unknown>, basePath = '') {
     for (const [, value] of Object.entries(obj)) {
-      if (typeof value === "string") {
+      if (typeof value === 'string') {
         paths.push(value);
-      } else if (typeof value === "object" && value !== null) {
+      } else if (typeof value === 'object' && value !== null) {
         extractPaths(value as Record<string, unknown>, basePath);
       }
     }
@@ -42,27 +42,27 @@ export function isValidRoute(path: string): boolean {
  * Get parent route from a given path
  */
 export function getParentRoute(path: string): string {
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length <= 1) return "/";
-  return "/" + segments.slice(0, -1).join("/");
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length <= 1) return '/';
+  return '/' + segments.slice(0, -1).join('/');
 }
 
 /**
  * Get route depth (number of segments)
  */
 export function getRouteDepth(path: string): number {
-  return path.split("/").filter(Boolean).length;
+  return path.split('/').filter(Boolean).length;
 }
 
 /**
  * Build breadcrumb paths from a route
  */
 export function buildBreadcrumbPaths(path: string): string[] {
-  const segments = path.split("/").filter(Boolean);
-  const paths: string[] = ["/"];
+  const segments = path.split('/').filter(Boolean);
+  const paths: string[] = ['/'];
 
   for (let i = 1; i <= segments.length; i++) {
-    paths.push("/" + segments.slice(0, i).join("/"));
+    paths.push('/' + segments.slice(0, i).join('/'));
   }
 
   return paths;
@@ -72,13 +72,13 @@ export function buildBreadcrumbPaths(path: string): string[] {
  * Check if route matches pattern (supports :param syntax)
  */
 export function matchesPattern(route: string, pattern: string): boolean {
-  const routeParts = route.split("/");
-  const patternParts = pattern.split("/");
+  const routeParts = route.split('/');
+  const patternParts = pattern.split('/');
 
   if (routeParts.length !== patternParts.length) return false;
 
   return patternParts.every((part, index) => {
-    return part.startsWith(":") || part === routeParts[index];
+    return part.startsWith(':') || part === routeParts[index];
   });
 }
 
@@ -86,14 +86,14 @@ export function matchesPattern(route: string, pattern: string): boolean {
  * Extract route parameters from a route using a pattern
  */
 export function extractRouteParams(route: string, pattern: string): Record<string, string> {
-  const routeParts = route.split("/");
-  const patternParts = pattern.split("/");
+  const routeParts = route.split('/');
+  const patternParts = pattern.split('/');
   const params: Record<string, string> = {};
 
   if (routeParts.length !== patternParts.length) return params;
 
   patternParts.forEach((part, index) => {
-    if (part.startsWith(":")) {
+    if (part.startsWith(':')) {
       const paramName = part.substring(1);
       params[paramName] = routeParts[index];
     }
@@ -106,5 +106,5 @@ export function extractRouteParams(route: string, pattern: string): Record<strin
  * Normalize route by removing trailing slashes
  */
 export function normalizeRoute(path: string): string {
-  return path.replace(/\/+$/, "") || "/";
+  return path.replace(/\/+$/, '') || '/';
 }

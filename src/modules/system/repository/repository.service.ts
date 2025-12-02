@@ -5,9 +5,7 @@ import { RepositoryRepository } from './repositories/repository.repository';
 export class RepositoryService {
   private readonly logger = new Logger(RepositoryService.name);
 
-  constructor(
-    private readonly repositoryRepository: RepositoryRepository,
-  ) {}
+  constructor(private readonly repositoryRepository: RepositoryRepository) {}
 
   async create(data: any, userId: string, include?: any) {
     try {

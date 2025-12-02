@@ -1435,7 +1435,7 @@ export class SecullumService {
         Tipo: null,
         Ordem: 0,
         Decrescente: true,
-        Quantidade: 100
+        Quantidade: 100,
       };
 
       const response = await this.makeAuthenticatedRequest<any[]>(
@@ -1446,15 +1446,17 @@ export class SecullumService {
         {
           'Content-Type': 'application/json',
           secullumbancoselecionado: this.databaseId,
-        }
+        },
       );
 
-      this.logger.log(`Successfully fetched ${response?.length || 0} time adjustment requests from Secullum`);
+      this.logger.log(
+        `Successfully fetched ${response?.length || 0} time adjustment requests from Secullum`,
+      );
 
       // Filter pending requests if needed (Estado = 0 means pending)
       const filteredData = pendingOnly
         ? (response || []).filter((r: any) => r.Estado === 0)
-        : (response || []);
+        : response || [];
 
       return {
         success: true,
@@ -1481,7 +1483,7 @@ export class SecullumService {
         SolicitacaoId: requestData.SolicitacaoId,
         Versao: requestData.Versao,
         AlteracoesFonteDados: requestData.AlteracoesFonteDados || [],
-        TipoSolicitacao: requestData.TipoSolicitacao || 0
+        TipoSolicitacao: requestData.TipoSolicitacao || 0,
       };
 
       await this.makeAuthenticatedRequest(
@@ -1492,7 +1494,7 @@ export class SecullumService {
         {
           'Content-Type': 'application/json;',
           secullumbancoselecionado: this.databaseId,
-        }
+        },
       );
 
       this.logger.log(`Successfully approved request ID: ${requestData.SolicitacaoId}`);
@@ -1519,8 +1521,9 @@ export class SecullumService {
       const rejectionBody = {
         SolicitacaoId: requestData.SolicitacaoId,
         Versao: requestData.Versao,
-        MotivoDescarte: requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
-        TipoSolicitacao: requestData.TipoSolicitacao || 0
+        MotivoDescarte:
+          requestData.MotivoDescarte || requestData.observacoes || 'Rejeitado via sistema Ankaa',
+        TipoSolicitacao: requestData.TipoSolicitacao || 0,
       };
 
       await this.makeAuthenticatedRequest(
@@ -1531,7 +1534,7 @@ export class SecullumService {
         {
           'Content-Type': 'application/json;',
           secullumbancoselecionado: this.databaseId,
-        }
+        },
       );
 
       this.logger.log(`Successfully rejected request ID: ${requestData.SolicitacaoId}`);

@@ -8,9 +8,9 @@ import type {
   BaseUpdateResponse,
   BaseDeleteResponse,
   BaseBatchResponse,
-} from "./common";
+} from './common';
 import type { ORDER_BY_DIRECTION, DEPLOYMENT_STATUS, DEPLOYMENT_ENVIRONMENT } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Git Commit Interface
@@ -74,16 +74,72 @@ export interface DeploymentWhere {
   NOT?: DeploymentWhere | DeploymentWhere[];
 
   id?: string | { in?: string[]; notIn?: string[]; equals?: string; not?: string };
-  environment?: DEPLOYMENT_ENVIRONMENT | { in?: DEPLOYMENT_ENVIRONMENT[]; notIn?: DEPLOYMENT_ENVIRONMENT[]; equals?: DEPLOYMENT_ENVIRONMENT; not?: DEPLOYMENT_ENVIRONMENT };
-  commitSha?: string | { contains?: string; startsWith?: string; endsWith?: string; equals?: string; not?: string; mode?: "default" | "insensitive" };
-  branch?: string | { contains?: string; startsWith?: string; endsWith?: string; equals?: string; not?: string; mode?: "default" | "insensitive" };
-  status?: DEPLOYMENT_STATUS | { in?: DEPLOYMENT_STATUS[]; notIn?: DEPLOYMENT_STATUS[]; equals?: DEPLOYMENT_STATUS; not?: DEPLOYMENT_STATUS };
-  statusOrder?: number | { equals?: number; gt?: number; gte?: number; lt?: number; lte?: number; not?: number };
-  deployedBy?: string | null | { equals?: string | null; in?: (string | null)[]; notIn?: (string | null)[]; not?: string | null };
-  version?: string | null | { equals?: string | null; contains?: string; startsWith?: string; mode?: "default" | "insensitive" };
+  environment?:
+    | DEPLOYMENT_ENVIRONMENT
+    | {
+        in?: DEPLOYMENT_ENVIRONMENT[];
+        notIn?: DEPLOYMENT_ENVIRONMENT[];
+        equals?: DEPLOYMENT_ENVIRONMENT;
+        not?: DEPLOYMENT_ENVIRONMENT;
+      };
+  commitSha?:
+    | string
+    | {
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        equals?: string;
+        not?: string;
+        mode?: 'default' | 'insensitive';
+      };
+  branch?:
+    | string
+    | {
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        equals?: string;
+        not?: string;
+        mode?: 'default' | 'insensitive';
+      };
+  status?:
+    | DEPLOYMENT_STATUS
+    | {
+        in?: DEPLOYMENT_STATUS[];
+        notIn?: DEPLOYMENT_STATUS[];
+        equals?: DEPLOYMENT_STATUS;
+        not?: DEPLOYMENT_STATUS;
+      };
+  statusOrder?:
+    | number
+    | { equals?: number; gt?: number; gte?: number; lt?: number; lte?: number; not?: number };
+  deployedBy?:
+    | string
+    | null
+    | {
+        equals?: string | null;
+        in?: (string | null)[];
+        notIn?: (string | null)[];
+        not?: string | null;
+      };
+  version?:
+    | string
+    | null
+    | {
+        equals?: string | null;
+        contains?: string;
+        startsWith?: string;
+        mode?: 'default' | 'insensitive';
+      };
   startedAt?: Date | { equals?: Date; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
-  completedAt?: Date | null | { equals?: Date | null; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
-  rolledBackAt?: Date | null | { equals?: Date | null; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
+  completedAt?:
+    | Date
+    | null
+    | { equals?: Date | null; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
+  rolledBackAt?:
+    | Date
+    | null
+    | { equals?: Date | null; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
   createdAt?: Date | { equals?: Date; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
   updatedAt?: Date | { equals?: Date; gt?: Date; gte?: Date; lt?: Date; lte?: Date };
 

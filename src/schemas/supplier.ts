@@ -1,9 +1,10 @@
 // packages/schemas/src/supplier.ts
 
-import { z } from "zod";
+import { z } from 'zod';
 import {
   createMapToFormDataHelper,
-  orderByDirectionSchema, normalizeOrderBy,
+  orderByDirectionSchema,
+  normalizeOrderBy,
   emailSchema,
   phoneSchema,
   cnpjOptionalSchema,
@@ -11,7 +12,7 @@ import {
   corporateNameSchema,
   addressSchema,
   citySchema,
-} from "./common";
+} from './common';
 import type { Supplier } from '@types';
 import { cleanNumeric, cleanCNPJ } from '@utils';
 import { BRAZILIAN_STATES } from '@constants';
@@ -24,16 +25,16 @@ const zipCodeSchema = z
   .string()
   .nullable()
   .optional()
-  .transform((val) => {
+  .transform(val => {
     if (!val || val === null) return null;
     return cleanNumeric(val);
   })
   .refine(
-    (val) => {
+    val => {
       if (!val || val === null) return true;
       return val.length === 8;
     },
-    { message: "CEP deve ter 8 dígitos" },
+    { message: 'CEP deve ter 8 dígitos' },
   );
 
 // =====================
@@ -203,7 +204,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -220,7 +221,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -237,7 +238,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -254,7 +255,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -267,7 +268,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -280,7 +281,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -293,7 +294,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -306,7 +307,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -321,7 +322,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -336,7 +337,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -349,7 +350,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -362,7 +363,7 @@ export const supplierWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().nullable().optional(),
             not: z.string().nullable().optional(),
             contains: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -453,16 +454,16 @@ const supplierTransform = (data: any): any => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - search in fantasyName, corporateName, cnpj, email, and item names
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
     // Clean the search term to get just numbers for CNPJ searches
-    const cleanedSearch = searchTerm.replace(/\D/g, "");
+    const cleanedSearch = searchTerm.replace(/\D/g, '');
 
     const searchConditions: any[] = [
-      { fantasyName: { contains: searchTerm, mode: "insensitive" } },
-      { corporateName: { contains: searchTerm, mode: "insensitive" } },
-      { email: { contains: searchTerm, mode: "insensitive" } },
-      { items: { some: { name: { contains: searchTerm, mode: "insensitive" } } } },
+      { fantasyName: { contains: searchTerm, mode: 'insensitive' } },
+      { corporateName: { contains: searchTerm, mode: 'insensitive' } },
+      { email: { contains: searchTerm, mode: 'insensitive' } },
+      { items: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
     ];
 
     // Add CNPJ search conditions - search both with original input and cleaned version
@@ -476,7 +477,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasLogo filter
-  if (typeof data.hasLogo === "boolean") {
+  if (typeof data.hasLogo === 'boolean') {
     if (data.hasLogo) {
       andConditions.push({ logoId: { not: null } });
     } else {
@@ -486,7 +487,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasItems filter
-  if (typeof data.hasItems === "boolean") {
+  if (typeof data.hasItems === 'boolean') {
     if (data.hasItems) {
       andConditions.push({ items: { some: {} } });
     } else {
@@ -496,7 +497,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasOrders filter
-  if (typeof data.hasOrders === "boolean") {
+  if (typeof data.hasOrders === 'boolean') {
     if (data.hasOrders) {
       andConditions.push({ orders: { some: {} } });
     } else {
@@ -506,27 +507,30 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasActiveOrders filter - orders not CANCELLED or RECEIVED
-  if (typeof data.hasActiveOrders === "boolean") {
+  if (typeof data.hasActiveOrders === 'boolean') {
     if (data.hasActiveOrders) {
       andConditions.push({
         orders: {
           some: {
             status: {
-              notIn: ["CANCELLED", "RECEIVED"],
+              notIn: ['CANCELLED', 'RECEIVED'],
             },
           },
         },
       });
     } else {
       andConditions.push({
-        OR: [{ orders: { none: {} } }, { orders: { every: { status: { in: ["CANCELLED", "RECEIVED"] } } } }],
+        OR: [
+          { orders: { none: {} } },
+          { orders: { every: { status: { in: ['CANCELLED', 'RECEIVED'] } } } },
+        ],
       });
     }
     delete data.hasActiveOrders;
   }
 
   // Handle hasCnpj filter
-  if (typeof data.hasCnpj === "boolean") {
+  if (typeof data.hasCnpj === 'boolean') {
     if (data.hasCnpj) {
       andConditions.push({ cnpj: { not: null } });
     } else {
@@ -536,7 +540,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasEmail filter
-  if (typeof data.hasEmail === "boolean") {
+  if (typeof data.hasEmail === 'boolean') {
     if (data.hasEmail) {
       andConditions.push({ email: { not: null } });
     } else {
@@ -546,7 +550,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle hasSite filter
-  if (typeof data.hasSite === "boolean") {
+  if (typeof data.hasSite === 'boolean') {
     if (data.hasSite) {
       andConditions.push({ site: { not: null } });
     } else {
@@ -568,7 +572,7 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle phoneContains filter
-  if (data.phoneContains && typeof data.phoneContains === "string" && data.phoneContains.trim()) {
+  if (data.phoneContains && typeof data.phoneContains === 'string' && data.phoneContains.trim()) {
     andConditions.push({ phones: { has: data.phoneContains.trim() } });
     delete data.phoneContains;
   }
@@ -582,19 +586,23 @@ const supplierTransform = (data: any): any => {
   }
 
   // Handle itemCount filter - Note: count filters should be handled in service layer
-  if (data.itemCount && typeof data.itemCount === "object") {
+  if (data.itemCount && typeof data.itemCount === 'object') {
     // Remove this filter as it should be handled in the service layer
     delete data.itemCount;
   }
 
   // Handle orderCount filter - Note: count filters should be handled in service layer
-  if (data.orderCount && typeof data.orderCount === "object") {
+  if (data.orderCount && typeof data.orderCount === 'object') {
     // Remove this filter as it should be handled in the service layer
     delete data.orderCount;
   }
 
   // Handle itemCategoryIds filter - filter suppliers by item category
-  if (data.itemCategoryIds && Array.isArray(data.itemCategoryIds) && data.itemCategoryIds.length > 0) {
+  if (
+    data.itemCategoryIds &&
+    Array.isArray(data.itemCategoryIds) &&
+    data.itemCategoryIds.length > 0
+  ) {
     andConditions.push({
       items: {
         some: {
@@ -726,11 +734,52 @@ export const supplierCreateSchema = z.object({
   cnpj: cnpjOptionalSchema,
   corporateName: corporateNameSchema,
   email: emailSchema.nullable().optional(),
-  streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
+  streetType: z
+    .enum([
+      'STREET',
+      'AVENUE',
+      'ALLEY',
+      'CROSSING',
+      'SQUARE',
+      'HIGHWAY',
+      'ROAD',
+      'WAY',
+      'PLAZA',
+      'LANE',
+      'DEADEND',
+      'SMALL_STREET',
+      'PATH',
+      'PASSAGE',
+      'GARDEN',
+      'BLOCK',
+      'LOT',
+      'SITE',
+      'PARK',
+      'FARM',
+      'RANCH',
+      'CONDOMINIUM',
+      'COMPLEX',
+      'RESIDENTIAL',
+      'OTHER',
+    ])
+    .nullable()
+    .optional(),
   address: addressSchema,
-  addressNumber: z.string().max(10, "Número deve ter no máximo 10 caracteres").nullable().optional(),
-  addressComplement: z.string().max(100, "Complemento deve ter no máximo 100 caracteres").nullable().optional(),
-  neighborhood: z.string().max(100, "Bairro deve ter no máximo 100 caracteres").nullable().optional(),
+  addressNumber: z
+    .string()
+    .max(10, 'Número deve ter no máximo 10 caracteres')
+    .nullable()
+    .optional(),
+  addressComplement: z
+    .string()
+    .max(100, 'Complemento deve ter no máximo 100 caracteres')
+    .nullable()
+    .optional(),
+  neighborhood: z
+    .string()
+    .max(100, 'Bairro deve ter no máximo 100 caracteres')
+    .nullable()
+    .optional(),
   city: citySchema,
   state: z
     .enum([...BRAZILIAN_STATES] as [string, ...string[]])
@@ -738,33 +787,33 @@ export const supplierCreateSchema = z.object({
     .optional(),
   zipCode: zipCodeSchema,
   site: z.preprocess(
-    (val) => {
+    val => {
       // Convert empty string to null
-      if (val === "" || val === undefined) return null;
+      if (val === '' || val === undefined) return null;
 
       // If it's a string, try to fix common URL issues
-      if (typeof val === "string") {
+      if (typeof val === 'string') {
         let url = val.trim();
 
         // Fix common typos
-        url = url.replace(/^hhtps:\/\//i, "https://");
-        url = url.replace(/^htpp:\/\//i, "http://");
-        url = url.replace(/^htpps:\/\//i, "https://");
-        url = url.replace(/^htts:\/\//i, "https://");
-        url = url.replace(/^hhtp:\/\//i, "http://");
-        url = url.replace(/^htps:\/\//i, "https://");
-        url = url.replace(/^ttps:\/\//i, "https://");
-        url = url.replace(/^htt:\/\//i, "http://");
+        url = url.replace(/^hhtps:\/\//i, 'https://');
+        url = url.replace(/^htpp:\/\//i, 'http://');
+        url = url.replace(/^htpps:\/\//i, 'https://');
+        url = url.replace(/^htts:\/\//i, 'https://');
+        url = url.replace(/^hhtp:\/\//i, 'http://');
+        url = url.replace(/^htps:\/\//i, 'https://');
+        url = url.replace(/^ttps:\/\//i, 'https://');
+        url = url.replace(/^htt:\/\//i, 'http://');
 
         // If no protocol, add https://
         if (url && !url.match(/^[a-zA-Z]+:\/\//)) {
           // Special handling for www. URLs
-          if (url.toLowerCase().startsWith("www.")) {
-            url = "https://" + url;
+          if (url.toLowerCase().startsWith('www.')) {
+            url = 'https://' + url;
           }
           // Handle other domains without protocol
-          else if (url.includes(".")) {
-            url = "https://" + url;
+          else if (url.includes('.')) {
+            url = 'https://' + url;
           }
         }
 
@@ -776,7 +825,7 @@ export const supplierCreateSchema = z.object({
     z
       .union([
         z.string().refine(
-          (val) => {
+          val => {
             // More lenient URL validation
             // Accept anything that looks like a URL
             try {
@@ -793,26 +842,26 @@ export const supplierCreateSchema = z.object({
               return urlPattern.test(val);
             }
           },
-          { message: "URL inválida" },
+          { message: 'URL inválida' },
         ),
         z.null(),
       ])
       .optional(),
   ),
-  phones: z.preprocess((val) => {
+  phones: z.preprocess(val => {
     // Filter out empty values from array
     if (Array.isArray(val)) {
-      return val.filter((phone) => phone && typeof phone === "string" && phone.trim());
+      return val.filter(phone => phone && typeof phone === 'string' && phone.trim());
     }
     return val;
   }, z.array(phoneSchema).default([]).optional()),
-  tags: z.preprocess((val) => {
+  tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
-    if (typeof val === "string") {
+    if (typeof val === 'string') {
       try {
         const parsed = JSON.parse(val);
         if (Array.isArray(parsed)) {
-          return parsed.filter((tag) => tag && typeof tag === "string" && tag.trim());
+          return parsed.filter(tag => tag && typeof tag === 'string' && tag.trim());
         }
       } catch {
         // If parsing fails, return empty array
@@ -821,11 +870,11 @@ export const supplierCreateSchema = z.object({
     }
     // If it's already an array, filter out empty values
     if (Array.isArray(val)) {
-      return val.filter((tag) => tag && typeof tag === "string" && tag.trim());
+      return val.filter(tag => tag && typeof tag === 'string' && tag.trim());
     }
     return [];
   }, z.array(z.string()).default([])),
-  logoId: z.string().uuid("Logo inválido").nullable().optional(),
+  logoId: z.string().uuid('Logo inválido').nullable().optional(),
 });
 
 // Flexible zipCode schema for updates
@@ -833,7 +882,7 @@ const zipCodeUpdateSchema = z
   .union([
     z
       .string()
-      .transform((val) => (val ? cleanNumeric(val) : val))
+      .transform(val => (val ? cleanNumeric(val) : val))
       .nullable(),
     z.null(),
     z.undefined(),
@@ -846,13 +895,13 @@ export const supplierUpdateSchema = z.object({
     .union([
       z
         .string()
-        .transform((val) => {
+        .transform(val => {
           // Clean the CNPJ (remove non-digits)
-          const cleaned = val.replace(/\D/g, "");
+          const cleaned = val.replace(/\D/g, '');
           return cleaned;
         })
         .refine(
-          (val) => {
+          val => {
             // CRITICAL: For update operations, don't validate existing CNPJ data
             // This allows forms to load with invalid legacy data without validation errors
             // Only validate new/changed CNPJs when they are exactly 14 digits
@@ -863,7 +912,7 @@ export const supplierUpdateSchema = z.object({
             }
             return true; // Always pass for incomplete or empty CNPJs
           },
-          { message: "CNPJ inválido" },
+          { message: 'CNPJ inválido' },
         ),
       z.null(),
       z.undefined(),
@@ -871,11 +920,52 @@ export const supplierUpdateSchema = z.object({
     .optional(),
   corporateName: corporateNameSchema.optional(),
   email: emailSchema.nullable().optional(),
-  streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
+  streetType: z
+    .enum([
+      'STREET',
+      'AVENUE',
+      'ALLEY',
+      'CROSSING',
+      'SQUARE',
+      'HIGHWAY',
+      'ROAD',
+      'WAY',
+      'PLAZA',
+      'LANE',
+      'DEADEND',
+      'SMALL_STREET',
+      'PATH',
+      'PASSAGE',
+      'GARDEN',
+      'BLOCK',
+      'LOT',
+      'SITE',
+      'PARK',
+      'FARM',
+      'RANCH',
+      'CONDOMINIUM',
+      'COMPLEX',
+      'RESIDENTIAL',
+      'OTHER',
+    ])
+    .nullable()
+    .optional(),
   address: addressSchema.optional(),
-  addressNumber: z.string().max(10, "Número deve ter no máximo 10 caracteres").nullable().optional(),
-  addressComplement: z.string().max(100, "Complemento deve ter no máximo 100 caracteres").nullable().optional(),
-  neighborhood: z.string().max(100, "Bairro deve ter no máximo 100 caracteres").nullable().optional(),
+  addressNumber: z
+    .string()
+    .max(10, 'Número deve ter no máximo 10 caracteres')
+    .nullable()
+    .optional(),
+  addressComplement: z
+    .string()
+    .max(100, 'Complemento deve ter no máximo 100 caracteres')
+    .nullable()
+    .optional(),
+  neighborhood: z
+    .string()
+    .max(100, 'Bairro deve ter no máximo 100 caracteres')
+    .nullable()
+    .optional(),
   city: citySchema.optional(),
   state: z
     .enum([...BRAZILIAN_STATES] as [string, ...string[]])
@@ -883,33 +973,33 @@ export const supplierUpdateSchema = z.object({
     .optional(),
   zipCode: zipCodeUpdateSchema,
   site: z.preprocess(
-    (val) => {
+    val => {
       // Convert empty string to null
-      if (val === "" || val === undefined) return null;
+      if (val === '' || val === undefined) return null;
 
       // If it's a string, try to fix common URL issues
-      if (typeof val === "string") {
+      if (typeof val === 'string') {
         let url = val.trim();
 
         // Fix common typos
-        url = url.replace(/^hhtps:\/\//i, "https://");
-        url = url.replace(/^htpp:\/\//i, "http://");
-        url = url.replace(/^htpps:\/\//i, "https://");
-        url = url.replace(/^htts:\/\//i, "https://");
-        url = url.replace(/^hhtp:\/\//i, "http://");
-        url = url.replace(/^htps:\/\//i, "https://");
-        url = url.replace(/^ttps:\/\//i, "https://");
-        url = url.replace(/^htt:\/\//i, "http://");
+        url = url.replace(/^hhtps:\/\//i, 'https://');
+        url = url.replace(/^htpp:\/\//i, 'http://');
+        url = url.replace(/^htpps:\/\//i, 'https://');
+        url = url.replace(/^htts:\/\//i, 'https://');
+        url = url.replace(/^hhtp:\/\//i, 'http://');
+        url = url.replace(/^htps:\/\//i, 'https://');
+        url = url.replace(/^ttps:\/\//i, 'https://');
+        url = url.replace(/^htt:\/\//i, 'http://');
 
         // If no protocol, add https://
         if (url && !url.match(/^[a-zA-Z]+:\/\//)) {
           // Special handling for www. URLs
-          if (url.toLowerCase().startsWith("www.")) {
-            url = "https://" + url;
+          if (url.toLowerCase().startsWith('www.')) {
+            url = 'https://' + url;
           }
           // Handle other domains without protocol
-          else if (url.includes(".")) {
-            url = "https://" + url;
+          else if (url.includes('.')) {
+            url = 'https://' + url;
           }
         }
 
@@ -921,7 +1011,7 @@ export const supplierUpdateSchema = z.object({
     z
       .union([
         z.string().refine(
-          (val) => {
+          val => {
             // More lenient URL validation
             // Accept anything that looks like a URL
             try {
@@ -938,35 +1028,37 @@ export const supplierUpdateSchema = z.object({
               return urlPattern.test(val);
             }
           },
-          { message: "URL inválida" },
+          { message: 'URL inválida' },
         ),
         z.null(),
       ])
       .optional(),
   ),
-  phones: z.preprocess((val) => {
+  phones: z.preprocess(val => {
     // Handle phones being sent as object {"0": "phone1", "1": "phone2"}
-    if (val && typeof val === "object" && !Array.isArray(val)) {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
       // Convert object to array, maintaining order by numeric keys
       const phoneObj = val as Record<string, any>;
       const keys = Object.keys(phoneObj).sort((a, b) => parseInt(a) - parseInt(b));
-      return keys.map((key) => phoneObj[key]).filter((phone) => phone && typeof phone === "string" && phone.trim());
+      return keys
+        .map(key => phoneObj[key])
+        .filter(phone => phone && typeof phone === 'string' && phone.trim());
     }
 
     // If it's an array, filter out empty values
     if (Array.isArray(val)) {
-      return val.filter((phone) => phone && typeof phone === "string" && phone.trim());
+      return val.filter(phone => phone && typeof phone === 'string' && phone.trim());
     }
 
     return val;
   }, z.array(phoneSchema).optional()),
-  tags: z.preprocess((val) => {
+  tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
-    if (typeof val === "string") {
+    if (typeof val === 'string') {
       try {
         const parsed = JSON.parse(val);
         if (Array.isArray(parsed)) {
-          return parsed.filter((tag) => tag && typeof tag === "string" && tag.trim());
+          return parsed.filter(tag => tag && typeof tag === 'string' && tag.trim());
         }
       } catch {
         // If parsing fails, return undefined for optional field
@@ -975,11 +1067,11 @@ export const supplierUpdateSchema = z.object({
     }
     // If it's already an array, filter out empty values
     if (Array.isArray(val)) {
-      return val.filter((tag) => tag && typeof tag === "string" && tag.trim());
+      return val.filter(tag => tag && typeof tag === 'string' && tag.trim());
     }
     return val;
   }, z.array(z.string()).optional()),
-  logoId: z.string().uuid("Logo inválido").nullable().optional(),
+  logoId: z.string().uuid('Logo inválido').nullable().optional(),
 });
 
 // =====================
@@ -994,15 +1086,17 @@ export const supplierBatchUpdateSchema = z.object({
   suppliers: z
     .array(
       z.object({
-        id: z.string().uuid("Fornecedor inválido"),
+        id: z.string().uuid('Fornecedor inválido'),
         data: supplierUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um fornecedor deve ser fornecido"),
+    .min(1, 'Pelo menos um fornecedor deve ser fornecido'),
 });
 
 export const supplierBatchDeleteSchema = z.object({
-  supplierIds: z.array(z.string().uuid("Fornecedor inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  supplierIds: z
+    .array(z.string().uuid('Fornecedor inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1041,20 +1135,22 @@ export type SupplierWhere = z.infer<typeof supplierWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapSupplierToFormData = createMapToFormDataHelper<Supplier, SupplierUpdateFormData>((supplier) => ({
-  fantasyName: supplier.fantasyName,
-  cnpj: supplier.cnpj,
-  corporateName: supplier.corporateName,
-  email: supplier.email,
-  address: supplier.address,
-  addressNumber: supplier.addressNumber,
-  addressComplement: supplier.addressComplement,
-  neighborhood: supplier.neighborhood,
-  city: supplier.city,
-  state: supplier.state,
-  zipCode: supplier.zipCode,
-  site: supplier.site,
-  phones: supplier.phones,
-  tags: supplier.tags,
-  logoId: supplier.logoId,
-}));
+export const mapSupplierToFormData = createMapToFormDataHelper<Supplier, SupplierUpdateFormData>(
+  supplier => ({
+    fantasyName: supplier.fantasyName,
+    cnpj: supplier.cnpj,
+    corporateName: supplier.corporateName,
+    email: supplier.email,
+    address: supplier.address,
+    addressNumber: supplier.addressNumber,
+    addressComplement: supplier.addressComplement,
+    neighborhood: supplier.neighborhood,
+    city: supplier.city,
+    state: supplier.state,
+    zipCode: supplier.zipCode,
+    site: supplier.site,
+    phones: supplier.phones,
+    tags: supplier.tags,
+    logoId: supplier.logoId,
+  }),
+);

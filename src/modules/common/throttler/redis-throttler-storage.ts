@@ -77,7 +77,11 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
       // Increment the counter
       const ttlInSeconds = Math.floor(ttl / 1000);
-      const result = await this.redis.multi().incr(throttlerKey).expire(throttlerKey, ttlInSeconds).exec();
+      const result = await this.redis
+        .multi()
+        .incr(throttlerKey)
+        .expire(throttlerKey, ttlInSeconds)
+        .exec();
 
       if (!result) {
         throw new Error('Redis operation failed');
@@ -98,7 +102,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
         if (blockDuration > 0) {
           const blockDurationInSeconds = Math.floor(blockDuration / 1000);
           await this.redis.set(blockedKey, '1', 'EX', blockDurationInSeconds);
-          console.log(`[RedisThrottlerStorage] Blocking key ${key} for ${blockDurationInSeconds} seconds (${blockDuration}ms)`);
+          console.log(
+            `[RedisThrottlerStorage] Blocking key ${key} for ${blockDurationInSeconds} seconds (${blockDuration}ms)`,
+          );
         }
 
         return {

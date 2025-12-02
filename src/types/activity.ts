@@ -1,10 +1,25 @@
 // packages/types/src/activity.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ACTIVITY_OPERATION, ACTIVITY_REASON, ORDER_BY_DIRECTION } from '@constants';
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
-import type { User, UserIncludes, UserOrderBy } from "./user";
-import type { Order, OrderIncludes, OrderOrderBy, OrderItem, OrderItemIncludes, OrderItemOrderBy } from "./order";
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
+import type { User, UserIncludes, UserOrderBy } from './user';
+import type {
+  Order,
+  OrderIncludes,
+  OrderOrderBy,
+  OrderItem,
+  OrderItemIncludes,
+  OrderItemOrderBy,
+} from './order';
 
 // =====================
 // Main Entity Interface
@@ -87,5 +102,7 @@ export interface ActivityDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ActivityBatchCreateResponse<T> extends BaseBatchResponse<Activity, T> {}
-export interface ActivityBatchUpdateResponse<T> extends BaseBatchResponse<Activity, T & { id: string }> {}
-export interface ActivityBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ActivityBatchUpdateResponse<T>
+  extends BaseBatchResponse<Activity, T & { id: string }> {}
+export interface ActivityBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

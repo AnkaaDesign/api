@@ -2,11 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileService } from '@modules/common/file/file.service';
 import { UserService } from '../user/user.service';
-import type {
-  UserGetUniqueResponse,
-  UserUpdateResponse,
-  User,
-} from '../../../types';
+import type { UserGetUniqueResponse, UserUpdateResponse, User } from '../../../types';
 import type { UserUpdateFormData } from '../../../schemas/user';
 
 @Injectable()
@@ -53,10 +49,7 @@ export class ProfileService {
   /**
    * Update current user profile
    */
-  async updateProfile(
-    userId: string,
-    data: UserUpdateFormData,
-  ): Promise<UserUpdateResponse> {
+  async updateProfile(userId: string, data: UserUpdateFormData): Promise<UserUpdateResponse> {
     // Use the existing user service update method
     // but only allow updating certain fields for profile
     const allowedFields: Partial<UserUpdateFormData> = {
@@ -84,10 +77,7 @@ export class ProfileService {
    * Upload user avatar photo
    * Stores in WebDAV: Colaboradores/{userName}/avatar.ext
    */
-  async uploadPhoto(
-    userId: string,
-    photo: Express.Multer.File,
-  ): Promise<UserUpdateResponse> {
+  async uploadPhoto(userId: string, photo: Express.Multer.File): Promise<UserUpdateResponse> {
     this.logger.log(`Uploading avatar for user ${userId}`);
 
     // Get user to access the name for folder organization

@@ -4,17 +4,17 @@
  * @returns A user-friendly error message
  */
 export function getErrorMessage(error: unknown): string {
-  if (!error) return "Erro desconhecido";
+  if (!error) return 'Erro desconhecido';
 
-  if (typeof error === "string") return error;
+  if (typeof error === 'string') return error;
 
   if (error instanceof Error) return error.message;
 
-  if (typeof error === "object" && "message" in error) {
+  if (typeof error === 'object' && 'message' in error) {
     return String((error as any).message);
   }
 
-  return "Erro desconhecido";
+  return 'Erro desconhecido';
 }
 
 /**
@@ -23,11 +23,11 @@ export function getErrorMessage(error: unknown): string {
  * @returns String representation or empty string for null/undefined
  */
 export function safeToString(value: unknown): string {
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) return '';
 
-  if (typeof value === "string") return value;
+  if (typeof value === 'string') return value;
 
-  if (typeof value === "number" || typeof value === "boolean") {
+  if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
 
@@ -74,13 +74,13 @@ function deepEquals(a: any, b: any): boolean {
   if (Array.isArray(a) || Array.isArray(b)) return false;
 
   // Handle objects
-  if (typeof a === "object" && typeof b === "object") {
+  if (typeof a === 'object' && typeof b === 'object') {
     const keysA = Object.keys(a);
     const keysB = Object.keys(b);
 
     if (keysA.length !== keysB.length) return false;
 
-    return keysA.every((key) => deepEquals(a[key], b[key]));
+    return keysA.every(key => deepEquals(a[key], b[key]));
   }
 
   // Different types or values
@@ -91,10 +91,14 @@ function deepEquals(a: any, b: any): boolean {
  * Extracts changed fields by comparing two objects
  * Used for optimizing API updates by only sending modified fields
  */
-export function getChangedFields<T extends Record<string, any>>(originalData: T, newData: T, ignoreFields: string[] = []): Partial<T> {
+export function getChangedFields<T extends Record<string, any>>(
+  originalData: T,
+  newData: T,
+  ignoreFields: string[] = [],
+): Partial<T> {
   const changedFields: Partial<T> = {};
 
-  Object.keys(newData).forEach((key) => {
+  Object.keys(newData).forEach(key => {
     if (ignoreFields.includes(key)) return;
 
     const originalValue = originalData[key];
@@ -112,12 +116,20 @@ export function getChangedFields<T extends Record<string, any>>(originalData: T,
 /**
  * Validates if all required fields in a form are filled
  */
-export function validateRequiredFields<T extends Record<string, any>>(data: T, requiredFields: (keyof T)[]): { isValid: boolean; missingFields: (keyof T)[] } {
+export function validateRequiredFields<T extends Record<string, any>>(
+  data: T,
+  requiredFields: (keyof T)[],
+): { isValid: boolean; missingFields: (keyof T)[] } {
   const missingFields: (keyof T)[] = [];
 
-  requiredFields.forEach((field) => {
+  requiredFields.forEach(field => {
     const value = data[field];
-    if (value == null || value === "" || (typeof value === "string" && value.trim() === "") || (Array.isArray(value) && value.length === 0)) {
+    if (
+      value == null ||
+      value === '' ||
+      (typeof value === 'string' && value.trim() === '') ||
+      (Array.isArray(value) && value.length === 0)
+    ) {
       missingFields.push(field);
     }
   });
@@ -135,9 +147,9 @@ export function cleanFormData<T extends Record<string, any>>(data: T): T {
   const cleaned = {} as T;
 
   Object.entries(data).forEach(([key, value]) => {
-    if (typeof value === "string") {
+    if (typeof value === 'string') {
       const trimmed = value.trim();
-      if (trimmed !== "") {
+      if (trimmed !== '') {
         cleaned[key as keyof T] = trimmed as any;
       }
     } else if (value != null) {
@@ -152,7 +164,10 @@ export function cleanFormData<T extends Record<string, any>>(data: T): T {
  * Debounces a function call
  * Useful for search inputs and form validation
  */
-export function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+export function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number,
+): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout | null = null;
 
   return function executedFunction(...args: Parameters<T>) {
@@ -172,20 +187,24 @@ export function debounce<T extends (...args: any[]) => any>(func: T, wait: numbe
 /**
  * Creates a form error message in Portuguese
  */
-export function createFormErrorMessage(fieldName: string, errorType: "required" | "invalid" | "min" | "max", extra?: string | number): string {
+export function createFormErrorMessage(
+  fieldName: string,
+  errorType: 'required' | 'invalid' | 'min' | 'max',
+  extra?: string | number,
+): string {
   const formattedField = fieldName
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (str) => str.toUpperCase())
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase())
     .trim();
 
   switch (errorType) {
-    case "required":
+    case 'required':
       return `${formattedField} é obrigatório`;
-    case "invalid":
+    case 'invalid':
       return `${formattedField} é inválido`;
-    case "min":
+    case 'min':
       return `${formattedField} deve ter no mínimo ${extra} caracteres`;
-    case "max":
+    case 'max':
       return `${formattedField} deve ter no máximo ${extra} caracteres`;
     default:
       return `${formattedField} contém erros`;

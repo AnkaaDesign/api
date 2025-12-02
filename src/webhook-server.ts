@@ -60,15 +60,18 @@ app.post('/backup/progress', async (req, res) => {
     });
 
     // Also publish to Redis for other services
-    await redis.publish('backup:progress', JSON.stringify({
-      backupId,
-      progress,
-      filesProcessed,
-      totalFiles,
-      rate,
-      timestamp,
-      completed,
-    }));
+    await redis.publish(
+      'backup:progress',
+      JSON.stringify({
+        backupId,
+        progress,
+        filesProcessed,
+        totalFiles,
+        rate,
+        timestamp,
+        completed,
+      }),
+    );
 
     // Store latest progress in Redis (TTL 1 hour)
     await redis.setex(
@@ -81,7 +84,7 @@ app.post('/backup/progress', async (req, res) => {
         rate,
         timestamp,
         completed,
-      })
+      }),
     );
 
     res.json({ success: true });
@@ -92,7 +95,7 @@ app.post('/backup/progress', async (req, res) => {
 });
 
 // Socket.io connection handling
-io.on('connection', (socket) => {
+io.on('connection', socket => {
   console.log('Client connected:', socket.id);
 
   socket.on('subscribe', async ({ backupId }) => {
@@ -126,10 +129,7 @@ redisSub.on('message', (channel, message) => {
 // Helper function to create HMAC signature
 function createHmacSignature(payload: any, secret: string): string {
   const crypto = require('crypto');
-  return crypto
-    .createHmac('sha256', secret)
-    .update(JSON.stringify(payload))
-    .digest('hex');
+  return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
 }
 
 const PORT = process.env.WEBHOOK_PORT || 3001;

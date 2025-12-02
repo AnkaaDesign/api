@@ -11,11 +11,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { BonusDiscountRepository } from './repositories/bonus-discount/bonus-discount.repository';
-import {
-  CHANGE_TRIGGERED_BY,
-  ENTITY_TYPE,
-  CHANGE_ACTION,
-} from '../../../constants/enums';
+import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -72,7 +68,9 @@ export class BonusDiscountService {
    * @param data The discount data to validate
    * @throws BadRequestException if validation fails
    */
-  private validateDiscountData(data: BonusDiscountCreateFormData | BonusDiscountUpdateFormData): void {
+  private validateDiscountData(
+    data: BonusDiscountCreateFormData | BonusDiscountUpdateFormData,
+  ): void {
     const hasPercentage = data.percentage !== null && data.percentage !== undefined;
     const hasValue = data.value !== null && data.value !== undefined;
 
@@ -80,16 +78,22 @@ export class BonusDiscountService {
     if (!('reference' in data)) {
       // This is an update operation
       if (hasPercentage && hasValue) {
-        throw new BadRequestException('Não é possível fornecer tanto percentual quanto valor. Escolha apenas um');
+        throw new BadRequestException(
+          'Não é possível fornecer tanto percentual quanto valor. Escolha apenas um',
+        );
       }
     } else {
       // This is a create operation, we need exactly one discount type
       if (!hasPercentage && !hasValue) {
-        throw new BadRequestException('É necessário fornecer um percentual ou um valor para o desconto');
+        throw new BadRequestException(
+          'É necessário fornecer um percentual ou um valor para o desconto',
+        );
       }
 
       if (hasPercentage && hasValue) {
-        throw new BadRequestException('Não é possível fornecer tanto percentual quanto valor. Escolha apenas um');
+        throw new BadRequestException(
+          'Não é possível fornecer tanto percentual quanto valor. Escolha apenas um',
+        );
       }
     }
 
@@ -289,8 +293,13 @@ export class BonusDiscountService {
         discountsApplied: discounts.length,
       };
     } catch (error) {
-      this.logger.error(`Error calculating bonus with suspended tasks for bonus ${bonusId}:`, error);
-      throw new InternalServerErrorException('Erro interno ao calcular bônus com tarefas suspensas');
+      this.logger.error(
+        `Error calculating bonus with suspended tasks for bonus ${bonusId}:`,
+        error,
+      );
+      throw new InternalServerErrorException(
+        'Erro interno ao calcular bônus com tarefas suspensas',
+      );
     }
   }
 
@@ -312,7 +321,7 @@ export class BonusDiscountService {
       suspendedTaskIds?: string[];
     };
 
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Validate suspended tasks if provided
         if (suspendedTaskIds && suspendedTaskIds.length > 0) {
@@ -405,7 +414,7 @@ export class BonusDiscountService {
       suspendedTaskIds?: string[];
     };
 
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Get current discount
         const currentDiscount = await this.bonusDiscountRepository.findByIdWithTransaction(
@@ -473,7 +482,8 @@ export class BonusDiscountService {
         const updateData = {
           ...discountData,
           // Handle nullable fields properly
-          percentage: discountData.percentage !== undefined ? (discountData.percentage ?? null) : undefined,
+          percentage:
+            discountData.percentage !== undefined ? (discountData.percentage ?? null) : undefined,
           value: discountData.value !== undefined ? (discountData.value ?? null) : undefined,
         };
 
@@ -604,7 +614,7 @@ export class BonusDiscountService {
    * @returns Success confirmation
    */
   async delete(id: string, userId: string): Promise<{ success: boolean; message: string }> {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Get current discount for changelog
         const currentDiscount = await this.bonusDiscountRepository.findByIdWithTransaction(
@@ -782,7 +792,7 @@ export class BonusDiscountService {
     orderUpdates: Array<{ id: string; newOrder: number }>,
     userId: string,
   ): Promise<BonusDiscount[]> {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Validate that all discounts belong to the specified bonus
         const existingDiscounts = await this.bonusDiscountRepository.findByBonusIdWithTransaction(
@@ -824,7 +834,9 @@ export class BonusDiscountService {
               userId,
               oldData: currentDiscount,
               newData: updatedDiscount,
-              changes: { calculationOrder: { from: currentDiscount.calculationOrder, to: newOrder } },
+              changes: {
+                calculationOrder: { from: currentDiscount.calculationOrder, to: newOrder },
+              },
             });
 
             updatedDiscounts.push(updatedDiscount);
@@ -833,7 +845,9 @@ export class BonusDiscountService {
           }
         }
 
-        this.logger.log(`Updated calculation order for ${orderUpdates.length} discounts in bonus ${bonusId}`);
+        this.logger.log(
+          `Updated calculation order for ${orderUpdates.length} discounts in bonus ${bonusId}`,
+        );
 
         return updatedDiscounts;
       } catch (error) {
@@ -841,7 +855,9 @@ export class BonusDiscountService {
         if (error instanceof BadRequestException) {
           throw error;
         }
-        throw new InternalServerErrorException('Erro interno ao atualizar ordem de cálculo dos descontos');
+        throw new InternalServerErrorException(
+          'Erro interno ao atualizar ordem de cálculo dos descontos',
+        );
       }
     });
   }
@@ -858,7 +874,7 @@ export class BonusDiscountService {
     taskId: string,
     userId: string,
   ): Promise<BonusDiscount> {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Get current bonus discount
         const currentDiscount = await this.bonusDiscountRepository.findByIdWithTransaction(
@@ -883,14 +899,12 @@ export class BonusDiscountService {
 
         // Validate that task belongs to the same user as the bonus
         if (task.createdById !== currentDiscount.bonus.userId) {
-          throw new BadRequestException(
-            'A tarefa deve pertencer ao mesmo usuário do bônus',
-          );
+          throw new BadRequestException('A tarefa deve pertencer ao mesmo usuário do bônus');
         }
 
         // Check if task is already suspended in this discount
         const isAlreadySuspended = currentDiscount.suspendedTasks?.some(
-          (suspendedTask) => suspendedTask.id === taskId,
+          suspendedTask => suspendedTask.id === taskId,
         );
 
         if (isAlreadySuspended) {
@@ -933,8 +947,8 @@ export class BonusDiscountService {
           newData: updatedDiscount,
           changes: {
             suspendedTasks: {
-              from: currentDiscount.suspendedTasks?.map((t) => t.id) || [],
-              to: [...(currentDiscount.suspendedTasks?.map((t) => t.id) || []), taskId],
+              from: currentDiscount.suspendedTasks?.map(t => t.id) || [],
+              to: [...(currentDiscount.suspendedTasks?.map(t => t.id) || []), taskId],
             },
           },
         });
@@ -947,11 +961,11 @@ export class BonusDiscountService {
           suspendedTasks: true,
         });
       } catch (error) {
-        this.logger.error(`Error adding suspended task ${taskId} to bonus discount ${bonusDiscountId}:`, error);
-        if (
-          error instanceof BadRequestException ||
-          error instanceof NotFoundException
-        ) {
+        this.logger.error(
+          `Error adding suspended task ${taskId} to bonus discount ${bonusDiscountId}:`,
+          error,
+        );
+        if (error instanceof BadRequestException || error instanceof NotFoundException) {
           throw error;
         }
         throw new InternalServerErrorException('Erro interno ao adicionar tarefa suspensa');
@@ -971,7 +985,7 @@ export class BonusDiscountService {
     taskId: string,
     userId: string,
   ): Promise<BonusDiscount> {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Get current bonus discount
         const currentDiscount = await this.bonusDiscountRepository.findByIdWithTransaction(
@@ -986,7 +1000,7 @@ export class BonusDiscountService {
 
         // Check if task is actually suspended
         const isSuspended = currentDiscount.suspendedTasks?.some(
-          (suspendedTask) => suspendedTask.id === taskId,
+          suspendedTask => suspendedTask.id === taskId,
         );
 
         if (!isSuspended) {
@@ -1028,8 +1042,8 @@ export class BonusDiscountService {
           newData: updatedDiscount,
           changes: {
             suspendedTasks: {
-              from: currentDiscount.suspendedTasks?.map((t) => t.id) || [],
-              to: updatedDiscount.suspendedTasks?.map((t) => t.id) || [],
+              from: currentDiscount.suspendedTasks?.map(t => t.id) || [],
+              to: updatedDiscount.suspendedTasks?.map(t => t.id) || [],
             },
           },
         });
@@ -1038,11 +1052,11 @@ export class BonusDiscountService {
 
         return updatedDiscount!;
       } catch (error) {
-        this.logger.error(`Error removing suspended task ${taskId} from bonus discount ${bonusDiscountId}:`, error);
-        if (
-          error instanceof BadRequestException ||
-          error instanceof NotFoundException
-        ) {
+        this.logger.error(
+          `Error removing suspended task ${taskId} from bonus discount ${bonusDiscountId}:`,
+          error,
+        );
+        if (error instanceof BadRequestException || error instanceof NotFoundException) {
           throw error;
         }
         throw new InternalServerErrorException('Erro interno ao remover tarefa suspensa');
@@ -1090,7 +1104,10 @@ export class BonusDiscountService {
 
       return discount.suspendedTasks || [];
     } catch (error) {
-      this.logger.error(`Error getting suspended tasks for bonus discount ${bonusDiscountId}:`, error);
+      this.logger.error(
+        `Error getting suspended tasks for bonus discount ${bonusDiscountId}:`,
+        error,
+      );
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -1181,8 +1198,8 @@ export class BonusDiscountService {
     });
 
     // Check if all tasks exist
-    const foundTaskIds = tasks.map((task) => task.id);
-    const missingTaskIds = taskIds.filter((id) => !foundTaskIds.includes(id));
+    const foundTaskIds = tasks.map(task => task.id);
+    const missingTaskIds = taskIds.filter(id => !foundTaskIds.includes(id));
     if (missingTaskIds.length > 0) {
       throw new NotFoundException(
         `As seguintes tarefas não foram encontradas: ${missingTaskIds.join(', ')}`,
@@ -1190,7 +1207,7 @@ export class BonusDiscountService {
     }
 
     // Check if all tasks belong to the same user as the bonus
-    const invalidTasks = tasks.filter((task) => task.createdById !== bonus.userId);
+    const invalidTasks = tasks.filter(task => task.createdById !== bonus.userId);
     if (invalidTasks.length > 0) {
       throw new BadRequestException(
         `As seguintes tarefas não pertencem ao usuário do bônus: ${invalidTasks.map(t => t.id).join(', ')}`,
@@ -1201,7 +1218,7 @@ export class BonusDiscountService {
     const bonusYear = bonus.year;
     const bonusMonth = bonus.month;
 
-    const tasksOutOfPeriod = tasks.filter((task) => {
+    const tasksOutOfPeriod = tasks.filter(task => {
       const taskDate = new Date(task.createdAt);
       const taskYear = taskDate.getFullYear();
       const taskMonth = taskDate.getMonth() + 1; // JavaScript months are 0-indexed
@@ -1222,7 +1239,7 @@ export class BonusDiscountService {
    * @returns Number of deleted discounts
    */
   async deleteByBonusId(bonusId: string, userId: string): Promise<number> {
-    return this.prisma.$transaction(async (transaction) => {
+    return this.prisma.$transaction(async transaction => {
       try {
         // Get existing discounts for changelog
         const existingDiscounts = await this.bonusDiscountRepository.findByBonusIdWithTransaction(

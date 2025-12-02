@@ -11,7 +11,12 @@ import {
 } from '../../../../../schemas';
 import { PpeSizeRepository } from './ppe-size.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
-import { CreateOptions, FindManyOptions, FindManyResult, UpdateOptions } from '../../../../../types';
+import {
+  CreateOptions,
+  FindManyOptions,
+  FindManyResult,
+  UpdateOptions,
+} from '../../../../../types';
 import { Prisma } from '@prisma/client';
 
 @Injectable()

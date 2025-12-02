@@ -14,7 +14,12 @@ import { ExternalWithdrawalItemRepository } from './external-withdrawal-item.rep
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { Prisma, ExternalWithdrawalItem as PrismaExternalWithdrawalItem } from '@prisma/client';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../../types';
 
 @Injectable()
 export class ExternalWithdrawalItemPrismaRepository

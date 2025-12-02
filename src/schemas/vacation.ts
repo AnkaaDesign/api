@@ -1,7 +1,7 @@
 // packages/schemas/src/vacation.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { Vacation } from '@types';
 import { VACATION_STATUS, VACATION_TYPE } from '@constants';
 
@@ -41,7 +41,9 @@ export const vacationIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -289,15 +291,15 @@ const vacationFilters = {
       lte: z.coerce.date().optional(),
     })
     .refine(
-      (data) => {
+      data => {
         if (data.gte && data.lte) {
           return data.lte >= data.gte;
         }
         return true;
       },
       {
-        message: "Data final deve ser posterior ou igual à data inicial",
-        path: ["lte"],
+        message: 'Data final deve ser posterior ou igual à data inicial',
+        path: ['lte'],
       },
     )
     .optional(),
@@ -307,15 +309,15 @@ const vacationFilters = {
       lte: z.coerce.date().optional(),
     })
     .refine(
-      (data) => {
+      data => {
         if (data.gte && data.lte) {
           return data.lte >= data.gte;
         }
         return true;
       },
       {
-        message: "Data final deve ser posterior ou igual à data inicial",
-        path: ["lte"],
+        message: 'Data final deve ser posterior ou igual à data inicial',
+        path: ['lte'],
       },
     )
     .optional(),
@@ -340,10 +342,13 @@ const vacationTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       user: {
-        OR: [{ name: { contains: data.searchingFor.trim(), mode: "insensitive" } }, { email: { contains: data.searchingFor.trim(), mode: "insensitive" } }],
+        OR: [
+          { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+          { email: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        ],
       },
     });
     delete data.searchingFor;
@@ -368,7 +373,7 @@ const vacationTransform = (data: any) => {
   }
 
   // Handle isCollective filter
-  if (typeof data.isCollective === "boolean") {
+  if (typeof data.isCollective === 'boolean') {
     andConditions.push({ isCollective: data.isCollective });
     delete data.isCollective;
   }
@@ -378,7 +383,11 @@ const vacationTransform = (data: any) => {
 
   if (data.isActive === true) {
     andConditions.push({
-      AND: [{ startAt: { lte: now } }, { endAt: { gte: now } }, { status: VACATION_STATUS.APPROVED }],
+      AND: [
+        { startAt: { lte: now } },
+        { endAt: { gte: now } },
+        { status: VACATION_STATUS.APPROVED },
+      ],
     });
     delete data.isActive;
   }
@@ -434,20 +443,22 @@ const vacationTransform = (data: any) => {
   }
 
   // Handle startAtRange filter
-  if (data.startAtRange && typeof data.startAtRange === "object") {
+  if (data.startAtRange && typeof data.startAtRange === 'object') {
     const condition: any = {};
     if (data.startAtRange.gte) {
-      const fromDate = data.startAtRange.gte instanceof Date
-        ? data.startAtRange.gte
-        : new Date(data.startAtRange.gte);
+      const fromDate =
+        data.startAtRange.gte instanceof Date
+          ? data.startAtRange.gte
+          : new Date(data.startAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.startAtRange.lte) {
-      const toDate = data.startAtRange.lte instanceof Date
-        ? data.startAtRange.lte
-        : new Date(data.startAtRange.lte);
+      const toDate =
+        data.startAtRange.lte instanceof Date
+          ? data.startAtRange.lte
+          : new Date(data.startAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -459,20 +470,18 @@ const vacationTransform = (data: any) => {
   }
 
   // Handle endAtRange filter
-  if (data.endAtRange && typeof data.endAtRange === "object") {
+  if (data.endAtRange && typeof data.endAtRange === 'object') {
     const condition: any = {};
     if (data.endAtRange.gte) {
-      const fromDate = data.endAtRange.gte instanceof Date
-        ? data.endAtRange.gte
-        : new Date(data.endAtRange.gte);
+      const fromDate =
+        data.endAtRange.gte instanceof Date ? data.endAtRange.gte : new Date(data.endAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       condition.gte = fromDate;
     }
     if (data.endAtRange.lte) {
-      const toDate = data.endAtRange.lte instanceof Date
-        ? data.endAtRange.lte
-        : new Date(data.endAtRange.lte);
+      const toDate =
+        data.endAtRange.lte instanceof Date ? data.endAtRange.lte : new Date(data.endAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       condition.lte = toDate;
@@ -537,15 +546,15 @@ export const vacationGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -555,15 +564,15 @@ export const vacationGetManySchema = z
         lte: z.coerce.date().optional(),
       })
       .refine(
-        (data) => {
+        data => {
           if (data.gte && data.lte) {
             return data.lte >= data.gte;
           }
           return true;
         },
         {
-          message: "Data final deve ser posterior ou igual à data inicial",
-          path: ["lte"],
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['lte'],
         },
       )
       .optional(),
@@ -576,45 +585,45 @@ export const vacationGetManySchema = z
 
 export const vacationCreateSchema = z
   .object({
-    userId: z.string().uuid("Usuário inválido").nullable().optional(),
+    userId: z.string().uuid('Usuário inválido').nullable().optional(),
     startAt: z.coerce.date({
-      required_error: "Data de início é obrigatória",
-      invalid_type_error: "Data de início inválida",
+      required_error: 'Data de início é obrigatória',
+      invalid_type_error: 'Data de início inválida',
     }),
     endAt: z.coerce.date({
-      required_error: "Data de término é obrigatória",
-      invalid_type_error: "Data de término inválida",
+      required_error: 'Data de término é obrigatória',
+      invalid_type_error: 'Data de término inválida',
     }),
     isCollective: z.boolean().default(false),
     type: z
       .enum(Object.values(VACATION_TYPE) as [string, ...string[]], {
-        errorMap: () => ({ message: "tipo inválido" }),
+        errorMap: () => ({ message: 'tipo inválido' }),
       })
       .default(VACATION_TYPE.ANNUAL),
     status: z
       .enum(Object.values(VACATION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .default(VACATION_STATUS.PENDING),
   })
-  .refine((data) => data.endAt > data.startAt, {
-    message: "Data de término deve ser posterior à data de início",
-    path: ["endAt"],
+  .refine(data => data.endAt > data.startAt, {
+    message: 'Data de término deve ser posterior à data de início',
+    path: ['endAt'],
   });
 
 export const vacationUpdateSchema = z
   .object({
-    userId: z.string().uuid("Usuário inválido").nullable().optional(),
-    startAt: z.coerce.date({ invalid_type_error: "Data de início inválida" }).optional(),
-    endAt: z.coerce.date({ invalid_type_error: "Data de término inválida" }).optional(),
+    userId: z.string().uuid('Usuário inválido').nullable().optional(),
+    startAt: z.coerce.date({ invalid_type_error: 'Data de início inválida' }).optional(),
+    endAt: z.coerce.date({ invalid_type_error: 'Data de término inválida' }).optional(),
     type: z
       .enum(Object.values(VACATION_TYPE) as [string, ...string[]], {
-        errorMap: () => ({ message: "tipo inválido" }),
+        errorMap: () => ({ message: 'tipo inválido' }),
       })
       .optional(),
     status: z
       .enum(Object.values(VACATION_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       })
       .optional(),
     isCollective: z.boolean().optional(),
@@ -625,8 +634,8 @@ export const vacationUpdateSchema = z
       if (data.endAt <= data.startAt) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Data de término deve ser posterior à data de início",
-          path: ["endAt"],
+          message: 'Data de término deve ser posterior à data de início',
+          path: ['endAt'],
         });
       }
     }
@@ -656,15 +665,17 @@ export const vacationBatchUpdateSchema = z.object({
   vacations: z
     .array(
       z.object({
-        id: z.string().uuid("Férias inválidas"),
+        id: z.string().uuid('Férias inválidas'),
         data: vacationUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma férias deve ser fornecida"),
+    .min(1, 'Pelo menos uma férias deve ser fornecida'),
 });
 
 export const vacationBatchDeleteSchema = z.object({
-  vacationIds: z.array(z.string().uuid("Férias inválidas")).min(1, "Pelo menos um ID deve ser fornecido"),
+  vacationIds: z
+    .array(z.string().uuid('Férias inválidas'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -678,7 +689,7 @@ export const vacationQuerySchema = z.object({
 
 export const vacationGetByIdSchema = z.object({
   include: vacationIncludeSchema.optional(),
-  id: z.string().uuid("Férias inválidas"),
+  id: z.string().uuid('Férias inválidas'),
 });
 
 // =====================
@@ -704,9 +715,11 @@ export type VacationWhere = z.infer<typeof vacationWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapVacationToFormData = createMapToFormDataHelper<Vacation, VacationUpdateFormData>((vacation) => ({
-  startAt: vacation.startAt,
-  endAt: vacation.endAt,
-  type: vacation.type,
-  status: vacation.status,
-}));
+export const mapVacationToFormData = createMapToFormDataHelper<Vacation, VacationUpdateFormData>(
+  vacation => ({
+    startAt: vacation.startAt,
+    endAt: vacation.endAt,
+    type: vacation.type,
+    status: vacation.status,
+  }),
+);

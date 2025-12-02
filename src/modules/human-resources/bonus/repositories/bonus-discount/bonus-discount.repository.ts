@@ -6,9 +6,7 @@ import {
   BonusDiscountGetManyParams,
   FindManyResult,
 } from '../../../../../types';
-import {
-  BonusDiscountCreateFormData,
-} from '../../../../../schemas';
+import { BonusDiscountCreateFormData } from '../../../../../schemas';
 import { BaseStringRepository } from '@modules/common/base/base-string.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 

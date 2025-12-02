@@ -1,9 +1,23 @@
 // packages/types/src/cut.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { ORDER_BY_DIRECTION, CUT_TYPE, CUT_STATUS, CUT_ORIGIN, CUT_REQUEST_REASON } from '@constants';
-import type { File, FileIncludes, FileOrderBy } from "./file";
-import type { Task, TaskIncludes, TaskOrderBy } from "./task";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type {
+  ORDER_BY_DIRECTION,
+  CUT_TYPE,
+  CUT_STATUS,
+  CUT_ORIGIN,
+  CUT_REQUEST_REASON,
+} from '@constants';
+import type { File, FileIncludes, FileOrderBy } from './file';
+import type { Task, TaskIncludes, TaskOrderBy } from './task';
 
 // =====================
 // Main Entity Interfaces
@@ -146,4 +160,5 @@ export interface CutBatchUpdateData {
 
 export interface CutBatchCreateResponse<T> extends BaseBatchResponse<Cut, T> {}
 export interface CutBatchUpdateResponse<T> extends BaseBatchResponse<Cut, T & { id: string }> {}
-export interface CutBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface CutBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

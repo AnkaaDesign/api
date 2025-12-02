@@ -1,10 +1,10 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 // System Service schemas
 export const systemServiceSchema = z.object({
   name: z.string(),
   displayName: z.string(),
-  status: z.enum(["active", "inactive", "failed", "unknown"]),
+  status: z.enum(['active', 'inactive', 'failed', 'unknown']),
   enabled: z.boolean(),
   description: z.string().optional(),
   subState: z.string().optional(),
@@ -30,17 +30,20 @@ export const systemUserSchema = z.object({
   shell: z.string(),
   fullName: z.string().optional(),
   lastLogin: z.date().optional(),
-  status: z.enum(["active", "inactive", "locked"]),
+  status: z.enum(['active', 'inactive', 'locked']),
 });
 
 export const createUserSchema = z.object({
-  username: z.string().min(1, "Nome de usuário é obrigatório").max(32, "Nome de usuário muito longo"),
+  username: z
+    .string()
+    .min(1, 'Nome de usuário é obrigatório')
+    .max(32, 'Nome de usuário muito longo'),
   fullName: z.string().optional(),
-  password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres").optional(),
+  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(),
 });
 
 export const setUserPasswordSchema = z.object({
-  password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
+  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
 });
 
 // Shared Folder schemas
@@ -105,7 +108,7 @@ export const systemMetricsSchema = z.object({
 
 // System Status schema
 export const systemHealthSchema = z.object({
-  overall: z.enum(["healthy", "warning", "critical"]),
+  overall: z.enum(['healthy', 'warning', 'critical']),
   services: z.object({
     healthy: z.number(),
     total: z.number(),

@@ -26,7 +26,17 @@ import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
 import { BackupService, BackupMetadata, CreateBackupDto } from './backup.service';
-import { IsString, IsOptional, IsEnum, IsArray, IsBoolean, IsNotEmpty, IsNumber, IsObject, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsNumber,
+  IsObject,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 // DTOs for validation
@@ -69,7 +79,15 @@ class AutoDeleteDto {
   enabled: boolean;
 
   @IsEnum(['1_day', '3_days', '1_week', '2_weeks', '1_month', '3_months', '6_months', '1_year'])
-  retention: '1_day' | '3_days' | '1_week' | '2_weeks' | '1_month' | '3_months' | '6_months' | '1_year';
+  retention:
+    | '1_day'
+    | '3_days'
+    | '1_week'
+    | '2_weeks'
+    | '1_month'
+    | '3_months'
+    | '6_months'
+    | '1_year';
 }
 
 class CreateBackupWithAutoDeleteDto extends CreateBackupRequestDto {

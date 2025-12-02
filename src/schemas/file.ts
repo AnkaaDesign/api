@@ -1,7 +1,7 @@
 // packages/schemas/src/schemas/file.ts
 
-import { z } from "zod";
-import { orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { orderByDirectionSchema, normalizeOrderBy } from './common';
 
 // =====================
 // Base Schema Components
@@ -93,7 +93,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             not: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -109,7 +109,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             not: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -124,7 +124,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             not: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -139,7 +139,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             not: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -154,7 +154,7 @@ export const fileWhereSchema: z.ZodType<any> = z.lazy(() =>
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
             not: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
             isSet: z.boolean().optional(),
           }),
         ])
@@ -406,9 +406,9 @@ const fileTransform = (data: any) => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { filename: { contains: searchingFor, mode: "insensitive" } },
-        { originalName: { contains: searchingFor, mode: "insensitive" } },
-        { mimetype: { contains: searchingFor, mode: "insensitive" } },
+        { filename: { contains: searchingFor, mode: 'insensitive' } },
+        { originalName: { contains: searchingFor, mode: 'insensitive' } },
+        { mimetype: { contains: searchingFor, mode: 'insensitive' } },
       ],
     });
   }
@@ -416,21 +416,21 @@ const fileTransform = (data: any) => {
   // Handle filenameContains filter
   if (filenameContains) {
     andConditions.push({
-      filename: { contains: filenameContains, mode: "insensitive" },
+      filename: { contains: filenameContains, mode: 'insensitive' },
     });
   }
 
   // Handle originalNameContains filter
   if (originalNameContains) {
     andConditions.push({
-      originalName: { contains: originalNameContains, mode: "insensitive" },
+      originalName: { contains: originalNameContains, mode: 'insensitive' },
     });
   }
 
   // Handle pathContains filter
   if (pathContains) {
     andConditions.push({
-      path: { contains: pathContains, mode: "insensitive" },
+      path: { contains: pathContains, mode: 'insensitive' },
     });
   }
 
@@ -561,7 +561,7 @@ const fileTransform = (data: any) => {
   // Handle file extension filters
   if (extensions && extensions.length > 0) {
     const extensionConditions = extensions.map((ext: string) => ({
-      filename: { endsWith: ext.startsWith(".") ? ext : `.${ext}`, mode: "insensitive" },
+      filename: { endsWith: ext.startsWith('.') ? ext : `.${ext}`, mode: 'insensitive' },
     }));
     andConditions.push({ OR: extensionConditions });
   }
@@ -570,26 +570,26 @@ const fileTransform = (data: any) => {
   if (isImage) {
     andConditions.push({
       mimetype: {
-        in: ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "image/bmp"],
+        in: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp'],
       },
     });
   }
 
   if (isPdf) {
-    andConditions.push({ mimetype: "application/pdf" });
+    andConditions.push({ mimetype: 'application/pdf' });
   }
 
   if (isDocument) {
     andConditions.push({
       mimetype: {
         in: [
-          "application/pdf",
-          "application/msword",
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "application/vnd.ms-excel",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "text/plain",
-          "text/csv",
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/plain',
+          'text/csv',
         ],
       },
     });
@@ -598,7 +598,7 @@ const fileTransform = (data: any) => {
   if (isVideo) {
     andConditions.push({
       mimetype: {
-        in: ["video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/webm"],
+        in: ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/webm'],
       },
     });
   }
@@ -606,7 +606,7 @@ const fileTransform = (data: any) => {
   if (isAudio) {
     andConditions.push({
       mimetype: {
-        in: ["audio/mpeg", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4"],
+        in: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/webm', 'audio/mp4'],
       },
     });
   }
@@ -633,7 +633,11 @@ const fileTransform = (data: any) => {
   // Merge with existing where conditions
   if (andConditions.length > 0) {
     if (rest.where) {
-      rest.where = rest.where.AND ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      rest.where = rest.where.AND
+        ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       rest.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -683,73 +687,80 @@ export const fileGetManySchema = z
 // =====================
 
 // MIME type validation
-const mimeTypeSchema = z.string().regex(/^[\w-]+\/[\w-]+$/, "Tipo MIME inválido");
+const mimeTypeSchema = z.string().regex(/^[\w-]+\/[\w-]+$/, 'Tipo MIME inválido');
 
 export const fileCreateSchema = z.object({
   filename: z
     .string()
-    .min(1, "Nome do arquivo é obrigatório")
-    .max(255, "Nome do arquivo deve ter no máximo 255 caracteres")
-    .regex(/^[^<>:"/\\|?*\x00-\x1f]+$/, "Nome do arquivo contém caracteres inválidos")
-    .refine((filename) => {
+    .min(1, 'Nome do arquivo é obrigatório')
+    .max(255, 'Nome do arquivo deve ter no máximo 255 caracteres')
+    .regex(/^[^<>:"/\\|?*\x00-\x1f]+$/, 'Nome do arquivo contém caracteres inválidos')
+    .refine(filename => {
       // Security: prevent directory traversal in filename
-      return !filename.includes("../") && !filename.includes("..\\");
-    }, "Nome do arquivo contém caracteres de navegação de diretório não permitidos")
-    .refine((filename) => {
+      return !filename.includes('../') && !filename.includes('..\\');
+    }, 'Nome do arquivo contém caracteres de navegação de diretório não permitidos')
+    .refine(filename => {
       // Ensure filename has an extension
-      return filename.includes(".") && filename.split(".").pop()!.length > 0;
-    }, "Nome do arquivo deve ter uma extensão"),
-  originalName: z.string().min(1, "Nome original do arquivo é obrigatório").max(255, "Nome original do arquivo deve ter no máximo 255 caracteres"),
+      return filename.includes('.') && filename.split('.').pop()!.length > 0;
+    }, 'Nome do arquivo deve ter uma extensão'),
+  originalName: z
+    .string()
+    .min(1, 'Nome original do arquivo é obrigatório')
+    .max(255, 'Nome original do arquivo deve ter no máximo 255 caracteres'),
   mimetype: mimeTypeSchema,
   path: z
     .string()
-    .min(1, "Caminho do arquivo é obrigatório")
-    .max(500, "Caminho do arquivo deve ter no máximo 500 caracteres")
-    .refine((path) => {
+    .min(1, 'Caminho do arquivo é obrigatório')
+    .max(500, 'Caminho do arquivo deve ter no máximo 500 caracteres')
+    .refine(path => {
       // Security: prevent path traversal
-      return !path.includes("../") && !path.includes("..\\");
-    }, "Caminho contém caracteres de navegação de diretório não permitidos"),
+      return !path.includes('../') && !path.includes('..\\');
+    }, 'Caminho contém caracteres de navegação de diretório não permitidos'),
   size: z
     .number()
     .int()
-    .min(1, "Tamanho do arquivo deve ser maior que 0")
-    .max(500 * 1024 * 1024, "Tamanho máximo do arquivo é 500MB"),
-  thumbnailUrl: z.string().url("URL da miniatura deve ser uma URL válida").optional().nullable(),
+    .min(1, 'Tamanho do arquivo deve ser maior que 0')
+    .max(500 * 1024 * 1024, 'Tamanho máximo do arquivo é 500MB'),
+  thumbnailUrl: z.string().url('URL da miniatura deve ser uma URL válida').optional().nullable(),
 });
 
 export const fileUpdateSchema = z.object({
   filename: z
     .string()
-    .min(1, "Nome do arquivo é obrigatório")
-    .max(255, "Nome do arquivo deve ter no máximo 255 caracteres")
-    .regex(/^[^<>:"/\\|?*\x00-\x1f]+$/, "Nome do arquivo contém caracteres inválidos")
-    .refine((filename) => {
+    .min(1, 'Nome do arquivo é obrigatório')
+    .max(255, 'Nome do arquivo deve ter no máximo 255 caracteres')
+    .regex(/^[^<>:"/\\|?*\x00-\x1f]+$/, 'Nome do arquivo contém caracteres inválidos')
+    .refine(filename => {
       // Security: prevent directory traversal in filename
-      return !filename.includes("../") && !filename.includes("..\\");
-    }, "Nome do arquivo contém caracteres de navegação de diretório não permitidos")
-    .refine((filename) => {
+      return !filename.includes('../') && !filename.includes('..\\');
+    }, 'Nome do arquivo contém caracteres de navegação de diretório não permitidos')
+    .refine(filename => {
       // Ensure filename has an extension
-      return filename.includes(".") && filename.split(".").pop()!.length > 0;
-    }, "Nome do arquivo deve ter uma extensão")
+      return filename.includes('.') && filename.split('.').pop()!.length > 0;
+    }, 'Nome do arquivo deve ter uma extensão')
     .optional(),
-  originalName: z.string().min(1, "Nome original do arquivo é obrigatório").max(255, "Nome original do arquivo deve ter no máximo 255 caracteres").optional(),
+  originalName: z
+    .string()
+    .min(1, 'Nome original do arquivo é obrigatório')
+    .max(255, 'Nome original do arquivo deve ter no máximo 255 caracteres')
+    .optional(),
   mimetype: mimeTypeSchema.optional(),
   path: z
     .string()
-    .min(1, "Caminho do arquivo é obrigatório")
-    .max(500, "Caminho do arquivo deve ter no máximo 500 caracteres")
-    .refine((path) => {
+    .min(1, 'Caminho do arquivo é obrigatório')
+    .max(500, 'Caminho do arquivo deve ter no máximo 500 caracteres')
+    .refine(path => {
       // Security: prevent path traversal
-      return !path.includes("../") && !path.includes("..\\");
-    }, "Caminho contém caracteres de navegação de diretório não permitidos")
+      return !path.includes('../') && !path.includes('..\\');
+    }, 'Caminho contém caracteres de navegação de diretório não permitidos')
     .optional(),
   size: z
     .number()
     .int()
-    .min(1, "Tamanho do arquivo deve ser maior que 0")
-    .max(500 * 1024 * 1024, "Tamanho máximo do arquivo é 500MB")
+    .min(1, 'Tamanho do arquivo deve ser maior que 0')
+    .max(500 * 1024 * 1024, 'Tamanho máximo do arquivo é 500MB')
     .optional(),
-  thumbnailUrl: z.string().url("URL da miniatura deve ser uma URL válida").optional().nullable(),
+  thumbnailUrl: z.string().url('URL da miniatura deve ser uma URL válida').optional().nullable(),
 });
 
 // =====================
@@ -757,7 +768,10 @@ export const fileUpdateSchema = z.object({
 // =====================
 
 export const fileMultipleUploadSchema = z.object({
-  files: z.array(fileCreateSchema).min(1, "Pelo menos um arquivo deve ser fornecido").max(10, "Máximo de 10 arquivos por upload"),
+  files: z
+    .array(fileCreateSchema)
+    .min(1, 'Pelo menos um arquivo deve ser fornecido')
+    .max(10, 'Máximo de 10 arquivos por upload'),
 });
 
 // =====================
@@ -765,23 +779,29 @@ export const fileMultipleUploadSchema = z.object({
 // =====================
 
 export const fileBatchCreateSchema = z.object({
-  files: z.array(fileCreateSchema).min(1, "Pelo menos um arquivo deve ser fornecido").max(50, "Máximo de 50 arquivos por operação em lote"),
+  files: z
+    .array(fileCreateSchema)
+    .min(1, 'Pelo menos um arquivo deve ser fornecido')
+    .max(50, 'Máximo de 50 arquivos por operação em lote'),
 });
 
 export const fileBatchUpdateSchema = z.object({
   files: z
     .array(
       z.object({
-        id: z.string().uuid("Arquivo inválido"),
+        id: z.string().uuid('Arquivo inválido'),
         data: fileUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um arquivo deve ser fornecido")
-    .max(50, "Máximo de 50 arquivos por operação em lote"),
+    .min(1, 'Pelo menos um arquivo deve ser fornecido')
+    .max(50, 'Máximo de 50 arquivos por operação em lote'),
 });
 
 export const fileBatchDeleteSchema = z.object({
-  fileIds: z.array(z.string().uuid("Arquivo inválido")).min(1, "Pelo menos um ID deve ser fornecido").max(50, "Máximo de 50 arquivos por operação em lote"),
+  fileIds: z
+    .array(z.string().uuid('Arquivo inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(50, 'Máximo de 50 arquivos por operação em lote'),
 });
 
 // Query schema for include parameter
@@ -792,7 +812,7 @@ export const fileQuerySchema = z.object({
 // GetById Schema
 export const fileGetByIdSchema = z.object({
   include: fileIncludeSchema.optional(),
-  id: z.string().uuid("Arquivo inválido"),
+  id: z.string().uuid('Arquivo inválido'),
 });
 
 // =====================

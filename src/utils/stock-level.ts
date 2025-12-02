@@ -17,7 +17,12 @@ import { STOCK_LEVEL } from '@constants';
  * @param hasActiveOrder Whether there's an active order (status != CREATED)
  * @returns The appropriate stock level
  */
-export function determineStockLevel(quantity: number, reorderPoint: number | null, maxQuantity: number | null, hasActiveOrder: boolean): STOCK_LEVEL {
+export function determineStockLevel(
+  quantity: number,
+  reorderPoint: number | null,
+  maxQuantity: number | null,
+  hasActiveOrder: boolean,
+): STOCK_LEVEL {
   // Validate input
   if (!Number.isFinite(quantity)) {
     // For invalid quantities, default to OPTIMAL to avoid false alerts
@@ -71,19 +76,19 @@ export function determineStockLevel(quantity: number, reorderPoint: number | nul
 export function getStockLevelColor(level: STOCK_LEVEL): string {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
-      return "text-red-700 bg-red-100";
+      return 'text-red-700 bg-red-100';
     case STOCK_LEVEL.OUT_OF_STOCK:
-      return "text-red-600 bg-red-50";
+      return 'text-red-600 bg-red-50';
     case STOCK_LEVEL.CRITICAL:
-      return "text-orange-600 bg-orange-50";
+      return 'text-orange-600 bg-orange-50';
     case STOCK_LEVEL.LOW:
-      return "text-yellow-600 bg-yellow-50";
+      return 'text-yellow-600 bg-yellow-50';
     case STOCK_LEVEL.OPTIMAL:
-      return "text-green-600 bg-green-50";
+      return 'text-green-600 bg-green-50';
     case STOCK_LEVEL.OVERSTOCKED:
-      return "text-blue-600 bg-blue-50";
+      return 'text-blue-600 bg-blue-50';
     default:
-      return "text-gray-600 bg-gray-50";
+      return 'text-gray-600 bg-gray-50';
   }
 }
 
@@ -95,19 +100,19 @@ export function getStockLevelColor(level: STOCK_LEVEL): string {
 export function getStockLevelTextColor(level: STOCK_LEVEL): string {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
-      return "text-neutral-500";
+      return 'text-neutral-500';
     case STOCK_LEVEL.OUT_OF_STOCK:
-      return "text-red-600";
+      return 'text-red-600';
     case STOCK_LEVEL.CRITICAL:
-      return "text-orange-500";
+      return 'text-orange-500';
     case STOCK_LEVEL.LOW:
-      return "text-yellow-500";
+      return 'text-yellow-500';
     case STOCK_LEVEL.OPTIMAL:
-      return "text-green-600";
+      return 'text-green-600';
     case STOCK_LEVEL.OVERSTOCKED:
-      return "text-purple-600";
+      return 'text-purple-600';
     default:
-      return "text-neutral-500";
+      return 'text-neutral-500';
   }
 }
 
@@ -119,19 +124,19 @@ export function getStockLevelTextColor(level: STOCK_LEVEL): string {
 export function getStockLevelIcon(level: STOCK_LEVEL): { name: string; rotation?: number } {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
-      return { name: "exclamation-triangle", rotation: 0 };
+      return { name: 'exclamation-triangle', rotation: 0 };
     case STOCK_LEVEL.OUT_OF_STOCK:
-      return { name: "package-off", rotation: 0 };
+      return { name: 'package-off', rotation: 0 };
     case STOCK_LEVEL.CRITICAL:
-      return { name: "alert-circle", rotation: 0 };
+      return { name: 'alert-circle', rotation: 0 };
     case STOCK_LEVEL.LOW:
-      return { name: "trending-down", rotation: 0 };
+      return { name: 'trending-down', rotation: 0 };
     case STOCK_LEVEL.OPTIMAL:
-      return { name: "check-circle", rotation: 0 };
+      return { name: 'check-circle', rotation: 0 };
     case STOCK_LEVEL.OVERSTOCKED:
-      return { name: "trending-up", rotation: 0 };
+      return { name: 'trending-up', rotation: 0 };
     default:
-      return { name: "help-circle", rotation: 0 };
+      return { name: 'help-circle', rotation: 0 };
   }
 }
 
@@ -181,12 +186,16 @@ export const getStockLevel = determineStockLevel;
  * @param reorderPoint The reorder point (if configured)
  * @returns A descriptive message in Portuguese
  */
-export function getStockLevelMessage(level: STOCK_LEVEL, quantity: number, reorderPoint: number | null): string {
+export function getStockLevelMessage(
+  level: STOCK_LEVEL,
+  quantity: number,
+  reorderPoint: number | null,
+): string {
   switch (level) {
     case STOCK_LEVEL.NEGATIVE_STOCK:
       return `Estoque negativo (${quantity}). Verifique possíveis erros de lançamento.`;
     case STOCK_LEVEL.OUT_OF_STOCK:
-      return "Item sem estoque. Necessário reposição urgente.";
+      return 'Item sem estoque. Necessário reposição urgente.';
     case STOCK_LEVEL.CRITICAL:
       return reorderPoint !== null
         ? `Estoque crítico. Quantidade (${quantity}) está em ou abaixo de 90% do ponto de pedido (${reorderPoint}).`

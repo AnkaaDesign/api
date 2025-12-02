@@ -140,7 +140,9 @@ export class PaintService {
    */
   async getAvailableComponents(paintBrandIdOrName: string, paintTypeId: string): Promise<any[]> {
     try {
-      this.logger.log(`=== getAvailableComponents called with paintBrandIdOrName: "${paintBrandIdOrName}", paintTypeId: "${paintTypeId}"`);
+      this.logger.log(
+        `=== getAvailableComponents called with paintBrandIdOrName: "${paintBrandIdOrName}", paintTypeId: "${paintTypeId}"`,
+      );
 
       // Get paint type with component items
       const paintType = await this.prisma.paintType.findUnique({
@@ -161,7 +163,9 @@ export class PaintService {
         throw new NotFoundException('Tipo de tinta não encontrado');
       }
 
-      this.logger.log(`Paint type "${paintType.name}" found with ${paintType.componentItems.length} components`);
+      this.logger.log(
+        `Paint type "${paintType.name}" found with ${paintType.componentItems.length} components`,
+      );
 
       // Try to find paint brand by ID first, then by name for backward compatibility
       let paintBrand = await this.prisma.paintBrand.findUnique({
@@ -199,7 +203,9 @@ export class PaintService {
         throw new NotFoundException(`Marca de tinta "${paintBrandIdOrName}" não encontrada`);
       }
 
-      this.logger.log(`Paint brand "${paintBrand.name}" (ID: ${paintBrand.id}) found with ${paintBrand.componentItems.length} components`);
+      this.logger.log(
+        `Paint brand "${paintBrand.name}" (ID: ${paintBrand.id}) found with ${paintBrand.componentItems.length} components`,
+      );
 
       // Get intersection of components (items that exist in both paint type AND paint brand)
       const paintTypeComponentIds = new Set(paintType.componentItems.map(item => item.id));
@@ -212,8 +218,12 @@ export class PaintService {
       );
 
       if (availableComponents.length === 0) {
-        this.logger.warn(`NO INTERSECTION! Paint type component IDs: [${Array.from(paintTypeComponentIds).join(', ')}]`);
-        this.logger.warn(`Paint brand component IDs: [${paintBrand.componentItems.map(i => i.id).join(', ')}]`);
+        this.logger.warn(
+          `NO INTERSECTION! Paint type component IDs: [${Array.from(paintTypeComponentIds).join(', ')}]`,
+        );
+        this.logger.warn(
+          `Paint brand component IDs: [${paintBrand.componentItems.map(i => i.id).join(', ')}]`,
+        );
       }
 
       return availableComponents;
@@ -248,9 +258,7 @@ export class PaintService {
       });
 
       if (!paintType || paintType.componentItems.length === 0) {
-        this.logger.warn(
-          `Component ${componentId} not found in paint type ${paintTypeId}`,
-        );
+        this.logger.warn(`Component ${componentId} not found in paint type ${paintTypeId}`);
         return false;
       }
 
@@ -265,9 +273,7 @@ export class PaintService {
       });
 
       if (!paintBrand || paintBrand.componentItems.length === 0) {
-        this.logger.warn(
-          `Component ${componentId} not found in paint brand ${paintBrandId}`,
-        );
+        this.logger.warn(`Component ${componentId} not found in paint brand ${paintBrandId}`);
         return false;
       }
 
@@ -365,8 +371,14 @@ export class PaintService {
 
         // Apply color similarity filtering if requested
         if (hasColorSimilarity) {
-          this.logger.log(`Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`);
-          const similarResult = findSimilarColors(result.data as any[], similarColor, similarColorThreshold || 15);
+          this.logger.log(
+            `Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`,
+          );
+          const similarResult = findSimilarColors(
+            result.data as any[],
+            similarColor,
+            similarColorThreshold || 15,
+          );
           result = {
             data: similarResult.data as any[],
             meta: {
@@ -395,8 +407,14 @@ export class PaintService {
 
       // Apply color similarity filtering if requested
       if (hasColorSimilarity) {
-        this.logger.log(`Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`);
-        const similarResult = findSimilarColors(result.data as any[], similarColor, similarColorThreshold || 15);
+        this.logger.log(
+          `Applying color similarity filter: color="${similarColor}", threshold=${similarColorThreshold || 15}`,
+        );
+        const similarResult = findSimilarColors(
+          result.data as any[],
+          similarColor,
+          similarColorThreshold || 15,
+        );
         result = {
           data: similarResult.data as any[],
           meta: {
@@ -485,7 +503,9 @@ export class PaintService {
   private async findPaintIdsByCustomerSearch(searchTerm: string): Promise<string[]> {
     try {
       const searchPattern = `%${searchTerm}%`;
-      this.logger.log(`Customer search: searching for "${searchTerm}" with pattern "${searchPattern}"`);
+      this.logger.log(
+        `Customer search: searching for "${searchTerm}" with pattern "${searchPattern}"`,
+      );
 
       const result = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT DISTINCT p.id
@@ -692,7 +712,7 @@ export class PaintService {
         await this.paintValidation(data, id, tx);
 
         // Prepare update data
-        let updateData: any = { ...data };
+        const updateData: any = { ...data };
 
         // Update colorPreview with uploaded file URL if available
         if (colorPreviewUrl !== undefined) {
@@ -1208,9 +1228,9 @@ export class PaintService {
     userId?: string,
   ) {
     try {
-      const result = await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async tx => {
         const updates = await Promise.allSettled(
-          data.updates.map(async (update) => {
+          data.updates.map(async update => {
             const paint = await tx.paint.update({
               where: { id: update.id },
               data: { colorOrder: update.colorOrder },
@@ -1235,11 +1255,9 @@ export class PaintService {
           }),
         );
 
-        const successful = updates
-          .filter((r) => r.status === 'fulfilled')
-          .map((r: any) => r.value);
+        const successful = updates.filter(r => r.status === 'fulfilled').map((r: any) => r.value);
         const failed = updates
-          .filter((r) => r.status === 'rejected')
+          .filter(r => r.status === 'rejected')
           .map((r: any, index) => ({
             index,
             error: r.reason.message || 'Erro desconhecido',

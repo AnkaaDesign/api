@@ -1,7 +1,7 @@
 // packages/schemas/src/preference.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema } from './common';
 import { COLOR_SCHEMA, FAVORITE_PAGES } from '@constants';
 import type { Preferences } from '@types';
 
@@ -111,8 +111,12 @@ export const preferencesWhereSchema: z.ZodSchema = z.lazy(() =>
       favorites: z
         .object({
           has: z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]]).optional(),
-          hasEvery: z.array(z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]])).optional(),
-          hasSome: z.array(z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]])).optional(),
+          hasEvery: z
+            .array(z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]]))
+            .optional(),
+          hasSome: z
+            .array(z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]]))
+            .optional(),
           isEmpty: z.boolean().optional(),
         })
         .optional(),
@@ -160,10 +164,10 @@ export const preferencesGetManySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20).optional(),
 
   // Convenience filters
-  userId: z.string().uuid("Usuário inválido").optional(),
+  userId: z.string().uuid('Usuário inválido').optional(),
   colorSchema: z
     .enum(Object.values(COLOR_SCHEMA) as [string, ...string[]], {
-      errorMap: () => ({ message: "esquema de cores inválido" }),
+      errorMap: () => ({ message: 'esquema de cores inválido' }),
     })
     .optional(),
 });
@@ -176,16 +180,16 @@ const toFormData = <T>(data: T) => data;
 
 export const preferencesCreateSchema = z
   .object({
-    userId: z.string().uuid("Usuário inválido"),
+    userId: z.string().uuid('Usuário inválido'),
     colorSchema: z
       .enum(Object.values(COLOR_SCHEMA) as [string, ...string[]], {
-        errorMap: () => ({ message: "esquema de cores inválido" }),
+        errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .default(COLOR_SCHEMA.LIGHT),
     favorites: z
       .array(
         z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]], {
-          errorMap: () => ({ message: "página favorita inválida" }),
+          errorMap: () => ({ message: 'página favorita inválida' }),
         }),
       )
       .default([])
@@ -197,13 +201,13 @@ export const preferencesUpdateSchema = z
   .object({
     colorSchema: z
       .enum(Object.values(COLOR_SCHEMA) as [string, ...string[]], {
-        errorMap: () => ({ message: "esquema de cores inválido" }),
+        errorMap: () => ({ message: 'esquema de cores inválido' }),
       })
       .optional(),
     favorites: z
       .array(
         z.enum(Object.values(FAVORITE_PAGES) as [string, ...string[]], {
-          errorMap: () => ({ message: "página favorita inválida" }),
+          errorMap: () => ({ message: 'página favorita inválida' }),
         }),
       )
       .default([])
@@ -216,22 +220,26 @@ export const preferencesUpdateSchema = z
 // =====================
 
 export const preferencesBatchCreateSchema = z.object({
-  preferences: z.array(preferencesCreateSchema).min(1, "Pelo menos uma preferência deve ser fornecida"),
+  preferences: z
+    .array(preferencesCreateSchema)
+    .min(1, 'Pelo menos uma preferência deve ser fornecida'),
 });
 
 export const preferencesBatchUpdateSchema = z.object({
   preferences: z
     .array(
       z.object({
-        id: z.string().uuid("Preferências inválidas"),
+        id: z.string().uuid('Preferências inválidas'),
         data: preferencesUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma preferência deve ser fornecida"),
+    .min(1, 'Pelo menos uma preferência deve ser fornecida'),
 });
 
 export const preferencesBatchDeleteSchema = z.object({
-  preferenceIds: z.array(z.string().uuid("Preferências inválidas")).min(1, "Pelo menos um ID deve ser fornecido"),
+  preferenceIds: z
+    .array(z.string().uuid('Preferências inválidas'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -245,7 +253,7 @@ export const preferencesQuerySchema = z.object({
 
 export const preferencesGetByIdSchema = z.object({
   include: preferencesIncludeSchema.optional(),
-  id: z.string().uuid("Preferências inválidas"),
+  id: z.string().uuid('Preferências inválidas'),
 });
 
 // =====================
@@ -271,7 +279,10 @@ export type PreferencesWhere = z.infer<typeof preferencesWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapPreferencesToFormData = createMapToFormDataHelper<Preferences, PreferencesUpdateFormData>((preferences) => ({
+export const mapPreferencesToFormData = createMapToFormDataHelper<
+  Preferences,
+  PreferencesUpdateFormData
+>(preferences => ({
   colorSchema: preferences.colorSchema,
   favorites: preferences.favorites,
 }));

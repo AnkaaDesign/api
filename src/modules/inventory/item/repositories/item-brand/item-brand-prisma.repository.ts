@@ -8,7 +8,12 @@ import {
   ItemBrandOrderBy,
   ItemBrandWhere,
 } from '../../../../../schemas/item';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../../types';
 import { ItemBrandRepository } from './item-brand.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';

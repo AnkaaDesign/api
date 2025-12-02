@@ -10,7 +10,7 @@ import type {
   BatchCreateResponse,
   BatchUpdateResponse,
   BatchDeleteResponse,
-} from "./common";
+} from './common';
 import { HOLIDAY_TYPE } from '@constants';
 
 export interface Holiday extends BaseEntity {

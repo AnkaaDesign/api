@@ -4,7 +4,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ExactBonusCalculationService } from '../../bonus/exact-bonus-calculation.service';
-import { USER_STATUS, TASK_STATUS, COMMISSION_STATUS, BONUS_STATUS, ACTIVE_USER_STATUSES } from '../../../../constants';
+import {
+  USER_STATUS,
+  TASK_STATUS,
+  COMMISSION_STATUS,
+  BONUS_STATUS,
+  ACTIVE_USER_STATUSES,
+} from '../../../../constants';
 import type { Position, MonetaryValue, User, Payroll, Discount } from '../../../../types';
 import { roundAverage, roundCurrency } from '../../../../utils/currency-precision.util';
 
@@ -165,8 +171,9 @@ export class PayrollCalculatorService {
     }
 
     // Get the most recent remuneration (sorted by createdAt desc)
-    const latestRemuneration = position.remunerations
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+    const latestRemuneration = position.remunerations.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )[0];
 
     const baseSalary = latestRemuneration?.value || 0;
 
@@ -194,7 +201,7 @@ export class PayrollCalculatorService {
     absenceDays: number = 0,
     workingDaysInMonth: number = 30,
     discounts: Discount[] = [],
-    additionalDeductions: number = 0
+    additionalDeductions: number = 0,
   ): {
     totalDeductions: number;
     absenceDeduction: number;
@@ -219,9 +226,10 @@ export class PayrollCalculatorService {
 
     // 1. Calculate absence deduction first (based on base salary only)
     // CRITICAL: Use centralized rounding utility for consistency
-    const absenceDeduction = absenceDays > 0 && workingDaysInMonth > 0
-      ? roundCurrency((baseSalary / workingDaysInMonth) * absenceDays)
-      : 0;
+    const absenceDeduction =
+      absenceDays > 0 && workingDaysInMonth > 0
+        ? roundCurrency((baseSalary / workingDaysInMonth) * absenceDays)
+        : 0;
 
     if (absenceDeduction > 0) {
       totalDeductions = roundCurrency(totalDeductions + absenceDeduction);
@@ -291,7 +299,9 @@ export class PayrollCalculatorService {
       });
     }
 
-    this.logger.debug(`Calculated total deductions: R$ ${totalDeductions} (${deductionBreakdown.length} items)`);
+    this.logger.debug(
+      `Calculated total deductions: R$ ${totalDeductions} (${deductionBreakdown.length} items)`,
+    );
 
     return {
       totalDeductions: roundCurrency(totalDeductions),
@@ -312,7 +322,9 @@ export class PayrollCalculatorService {
     const grossSalary = baseSalary + bonusValue;
     const netSalary = Math.max(0, grossSalary - totalDeductions);
 
-    this.logger.debug(`Net salary calculation: R$ ${baseSalary} + R$ ${bonusValue} - R$ ${totalDeductions} = R$ ${netSalary}`);
+    this.logger.debug(
+      `Net salary calculation: R$ ${baseSalary} + R$ ${bonusValue} - R$ ${totalDeductions} = R$ ${netSalary}`,
+    );
 
     // CRITICAL: Use centralized rounding utility for consistency
     return roundCurrency(netSalary);
@@ -400,14 +412,14 @@ export class PayrollCalculatorService {
         0, // No absence days for live calculation
         workingDaysInMonth,
         [], // No existing discounts
-        0   // No additional deductions
+        0, // No additional deductions
       );
 
       // 7. Calculate net salary
       const netSalary = this.calculateNetSalary(
         baseSalary,
         bonusData.baseBonus,
-        deductionResult.totalDeductions
+        deductionResult.totalDeductions,
       );
 
       // 8. Build complete calculation result
@@ -448,11 +460,10 @@ export class PayrollCalculatorService {
 
       this.logger.log(
         `Generated live payroll for ${user.name}: ` +
-        `Base R$ ${baseSalary}, Bonus R$ ${bonusData.baseBonus}, Net R$ ${netSalary}`
+          `Base R$ ${baseSalary}, Bonus R$ ${bonusData.baseBonus}, Net R$ ${netSalary}`,
       );
 
       return livePayrollData;
-
     } catch (error) {
       this.logger.error(`Error generating live payroll for user ${userId}:`, error);
       throw new Error(`Failed to generate live payroll: ${error.message}`);
@@ -467,7 +478,7 @@ export class PayrollCalculatorService {
     userId: string,
     year: number,
     month: number,
-    period: PayrollPeriod
+    period: PayrollPeriod,
   ): Promise<{
     id: string;
     baseBonus: number;
@@ -512,9 +523,8 @@ export class PayrollCalculatorService {
 
       // Calculate average tasks per eligible user
       // CRITICAL: Use centralized rounding utility for consistency
-      const averageTasksPerUser = eligibleUsers.length > 0
-        ? roundAverage(totalWeightedTasks / eligibleUsers.length)
-        : 0;
+      const averageTasksPerUser =
+        eligibleUsers.length > 0 ? roundAverage(totalWeightedTasks / eligibleUsers.length) : 0;
 
       // Get current user's details
       const currentUser = await this.prisma.user.findUnique({
@@ -540,7 +550,7 @@ export class PayrollCalculatorService {
         bonusValue = this.exactBonusCalculationService.calculateBonus(
           positionName,
           performanceLevel,
-          averageTasksPerUser
+          averageTasksPerUser,
         );
       }
 
@@ -551,7 +561,6 @@ export class PayrollCalculatorService {
         weightedTaskCount: averageTasksPerUser,
         taskCount: allTasks.length,
       };
-
     } catch (error) {
       this.logger.error('Error calculating live bonus:', error);
 
@@ -572,7 +581,9 @@ export class PayrollCalculatorService {
    * @param data - PayrollCalculationData containing user, payroll, and period info
    * @returns Complete PayrollCalculationResult
    */
-  async performCompleteCalculation(data: PayrollCalculationData): Promise<PayrollCalculationResult> {
+  async performCompleteCalculation(
+    data: PayrollCalculationData,
+  ): Promise<PayrollCalculationResult> {
     try {
       // Calculate base salary
       const baseSalary = this.calculateBaseSalary(data.user.position);
@@ -584,7 +595,7 @@ export class PayrollCalculatorService {
           data.user.id,
           data.period.year,
           data.period.month,
-          data.period
+          data.period,
         );
         bonusValue = liveBonusData.baseBonus;
       }
@@ -592,7 +603,7 @@ export class PayrollCalculatorService {
       // Get working days
       const workingDaysInMonth = this.calculateWorkingDaysInMonth(
         data.period.year,
-        data.period.month
+        data.period.month,
       );
 
       // Calculate effective working days (total - absences)
@@ -606,14 +617,14 @@ export class PayrollCalculatorService {
         absenceDays,
         workingDaysInMonth,
         data.payroll?.discounts || [],
-        data.additionalDeductions || 0
+        data.additionalDeductions || 0,
       );
 
       // Calculate net salary
       const netSalary = this.calculateNetSalary(
         baseSalary,
         bonusValue,
-        deductionResult.totalDeductions
+        deductionResult.totalDeductions,
       );
 
       return {
@@ -631,7 +642,6 @@ export class PayrollCalculatorService {
         calculatedAt: new Date(),
         isLive: !data.payroll, // Live if no saved payroll exists
       };
-
     } catch (error) {
       this.logger.error('Error performing complete payroll calculation:', error);
       throw new Error(`Payroll calculation failed: ${error.message}`);
@@ -683,8 +693,8 @@ export class PayrollCalculatorService {
       `SALÁRIO BRUTO: ${formatCurrency(calculation.grossSalary)}`,
       ``,
       `DEDUÇÕES:`,
-      ...calculation.deductionBreakdown.map(deduction =>
-        `  ${deduction.reference}: ${formatCurrency(deduction.amount)}`
+      ...calculation.deductionBreakdown.map(
+        deduction => `  ${deduction.reference}: ${formatCurrency(deduction.amount)}`,
       ),
       `TOTAL DEDUÇÕES: ${formatCurrency(calculation.totalDeductions)}`,
       ``,

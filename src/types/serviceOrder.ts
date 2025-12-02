@@ -1,8 +1,16 @@
 // packages/interfaces/src/serviceOrder.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION, SERVICE_ORDER_STATUS } from '@constants';
-import type { Task, TaskIncludes, TaskOrderBy } from "./task";
+import type { Task, TaskIncludes, TaskOrderBy } from './task';
 
 // =====================
 // ServiceOrder Interface
@@ -67,5 +75,7 @@ export interface ServiceOrderDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ServiceOrderBatchCreateResponse<T> extends BaseBatchResponse<ServiceOrder, T> {}
-export interface ServiceOrderBatchUpdateResponse<T> extends BaseBatchResponse<ServiceOrder, T & { id: string }> {}
-export interface ServiceOrderBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ServiceOrderBatchUpdateResponse<T>
+  extends BaseBatchResponse<ServiceOrder, T & { id: string }> {}
+export interface ServiceOrderBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

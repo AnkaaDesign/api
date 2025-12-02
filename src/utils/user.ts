@@ -1,8 +1,18 @@
 import type { User } from '@types';
 import { USER_STATUS, SECTOR_PRIVILEGES, VERIFICATION_TYPE } from '@constants';
-import { getSectorPrivilegeLevel } from "./privilege";
-import { dateUtils } from "./date";
-import type { UserStatus, VerificationType, ShirtSize, BootSize, PantsSize, SleevesSize, MaskSize, GlovesSize, RainBootsSize } from "@prisma/client";
+import { getSectorPrivilegeLevel } from './privilege';
+import { dateUtils } from './date';
+import type {
+  UserStatus,
+  VerificationType,
+  ShirtSize,
+  BootSize,
+  PantsSize,
+  SleevesSize,
+  MaskSize,
+  GlovesSize,
+  RainBootsSize,
+} from '@prisma/client';
 
 /**
  * Map USER_STATUS enum to Prisma UserStatus enum
@@ -16,7 +26,9 @@ export function mapUserStatusToPrisma(status: USER_STATUS | string): UserStatus 
  * Map VERIFICATION_TYPE enum to Prisma VerificationType enum
  * This is needed because TypeScript doesn't recognize that the string values are compatible
  */
-export function mapVerificationTypeToPrisma(verificationType: VERIFICATION_TYPE | string | null | undefined): VerificationType | null | undefined {
+export function mapVerificationTypeToPrisma(
+  verificationType: VERIFICATION_TYPE | string | null | undefined,
+): VerificationType | null | undefined {
   return verificationType as VerificationType | null | undefined;
 }
 
@@ -24,7 +36,9 @@ export function mapVerificationTypeToPrisma(verificationType: VERIFICATION_TYPE 
  * Map PPE size enums to Prisma enums
  * Note: These functions are kept for backward compatibility with PpeSize entity
  */
-export function mapShirtSizeToPrisma(size: string | null | undefined): ShirtSize | null | undefined {
+export function mapShirtSizeToPrisma(
+  size: string | null | undefined,
+): ShirtSize | null | undefined {
   return size as ShirtSize | null | undefined;
 }
 
@@ -32,11 +46,15 @@ export function mapBootSizeToPrisma(size: string | null | undefined): BootSize |
   return size as BootSize | null | undefined;
 }
 
-export function mapPantsSizeToPrisma(size: string | null | undefined): PantsSize | null | undefined {
+export function mapPantsSizeToPrisma(
+  size: string | null | undefined,
+): PantsSize | null | undefined {
   return size as PantsSize | null | undefined;
 }
 
-export function mapSleevesSizeToPrisma(size: string | null | undefined): SleevesSize | null | undefined {
+export function mapSleevesSizeToPrisma(
+  size: string | null | undefined,
+): SleevesSize | null | undefined {
   return size as SleevesSize | null | undefined;
 }
 
@@ -44,11 +62,15 @@ export function mapMaskSizeToPrisma(size: string | null | undefined): MaskSize |
   return size as MaskSize | null | undefined;
 }
 
-export function mapGlovesSizeToPrisma(size: string | null | undefined): GlovesSize | null | undefined {
+export function mapGlovesSizeToPrisma(
+  size: string | null | undefined,
+): GlovesSize | null | undefined {
   return size as GlovesSize | null | undefined;
 }
 
-export function mapRainBootsSizeToPrisma(size: string | null | undefined): RainBootsSize | null | undefined {
+export function mapRainBootsSizeToPrisma(
+  size: string | null | undefined,
+): RainBootsSize | null | undefined {
   return size as RainBootsSize | null | undefined;
 }
 
@@ -57,12 +79,12 @@ export function mapRainBootsSizeToPrisma(size: string | null | undefined): RainB
  */
 export function getUserStatusColor(status: USER_STATUS): string {
   const colors: Record<USER_STATUS, string> = {
-    [USER_STATUS.EXPERIENCE_PERIOD_1]: "orange",
-    [USER_STATUS.EXPERIENCE_PERIOD_2]: "orange",
-    [USER_STATUS.EFFECTED]: "green",
-    [USER_STATUS.DISMISSED]: "gray",
+    [USER_STATUS.EXPERIENCE_PERIOD_1]: 'orange',
+    [USER_STATUS.EXPERIENCE_PERIOD_2]: 'orange',
+    [USER_STATUS.EFFECTED]: 'green',
+    [USER_STATUS.DISMISSED]: 'gray',
   };
-  return colors[status] || "default";
+  return colors[status] || 'default';
 }
 
 /**
@@ -105,7 +127,7 @@ export function hasPrivilege(user: User, requiredPrivilege: SECTOR_PRIVILEGES): 
 export function hasAnyPrivilege(user: User, requiredPrivileges: SECTOR_PRIVILEGES[]): boolean {
   if (!user.sector?.privileges || !requiredPrivileges.length) return false;
 
-  return requiredPrivileges.some((privilege) => hasPrivilege(user, privilege));
+  return requiredPrivileges.some(privilege => hasPrivilege(user, privilege));
 }
 
 /**
@@ -115,14 +137,17 @@ export function hasAnyPrivilege(user: User, requiredPrivileges: SECTOR_PRIVILEGE
 export function hasAllPrivileges(user: User, requiredPrivileges: SECTOR_PRIVILEGES[]): boolean {
   if (!user.sector?.privileges || !requiredPrivileges.length) return false;
 
-  return requiredPrivileges.every((privilege) => hasPrivilege(user, privilege));
+  return requiredPrivileges.every(privilege => hasPrivilege(user, privilege));
 }
 
 /**
  * Check if user can access based on privilege array (same as hasAnyPrivilege)
  * Alias function that matches backend controller terminology
  */
-export function canAccessWithPrivileges(user: User, allowedPrivileges: SECTOR_PRIVILEGES[]): boolean {
+export function canAccessWithPrivileges(
+  user: User,
+  allowedPrivileges: SECTOR_PRIVILEGES[],
+): boolean {
   return hasAnyPrivilege(user, allowedPrivileges);
 }
 
@@ -144,15 +169,15 @@ export function isUserLeader(user: User): boolean {
  * Get user display name
  */
 export function getUserDisplayName(user: User): string {
-  return user.name || user.email || "Usuário desconhecido";
+  return user.name || user.email || 'Usuário desconhecido';
 }
 
 /**
  * Get user initials
  */
 export function getUserInitials(user: User): string {
-  const name = user.name || user.email || "";
-  const parts = name.split(" ");
+  const name = user.name || user.email || '';
+  const parts = name.split(' ');
 
   if (parts.length >= 2) {
     return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
@@ -165,9 +190,9 @@ export function getUserInitials(user: User): string {
  * Format user info
  */
 export function formatUserInfo(user: User): string {
-  const name = user.name || "Sem nome";
+  const name = user.name || 'Sem nome';
   const email = user.email;
-  const position = user.position?.name || "Sem cargo";
+  const position = user.position?.name || 'Sem cargo';
 
   return `${name} (${email}) - ${position}`;
 }
@@ -197,7 +222,7 @@ export function groupUsersByStatus(users: User[]): Record<USER_STATUS, User[]> {
     [USER_STATUS.DISMISSED]: [],
   } as Record<USER_STATUS, User[]>;
 
-  users.forEach((user) => {
+  users.forEach(user => {
     if (groups[user.status]) {
       groups[user.status].push(user);
     }
@@ -212,7 +237,7 @@ export function groupUsersByStatus(users: User[]): Record<USER_STATUS, User[]> {
 export function groupUsersBySector(users: User[]): Record<string, User[]> {
   return users.reduce(
     (groups, user) => {
-      const sectorName = user.sector?.name || "Sem setor";
+      const sectorName = user.sector?.name || 'Sem setor';
       if (!groups[sectorName]) {
         groups[sectorName] = [];
       }
@@ -233,11 +258,11 @@ export function filterActiveUsers(users: User[]): User[] {
 /**
  * Sort users by name
  */
-export function sortUsersByName(users: User[], order: "asc" | "desc" = "asc"): User[] {
+export function sortUsersByName(users: User[], order: 'asc' | 'desc' = 'asc'): User[] {
   return [...users].sort((a, b) => {
-    const nameA = a.name || a.email || "";
-    const nameB = b.name || b.email || "";
-    return order === "asc" ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+    const nameA = a.name || a.email || '';
+    const nameB = b.name || b.email || '';
+    return order === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
   });
 }
 
@@ -248,8 +273,8 @@ export function calculateUserStats(users: User[]) {
   const total = users.length;
   const active = users.filter(isUserActive).length;
   const inactive = users.filter(isUserInactive).length;
-  const verified = users.filter((user) => user.verified).length;
-  const newUsers = users.filter((user) => isNewUser(user)).length;
+  const verified = users.filter(user => user.verified).length;
+  const newUsers = users.filter(user => isNewUser(user)).length;
 
   const bySector = groupUsersBySector(users);
   const sectorCounts = Object.entries(bySector).reduce(
@@ -301,7 +326,7 @@ export function getTeamMembers(leader: User, allUsers: User[]): User[] {
     return [];
   }
 
-  return allUsers.filter((user) => user.sectorId === leader.managedSectorId);
+  return allUsers.filter(user => user.sectorId === leader.managedSectorId);
 }
 
 /**
@@ -312,7 +337,7 @@ export function getUsersInSameSector(user: User, allUsers: User[]): User[] {
     return [];
   }
 
-  return allUsers.filter((u) => u.sectorId === user.sectorId && u.id !== user.id);
+  return allUsers.filter(u => u.sectorId === user.sectorId && u.id !== user.id);
 }
 
 /**
@@ -372,19 +397,19 @@ export function isUserEligibleForBonus(user: User): boolean {
  */
 export function getBonusIneligibilityReason(user: User): string | null {
   if (user.status === USER_STATUS.DISMISSED) {
-    return "Usuário está desligado";
+    return 'Usuário está desligado';
   }
 
   if (!user.performanceLevel || user.performanceLevel <= 0) {
-    return "Nível de performance deve ser maior que 0";
+    return 'Nível de performance deve ser maior que 0';
   }
 
   if (!user.position) {
-    return "Usuário não possui cargo definido";
+    return 'Usuário não possui cargo definido';
   }
 
   if (!user.position.bonifiable) {
-    return "Cargo não é elegível para bonificação";
+    return 'Cargo não é elegível para bonificação';
   }
 
   return null;
@@ -400,11 +425,14 @@ export function filterBonusEligibleUsers(users: User[]): User[] {
 /**
  * Group users by bonus eligibility
  */
-export function groupUsersByBonusEligibility(users: User[]): { eligible: User[]; ineligible: User[] } {
+export function groupUsersByBonusEligibility(users: User[]): {
+  eligible: User[];
+  ineligible: User[];
+} {
   const eligible: User[] = [];
   const ineligible: User[] = [];
 
-  users.forEach((user) => {
+  users.forEach(user => {
     if (isUserEligibleForBonus(user)) {
       eligible.push(user);
     } else {
@@ -425,7 +453,7 @@ export function calculateBonusEligibilityStats(users: User[]) {
 
   // Count reasons for ineligibility
   const ineligibilityReasons: Record<string, number> = {};
-  users.forEach((user) => {
+  users.forEach(user => {
     const reason = getBonusIneligibilityReason(user);
     if (reason) {
       ineligibilityReasons[reason] = (ineligibilityReasons[reason] || 0) + 1;

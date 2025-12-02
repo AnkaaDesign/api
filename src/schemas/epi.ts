@@ -1,14 +1,18 @@
 // packages/schemas/src/epi.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, dateRangeSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  dateRangeSchema,
+} from './common';
 import type { PpeSize, PpeDelivery } from '@types';
 import {
   PPE_DELIVERY_STATUS,
   SCHEDULE_FREQUENCY,
   WEEK_DAY,
   MONTH,
-  RESCHEDULE_REASON,
   PANTS_SIZE,
   SHIRT_SIZE,
   BOOT_SIZE,
@@ -18,6 +22,7 @@ import {
   GLOVES_SIZE,
   RAIN_BOOTS_SIZE,
   ASSIGNMENT_TYPE,
+  RESCHEDULE_REASON,
 } from '@constants';
 import { PPE_DELIVERY_STATUS_ORDER } from '@constants';
 
@@ -147,7 +152,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -163,7 +168,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -179,7 +184,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -195,7 +200,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -211,7 +216,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -227,7 +232,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -243,7 +248,7 @@ export const ppeSizeWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -308,7 +313,13 @@ const ppeSizeTransform = (data: any) => {
   if (data.hasAllSizes !== undefined) {
     if (data.hasAllSizes) {
       andConditions.push({
-        AND: [{ shirts: { not: null } }, { boots: { not: null } }, { pants: { not: null } }, { sleeves: { not: null } }, { mask: { not: null } }],
+        AND: [
+          { shirts: { not: null } },
+          { boots: { not: null } },
+          { pants: { not: null } },
+          { sleeves: { not: null } },
+          { mask: { not: null } },
+        ],
       });
     } else {
       andConditions.push({
@@ -320,7 +331,10 @@ const ppeSizeTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ user: { name: { contains: data.searchingFor, mode: "insensitive" } } }, { user: { email: { contains: data.searchingFor, mode: "insensitive" } } }],
+      OR: [
+        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { user: { email: { contains: data.searchingFor, mode: 'insensitive' } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -376,89 +390,89 @@ export const ppeSizeGetManySchema = z
 export const ppeSizeCreateSchema = z.object({
   shirts: z
     .nativeEnum(SHIRT_SIZE, {
-      errorMap: () => ({ message: "Tamanho da camisa inválido" }),
+      errorMap: () => ({ message: 'Tamanho da camisa inválido' }),
     })
     .nullable()
     .optional(),
   boots: z
     .nativeEnum(BOOT_SIZE, {
-      errorMap: () => ({ message: "Tamanho da bota inválido" }),
+      errorMap: () => ({ message: 'Tamanho da bota inválido' }),
     })
     .nullable()
     .optional(),
   pants: z
     .nativeEnum(PANTS_SIZE, {
-      errorMap: () => ({ message: "Tamanho da calça inválido" }),
+      errorMap: () => ({ message: 'Tamanho da calça inválido' }),
     })
     .nullable()
     .optional(),
   sleeves: z
     .nativeEnum(SLEEVES_SIZE, {
-      errorMap: () => ({ message: "Tamanho da manga inválido" }),
+      errorMap: () => ({ message: 'Tamanho da manga inválido' }),
     })
     .nullable()
     .optional(),
   mask: z
     .nativeEnum(MASK_SIZE, {
-      errorMap: () => ({ message: "Tamanho da máscara inválido" }),
+      errorMap: () => ({ message: 'Tamanho da máscara inválido' }),
     })
     .nullable()
     .optional(),
   gloves: z
     .nativeEnum(GLOVES_SIZE, {
-      errorMap: () => ({ message: "Tamanho das luvas inválido" }),
+      errorMap: () => ({ message: 'Tamanho das luvas inválido' }),
     })
     .nullable()
     .optional(),
   rainBoots: z
     .nativeEnum(RAIN_BOOTS_SIZE, {
-      errorMap: () => ({ message: "Tamanho da galocha inválido" }),
+      errorMap: () => ({ message: 'Tamanho da galocha inválido' }),
     })
     .nullable()
     .optional(),
-  userId: z.string().uuid("Usuário inválido"),
+  userId: z.string().uuid('Usuário inválido'),
 });
 
 export const ppeSizeUpdateSchema = z.object({
   shirts: z
     .nativeEnum(SHIRT_SIZE, {
-      errorMap: () => ({ message: "Tamanho da camisa inválido" }),
+      errorMap: () => ({ message: 'Tamanho da camisa inválido' }),
     })
     .nullable()
     .optional(),
   boots: z
     .nativeEnum(BOOT_SIZE, {
-      errorMap: () => ({ message: "Tamanho da bota inválido" }),
+      errorMap: () => ({ message: 'Tamanho da bota inválido' }),
     })
     .nullable()
     .optional(),
   pants: z
     .nativeEnum(PANTS_SIZE, {
-      errorMap: () => ({ message: "Tamanho da calça inválido" }),
+      errorMap: () => ({ message: 'Tamanho da calça inválido' }),
     })
     .nullable()
     .optional(),
   sleeves: z
     .nativeEnum(SLEEVES_SIZE, {
-      errorMap: () => ({ message: "Tamanho da manga inválido" }),
+      errorMap: () => ({ message: 'Tamanho da manga inválido' }),
     })
     .nullable()
     .optional(),
   mask: z
     .nativeEnum(MASK_SIZE, {
-      errorMap: () => ({ message: "Tamanho da máscara inválido" }),
+      errorMap: () => ({ message: 'Tamanho da máscara inválido' }),
     })
     .nullable()
     .optional(),
   gloves: z
     .nativeEnum(GLOVES_SIZE, {
-      errorMap: () => ({ message: "Tamanho das luvas inválido" }),
+      errorMap: () => ({ message: 'Tamanho das luvas inválido' }),
     })
     .nullable()
     .optional(),
   rainBoots: z
     .nativeEnum(RAIN_BOOTS_SIZE, {
-      errorMap: () => ({ message: "Tamanho da galocha inválido" }),
+      errorMap: () => ({ message: 'Tamanho da galocha inválido' }),
     })
     .nullable()
     .optional(),
@@ -473,15 +487,17 @@ export const ppeSizeBatchUpdateSchema = z.object({
   ppeSizes: z
     .array(
       z.object({
-        id: z.string().uuid("Tamanho de PPE inválido"),
+        id: z.string().uuid('Tamanho de PPE inválido'),
         data: ppeSizeUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um tamanho de PPE deve ser fornecido"),
+    .min(1, 'Pelo menos um tamanho de PPE deve ser fornecido'),
 });
 
 export const ppeSizeBatchDeleteSchema = z.object({
-  ppeSizeIds: z.array(z.string().uuid("Tamanho de PPE inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  ppeSizeIds: z
+    .array(z.string().uuid('Tamanho de PPE inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -492,7 +508,7 @@ export const ppeSizeQuerySchema = z.object({
 // GetById Schema
 export const ppeSizeGetByIdSchema = z.object({
   include: ppeSizeIncludeSchema.optional(),
-  id: z.string().uuid("PPE inválido"),
+  id: z.string().uuid('PPE inválido'),
 });
 
 // =====================
@@ -739,8 +755,12 @@ export const ppeDeliveryWhereSchema: z.ZodType<any> = z
         z.object({
           equals: z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]]).optional(),
           not: z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]]).optional(),
-          in: z.array(z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]])).optional(),
-          notIn: z.array(z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]])).optional(),
+          in: z
+            .array(z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]]))
+            .optional(),
+          notIn: z
+            .array(z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]]))
+            .optional(),
         }),
       ])
       .optional(),
@@ -777,7 +797,7 @@ const ppeDeliveryFilters = {
   status: z
     .array(
       z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status inválido" }),
+        errorMap: () => ({ message: 'Status inválido' }),
       }),
     )
     .optional(),
@@ -839,7 +859,10 @@ const ppeDeliveryTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ user: { name: { contains: data.searchingFor, mode: "insensitive" } } }, { item: { name: { contains: data.searchingFor, mode: "insensitive" } } }],
+      OR: [
+        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { item: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -872,20 +895,22 @@ const ppeDeliveryTransform = (data: any) => {
   }
 
   // Handle date range filters
-  if (data.scheduledDateRange && typeof data.scheduledDateRange === "object") {
+  if (data.scheduledDateRange && typeof data.scheduledDateRange === 'object') {
     const scheduledDateCondition: any = {};
     if (data.scheduledDateRange.gte) {
-      const fromDate = data.scheduledDateRange.gte instanceof Date
-        ? data.scheduledDateRange.gte
-        : new Date(data.scheduledDateRange.gte);
+      const fromDate =
+        data.scheduledDateRange.gte instanceof Date
+          ? data.scheduledDateRange.gte
+          : new Date(data.scheduledDateRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       scheduledDateCondition.gte = fromDate;
     }
     if (data.scheduledDateRange.lte) {
-      const toDate = data.scheduledDateRange.lte instanceof Date
-        ? data.scheduledDateRange.lte
-        : new Date(data.scheduledDateRange.lte);
+      const toDate =
+        data.scheduledDateRange.lte instanceof Date
+          ? data.scheduledDateRange.lte
+          : new Date(data.scheduledDateRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       scheduledDateCondition.lte = toDate;
@@ -896,20 +921,22 @@ const ppeDeliveryTransform = (data: any) => {
     delete data.scheduledDateRange;
   }
 
-  if (data.actualDeliveryDateRange && typeof data.actualDeliveryDateRange === "object") {
+  if (data.actualDeliveryDateRange && typeof data.actualDeliveryDateRange === 'object') {
     const deliveryDateCondition: any = {};
     if (data.actualDeliveryDateRange.gte) {
-      const fromDate = data.actualDeliveryDateRange.gte instanceof Date
-        ? data.actualDeliveryDateRange.gte
-        : new Date(data.actualDeliveryDateRange.gte);
+      const fromDate =
+        data.actualDeliveryDateRange.gte instanceof Date
+          ? data.actualDeliveryDateRange.gte
+          : new Date(data.actualDeliveryDateRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       deliveryDateCondition.gte = fromDate;
     }
     if (data.actualDeliveryDateRange.lte) {
-      const toDate = data.actualDeliveryDateRange.lte instanceof Date
-        ? data.actualDeliveryDateRange.lte
-        : new Date(data.actualDeliveryDateRange.lte);
+      const toDate =
+        data.actualDeliveryDateRange.lte instanceof Date
+          ? data.actualDeliveryDateRange.lte
+          : new Date(data.actualDeliveryDateRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       deliveryDateCondition.lte = toDate;
@@ -920,20 +947,22 @@ const ppeDeliveryTransform = (data: any) => {
     delete data.actualDeliveryDateRange;
   }
 
-  if (data.finishedAtRange && typeof data.finishedAtRange === "object") {
+  if (data.finishedAtRange && typeof data.finishedAtRange === 'object') {
     const finishedAtCondition: any = {};
     if (data.finishedAtRange.gte) {
-      const fromDate = data.finishedAtRange.gte instanceof Date
-        ? data.finishedAtRange.gte
-        : new Date(data.finishedAtRange.gte);
+      const fromDate =
+        data.finishedAtRange.gte instanceof Date
+          ? data.finishedAtRange.gte
+          : new Date(data.finishedAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       finishedAtCondition.gte = fromDate;
     }
     if (data.finishedAtRange.lte) {
-      const toDate = data.finishedAtRange.lte instanceof Date
-        ? data.finishedAtRange.lte
-        : new Date(data.finishedAtRange.lte);
+      const toDate =
+        data.finishedAtRange.lte instanceof Date
+          ? data.finishedAtRange.lte
+          : new Date(data.finishedAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       finishedAtCondition.lte = toDate;
@@ -944,20 +973,22 @@ const ppeDeliveryTransform = (data: any) => {
     delete data.finishedAtRange;
   }
 
-  if (data.createdAtRange && typeof data.createdAtRange === "object") {
+  if (data.createdAtRange && typeof data.createdAtRange === 'object') {
     const createdAtCondition: any = {};
     if (data.createdAtRange.gte) {
-      const fromDate = data.createdAtRange.gte instanceof Date
-        ? data.createdAtRange.gte
-        : new Date(data.createdAtRange.gte);
+      const fromDate =
+        data.createdAtRange.gte instanceof Date
+          ? data.createdAtRange.gte
+          : new Date(data.createdAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       createdAtCondition.gte = fromDate;
     }
     if (data.createdAtRange.lte) {
-      const toDate = data.createdAtRange.lte instanceof Date
-        ? data.createdAtRange.lte
-        : new Date(data.createdAtRange.lte);
+      const toDate =
+        data.createdAtRange.lte instanceof Date
+          ? data.createdAtRange.lte
+          : new Date(data.createdAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       createdAtCondition.lte = toDate;
@@ -1049,36 +1080,39 @@ export const ppeDeliveryGetManySchema = z
 
 // CRUD Schemas
 export const ppeDeliveryCreateSchema = z.object({
-  userId: z.string().uuid("Usuário inválido"),
-  itemId: z.string().uuid("Item inválido"),
-  quantity: z.number().positive("Quantidade deve ser positiva"),
+  userId: z.string().uuid('Usuário inválido'),
+  itemId: z.string().uuid('Item inválido'),
+  quantity: z.number().positive('Quantidade deve ser positiva'),
   reason: z.string().nullable().optional(),
-  reviewedBy: z.string().uuid("Responsável pela revisão inválido").nullable().optional(),
-  ppeScheduleId: z.string().uuid("Agendamento inválido").nullable().optional(),
+  reviewedBy: z.string().uuid('Responsável pela revisão inválido').nullable().optional(),
+  ppeScheduleId: z.string().uuid('Agendamento inválido').nullable().optional(),
   scheduledDate: z.date().nullable().optional(),
   actualDeliveryDate: z.date().nullable().optional(),
   status: z
     .enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]])
     .optional()
     .default(PPE_DELIVERY_STATUS.PENDING),
-  statusOrder: z.number().optional().default(PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING]),
+  statusOrder: z
+    .number()
+    .optional()
+    .default(PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING]),
 });
 
 // Schema for personal PPE requests (without userId, status, statusOrder)
 export const ppeDeliveryPersonalRequestSchema = z.object({
-  itemId: z.string().uuid("Item inválido"),
-  quantity: z.number().positive("Quantidade deve ser positiva"),
-  reason: z.string().min(1, "Justificativa é obrigatória"),
+  itemId: z.string().uuid('Item inválido'),
+  quantity: z.number().positive('Quantidade deve ser positiva'),
+  reason: z.string().min(1, 'Justificativa é obrigatória'),
   scheduledDate: z.date().nullable().optional(),
 });
 
 export const ppeDeliveryUpdateSchema = z.object({
-  itemId: z.string().uuid("Item inválido").optional(),
-  quantity: z.number().positive("Quantidade deve ser positiva").optional(),
+  itemId: z.string().uuid('Item inválido').optional(),
+  quantity: z.number().positive('Quantidade deve ser positiva').optional(),
   reason: z.string().nullable().optional(),
   scheduledDate: z.date().nullable().optional(),
   actualDeliveryDate: z.date().nullable().optional(),
-  reviewedBy: z.string().uuid("Responsável pela revisão inválido").nullable().optional(),
+  reviewedBy: z.string().uuid('Responsável pela revisão inválido').nullable().optional(),
   status: z.enum(Object.values(PPE_DELIVERY_STATUS) as [string, ...string[]]).optional(),
   statusOrder: z.number().optional(),
 });
@@ -1096,15 +1130,17 @@ export const ppeDeliveryBatchUpdateSchema = z.object({
   ppeDeliveries: z
     .array(
       z.object({
-        id: z.string().uuid("Entrega de PPE inválida"),
+        id: z.string().uuid('Entrega de PPE inválida'),
         data: ppeDeliveryUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma entrega de PPE deve ser fornecida"),
+    .min(1, 'Pelo menos uma entrega de PPE deve ser fornecida'),
 });
 
 export const ppeDeliveryBatchDeleteSchema = z.object({
-  ppeDeliveryIds: z.array(z.string().uuid("Entrega de PPE inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  ppeDeliveryIds: z
+    .array(z.string().uuid('Entrega de PPE inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1114,11 +1150,11 @@ export const ppeDeliveryQuerySchema = z.object({
 
 // Specialized operation schemas
 export const ppeDeliveryByScheduleSchema = z.object({
-  ppeScheduleId: z.string().uuid("Agendamento inválido"),
-  reviewedBy: z.string().uuid("Responsável pela revisão inválido"),
-  userId: z.string().uuid("Usuário inválido"),
-  itemId: z.string().uuid("Item inválido"),
-  quantity: z.number().int().positive("Quantidade deve ser um número inteiro positivo"),
+  ppeScheduleId: z.string().uuid('Agendamento inválido'),
+  reviewedBy: z.string().uuid('Responsável pela revisão inválido'),
+  userId: z.string().uuid('Usuário inválido'),
+  itemId: z.string().uuid('Item inválido'),
+  quantity: z.number().int().positive('Quantidade deve ser um número inteiro positivo'),
 });
 
 // =====================
@@ -1311,30 +1347,30 @@ export const ppeDeliveryScheduleWhereSchema: z.ZodType<any> = z
     frequency: z
       .union([
         z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-          errorMap: () => ({ message: "Frequência inválida" }),
+          errorMap: () => ({ message: 'Frequência inválida' }),
         }),
         z.object({
           equals: z
             .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-              errorMap: () => ({ message: "Frequência inválida" }),
+              errorMap: () => ({ message: 'Frequência inválida' }),
             })
             .optional(),
           not: z
             .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-              errorMap: () => ({ message: "Frequência inválida" }),
+              errorMap: () => ({ message: 'Frequência inválida' }),
             })
             .optional(),
           in: z
             .array(
               z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-                errorMap: () => ({ message: "Frequência inválida" }),
+                errorMap: () => ({ message: 'Frequência inválida' }),
               }),
             )
             .optional(),
           notIn: z
             .array(
               z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-                errorMap: () => ({ message: "Frequência inválida" }),
+                errorMap: () => ({ message: 'Frequência inválida' }),
               }),
             )
             .optional(),
@@ -1390,7 +1426,7 @@ const ppeDeliveryScheduleFilters = {
   frequencies: z
     .array(
       z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       }),
     )
     .optional(),
@@ -1441,9 +1477,9 @@ const ppeDeliveryScheduleTransform = (data: any) => {
   if (data.searchingFor) {
     andConditions.push({
       OR: [
-        { user: { name: { contains: data.searchingFor, mode: "insensitive" } } },
-        { category: { name: { contains: data.searchingFor, mode: "insensitive" } } },
-        { item: { name: { contains: data.searchingFor, mode: "insensitive" } } },
+        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { category: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { item: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -1521,48 +1557,51 @@ export const ppeDeliveryScheduleGetManySchema = z
 // PPE Item Schema for schedules
 export const ppeScheduleItemSchema = z.object({
   ppeType: z.nativeEnum(PPE_TYPE, {
-    errorMap: () => ({ message: "Tipo de PPE inválido" }),
+    errorMap: () => ({ message: 'Tipo de PPE inválido' }),
   }),
-  quantity: z.number().positive("Quantidade deve ser positiva").int("Quantidade deve ser um número inteiro"),
+  quantity: z
+    .number()
+    .positive('Quantidade deve ser positiva')
+    .int('Quantidade deve ser um número inteiro'),
 });
 
 // CRUD Schemas
 export const ppeDeliveryScheduleCreateSchema = z.object({
   ppeItems: z
     .array(ppeScheduleItemSchema)
-    .min(1, "Pelo menos um item de PPE deve ser especificado")
+    .min(1, 'Pelo menos um item de PPE deve ser especificado')
     .refine(
-      (items) => {
-        const types = items.map((item) => item.ppeType);
+      items => {
+        const types = items.map(item => item.ppeType);
         return new Set(types).size === types.length;
       },
-      { message: "Cada tipo de PPE pode aparecer apenas uma vez" },
+      { message: 'Cada tipo de PPE pode aparecer apenas uma vez' },
     ),
-  userId: z.string().uuid("Usuário inválido").nullable().optional(),
-  categoryId: z.string().uuid("Categoria inválida").nullable().optional(),
+  userId: z.string().uuid('Usuário inválido').nullable().optional(),
+  categoryId: z.string().uuid('Categoria inválida').nullable().optional(),
   assignmentType: z
     .nativeEnum(ASSIGNMENT_TYPE, {
-      errorMap: () => ({ message: "Tipo de atribuição inválido" }),
+      errorMap: () => ({ message: 'Tipo de atribuição inválido' }),
     })
     .default(ASSIGNMENT_TYPE.ALL),
   excludedUserIds: z.array(z.string().uuid()).default([]),
   includedUserIds: z.array(z.string().uuid()).default([]),
   frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-    errorMap: () => ({ message: "Frequência inválida" }),
+    errorMap: () => ({ message: 'Frequência inválida' }),
   }),
-  frequencyCount: z.number().int().positive("Frequência deve ser positiva").default(1),
+  frequencyCount: z.number().int().positive('Frequência deve ser positiva').default(1),
   isActive: z.boolean().default(true),
   specificDate: z.date().nullable().optional(),
   dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
   dayOfWeek: z
     .nativeEnum(WEEK_DAY, {
-      errorMap: () => ({ message: "Dia da semana inválido" }),
+      errorMap: () => ({ message: 'Dia da semana inválido' }),
     })
     .nullable()
     .optional(),
   month: z
     .nativeEnum(MONTH, {
-      errorMap: () => ({ message: "Mês inválido" }),
+      errorMap: () => ({ message: 'Mês inválido' }),
     })
     .nullable()
     .optional(),
@@ -1572,7 +1611,7 @@ export const ppeDeliveryScheduleCreateSchema = z.object({
   lastRescheduleDate: z.date().nullable().optional(),
   rescheduleReason: z
     .nativeEnum(RESCHEDULE_REASON, {
-      errorMap: () => ({ message: "Motivo de reagendamento inválido" }),
+      errorMap: () => ({ message: 'Motivo de reagendamento inválido' }),
     })
     .nullable()
     .optional(),
@@ -1584,40 +1623,40 @@ export const ppeDeliveryScheduleCreateSchema = z.object({
 export const ppeDeliveryScheduleUpdateSchema = z.object({
   ppeItems: z
     .array(ppeScheduleItemSchema)
-    .min(1, "Pelo menos um item de PPE deve ser especificado")
+    .min(1, 'Pelo menos um item de PPE deve ser especificado')
     .refine(
-      (items) => {
-        const types = items.map((item) => item.ppeType);
+      items => {
+        const types = items.map(item => item.ppeType);
         return new Set(types).size === types.length;
       },
-      { message: "Cada tipo de PPE pode aparecer apenas uma vez" },
+      { message: 'Cada tipo de PPE pode aparecer apenas uma vez' },
     )
     .optional(),
   assignmentType: z
     .nativeEnum(ASSIGNMENT_TYPE, {
-      errorMap: () => ({ message: "Tipo de atribuição inválido" }),
+      errorMap: () => ({ message: 'Tipo de atribuição inválido' }),
     })
     .optional(),
   excludedUserIds: z.array(z.string().uuid()).optional(),
   includedUserIds: z.array(z.string().uuid()).optional(),
   frequency: z
     .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-      errorMap: () => ({ message: "Frequência inválida" }),
+      errorMap: () => ({ message: 'Frequência inválida' }),
     })
     .optional(),
-  frequencyCount: z.number().int().positive("Frequência deve ser positiva").optional(),
+  frequencyCount: z.number().int().positive('Frequência deve ser positiva').optional(),
   isActive: z.boolean().optional(),
   specificDate: z.date().nullable().optional(),
   dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
   dayOfWeek: z
     .nativeEnum(WEEK_DAY, {
-      errorMap: () => ({ message: "Dia da semana inválido" }),
+      errorMap: () => ({ message: 'Dia da semana inválido' }),
     })
     .nullable()
     .optional(),
   month: z
     .nativeEnum(MONTH, {
-      errorMap: () => ({ message: "Mês inválido" }),
+      errorMap: () => ({ message: 'Mês inválido' }),
     })
     .nullable()
     .optional(),
@@ -1627,7 +1666,7 @@ export const ppeDeliveryScheduleUpdateSchema = z.object({
   lastRescheduleDate: z.date().nullable().optional(),
   rescheduleReason: z
     .nativeEnum(RESCHEDULE_REASON, {
-      errorMap: () => ({ message: "Motivo de reagendamento inválido" }),
+      errorMap: () => ({ message: 'Motivo de reagendamento inválido' }),
     })
     .nullable()
     .optional(),
@@ -1644,15 +1683,17 @@ export const ppeDeliveryScheduleBatchUpdateSchema = z.object({
   ppeDeliverySchedules: z
     .array(
       z.object({
-        id: z.string().uuid("Agendamento de PPE inválido"),
+        id: z.string().uuid('Agendamento de PPE inválido'),
         data: ppeDeliveryScheduleUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um agendamento de PPE deve ser fornecido"),
+    .min(1, 'Pelo menos um agendamento de PPE deve ser fornecido'),
 });
 
 export const ppeDeliveryScheduleBatchDeleteSchema = z.object({
-  ppeScheduleIds: z.array(z.string().uuid("Agendamento de PPE inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  ppeScheduleIds: z
+    .array(z.string().uuid('Agendamento de PPE inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1663,7 +1704,7 @@ export const ppeDeliveryScheduleQuerySchema = z.object({
 // GetById Schema
 export const ppeDeliveryScheduleGetByIdSchema = z.object({
   include: ppeDeliveryScheduleIncludeSchema.optional(),
-  id: z.string().uuid("Agendamento de PPE inválido"),
+  id: z.string().uuid('Agendamento de PPE inválido'),
 });
 
 // =====================
@@ -1714,9 +1755,15 @@ export type PpeDeliveryScheduleQueryFormData = z.infer<typeof ppeDeliverySchedul
 export type PpeDeliveryScheduleCreateFormData = z.infer<typeof ppeDeliveryScheduleCreateSchema>;
 export type PpeDeliveryScheduleUpdateFormData = z.infer<typeof ppeDeliveryScheduleUpdateSchema>;
 
-export type PpeDeliveryScheduleBatchCreateFormData = z.infer<typeof ppeDeliveryScheduleBatchCreateSchema>;
-export type PpeDeliveryScheduleBatchUpdateFormData = z.infer<typeof ppeDeliveryScheduleBatchUpdateSchema>;
-export type PpeDeliveryScheduleBatchDeleteFormData = z.infer<typeof ppeDeliveryScheduleBatchDeleteSchema>;
+export type PpeDeliveryScheduleBatchCreateFormData = z.infer<
+  typeof ppeDeliveryScheduleBatchCreateSchema
+>;
+export type PpeDeliveryScheduleBatchUpdateFormData = z.infer<
+  typeof ppeDeliveryScheduleBatchUpdateSchema
+>;
+export type PpeDeliveryScheduleBatchDeleteFormData = z.infer<
+  typeof ppeDeliveryScheduleBatchDeleteSchema
+>;
 
 export type PpeDeliveryScheduleInclude = z.infer<typeof ppeDeliveryScheduleIncludeSchema>;
 export type PpeDeliveryScheduleOrderBy = z.infer<typeof ppeDeliveryScheduleOrderBySchema>;
@@ -1726,15 +1773,20 @@ export type PpeDeliveryScheduleWhere = z.infer<typeof ppeDeliveryScheduleWhereSc
 // Helper Functions
 // =====================
 
-export const mapPpeSizeToFormData = createMapToFormDataHelper<PpeSize, PpeSizeUpdateFormData>((ppeSize) => ({
-  shirts: ppeSize.shirts,
-  boots: ppeSize.boots,
-  pants: ppeSize.pants,
-  sleeves: ppeSize.sleeves,
-  mask: ppeSize.mask,
-}));
+export const mapPpeSizeToFormData = createMapToFormDataHelper<PpeSize, PpeSizeUpdateFormData>(
+  ppeSize => ({
+    shirts: ppeSize.shirts,
+    boots: ppeSize.boots,
+    pants: ppeSize.pants,
+    sleeves: ppeSize.sleeves,
+    mask: ppeSize.mask,
+  }),
+);
 
-export const mapPpeDeliveryToFormData = createMapToFormDataHelper<PpeDelivery, PpeDeliveryUpdateFormData>((ppeDelivery) => ({
+export const mapPpeDeliveryToFormData = createMapToFormDataHelper<
+  PpeDelivery,
+  PpeDeliveryUpdateFormData
+>(ppeDelivery => ({
   itemId: ppeDelivery.itemId,
   quantity: ppeDelivery.quantity,
   scheduledDate: ppeDelivery.scheduledDate,
@@ -1743,7 +1795,10 @@ export const mapPpeDeliveryToFormData = createMapToFormDataHelper<PpeDelivery, P
   status: ppeDelivery.status,
 }));
 
-export const mapPpeDeliveryScheduleToFormData = createMapToFormDataHelper<any, PpeDeliveryScheduleUpdateFormData>((ppeDeliverySchedule) => ({
+export const mapPpeDeliveryScheduleToFormData = createMapToFormDataHelper<
+  any,
+  PpeDeliveryScheduleUpdateFormData
+>(ppeDeliverySchedule => ({
   frequency: ppeDeliverySchedule.frequency,
   frequencyCount: ppeDeliverySchedule.frequencyCount,
   isActive: ppeDeliverySchedule.isActive,

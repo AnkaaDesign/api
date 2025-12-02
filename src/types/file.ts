@@ -1,14 +1,22 @@
 // packages/interfaces/src/file.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { Task, TaskIncludes } from "./task";
-import type { Customer, CustomerIncludes } from "./customer";
-import type { Supplier, SupplierIncludes } from "./supplier";
-import type { Warning, WarningIncludes } from "./warning";
-import type { Order, OrderIncludes } from "./order";
-import type { ExternalWithdrawal, ExternalWithdrawalIncludes } from "./externalWithdrawal";
-import type { Airbrushing, AirbrushingIncludes } from "./airbrushing";
-import type { Observation, ObservationIncludes } from "./observation";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type { Task, TaskIncludes } from './task';
+import type { Customer, CustomerIncludes } from './customer';
+import type { Supplier, SupplierIncludes } from './supplier';
+import type { Warning, WarningIncludes } from './warning';
+import type { Order, OrderIncludes } from './order';
+import type { ExternalWithdrawal, ExternalWithdrawalIncludes } from './externalWithdrawal';
+import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
+import type { Observation, ObservationIncludes } from './observation';
 import type { ORDER_BY_DIRECTION } from '@constants';
 
 // =====================
@@ -176,4 +184,5 @@ export interface FileMultipleUploadResponse extends BaseCreateResponse<File[]> {
 
 export interface FileBatchCreateResponse<T> extends BaseBatchResponse<File, T> {}
 export interface FileBatchUpdateResponse<T> extends BaseBatchResponse<File, T & { id: string }> {}
-export interface FileBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface FileBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

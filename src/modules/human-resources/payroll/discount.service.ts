@@ -9,11 +9,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { DiscountRepository } from './repositories/discount/discount.repository';
-import {
-  CHANGE_TRIGGERED_BY,
-  ENTITY_TYPE,
-  CHANGE_ACTION,
-} from '../../../constants/enums';
+import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -272,7 +268,12 @@ export class DiscountService {
       this.logger.log(`Batch creating ${data.discounts.length} discounts`);
 
       const success: Discount[] = [];
-      const failed: Array<{ index: number; id?: string; error: string; data: DiscountCreateFormData }> = [];
+      const failed: Array<{
+        index: number;
+        id?: string;
+        error: string;
+        data: DiscountCreateFormData;
+      }> = [];
 
       for (let i = 0; i < data.discounts.length; i++) {
         try {
@@ -313,7 +314,12 @@ export class DiscountService {
       this.logger.log(`Batch updating ${data.discounts.length} discounts`);
 
       const success: Discount[] = [];
-      const failed: Array<{ index: number; id?: string; error: string; data: DiscountUpdateFormData }> = [];
+      const failed: Array<{
+        index: number;
+        id?: string;
+        error: string;
+        data: DiscountUpdateFormData;
+      }> = [];
 
       for (let i = 0; i < data.discounts.length; i++) {
         const update = data.discounts[i];
@@ -411,7 +417,7 @@ export class DiscountService {
     try {
       this.logger.log(`Updating discount order for payroll: ${payrollId}`);
 
-      return await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(async tx => {
         const updatedDiscounts = await this.discountRepository.updateOrder(payrollId, updates, tx);
 
         if (userId) {
@@ -438,15 +444,11 @@ export class DiscountService {
   private async validateCreateDiscount(data: DiscountCreateFormData): Promise<void> {
     // Validate that either percentage or value is provided, but not both
     if (data.percentage && data.value) {
-      throw new BadRequestException(
-        'Desconto deve ter apenas percentual OU valor fixo, não ambos',
-      );
+      throw new BadRequestException('Desconto deve ter apenas percentual OU valor fixo, não ambos');
     }
 
     if (!data.percentage && !data.value) {
-      throw new BadRequestException(
-        'Desconto deve ter percentual OU valor fixo',
-      );
+      throw new BadRequestException('Desconto deve ter percentual OU valor fixo');
     }
 
     // Validate percentage range
@@ -481,9 +483,7 @@ export class DiscountService {
       }
 
       if (!newPercentage && !newFixedValue) {
-        throw new BadRequestException(
-          'Desconto deve ter percentual OU valor fixo',
-        );
+        throw new BadRequestException('Desconto deve ter percentual OU valor fixo');
       }
     }
 

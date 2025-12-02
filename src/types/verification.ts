@@ -1,8 +1,16 @@
 // packages/types/src/verification.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { SMS_VERIFICATION_TYPE, SMS_VERIFICATION_STATUS, VERIFICATION_TYPE } from '@constants';
-import type { User, UserIncludes } from "./user";
+import type { User, UserIncludes } from './user';
 
 // =====================
 // Unified Verification Entity Interface
@@ -36,14 +44,14 @@ export interface VerificationIncludes {
 // =====================
 
 export interface VerificationOrderBy {
-  contact?: "asc" | "desc";
-  type?: "asc" | "desc";
-  status?: "asc" | "desc";
-  verificationType?: "asc" | "desc";
-  createdAt?: "asc" | "desc";
-  updatedAt?: "asc" | "desc";
-  expiresAt?: "asc" | "desc";
-  verifiedAt?: "asc" | "desc";
+  contact?: 'asc' | 'desc';
+  type?: 'asc' | 'desc';
+  status?: 'asc' | 'desc';
+  verificationType?: 'asc' | 'desc';
+  createdAt?: 'asc' | 'desc';
+  updatedAt?: 'asc' | 'desc';
+  expiresAt?: 'asc' | 'desc';
+  verifiedAt?: 'asc' | 'desc';
 }
 
 // =====================
@@ -60,19 +68,105 @@ export interface VerificationWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   contact?:
     | string
-    | { equals?: string; not?: string; in?: string[]; notIn?: string[]; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive" };
+    | {
+        equals?: string;
+        not?: string;
+        in?: string[];
+        notIn?: string[];
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+      };
   code?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  type?: SMS_VERIFICATION_TYPE | { equals?: SMS_VERIFICATION_TYPE; not?: SMS_VERIFICATION_TYPE; in?: SMS_VERIFICATION_TYPE[]; notIn?: SMS_VERIFICATION_TYPE[] };
-  status?: SMS_VERIFICATION_STATUS | { equals?: SMS_VERIFICATION_STATUS; not?: SMS_VERIFICATION_STATUS; in?: SMS_VERIFICATION_STATUS[]; notIn?: SMS_VERIFICATION_STATUS[] };
-  verificationType?: VERIFICATION_TYPE | { equals?: VERIFICATION_TYPE; not?: VERIFICATION_TYPE; in?: VERIFICATION_TYPE[]; notIn?: VERIFICATION_TYPE[] };
+  type?:
+    | SMS_VERIFICATION_TYPE
+    | {
+        equals?: SMS_VERIFICATION_TYPE;
+        not?: SMS_VERIFICATION_TYPE;
+        in?: SMS_VERIFICATION_TYPE[];
+        notIn?: SMS_VERIFICATION_TYPE[];
+      };
+  status?:
+    | SMS_VERIFICATION_STATUS
+    | {
+        equals?: SMS_VERIFICATION_STATUS;
+        not?: SMS_VERIFICATION_STATUS;
+        in?: SMS_VERIFICATION_STATUS[];
+        notIn?: SMS_VERIFICATION_STATUS[];
+      };
+  verificationType?:
+    | VERIFICATION_TYPE
+    | {
+        equals?: VERIFICATION_TYPE;
+        not?: VERIFICATION_TYPE;
+        in?: VERIFICATION_TYPE[];
+        notIn?: VERIFICATION_TYPE[];
+      };
   userId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  attempts?: number | { equals?: number; not?: number; in?: number[]; notIn?: number[]; lt?: number; lte?: number; gt?: number; gte?: number };
+  attempts?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        in?: number[];
+        notIn?: number[];
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; in?: Date[]; notIn?: Date[]; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
-  updatedAt?: Date | { equals?: Date; not?: Date; in?: Date[]; notIn?: Date[]; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
-  expiresAt?: Date | { equals?: Date; not?: Date; in?: Date[]; notIn?: Date[]; lt?: Date; lte?: Date; gt?: Date; gte?: Date };
-  verifiedAt?: Date | { equals?: Date; not?: Date; in?: Date[]; notIn?: Date[]; lt?: Date; lte?: Date; gt?: Date; gte?: Date } | null;
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        in?: Date[];
+        notIn?: Date[];
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        in?: Date[];
+        notIn?: Date[];
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+      };
+  expiresAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        in?: Date[];
+        notIn?: Date[];
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+      };
+  verifiedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        in?: Date[];
+        notIn?: Date[];
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+      }
+    | null;
 
   // Relations
   user?: UserIncludes | null;
@@ -191,7 +285,11 @@ export interface VerificationContextType {
 
   // Actions
   requestVerification: (contact: string, verificationType?: VERIFICATION_TYPE) => Promise<void>;
-  verifyCode: (contact: string, code: string, verificationType?: VERIFICATION_TYPE) => Promise<boolean>;
+  verifyCode: (
+    contact: string,
+    code: string,
+    verificationType?: VERIFICATION_TYPE,
+  ) => Promise<boolean>;
   resendCode: (contact: string, verificationType?: VERIFICATION_TYPE) => Promise<void>;
   clearError: () => void;
   reset: () => void;
@@ -210,10 +308,23 @@ export interface UseVerificationReturn {
   data: VerificationStatusResponse | null;
 
   // Actions
-  requestVerification: (contact: string, verificationType?: VERIFICATION_TYPE) => Promise<VerificationRequestResponse>;
-  verifyCode: (contact: string, code: string, verificationType?: VERIFICATION_TYPE) => Promise<VerificationCodeResponse>;
-  resendCode: (contact: string, verificationType?: VERIFICATION_TYPE) => Promise<ResendVerificationResponse>;
-  getStatus: (contact: string, verificationType?: VERIFICATION_TYPE) => Promise<VerificationStatusResponse>;
+  requestVerification: (
+    contact: string,
+    verificationType?: VERIFICATION_TYPE,
+  ) => Promise<VerificationRequestResponse>;
+  verifyCode: (
+    contact: string,
+    code: string,
+    verificationType?: VERIFICATION_TYPE,
+  ) => Promise<VerificationCodeResponse>;
+  resendCode: (
+    contact: string,
+    verificationType?: VERIFICATION_TYPE,
+  ) => Promise<ResendVerificationResponse>;
+  getStatus: (
+    contact: string,
+    verificationType?: VERIFICATION_TYPE,
+  ) => Promise<VerificationStatusResponse>;
   clearError: () => void;
   reset: () => void;
 }
@@ -265,8 +376,8 @@ export const VERIFICATION_CONSTANTS = {
   RESEND_COOLDOWN: 60 * 1000, // 1 minute in milliseconds
   MAX_ATTEMPTS: 3,
   VALID_CODES: {
-    PHONE: "860611", // Phone verification test code
-    EMAIL: "123456", // Email verification test code
+    PHONE: '860611', // Phone verification test code
+    EMAIL: '123456', // Email verification test code
   },
 } as const;
 
@@ -274,7 +385,7 @@ export const VERIFICATION_CONSTANTS = {
 // Type Utilities
 // =====================
 
-export type VerificationMethod = "email" | "phone";
+export type VerificationMethod = 'email' | 'phone';
 
 export interface VerificationConfig {
   method: VerificationMethod;

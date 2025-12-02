@@ -446,7 +446,7 @@ export class BorrowService {
         await this.borrowValidation(data, tx, id);
 
         // Handle status changes from RETURNED to LOST
-        let updateData = { ...data };
+        const updateData = { ...data };
         if (
           existingBorrow.status === BORROW_STATUS.RETURNED &&
           data.status === BORROW_STATUS.LOST &&
@@ -465,13 +465,7 @@ export class BorrowService {
         );
 
         // Registrar mudanças de campos usando trackAndLogFieldChanges
-        const fieldsToTrack = [
-          'status',
-          'itemId',
-          'userId',
-          'quantity',
-          'returnedAt',
-        ];
+        const fieldsToTrack = ['status', 'itemId', 'userId', 'quantity', 'returnedAt'];
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
@@ -753,13 +747,7 @@ export class BorrowService {
           const oldBorrow = oldBorrows.get(updatedBorrow.id);
 
           if (oldBorrow) {
-            const fieldsToTrack = [
-              'status',
-              'itemId',
-              'userId',
-              'quantity',
-              'returnedAt',
-            ];
+            const fieldsToTrack = ['status', 'itemId', 'userId', 'quantity', 'returnedAt'];
 
             await trackAndLogFieldChanges({
               changeLogService: this.changeLogService,

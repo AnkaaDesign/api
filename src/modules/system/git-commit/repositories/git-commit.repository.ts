@@ -71,10 +71,7 @@ export class GitCommitRepository {
     });
   }
 
-  async delete(
-    id: string,
-    options?: { tx?: PrismaTransaction },
-  ): Promise<GitCommit> {
+  async delete(id: string, options?: { tx?: PrismaTransaction }): Promise<GitCommit> {
     const prisma = options?.tx || this.prisma;
     return prisma.gitCommit.delete({
       where: { id },

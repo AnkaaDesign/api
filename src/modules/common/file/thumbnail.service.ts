@@ -339,7 +339,9 @@ export class ThumbnailService {
         ? THUMBNAIL_CONFIG.generation.epsHighResDpi
         : THUMBNAIL_CONFIG.generation.epsDpi;
 
-      this.logger.log(`Using ${isHighRes ? 'HIGH-RES' : 'standard'} DPI: ${density} for size ${finalOptions.width}x${finalOptions.height}`);
+      this.logger.log(
+        `Using ${isHighRes ? 'HIGH-RES' : 'standard'} DPI: ${density} for size ${finalOptions.width}x${finalOptions.height}`,
+      );
 
       const targetSize = Math.max(finalOptions.width, finalOptions.height) * 3;
 

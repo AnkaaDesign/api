@@ -57,7 +57,7 @@ export class ThrottlerService {
 
     // Get TTLs for blocked keys
     const blockedDetails = await Promise.all(
-      blockedKeys.map(async (key) => {
+      blockedKeys.map(async key => {
         const ttl = await this.redis.ttl(key);
         const baseKey = key.replace(':blocked', '').replace(this.keyPrefix, '');
         return {
@@ -65,7 +65,7 @@ export class ThrottlerService {
           ttl,
           expiresIn: this.formatTTL(ttl),
         };
-      })
+      }),
     );
 
     return {
@@ -85,7 +85,7 @@ export class ThrottlerService {
     const keys = allKeys.slice(0, limit);
 
     const keyDetails = await Promise.all(
-      keys.map(async (key) => {
+      keys.map(async key => {
         const ttl = await this.redis.ttl(key);
         const value = await this.redis.get(key);
         const keyWithoutPrefix = key.replace(this.keyPrefix, '');
@@ -132,7 +132,7 @@ export class ThrottlerService {
           ttl,
           expiresIn: this.formatTTL(ttl),
         };
-      })
+      }),
     );
 
     return keyDetails.filter(k => k.ttl > 0);
@@ -185,7 +185,7 @@ export class ThrottlerService {
     const blockedKeys = await this.scanKeys('*:blocked');
 
     const blockedDetails = await Promise.all(
-      blockedKeys.map(async (key) => {
+      blockedKeys.map(async key => {
         const ttl = await this.redis.ttl(key);
         // Remove prefix and :blocked suffix
         // Key format: throttler:throttlerName:ControllerName-endpointName-throttlerName-identifier:blocked
@@ -222,9 +222,7 @@ export class ThrottlerService {
         // Try to determine if it's a user or IP
         const isUser = identifier.includes('user:');
         const isIp = identifier.includes('ip:');
-        const cleanIdentifier = identifier
-          .replace('user:', '')
-          .replace('ip:', '');
+        const cleanIdentifier = identifier.replace('user:', '').replace('ip:', '');
 
         return {
           key: withoutBlocked,
@@ -236,7 +234,7 @@ export class ThrottlerService {
           ttl,
           expiresIn: this.formatTTL(ttl),
         };
-      })
+      }),
     );
 
     return blockedDetails.filter(d => d.ttl > 0);

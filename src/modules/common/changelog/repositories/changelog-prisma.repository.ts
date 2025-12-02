@@ -18,7 +18,12 @@ import type {
   ChangeLogAction,
   ChangeLogTriggeredByType,
 } from '@prisma/client';
-import type { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
+import type {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../types';
 import {
   mapChangeLogEntityTypeToPrisma,
   mapChangeLogActionToPrisma,

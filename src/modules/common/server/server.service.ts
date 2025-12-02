@@ -2180,7 +2180,9 @@ export class ServerService {
         recentLogs = stdout;
 
         // Extract last sync time from logs
-        const successMatch = stdout.match(/\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*✅ Sync completed successfully/);
+        const successMatch = stdout.match(
+          /\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*✅ Sync completed successfully/,
+        );
         if (successMatch) {
           lastSync = new Date(successMatch[1]);
           lastSyncSuccess = true;

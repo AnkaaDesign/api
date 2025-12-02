@@ -397,7 +397,8 @@ export class DashboardService {
   // Private helper methods for HR dashboard
   private async getEmployeeOverview(userWhere: DashboardUserWhere, dateFilter: DateFilter) {
     const stats = await this.dashboardRepository.getEmployeeStatistics(userWhere, dateFilter);
-    const levelDistribution = await this.dashboardRepository.getEmployeesByPerformanceLevel(userWhere);
+    const levelDistribution =
+      await this.dashboardRepository.getEmployeesByPerformanceLevel(userWhere);
 
     return {
       totalEmployees: {
@@ -456,8 +457,6 @@ export class DashboardService {
       vacationSchedule: metrics.schedule,
     };
   }
-
-
 
   // Additional HR dashboard helper methods
   private async getPositionMetrics(userWhere: DashboardUserWhere) {
@@ -662,8 +661,12 @@ export class DashboardService {
     const tasksInProgress = await this.dashboardRepository.countTasksInProgress();
 
     // Calculate productivity trend - simplified for now
-    const productivityTrend = tasks.completed > tasks.averagePerUser * 7 ? 'up' :
-                               tasks.completed < tasks.averagePerUser * 7 ? 'down' : 'stable';
+    const productivityTrend =
+      tasks.completed > tasks.averagePerUser * 7
+        ? 'up'
+        : tasks.completed < tasks.averagePerUser * 7
+          ? 'down'
+          : 'stable';
 
     return {
       totalTasksCreated: {
@@ -1055,7 +1058,10 @@ export class DashboardService {
   private async getHRHighlights(query: UnifiedDashboardQueryFormData) {
     const now = new Date();
     const [employeeStats, vacationsToday, tasksInProgress] = await Promise.all([
-      this.dashboardRepository.getEmployeeStatistics({ status: { in: [...ACTIVE_USER_STATUSES] } }, {}),
+      this.dashboardRepository.getEmployeeStatistics(
+        { status: { in: [...ACTIVE_USER_STATUSES] } },
+        {},
+      ),
       this.dashboardRepository.countVacationsOnDate(now),
       this.dashboardRepository.countTasksInProgress(),
     ]);

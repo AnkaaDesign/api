@@ -1,10 +1,7 @@
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
 import * as winston from 'winston';
-const DailyRotateFile = require('winston-daily-rotate-file');
-import { Request } from 'express';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import { AuthenticatedRequest, LoggerMethod, ExtendedLogger } from '../../types/express.types';
-
-type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
 interface LogContext {
   requestId?: string;
@@ -14,7 +11,7 @@ interface LogContext {
   url?: string;
   ip?: string;
   userAgent?: string;
-  [key: string]: any;
+  [key: string]: string | number | boolean | undefined;
 }
 
 @Injectable()
@@ -38,6 +35,7 @@ export class LoggerService implements NestLoggerService {
       const filtered = { ...info };
 
       // Function to recursively filter sensitive data
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filterSensitive = (obj: any): any => {
         if (typeof obj !== 'object' || obj === null) return obj;
 
@@ -52,6 +50,7 @@ export class LoggerService implements NestLoggerService {
           'credit_card',
           'card_number',
         ];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result: any = Array.isArray(obj) ? [] : {};
 
         for (const key in obj) {
@@ -134,6 +133,7 @@ export class LoggerService implements NestLoggerService {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private formatMessage(message: any): string {
     if (typeof message === 'object') {
       return JSON.stringify(message);
@@ -172,13 +172,15 @@ export class LoggerService implements NestLoggerService {
     return newId;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   log(message: any, context?: string | LogContext): void {
     this.info(message, context);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   error(message: any, trace?: string, context?: string | LogContext): void {
     const ctx = this.createContext(context);
-    const errorInfo: any = {
+    const errorInfo: Record<string, unknown> = {
       message: this.formatMessage(message),
       context: ctx,
     };
@@ -196,6 +198,7 @@ export class LoggerService implements NestLoggerService {
     this.logger.error(errorInfo);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   warn(message: any, context?: string | LogContext): void {
     this.logger.warn({
       message: this.formatMessage(message),
@@ -203,6 +206,7 @@ export class LoggerService implements NestLoggerService {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   info(message: any, context?: string | LogContext): void {
     this.logger.info({
       message: this.formatMessage(message),
@@ -210,6 +214,7 @@ export class LoggerService implements NestLoggerService {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   debug(message: any, context?: string | LogContext): void {
     this.logger.debug({
       message: this.formatMessage(message),
@@ -217,6 +222,7 @@ export class LoggerService implements NestLoggerService {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   verbose(message: any, context?: string | LogContext): void {
     this.logger.verbose({
       message: this.formatMessage(message),
@@ -225,6 +231,7 @@ export class LoggerService implements NestLoggerService {
   }
 
   // HTTP Request/Response logging
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   logHttpRequest(req: AuthenticatedRequest, res: any, responseTime: number): void {
     const context: LogContext = {
       requestId: this.getRequestId(req),
@@ -242,8 +249,9 @@ export class LoggerService implements NestLoggerService {
   }
 
   // Database query logging
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   logDatabaseQuery(query: string, params: any[], duration: number, error?: Error): void {
-    const context: LogContext = {
+    const context: Record<string, string | number | boolean> = {
       module: 'Database',
       query: query.substring(0, 1000), // Truncate long queries
       duration: `${duration}ms`,
@@ -252,11 +260,11 @@ export class LoggerService implements NestLoggerService {
 
     if (error) {
       context.error = error.message;
-      this.error('Database query failed', error.stack, context);
+      this.error('Database query failed', error.stack, context as LogContext);
     } else if (duration > 1000) {
-      this.warn('Slow database query detected', context);
+      this.warn('Slow database query detected', context as LogContext);
     } else {
-      this.debug('Database query executed', context);
+      this.debug('Database query executed', context as LogContext);
     }
   }
 
@@ -267,6 +275,7 @@ export class LoggerService implements NestLoggerService {
 
     originalMethods.forEach(method => {
       const original = (childLogger as ExtendedLogger)[method].bind(childLogger);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (childLogger as ExtendedLogger)[method] = (message: any, additionalContext?: any) => {
         const mergedContext = { ...context, ...additionalContext };
         original(message, mergedContext);

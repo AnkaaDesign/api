@@ -1,7 +1,13 @@
 // packages/schemas/src/order-schedule.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, dateRangeSchema, uuidArraySchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  dateRangeSchema,
+  uuidArraySchema,
+} from './common';
 import type { OrderSchedule } from '@types';
 import { SCHEDULE_FREQUENCY } from '@constants';
 
@@ -60,7 +66,9 @@ export const orderScheduleIncludeSchema = z
       ])
       .optional(),
     order: z.boolean().optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -370,12 +378,12 @@ const orderScheduleFilters = {
   frequency: z
     .array(
       z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       }),
     )
     .optional(),
-  supplierIds: z.array(z.string().uuid("Fornecedor inválido")).optional(),
-  itemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  supplierIds: z.array(z.string().uuid('Fornecedor inválido')).optional(),
+  itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
   hasReschedules: z.boolean().optional(),
   specificDateRange: dateRangeSchema.optional(),
@@ -402,9 +410,9 @@ const orderScheduleTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - search in related supplier names
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      OR: [{ supplier: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } }],
+      OR: [{ supplier: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } }],
     });
     delete data.searchingFor;
   }
@@ -432,7 +440,7 @@ const orderScheduleTransform = (data: any) => {
   }
 
   // Handle isActive filter
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
   }
@@ -444,20 +452,22 @@ const orderScheduleTransform = (data: any) => {
   }
 
   // Handle specificDateRange filter
-  if (data.specificDateRange && typeof data.specificDateRange === "object") {
+  if (data.specificDateRange && typeof data.specificDateRange === 'object') {
     const dateCondition: any = {};
     if (data.specificDateRange.gte) {
-      const fromDate = data.specificDateRange.gte instanceof Date
-        ? data.specificDateRange.gte
-        : new Date(data.specificDateRange.gte);
+      const fromDate =
+        data.specificDateRange.gte instanceof Date
+          ? data.specificDateRange.gte
+          : new Date(data.specificDateRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       dateCondition.gte = fromDate;
     }
     if (data.specificDateRange.lte) {
-      const toDate = data.specificDateRange.lte instanceof Date
-        ? data.specificDateRange.lte
-        : new Date(data.specificDateRange.lte);
+      const toDate =
+        data.specificDateRange.lte instanceof Date
+          ? data.specificDateRange.lte
+          : new Date(data.specificDateRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       dateCondition.lte = toDate;
@@ -469,20 +479,22 @@ const orderScheduleTransform = (data: any) => {
   }
 
   // Handle finishedAtRange filter
-  if (data.finishedAtRange && typeof data.finishedAtRange === "object") {
+  if (data.finishedAtRange && typeof data.finishedAtRange === 'object') {
     const dateCondition: any = {};
     if (data.finishedAtRange.gte) {
-      const fromDate = data.finishedAtRange.gte instanceof Date
-        ? data.finishedAtRange.gte
-        : new Date(data.finishedAtRange.gte);
+      const fromDate =
+        data.finishedAtRange.gte instanceof Date
+          ? data.finishedAtRange.gte
+          : new Date(data.finishedAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       dateCondition.gte = fromDate;
     }
     if (data.finishedAtRange.lte) {
-      const toDate = data.finishedAtRange.lte instanceof Date
-        ? data.finishedAtRange.lte
-        : new Date(data.finishedAtRange.lte);
+      const toDate =
+        data.finishedAtRange.lte instanceof Date
+          ? data.finishedAtRange.lte
+          : new Date(data.finishedAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       dateCondition.lte = toDate;
@@ -494,20 +506,22 @@ const orderScheduleTransform = (data: any) => {
   }
 
   // Handle createdAtRange filter
-  if (data.createdAtRange && typeof data.createdAtRange === "object") {
+  if (data.createdAtRange && typeof data.createdAtRange === 'object') {
     const dateCondition: any = {};
     if (data.createdAtRange.gte) {
-      const fromDate = data.createdAtRange.gte instanceof Date
-        ? data.createdAtRange.gte
-        : new Date(data.createdAtRange.gte);
+      const fromDate =
+        data.createdAtRange.gte instanceof Date
+          ? data.createdAtRange.gte
+          : new Date(data.createdAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       dateCondition.gte = fromDate;
     }
     if (data.createdAtRange.lte) {
-      const toDate = data.createdAtRange.lte instanceof Date
-        ? data.createdAtRange.lte
-        : new Date(data.createdAtRange.lte);
+      const toDate =
+        data.createdAtRange.lte instanceof Date
+          ? data.createdAtRange.lte
+          : new Date(data.createdAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       dateCondition.lte = toDate;
@@ -582,29 +596,38 @@ const toFormData = <T>(data: T) => data;
 export const orderScheduleCreateSchema = z
   .object({
     frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-      errorMap: () => ({ message: "Frequência inválida" }),
+      errorMap: () => ({ message: 'Frequência inválida' }),
     }),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").default(1),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .default(1),
     isActive: z.boolean().default(true),
-    items: uuidArraySchema("item"),
+    items: uuidArraySchema('item'),
 
     // Supplier selection (optional)
-    supplierId: z.string().uuid("Fornecedor inválido").optional(),
+    supplierId: z.string().uuid('Fornecedor inválido').optional(),
 
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),
-    dayOfMonth: z.number().int().min(1, "Dia do mês deve ser entre 1 e 31").max(31, "Dia do mês deve ser entre 1 e 31").optional(),
+    dayOfMonth: z
+      .number()
+      .int()
+      .min(1, 'Dia do mês deve ser entre 1 e 31')
+      .max(31, 'Dia do mês deve ser entre 1 e 31')
+      .optional(),
     dayOfWeek: z.string().optional(), // DayOfWeek enum values
     month: z.string().optional(), // Month enum values
     customMonths: z.array(z.string()).optional(), // Array of Month enum values
 
     // Schedule configuration IDs (when using advanced configurations)
-    weeklyConfigId: z.string().uuid("Configuração semanal inválida").optional(),
-    monthlyConfigId: z.string().uuid("Configuração mensal inválida").optional(),
-    yearlyConfigId: z.string().uuid("Configuração anual inválida").optional(),
+    weeklyConfigId: z.string().uuid('Configuração semanal inválida').optional(),
+    monthlyConfigId: z.string().uuid('Configuração mensal inválida').optional(),
+    yearlyConfigId: z.string().uuid('Configuração anual inválida').optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate frequency-specific requirements
       switch (data.frequency) {
         case SCHEDULE_FREQUENCY.ONCE:
@@ -622,8 +645,8 @@ export const orderScheduleCreateSchema = z
       }
     },
     {
-      message: "Configuração de agendamento incompleta para a frequência selecionada",
-      path: ["frequency"],
+      message: 'Configuração de agendamento incompleta para a frequência selecionada',
+      path: ['frequency'],
     },
   )
   .transform(toFormData);
@@ -632,15 +655,19 @@ export const orderScheduleUpdateSchema = z
   .object({
     frequency: z
       .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       })
       .optional(),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").optional(),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .optional(),
     isActive: z.boolean().optional(),
-    items: uuidArraySchema("item").optional(),
+    items: uuidArraySchema('item').optional(),
 
     // Supplier selection (optional)
-    supplierId: z.string().uuid("Fornecedor inválido").nullable().optional(),
+    supplierId: z.string().uuid('Fornecedor inválido').nullable().optional(),
 
     // Specific scheduling fields
     specificDate: z.coerce.date().nullable().optional(),
@@ -662,8 +689,8 @@ export const orderScheduleUpdateSchema = z
 
     // New auto-creation fields
     finishedAt: z.coerce.date().nullable().optional(),
-    lastRunId: z.string().uuid("Último agendamento inválido").nullable().optional(),
-    originalScheduleId: z.string().uuid("Agendamento original inválido").nullable().optional(),
+    lastRunId: z.string().uuid('Último agendamento inválido').nullable().optional(),
+    originalScheduleId: z.string().uuid('Agendamento original inválido').nullable().optional(),
   })
   .transform(toFormData);
 
@@ -672,23 +699,29 @@ export const orderScheduleUpdateSchema = z
 // =====================
 
 export const orderScheduleBatchCreateSchema = z.object({
-  orderSchedules: z.array(orderScheduleCreateSchema).min(1, "Deve incluir pelo menos um agendamento").max(50, "Máximo de 50 agendamentos por vez"),
+  orderSchedules: z
+    .array(orderScheduleCreateSchema)
+    .min(1, 'Deve incluir pelo menos um agendamento')
+    .max(50, 'Máximo de 50 agendamentos por vez'),
 });
 
 export const orderScheduleBatchUpdateSchema = z.object({
   orderSchedules: z
     .array(
       z.object({
-        id: z.string().uuid("Agendamento inválido"),
+        id: z.string().uuid('Agendamento inválido'),
         data: orderScheduleUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária")
-    .max(50, "Máximo de 50 atualizações por vez"),
+    .min(1, 'Pelo menos uma atualização é necessária')
+    .max(50, 'Máximo de 50 atualizações por vez'),
 });
 
 export const orderScheduleBatchDeleteSchema = z.object({
-  orderScheduleIds: z.array(z.string().uuid("Agendamento inválido")).min(1, "Pelo menos um ID deve ser fornecido").max(50, "Máximo de 50 exclusões por vez"),
+  orderScheduleIds: z
+    .array(z.string().uuid('Agendamento inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(50, 'Máximo de 50 exclusões por vez'),
 });
 
 // =====================
@@ -697,7 +730,7 @@ export const orderScheduleBatchDeleteSchema = z.object({
 
 export const orderScheduleGetByIdSchema = z.object({
   include: orderScheduleIncludeSchema.optional(),
-  id: z.string().uuid("Agendamento inválido"),
+  id: z.string().uuid('Agendamento inválido'),
 });
 
 // Query schema for include parameter
@@ -729,7 +762,10 @@ export type OrderScheduleWhere = z.infer<typeof orderScheduleWhereSchema>;
 // FormData Helpers
 // =====================
 
-export const mapOrderScheduleToFormData = createMapToFormDataHelper<OrderSchedule, OrderScheduleUpdateFormData>((orderSchedule) => ({
+export const mapOrderScheduleToFormData = createMapToFormDataHelper<
+  OrderSchedule,
+  OrderScheduleUpdateFormData
+>(orderSchedule => ({
   frequency: orderSchedule.frequency as SCHEDULE_FREQUENCY,
   frequencyCount: orderSchedule.frequencyCount,
   isActive: orderSchedule.isActive,

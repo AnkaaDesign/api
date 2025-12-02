@@ -1,11 +1,24 @@
 // packages/schemas/src/paint.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, hexColorSchema } from "./common";
-import type { Paint, PaintType, PaintFormula, PaintFormulaComponent, PaintProduction, PaintGround, PaintBrand } from '@types';
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  hexColorSchema,
+} from './common';
+import type {
+  Paint,
+  PaintType,
+  PaintFormula,
+  PaintFormulaComponent,
+  PaintProduction,
+  PaintGround,
+  PaintBrand,
+} from '@types';
 import { PAINT_FINISH, COLOR_PALETTE, PAINT_BRAND, TRUCK_MANUFACTURER } from '@constants';
-import { taskWhereSchema } from "./task";
-import { customerWhereSchema } from "./customer";
+import { taskWhereSchema } from './task';
+import { customerWhereSchema } from './customer';
 
 // =====================
 // Include Schemas (Second Level Only)
@@ -208,15 +221,29 @@ export const paintBrandWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintBrandWhereSchema, z.array(paintBrandWhereSchema)]).optional(),
       OR: z.array(paintBrandWhereSchema).optional(),
       NOT: z.union([paintBrandWhereSchema, z.array(paintBrandWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
       name: z
         .union([
           z.string(),
-          z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional(), mode: z.enum(["default", "insensitive"]).optional() }),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
+          }),
         ])
         .optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
       // Relations
       paints: z
         .object({
@@ -834,19 +861,89 @@ export const paintWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintWhereSchema, z.array(paintWhereSchema)]).optional(),
       OR: z.array(paintWhereSchema).optional(),
       NOT: z.union([paintWhereSchema, z.array(paintWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      name: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional(), mode: z.enum(['default', 'insensitive']).optional() })]).optional(),
-      hex: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
-      code: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
-      finish: z.union([z.nativeEnum(PAINT_FINISH), z.object({ in: z.array(z.nativeEnum(PAINT_FINISH)).optional() })]).optional(),
-      manufacturer: z.union([z.nativeEnum(TRUCK_MANUFACTURER), z.object({ in: z.array(z.nativeEnum(TRUCK_MANUFACTURER)).optional() })]).optional(),
-      palette: z.union([z.nativeEnum(COLOR_PALETTE), z.object({ in: z.array(z.nativeEnum(COLOR_PALETTE)).optional() })]).optional(),
-      paletteOrder: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
-      tags: z.object({ has: z.string().optional(), hasEvery: z.array(z.string()).optional(), hasSome: z.array(z.string()).optional() }).optional(),
-      paintTypeId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      paintBrandId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      name: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
+          }),
+        ])
+        .optional(),
+      hex: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      code: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      finish: z
+        .union([
+          z.nativeEnum(PAINT_FINISH),
+          z.object({ in: z.array(z.nativeEnum(PAINT_FINISH)).optional() }),
+        ])
+        .optional(),
+      manufacturer: z
+        .union([
+          z.nativeEnum(TRUCK_MANUFACTURER),
+          z.object({ in: z.array(z.nativeEnum(TRUCK_MANUFACTURER)).optional() }),
+        ])
+        .optional(),
+      palette: z
+        .union([
+          z.nativeEnum(COLOR_PALETTE),
+          z.object({ in: z.array(z.nativeEnum(COLOR_PALETTE)).optional() }),
+        ])
+        .optional(),
+      paletteOrder: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
+      tags: z
+        .object({
+          has: z.string().optional(),
+          hasEvery: z.array(z.string()).optional(),
+          hasSome: z.array(z.string()).optional(),
+        })
+        .optional(),
+      paintTypeId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      paintBrandId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
       // Relations
       paintType: z.lazy(() => paintTypeWhereSchema).optional(),
       paintBrand: z.lazy(() => paintBrandWhereSchema).optional(),
@@ -909,9 +1006,28 @@ export const paintFormulaWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintFormulaWhereSchema, z.array(paintFormulaWhereSchema)]).optional(),
       OR: z.array(paintFormulaWhereSchema).optional(),
       NOT: z.union([paintFormulaWhereSchema, z.array(paintFormulaWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      description: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
-      paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      description: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      paintId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
       paint: paintWhereSchema.optional(),
       components: z
         .object({
@@ -920,8 +1036,12 @@ export const paintFormulaWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           none: paintFormulaComponentWhereSchema.optional(),
         })
         .optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
     })
     .strict(),
 );
@@ -929,15 +1049,40 @@ export const paintFormulaWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 export const paintFormulaComponentWhereSchema: z.ZodSchema<any> = z.lazy(() =>
   z
     .object({
-      AND: z.union([paintFormulaComponentWhereSchema, z.array(paintFormulaComponentWhereSchema)]).optional(),
+      AND: z
+        .union([paintFormulaComponentWhereSchema, z.array(paintFormulaComponentWhereSchema)])
+        .optional(),
       OR: z.array(paintFormulaComponentWhereSchema).optional(),
-      NOT: z.union([paintFormulaComponentWhereSchema, z.array(paintFormulaComponentWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      ratio: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
-      itemId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      formulaPaintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      NOT: z
+        .union([paintFormulaComponentWhereSchema, z.array(paintFormulaComponentWhereSchema)])
+        .optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      ratio: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
+      itemId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      formulaPaintId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
     })
     .strict(),
 );
@@ -948,11 +1093,27 @@ export const paintProductionWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintProductionWhereSchema, z.array(paintProductionWhereSchema)]).optional(),
       OR: z.array(paintProductionWhereSchema).optional(),
       NOT: z.union([paintProductionWhereSchema, z.array(paintProductionWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      volumeLiters: z.union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })]).optional(),
-      formulaId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      volumeLiters: z
+        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+        .optional(),
+      formulaId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
       // Add nested relations support
       formula: z.lazy(() => paintFormulaWhereSchema).optional(),
     })
@@ -977,7 +1138,10 @@ const paintFilters = {
   paintTypeIds: z.array(z.string()).optional(),
   paintBrandIds: z.array(z.string()).optional(),
   // Color similarity filtering
-  similarColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color').optional(),
+  similarColor: z
+    .string()
+    .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color')
+    .optional(),
   similarColorThreshold: z.coerce.number().min(0).max(100).default(15).optional(),
 };
 
@@ -1005,7 +1169,7 @@ const paintTransform = (data: any) => {
 
   // Handle code filtering
   if (data.code) {
-    andConditions.push({ code: { contains: data.code, mode: "insensitive" } });
+    andConditions.push({ code: { contains: data.code, mode: 'insensitive' } });
     delete data.code;
   }
 
@@ -1079,7 +1243,13 @@ const paintTransform = (data: any) => {
       // Preserve existing where conditions and merge with new conditions
       if (data.where.AND) {
         // If AND already exists, append to it
-        data.where = { ...data.where, AND: [...(Array.isArray(data.where.AND) ? data.where.AND : [data.where.AND]), ...andConditions] };
+        data.where = {
+          ...data.where,
+          AND: [
+            ...(Array.isArray(data.where.AND) ? data.where.AND : [data.where.AND]),
+            ...andConditions,
+          ],
+        };
       } else {
         // Create AND with existing where conditions and new conditions
         const existingConditions = { ...data.where };
@@ -1175,11 +1345,29 @@ export const paintTypeWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintTypeWhereSchema, z.array(paintTypeWhereSchema)]).optional(),
       OR: z.array(paintTypeWhereSchema).optional(),
       NOT: z.union([paintTypeWhereSchema, z.array(paintTypeWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      name: z.union([z.string(), z.object({ contains: z.string().optional(), startsWith: z.string().optional(), endsWith: z.string().optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      name: z
+        .union([
+          z.string(),
+          z.object({
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+          }),
+        ])
+        .optional(),
       needGround: z.boolean().optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
       // Relations
       paints: z
         .object({
@@ -1220,7 +1408,7 @@ const paintTypeTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ name: { contains: data.searchingFor, mode: "insensitive" } }],
+      OR: [{ name: { contains: data.searchingFor, mode: 'insensitive' } }],
     });
     delete data.searchingFor;
   }
@@ -1242,7 +1430,11 @@ const paintTypeTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -1308,56 +1500,64 @@ export const paintTypeQuerySchema = z.object({
 
 // PaintType schemas
 export const paintTypeCreateSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres"),
+  name: z.string().min(1, 'Nome é obrigatório').max(100, 'Nome deve ter no máximo 100 caracteres'),
   needGround: z.boolean().default(false),
-  componentItemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  componentItemIds: z.array(z.string().uuid('Item inválido')).optional(),
 });
 
 export const paintTypeUpdateSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres").optional(),
+  name: z
+    .string()
+    .min(1, 'Nome é obrigatório')
+    .max(100, 'Nome deve ter no máximo 100 caracteres')
+    .optional(),
   needGround: z.boolean().optional(),
-  componentItemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  componentItemIds: z.array(z.string().uuid('Item inválido')).optional(),
 });
 
 export const paintTypeBatchCreateSchema = z.object({
-  paintTypes: z.array(paintTypeCreateSchema).min(1, "Pelo menos um tipo de tinta deve ser fornecido"),
+  paintTypes: z
+    .array(paintTypeCreateSchema)
+    .min(1, 'Pelo menos um tipo de tinta deve ser fornecido'),
 });
 
 export const paintTypeBatchUpdateSchema = z.object({
   paintTypes: z
     .array(
       z.object({
-        id: z.string().uuid("ID inválido"),
+        id: z.string().uuid('ID inválido'),
         data: paintTypeUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização deve ser fornecida"),
+    .min(1, 'Pelo menos uma atualização deve ser fornecida'),
 });
 
 export const paintTypeBatchDeleteSchema = z.object({
-  paintTypeIds: z.array(z.string().uuid("Tipo de tinta inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintTypeIds: z
+    .array(z.string().uuid('Tipo de tinta inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Paint schemas
 export const paintCreateSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório"),
+  name: z.string().min(1, 'Nome é obrigatório'),
   code: z.string().min(1).max(20).nullable().optional(),
   hex: hexColorSchema,
   finish: z.enum(Object.values(PAINT_FINISH) as [string, ...string[]], {
-    errorMap: () => ({ message: "acabamento inválido" }),
+    errorMap: () => ({ message: 'acabamento inválido' }),
   }),
-  paintTypeId: z.string().uuid("Tipo de tinta inválido"),
-  paintBrandId: z.string().uuid("Marca de tinta inválida").nullable().optional(),
+  paintTypeId: z.string().uuid('Tipo de tinta inválido'),
+  paintBrandId: z.string().uuid('Marca de tinta inválida').nullable().optional(),
   manufacturer: z
     .enum(Object.values(TRUCK_MANUFACTURER) as [string, ...string[]], {
-      errorMap: () => ({ message: "MONTADORA inválida" }),
+      errorMap: () => ({ message: 'MONTADORA inválida' }),
     })
     .nullable()
     .optional(),
   tags: z.array(z.string()).default([]),
   palette: z
     .enum(Object.values(COLOR_PALETTE) as [string, ...string[]], {
-      errorMap: () => ({ message: "paleta inválida" }),
+      errorMap: () => ({ message: 'paleta inválida' }),
     })
     .optional(),
   paletteOrder: z.number().int().min(1).max(14).optional(),
@@ -1367,26 +1567,26 @@ export const paintCreateSchema = z.object({
 });
 
 export const paintUpdateSchema = z.object({
-  name: z.string().min(1, "Nome deve conter ao menos um caracter").optional(),
+  name: z.string().min(1, 'Nome deve conter ao menos um caracter').optional(),
   code: z.string().min(1).max(20).nullable().optional(),
   hex: hexColorSchema.optional(),
   finish: z
     .enum(Object.values(PAINT_FINISH) as [string, ...string[]], {
-      errorMap: () => ({ message: "acabamento inválido" }),
+      errorMap: () => ({ message: 'acabamento inválido' }),
     })
     .optional(),
-  paintTypeId: z.string().uuid("Tipo de tinta inválido").optional(),
-  paintBrandId: z.string().uuid("Marca de tinta inválida").nullable().optional(),
+  paintTypeId: z.string().uuid('Tipo de tinta inválido').optional(),
+  paintBrandId: z.string().uuid('Marca de tinta inválida').nullable().optional(),
   manufacturer: z
     .enum(Object.values(TRUCK_MANUFACTURER) as [string, ...string[]], {
-      errorMap: () => ({ message: "MONTADOR inválido" }),
+      errorMap: () => ({ message: 'MONTADOR inválido' }),
     })
     .nullable()
     .optional(),
   tags: z.array(z.string()).default([]).optional(),
   palette: z
     .enum(Object.values(COLOR_PALETTE) as [string, ...string[]], {
-      errorMap: () => ({ message: "paleta inválida" }),
+      errorMap: () => ({ message: 'paleta inválida' }),
     })
     .optional(),
   paletteOrder: z.number().int().min(1).max(14).optional(),
@@ -1400,33 +1600,35 @@ export const paintUpdateSchema = z.object({
 // =====================
 
 export const paintBatchCreateSchema = z.object({
-  paints: z.array(paintCreateSchema).min(1, "Pelo menos uma tinta deve ser fornecida"),
+  paints: z.array(paintCreateSchema).min(1, 'Pelo menos uma tinta deve ser fornecida'),
 });
 
 export const paintBatchUpdateSchema = z.object({
   paints: z
     .array(
       z.object({
-        id: z.string().uuid("Tinta inválida"),
+        id: z.string().uuid('Tinta inválida'),
         data: paintUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const paintBatchDeleteSchema = z.object({
-  paintIds: z.array(z.string().uuid("Tinta inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintIds: z
+    .array(z.string().uuid('Tinta inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 export const paintBatchUpdateColorOrderSchema = z.object({
   updates: z
     .array(
       z.object({
-        id: z.string().uuid("Tinta inválida"),
+        id: z.string().uuid('Tinta inválida'),
         colorOrder: z.number().int(),
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 // Query schema for include parameter
@@ -1472,7 +1674,10 @@ const paintFormulaTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ description: { contains: data.searchingFor, mode: "insensitive" } }, { paint: { name: { contains: data.searchingFor, mode: "insensitive" } } }],
+      OR: [
+        { description: { contains: data.searchingFor, mode: 'insensitive' } },
+        { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -1501,7 +1706,11 @@ const paintFormulaTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -1543,26 +1752,34 @@ export const paintFormulaGetManySchema = z
 
 export const paintFormulaCreateSchema = z
   .object({
-    description: z.string().min(1, "Descrição é obrigatória"),
-    paintId: z.string().uuid("Tinta inválida"),
+    description: z.string().min(1, 'Descrição é obrigatória'),
+    paintId: z.string().uuid('Tinta inválida'),
     components: z
       .array(
-        z.object({
-          ratio: z.number().positive("Proporção deve ser positiva").min(0.1, "Proporção mínima é 0.1%").max(100, "Proporção máxima é 100%").optional(),
-          weightInGrams: z.number().positive("Peso deve ser positivo").min(0.1, "Peso mínimo é 0.1g").optional(),
-          itemId: z.string().uuid("Item inválido"),
-          formulaPaintId: z.string().uuid("Fórmula inválida").optional(),
-        }).refine(
-          (data) => data.ratio !== undefined || data.weightInGrams !== undefined,
-          {
-            message: "ratio ou weightInGrams deve ser fornecido para cada componente",
-          }
-        ),
+        z
+          .object({
+            ratio: z
+              .number()
+              .positive('Proporção deve ser positiva')
+              .min(0.1, 'Proporção mínima é 0.1%')
+              .max(100, 'Proporção máxima é 100%')
+              .optional(),
+            weightInGrams: z
+              .number()
+              .positive('Peso deve ser positivo')
+              .min(0.1, 'Peso mínimo é 0.1g')
+              .optional(),
+            itemId: z.string().uuid('Item inválido'),
+            formulaPaintId: z.string().uuid('Fórmula inválida').optional(),
+          })
+          .refine(data => data.ratio !== undefined || data.weightInGrams !== undefined, {
+            message: 'ratio ou weightInGrams deve ser fornecido para cada componente',
+          }),
       )
-      .min(1, "Fórmula deve ter pelo menos um componente"),
+      .min(1, 'Fórmula deve ter pelo menos um componente'),
   })
   .refine(
-    (data) => {
+    data => {
       // Ensure total ratio equals 100% if ratios are provided
       const ratioComponents = data.components.filter(comp => comp.ratio !== undefined);
       if (ratioComponents.length > 0) {
@@ -1572,42 +1789,46 @@ export const paintFormulaCreateSchema = z
       return true;
     },
     {
-      message: "A soma das proporções deve ser igual a 100%",
+      message: 'A soma das proporções deve ser igual a 100%',
     },
   );
 
 export const paintFormulaUpdateSchema = z
   .object({
-    description: z.string().min(1, "Descrição é obrigatória").optional(),
-    paintId: z.string().uuid("Tinta inválida").optional(),
+    description: z.string().min(1, 'Descrição é obrigatória').optional(),
+    paintId: z.string().uuid('Tinta inválida').optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Ensure at least one field is being updated
       return data.description !== undefined || data.paintId !== undefined;
     },
     {
-      message: "Pelo menos um campo deve ser fornecido para atualização",
+      message: 'Pelo menos um campo deve ser fornecido para atualização',
     },
   );
 
 export const paintFormulaBatchCreateSchema = z.object({
-  paintFormulas: z.array(paintFormulaCreateSchema).min(1, "Pelo menos uma fórmula de tinta deve ser fornecida"),
+  paintFormulas: z
+    .array(paintFormulaCreateSchema)
+    .min(1, 'Pelo menos uma fórmula de tinta deve ser fornecida'),
 });
 
 export const paintFormulaBatchUpdateSchema = z.object({
   paintFormulas: z
     .array(
       z.object({
-        id: z.string().uuid("Fórmula inválida"),
+        id: z.string().uuid('Fórmula inválida'),
         data: paintFormulaUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const paintFormulaBatchDeleteSchema = z.object({
-  paintFormulaIds: z.array(z.string().uuid("Fórmula inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintFormulaIds: z
+    .array(z.string().uuid('Fórmula inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1638,7 +1859,10 @@ const paintFormulaComponentTransform = (data: any) => {
 
   // Handle search - this creates an OR condition for item name or formula description
   if (data.searchingFor) {
-    formulaCondition.OR = [{ description: { contains: data.searchingFor, mode: "insensitive" } }, { paint: { name: { contains: data.searchingFor, mode: "insensitive" } } }];
+    formulaCondition.OR = [
+      { description: { contains: data.searchingFor, mode: 'insensitive' } },
+      { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+    ];
     delete data.searchingFor;
   }
 
@@ -1710,7 +1934,11 @@ const paintFormulaComponentTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -1779,44 +2007,50 @@ export const paintFormulaComponentGetManySchema = z
   .transform(paintFormulaComponentTransform);
 
 export const paintFormulaComponentCreateSchema = z.object({
-  weight: z.number().positive("Peso deve ser positivo"),  // Weight in grams
-  itemId: z.string().uuid("Item inválido"),
-  formulaPaintId: z.string().uuid("Fórmula inválida"),
+  weight: z.number().positive('Peso deve ser positivo'), // Weight in grams
+  itemId: z.string().uuid('Item inválido'),
+  formulaPaintId: z.string().uuid('Fórmula inválida'),
 });
 
 export const paintFormulaComponentUpdateSchema = z
   .object({
-    weight: z.number().positive("Peso deve ser positivo").optional(),  // Weight in grams
-    itemId: z.string().uuid("Item inválido").optional(),
-    formulaPaintId: z.string().uuid("Fórmula inválida").optional(),
+    weight: z.number().positive('Peso deve ser positivo').optional(), // Weight in grams
+    itemId: z.string().uuid('Item inválido').optional(),
+    formulaPaintId: z.string().uuid('Fórmula inválida').optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Ensure at least one field is being updated
-      return data.weight !== undefined || data.itemId !== undefined || data.formulaPaintId !== undefined;
+      return (
+        data.weight !== undefined || data.itemId !== undefined || data.formulaPaintId !== undefined
+      );
     },
     {
-      message: "Pelo menos um campo deve ser fornecido para atualização",
+      message: 'Pelo menos um campo deve ser fornecido para atualização',
     },
   );
 
 export const paintFormulaComponentBatchCreateSchema = z.object({
-  paintFormulaComponents: z.array(paintFormulaComponentCreateSchema).min(1, "Pelo menos um componente de fórmula de tinta deve ser fornecido"),
+  paintFormulaComponents: z
+    .array(paintFormulaComponentCreateSchema)
+    .min(1, 'Pelo menos um componente de fórmula de tinta deve ser fornecido'),
 });
 
 export const paintFormulaComponentBatchUpdateSchema = z.object({
   paintFormulaComponents: z
     .array(
       z.object({
-        id: z.string().uuid("Componente inválido"),
+        id: z.string().uuid('Componente inválido'),
         data: paintFormulaComponentUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const paintFormulaComponentBatchDeleteSchema = z.object({
-  paintFormulaComponentIds: z.array(z.string().uuid("Componente inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintFormulaComponentIds: z
+    .array(z.string().uuid('Componente inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -1874,7 +2108,10 @@ const paintProductionTransform = (data: any) => {
 
   // Handle search - this creates an OR condition for formula description or paint name
   if (data.searchingFor) {
-    formulaCondition.OR = [{ description: { contains: data.searchingFor, mode: "insensitive" } }, { paint: { name: { contains: data.searchingFor, mode: "insensitive" } } }];
+    formulaCondition.OR = [
+      { description: { contains: data.searchingFor, mode: 'insensitive' } },
+      { paint: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+    ];
     delete data.searchingFor;
   }
 
@@ -1948,7 +2185,11 @@ const paintProductionTransform = (data: any) => {
   // Apply the final where condition
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -1990,41 +2231,54 @@ export const paintProductionGetManySchema = z
 
 export const paintProductionCreateSchema = z
   .object({
-    volumeLiters: z.number().positive("Volume deve ser positivo").min(0.001, "Volume mínimo é 0.001 litros (1ml)").max(100, "Volume máximo é 100 litros por produção"),
-    formulaId: z.string().uuid("Fórmula inválida"),
+    volumeLiters: z
+      .number()
+      .positive('Volume deve ser positivo')
+      .min(0.001, 'Volume mínimo é 0.001 litros (1ml)')
+      .max(100, 'Volume máximo é 100 litros por produção'),
+    formulaId: z.string().uuid('Fórmula inválida'),
   })
   .refine(
-    (data) => {
+    data => {
       // Volume should be reasonable for paint production
       return data.volumeLiters >= 0.001 && data.volumeLiters <= 100; // 1ml to 100L
     },
     {
-      message: "Volume deve estar entre 0.001L (1ml) e 100L para produção de tinta",
+      message: 'Volume deve estar entre 0.001L (1ml) e 100L para produção de tinta',
     },
   );
 
 export const paintProductionUpdateSchema = z.object({
-  volumeLiters: z.number().positive("Volume deve ser positivo").min(0.001, "Volume mínimo é 0.001 litros (1ml)").max(100, "Volume máximo é 100 litros por produção").optional(),
-  formulaId: z.string().uuid("Fórmula inválida").optional(),
+  volumeLiters: z
+    .number()
+    .positive('Volume deve ser positivo')
+    .min(0.001, 'Volume mínimo é 0.001 litros (1ml)')
+    .max(100, 'Volume máximo é 100 litros por produção')
+    .optional(),
+  formulaId: z.string().uuid('Fórmula inválida').optional(),
 });
 
 export const paintProductionBatchCreateSchema = z.object({
-  paintProductions: z.array(paintProductionCreateSchema).min(1, "Pelo menos uma produção de tinta deve ser fornecida"),
+  paintProductions: z
+    .array(paintProductionCreateSchema)
+    .min(1, 'Pelo menos uma produção de tinta deve ser fornecida'),
 });
 
 export const paintProductionBatchUpdateSchema = z.object({
   paintProductions: z
     .array(
       z.object({
-        id: z.string().uuid("Produção inválida"),
+        id: z.string().uuid('Produção inválida'),
         data: paintProductionUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const paintProductionBatchDeleteSchema = z.object({
-  paintProductionIds: z.array(z.string().uuid("Produção inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintProductionIds: z
+    .array(z.string().uuid('Produção inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -2047,13 +2301,32 @@ export const paintGroundWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       AND: z.union([paintGroundWhereSchema, z.array(paintGroundWhereSchema)]).optional(),
       OR: z.array(paintGroundWhereSchema).optional(),
       NOT: z.union([paintGroundWhereSchema, z.array(paintGroundWhereSchema)]).optional(),
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
-      groundPaintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      paintId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
+      groundPaintId: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
       paint: paintWhereSchema.optional(),
       groundPaint: paintWhereSchema.optional(),
-      createdAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
-      updatedAt: z.object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() }).optional(),
+      createdAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      updatedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
     })
     .strict(),
 );
@@ -2092,7 +2365,7 @@ const paintGroundTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      paint: { name: { contains: data.searchingFor, mode: "insensitive" } },
+      paint: { name: { contains: data.searchingFor, mode: 'insensitive' } },
     });
     delete data.searchingFor;
   }
@@ -2119,7 +2392,11 @@ const paintGroundTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -2164,32 +2441,36 @@ export const paintGroundGetByIdSchema = z.object({
 });
 
 export const paintGroundCreateSchema = z.object({
-  paintId: z.string().uuid("Tinta inválida"),
-  groundPaintId: z.string().uuid("Tinta base inválida"),
+  paintId: z.string().uuid('Tinta inválida'),
+  groundPaintId: z.string().uuid('Tinta base inválida'),
 });
 
 export const paintGroundUpdateSchema = z.object({
-  paintId: z.string().uuid("Tinta inválida").optional(),
-  groundPaintId: z.string().uuid("Tinta base inválida").optional(),
+  paintId: z.string().uuid('Tinta inválida').optional(),
+  groundPaintId: z.string().uuid('Tinta base inválida').optional(),
 });
 
 export const paintGroundBatchCreateSchema = z.object({
-  paintGrounds: z.array(paintGroundCreateSchema).min(1, "Pelo menos uma base de tinta deve ser fornecida"),
+  paintGrounds: z
+    .array(paintGroundCreateSchema)
+    .min(1, 'Pelo menos uma base de tinta deve ser fornecida'),
 });
 
 export const paintGroundBatchUpdateSchema = z.object({
   paintGrounds: z
     .array(
       z.object({
-        id: z.string().uuid("Base inválida"),
+        id: z.string().uuid('Base inválida'),
         data: paintGroundUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const paintGroundBatchDeleteSchema = z.object({
-  paintGroundIds: z.array(z.string().uuid("Base inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintGroundIds: z
+    .array(z.string().uuid('Base inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -2222,9 +2503,9 @@ const paintBrandTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      name: { contains: data.searchingFor.trim(), mode: "insensitive" },
+      name: { contains: data.searchingFor.trim(), mode: 'insensitive' },
     });
     delete data.searchingFor;
   }
@@ -2263,7 +2544,13 @@ const paintBrandTransform = (data: any) => {
       // Preserve existing where conditions and merge with new conditions
       if (data.where.AND) {
         // If AND already exists, append to it
-        data.where = { ...data.where, AND: [...(Array.isArray(data.where.AND) ? data.where.AND : [data.where.AND]), ...andConditions] };
+        data.where = {
+          ...data.where,
+          AND: [
+            ...(Array.isArray(data.where.AND) ? data.where.AND : [data.where.AND]),
+            ...andConditions,
+          ],
+        };
       } else {
         // Create AND with existing where conditions and new conditions
         const existingConditions = { ...data.where };
@@ -2341,32 +2628,40 @@ export const paintBrandQuerySchema = z.object({
 // =====================
 
 export const paintBrandCreateSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres"),
-  componentItemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  name: z.string().min(1, 'Nome é obrigatório').max(100, 'Nome deve ter no máximo 100 caracteres'),
+  componentItemIds: z.array(z.string().uuid('Item inválido')).optional(),
 });
 
 export const paintBrandUpdateSchema = z.object({
-  name: z.string().min(1, "Nome é obrigatório").max(100, "Nome deve ter no máximo 100 caracteres").optional(),
-  componentItemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  name: z
+    .string()
+    .min(1, 'Nome é obrigatório')
+    .max(100, 'Nome deve ter no máximo 100 caracteres')
+    .optional(),
+  componentItemIds: z.array(z.string().uuid('Item inválido')).optional(),
 });
 
 export const paintBrandBatchCreateSchema = z.object({
-  paintBrands: z.array(paintBrandCreateSchema).min(1, "Pelo menos uma marca de tinta deve ser fornecida"),
+  paintBrands: z
+    .array(paintBrandCreateSchema)
+    .min(1, 'Pelo menos uma marca de tinta deve ser fornecida'),
 });
 
 export const paintBrandBatchUpdateSchema = z.object({
   paintBrands: z
     .array(
       z.object({
-        id: z.string().uuid("ID inválido"),
+        id: z.string().uuid('ID inválido'),
         data: paintBrandUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização deve ser fornecida"),
+    .min(1, 'Pelo menos uma atualização deve ser fornecida'),
 });
 
 export const paintBrandBatchDeleteSchema = z.object({
-  paintBrandIds: z.array(z.string().uuid("Marca inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  paintBrandIds: z
+    .array(z.string().uuid('Marca inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // =====================
@@ -2423,16 +2718,26 @@ export type PaintFormulaOrderBy = z.infer<typeof paintFormulaOrderBySchema>;
 export type PaintFormulaWhere = z.infer<typeof paintFormulaWhereSchema>;
 
 // Paint Formula Component types
-export type PaintFormulaComponentGetManyFormData = z.infer<typeof paintFormulaComponentGetManySchema>;
-export type PaintFormulaComponentGetByIdFormData = z.infer<typeof paintFormulaComponentGetByIdSchema>;
+export type PaintFormulaComponentGetManyFormData = z.infer<
+  typeof paintFormulaComponentGetManySchema
+>;
+export type PaintFormulaComponentGetByIdFormData = z.infer<
+  typeof paintFormulaComponentGetByIdSchema
+>;
 export type PaintFormulaComponentQueryFormData = z.infer<typeof paintFormulaComponentQuerySchema>;
 
 export type PaintFormulaComponentCreateFormData = z.infer<typeof paintFormulaComponentCreateSchema>;
 export type PaintFormulaComponentUpdateFormData = z.infer<typeof paintFormulaComponentUpdateSchema>;
 
-export type PaintFormulaComponentBatchCreateFormData = z.infer<typeof paintFormulaComponentBatchCreateSchema>;
-export type PaintFormulaComponentBatchUpdateFormData = z.infer<typeof paintFormulaComponentBatchUpdateSchema>;
-export type PaintFormulaComponentBatchDeleteFormData = z.infer<typeof paintFormulaComponentBatchDeleteSchema>;
+export type PaintFormulaComponentBatchCreateFormData = z.infer<
+  typeof paintFormulaComponentBatchCreateSchema
+>;
+export type PaintFormulaComponentBatchUpdateFormData = z.infer<
+  typeof paintFormulaComponentBatchUpdateSchema
+>;
+export type PaintFormulaComponentBatchDeleteFormData = z.infer<
+  typeof paintFormulaComponentBatchDeleteSchema
+>;
 
 export type PaintFormulaComponentInclude = z.infer<typeof paintFormulaComponentIncludeSchema>;
 export type PaintFormulaComponentOrderBy = z.infer<typeof paintFormulaComponentOrderBySchema>;
@@ -2491,7 +2796,7 @@ export type PaintBrandWhere = z.infer<typeof paintBrandWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapPaintToFormData = createMapToFormDataHelper<Paint, PaintUpdateFormData>((paint) => ({
+export const mapPaintToFormData = createMapToFormDataHelper<Paint, PaintUpdateFormData>(paint => ({
   name: paint.name,
   hex: paint.hex,
   finish: paint.finish,
@@ -2501,39 +2806,56 @@ export const mapPaintToFormData = createMapToFormDataHelper<Paint, PaintUpdateFo
   palette: paint.palette,
   paletteOrder: paint.paletteOrder,
   paintTypeId: paint.paintTypeId,
-  groundIds: paint.paintGrounds?.map((pg) => pg.groundPaintId) || [],
+  groundIds: paint.paintGrounds?.map(pg => pg.groundPaintId) || [],
 }));
 
-export const mapPaintFormulaToFormData = createMapToFormDataHelper<PaintFormula, PaintFormulaUpdateFormData>((formula) => ({
+export const mapPaintFormulaToFormData = createMapToFormDataHelper<
+  PaintFormula,
+  PaintFormulaUpdateFormData
+>(formula => ({
   description: formula.description,
   paintId: formula.paintId,
   density: formula.density,
   pricePerLiter: formula.pricePerLiter,
 }));
 
-export const mapPaintFormulaComponentToFormData = createMapToFormDataHelper<PaintFormulaComponent, PaintFormulaComponentUpdateFormData>((component) => ({
+export const mapPaintFormulaComponentToFormData = createMapToFormDataHelper<
+  PaintFormulaComponent,
+  PaintFormulaComponentUpdateFormData
+>(component => ({
   ratio: component.ratio,
   itemId: component.itemId,
   formulaPaintId: component.formulaPaintId,
 }));
 
-export const mapPaintProductionToFormData = createMapToFormDataHelper<PaintProduction, PaintProductionUpdateFormData>((production) => ({
+export const mapPaintProductionToFormData = createMapToFormDataHelper<
+  PaintProduction,
+  PaintProductionUpdateFormData
+>(production => ({
   volumeLiters: production.volumeLiters,
   formulaId: production.formulaId,
 }));
 
-export const mapPaintGroundToFormData = createMapToFormDataHelper<PaintGround, PaintGroundUpdateFormData>((base) => ({
+export const mapPaintGroundToFormData = createMapToFormDataHelper<
+  PaintGround,
+  PaintGroundUpdateFormData
+>(base => ({
   paintId: base.paintId,
   groundPaintId: base.groundPaintId,
 }));
 
-export const mapPaintTypeToFormData = createMapToFormDataHelper<PaintType, PaintTypeUpdateFormData>((paintType) => ({
-  name: paintType.name,
-  needGround: paintType.needGround,
-  componentItemIds: paintType.componentItems?.map((item) => item.id),
-}));
+export const mapPaintTypeToFormData = createMapToFormDataHelper<PaintType, PaintTypeUpdateFormData>(
+  paintType => ({
+    name: paintType.name,
+    needGround: paintType.needGround,
+    componentItemIds: paintType.componentItems?.map(item => item.id),
+  }),
+);
 
-export const mapPaintBrandToFormData = createMapToFormDataHelper<PaintBrand, PaintBrandUpdateFormData>((paintBrand) => ({
+export const mapPaintBrandToFormData = createMapToFormDataHelper<
+  PaintBrand,
+  PaintBrandUpdateFormData
+>(paintBrand => ({
   name: paintBrand.name,
   componentItemIds: (paintBrand as any).componentItems?.map((item: any) => item.id),
 }));
@@ -2552,11 +2874,11 @@ export const paintMergeConflictsSchema = z
   .optional();
 
 export const paintMergeSchema = z.object({
-  targetPaintId: z.string().uuid({ message: "ID da tinta principal inválido" }),
+  targetPaintId: z.string().uuid({ message: 'ID da tinta principal inválido' }),
   sourcePaintIds: z
-    .array(z.string().uuid({ message: "ID de tinta inválido" }))
-    .min(1, { message: "É necessário selecionar pelo menos 1 tinta para mesclar" })
-    .max(10, { message: "Máximo de 10 tintas podem ser mescladas por vez" }),
+    .array(z.string().uuid({ message: 'ID de tinta inválido' }))
+    .min(1, { message: 'É necessário selecionar pelo menos 1 tinta para mesclar' })
+    .max(10, { message: 'Máximo de 10 tintas podem ser mescladas por vez' }),
   conflictResolutions: paintMergeConflictsSchema,
 });
 

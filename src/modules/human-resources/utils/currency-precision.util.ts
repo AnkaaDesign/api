@@ -189,7 +189,10 @@ export function isValidCurrencyPrecision(value: number): boolean {
  * getCurrencyDifference(100, 95)
  * // { difference: -5.00, percentageDifference: -5.00 }
  */
-export function getCurrencyDifference(expected: number, actual: number): {
+export function getCurrencyDifference(
+  expected: number,
+  actual: number,
+): {
   difference: number;
   percentageDifference: number;
   isSignificant: boolean;

@@ -3,7 +3,12 @@
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Order } from '../../../../../types';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../../types';
 import {
   OrderCreateFormData,
   OrderUpdateFormData,
@@ -168,7 +173,9 @@ export class OrderPrismaRepository
       createData.reimbursements = { connect: orderData.reimbursementIds.map(id => ({ id })) };
     }
     if (orderData.reimbursementInvoiceIds && orderData.reimbursementInvoiceIds.length > 0) {
-      createData.invoiceReimbursements = { connect: orderData.reimbursementInvoiceIds.map(id => ({ id })) };
+      createData.invoiceReimbursements = {
+        connect: orderData.reimbursementInvoiceIds.map(id => ({ id })),
+      };
     }
 
     // Handle nested items creation
@@ -243,7 +250,9 @@ export class OrderPrismaRepository
       updateData.reimbursements = { set: formData.reimbursementIds.map(id => ({ id })) };
     }
     if (formData.reimbursementInvoiceIds !== undefined) {
-      updateData.invoiceReimbursements = { set: formData.reimbursementInvoiceIds.map(id => ({ id })) };
+      updateData.invoiceReimbursements = {
+        set: formData.reimbursementInvoiceIds.map(id => ({ id })),
+      };
     }
     if (formData.ppeScheduleId !== undefined) {
       updateData.ppeSchedule = formData.ppeScheduleId
@@ -479,8 +488,12 @@ export class OrderPrismaRepository
       budgetIds: (databaseOrder.budgets as any)?.map((budget: any) => budget.id),
       invoiceIds: (databaseOrder.invoices as any)?.map((invoice: any) => invoice.id),
       receiptIds: (databaseOrder.receipts as any)?.map((receipt: any) => receipt.id),
-      reimbursementIds: (databaseOrder.reimbursements as any)?.map((reimbursement: any) => reimbursement.id),
-      reimbursementInvoiceIds: (databaseOrder.invoiceReimbursements as any)?.map((reimbursementInvoice: any) => reimbursementInvoice.id),
+      reimbursementIds: (databaseOrder.reimbursements as any)?.map(
+        (reimbursement: any) => reimbursement.id,
+      ),
+      reimbursementInvoiceIds: (databaseOrder.invoiceReimbursements as any)?.map(
+        (reimbursementInvoice: any) => reimbursementInvoice.id,
+      ),
       supplierId: databaseOrder.supplierId,
       orderScheduleId: databaseOrder.orderScheduleId,
       orderRuleId: databaseOrder.orderRuleId,

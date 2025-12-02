@@ -795,7 +795,7 @@ export class PaintProductionService {
     }
 
     const production = await this.prisma.$transaction(async transaction => {
-      let updateData: PaintProductionUpdateFormData = { ...data };
+      const updateData: PaintProductionUpdateFormData = { ...data };
 
       // If volume is being updated, we need to validate the difference
       if (data.volumeLiters !== undefined && data.volumeLiters !== productionExists.volumeLiters) {
@@ -1836,7 +1836,7 @@ export class PaintProductionService {
           if (!existing) continue; // Already validated above
 
           try {
-            let updateData: PaintProductionUpdateFormData = { ...updateItem.data };
+            const updateData: PaintProductionUpdateFormData = { ...updateItem.data };
 
             // Handle volume changes with inventory adjustment
             if (

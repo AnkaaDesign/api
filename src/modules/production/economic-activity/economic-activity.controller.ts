@@ -53,7 +53,8 @@ export class EconomicActivityController {
   // Basic CRUD Operations
   @Get()
   async findMany(
-    @Query(new ZodQueryValidationPipe(economicActivityGetManySchema)) query: EconomicActivityGetManyFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityGetManySchema))
+    query: EconomicActivityGetManyFormData,
   ): Promise<EconomicActivityGetManyResponse> {
     return this.economicActivityService.findMany(query);
   }
@@ -61,7 +62,8 @@ export class EconomicActivityController {
   @Get(':id')
   async findOne(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(economicActivityGetByIdSchema)) query: EconomicActivityGetByIdFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityGetByIdSchema))
+    query: EconomicActivityGetByIdFormData,
   ): Promise<EconomicActivityGetUniqueResponse> {
     return this.economicActivityService.findOne(id, query);
   }
@@ -71,7 +73,8 @@ export class EconomicActivityController {
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityCreateSchema))
     data: EconomicActivityCreateFormData,
-    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema)) query: EconomicActivityQueryFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema))
+    query: EconomicActivityQueryFormData,
   ): Promise<EconomicActivityCreateResponse> {
     return this.economicActivityService.create(data, query?.include);
   }
@@ -81,7 +84,8 @@ export class EconomicActivityController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityUpdateSchema))
     data: EconomicActivityUpdateFormData,
-    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema)) query: EconomicActivityQueryFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema))
+    query: EconomicActivityQueryFormData,
   ): Promise<EconomicActivityUpdateResponse> {
     return this.economicActivityService.update(id, data, query?.include);
   }
@@ -98,7 +102,8 @@ export class EconomicActivityController {
   async batchCreate(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityBatchCreateSchema))
     data: EconomicActivityBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema)) query: EconomicActivityQueryFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema))
+    query: EconomicActivityQueryFormData,
   ): Promise<EconomicActivityBatchCreateResponse<EconomicActivityCreateFormData>> {
     return this.economicActivityService.batchCreate(data, query?.include);
   }
@@ -107,7 +112,8 @@ export class EconomicActivityController {
   async batchUpdate(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(economicActivityBatchUpdateSchema))
     data: EconomicActivityBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema)) query: EconomicActivityQueryFormData,
+    @Query(new ZodQueryValidationPipe(economicActivityQuerySchema))
+    query: EconomicActivityQueryFormData,
   ): Promise<EconomicActivityBatchUpdateResponse<EconomicActivityUpdateFormData & { id: string }>> {
     return this.economicActivityService.batchUpdate(data, query?.include);
   }

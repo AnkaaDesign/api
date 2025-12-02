@@ -94,8 +94,8 @@ export interface LogEntityChangeParams {
   action: CHANGE_ACTION;
   entity?: any;
   oldEntity?: any;
-  oldData?: any;  // Alias for oldEntity
-  newData?: any;  // Alias for entity
+  oldData?: any; // Alias for oldEntity
+  newData?: any; // Alias for entity
   changes?: Record<string, { from: any; to: any }>;
   reason?: string;
   userId: string | null;
@@ -359,7 +359,6 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
 
   // Cut fields
   fileId: 'arquivo',
-  type: 'tipo', // General type field for multiple entities
   origin: 'origem',
   reason: 'motivo',
   parentCutId: 'corte pai',

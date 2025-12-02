@@ -1,10 +1,19 @@
 // packages/interfaces/src/customer.ts
 
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
-import type { File, FileIncludes } from "./file";
-import type { Task, TaskIncludes } from "./task";
-import type { EconomicActivity, EconomicActivityIncludes } from "./economic-activity";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  BaseMergeResponse,
+} from './common';
+import type { File, FileIncludes } from './file';
+import type { Task, TaskIncludes } from './task';
+import type { EconomicActivity, EconomicActivityIncludes } from './economic-activity';
 
 // =====================
 // Main Entity Interface
@@ -110,4 +119,5 @@ export interface CustomerMergeResponse extends BaseMergeResponse<Customer> {}
 
 export interface CustomerBatchCreateResponse extends BaseBatchResponse<Customer, unknown> {}
 export interface CustomerBatchUpdateResponse extends BaseBatchResponse<Customer, unknown> {}
-export interface CustomerBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface CustomerBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

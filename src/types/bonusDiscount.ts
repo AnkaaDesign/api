@@ -1,8 +1,16 @@
 // packages/types/src/bonusDiscount.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
-import type { Bonus, BonusIncludes } from "./bonus";
+import type { Bonus, BonusIncludes } from './bonus';
 
 // =====================
 // Main Entity Interface
@@ -48,7 +56,14 @@ export interface BonusDiscountWhere {
   bonusId?: string | { in?: string[]; notIn?: string[] };
   percentage?: number | { gte?: number; lte?: number; gt?: number; lt?: number } | null;
   value?: number | { gte?: number; lte?: number; gt?: number; lt?: number } | null;
-  reference?: string | { contains?: string; mode?: "default" | "insensitive"; startsWith?: string; endsWith?: string };
+  reference?:
+    | string
+    | {
+        contains?: string;
+        mode?: 'default' | 'insensitive';
+        startsWith?: string;
+        endsWith?: string;
+      };
   calculationOrder?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
   createdAt?: Date | { gte?: Date; lte?: Date; gt?: Date; lt?: Date };
   updatedAt?: Date | { gte?: Date; lte?: Date; gt?: Date; lt?: Date };
@@ -120,8 +135,14 @@ export interface BonusDiscountUpdateFormData {
   calculationOrder?: number;
 }
 
-export type BonusDiscountBatchCreateResponse = BaseBatchResponse<BonusDiscount, BonusDiscountCreateFormData>;
-export type BonusDiscountBatchUpdateResponse = BaseBatchResponse<BonusDiscount, BonusDiscountUpdateFormData>;
+export type BonusDiscountBatchCreateResponse = BaseBatchResponse<
+  BonusDiscount,
+  BonusDiscountCreateFormData
+>;
+export type BonusDiscountBatchUpdateResponse = BaseBatchResponse<
+  BonusDiscount,
+  BonusDiscountUpdateFormData
+>;
 export type BonusDiscountBatchDeleteResponse = BaseBatchResponse<string, string>;
 
 // =====================

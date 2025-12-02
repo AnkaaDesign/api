@@ -254,7 +254,10 @@ export class UserService {
       }
 
       // Validar unicidade do número da folha
-      const existingPayrollNumber = await this.userRepository.findByPayrollNumber(data.payrollNumber, tx);
+      const existingPayrollNumber = await this.userRepository.findByPayrollNumber(
+        data.payrollNumber,
+        tx,
+      );
       if (existingPayrollNumber && existingPayrollNumber.id !== existingId) {
         throw new BadRequestException('Número da folha já está em uso.');
       }
@@ -376,7 +379,7 @@ export class UserService {
       const finalInclude = include || queryInclude;
 
       // Build where clause with filters
-      let finalWhere = where || {};
+      const finalWhere = where || {};
 
       // Handle searchingFor transformation
       // NOTE: This logic is now handled by the frontend schema (user.ts:778-799)
@@ -404,7 +407,8 @@ export class UserService {
       // Handle positionId - check if it's an array or single value
       if (filters.positionId !== undefined) {
         if (Array.isArray(filters.positionId)) {
-          finalWhere.positionId = filters.positionId.length > 0 ? { in: filters.positionId } : undefined;
+          finalWhere.positionId =
+            filters.positionId.length > 0 ? { in: filters.positionId } : undefined;
         } else {
           finalWhere.positionId = filters.positionId;
         }
@@ -720,7 +724,9 @@ export class UserService {
         throw new BadRequestException(`${fieldName} já está em uso.`);
       }
 
-      throw new InternalServerErrorException('Não foi possível criar o usuário. Por favor, tente novamente.');
+      throw new InternalServerErrorException(
+        'Não foi possível criar o usuário. Por favor, tente novamente.',
+      );
     }
   }
 
@@ -755,7 +761,11 @@ export class UserService {
         }
 
         // If status is being set to DISMISSED and dismissedAt is null, automatically set dismissedAt
-        if (data.status === USER_STATUS.DISMISSED && !data.dismissedAt && !existingUser.dismissedAt) {
+        if (
+          data.status === USER_STATUS.DISMISSED &&
+          !data.dismissedAt &&
+          !existingUser.dismissedAt
+        ) {
           this.logger.log(
             `Status being set to DISMISSED for user ${id}. Automatically setting dismissedAt to now.`,
           );
@@ -837,7 +847,10 @@ export class UserService {
         }
 
         // Clear sessionToken when user is dismissed
-        if (data.status === USER_STATUS.DISMISSED && existingUser.status !== USER_STATUS.DISMISSED) {
+        if (
+          data.status === USER_STATUS.DISMISSED &&
+          existingUser.status !== USER_STATUS.DISMISSED
+        ) {
           (data as any).sessionToken = null;
         }
 
@@ -883,14 +896,9 @@ export class UserService {
         }
 
         // Atualizar o usuário
-        const updatedUser = await this.userRepository.updateWithTransaction(
-          tx,
-          id,
-          dbUpdateData,
-          {
-            include,
-          },
-        );
+        const updatedUser = await this.userRepository.updateWithTransaction(tx, id, dbUpdateData, {
+          include,
+        });
 
         // Track individual field changes
         const fieldsToTrack = [
@@ -1032,7 +1040,9 @@ export class UserService {
         throw new BadRequestException(`${fieldName} já está em uso.`);
       }
 
-      throw new InternalServerErrorException('Não foi possível atualizar o usuário. Por favor, tente novamente.');
+      throw new InternalServerErrorException(
+        'Não foi possível atualizar o usuário. Por favor, tente novamente.',
+      );
     }
   }
 
@@ -1140,7 +1150,7 @@ export class UserService {
 
             // Set initial status timestamps
             const now = new Date();
-            let statusTimestamps: any = {};
+            const statusTimestamps: any = {};
 
             switch (status) {
               case USER_STATUS.EXPERIENCE_PERIOD_1:
@@ -1324,7 +1334,7 @@ export class UserService {
             // Get existing user to check for status changes
             const existingUser = await tx.user.findUnique({ where: { id } });
 
-            let processedData: any = {
+            const processedData: any = {
               ...data,
               password: hashedPassword,
             };
@@ -1600,7 +1610,9 @@ export class UserService {
         if (sourceUsers.length !== data.sourceUserIds.length) {
           const foundIds = sourceUsers.map(u => u.id);
           const missingIds = data.sourceUserIds.filter(id => !foundIds.includes(id));
-          throw new NotFoundException(`Usuários de origem não encontrados: ${missingIds.join(', ')}`);
+          throw new NotFoundException(
+            `Usuários de origem não encontrados: ${missingIds.join(', ')}`,
+          );
         }
 
         // 2. Merge tasks - move all created tasks from source users to target
@@ -1832,18 +1844,13 @@ export class UserService {
               transaction: tx,
             });
 
-            this.logger.log(
-              `User ${user.name} (${user.id}) transitioned from EXP1 to EXP2`
-            );
+            this.logger.log(`User ${user.name} (${user.id}) transitioned from EXP1 to EXP2`);
           });
 
           result.exp1ToExp2++;
           result.totalProcessed++;
         } catch (error: any) {
-          this.logger.error(
-            `Failed to transition user ${user.id} from EXP1 to EXP2:`,
-            error
-          );
+          this.logger.error(`Failed to transition user ${user.id} from EXP1 to EXP2:`, error);
           result.errors.push({
             userId: user.id,
             error: error.message || 'Unknown error during exp1->exp2 transition',
@@ -1899,18 +1906,13 @@ export class UserService {
               transaction: tx,
             });
 
-            this.logger.log(
-              `User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED`
-            );
+            this.logger.log(`User ${user.name} (${user.id}) transitioned from EXP2 to EFFECTED`);
           });
 
           result.exp2ToEffected++;
           result.totalProcessed++;
         } catch (error: any) {
-          this.logger.error(
-            `Failed to transition user ${user.id} from EXP2 to EFFECTED:`,
-            error
-          );
+          this.logger.error(`Failed to transition user ${user.id} from EXP2 to EFFECTED:`, error);
           result.errors.push({
             userId: user.id,
             error: error.message || 'Unknown error during exp2->effected transition',
@@ -1920,8 +1922,8 @@ export class UserService {
 
       this.logger.log(
         `Experience period transitions completed. Total processed: ${result.totalProcessed}, ` +
-        `EXP1->EXP2: ${result.exp1ToExp2}, EXP2->EFFECTED: ${result.exp2ToEffected}, ` +
-        `Errors: ${result.errors.length}`
+          `EXP1->EXP2: ${result.exp1ToExp2}, EXP2->EFFECTED: ${result.exp2ToEffected}, ` +
+          `Errors: ${result.errors.length}`,
       );
 
       return result;

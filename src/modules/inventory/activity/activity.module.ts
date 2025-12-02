@@ -28,6 +28,11 @@ import { ConsumptionAnalyticsService } from './consumption-analytics.service';
       useClass: ActivityPrismaRepository,
     },
   ],
-  exports: [ActivityService, ActivityRepository, EnhancedActivityService, ConsumptionAnalyticsService],
+  exports: [
+    ActivityService,
+    ActivityRepository,
+    EnhancedActivityService,
+    ConsumptionAnalyticsService,
+  ],
 })
 export class ActivityModule {}

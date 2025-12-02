@@ -22,20 +22,14 @@ export class AppRepository {
     });
   }
 
-  async findById(
-    id: string,
-    options?: { include?: Prisma.AppInclude },
-  ): Promise<App | null> {
+  async findById(id: string, options?: { include?: Prisma.AppInclude }): Promise<App | null> {
     return this.prisma.app.findUnique({
       where: { id },
       include: options?.include,
     });
   }
 
-  async findByName(
-    name: string,
-    options?: { include?: Prisma.AppInclude },
-  ): Promise<App | null> {
+  async findByName(name: string, options?: { include?: Prisma.AppInclude }): Promise<App | null> {
     return this.prisma.app.findUnique({
       where: { name },
       include: options?.include,
@@ -70,10 +64,7 @@ export class AppRepository {
     });
   }
 
-  async delete(
-    id: string,
-    options?: { tx?: PrismaTransaction },
-  ): Promise<App> {
+  async delete(id: string, options?: { tx?: PrismaTransaction }): Promise<App> {
     const prisma = options?.tx || this.prisma;
     return prisma.app.delete({
       where: { id },

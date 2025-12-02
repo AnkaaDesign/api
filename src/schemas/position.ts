@@ -1,7 +1,12 @@
 // packages/schemas/src/position.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  createNameSchema,
+} from './common';
 import type { Position } from '@types';
 
 // =====================
@@ -19,7 +24,9 @@ export const monetaryValueIncludeSchema = z
 export const monetaryValueWhereSchema = z
   .object({
     id: z.union([z.string(), z.object({ in: z.array(z.string()) }).optional()]).optional(),
-    value: z.union([z.number(), z.object({ gte: z.number(), lte: z.number() }).partial()]).optional(),
+    value: z
+      .union([z.number(), z.object({ gte: z.number(), lte: z.number() }).partial()])
+      .optional(),
     current: z.boolean().optional(),
     createdAt: z.union([z.date(), z.object({ gte: z.date(), lte: z.date() }).partial()]).optional(),
     updatedAt: z.union([z.date(), z.object({ gte: z.date(), lte: z.date() }).partial()]).optional(),
@@ -31,20 +38,26 @@ export const monetaryValueWhereSchema = z
 
 // MonetaryValue OrderBy Schema
 export const monetaryValueOrderBySchema = z.union([
-  z.object({
-    id: orderByDirectionSchema.optional(),
-    value: orderByDirectionSchema.optional(),
-    current: orderByDirectionSchema.optional(),
-    createdAt: orderByDirectionSchema.optional(),
-    updatedAt: orderByDirectionSchema.optional(),
-  }).partial(),
-  z.array(z.object({
-    id: orderByDirectionSchema.optional(),
-    value: orderByDirectionSchema.optional(),
-    current: orderByDirectionSchema.optional(),
-    createdAt: orderByDirectionSchema.optional(),
-    updatedAt: orderByDirectionSchema.optional(),
-  }).partial()),
+  z
+    .object({
+      id: orderByDirectionSchema.optional(),
+      value: orderByDirectionSchema.optional(),
+      current: orderByDirectionSchema.optional(),
+      createdAt: orderByDirectionSchema.optional(),
+      updatedAt: orderByDirectionSchema.optional(),
+    })
+    .partial(),
+  z.array(
+    z
+      .object({
+        id: orderByDirectionSchema.optional(),
+        value: orderByDirectionSchema.optional(),
+        current: orderByDirectionSchema.optional(),
+        createdAt: orderByDirectionSchema.optional(),
+        updatedAt: orderByDirectionSchema.optional(),
+      })
+      .partial(),
+  ),
 ]);
 
 export const positionIncludeSchema = z
@@ -90,7 +103,9 @@ export const positionIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial()
   .strip();
@@ -132,7 +147,9 @@ export const positionOrderBySchema = z.union([
 
 export const positionWhereSchema: z.ZodType<any> = z
   .object({
-    AND: z.union([z.lazy(() => positionWhereSchema), z.array(z.lazy(() => positionWhereSchema))]).optional(),
+    AND: z
+      .union([z.lazy(() => positionWhereSchema), z.array(z.lazy(() => positionWhereSchema))])
+      .optional(),
     OR: z.array(z.lazy(() => positionWhereSchema)).optional(),
     NOT: z.lazy(() => positionWhereSchema).optional(),
 
@@ -161,7 +178,7 @@ export const positionWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -293,7 +310,7 @@ const positionTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      name: { contains: data.searchingFor, mode: "insensitive" },
+      name: { contains: data.searchingFor, mode: 'insensitive' },
     });
     delete data.searchingFor;
   }
@@ -307,8 +324,10 @@ const positionTransform = (data: any) => {
 
   if (data.remunerationRange) {
     const remunerationCondition: any = {};
-    if (data.remunerationRange.min !== undefined) remunerationCondition.gte = data.remunerationRange.min;
-    if (data.remunerationRange.max !== undefined) remunerationCondition.lte = data.remunerationRange.max;
+    if (data.remunerationRange.min !== undefined)
+      remunerationCondition.gte = data.remunerationRange.min;
+    if (data.remunerationRange.max !== undefined)
+      remunerationCondition.lte = data.remunerationRange.max;
     andConditions.push({ remuneration: remunerationCondition });
     delete data.remunerationRange;
   }
@@ -325,7 +344,11 @@ const positionTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -376,7 +399,7 @@ export const positionGetManySchema = z
 
 export const positionGetByIdSchema = z.object({
   include: positionIncludeSchema.optional(),
-  id: z.string().uuid("Cargo inválido"),
+  id: z.string().uuid('Cargo inválido'),
 });
 
 // =====================
@@ -387,18 +410,37 @@ const toFormData = <T>(data: T) => data;
 
 export const positionCreateSchema = z
   .object({
-    name: createNameSchema(1, 100, "Nome do cargo"),
-    hierarchy: z.number().int("Hierarquia deve ser um número inteiro").min(0, "Hierarquia deve ser maior ou igual a zero").max(999, "Hierarquia deve ser menor que 1000").optional().nullable(),
-    remuneration: z.number().min(0, "Remuneração deve ser maior ou igual a zero").max(999999.99, "Remuneração deve ser menor que R$ 1.000.000,00"),
+    name: createNameSchema(1, 100, 'Nome do cargo'),
+    hierarchy: z
+      .number()
+      .int('Hierarquia deve ser um número inteiro')
+      .min(0, 'Hierarquia deve ser maior ou igual a zero')
+      .max(999, 'Hierarquia deve ser menor que 1000')
+      .optional()
+      .nullable(),
+    remuneration: z
+      .number()
+      .min(0, 'Remuneração deve ser maior ou igual a zero')
+      .max(999999.99, 'Remuneração deve ser menor que R$ 1.000.000,00'),
     bonifiable: z.boolean().optional(),
   })
   .transform(toFormData);
 
 export const positionUpdateSchema = z
   .object({
-    name: createNameSchema(1, 100, "Nome do cargo").optional(),
-    hierarchy: z.number().int("Hierarquia deve ser um número inteiro").min(0, "Hierarquia deve ser maior ou igual a zero").max(999, "Hierarquia deve ser menor que 1000").optional().nullable(),
-    remuneration: z.number().min(0, "Remuneração deve ser maior ou igual a zero").max(999999.99, "Remuneração deve ser menor que R$ 1.000.000,00").optional(),
+    name: createNameSchema(1, 100, 'Nome do cargo').optional(),
+    hierarchy: z
+      .number()
+      .int('Hierarquia deve ser um número inteiro')
+      .min(0, 'Hierarquia deve ser maior ou igual a zero')
+      .max(999, 'Hierarquia deve ser menor que 1000')
+      .optional()
+      .nullable(),
+    remuneration: z
+      .number()
+      .min(0, 'Remuneração deve ser maior ou igual a zero')
+      .max(999999.99, 'Remuneração deve ser menor que R$ 1.000.000,00')
+      .optional(),
     bonifiable: z.boolean().optional(),
   })
   .transform(toFormData);
@@ -408,22 +450,24 @@ export const positionUpdateSchema = z
 // =====================
 
 export const positionBatchCreateSchema = z.object({
-  positions: z.array(positionCreateSchema).min(1, "Pelo menos um cargo deve ser fornecido"),
+  positions: z.array(positionCreateSchema).min(1, 'Pelo menos um cargo deve ser fornecido'),
 });
 
 export const positionBatchUpdateSchema = z.object({
   positions: z
     .array(
       z.object({
-        id: z.string().uuid("Cargo inválido"),
+        id: z.string().uuid('Cargo inválido'),
         data: positionUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const positionBatchDeleteSchema = z.object({
-  positionIds: z.array(z.string().uuid("Cargo inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  positionIds: z
+    .array(z.string().uuid('Cargo inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -455,9 +499,11 @@ export type PositionWhere = z.infer<typeof positionWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapPositionToFormData = createMapToFormDataHelper<Position, PositionUpdateFormData>((position) => ({
-  name: position.name,
-  hierarchy: position.hierarchy,
-  remuneration: position.remuneration,
-  bonifiable: position.bonifiable,
-}));
+export const mapPositionToFormData = createMapToFormDataHelper<Position, PositionUpdateFormData>(
+  position => ({
+    name: position.name,
+    hierarchy: position.hierarchy,
+    remuneration: position.remuneration,
+    bonifiable: position.bonifiable,
+  }),
+);

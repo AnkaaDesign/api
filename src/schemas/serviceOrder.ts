@@ -1,7 +1,12 @@
 // packages/schemas/src/serviceOrder.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableDate } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableDate,
+} from './common';
 import type { ServiceOrder } from '@types';
 import { SERVICE_ORDER_STATUS } from '@constants';
 
@@ -179,7 +184,7 @@ export const serviceOrderWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -263,7 +268,7 @@ export const serviceOrderWhereSchema: z.ZodSchema = z.lazy(() =>
 
 const serviceOrderFilters = {
   searchingFor: z.string().optional(),
-  taskId: z.string().uuid("Tarefa inválida").optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
   hasTask: z.boolean().optional(),
   hasItems: z.boolean().optional(),
   hasInstallment: z.boolean().optional(),
@@ -292,29 +297,33 @@ const serviceOrderTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - search in description
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      description: { contains: data.searchingFor.trim(), mode: "insensitive" },
+      description: { contains: data.searchingFor.trim(), mode: 'insensitive' },
     });
     delete data.searchingFor;
   }
 
   // Handle descriptionContains filter
-  if (data.descriptionContains && typeof data.descriptionContains === "string" && data.descriptionContains.trim()) {
+  if (
+    data.descriptionContains &&
+    typeof data.descriptionContains === 'string' &&
+    data.descriptionContains.trim()
+  ) {
     andConditions.push({
-      description: { contains: data.descriptionContains.trim(), mode: "insensitive" },
+      description: { contains: data.descriptionContains.trim(), mode: 'insensitive' },
     });
     delete data.descriptionContains;
   }
 
   // Handle taskId filter
-  if (data.taskId && typeof data.taskId === "string") {
+  if (data.taskId && typeof data.taskId === 'string') {
     andConditions.push({ taskId: data.taskId });
     delete data.taskId;
   }
 
   // Handle hasTask filter
-  if (typeof data.hasTask === "boolean") {
+  if (typeof data.hasTask === 'boolean') {
     if (data.hasTask) {
       andConditions.push({ taskId: { not: null } });
     } else {
@@ -324,7 +333,7 @@ const serviceOrderTransform = (data: any) => {
   }
 
   // Handle hasItems filter (assuming there's a relation to items)
-  if (typeof data.hasItems === "boolean") {
+  if (typeof data.hasItems === 'boolean') {
     if (data.hasItems) {
       andConditions.push({ items: { some: {} } });
     } else {
@@ -334,7 +343,7 @@ const serviceOrderTransform = (data: any) => {
   }
 
   // Handle hasInstallment filter (assuming there's a relation to installments)
-  if (typeof data.hasInstallment === "boolean") {
+  if (typeof data.hasInstallment === 'boolean') {
     if (data.hasInstallment) {
       andConditions.push({ installments: { some: {} } });
     } else {
@@ -344,7 +353,7 @@ const serviceOrderTransform = (data: any) => {
   }
 
   // Handle isActive filter (not finished)
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     if (data.isActive) {
       andConditions.push({ finishedAt: null });
     } else {
@@ -354,7 +363,7 @@ const serviceOrderTransform = (data: any) => {
   }
 
   // Handle isCompleted filter (finished)
-  if (typeof data.isCompleted === "boolean") {
+  if (typeof data.isCompleted === 'boolean') {
     if (data.isCompleted) {
       andConditions.push({ finishedAt: { not: null } });
     } else {
@@ -461,11 +470,14 @@ export const serviceOrderGetManySchema = z
 export const serviceOrderCreateSchema = z.object({
   status: z
     .enum(Object.values(SERVICE_ORDER_STATUS) as [string, ...string[]], {
-      errorMap: () => ({ message: "status inválido" }),
+      errorMap: () => ({ message: 'status inválido' }),
     })
     .default(SERVICE_ORDER_STATUS.PENDING),
-  description: z.string().min(3, { message: "Minímo de 3 caracteres" }).max(400, { message: "Maxímo de 400 caracteres atingido" }),
-  taskId: z.string().uuid("Tarefa inválida"),
+  description: z
+    .string()
+    .min(3, { message: 'Minímo de 3 caracteres' })
+    .max(400, { message: 'Maxímo de 400 caracteres atingido' }),
+  taskId: z.string().uuid('Tarefa inválida'),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -473,11 +485,15 @@ export const serviceOrderCreateSchema = z.object({
 export const serviceOrderUpdateSchema = z.object({
   status: z
     .enum(Object.values(SERVICE_ORDER_STATUS) as [string, ...string[]], {
-      errorMap: () => ({ message: "status inválido" }),
+      errorMap: () => ({ message: 'status inválido' }),
     })
     .optional(),
-  description: z.string().min(3, { message: "Minímo de 3 caracteres" }).max(400, { message: "Maxímo de 400 caracteres atingido" }).optional(),
-  taskId: z.string().uuid("Tarefa inválida").optional(),
+  description: z
+    .string()
+    .min(3, { message: 'Minímo de 3 caracteres' })
+    .max(400, { message: 'Maxímo de 400 caracteres atingido' })
+    .optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -487,22 +503,26 @@ export const serviceOrderUpdateSchema = z.object({
 // =====================
 
 export const serviceOrderBatchCreateSchema = z.object({
-  serviceOrders: z.array(serviceOrderCreateSchema).min(1, "Pelo menos uma ordem de serviço deve ser fornecida"),
+  serviceOrders: z
+    .array(serviceOrderCreateSchema)
+    .min(1, 'Pelo menos uma ordem de serviço deve ser fornecida'),
 });
 
 export const serviceOrderBatchUpdateSchema = z.object({
   serviceOrders: z
     .array(
       z.object({
-        id: z.string().uuid("Ordem de serviço inválida"),
+        id: z.string().uuid('Ordem de serviço inválida'),
         data: serviceOrderUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma ordem de serviço deve ser fornecida"),
+    .min(1, 'Pelo menos uma ordem de serviço deve ser fornecida'),
 });
 
 export const serviceOrderBatchDeleteSchema = z.object({
-  serviceOrderIds: z.array(z.string().uuid("Ordem de serviço inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  serviceOrderIds: z
+    .array(z.string().uuid('Ordem de serviço inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -521,7 +541,7 @@ export const serviceOrderBatchQuerySchema = z.object({
 
 export const serviceOrderGetByIdSchema = z.object({
   include: serviceOrderIncludeSchema.optional(),
-  id: z.string().uuid("Ordem de serviço inválida"),
+  id: z.string().uuid('Ordem de serviço inválida'),
 });
 
 // =====================
@@ -549,7 +569,10 @@ export type ServiceOrderInclude = z.infer<typeof serviceOrderIncludeSchema>;
 // Helper Functions
 // =====================
 
-export const mapServiceOrderToFormData = createMapToFormDataHelper<ServiceOrder, ServiceOrderUpdateFormData>((serviceOrder) => ({
+export const mapServiceOrderToFormData = createMapToFormDataHelper<
+  ServiceOrder,
+  ServiceOrderUpdateFormData
+>(serviceOrder => ({
   status: serviceOrder.status || undefined,
   statusOrder: serviceOrder.statusOrder,
   description: serviceOrder.description,

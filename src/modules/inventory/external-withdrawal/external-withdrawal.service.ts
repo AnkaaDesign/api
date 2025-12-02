@@ -50,6 +50,7 @@ import {
   CHANGE_ACTION,
   EXTERNAL_WITHDRAWAL_STATUS,
   EXTERNAL_WITHDRAWAL_STATUS_ORDER,
+  EXTERNAL_WITHDRAWAL_TYPE,
 } from '../../../constants';
 
 @Injectable()
@@ -288,7 +289,10 @@ export class ExternalWithdrawalService {
     type: string,
   ): void {
     // Type-specific valid transitions
-    const validTransitions: Record<string, Record<EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_STATUS[]>> = {
+    const validTransitions: Record<
+      string,
+      Record<EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_STATUS[]>
+    > = {
       RETURNABLE: {
         [EXTERNAL_WITHDRAWAL_STATUS.PENDING]: [
           EXTERNAL_WITHDRAWAL_STATUS.PARTIALLY_RETURNED,
@@ -580,7 +584,7 @@ export class ExternalWithdrawalService {
         await this.externalWithdrawalValidation(data, undefined, tx);
 
         // Validate type field (default to RETURNABLE)
-        const type = data.type ?? 'RETURNABLE';
+        const type = data.type ?? EXTERNAL_WITHDRAWAL_TYPE.RETURNABLE;
 
         const validatedItems: Array<{
           itemId: string;
@@ -718,10 +722,9 @@ export class ExternalWithdrawalService {
         throw error;
       }
       // Preserve the original error message for better debugging
-      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao criar retirada externa';
-      throw new InternalServerErrorException(
-        `Erro ao criar retirada externa: ${errorMessage}`,
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : 'Erro desconhecido ao criar retirada externa';
+      throw new InternalServerErrorException(`Erro ao criar retirada externa: ${errorMessage}`);
     }
   }
 
@@ -929,10 +932,9 @@ export class ExternalWithdrawalService {
         throw error;
       }
       // Preserve the original error message for better debugging
-      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao atualizar retirada externa';
-      throw new InternalServerErrorException(
-        `Erro ao atualizar retirada externa: ${errorMessage}`,
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : 'Erro desconhecido ao atualizar retirada externa';
+      throw new InternalServerErrorException(`Erro ao atualizar retirada externa: ${errorMessage}`);
     }
   }
 
@@ -1698,6 +1700,8 @@ export class ExternalWithdrawalService {
       [EXTERNAL_WITHDRAWAL_STATUS.FULLY_RETURNED]: 'Totalmente Devolvido',
       [EXTERNAL_WITHDRAWAL_STATUS.CHARGED]: 'Cobrado',
       [EXTERNAL_WITHDRAWAL_STATUS.CANCELLED]: 'Cancelado',
+      [EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED]: 'Liquidado',
+      [EXTERNAL_WITHDRAWAL_STATUS.DELIVERED]: 'Entregue',
     };
     return labels[status] || status;
   }

@@ -1,8 +1,16 @@
 // packages/interfaces/src/ppe.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
 import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
   ORDER_BY_DIRECTION,
+} from './common';
+import {
   PPE_DELIVERY_STATUS,
   PPE_TYPE,
   SCHEDULE_FREQUENCY,
@@ -16,12 +24,12 @@ import type {
   MASK_SIZE,
   GLOVES_SIZE,
   RAIN_BOOTS_SIZE,
-  RESCHEDULE_REASON,
   ASSIGNMENT_TYPE,
+  RESCHEDULE_REASON,
 } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
-import type { Order, OrderIncludes } from "./order";
+import type { User, UserIncludes, UserOrderBy } from './user';
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
+import type { Order, OrderIncludes } from './order';
 
 // =====================
 // Main Entity Interfaces
@@ -231,18 +239,66 @@ export interface PpeSizeWhere {
 
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  shirts?: SHIRT_SIZE | { equals?: SHIRT_SIZE; not?: SHIRT_SIZE; in?: SHIRT_SIZE[]; notIn?: SHIRT_SIZE[] } | null;
-  boots?: BOOT_SIZE | { equals?: BOOT_SIZE; not?: BOOT_SIZE; in?: BOOT_SIZE[]; notIn?: BOOT_SIZE[] } | null;
-  pants?: PANTS_SIZE | { equals?: PANTS_SIZE; not?: PANTS_SIZE; in?: PANTS_SIZE[]; notIn?: PANTS_SIZE[] } | null;
-  sleeves?: SLEEVES_SIZE | { equals?: SLEEVES_SIZE; not?: SLEEVES_SIZE; in?: SLEEVES_SIZE[]; notIn?: SLEEVES_SIZE[] } | null;
-  mask?: MASK_SIZE | { equals?: MASK_SIZE; not?: MASK_SIZE; in?: MASK_SIZE[]; notIn?: MASK_SIZE[] } | null;
-  gloves?: GLOVES_SIZE | { equals?: GLOVES_SIZE; not?: GLOVES_SIZE; in?: GLOVES_SIZE[]; notIn?: GLOVES_SIZE[] } | null;
-  rainBoots?: RAIN_BOOTS_SIZE | { equals?: RAIN_BOOTS_SIZE; not?: RAIN_BOOTS_SIZE; in?: RAIN_BOOTS_SIZE[]; notIn?: RAIN_BOOTS_SIZE[] } | null;
+  shirts?:
+    | SHIRT_SIZE
+    | { equals?: SHIRT_SIZE; not?: SHIRT_SIZE; in?: SHIRT_SIZE[]; notIn?: SHIRT_SIZE[] }
+    | null;
+  boots?:
+    | BOOT_SIZE
+    | { equals?: BOOT_SIZE; not?: BOOT_SIZE; in?: BOOT_SIZE[]; notIn?: BOOT_SIZE[] }
+    | null;
+  pants?:
+    | PANTS_SIZE
+    | { equals?: PANTS_SIZE; not?: PANTS_SIZE; in?: PANTS_SIZE[]; notIn?: PANTS_SIZE[] }
+    | null;
+  sleeves?:
+    | SLEEVES_SIZE
+    | { equals?: SLEEVES_SIZE; not?: SLEEVES_SIZE; in?: SLEEVES_SIZE[]; notIn?: SLEEVES_SIZE[] }
+    | null;
+  mask?:
+    | MASK_SIZE
+    | { equals?: MASK_SIZE; not?: MASK_SIZE; in?: MASK_SIZE[]; notIn?: MASK_SIZE[] }
+    | null;
+  gloves?:
+    | GLOVES_SIZE
+    | { equals?: GLOVES_SIZE; not?: GLOVES_SIZE; in?: GLOVES_SIZE[]; notIn?: GLOVES_SIZE[] }
+    | null;
+  rainBoots?:
+    | RAIN_BOOTS_SIZE
+    | {
+        equals?: RAIN_BOOTS_SIZE;
+        not?: RAIN_BOOTS_SIZE;
+        in?: RAIN_BOOTS_SIZE[];
+        notIn?: RAIN_BOOTS_SIZE[];
+      }
+    | null;
   userId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   user?: UserIncludes;
@@ -259,16 +315,94 @@ export interface PpeDeliveryWhere {
   userId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   itemId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   reviewedBy?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  ppeScheduleId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
-  status?: PPE_DELIVERY_STATUS | { equals?: PPE_DELIVERY_STATUS; not?: PPE_DELIVERY_STATUS; in?: PPE_DELIVERY_STATUS[]; notIn?: PPE_DELIVERY_STATUS[] };
-  statusOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  quantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  ppeScheduleId?:
+    | string
+    | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
+    | null;
+  status?:
+    | PPE_DELIVERY_STATUS
+    | {
+        equals?: PPE_DELIVERY_STATUS;
+        not?: PPE_DELIVERY_STATUS;
+        in?: PPE_DELIVERY_STATUS[];
+        notIn?: PPE_DELIVERY_STATUS[];
+      };
+  statusOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  quantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  scheduledDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  actualDeliveryDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  scheduledDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  actualDeliveryDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   user?: UserIncludes;
@@ -285,28 +419,175 @@ export interface PpeDeliveryScheduleWhere {
 
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  assignmentType?: ASSIGNMENT_TYPE | { equals?: ASSIGNMENT_TYPE; not?: ASSIGNMENT_TYPE; in?: ASSIGNMENT_TYPE[]; notIn?: ASSIGNMENT_TYPE[] };
-  excludedUserIds?: string[] | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
-  includedUserIds?: string[] | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
-  frequency?: SCHEDULE_FREQUENCY | { equals?: SCHEDULE_FREQUENCY; not?: SCHEDULE_FREQUENCY; in?: SCHEDULE_FREQUENCY[]; notIn?: SCHEDULE_FREQUENCY[] };
-  frequencyCount?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  assignmentType?:
+    | ASSIGNMENT_TYPE
+    | {
+        equals?: ASSIGNMENT_TYPE;
+        not?: ASSIGNMENT_TYPE;
+        in?: ASSIGNMENT_TYPE[];
+        notIn?: ASSIGNMENT_TYPE[];
+      };
+  excludedUserIds?:
+    | string[]
+    | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
+  includedUserIds?:
+    | string[]
+    | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
+  frequency?:
+    | SCHEDULE_FREQUENCY
+    | {
+        equals?: SCHEDULE_FREQUENCY;
+        not?: SCHEDULE_FREQUENCY;
+        in?: SCHEDULE_FREQUENCY[];
+        notIn?: SCHEDULE_FREQUENCY[];
+      };
+  frequencyCount?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
   isActive?: boolean | { equals?: boolean; not?: boolean };
   ppeItems?: any; // JSON field - supports complex JSON queries
-  dayOfMonth?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  dayOfWeek?: WEEK_DAY | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] } | null;
+  dayOfMonth?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  dayOfWeek?:
+    | WEEK_DAY
+    | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] }
+    | null;
   month?: MONTH | { equals?: MONTH; not?: MONTH; in?: MONTH[]; notIn?: MONTH[] } | null;
-  customMonths?: MONTH[] | { has?: MONTH; hasEvery?: MONTH[]; hasSome?: MONTH[]; isEmpty?: boolean };
-  rescheduleCount?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  rescheduleReason?: RESCHEDULE_REASON | { equals?: RESCHEDULE_REASON; not?: RESCHEDULE_REASON; in?: RESCHEDULE_REASON[]; notIn?: RESCHEDULE_REASON[] } | null;
+  customMonths?:
+    | MONTH[]
+    | { has?: MONTH; hasEvery?: MONTH[]; hasSome?: MONTH[]; isEmpty?: boolean };
+  rescheduleCount?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  rescheduleReason?:
+    | RESCHEDULE_REASON
+    | {
+        equals?: RESCHEDULE_REASON;
+        not?: RESCHEDULE_REASON;
+        in?: RESCHEDULE_REASON[];
+        notIn?: RESCHEDULE_REASON[];
+      }
+    | null;
 
   // Date fields
-  specificDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  originalDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  lastRescheduleDate?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  nextRun?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  lastRun?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] } | null;
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  specificDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  originalDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  lastRescheduleDate?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  nextRun?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  lastRun?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      }
+    | null;
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 export interface WeeklyScheduleConfigWhere {
@@ -326,8 +607,30 @@ export interface WeeklyScheduleConfigWhere {
   sunday?: boolean | { equals?: boolean; not?: boolean };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 export interface MonthlyScheduleConfigWhere {
@@ -338,13 +641,58 @@ export interface MonthlyScheduleConfigWhere {
 
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  dayOfMonth?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  occurrence?: MONTH_OCCURRENCE | { equals?: MONTH_OCCURRENCE; not?: MONTH_OCCURRENCE; in?: MONTH_OCCURRENCE[]; notIn?: MONTH_OCCURRENCE[] } | null;
-  dayOfWeek?: WEEK_DAY | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] } | null;
+  dayOfMonth?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  occurrence?:
+    | MONTH_OCCURRENCE
+    | {
+        equals?: MONTH_OCCURRENCE;
+        not?: MONTH_OCCURRENCE;
+        in?: MONTH_OCCURRENCE[];
+        notIn?: MONTH_OCCURRENCE[];
+      }
+    | null;
+  dayOfWeek?:
+    | WEEK_DAY
+    | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] }
+    | null;
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 export interface YearlyScheduleConfigWhere {
@@ -356,13 +704,58 @@ export interface YearlyScheduleConfigWhere {
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   month?: MONTH | { equals?: MONTH; not?: MONTH; in?: MONTH[]; notIn?: MONTH[] };
-  dayOfMonth?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  occurrence?: MONTH_OCCURRENCE | { equals?: MONTH_OCCURRENCE; not?: MONTH_OCCURRENCE; in?: MONTH_OCCURRENCE[]; notIn?: MONTH_OCCURRENCE[] } | null;
-  dayOfWeek?: WEEK_DAY | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] } | null;
+  dayOfMonth?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  occurrence?:
+    | MONTH_OCCURRENCE
+    | {
+        equals?: MONTH_OCCURRENCE;
+        not?: MONTH_OCCURRENCE;
+        in?: MONTH_OCCURRENCE[];
+        notIn?: MONTH_OCCURRENCE[];
+      }
+    | null;
+  dayOfWeek?:
+    | WEEK_DAY
+    | { equals?: WEEK_DAY; not?: WEEK_DAY; in?: WEEK_DAY[]; notIn?: WEEK_DAY[] }
+    | null;
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 // =====================
@@ -478,31 +871,47 @@ export interface PpeDeliveryDeleteResponse extends BaseDeleteResponse {}
 // All PPE configuration operations are done through the Item entity
 
 // PpeDeliverySchedule Responses
-export interface PpeDeliveryScheduleGetUniqueResponse extends BaseGetUniqueResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleGetManyResponse extends BaseGetManyResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleCreateResponse extends BaseCreateResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleUpdateResponse extends BaseUpdateResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleGetUniqueResponse
+  extends BaseGetUniqueResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleGetManyResponse
+  extends BaseGetManyResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleCreateResponse
+  extends BaseCreateResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleUpdateResponse
+  extends BaseUpdateResponse<PpeDeliverySchedule> {}
 export interface PpeDeliveryScheduleDeleteResponse extends BaseDeleteResponse {}
 
 // WeeklyScheduleConfig Responses
-export interface WeeklyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigGetManyResponse extends BaseGetManyResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigCreateResponse extends BaseCreateResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigUpdateResponse extends BaseUpdateResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigGetUniqueResponse
+  extends BaseGetUniqueResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigGetManyResponse
+  extends BaseGetManyResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigCreateResponse
+  extends BaseCreateResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigUpdateResponse
+  extends BaseUpdateResponse<WeeklyScheduleConfig> {}
 export interface WeeklyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // MonthlyScheduleConfig Responses
-export interface MonthlyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigGetManyResponse extends BaseGetManyResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigCreateResponse extends BaseCreateResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigUpdateResponse extends BaseUpdateResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigGetUniqueResponse
+  extends BaseGetUniqueResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigGetManyResponse
+  extends BaseGetManyResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigCreateResponse
+  extends BaseCreateResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigUpdateResponse
+  extends BaseUpdateResponse<MonthlyScheduleConfig> {}
 export interface MonthlyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // YearlyScheduleConfig Responses
-export interface YearlyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigGetManyResponse extends BaseGetManyResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigCreateResponse extends BaseCreateResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigUpdateResponse extends BaseUpdateResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigGetUniqueResponse
+  extends BaseGetUniqueResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigGetManyResponse
+  extends BaseGetManyResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigCreateResponse
+  extends BaseCreateResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigUpdateResponse
+  extends BaseUpdateResponse<YearlyScheduleConfig> {}
 export interface YearlyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
@@ -587,18 +996,25 @@ export interface YearlyScheduleConfigGetByIdParams {
 
 // PpeSize Batch Operations
 export interface PpeSizeBatchCreateResponse<T> extends BaseBatchResponse<PpeSize, T> {}
-export interface PpeSizeBatchUpdateResponse<T> extends BaseBatchResponse<PpeSize, T & { id: string }> {}
-export interface PpeSizeBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeSizeBatchUpdateResponse<T>
+  extends BaseBatchResponse<PpeSize, T & { id: string }> {}
+export interface PpeSizeBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PpeDelivery Batch Operations
 export interface PpeDeliveryBatchCreateResponse<T> extends BaseBatchResponse<PpeDelivery, T> {}
-export interface PpeDeliveryBatchUpdateResponse<T> extends BaseBatchResponse<PpeDelivery, T & { id: string }> {}
-export interface PpeDeliveryBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeDeliveryBatchUpdateResponse<T>
+  extends BaseBatchResponse<PpeDelivery, T & { id: string }> {}
+export interface PpeDeliveryBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // PpeConfig Batch Operations - PPE configuration is now stored directly on the Item model
 // All PPE configuration batch operations are done through the Item entity
 
 // PpeDeliverySchedule Batch Operations
-export interface PpeDeliveryScheduleBatchCreateResponse<T> extends BaseBatchResponse<PpeDeliverySchedule, T> {}
-export interface PpeDeliveryScheduleBatchUpdateResponse<T> extends BaseBatchResponse<PpeDeliverySchedule, T & { id: string }> {}
-export interface PpeDeliveryScheduleBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeDeliveryScheduleBatchCreateResponse<T>
+  extends BaseBatchResponse<PpeDeliverySchedule, T> {}
+export interface PpeDeliveryScheduleBatchUpdateResponse<T>
+  extends BaseBatchResponse<PpeDeliverySchedule, T & { id: string }> {}
+export interface PpeDeliveryScheduleBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

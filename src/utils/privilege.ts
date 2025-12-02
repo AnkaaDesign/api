@@ -24,7 +24,10 @@ export const getSectorPrivilegeLevel = (privilege: SECTOR_PRIVILEGES): number =>
   return levels[privilege] || 1;
 };
 
-export const canAccessSector = (userPrivilege: SECTOR_PRIVILEGES, targetPrivilege: SECTOR_PRIVILEGES): boolean => {
+export const canAccessSector = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  targetPrivilege: SECTOR_PRIVILEGES,
+): boolean => {
   const userLevel = getSectorPrivilegeLevel(userPrivilege);
   const targetLevel = getSectorPrivilegeLevel(targetPrivilege);
   return userLevel >= targetLevel;
@@ -34,17 +37,23 @@ export const canAccessSector = (userPrivilege: SECTOR_PRIVILEGES, targetPrivileg
  * Check if user privilege can access ANY of the specified target privileges (OR logic)
  * Matches backend @Roles decorator behavior
  */
-export const canAccessAnyPrivilege = (userPrivilege: SECTOR_PRIVILEGES, targetPrivileges: SECTOR_PRIVILEGES[]): boolean => {
+export const canAccessAnyPrivilege = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  targetPrivileges: SECTOR_PRIVILEGES[],
+): boolean => {
   if (!targetPrivileges.length) return false;
-  return targetPrivileges.some((privilege) => canAccessSector(userPrivilege, privilege));
+  return targetPrivileges.some(privilege => canAccessSector(userPrivilege, privilege));
 };
 
 /**
  * Check if user privilege can access ALL of the specified target privileges (AND logic)
  */
-export const canAccessAllPrivileges = (userPrivilege: SECTOR_PRIVILEGES, targetPrivileges: SECTOR_PRIVILEGES[]): boolean => {
+export const canAccessAllPrivileges = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  targetPrivileges: SECTOR_PRIVILEGES[],
+): boolean => {
   if (!targetPrivileges.length) return false;
-  return targetPrivileges.every((privilege) => canAccessSector(userPrivilege, privilege));
+  return targetPrivileges.every(privilege => canAccessSector(userPrivilege, privilege));
 };
 
 // =====================
@@ -55,7 +64,10 @@ export const canAccessAllPrivileges = (userPrivilege: SECTOR_PRIVILEGES, targetP
  * Check if user can access team management features
  * User must have LEADER privilege OR have managedSectorId
  */
-export const canAccessTeamFeatures = (userPrivilege: SECTOR_PRIVILEGES, hasManagedSector: boolean = false): boolean => {
+export const canAccessTeamFeatures = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  hasManagedSector: boolean = false,
+): boolean => {
   return canAccessSector(userPrivilege, SECTOR_PRIVILEGES.LEADER) || hasManagedSector;
 };
 
@@ -63,7 +75,11 @@ export const canAccessTeamFeatures = (userPrivilege: SECTOR_PRIVILEGES, hasManag
  * Check if user can manage specific team/sector
  * User must be ADMIN, LEADER, or manage the specific sector
  */
-export const canManageTeam = (userPrivilege: SECTOR_PRIVILEGES, managedSectorId: string | null, targetSectorId: string): boolean => {
+export const canManageTeam = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  managedSectorId: string | null,
+  targetSectorId: string,
+): boolean => {
   // Admin can manage any team
   if (canAccessSector(userPrivilege, SECTOR_PRIVILEGES.ADMIN)) {
     return true;
@@ -85,7 +101,11 @@ export const canManageTeam = (userPrivilege: SECTOR_PRIVILEGES, managedSectorId:
 /**
  * Check if user can view team data for a specific sector
  */
-export const canViewTeamData = (userPrivilege: SECTOR_PRIVILEGES, managedSectorId: string | null, targetSectorId: string): boolean => {
+export const canViewTeamData = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  managedSectorId: string | null,
+  targetSectorId: string,
+): boolean => {
   // Same as canManageTeam but could have different business rules in the future
   return canManageTeam(userPrivilege, managedSectorId, targetSectorId);
 };
@@ -93,7 +113,10 @@ export const canViewTeamData = (userPrivilege: SECTOR_PRIVILEGES, managedSectorI
 /**
  * Get effective privilege level considering both sector privilege and team leadership
  */
-export const getEffectivePrivilegeLevel = (userPrivilege: SECTOR_PRIVILEGES, hasManagedSector: boolean = false): number => {
+export const getEffectivePrivilegeLevel = (
+  userPrivilege: SECTOR_PRIVILEGES,
+  hasManagedSector: boolean = false,
+): number => {
   const baseLevel = getSectorPrivilegeLevel(userPrivilege);
 
   // If user has managed sector but privilege is below LEADER, boost to LEADER level

@@ -17,7 +17,11 @@ import {
 } from '../../../../schemas';
 import { NotificationRepository, SeenNotificationRepository } from './notification.repository';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
-import { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, NOTIFICATION_IMPORTANCE } from '../../../../constants';
+import {
+  NOTIFICATION_TYPE,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_IMPORTANCE,
+} from '../../../../constants';
 import {
   Prisma,
   Notification as PrismaNotification,

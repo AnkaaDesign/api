@@ -469,9 +469,7 @@ export class ItemUnifiedController {
 
   @Post('recalculate-monthly-consumption')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async recalculateAllItemsMonthlyConsumption(
-    @UserId() userId: string,
-  ): Promise<{
+  async recalculateAllItemsMonthlyConsumption(@UserId() userId: string): Promise<{
     success: boolean;
     message: string;
     data: { success: number; failed: number; total: number };

@@ -15,37 +15,49 @@ interface FileWithRelationships {
  */
 export const FILE_RELATIONSHIP_MAP = {
   // Task relationships
-  taskArtworks: { entityType: ENTITY_TYPE.TASK, description: "artes da tarefa" },
-  taskBudgets: { entityType: ENTITY_TYPE.TASK, description: "orçamento da tarefa" },
-  taskInvoices: { entityType: ENTITY_TYPE.TASK, description: "nota fiscal da tarefa" },
-  taskReceipts: { entityType: ENTITY_TYPE.TASK, description: "recibo da tarefa" },
-  taskCuts: { entityType: ENTITY_TYPE.CUT, description: "cortes da tarefa" },
+  taskArtworks: { entityType: ENTITY_TYPE.TASK, description: 'artes da tarefa' },
+  taskBudgets: { entityType: ENTITY_TYPE.TASK, description: 'orçamento da tarefa' },
+  taskInvoices: { entityType: ENTITY_TYPE.TASK, description: 'nota fiscal da tarefa' },
+  taskReceipts: { entityType: ENTITY_TYPE.TASK, description: 'recibo da tarefa' },
+  taskCuts: { entityType: ENTITY_TYPE.CUT, description: 'cortes da tarefa' },
 
   // Customer relationships
-  customerLogo: { entityType: ENTITY_TYPE.CUSTOMER, description: "logo do cliente" },
+  customerLogo: { entityType: ENTITY_TYPE.CUSTOMER, description: 'logo do cliente' },
 
   // Supplier relationships
-  supplierLogo: { entityType: ENTITY_TYPE.SUPPLIER, description: "logo do fornecedor" },
+  supplierLogo: { entityType: ENTITY_TYPE.SUPPLIER, description: 'logo do fornecedor' },
 
   // Observation relationships
-  observations: { entityType: ENTITY_TYPE.OBSERVATION, description: "arquivos da observação" },
+  observations: { entityType: ENTITY_TYPE.OBSERVATION, description: 'arquivos da observação' },
 
   // Warning relationships
-  warning: { entityType: ENTITY_TYPE.WARNING, description: "arquivos da advertência" },
+  warning: { entityType: ENTITY_TYPE.WARNING, description: 'arquivos da advertência' },
 
   // Airbrushing relationships
-  airbrushingReceipts: { entityType: ENTITY_TYPE.AIRBRUSHING, description: "recibo da aerografia" },
-  airbrushingInvoices: { entityType: ENTITY_TYPE.AIRBRUSHING, description: "nota fiscal da aerografia" },
+  airbrushingReceipts: { entityType: ENTITY_TYPE.AIRBRUSHING, description: 'recibo da aerografia' },
+  airbrushingInvoices: {
+    entityType: ENTITY_TYPE.AIRBRUSHING,
+    description: 'nota fiscal da aerografia',
+  },
 
   // Order relationships
-  orderBudgets: { entityType: ENTITY_TYPE.ORDER, description: "orçamento do pedido" },
-  orderInvoices: { entityType: ENTITY_TYPE.ORDER, description: "nota fiscal do pedido" },
-  orderReceipts: { entityType: ENTITY_TYPE.ORDER, description: "recibo do pedido" },
+  orderBudgets: { entityType: ENTITY_TYPE.ORDER, description: 'orçamento do pedido' },
+  orderInvoices: { entityType: ENTITY_TYPE.ORDER, description: 'nota fiscal do pedido' },
+  orderReceipts: { entityType: ENTITY_TYPE.ORDER, description: 'recibo do pedido' },
 
   // External withdrawal relationships
-  externalWithdrawalBudgets: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "orçamento da retirada externa" },
-  externalWithdrawalInvoices: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "nota fiscal da retirada externa" },
-  externalWithdrawalReceipts: { entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL, description: "recibo da retirada externa" },
+  externalWithdrawalBudgets: {
+    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
+    description: 'orçamento da retirada externa',
+  },
+  externalWithdrawalInvoices: {
+    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
+    description: 'nota fiscal da retirada externa',
+  },
+  externalWithdrawalReceipts: {
+    entityType: ENTITY_TYPE.EXTERNAL_WITHDRAWAL,
+    description: 'recibo da retirada externa',
+  },
 } as const;
 
 export type FileRelationshipField = keyof typeof FILE_RELATIONSHIP_MAP;
@@ -62,14 +74,14 @@ export function detectFileRelationshipChanges(
 ): Array<{
   field: FileRelationshipField;
   entityType: ENTITY_TYPE;
-  action: "attached" | "detached";
+  action: 'attached' | 'detached';
   entityId: string;
   description: string;
 }> {
   const changes: Array<{
     field: FileRelationshipField;
     entityType: ENTITY_TYPE;
-    action: "attached" | "detached";
+    action: 'attached' | 'detached';
     entityId: string;
     description: string;
   }> = [];
@@ -84,8 +96,16 @@ export function detectFileRelationshipChanges(
     const newArray = Array.isArray(newRelations) ? newRelations : [newRelations].filter(Boolean);
 
     // Get IDs
-    const oldIds = new Set(oldArray.map((item: EntityReference | string) => (typeof item === 'object' ? item?.id : item)).filter(Boolean));
-    const newIds = new Set(newArray.map((item: EntityReference | string) => (typeof item === 'object' ? item?.id : item)).filter(Boolean));
+    const oldIds = new Set(
+      oldArray
+        .map((item: EntityReference | string) => (typeof item === 'object' ? item?.id : item))
+        .filter(Boolean),
+    );
+    const newIds = new Set(
+      newArray
+        .map((item: EntityReference | string) => (typeof item === 'object' ? item?.id : item))
+        .filter(Boolean),
+    );
 
     // Find attachments (new IDs not in old)
     for (const id of newIds) {
@@ -93,7 +113,7 @@ export function detectFileRelationshipChanges(
         changes.push({
           field: field as FileRelationshipField,
           entityType: config.entityType,
-          action: "attached",
+          action: 'attached',
           entityId: id,
           description: config.description,
         });
@@ -106,7 +126,7 @@ export function detectFileRelationshipChanges(
         changes.push({
           field: field as FileRelationshipField,
           entityType: config.entityType,
-          action: "detached",
+          action: 'detached',
           entityId: id,
           description: config.description,
         });
@@ -125,13 +145,13 @@ export function detectFileRelationshipChanges(
  */
 export function getFileRelationshipChangeDescription(
   change: {
-    action: "attached" | "detached";
+    action: 'attached' | 'detached';
     description: string;
     entityId: string;
   },
   fileName: string,
 ): string {
-  const actionText = change.action === "attached" ? "anexado a" : "removido de";
+  const actionText = change.action === 'attached' ? 'anexado a' : 'removido de';
   return `Arquivo "${fileName}" foi ${actionText} ${change.description}`;
 }
 
@@ -144,7 +164,7 @@ export function groupFileRelationshipChangesByEntity(
   changes: Array<{
     field: FileRelationshipField;
     entityType: ENTITY_TYPE;
-    action: "attached" | "detached";
+    action: 'attached' | 'detached';
     entityId: string;
     description: string;
   }>,
@@ -171,7 +191,7 @@ export function isOnlyRelationshipUpdate(updateData: Record<string, unknown>): b
   const updateFields = Object.keys(updateData);
 
   // Check if all update fields are relationship fields
-  return updateFields.length > 0 && updateFields.every((field) => relationshipFields.has(field));
+  return updateFields.length > 0 && updateFields.every(field => relationshipFields.has(field));
 }
 
 /**
@@ -179,7 +199,9 @@ export function isOnlyRelationshipUpdate(updateData: Record<string, unknown>): b
  * @param file - The file object with relationships
  * @returns Map of entity types to their IDs
  */
-export function extractFileRelationshipIds(file: FileWithRelationships): Map<ENTITY_TYPE, Set<string>> {
+export function extractFileRelationshipIds(
+  file: FileWithRelationships,
+): Map<ENTITY_TYPE, Set<string>> {
   const entityIdMap = new Map<ENTITY_TYPE, Set<string>>();
 
   for (const [field, config] of Object.entries(FILE_RELATIONSHIP_MAP)) {
@@ -197,7 +219,7 @@ export function extractFileRelationshipIds(file: FileWithRelationships): Map<ENT
     for (const rel of relArray) {
       if (rel?.id) {
         entityIds.add(rel.id);
-      } else if (typeof rel === "string") {
+      } else if (typeof rel === 'string') {
         entityIds.add(rel);
       }
     }

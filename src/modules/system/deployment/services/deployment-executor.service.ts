@@ -3,7 +3,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_STATUS, DEPLOYMENT_APPLICATION } from '../../../../constants';
+import {
+  DEPLOYMENT_ENVIRONMENT,
+  DEPLOYMENT_STATUS,
+  DEPLOYMENT_APPLICATION,
+} from '../../../../constants';
 import { DeploymentRepository } from '../repositories/deployment.repository';
 import { GitService } from './git.service';
 
@@ -63,10 +67,16 @@ export class DeploymentExecutorService {
       this.addLog(deploymentId, `[${new Date().toISOString()}] Atualizando código...`);
 
       const pullResult = await this.gitService.pullLatestCode(context.branch);
-      this.addLog(deploymentId, `[${new Date().toISOString()}] Código atualizado: ${pullResult.summary.changes} alterações`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] Código atualizado: ${pullResult.summary.changes} alterações`,
+      );
 
       // Step 2: Checkout specific commit
-      this.addLog(deploymentId, `[${new Date().toISOString()}] Verificando commit ${commitHash.substring(0, 7)}...`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] Verificando commit ${commitHash.substring(0, 7)}...`,
+      );
       await this.checkoutCommit(commitHash);
       this.addLog(deploymentId, `[${new Date().toISOString()}] Commit verificado com sucesso`);
 
@@ -80,7 +90,10 @@ export class DeploymentExecutorService {
         throw new Error(`Build failed: ${buildResult.error}`);
       }
 
-      this.addLog(deploymentId, `[${new Date().toISOString()}] Build concluído em ${buildResult.duration}s`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] Build concluído em ${buildResult.duration}s`,
+      );
 
       // Step 4: Run tests
       this.addLog(deploymentId, `[${new Date().toISOString()}] Executando testes...`);
@@ -90,20 +103,29 @@ export class DeploymentExecutorService {
       this.addLog(deploymentId, `[${new Date().toISOString()}] Testes executados com sucesso`);
 
       // Step 5: Deploy to environment
-      this.addLog(deploymentId, `[${new Date().toISOString()}] Iniciando deploy para ${environment}...`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] Iniciando deploy para ${environment}...`,
+      );
       await this.updateDeploymentStatus(deploymentId, DEPLOYMENT_STATUS.DEPLOYING);
 
       const deployResult = await this.deployToEnvironment(context);
 
       if (!deployResult.success) {
         if (deployResult.rollback) {
-          this.addLog(deploymentId, `[${new Date().toISOString()}] ⚠️ Deploy falhou. Executando rollback...`);
+          this.addLog(
+            deploymentId,
+            `[${new Date().toISOString()}] ⚠️ Deploy falhou. Executando rollback...`,
+          );
           await this.updateDeploymentStatus(deploymentId, DEPLOYMENT_STATUS.ROLLED_BACK);
         }
         throw new Error(`Deploy failed: ${deployResult.error}`);
       }
 
-      this.addLog(deploymentId, `[${new Date().toISOString()}] Deploy concluído em ${deployResult.duration}s`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] Deploy concluído em ${deployResult.duration}s`,
+      );
 
       // Step 6: Restart services
       this.addLog(deploymentId, `[${new Date().toISOString()}] Reiniciando serviços...`);
@@ -115,7 +137,10 @@ export class DeploymentExecutorService {
       const healthCheck = await this.performHealthCheck(context);
 
       if (!healthCheck) {
-        this.addLog(deploymentId, `[${new Date().toISOString()}] ⚠️ Health check falhou. Executando rollback...`);
+        this.addLog(
+          deploymentId,
+          `[${new Date().toISOString()}] ⚠️ Health check falhou. Executando rollback...`,
+        );
         await this.updateDeploymentStatus(deploymentId, DEPLOYMENT_STATUS.ROLLED_BACK);
         throw new Error('Health check failed');
       }
@@ -124,7 +149,10 @@ export class DeploymentExecutorService {
 
       // Update to completed
       await this.updateDeploymentStatus(deploymentId, DEPLOYMENT_STATUS.COMPLETED, new Date());
-      this.addLog(deploymentId, `[${new Date().toISOString()}] ✅ Deployment concluído com sucesso!`);
+      this.addLog(
+        deploymentId,
+        `[${new Date().toISOString()}] ✅ Deployment concluído com sucesso!`,
+      );
 
       this.logger.log(`Deployment ${deploymentId} completed successfully`);
     } catch (error) {
@@ -171,7 +199,7 @@ export class DeploymentExecutorService {
       if (stdout) logs.push(...stdout.split('\n'));
       if (stderr) logs.push(...stderr.split('\n'));
 
-      logs.forEach((log) => this.addLog(context.deploymentId, log));
+      logs.forEach(log => this.addLog(context.deploymentId, log));
 
       const duration = Math.round((Date.now() - startTime) / 1000);
 
@@ -187,7 +215,7 @@ export class DeploymentExecutorService {
       if (error.stdout) logs.push(...error.stdout.split('\n'));
       if (error.stderr) logs.push(...error.stderr.split('\n'));
 
-      logs.forEach((log) => this.addLog(context.deploymentId, log));
+      logs.forEach(log => this.addLog(context.deploymentId, log));
 
       return {
         success: false,
@@ -226,7 +254,7 @@ export class DeploymentExecutorService {
       if (stdout) logs.push(...stdout.split('\n'));
       if (stderr) logs.push(...stderr.split('\n'));
 
-      logs.forEach((log) => this.addLog(context.deploymentId, log));
+      logs.forEach(log => this.addLog(context.deploymentId, log));
 
       const duration = Math.round((Date.now() - startTime) / 1000);
 
@@ -242,7 +270,7 @@ export class DeploymentExecutorService {
       if (error.stdout) logs.push(...error.stdout.split('\n'));
       if (error.stderr) logs.push(...error.stderr.split('\n'));
 
-      logs.forEach((log) => this.addLog(context.deploymentId, log));
+      logs.forEach(log => this.addLog(context.deploymentId, log));
 
       return {
         success: false,
@@ -269,7 +297,7 @@ export class DeploymentExecutorService {
       if (stderr) this.addLog(context.deploymentId, stderr);
 
       // Wait a bit for service to start
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
     } catch (error) {
       this.logger.error(`Error restarting services: ${error.message}`);
       throw new InternalServerErrorException('Erro ao reiniciar serviços');
@@ -301,13 +329,19 @@ export class DeploymentExecutorService {
             return true;
           }
 
-          this.addLog(context.deploymentId, `Health check falhou (tentativa ${i + 1}): ${response.status}`);
+          this.addLog(
+            context.deploymentId,
+            `Health check falhou (tentativa ${i + 1}): ${response.status}`,
+          );
         } catch (err) {
-          this.addLog(context.deploymentId, `Health check erro (tentativa ${i + 1}): ${err.message}`);
+          this.addLog(
+            context.deploymentId,
+            `Health check erro (tentativa ${i + 1}): ${err.message}`,
+          );
         }
 
         // Wait before retry
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
       return false;
@@ -320,7 +354,10 @@ export class DeploymentExecutorService {
   /**
    * Get PM2 app name for application and environment
    */
-  private getAppName(application: DEPLOYMENT_APPLICATION, environment: DEPLOYMENT_ENVIRONMENT): string {
+  private getAppName(
+    application: DEPLOYMENT_APPLICATION,
+    environment: DEPLOYMENT_ENVIRONMENT,
+  ): string {
     const envSuffix = environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? '' : '-test';
 
     switch (application) {
@@ -338,7 +375,10 @@ export class DeploymentExecutorService {
   /**
    * Get health check URL for application and environment
    */
-  private getHealthCheckUrl(application: DEPLOYMENT_APPLICATION, environment: DEPLOYMENT_ENVIRONMENT): string | null {
+  private getHealthCheckUrl(
+    application: DEPLOYMENT_APPLICATION,
+    environment: DEPLOYMENT_ENVIRONMENT,
+  ): string | null {
     switch (application) {
       case DEPLOYMENT_APPLICATION.API: {
         const port = environment === DEPLOYMENT_ENVIRONMENT.PRODUCTION ? 3030 : 3031;
@@ -381,15 +421,16 @@ export class DeploymentExecutorService {
     // Check for new logs every 500ms
     const deployment = await this.deploymentRepository.findById(deploymentId);
 
-    if (deployment?.status === DEPLOYMENT_STATUS.IN_PROGRESS ||
-        deployment?.status === DEPLOYMENT_STATUS.BUILDING ||
-        deployment?.status === DEPLOYMENT_STATUS.TESTING ||
-        deployment?.status === DEPLOYMENT_STATUS.DEPLOYING) {
-
+    if (
+      deployment?.status === DEPLOYMENT_STATUS.IN_PROGRESS ||
+      deployment?.status === DEPLOYMENT_STATUS.BUILDING ||
+      deployment?.status === DEPLOYMENT_STATUS.TESTING ||
+      deployment?.status === DEPLOYMENT_STATUS.DEPLOYING
+    ) {
       let lastLogCount = logs.length;
 
       while (true) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 500));
 
         const currentLogs = this.logsMap.get(deploymentId) || [];
 
@@ -403,10 +444,12 @@ export class DeploymentExecutorService {
         // Check if deployment is complete
         const updatedDeployment = await this.deploymentRepository.findById(deploymentId);
 
-        if (updatedDeployment?.status === DEPLOYMENT_STATUS.COMPLETED ||
-            updatedDeployment?.status === DEPLOYMENT_STATUS.FAILED ||
-            updatedDeployment?.status === DEPLOYMENT_STATUS.CANCELLED ||
-            updatedDeployment?.status === DEPLOYMENT_STATUS.ROLLED_BACK) {
+        if (
+          updatedDeployment?.status === DEPLOYMENT_STATUS.COMPLETED ||
+          updatedDeployment?.status === DEPLOYMENT_STATUS.FAILED ||
+          updatedDeployment?.status === DEPLOYMENT_STATUS.CANCELLED ||
+          updatedDeployment?.status === DEPLOYMENT_STATUS.ROLLED_BACK
+        ) {
           break;
         }
       }

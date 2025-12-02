@@ -1,5 +1,5 @@
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 
 // Types for export data
@@ -19,10 +19,7 @@ interface ChartExportData {
 }
 
 // CSV Export Functions
-export const exportToCSV = (
-  data: any[],
-  config: ExportConfig = {}
-): string => {
+export const exportToCSV = (data: any[], config: ExportConfig = {}): string => {
   if (!data || data.length === 0) {
     return '';
   }
@@ -31,7 +28,7 @@ export const exportToCSV = (
     title = 'Dados de Estatísticas',
     includeTimestamp = true,
     includeFilters = false,
-    filters = {}
+    filters = {},
   } = config;
 
   let csv = '';
@@ -85,13 +82,13 @@ export const exportToCSV = (
 // Excel Export using xlsx library
 export const exportToExcel = (
   chartData: ChartExportData[],
-  config: ExportConfig = {}
+  config: ExportConfig = {},
 ): ArrayBuffer => {
   const {
     title = 'Relatório de Estatísticas de Estoque',
     includeTimestamp = true,
     includeFilters = false,
-    filters = {}
+    filters = {},
   } = config;
 
   const workbook = XLSX.utils.book_new();
@@ -128,7 +125,7 @@ export const exportToExcel = (
   XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumo');
 
   // Create individual sheets for each chart
-  chartData.forEach((chart) => {
+  chartData.forEach(chart => {
     if (!chart.data || chart.data.length === 0) return;
 
     const sheetData = [];
@@ -183,8 +180,8 @@ export const exportToExcel = (
     worksheet['!cols'] = colWidths;
 
     // Style header row
-    const headerRowIndex = sheetData.findIndex(row =>
-      Array.isArray(row) && row.includes(translatedHeaders[0])
+    const headerRowIndex = sheetData.findIndex(
+      row => Array.isArray(row) && row.includes(translatedHeaders[0]),
     );
 
     if (headerRowIndex >= 0) {
@@ -195,15 +192,14 @@ export const exportToExcel = (
           font: { bold: true },
           fill: { fgColor: { rgb: 'F8FAFC' } },
           border: {
-            bottom: { style: 'thin', color: { rgb: 'E5E5E5' } }
-          }
+            bottom: { style: 'thin', color: { rgb: 'E5E5E5' } },
+          },
         };
       }
     }
 
-    const sheetName = chart.chartTitle.length > 31
-      ? `${chart.chartTitle.substring(0, 28)}...`
-      : chart.chartTitle;
+    const sheetName =
+      chart.chartTitle.length > 31 ? `${chart.chartTitle.substring(0, 28)}...` : chart.chartTitle;
 
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   });
@@ -214,14 +210,14 @@ export const exportToExcel = (
 // PDF Export (HTML format for PDF generation)
 export const exportToPDFHTML = (
   chartData: ChartExportData[],
-  config: ExportConfig = {}
+  config: ExportConfig = {},
 ): string => {
   const {
     title = 'Relatório de Estatísticas de Estoque',
     subtitle = 'Análise detalhada dos dados de inventário',
     includeTimestamp = true,
     includeFilters = false,
-    filters = {}
+    filters = {},
   } = config;
 
   const timestamp = format(new Date(), 'dd/MM/yyyy HH:mm', { locale: ptBR });
@@ -410,15 +406,12 @@ export const exportToPDFHTML = (
 };
 
 // JSON Export with metadata
-export const exportToJSON = (
-  chartData: ChartExportData[],
-  config: ExportConfig = {}
-): string => {
+export const exportToJSON = (chartData: ChartExportData[], config: ExportConfig = {}): string => {
   const {
     title = 'Estatísticas de Estoque',
     includeTimestamp = true,
     includeFilters = false,
-    filters = {}
+    filters = {},
   } = config;
 
   const exportData = {
@@ -440,7 +433,7 @@ export const exportToJSON = (
       format: 'json',
       encoding: 'utf-8',
       locale: 'pt-BR',
-    }
+    },
   };
 
   return JSON.stringify(exportData, null, 2);
@@ -512,9 +505,21 @@ const formatHeaderName = (header: string): string => {
 
 const isNumericField = (fieldName: string): boolean => {
   const numericFields = [
-    'value', 'count', 'quantity', 'percentage', 'total',
-    'price', 'cost', 'amount', 'rate', 'score', 'entradas',
-    'saidas', 'saldo', 'movements', 'trend'
+    'value',
+    'count',
+    'quantity',
+    'percentage',
+    'total',
+    'price',
+    'cost',
+    'amount',
+    'rate',
+    'score',
+    'entradas',
+    'saidas',
+    'saldo',
+    'movements',
+    'trend',
   ];
   return numericFields.some(field => fieldName.toLowerCase().includes(field));
 };
@@ -523,7 +528,11 @@ const formatNumber = (value: number, fieldName: string): string => {
   if (fieldName.toLowerCase().includes('percentage')) {
     return value.toFixed(1) + '%';
   }
-  if (fieldName.toLowerCase().includes('value') || fieldName.toLowerCase().includes('price') || fieldName.toLowerCase().includes('cost')) {
+  if (
+    fieldName.toLowerCase().includes('value') ||
+    fieldName.toLowerCase().includes('price') ||
+    fieldName.toLowerCase().includes('cost')
+  ) {
     return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
   if (fieldName.toLowerCase().includes('saldo') && Math.abs(value) > 1000) {

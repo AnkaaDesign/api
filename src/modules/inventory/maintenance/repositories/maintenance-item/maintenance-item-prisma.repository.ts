@@ -12,7 +12,12 @@ import {
 import { MaintenanceItemRepository } from './maintenance-item.repository';
 import { MaintenanceItem as PrismaMaintenanceItem, Prisma } from '@prisma/client';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { CreateOptions, FindManyOptions, FindManyResult, UpdateOptions } from '../../../../../types';
+import {
+  CreateOptions,
+  FindManyOptions,
+  FindManyResult,
+  UpdateOptions,
+} from '../../../../../types';
 
 @Injectable()
 export class MaintenanceItemPrismaRepository

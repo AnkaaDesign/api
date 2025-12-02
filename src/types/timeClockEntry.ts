@@ -1,5 +1,5 @@
 // Note: Time clock entries are now managed internally without external integrations
-import type { User } from "./user";
+import type { User } from './user';
 
 export interface TimeClockEntry {
   id: string;
@@ -79,10 +79,10 @@ export interface TimeClockEntryWhere {
 }
 
 export interface TimeClockEntryOrderBy {
-  date?: "asc" | "desc";
-  createdAt?: "asc" | "desc";
-  updatedAt?: "asc" | "desc";
-  user?: { name?: "asc" | "desc" };
+  date?: 'asc' | 'desc';
+  createdAt?: 'asc' | 'desc';
+  updatedAt?: 'asc' | 'desc';
+  user?: { name?: 'asc' | 'desc' };
 }
 
 export interface TimeClockEntryUpdate {
@@ -121,4 +121,4 @@ export interface TimeClockJustification {
 }
 
 // Import UserIncludes for relation typing
-import type { UserIncludes } from "./user";
+import type { UserIncludes } from './user';

@@ -226,7 +226,11 @@ export class PaintFormulaComponentService {
       formulaPaintId?: string; // Optional: for tracking which formula is being tested
     },
     userId?: string,
-  ): Promise<{ success: boolean; message: string; data: { unitsDeducted: number; remainingQuantity: number } }> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: { unitsDeducted: number; remainingQuantity: number };
+  }> {
     try {
       const result = await this.prisma.$transaction(async transaction => {
         // Get item with measures
@@ -266,8 +270,8 @@ export class PaintFormulaComponentService {
         if (item.quantity < unitsToDeduct) {
           throw new BadRequestException(
             `Estoque insuficiente para "${item.name}". ` +
-            `Necessário: ${unitsToDeduct.toFixed(4)} unidades (${data.weight.toFixed(2)}g), ` +
-            `Disponível: ${item.quantity.toFixed(4)} unidades`,
+              `Necessário: ${unitsToDeduct.toFixed(4)} unidades (${data.weight.toFixed(2)}g), ` +
+              `Disponível: ${item.quantity.toFixed(4)} unidades`,
           );
         }
 
@@ -350,7 +354,10 @@ export class PaintFormulaComponentService {
         });
 
         // Calculate total weight (existing + new)
-        const existingTotalWeight = existingComponents.reduce((sum, comp) => sum + ((comp as any).weight || 0), 0);
+        const existingTotalWeight = existingComponents.reduce(
+          (sum, comp) => sum + ((comp as any).weight || 0),
+          0,
+        );
         const newTotalWeight = existingTotalWeight + data.weight;
 
         // Calculate ratio for the new component
@@ -478,14 +485,16 @@ export class PaintFormulaComponentService {
       }
 
       const component = await this.prisma.$transaction(async transaction => {
-        let updateData: any = {};
+        const updateData: any = {};
         const changes: string[] = [];
 
         // Update weight if provided
         // Note: Inventory was already deducted during blur/test events
         if (data.weight !== undefined && data.weight !== componentExists.weight) {
           updateData.weight = data.weight;
-          changes.push(`peso alterado de ${(componentExists.weight || 0).toFixed(2)}g para ${data.weight.toFixed(2)}g`);
+          changes.push(
+            `peso alterado de ${(componentExists.weight || 0).toFixed(2)}g para ${data.weight.toFixed(2)}g`,
+          );
         }
 
         // Update item if provided

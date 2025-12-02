@@ -96,7 +96,7 @@ export class FileController {
   ): Promise<FileCreateResponse> {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
-      'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.'
+        'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.',
     );
   }
 
@@ -116,7 +116,7 @@ export class FileController {
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
-      'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.'
+        'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.',
     );
   }
 
@@ -245,7 +245,8 @@ export class FileController {
   ): Promise<FileGetUniqueResponse | void> {
     // If request accepts HTML/image (likely from img tag or browser), serve the thumbnail
     const accept = req.headers['accept'] || '';
-    const isImageRequest = accept.includes('image/') || accept.includes('*/*') && !accept.includes('application/json');
+    const isImageRequest =
+      accept.includes('image/') || (accept.includes('*/*') && !accept.includes('application/json'));
 
     if (isImageRequest) {
       // Redirect to thumbnail endpoint for image requests

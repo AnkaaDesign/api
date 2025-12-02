@@ -1,6 +1,6 @@
 // packages/types/src/monitoring.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse } from "./common";
+import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
 
 // =====================
@@ -14,7 +14,7 @@ export interface SsdHealthAttribute {
   worst: number;
   threshold: number;
   raw: string;
-  status: "OK" | "WARNING" | "CRITICAL";
+  status: 'OK' | 'WARNING' | 'CRITICAL';
 }
 
 export interface SsdHealthData extends BaseEntity {
@@ -25,14 +25,14 @@ export interface SsdHealthData extends BaseEntity {
   firmwareVersion: string;
   interfaceType: string;
   health: {
-    overall: "PASSED" | "FAILED" | "UNKNOWN";
+    overall: 'PASSED' | 'FAILED' | 'UNKNOWN';
     percentage?: number;
     status: string;
   };
   temperature: {
     current?: number;
     max?: number;
-    unit: "C" | "F";
+    unit: 'C' | 'F';
   };
   powerOn: {
     hours?: number;
@@ -57,8 +57,8 @@ export interface SsdHealthData extends BaseEntity {
 
 export interface RaidDevice {
   device: string;
-  role: "active" | "spare" | "faulty" | "removed";
-  state: "in_sync" | "spare" | "faulty" | "rebuilding" | "write_mostly";
+  role: 'active' | 'spare' | 'faulty' | 'removed';
+  state: 'in_sync' | 'spare' | 'faulty' | 'rebuilding' | 'write_mostly';
   errors: number;
 }
 
@@ -66,7 +66,7 @@ export interface RaidArray {
   name: string;
   device: string;
   level: string; // RAID0, RAID1, RAID5, RAID6, RAID10, etc.
-  state: "clean" | "active" | "degraded" | "recovering" | "resyncing" | "failed";
+  state: 'clean' | 'active' | 'degraded' | 'recovering' | 'resyncing' | 'failed';
   activeDevices: number;
   totalDevices: number;
   workingDevices: number;
@@ -86,7 +86,7 @@ export interface RaidArray {
 export interface RaidStatus extends BaseEntity {
   arrays: RaidArray[];
   overall: {
-    status: "healthy" | "degraded" | "failed" | "rebuilding";
+    status: 'healthy' | 'degraded' | 'failed' | 'rebuilding';
     totalArrays: number;
     healthyArrays: number;
     degradedArrays: number;
@@ -103,8 +103,8 @@ export interface RaidStatus extends BaseEntity {
 export interface BackupJob {
   id: string;
   name: string;
-  type: "full" | "incremental" | "differential" | "snapshot";
-  status: "running" | "completed" | "failed" | "scheduled" | "paused";
+  type: 'full' | 'incremental' | 'differential' | 'snapshot';
+  status: 'running' | 'completed' | 'failed' | 'scheduled' | 'paused';
   source: string;
   destination: string;
   schedule?: string; // cron expression
@@ -150,7 +150,7 @@ export interface BackupMetadata extends BaseEntity {
     averageBackupDuration: number;
   };
   alerts: Array<{
-    type: "error" | "warning" | "info";
+    type: 'error' | 'warning' | 'info';
     message: string;
     timestamp: Date;
     jobId?: string;
@@ -166,7 +166,7 @@ export interface WebDavFolder {
   name: string;
   path: string;
   fullPath: string;
-  type: "directory" | "file";
+  type: 'directory' | 'file';
   size: number;
   permissions: {
     readable: boolean;
@@ -186,7 +186,7 @@ export interface WebDavFolder {
     public: boolean;
     password: boolean;
     expirationDate?: Date;
-    permissions: "read" | "write" | "admin";
+    permissions: 'read' | 'write' | 'admin';
   };
   children?: WebDavFolder[];
 }
@@ -223,7 +223,7 @@ export interface WebDavInfo extends BaseEntity {
 export interface SystemService {
   name: string;
   displayName: string;
-  status: "active" | "inactive" | "failed" | "unknown";
+  status: 'active' | 'inactive' | 'failed' | 'unknown';
   enabled: boolean;
   description?: string;
   subState?: string;
@@ -235,18 +235,18 @@ export interface SystemService {
 export interface CpuTemperatureSensor {
   name: string;
   value: number;
-  unit: "C" | "F";
+  unit: 'C' | 'F';
   label?: string;
   critical?: number;
   max?: number;
 }
 
 export interface CpuTemperatureData {
-  source: "k10temp" | "coretemp" | "acpitz" | "thermal_zone" | "unknown";
+  source: 'k10temp' | 'coretemp' | 'acpitz' | 'thermal_zone' | 'unknown';
   sensors: CpuTemperatureSensor[];
   primary: {
     value: number;
-    unit: "C" | "F";
+    unit: 'C' | 'F';
     source: string;
   };
 }
@@ -293,7 +293,7 @@ export interface SystemUser {
   shell: string;
   fullName?: string;
   lastLogin?: Date;
-  status: "active" | "inactive" | "locked";
+  status: 'active' | 'inactive' | 'locked';
 }
 
 export interface SharedFolder {
@@ -307,7 +307,7 @@ export interface SharedFolder {
 }
 
 export interface SystemHealth extends BaseEntity {
-  overall: "healthy" | "warning" | "critical";
+  overall: 'healthy' | 'warning' | 'critical';
   services: {
     healthy: number;
     total: number;
@@ -321,10 +321,10 @@ export interface SystemHealth extends BaseEntity {
   uptime: number;
   hostname: string;
   alerts: Array<{
-    type: "error" | "warning" | "info";
+    type: 'error' | 'warning' | 'info';
     message: string;
     timestamp: Date;
-    component: "cpu" | "memory" | "disk" | "network" | "service" | "raid" | "backup" | "ssd";
+    component: 'cpu' | 'memory' | 'disk' | 'network' | 'service' | 'raid' | 'backup' | 'ssd';
   }>;
   lastUpdated: Date;
 }

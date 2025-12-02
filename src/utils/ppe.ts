@@ -1,5 +1,5 @@
 import type { PpeSize, PpeDelivery, PpeDeliverySchedule, Item } from '@types';
-import { dateUtils } from "./date";
+import { dateUtils } from './date';
 import {
   SCHEDULE_FREQUENCY,
   PPE_DELIVERY_MODE,
@@ -26,7 +26,15 @@ import {
 const CLOTHING_SIZES: PPE_SIZE[] = [PPE_SIZE.P, PPE_SIZE.M, PPE_SIZE.G, PPE_SIZE.GG, PPE_SIZE.XG];
 
 // Numeric sizes (36 to 48) - used for pants and boots
-const NUMERIC_SIZES: PPE_SIZE[] = [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46, PPE_SIZE.SIZE_48];
+const NUMERIC_SIZES: PPE_SIZE[] = [
+  PPE_SIZE.SIZE_36,
+  PPE_SIZE.SIZE_38,
+  PPE_SIZE.SIZE_40,
+  PPE_SIZE.SIZE_42,
+  PPE_SIZE.SIZE_44,
+  PPE_SIZE.SIZE_46,
+  PPE_SIZE.SIZE_48,
+];
 
 /**
  * Validates if a given size is valid for a specific PPE type.
@@ -57,7 +65,14 @@ export function isValidSizeForPpeType(size: PPE_SIZE, ppeType: PPE_TYPE): boolea
 
     case PPE_TYPE.RAIN_BOOTS:
       // Galocha uses 36-46 sizes (not 48)
-      return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46].includes(size);
+      return [
+        PPE_SIZE.SIZE_36,
+        PPE_SIZE.SIZE_38,
+        PPE_SIZE.SIZE_40,
+        PPE_SIZE.SIZE_42,
+        PPE_SIZE.SIZE_44,
+        PPE_SIZE.SIZE_46,
+      ].includes(size);
 
     case PPE_TYPE.OTHERS:
       // OTHERS type doesn't require specific sizes - size is optional
@@ -95,7 +110,14 @@ export function getValidSizesForPpeType(ppeType: PPE_TYPE): PPE_SIZE[] {
 
     case PPE_TYPE.RAIN_BOOTS:
       // Galocha uses 36-46 sizes (not 48)
-      return [PPE_SIZE.SIZE_36, PPE_SIZE.SIZE_38, PPE_SIZE.SIZE_40, PPE_SIZE.SIZE_42, PPE_SIZE.SIZE_44, PPE_SIZE.SIZE_46];
+      return [
+        PPE_SIZE.SIZE_36,
+        PPE_SIZE.SIZE_38,
+        PPE_SIZE.SIZE_40,
+        PPE_SIZE.SIZE_42,
+        PPE_SIZE.SIZE_44,
+        PPE_SIZE.SIZE_46,
+      ];
 
     case PPE_TYPE.OTHERS:
       // OTHERS type doesn't require specific sizes - size is optional
@@ -174,7 +196,7 @@ export function formatPpeSizeDisplay(size: PpeSize): string {
   if (size.boots) parts.push(`Bota: ${size.boots}`);
   if (size.sleeves) parts.push(`Manga: ${size.sleeves}`);
 
-  return parts.join(", ") || "Tamanhos não definidos";
+  return parts.join(', ') || 'Tamanhos não definidos';
 }
 
 /**
@@ -233,23 +255,27 @@ export function isDeliveryCancelled(delivery: PpeDelivery): boolean {
  * Get delivery status
  * @deprecated Use delivery.status directly with PPE_DELIVERY_STATUS enum
  */
-export function getDeliveryStatus(delivery: PpeDelivery): "scheduled" | "overdue" | "completed" | "unscheduled" {
-  if (isDeliveryCompleted(delivery)) return "completed";
-  if (isDeliveryOverdue(delivery)) return "overdue";
-  if (isDeliveryScheduled(delivery)) return "scheduled";
-  return "unscheduled";
+export function getDeliveryStatus(
+  delivery: PpeDelivery,
+): 'scheduled' | 'overdue' | 'completed' | 'unscheduled' {
+  if (isDeliveryCompleted(delivery)) return 'completed';
+  if (isDeliveryOverdue(delivery)) return 'overdue';
+  if (isDeliveryScheduled(delivery)) return 'scheduled';
+  return 'unscheduled';
 }
 
 /**
  * Get delivery status label
  * @deprecated Use getPpeDeliveryStatusLabel instead
  */
-export function getDeliveryStatusLabel(status: "scheduled" | "overdue" | "completed" | "unscheduled"): string {
+export function getDeliveryStatusLabel(
+  status: 'scheduled' | 'overdue' | 'completed' | 'unscheduled',
+): string {
   const labels = {
-    scheduled: "Agendado",
-    overdue: "Atrasado",
-    completed: "Entregue",
-    unscheduled: "Não agendado",
+    scheduled: 'Agendado',
+    overdue: 'Atrasado',
+    completed: 'Entregue',
+    unscheduled: 'Não agendado',
   };
   return labels[status];
 }
@@ -258,12 +284,14 @@ export function getDeliveryStatusLabel(status: "scheduled" | "overdue" | "comple
  * Get delivery status color
  * @deprecated Use getPpeDeliveryStatusColor instead
  */
-export function getDeliveryStatusColor(status: "scheduled" | "overdue" | "completed" | "unscheduled"): string {
+export function getDeliveryStatusColor(
+  status: 'scheduled' | 'overdue' | 'completed' | 'unscheduled',
+): string {
   const colors = {
-    scheduled: "blue",
-    overdue: "red",
-    completed: "green",
-    unscheduled: "gray",
+    scheduled: 'blue',
+    overdue: 'red',
+    completed: 'green',
+    unscheduled: 'gray',
   };
   return colors[status];
 }
@@ -273,25 +301,25 @@ export function getDeliveryStatusColor(status: "scheduled" | "overdue" | "comple
  */
 export function getPpeDeliveryStatusColor(status: PPE_DELIVERY_STATUS): string {
   const colors: Record<PPE_DELIVERY_STATUS, string> = {
-    [PPE_DELIVERY_STATUS.PENDING]: "yellow",
-    [PPE_DELIVERY_STATUS.APPROVED]: "blue",
-    [PPE_DELIVERY_STATUS.DELIVERED]: "green",
-    [PPE_DELIVERY_STATUS.REPROVED]: "red",
-    [PPE_DELIVERY_STATUS.CANCELLED]: "gray",
+    [PPE_DELIVERY_STATUS.PENDING]: 'yellow',
+    [PPE_DELIVERY_STATUS.APPROVED]: 'blue',
+    [PPE_DELIVERY_STATUS.DELIVERED]: 'green',
+    [PPE_DELIVERY_STATUS.REPROVED]: 'red',
+    [PPE_DELIVERY_STATUS.CANCELLED]: 'gray',
   };
-  return colors[status] || "gray";
+  return colors[status] || 'gray';
 }
 
 /**
  * Format delivery summary
  */
 export function formatDeliverySummary(delivery: PpeDelivery): string {
-  const userName = delivery.user?.name || "Usuário desconhecido";
+  const userName = delivery.user?.name || 'Usuário desconhecido';
   const status = getPpeDeliveryStatusLabel(delivery.status);
 
   // Use direct quantity and item from delivery
   const quantity = delivery.quantity || 0;
-  const itemName = delivery.item?.name || "Item desconhecido";
+  const itemName = delivery.item?.name || 'Item desconhecido';
   const itemsDescription = `${quantity}x ${itemName}`;
 
   return `${itemsDescription} para ${userName} - ${status}`;
@@ -313,9 +341,9 @@ export function getDaysUntilDelivery(delivery: PpeDelivery): number | null {
  */
 export function getDeliveryModeLabel(mode: PPE_DELIVERY_MODE): string {
   const labels: Record<PPE_DELIVERY_MODE, string> = {
-    [PPE_DELIVERY_MODE.SCHEDULED]: "Programada",
-    [PPE_DELIVERY_MODE.ON_DEMAND]: "Sob Demanda",
-    [PPE_DELIVERY_MODE.BOTH]: "Ambos",
+    [PPE_DELIVERY_MODE.SCHEDULED]: 'Programada',
+    [PPE_DELIVERY_MODE.ON_DEMAND]: 'Sob Demanda',
+    [PPE_DELIVERY_MODE.BOTH]: 'Ambos',
   };
   return labels[mode] || mode;
 }
@@ -342,18 +370,18 @@ export function isPpeScheduleDue(schedule: PpeDeliverySchedule): boolean {
  */
 export function getPpeFrequencyLabel(frequency: SCHEDULE_FREQUENCY): string {
   const labels: Record<SCHEDULE_FREQUENCY, string> = {
-    [SCHEDULE_FREQUENCY.ONCE]: "Uma Vez",
-    [SCHEDULE_FREQUENCY.DAILY]: "Diário",
-    [SCHEDULE_FREQUENCY.WEEKLY]: "Semanal",
-    [SCHEDULE_FREQUENCY.BIWEEKLY]: "Quinzenal",
-    [SCHEDULE_FREQUENCY.MONTHLY]: "Mensal",
-    [SCHEDULE_FREQUENCY.BIMONTHLY]: "Bimestral",
-    [SCHEDULE_FREQUENCY.QUARTERLY]: "Trimestral",
-    [SCHEDULE_FREQUENCY.TRIANNUAL]: "Triânuo",
-    [SCHEDULE_FREQUENCY.QUADRIMESTRAL]: "Quadrimestral",
-    [SCHEDULE_FREQUENCY.SEMI_ANNUAL]: "Semestral",
-    [SCHEDULE_FREQUENCY.ANNUAL]: "Anual",
-    [SCHEDULE_FREQUENCY.CUSTOM]: "Personalizado",
+    [SCHEDULE_FREQUENCY.ONCE]: 'Uma Vez',
+    [SCHEDULE_FREQUENCY.DAILY]: 'Diário',
+    [SCHEDULE_FREQUENCY.WEEKLY]: 'Semanal',
+    [SCHEDULE_FREQUENCY.BIWEEKLY]: 'Quinzenal',
+    [SCHEDULE_FREQUENCY.MONTHLY]: 'Mensal',
+    [SCHEDULE_FREQUENCY.BIMONTHLY]: 'Bimestral',
+    [SCHEDULE_FREQUENCY.QUARTERLY]: 'Trimestral',
+    [SCHEDULE_FREQUENCY.TRIANNUAL]: 'Triânuo',
+    [SCHEDULE_FREQUENCY.QUADRIMESTRAL]: 'Quadrimestral',
+    [SCHEDULE_FREQUENCY.SEMI_ANNUAL]: 'Semestral',
+    [SCHEDULE_FREQUENCY.ANNUAL]: 'Anual',
+    [SCHEDULE_FREQUENCY.CUSTOM]: 'Personalizado',
   };
   return labels[frequency] || frequency;
 }
@@ -363,13 +391,15 @@ export function getPpeFrequencyLabel(frequency: SCHEDULE_FREQUENCY): string {
  */
 export function formatPpeScheduleSummary(schedule: PpeDeliverySchedule): string {
   const frequency = getPpeFrequencyLabel(schedule.frequency);
-  const status = schedule.isActive ? "Ativo" : "Inativo";
-  const ppeTypes = schedule.ppeItems?.map((item) => `${item.ppeType} (${item.quantity}x)`).join(", ") || "Não especificado";
+  const status = schedule.isActive ? 'Ativo' : 'Inativo';
+  const ppeTypes =
+    schedule.ppeItems?.map(item => `${item.ppeType} (${item.quantity}x)`).join(', ') ||
+    'Não especificado';
 
   const assignmentTypeLabels = {
-    ALL: "Todos os usuários",
-    ALL_EXCEPT: "Todos exceto alguns",
-    SPECIFIC: "Usuários específicos",
+    ALL: 'Todos os usuários',
+    ALL_EXCEPT: 'Todos exceto alguns',
+    SPECIFIC: 'Usuários específicos',
   };
 
   const assignmentLabel = assignmentTypeLabels[schedule.assignmentType] || schedule.assignmentType;
@@ -380,7 +410,9 @@ export function formatPpeScheduleSummary(schedule: PpeDeliverySchedule): string 
 /**
  * Group deliveries by status
  */
-export function groupDeliveriesByStatus(deliveries: PpeDelivery[]): Record<PPE_DELIVERY_STATUS, PpeDelivery[]> {
+export function groupDeliveriesByStatus(
+  deliveries: PpeDelivery[],
+): Record<PPE_DELIVERY_STATUS, PpeDelivery[]> {
   const groups: Record<PPE_DELIVERY_STATUS, PpeDelivery[]> = {
     [PPE_DELIVERY_STATUS.PENDING]: [],
     [PPE_DELIVERY_STATUS.APPROVED]: [],
@@ -389,7 +421,7 @@ export function groupDeliveriesByStatus(deliveries: PpeDelivery[]): Record<PPE_D
     [PPE_DELIVERY_STATUS.CANCELLED]: [],
   };
 
-  deliveries.forEach((delivery) => {
+  deliveries.forEach(delivery => {
     groups[delivery.status].push(delivery);
   });
 
@@ -400,14 +432,14 @@ export function groupDeliveriesByStatus(deliveries: PpeDelivery[]): Record<PPE_D
  * Filter deliveries by user
  */
 export function filterDeliveriesByUser(deliveries: PpeDelivery[], userId: string): PpeDelivery[] {
-  return deliveries.filter((delivery) => delivery.userId === userId);
+  return deliveries.filter(delivery => delivery.userId === userId);
 }
 
 /**
  * Filter deliveries by item
  */
 export function filterDeliveriesByItem(deliveries: PpeDelivery[], itemId: string): PpeDelivery[] {
-  return deliveries.filter((delivery) => delivery.itemId === itemId);
+  return deliveries.filter(delivery => delivery.itemId === itemId);
 }
 
 /**
@@ -439,7 +471,10 @@ export function calculateDeliveryStats(deliveries: PpeDelivery[]) {
 /**
  * Sort deliveries by scheduled date
  */
-export function sortDeliveriesByScheduledDate(deliveries: PpeDelivery[], order: "asc" | "desc" = "asc"): PpeDelivery[] {
+export function sortDeliveriesByScheduledDate(
+  deliveries: PpeDelivery[],
+  order: 'asc' | 'desc' = 'asc',
+): PpeDelivery[] {
   return [...deliveries].sort((a, b) => {
     if (!a.scheduledDate && !b.scheduledDate) return 0;
     if (!a.scheduledDate) return 1;
@@ -447,7 +482,7 @@ export function sortDeliveriesByScheduledDate(deliveries: PpeDelivery[], order: 
 
     const dateA = new Date(a.scheduledDate).getTime();
     const dateB = new Date(b.scheduledDate).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -569,12 +604,12 @@ export function isItemPpe(item: Item): boolean {
 export function formatPpeItemName(item: Item): string {
   if (!isItemPpe(item)) return item.name;
 
-  const ppeType = item.ppeType ? getPpeTypeLabel(item.ppeType) : "";
+  const ppeType = item.ppeType ? getPpeTypeLabel(item.ppeType) : '';
 
   // Get size from measures
-  let ppeSize = "";
+  let ppeSize = '';
   if (item.measures && item.measures.length > 0) {
-    const sizeMeasure = item.measures.find(m => m.measureType === "SIZE");
+    const sizeMeasure = item.measures.find(m => m.measureType === 'SIZE');
     if (sizeMeasure && sizeMeasure.unit) {
       ppeSize = getPpeSizeLabel(sizeMeasure.unit as any);
     }
@@ -608,7 +643,7 @@ export function getPpeAutoOrderLeadTime(item: Item): number {
  * Check if PPE item has CA (Certificate of Approval)
  */
 export function ppeHasCA(item: Item): boolean {
-  return item.ppeCA !== null && item.ppeCA !== "";
+  return item.ppeCA !== null && item.ppeCA !== '';
 }
 
 /**

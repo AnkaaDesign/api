@@ -53,9 +53,7 @@ const discountCreateSchema = z.object({
 @Controller('bonus')
 @UseGuards(AuthGuard)
 export class BonusController {
-  constructor(
-    private readonly bonusService: BonusService,
-  ) {}
+  constructor(private readonly bonusService: BonusService) {}
 
   // =====================
   // Regular CRUD Operations (like any other entity)
@@ -74,27 +72,27 @@ export class BonusController {
   ) {
     // Use the new method that handles live calculations automatically
     return this.bonusService.getBonusesWithLiveCalculation({
-      year: query.where?.year,
-      month: query.where?.month,
-      userId: query.where?.userId,
+      where: query.where,
       skip: query.skip,
       take: query.take,
       include: query.include,
+      orderBy: query.orderBy,
     });
   }
 
   /**
    * Get bonus by ID - Standard entity retrieval
+   * Supports both database UUIDs and composite live IDs (live-{userId}-{year}-{month})
    */
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @Get(':id')
   @ReadRateLimit()
   async findById(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Query(new ZodQueryValidationPipe(bonusGetByIdSchema)) query: BonusGetByIdFormData,
     @UserId() userId: string,
   ) {
-    const bonus = await this.bonusService.findById(id, query.include, userId);
+    const bonus = await this.bonusService.findByIdOrLive(id, query.include, userId);
     return {
       success: true,
       data: bonus,
@@ -110,10 +108,7 @@ export class BonusController {
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ZodValidationPipe(bonusCreateSchema))
-  async create(
-    @Body() data: BonusCreateFormData,
-    @UserId() userId: string,
-  ) {
+  async create(@Body() data: BonusCreateFormData, @UserId() userId: string) {
     const result = await this.bonusService.create(data, userId);
     return {
       success: true,
@@ -149,10 +144,7 @@ export class BonusController {
   @Delete(':id')
   @WriteRateLimit()
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     await this.bonusService.delete(id, userId);
   }
 
@@ -168,10 +160,7 @@ export class BonusController {
   @WriteRateLimit()
   @HttpCode(HttpStatus.CREATED)
   @UsePipes(new ZodValidationPipe(bonusBatchCreateSchema))
-  async batchCreate(
-    @Body() data: BonusBatchCreateFormData,
-    @UserId() userId: string,
-  ) {
+  async batchCreate(@Body() data: BonusBatchCreateFormData, @UserId() userId: string) {
     const result = await this.bonusService.batchCreate({ bonuses: data.bonuses! }, userId);
     return {
       success: true,
@@ -187,11 +176,11 @@ export class BonusController {
   @Put('batch')
   @WriteRateLimit()
   @UsePipes(new ZodValidationPipe(bonusBatchUpdateSchema))
-  async batchUpdate(
-    @Body() data: BonusBatchUpdateFormData,
-    @UserId() userId: string,
-  ) {
-    const result = await this.bonusService.batchUpdate({ bonuses: data.bonuses!.map(b => ({ id: b.id!, data: b.data! })) }, userId);
+  async batchUpdate(@Body() data: BonusBatchUpdateFormData, @UserId() userId: string) {
+    const result = await this.bonusService.batchUpdate(
+      { updates: data.updates!.map(b => ({ id: b.id!, data: b.data! })) },
+      userId,
+    );
     return {
       success: true,
       data: result,
@@ -207,10 +196,7 @@ export class BonusController {
   @WriteRateLimit()
   @UsePipes(new ZodValidationPipe(bonusBatchDeleteSchema))
   @HttpCode(HttpStatus.NO_CONTENT)
-  async batchDelete(
-    @Body() data: BonusBatchDeleteFormData,
-    @UserId() userId: string,
-  ) {
+  async batchDelete(@Body() data: BonusBatchDeleteFormData, @UserId() userId: string) {
     await this.bonusService.batchDelete({ ids: data.ids! }, userId);
   }
 
@@ -296,7 +282,11 @@ export class BonusController {
       throw new Error('Ano deve estar entre 2020 e 2030');
     }
 
-    const result = await this.bonusService.calculateAndSaveBonuses(year.toString(), month.toString(), userId);
+    const result = await this.bonusService.calculateAndSaveBonuses(
+      year.toString(),
+      month.toString(),
+      userId,
+    );
     return {
       success: true,
       data: result,
@@ -320,12 +310,14 @@ export class BonusController {
     @UserId() userId: string,
   ) {
     return this.bonusService.getBonusesWithLiveCalculation({
-      year: query.where?.year,
-      month: query.where?.month,
-      userId: targetUserId,
+      where: {
+        ...query.where,
+        userId: targetUserId,
+      },
       skip: query.skip,
       take: query.take,
       include: query.include,
+      orderBy: query.orderBy,
     });
   }
 
@@ -350,11 +342,15 @@ export class BonusController {
     }
 
     return this.bonusService.getBonusesWithLiveCalculation({
-      year,
-      month,
+      where: {
+        ...query.where,
+        year,
+        month,
+      },
       skip: query.skip,
       take: query.take,
       include: query.include,
+      orderBy: query.orderBy,
     });
   }
 
@@ -379,9 +375,11 @@ export class BonusController {
     }
 
     return this.bonusService.getBonusesWithLiveCalculation({
-      year,
-      month,
-      userId: targetUserId,
+      where: {
+        year,
+        month,
+        userId: targetUserId,
+      },
     });
   }
 
@@ -402,7 +400,11 @@ export class BonusController {
     @Body() body: z.infer<typeof discountCreateSchema>,
     @UserId() userId: string,
   ) {
-    return this.bonusService.createDiscount(bonusId, { reason: body.reason!, percentage: body.percentage! }, userId);
+    return this.bonusService.createDiscount(
+      bonusId,
+      { reason: body.reason!, percentage: body.percentage! },
+      userId,
+    );
   }
 
   /**

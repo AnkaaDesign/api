@@ -1,6 +1,14 @@
 // packages/types/src/service.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
 
 // =====================
@@ -45,5 +53,7 @@ export interface ServiceDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ServiceBatchCreateResponse<T> extends BaseBatchResponse<Service, T> {}
-export interface ServiceBatchUpdateResponse<T> extends BaseBatchResponse<Service, T & { id: string }> {}
-export interface ServiceBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ServiceBatchUpdateResponse<T>
+  extends BaseBatchResponse<Service, T & { id: string }> {}
+export interface ServiceBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

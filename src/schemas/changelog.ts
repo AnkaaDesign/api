@@ -1,7 +1,7 @@
 // packages/schemas/src/changelog.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { ChangeLog } from '@types';
 import { CHANGE_TRIGGERED_BY } from '@constants';
 
@@ -136,7 +136,7 @@ export const changeLogWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -163,7 +163,7 @@ export const changeLogWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -177,7 +177,7 @@ export const changeLogWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
             not: z.string().nullable().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -191,7 +191,7 @@ export const changeLogWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
             not: z.string().nullable().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -217,7 +217,7 @@ export const changeLogWhereSchema: z.ZodSchema<any> = z.lazy(() =>
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
             not: z.string().nullable().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -286,18 +286,28 @@ const changeLogTransform = (data: any) => {
   }
   delete data.take;
 
-  const { searchingFor, entityTypes, entityIds, actions, userIds, hasUser, hasField, hasReason, ...rest } = data;
+  const {
+    searchingFor,
+    entityTypes,
+    entityIds,
+    actions,
+    userIds,
+    hasUser,
+    hasField,
+    hasReason,
+    ...rest
+  } = data;
 
   const andConditions: any[] = [];
 
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { entityType: { contains: searchingFor, mode: "insensitive" } },
-        { action: { contains: searchingFor, mode: "insensitive" } },
-        { field: { contains: searchingFor, mode: "insensitive" } },
-        { reason: { contains: searchingFor, mode: "insensitive" } },
-        { user: { name: { contains: searchingFor, mode: "insensitive" } } },
+        { entityType: { contains: searchingFor, mode: 'insensitive' } },
+        { action: { contains: searchingFor, mode: 'insensitive' } },
+        { field: { contains: searchingFor, mode: 'insensitive' } },
+        { reason: { contains: searchingFor, mode: 'insensitive' } },
+        { user: { name: { contains: searchingFor, mode: 'insensitive' } } },
       ],
     });
   }
@@ -332,7 +342,11 @@ const changeLogTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (rest.where) {
-      rest.where = rest.where.AND ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      rest.where = rest.where.AND
+        ? { ...rest.where, AND: [...rest.where.AND, ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       rest.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -377,7 +391,7 @@ export const changeLogGetManySchema = z
 
 export const changeLogGetByIdSchema = z.object({
   include: changeLogIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Registro de alteração inválido" }),
+  id: z.string().uuid({ message: 'Registro de alteração inválido' }),
 });
 
 // =====================
@@ -388,15 +402,15 @@ const toFormData = <T>(data: T) => data;
 
 export const changeLogCreateSchema = z
   .object({
-    entityType: z.string().min(1, "Tipo de entidade é obrigatório"),
-    entityId: z.string().uuid({ message: "Entidade inválida" }),
-    action: z.string().min(1, "Ação é obrigatória"),
+    entityType: z.string().min(1, 'Tipo de entidade é obrigatório'),
+    entityId: z.string().uuid({ message: 'Entidade inválida' }),
+    action: z.string().min(1, 'Ação é obrigatória'),
     field: z.string().nullable().optional(),
     oldValue: z.any().nullable().optional(),
     newValue: z.any().nullable().optional(),
     reason: z.string().nullable().optional(),
     metadata: z.any().nullable().optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }).nullable().optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).nullable().optional(),
     triggeredBy: z
       .enum(Object.values(CHANGE_TRIGGERED_BY) as [string, ...string[]])
       .nullable()
@@ -408,14 +422,14 @@ export const changeLogCreateSchema = z
 export const changeLogUpdateSchema = z
   .object({
     entityType: z.string().optional(),
-    entityId: z.string().uuid({ message: "Entidade inválida" }).optional(),
+    entityId: z.string().uuid({ message: 'Entidade inválida' }).optional(),
     action: z.string().optional(),
     field: z.string().nullable().optional(),
     oldValue: z.any().nullable().optional(),
     newValue: z.any().nullable().optional(),
     reason: z.string().nullable().optional(),
     metadata: z.any().nullable().optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }).nullable().optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).nullable().optional(),
     triggeredBy: z
       .enum(Object.values(CHANGE_TRIGGERED_BY) as [string, ...string[]])
       .nullable()
@@ -429,22 +443,26 @@ export const changeLogUpdateSchema = z
 // =====================
 
 export const changeLogBatchCreateSchema = z.object({
-  changelogs: z.array(changeLogCreateSchema).min(1, "Pelo menos um log de alteração deve ser fornecido"),
+  changelogs: z
+    .array(changeLogCreateSchema)
+    .min(1, 'Pelo menos um log de alteração deve ser fornecido'),
 });
 
 export const changeLogBatchUpdateSchema = z.object({
   changelogs: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Registro de alteração inválido" }),
+        id: z.string().uuid({ message: 'Registro de alteração inválido' }),
         data: changeLogUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um log de alteração deve ser fornecido"),
+    .min(1, 'Pelo menos um log de alteração deve ser fornecido'),
 });
 
 export const changeLogBatchDeleteSchema = z.object({
-  changelogIds: z.array(z.string().uuid({ message: "Registro de alteração inválido" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  changelogIds: z
+    .array(z.string().uuid({ message: 'Registro de alteração inválido' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -475,16 +493,18 @@ export type ChangeLogWhere = z.infer<typeof changeLogWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapChangeLogToFormData = createMapToFormDataHelper<ChangeLog, ChangeLogUpdateFormData>((changeLog) => ({
-  entityType: changeLog.entityType,
-  entityId: changeLog.entityId,
-  action: changeLog.action,
-  field: changeLog.field,
-  oldValue: changeLog.oldValue,
-  newValue: changeLog.newValue,
-  reason: changeLog.reason,
-  metadata: changeLog.metadata,
-  userId: changeLog.userId,
-  triggeredBy: changeLog.triggeredBy,
-  triggeredById: changeLog.triggeredById,
-}));
+export const mapChangeLogToFormData = createMapToFormDataHelper<ChangeLog, ChangeLogUpdateFormData>(
+  changeLog => ({
+    entityType: changeLog.entityType,
+    entityId: changeLog.entityId,
+    action: changeLog.action,
+    field: changeLog.field,
+    oldValue: changeLog.oldValue,
+    newValue: changeLog.newValue,
+    reason: changeLog.reason,
+    metadata: changeLog.metadata,
+    userId: changeLog.userId,
+    triggeredBy: changeLog.triggeredBy,
+    triggeredById: changeLog.triggeredById,
+  }),
+);

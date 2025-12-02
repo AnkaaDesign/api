@@ -20,7 +20,12 @@ import {
 } from '../../../../../schemas/order';
 import { OrderSchedule } from '../../../../../types';
 import { SCHEDULE_FREQUENCY } from '../../../../../constants/enums';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../../types';
 
 @Injectable()
 export class OrderSchedulePrismaRepository

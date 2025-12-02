@@ -2,13 +2,33 @@
 
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { BonusRepository, Bonus, BonusCreateFormData, BonusUpdateFormData, BonusInclude, BonusOrderBy, BonusWhere } from './bonus.repository';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions, BatchCreateResult, CreateManyOptions, BatchError } from '../../../../../types';
+import {
+  BonusRepository,
+  Bonus,
+  BonusCreateFormData,
+  BonusUpdateFormData,
+  BonusInclude,
+  BonusOrderBy,
+  BonusWhere,
+} from './bonus.repository';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+  BatchCreateResult,
+  CreateManyOptions,
+  BatchError,
+} from '../../../../../types';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma, Bonus as PrismaBonus } from '@prisma/client';
 import { ExactBonusCalculationService } from '../../exact-bonus-calculation.service';
-import { COMMISSION_STATUS, TASK_STATUS, ACTIVE_USER_STATUSES } from '../../../../../constants/enums';
+import {
+  COMMISSION_STATUS,
+  TASK_STATUS,
+  ACTIVE_USER_STATUSES,
+} from '../../../../../constants/enums';
 
 interface BonusPeriodFilter {
   year?: number;
@@ -50,7 +70,7 @@ export class BonusPrismaRepository
 
   constructor(
     protected readonly prisma: PrismaService,
-    private readonly bonusCalculationService: ExactBonusCalculationService
+    private readonly bonusCalculationService: ExactBonusCalculationService,
   ) {
     super(prisma);
   }
@@ -63,7 +83,9 @@ export class BonusPrismaRepository
     } as Bonus;
   }
 
-  protected mapCreateFormDataToDatabaseCreateInput(data: BonusCreateFormData): Prisma.BonusCreateInput {
+  protected mapCreateFormDataToDatabaseCreateInput(
+    data: BonusCreateFormData,
+  ): Prisma.BonusCreateInput {
     return {
       year: data.year,
       month: data.month,
@@ -80,14 +102,14 @@ export class BonusPrismaRepository
     };
   }
 
-  protected mapUpdateFormDataToDatabaseUpdateInput(data: BonusUpdateFormData): Prisma.BonusUpdateInput {
+  protected mapUpdateFormDataToDatabaseUpdateInput(
+    data: BonusUpdateFormData,
+  ): Prisma.BonusUpdateInput {
     return {
       ...(data.baseBonus !== undefined && { baseBonus: data.baseBonus }),
       ...(data.performanceLevel !== undefined && { performanceLevel: data.performanceLevel }),
       ...(data.payrollId !== undefined && {
-        payroll: data.payrollId
-          ? { connect: { id: data.payrollId } }
-          : { disconnect: true },
+        payroll: data.payrollId ? { connect: { id: data.payrollId } } : { disconnect: true },
       }),
     };
   }
@@ -136,22 +158,23 @@ export class BonusPrismaRepository
         },
       }),
       ...(include.tasks && {
-        tasks: typeof include.tasks === 'boolean'
-          ? true // Simple include, get all task fields
-          : include.tasks, // Pass through nested include structure from frontend
+        tasks:
+          typeof include.tasks === 'boolean'
+            ? true // Simple include, get all task fields
+            : include.tasks, // Pass through nested include structure from frontend
       }),
     };
   }
 
   protected mapOrderByToDatabaseOrderBy(
     orderBy?: BonusOrderBy,
-  ): Prisma.BonusOrderByWithRelationInput | Prisma.BonusOrderByWithRelationInput[] | undefined {
-    // Default ordering as array of single-key objects
-    if (!orderBy) return [{ year: 'desc' }, { month: 'desc' }, { createdAt: 'desc' }];
+  ): Prisma.BonusOrderByWithRelationInput | undefined {
+    // Default ordering
+    if (!orderBy) return { year: 'desc' };
 
-    // If it's already an array, return as is
+    // If it's already an array, return first item
     if (Array.isArray(orderBy)) {
-      return orderBy as Prisma.BonusOrderByWithRelationInput[];
+      return orderBy[0] as Prisma.BonusOrderByWithRelationInput;
     }
 
     // Build orderBy from input
@@ -162,12 +185,6 @@ export class BonusPrismaRepository
     if (orderBy.performanceLevel) result.performanceLevel = orderBy.performanceLevel;
     if (orderBy.createdAt) result.createdAt = orderBy.createdAt;
     if (orderBy.user) result.user = { name: orderBy.user.name };
-
-    // If multiple keys, convert to array
-    const keys = Object.keys(result);
-    if (keys.length > 1) {
-      return keys.map(key => ({ [key]: result[key] })) as Prisma.BonusOrderByWithRelationInput[];
-    }
 
     return result as Prisma.BonusOrderByWithRelationInput;
   }
@@ -180,7 +197,8 @@ export class BonusPrismaRepository
       ...(where.year && this.buildNumberFilter(where.year, 'year')),
       ...(where.month && this.buildNumberFilter(where.month, 'month')),
       ...(where.baseBonus && { baseBonus: where.baseBonus }),
-      ...(where.performanceLevel && this.buildNumberFilter(where.performanceLevel, 'performanceLevel')),
+      ...(where.performanceLevel &&
+        this.buildNumberFilter(where.performanceLevel, 'performanceLevel')),
       ...(where.payrollId && { payrollId: where.payrollId }),
       ...(where.user && {
         user: {
@@ -236,7 +254,7 @@ export class BonusPrismaRepository
    */
   async findManyWithTransaction(
     transaction: PrismaTransaction,
-    options?: FindManyOptions<BonusOrderBy, BonusWhere, BonusInclude>
+    options?: FindManyOptions<BonusOrderBy, BonusWhere, BonusInclude>,
   ): Promise<FindManyResult<Bonus>> {
     try {
       const { where, include, orderBy, skip = 0, take = 50 } = options || {};
@@ -285,7 +303,7 @@ export class BonusPrismaRepository
     year: string,
     month: string,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus | null> {
     try {
       const model = this.getModel(tx);
@@ -302,7 +320,10 @@ export class BonusPrismaRepository
 
       return bonus ? this.mapDatabaseEntityToEntity(bonus) : null;
     } catch (error) {
-      this.logger.error(`Error finding bonus for user ${userId} and period ${month}/${year}:`, error);
+      this.logger.error(
+        `Error finding bonus for user ${userId} and period ${month}/${year}:`,
+        error,
+      );
       throw new BadRequestException('Erro ao buscar bônus por usuário e período.');
     }
   }
@@ -314,7 +335,7 @@ export class BonusPrismaRepository
     year: string,
     month: string,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus[]> {
     try {
       const model = this.getModel(tx);
@@ -337,96 +358,12 @@ export class BonusPrismaRepository
   }
 
   /**
-   * Get payroll data for a specific period
-   */
-  async getPayrollData(
-    year: string,
-    month: string,
-    userId?: string,
-    sectorId?: string,
-    tx?: PrismaTransaction
-  ): Promise<any[]> {
-    try {
-      const model = tx ? tx : this.prisma;
-
-      const whereClause: any = {
-        year: parseInt(year, 10),
-        month: parseInt(month, 10),
-      };
-
-      if (userId) {
-        whereClause.userId = userId;
-      }
-
-      if (sectorId) {
-        whereClause.user = {
-          position: {
-            sectorId,
-          },
-        };
-      }
-
-      const bonuses = await model.bonus.findMany({
-        where: whereClause,
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              cpf: true,
-              performanceLevel: true,
-              position: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-          bonusDiscounts: {
-            orderBy: { calculationOrder: 'asc' },
-            select: {
-              id: true,
-              percentage: true,
-              value: true,
-              reference: true,
-              calculationOrder: true,
-            },
-          },
-          payroll: {
-            select: {
-              id: true,
-              year: true,
-              month: true,
-              baseRemuneration: true,
-            },
-          },
-        },
-        orderBy: [
-          { user: { name: 'asc' } },
-        ],
-      });
-
-      return bonuses.map((bonus: any) => ({
-        ...this.mapDatabaseEntityToEntity(bonus),
-        user: bonus.user,
-        bonusDiscounts: bonus.bonusDiscounts,
-        payroll: bonus.payroll,
-      }));
-    } catch (error) {
-      this.logger.error(`Error getting payroll data for period ${month}/${year}:`, error);
-      throw new BadRequestException('Erro ao buscar dados da folha de pagamento.');
-    }
-  }
-
-  /**
    * Create bonus with all calculated fields
    */
   async createWithTransaction(
     transaction: PrismaTransaction,
     data: BonusCreateFormData,
-    options?: CreateOptions<BonusInclude>
+    options?: CreateOptions<BonusInclude>,
   ): Promise<Bonus> {
     try {
       const { include } = options || {};
@@ -435,7 +372,12 @@ export class BonusPrismaRepository
       // Validate user exists and has performance level
       const user = await this.prisma.user.findUnique({
         where: { id: data.userId },
-        select: { id: true, name: true, performanceLevel: true, position: { select: { name: true } } },
+        select: {
+          id: true,
+          name: true,
+          performanceLevel: true,
+          position: { select: { name: true } },
+        },
       });
 
       if (!user) {
@@ -443,13 +385,23 @@ export class BonusPrismaRepository
       }
 
       if (user.performanceLevel <= 0) {
-        throw new BadRequestException(`Usuário ${user.name} não tem nível de performance válido para bônus.`);
+        throw new BadRequestException(
+          `Usuário ${user.name} não tem nível de performance válido para bônus.`,
+        );
       }
 
       // Check for existing bonus in the same period
-      const existingBonus = await this.findByUserAndPeriod(data.userId, data.year.toString(), data.month.toString(), undefined, transaction);
+      const existingBonus = await this.findByUserAndPeriod(
+        data.userId,
+        data.year.toString(),
+        data.month.toString(),
+        undefined,
+        transaction,
+      );
       if (existingBonus) {
-        throw new BadRequestException(`Bônus já existe para ${user.name} no período ${data.month}/${data.year}.`);
+        throw new BadRequestException(
+          `Bônus já existe para ${user.name} no período ${data.month}/${data.year}.`,
+        );
       }
 
       // Calculate bonus using the calculation service if not provided
@@ -458,13 +410,13 @@ export class BonusPrismaRepository
         const { averageTasksPerUser } = await this.calculatePeriodMetrics(
           data.year,
           data.month,
-          transaction
+          transaction,
         );
 
         const bonusValue = this.bonusCalculationService.calculateBonus(
           user.position?.name || 'DEFAULT',
           user.performanceLevel,
-          averageTasksPerUser
+          averageTasksPerUser,
         );
 
         calculatedData = {
@@ -481,7 +433,9 @@ export class BonusPrismaRepository
         include: prismaInclude,
       });
 
-      this.logger.log(`Created bonus for user ${user.name} (${data.userId}) - ${data.month}/${data.year}: R$ ${calculatedData.baseBonus}`);
+      this.logger.log(
+        `Created bonus for user ${user.name} (${data.userId}) - ${data.month}/${data.year}: R$ ${calculatedData.baseBonus}`,
+      );
 
       return this.mapDatabaseEntityToEntity(createdBonus);
     } catch (error) {
@@ -500,7 +454,7 @@ export class BonusPrismaRepository
     transaction: PrismaTransaction,
     id: string,
     data: BonusUpdateFormData,
-    options?: UpdateOptions<BonusInclude>
+    options?: UpdateOptions<BonusInclude>,
   ): Promise<Bonus> {
     try {
       const { include } = options || {};
@@ -525,7 +479,9 @@ export class BonusPrismaRepository
         include: prismaInclude,
       });
 
-      this.logger.log(`Updated bonus ${id} for period ${existingBonus.month}/${existingBonus.year}`);
+      this.logger.log(
+        `Updated bonus ${id} for period ${existingBonus.month}/${existingBonus.year}`,
+      );
 
       return this.mapDatabaseEntityToEntity(updatedBonus);
     } catch (error) {
@@ -575,7 +531,7 @@ export class BonusPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: CreateOptions<BonusInclude>
+    options?: CreateOptions<BonusInclude>,
   ): Promise<Bonus | null> {
     try {
       const { include } = options || {};
@@ -600,7 +556,7 @@ export class BonusPrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: CreateOptions<BonusInclude>
+    options?: CreateOptions<BonusInclude>,
   ): Promise<Bonus[]> {
     try {
       const { include } = options || {};
@@ -642,11 +598,17 @@ export class BonusPrismaRepository
     year: number,
     month: number,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus> {
     try {
       // First, try to find existing bonus
-      const existingBonus = await this.findByUserAndPeriod(userId, year.toString(), month.toString(), include, tx);
+      const existingBonus = await this.findByUserAndPeriod(
+        userId,
+        year.toString(),
+        month.toString(),
+        include,
+        tx,
+      );
       if (existingBonus) {
         return existingBonus;
       }
@@ -679,7 +641,7 @@ export class BonusPrismaRepository
    */
   async batchCreate(
     data: BonusCreateFormData[],
-    options?: CreateManyOptions<BonusInclude>
+    options?: CreateManyOptions<BonusInclude>,
   ): Promise<BatchCreateResult<Bonus, BonusCreateFormData>> {
     const { include } = options || {};
     const results: Bonus[] = [];
@@ -726,7 +688,7 @@ export class BonusPrismaRepository
   private async calculatePeriodMetrics(
     year: number,
     month: number,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<{ ponderedTaskCount: number; averageTasksPerUser: number }> {
     const startDate = this.getPeriodStartDate(year, month);
     const endDate = this.getPeriodEndDate(year, month);
@@ -799,7 +761,7 @@ export class BonusPrismaRepository
     userId: string,
     year: number,
     month: number,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<LiveBonusData> {
     const model = tx ? tx : this.prisma;
 
@@ -829,7 +791,7 @@ export class BonusPrismaRepository
     const bonusValue = this.bonusCalculationService.calculateBonus(
       user.position?.name || 'DEFAULT',
       user.performanceLevel,
-      averageTasksPerUser
+      averageTasksPerUser,
     );
 
     // Get payroll if exists

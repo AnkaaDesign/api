@@ -1,8 +1,16 @@
 // packages/interfaces/src/vacation.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION, VACATION_STATUS, VACATION_TYPE } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Main Entity Interface
@@ -67,5 +75,7 @@ export interface VacationDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface VacationBatchCreateResponse<T> extends BaseBatchResponse<Vacation, T> {}
-export interface VacationBatchUpdateResponse<T> extends BaseBatchResponse<Vacation, T & { id: string }> {}
-export interface VacationBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface VacationBatchUpdateResponse<T>
+  extends BaseBatchResponse<Vacation, T & { id: string }> {}
+export interface VacationBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

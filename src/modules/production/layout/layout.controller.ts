@@ -101,9 +101,7 @@ export class LayoutController {
   }
 
   @Post('truck/:truckId/:side')
-  @UseInterceptors(
-    FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig),
-  )
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
   async createOrUpdateTruckLayout(
     @Param('truckId') truckId: string,
     @Param('side') side: 'left' | 'right' | 'back',

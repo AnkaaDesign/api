@@ -57,9 +57,7 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
 @Controller('airbrushings')
 export class AirbrushingController {
-  constructor(
-    private readonly airbrushingService: AirbrushingService,
-  ) {}
+  constructor(private readonly airbrushingService: AirbrushingService) {}
 
   @Get()
   @Roles(
@@ -95,17 +93,21 @@ export class AirbrushingController {
   )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'receipts', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'artworks', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'artworks', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async create(
     @Body(new ZodValidationPipe(airbrushingCreateSchema)) data: AirbrushingCreateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
@@ -115,8 +117,10 @@ export class AirbrushingController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+          console.log(
+            `[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
+          );
         }
       });
     }
@@ -223,18 +227,22 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.EXTERNAL,
   )
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'receipts', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'artworks', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'artworks', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
@@ -244,8 +252,10 @@ export class AirbrushingController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+          console.log(
+            `[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
+          );
         }
       });
     }

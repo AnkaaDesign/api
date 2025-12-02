@@ -10,7 +10,11 @@ import { PaintTypeRepository } from './repositories/paint-type/paint-type.reposi
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '../common/changelog/changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../constants/enums';
-import { trackFieldChanges, trackAndLogFieldChanges, logEntityChange } from '../common/changelog/utils/changelog-helpers';
+import {
+  trackFieldChanges,
+  trackAndLogFieldChanges,
+  logEntityChange,
+} from '../common/changelog/utils/changelog-helpers';
 import {
   PaintTypeCreateFormData,
   PaintTypeUpdateFormData,

@@ -238,6 +238,10 @@ export abstract class DashboardRepository {
     total: number;
     active: number;
     inactive: number;
+    experiencePeriod1: number;
+    experiencePeriod2: number;
+    effected: number;
+    dismissed: number;
     newUsersThisMonth: number;
     newUsersThisWeek: number;
     newUsersToday: number;

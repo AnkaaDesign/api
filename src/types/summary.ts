@@ -1,7 +1,14 @@
 // packages/interfaces/src/summary.ts
 
-import type { BaseSummaryResponse } from "./common";
-import type { TREND_DIRECTION, TREND_TYPE, WORKLOAD_LEVEL, STOCK_LEVEL, PERFORMANCE_LEVEL, HEALTH_STATUS } from '@constants';
+import type { BaseSummaryResponse } from './common';
+import type {
+  TREND_DIRECTION,
+  TREND_TYPE,
+  WORKLOAD_LEVEL,
+  STOCK_LEVEL,
+  PERFORMANCE_LEVEL,
+  HEALTH_STATUS,
+} from '@constants';
 
 // =====================
 // Stock Module Summaries
@@ -496,7 +503,9 @@ export interface CustomerSummaryResponse extends BaseSummaryResponse<CustomerDas
 export interface GarageSummaryResponse extends BaseSummaryResponse<GarageDashboardSummary> {}
 
 // Notification Module Response
-export interface NotificationSummaryResponse extends BaseSummaryResponse<NotificationDashboardSummary> {}
+export interface NotificationSummaryResponse
+  extends BaseSummaryResponse<NotificationDashboardSummary> {}
 
 // Aggregated Response
-export interface DashboardAggregatedResponse extends BaseSummaryResponse<DashboardAggregatedSummary> {}
+export interface DashboardAggregatedResponse
+  extends BaseSummaryResponse<DashboardAggregatedSummary> {}

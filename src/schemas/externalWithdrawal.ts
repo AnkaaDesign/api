@@ -1,7 +1,12 @@
 // packages/schemas/src/externalWithdrawal.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, createNameSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  createNameSchema,
+} from './common';
 import type { ExternalWithdrawal, ExternalWithdrawalItem } from '@types';
 import { EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_TYPE } from '@constants';
 
@@ -154,7 +159,7 @@ export const externalWithdrawalWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -232,7 +237,7 @@ export const externalWithdrawalWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -327,7 +332,10 @@ const externalWithdrawalTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ withdrawerName: { contains: data.searchingFor, mode: "insensitive" } }, { notes: { contains: data.searchingFor, mode: "insensitive" } }],
+      OR: [
+        { withdrawerName: { contains: data.searchingFor, mode: 'insensitive' } },
+        { notes: { contains: data.searchingFor, mode: 'insensitive' } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -383,55 +391,74 @@ export const externalWithdrawalGetManySchema = z
 
 // Stage 1: Basic Information Schema (withdrawer, type, observations)
 export const externalWithdrawalStage1Schema = z.object({
-  withdrawerName: createNameSchema(2, 200, "Nome do retirador"),
+  withdrawerName: createNameSchema(2, 200, 'Nome do retirador'),
   type: z.nativeEnum(EXTERNAL_WITHDRAWAL_TYPE).default(EXTERNAL_WITHDRAWAL_TYPE.RETURNABLE),
-  notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+  notes: z
+    .string()
+    .max(500, 'Observações devem ter no máximo 500 caracteres')
+    .nullable()
+    .optional(),
 });
 
 // Stage 2: Item Selection Schema (selected items with quantities and conditional prices)
 export const externalWithdrawalItemSelectionSchema = z.object({
-  itemId: z.string().uuid("Item inválido"),
-  withdrawedQuantity: z.number().positive("Quantidade deve ser positiva"),
+  itemId: z.string().uuid('Item inválido'),
+  withdrawedQuantity: z.number().positive('Quantidade deve ser positiva'),
   // Monetary value is required only if type is CHARGEABLE - validated at form level
-  price: z.number().min(0, "Preço não pode ser negativo").nullable().optional(),
+  price: z.number().min(0, 'Preço não pode ser negativo').nullable().optional(),
 });
 
 export const externalWithdrawalStage2Schema = z.object({
-  items: z.array(externalWithdrawalItemSelectionSchema).min(1, "Selecione pelo menos um item").max(100, "Limite máximo de 100 itens por retirada"),
+  items: z
+    .array(externalWithdrawalItemSelectionSchema)
+    .min(1, 'Selecione pelo menos um item')
+    .max(100, 'Limite máximo de 100 itens por retirada'),
 });
 
 // Complete Form Schema with conditional price validation
 export const externalWithdrawalCompleteFormSchema = z
   .object({
     // Stage 1 data
-    withdrawerName: createNameSchema(2, 200, "Nome do retirador"),
+    withdrawerName: createNameSchema(2, 200, 'Nome do retirador'),
     type: z.nativeEnum(EXTERNAL_WITHDRAWAL_TYPE).default(EXTERNAL_WITHDRAWAL_TYPE.RETURNABLE),
-    notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+    notes: z
+      .string()
+      .max(500, 'Observações devem ter no máximo 500 caracteres')
+      .nullable()
+      .optional(),
 
     // Stage 2 data
-    items: z.array(externalWithdrawalItemSelectionSchema).min(1, "Selecione pelo menos um item").max(100, "Limite máximo de 100 itens por retirada"),
+    items: z
+      .array(externalWithdrawalItemSelectionSchema)
+      .min(1, 'Selecione pelo menos um item')
+      .max(100, 'Limite máximo de 100 itens por retirada'),
 
     // Optional fields for complete form
-    status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).default(EXTERNAL_WITHDRAWAL_STATUS.PENDING).optional(),
-    invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-    receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+    status: z
+      .nativeEnum(EXTERNAL_WITHDRAWAL_STATUS)
+      .default(EXTERNAL_WITHDRAWAL_STATUS.PENDING)
+      .optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
   })
   // Conditional validation: if type is CHARGEABLE, all items must have price
   .refine(
-    (data) => {
+    data => {
       if (data.type !== EXTERNAL_WITHDRAWAL_TYPE.CHARGEABLE) return true;
-      return data.items.every((item) => item.price !== null && item.price !== undefined && item.price >= 0);
+      return data.items.every(
+        item => item.price !== null && item.price !== undefined && item.price >= 0,
+      );
     },
     {
-      message: "Todos os itens selecionados devem ter preço definido",
-      path: ["items"],
+      message: 'Todos os itens selecionados devem ter preço definido',
+      path: ['items'],
     },
   );
 
 // Form step validation schemas
 export const externalWithdrawalFormStepSchema = z.object({
   step: z.number().int().min(1).max(3).default(1),
-  mode: z.enum(["create", "edit"]).default("create"),
+  mode: z.enum(['create', 'edit']).default('create'),
 });
 
 // =====================
@@ -441,49 +468,66 @@ export const externalWithdrawalFormStepSchema = z.object({
 // Create schema - maintains compatibility with existing API
 export const externalWithdrawalCreateSchema = z
   .object({
-    withdrawerName: createNameSchema(2, 200, "Nome do retirador"),
+    withdrawerName: createNameSchema(2, 200, 'Nome do retirador'),
     type: z.nativeEnum(EXTERNAL_WITHDRAWAL_TYPE).default(EXTERNAL_WITHDRAWAL_TYPE.RETURNABLE),
-    status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).default(EXTERNAL_WITHDRAWAL_STATUS.PENDING).optional(),
-    notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+    status: z
+      .nativeEnum(EXTERNAL_WITHDRAWAL_STATUS)
+      .default(EXTERNAL_WITHDRAWAL_STATUS.PENDING)
+      .optional(),
+    notes: z
+      .string()
+      .max(500, 'Observações devem ter no máximo 500 caracteres')
+      .nullable()
+      .optional(),
     // File references
-    nfeId: z.string().uuid("NFe inválida").nullable().optional(),
-    receiptId: z.string().uuid("Recibo inválido").nullable().optional(),
+    nfeId: z.string().uuid('NFe inválida').nullable().optional(),
+    receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
+    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
     items: z
       .array(
         z.object({
-          itemId: z.string().uuid("Item inválido"),
-          withdrawedQuantity: z.number().positive("Quantidade retirada deve ser positiva"),
-          price: z.number().min(0, "Preço unitário não pode ser negativo").nullable().optional(),
+          itemId: z.string().uuid('Item inválido'),
+          withdrawedQuantity: z.number().positive('Quantidade retirada deve ser positiva'),
+          price: z.number().min(0, 'Preço unitário não pode ser negativo').nullable().optional(),
         }),
       )
       .optional(),
   })
   // Apply conditional validation: if type is CHARGEABLE, all items must have price
   .refine(
-    (data) => {
+    data => {
       if (data.type !== EXTERNAL_WITHDRAWAL_TYPE.CHARGEABLE || !data.items) return true;
-      return data.items.every((item) => item.price !== null && item.price !== undefined && item.price >= 0);
+      return data.items.every(
+        item => item.price !== null && item.price !== undefined && item.price >= 0,
+      );
     },
     {
-      message: "Todos os itens selecionados devem ter preço definido",
-      path: ["items"],
+      message: 'Todos os itens selecionados devem ter preço definido',
+      path: ['items'],
     },
   );
 
 export const externalWithdrawalUpdateSchema = z.object({
   withdrawerName: z
     .string()
-    .min(1, "Nome do retirador é obrigatório")
-    .max(200, "Nome do retirador deve ter no máximo 200 caracteres")
-    .transform((val) => val.trim())
-    .refine((val) => val.length >= 2, { message: "Nome do retirador deve ter pelo menos 2 caracteres" })
+    .min(1, 'Nome do retirador é obrigatório')
+    .max(200, 'Nome do retirador deve ter no máximo 200 caracteres')
+    .transform(val => val.trim())
+    .refine(val => val.length >= 2, {
+      message: 'Nome do retirador deve ter pelo menos 2 caracteres',
+    })
     .optional(),
   type: z.nativeEnum(EXTERNAL_WITHDRAWAL_TYPE).optional(),
   status: z.nativeEnum(EXTERNAL_WITHDRAWAL_STATUS).optional(),
-  notes: z.string().max(500, "Observações devem ter no máximo 500 caracteres").nullable().optional(),
+  notes: z
+    .string()
+    .max(500, 'Observações devem ter no máximo 500 caracteres')
+    .nullable()
+    .optional(),
   // File arrays
-  invoiceIds: z.array(z.string().uuid("NFe inválida")).optional(),
-  receiptIds: z.array(z.string().uuid("Recibo inválido")).optional(),
+  invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
+  receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
 });
 
 // Batch Schemas
@@ -495,15 +539,17 @@ export const externalWithdrawalBatchUpdateSchema = z.object({
   externalWithdrawals: z
     .array(
       z.object({
-        id: z.string().uuid("Retirada externa inválida"),
+        id: z.string().uuid('Retirada externa inválida'),
         data: externalWithdrawalUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma retirada deve ser fornecida"),
+    .min(1, 'Pelo menos uma retirada deve ser fornecida'),
 });
 
 export const externalWithdrawalBatchDeleteSchema = z.object({
-  externalWithdrawalIds: z.array(z.string().uuid("Retirada externa inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  externalWithdrawalIds: z
+    .array(z.string().uuid('Retirada externa inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -756,8 +802,10 @@ const externalWithdrawalItemTransform = (data: any) => {
 
   if (data.withdrawedQuantityRange) {
     const withdrawedQuantityCondition: any = {};
-    if (data.withdrawedQuantityRange.min !== undefined) withdrawedQuantityCondition.gte = data.withdrawedQuantityRange.min;
-    if (data.withdrawedQuantityRange.max !== undefined) withdrawedQuantityCondition.lte = data.withdrawedQuantityRange.max;
+    if (data.withdrawedQuantityRange.min !== undefined)
+      withdrawedQuantityCondition.gte = data.withdrawedQuantityRange.min;
+    if (data.withdrawedQuantityRange.max !== undefined)
+      withdrawedQuantityCondition.lte = data.withdrawedQuantityRange.max;
     if (Object.keys(withdrawedQuantityCondition).length > 0) {
       andConditions.push({ withdrawedQuantity: withdrawedQuantityCondition });
     }
@@ -766,8 +814,10 @@ const externalWithdrawalItemTransform = (data: any) => {
 
   if (data.returnedQuantityRange) {
     const returnedQuantityCondition: any = {};
-    if (data.returnedQuantityRange.min !== undefined) returnedQuantityCondition.gte = data.returnedQuantityRange.min;
-    if (data.returnedQuantityRange.max !== undefined) returnedQuantityCondition.lte = data.returnedQuantityRange.max;
+    if (data.returnedQuantityRange.min !== undefined)
+      returnedQuantityCondition.gte = data.returnedQuantityRange.min;
+    if (data.returnedQuantityRange.max !== undefined)
+      returnedQuantityCondition.lte = data.returnedQuantityRange.max;
     if (Object.keys(returnedQuantityCondition).length > 0) {
       andConditions.push({ returnedQuantity: returnedQuantityCondition });
     }
@@ -786,7 +836,7 @@ const externalWithdrawalItemTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      item: { name: { contains: data.searchingFor, mode: "insensitive" } },
+      item: { name: { contains: data.searchingFor, mode: 'insensitive' } },
     });
     delete data.searchingFor;
   }
@@ -838,16 +888,16 @@ export const externalWithdrawalItemGetManySchema = z
 
 // CRUD Schemas
 export const externalWithdrawalItemCreateSchema = z.object({
-  externalWithdrawalId: z.string().uuid("Retirada externa inválida"),
-  itemId: z.string().uuid("Item inválido"),
-  withdrawedQuantity: z.number().positive("Quantidade retirada deve ser positiva"),
-  price: z.number().min(0, "Preço não pode ser negativo").nullable().optional(),
+  externalWithdrawalId: z.string().uuid('Retirada externa inválida'),
+  itemId: z.string().uuid('Item inválido'),
+  withdrawedQuantity: z.number().positive('Quantidade retirada deve ser positiva'),
+  price: z.number().min(0, 'Preço não pode ser negativo').nullable().optional(),
 });
 
 export const externalWithdrawalItemUpdateSchema = z.object({
-  withdrawedQuantity: z.number().positive("Quantidade retirada deve ser positiva").optional(),
-  returnedQuantity: z.number().min(0, "Quantidade devolvida não pode ser negativa").optional(),
-  price: z.number().min(0, "Preço não pode ser negativo").nullable().optional(),
+  withdrawedQuantity: z.number().positive('Quantidade retirada deve ser positiva').optional(),
+  returnedQuantity: z.number().min(0, 'Quantidade devolvida não pode ser negativa').optional(),
+  price: z.number().min(0, 'Preço não pode ser negativo').nullable().optional(),
 });
 
 // Batch Schemas
@@ -859,15 +909,17 @@ export const externalWithdrawalItemBatchUpdateSchema = z.object({
   externalWithdrawalItems: z
     .array(
       z.object({
-        id: z.string().uuid("Item de retirada externa inválido"),
+        id: z.string().uuid('Item de retirada externa inválido'),
         data: externalWithdrawalItemUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um item deve ser fornecido"),
+    .min(1, 'Pelo menos um item deve ser fornecido'),
 });
 
 export const externalWithdrawalItemBatchDeleteSchema = z.object({
-  externalWithdrawalItemIds: z.array(z.string().uuid("Item de retirada externa inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  externalWithdrawalItemIds: z
+    .array(z.string().uuid('Item de retirada externa inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -887,8 +939,12 @@ export const externalWithdrawalItemGetByIdSchema = z.object({
 // Multi-stage form types
 export type ExternalWithdrawalStage1FormData = z.infer<typeof externalWithdrawalStage1Schema>;
 export type ExternalWithdrawalStage2FormData = z.infer<typeof externalWithdrawalStage2Schema>;
-export type ExternalWithdrawalCompleteFormData = z.infer<typeof externalWithdrawalCompleteFormSchema>;
-export type ExternalWithdrawalItemSelectionFormData = z.infer<typeof externalWithdrawalItemSelectionSchema>;
+export type ExternalWithdrawalCompleteFormData = z.infer<
+  typeof externalWithdrawalCompleteFormSchema
+>;
+export type ExternalWithdrawalItemSelectionFormData = z.infer<
+  typeof externalWithdrawalItemSelectionSchema
+>;
 export type ExternalWithdrawalFormStepFormData = z.infer<typeof externalWithdrawalFormStepSchema>;
 
 // ExternalWithdrawal types (existing)
@@ -899,25 +955,45 @@ export type ExternalWithdrawalQueryFormData = z.infer<typeof externalWithdrawalQ
 export type ExternalWithdrawalCreateFormData = z.infer<typeof externalWithdrawalCreateSchema>;
 export type ExternalWithdrawalUpdateFormData = z.infer<typeof externalWithdrawalUpdateSchema>;
 
-export type ExternalWithdrawalBatchCreateFormData = z.infer<typeof externalWithdrawalBatchCreateSchema>;
-export type ExternalWithdrawalBatchUpdateFormData = z.infer<typeof externalWithdrawalBatchUpdateSchema>;
-export type ExternalWithdrawalBatchDeleteFormData = z.infer<typeof externalWithdrawalBatchDeleteSchema>;
+export type ExternalWithdrawalBatchCreateFormData = z.infer<
+  typeof externalWithdrawalBatchCreateSchema
+>;
+export type ExternalWithdrawalBatchUpdateFormData = z.infer<
+  typeof externalWithdrawalBatchUpdateSchema
+>;
+export type ExternalWithdrawalBatchDeleteFormData = z.infer<
+  typeof externalWithdrawalBatchDeleteSchema
+>;
 
 export type ExternalWithdrawalInclude = z.infer<typeof externalWithdrawalIncludeSchema>;
 export type ExternalWithdrawalWhere = z.infer<typeof externalWithdrawalWhereSchema>;
 export type ExternalWithdrawalOrderBy = z.infer<typeof externalWithdrawalOrderBySchema>;
 
 // ExternalWithdrawalItem types
-export type ExternalWithdrawalItemGetManyFormData = z.infer<typeof externalWithdrawalItemGetManySchema>;
-export type ExternalWithdrawalItemGetByIdFormData = z.infer<typeof externalWithdrawalItemGetByIdSchema>;
+export type ExternalWithdrawalItemGetManyFormData = z.infer<
+  typeof externalWithdrawalItemGetManySchema
+>;
+export type ExternalWithdrawalItemGetByIdFormData = z.infer<
+  typeof externalWithdrawalItemGetByIdSchema
+>;
 export type ExternalWithdrawalItemQueryFormData = z.infer<typeof externalWithdrawalItemQuerySchema>;
 
-export type ExternalWithdrawalItemCreateFormData = z.infer<typeof externalWithdrawalItemCreateSchema>;
-export type ExternalWithdrawalItemUpdateFormData = z.infer<typeof externalWithdrawalItemUpdateSchema>;
+export type ExternalWithdrawalItemCreateFormData = z.infer<
+  typeof externalWithdrawalItemCreateSchema
+>;
+export type ExternalWithdrawalItemUpdateFormData = z.infer<
+  typeof externalWithdrawalItemUpdateSchema
+>;
 
-export type ExternalWithdrawalItemBatchCreateFormData = z.infer<typeof externalWithdrawalItemBatchCreateSchema>;
-export type ExternalWithdrawalItemBatchUpdateFormData = z.infer<typeof externalWithdrawalItemBatchUpdateSchema>;
-export type ExternalWithdrawalItemBatchDeleteFormData = z.infer<typeof externalWithdrawalItemBatchDeleteSchema>;
+export type ExternalWithdrawalItemBatchCreateFormData = z.infer<
+  typeof externalWithdrawalItemBatchCreateSchema
+>;
+export type ExternalWithdrawalItemBatchUpdateFormData = z.infer<
+  typeof externalWithdrawalItemBatchUpdateSchema
+>;
+export type ExternalWithdrawalItemBatchDeleteFormData = z.infer<
+  typeof externalWithdrawalItemBatchDeleteSchema
+>;
 
 export type ExternalWithdrawalItemInclude = z.infer<typeof externalWithdrawalItemIncludeSchema>;
 export type ExternalWithdrawalItemWhere = z.infer<typeof externalWithdrawalItemWhereSchema>;
@@ -928,40 +1004,50 @@ export type ExternalWithdrawalItemOrderBy = z.infer<typeof externalWithdrawalIte
 // =====================
 
 // Multi-stage form helpers
-export const mapExternalWithdrawalToStage1FormData = createMapToFormDataHelper<ExternalWithdrawal, ExternalWithdrawalStage1FormData>((externalWithdrawal) => ({
+export const mapExternalWithdrawalToStage1FormData = createMapToFormDataHelper<
+  ExternalWithdrawal,
+  ExternalWithdrawalStage1FormData
+>(externalWithdrawal => ({
   withdrawerName: externalWithdrawal.withdrawerName,
   type: externalWithdrawal.type,
   notes: externalWithdrawal.notes,
 }));
 
-export const mapExternalWithdrawalToCompleteFormData = createMapToFormDataHelper<ExternalWithdrawal & { items?: ExternalWithdrawalItem[] }, ExternalWithdrawalCompleteFormData>(
-  (externalWithdrawal) => ({
-    withdrawerName: externalWithdrawal.withdrawerName,
-    type: externalWithdrawal.type,
-    notes: externalWithdrawal.notes,
-    items:
-      externalWithdrawal.items?.map((item) => ({
-        itemId: item.itemId,
-        withdrawedQuantity: item.withdrawedQuantity,
-        price: item.price,
-      })) || [],
-    status: externalWithdrawal.status,
-    invoiceIds: externalWithdrawal.invoices?.map((invoice) => invoice.id) || [],
-    receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id) || [],
-  }),
-);
+export const mapExternalWithdrawalToCompleteFormData = createMapToFormDataHelper<
+  ExternalWithdrawal & { items?: ExternalWithdrawalItem[] },
+  ExternalWithdrawalCompleteFormData
+>(externalWithdrawal => ({
+  withdrawerName: externalWithdrawal.withdrawerName,
+  type: externalWithdrawal.type,
+  notes: externalWithdrawal.notes,
+  items:
+    externalWithdrawal.items?.map(item => ({
+      itemId: item.itemId,
+      withdrawedQuantity: item.withdrawedQuantity,
+      price: item.price,
+    })) || [],
+  status: externalWithdrawal.status,
+  invoiceIds: externalWithdrawal.invoices?.map(invoice => invoice.id) || [],
+  receiptIds: externalWithdrawal.receipts?.map(receipt => receipt.id) || [],
+}));
 
 // Existing helpers (backward compatibility)
-export const mapExternalWithdrawalToFormData = createMapToFormDataHelper<ExternalWithdrawal, ExternalWithdrawalUpdateFormData>((externalWithdrawal) => ({
+export const mapExternalWithdrawalToFormData = createMapToFormDataHelper<
+  ExternalWithdrawal,
+  ExternalWithdrawalUpdateFormData
+>(externalWithdrawal => ({
   withdrawerName: externalWithdrawal.withdrawerName,
   type: externalWithdrawal.type,
   status: externalWithdrawal.status,
-  invoiceIds: externalWithdrawal.invoices?.map((invoice) => invoice.id),
-  receiptIds: externalWithdrawal.receipts?.map((receipt) => receipt.id),
+  invoiceIds: externalWithdrawal.invoices?.map(invoice => invoice.id),
+  receiptIds: externalWithdrawal.receipts?.map(receipt => receipt.id),
   notes: externalWithdrawal.notes,
 }));
 
-export const mapExternalWithdrawalItemToFormData = createMapToFormDataHelper<ExternalWithdrawalItem, ExternalWithdrawalItemUpdateFormData>((item) => ({
+export const mapExternalWithdrawalItemToFormData = createMapToFormDataHelper<
+  ExternalWithdrawalItem,
+  ExternalWithdrawalItemUpdateFormData
+>(item => ({
   withdrawedQuantity: item.withdrawedQuantity,
   returnedQuantity: item.returnedQuantity,
   price: item.price,
@@ -976,7 +1062,9 @@ export const validateStage2FormData = (data: unknown): data is ExternalWithdrawa
   return externalWithdrawalStage2Schema.safeParse(data).success;
 };
 
-export const validateCompleteFormData = (data: unknown): data is ExternalWithdrawalCompleteFormData => {
+export const validateCompleteFormData = (
+  data: unknown,
+): data is ExternalWithdrawalCompleteFormData => {
   return externalWithdrawalCompleteFormSchema.safeParse(data).success;
 };
 
@@ -1000,18 +1088,18 @@ export const combineFormStages = (
 };
 
 // Convert complete form data to create schema format
-export const convertCompleteFormToCreateData = (completeData: ExternalWithdrawalCompleteFormData): ExternalWithdrawalCreateFormData => {
+export const convertCompleteFormToCreateData = (
+  completeData: ExternalWithdrawalCompleteFormData,
+): ExternalWithdrawalCreateFormData => {
   return {
     withdrawerName: completeData.withdrawerName,
     type: completeData.type,
     notes: completeData.notes,
-    items: completeData.items.map((item) => ({
+    items: completeData.items.map(item => ({
       itemId: item.itemId,
       withdrawedQuantity: item.withdrawedQuantity,
       price: item.price,
     })),
     status: completeData.status,
-    invoiceIds: completeData.invoiceIds,
-    receiptIds: completeData.receiptIds,
-  };
+  } as ExternalWithdrawalCreateFormData;
 };
