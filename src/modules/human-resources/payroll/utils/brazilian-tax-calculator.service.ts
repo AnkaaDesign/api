@@ -84,6 +84,40 @@ export interface AbsenceCalculationDetails {
   dsrLoss?: number;
 }
 
+// ============================================================================
+// HARDCODED FALLBACK TAX TABLES (2025)
+// Used when database doesn't have tax tables seeded
+// ============================================================================
+
+const FALLBACK_INSS_2025 = {
+  brackets: [
+    { bracketOrder: 1, minValue: 0.0, maxValue: 1518.0, rate: 7.5 },
+    { bracketOrder: 2, minValue: 1518.01, maxValue: 2793.88, rate: 9.0 },
+    { bracketOrder: 3, minValue: 2793.89, maxValue: 4190.83, rate: 12.0 },
+    { bracketOrder: 4, minValue: 4190.84, maxValue: 8157.41, rate: 14.0 },
+  ],
+  settings: {
+    salarioMinimo: 1518.0,
+    teto: 8157.41,
+    descontoMaximo: 951.62,
+  },
+};
+
+const FALLBACK_IRRF_2025 = {
+  brackets: [
+    { bracketOrder: 1, minValue: 0.0, maxValue: 2428.8, rate: 0.0, deduction: 0.0 },
+    { bracketOrder: 2, minValue: 2428.81, maxValue: 2826.65, rate: 7.5, deduction: 182.16 },
+    { bracketOrder: 3, minValue: 2826.66, maxValue: 3751.05, rate: 15.0, deduction: 394.16 },
+    { bracketOrder: 4, minValue: 3751.06, maxValue: 4664.68, rate: 22.5, deduction: 675.49 },
+    { bracketOrder: 5, minValue: 4664.69, maxValue: null, rate: 27.5, deduction: 908.73 },
+  ],
+  settings: {
+    deducaoPorDependente: 189.59,
+    descontoSimplificado: 607.2,
+    descontoSimplificadoPercentual: 25.0,
+  },
+};
+
 @Injectable()
 export class BrazilianTaxCalculatorService {
   private readonly logger = new Logger(BrazilianTaxCalculatorService.name);
@@ -111,24 +145,36 @@ export class BrazilianTaxCalculatorService {
       // Get active INSS tax table for the year
       const taxTable = await this.getActiveTaxTable(TaxType.INSS, year);
 
-      if (!taxTable || !taxTable.brackets || taxTable.brackets.length === 0) {
-        this.logger.warn(`No INSS tax table found for year ${year}`);
-        return {
-          taxType: PayrollDiscountType.INSS,
-          base: grossSalary,
-          amount: 0,
-          details: { error: 'Tax table not found' },
-        };
+      // Use fallback brackets if database table not found
+      let brackets: Array<{ bracketOrder: number; minValue: number; maxValue: number | null; rate: number }>;
+
+      if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
+        brackets = taxTable.brackets.map(b => ({
+          bracketOrder: b.bracketOrder,
+          minValue: b.minValue.toNumber(),
+          maxValue: b.maxValue?.toNumber() || null,
+          rate: b.rate.toNumber(),
+        }));
+        this.logger.debug(`Using database INSS table for year ${year}`);
+      } else {
+        // Use hardcoded fallback for 2025
+        this.logger.warn(`No INSS tax table found for year ${year}, using 2025 fallback`);
+        brackets = FALLBACK_INSS_2025.brackets.map(b => ({
+          bracketOrder: b.bracketOrder,
+          minValue: b.minValue,
+          maxValue: b.maxValue,
+          rate: b.rate,
+        }));
       }
 
       // Calculate INSS progressively
       let totalTax = 0;
       const bracketDetails: INSSCalculationDetails['brackets'] = [];
 
-      for (const bracket of taxTable.brackets) {
-        const minValue = bracket.minValue.toNumber();
-        const maxValue = bracket.maxValue?.toNumber() || Infinity;
-        const rate = bracket.rate.toNumber();
+      for (const bracket of brackets) {
+        const minValue = bracket.minValue;
+        const maxValue = bracket.maxValue || Infinity;
+        const rate = bracket.rate;
 
         // Calculate how much income falls in this bracket
         // CRITICAL: Progressive calculation - each bracket only taxes the portion within its range
@@ -145,7 +191,7 @@ export class BrazilianTaxCalculatorService {
         bracketDetails.push({
           bracketOrder: bracket.bracketOrder,
           minValue,
-          maxValue: bracket.maxValue?.toNumber() || null,
+          maxValue: bracket.maxValue || null,
           rate,
           incomeInBracket,
           taxOnBracket,
@@ -211,20 +257,40 @@ export class BrazilianTaxCalculatorService {
       // Get active IRRF tax table for the year
       const taxTable = await this.getActiveTaxTable(TaxType.IRRF, year);
 
-      if (!taxTable || !taxTable.brackets || taxTable.brackets.length === 0) {
-        this.logger.warn(`No IRRF tax table found for year ${year}`);
-        return {
-          taxType: PayrollDiscountType.IRRF,
-          base: grossSalary,
-          amount: 0,
-          details: { error: 'Tax table not found' },
+      // Use fallback brackets and settings if database table not found
+      let brackets: Array<{ bracketOrder: number; minValue: number; maxValue: number | null; rate: number; deduction: number }>;
+      let settings: { deducaoPorDependente: number; descontoSimplificado: number };
+
+      if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
+        brackets = taxTable.brackets.map(b => ({
+          bracketOrder: b.bracketOrder,
+          minValue: b.minValue.toNumber(),
+          maxValue: b.maxValue?.toNumber() || null,
+          rate: b.rate.toNumber(),
+          deduction: b.deduction?.toNumber() || 0,
+        }));
+        const tableSettings = taxTable.settings as any;
+        settings = {
+          deducaoPorDependente: tableSettings?.deducaoPorDependente || 189.59,
+          descontoSimplificado: tableSettings?.descontoSimplificado || 607.2,
         };
+        this.logger.debug(`Using database IRRF table for year ${year}`);
+      } else {
+        // Use hardcoded fallback for 2025
+        this.logger.warn(`No IRRF tax table found for year ${year}, using 2025 fallback`);
+        brackets = FALLBACK_IRRF_2025.brackets.map(b => ({
+          bracketOrder: b.bracketOrder,
+          minValue: b.minValue,
+          maxValue: b.maxValue,
+          rate: b.rate,
+          deduction: b.deduction,
+        }));
+        settings = FALLBACK_IRRF_2025.settings;
       }
 
-      // Extract settings from tax table
-      const settings = taxTable.settings as any;
-      const dependentDeduction = settings?.deducaoPorDependente || 189.59;
-      const simplifiedDeductionMax = settings?.descontoSimplificado || 607.2;
+      // Extract settings
+      const dependentDeduction = settings.deducaoPorDependente;
+      const simplifiedDeductionMax = settings.descontoSimplificado;
 
       // Calculate deductions
       const inssDeduction = inssAmount;
@@ -249,11 +315,11 @@ export class BrazilianTaxCalculatorService {
       let totalTax = 0;
       const bracketDetails: IRRFCalculationDetails['brackets'] = [];
 
-      for (const bracket of taxTable.brackets) {
-        const minValue = bracket.minValue.toNumber();
-        const maxValue = bracket.maxValue?.toNumber() || Infinity;
-        const rate = bracket.rate.toNumber();
-        const deduction = bracket.deduction?.toNumber() || 0;
+      for (const bracket of brackets) {
+        const minValue = bracket.minValue;
+        const maxValue = bracket.maxValue || Infinity;
+        const rate = bracket.rate;
+        const deduction = bracket.deduction;
 
         if (taxableIncome >= minValue && taxableIncome <= maxValue) {
           // Apply simplified formula: (Taxable Income × Rate) - Deduction
@@ -262,7 +328,7 @@ export class BrazilianTaxCalculatorService {
           bracketDetails.push({
             bracketOrder: bracket.bracketOrder,
             minValue,
-            maxValue: bracket.maxValue?.toNumber() || null,
+            maxValue: bracket.maxValue || null,
             rate,
             deduction,
             applicableTax: totalTax,

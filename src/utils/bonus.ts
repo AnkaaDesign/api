@@ -736,9 +736,9 @@ export function validateDiscount(discount: Partial<BonusDiscount>): {
 // =====================
 
 export interface PayrollDiscount {
-  percentage?: number;
-  fixedValue?: number;
-  calculationOrder: number;
+  percentage?: number | null;
+  value?: number | null;
+  reference?: string;
 }
 
 /**
@@ -756,21 +756,18 @@ export function calculatePayrollDiscounts(
     return 0;
   }
 
-  // Sort discounts by order
-  const sorted = [...discounts].sort((a, b) => a.calculationOrder - b.calculationOrder);
-
   let totalDiscount = 0;
   let remaining = baseRemuneration;
 
-  for (const discount of sorted) {
+  for (const discount of discounts) {
     if (remaining <= 0) break;
 
     let discountAmount = 0;
 
     if (discount.percentage && discount.percentage > 0) {
       discountAmount = remaining * (discount.percentage / 100);
-    } else if (discount.fixedValue && discount.fixedValue > 0) {
-      discountAmount = Math.min(discount.fixedValue, remaining);
+    } else if (discount.value && discount.value > 0) {
+      discountAmount = Math.min(discount.value, remaining);
     }
 
     totalDiscount += discountAmount;
@@ -822,7 +819,7 @@ export function getPayrollCalculationBreakdown(
   totalDiscounts: number;
   netSalary: number;
   discountDetails: Array<{
-    order: number;
+    reference: string;
     type: 'percentage' | 'fixed';
     rate: number;
     amount: number;
@@ -834,7 +831,7 @@ export function getPayrollCalculationBreakdown(
 
   // Calculate discounts with details
   const discountDetails: Array<{
-    order: number;
+    reference: string;
     type: 'percentage' | 'fixed';
     rate: number;
     amount: number;
@@ -842,10 +839,9 @@ export function getPayrollCalculationBreakdown(
   }> = [];
 
   if (discounts && discounts.length > 0) {
-    const sorted = [...discounts].sort((a, b) => a.calculationOrder - b.calculationOrder);
     let remaining = baseRemuneration;
 
-    for (const discount of sorted) {
+    for (const discount of discounts) {
       if (remaining <= 0) break;
 
       let discountAmount = 0;
@@ -856,16 +852,16 @@ export function getPayrollCalculationBreakdown(
         type = 'percentage';
         rate = discount.percentage;
         discountAmount = remaining * (discount.percentage / 100);
-      } else if (discount.fixedValue && discount.fixedValue > 0) {
+      } else if (discount.value && discount.value > 0) {
         type = 'fixed';
-        rate = discount.fixedValue;
-        discountAmount = Math.min(discount.fixedValue, remaining);
+        rate = discount.value;
+        discountAmount = Math.min(discount.value, remaining);
       }
 
       remaining -= discountAmount;
 
       discountDetails.push({
-        order: discount.calculationOrder,
+        reference: discount.reference || 'Desconto',
         type,
         rate,
         amount: Math.round(discountAmount * 100) / 100,

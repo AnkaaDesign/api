@@ -181,7 +181,6 @@ export class DiscountService {
           'reference',
           'percentage',
           'value',
-          'calculationOrder',
         ]);
 
         if (Object.keys(changes).length > 0) {
@@ -409,37 +408,6 @@ export class DiscountService {
     }
   }
 
-  async updateDiscountOrder(
-    payrollId: string,
-    updates: { id: string; calculationOrder: number }[],
-    userId?: string,
-  ): Promise<Discount[]> {
-    try {
-      this.logger.log(`Updating discount order for payroll: ${payrollId}`);
-
-      return await this.prisma.$transaction(async tx => {
-        const updatedDiscounts = await this.discountRepository.updateOrder(payrollId, updates, tx);
-
-        if (userId) {
-          await logEntityChange({
-            changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.PAYROLL,
-            entityId: payrollId,
-            action: CHANGE_ACTION.UPDATE,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER,
-            userId,
-            reason: 'Ordem dos descontos alterada',
-          });
-        }
-
-        return updatedDiscounts;
-      });
-    } catch (error) {
-      this.logger.error(`Error updating discount order: ${error.message}`, error.stack);
-      throw new InternalServerErrorException('Erro ao alterar ordem dos descontos');
-    }
-  }
-
   // Validation methods
   private async validateCreateDiscount(data: DiscountCreateFormData): Promise<void> {
     // Validate that either percentage or value is provided, but not both
@@ -459,11 +427,6 @@ export class DiscountService {
     // Validate fixed value
     if (data.value && data.value < 0) {
       throw new BadRequestException('Valor fixo não pode ser negativo');
-    }
-
-    // Validate discount order
-    if (data.calculationOrder && data.calculationOrder < 1) {
-      throw new BadRequestException('Ordem do desconto deve ser maior que 0');
     }
   }
 
@@ -493,10 +456,6 @@ export class DiscountService {
 
     if (data.value !== undefined && data.value < 0) {
       throw new BadRequestException('Valor fixo não pode ser negativo');
-    }
-
-    if (data.calculationOrder !== undefined && data.calculationOrder < 1) {
-      throw new BadRequestException('Ordem do desconto deve ser maior que 0');
     }
   }
 

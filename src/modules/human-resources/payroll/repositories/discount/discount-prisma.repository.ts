@@ -20,21 +20,10 @@ export class DiscountPrismaRepository extends DiscountRepository {
     const client = tx || this.prisma;
 
     try {
-      // Set calculationOrder if not provided
-      if (!data.calculationOrder) {
-        const maxOrder = await client.payrollDiscount.findFirst({
-          where: { payrollId: data.payrollId },
-          orderBy: { calculationOrder: 'desc' },
-          select: { calculationOrder: true },
-        });
-        data.calculationOrder = (maxOrder?.calculationOrder ?? 0) + 1;
-      }
-
       const discount = await client.payrollDiscount.create({
         data: {
           percentage: data.percentage,
           value: data.value,
-          calculationOrder: data.calculationOrder,
           reference: data.reference,
           payrollId: data.payrollId,
         },
@@ -60,7 +49,6 @@ export class DiscountPrismaRepository extends DiscountRepository {
         data: {
           ...(data.percentage !== undefined && { percentage: data.percentage }),
           ...(data.value !== undefined && { value: data.value }),
-          ...(data.calculationOrder !== undefined && { calculationOrder: data.calculationOrder }),
           ...(data.reference !== undefined && { reference: data.reference }),
         },
       });
@@ -89,7 +77,7 @@ export class DiscountPrismaRepository extends DiscountRepository {
     try {
       const {
         where,
-        orderBy = [{ calculationOrder: 'asc' }, { createdAt: 'asc' }],
+        orderBy = [{ createdAt: 'asc' }],
         skip = 0,
         take = 20,
       } = options || {};
@@ -141,7 +129,7 @@ export class DiscountPrismaRepository extends DiscountRepository {
     try {
       const discounts = await this.prisma.payrollDiscount.findMany({
         where: { payrollId },
-        orderBy: { calculationOrder: 'asc' },
+        orderBy: { createdAt: 'asc' },
       });
 
       return discounts.map(discount => this.mapToEntity(discount));
@@ -172,37 +160,6 @@ export class DiscountPrismaRepository extends DiscountRepository {
       return await this.prisma.payrollDiscount.count({ where });
     } catch (error) {
       this.logger.error(`Erro ao contar descontos: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
-
-  async updateOrder(
-    payrollId: string,
-    updates: { id: string; calculationOrder: number }[],
-    tx?: PrismaTransaction,
-  ): Promise<Discount[]> {
-    const client = tx || this.prisma;
-
-    try {
-      // Update each discount's order
-      await Promise.all(
-        updates.map(({ id, calculationOrder }) =>
-          client.payrollDiscount.update({
-            where: { id, payrollId }, // Ensure discount belongs to payroll
-            data: { calculationOrder },
-          }),
-        ),
-      );
-
-      // Return updated discounts for the payroll
-      const updatedDiscounts = await client.payrollDiscount.findMany({
-        where: { payrollId },
-        orderBy: { calculationOrder: 'asc' },
-      });
-
-      return updatedDiscounts.map(discount => this.mapToEntity(discount));
-    } catch (error) {
-      this.logger.error(`Erro ao atualizar ordem dos descontos: ${error.message}`, error.stack);
       throw error;
     }
   }

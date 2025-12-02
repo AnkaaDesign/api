@@ -19,8 +19,14 @@ import type { Position, PositionIncludes } from './position';
 export interface Discount extends BaseEntity {
   percentage: number | null;
   value: number | null;
-  calculationOrder: number;
   reference: string;
+  discountType: string;
+  isPersistent: boolean;
+  isActive: boolean;
+  taxYear?: number | null;
+  taxTableId?: string | null;
+  expirationDate?: Date | null;
+  baseValue?: number | null;
   payrollId: string;
 
   // Relations (optional, populated based on query)
@@ -105,9 +111,11 @@ export interface DiscountWhere {
   id?: string | { in?: string[]; notIn?: string[] };
   reference?: string | { contains?: string; mode?: 'default' | 'insensitive' };
   payrollId?: string | { in?: string[]; notIn?: string[] };
+  discountType?: string | { in?: string[]; notIn?: string[] };
+  isPersistent?: boolean;
+  isActive?: boolean;
   percentage?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
   value?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
-  calculationOrder?: number | { gte?: number; lte?: number; gt?: number; lt?: number };
   createdAt?: Date | { gte?: Date; lte?: Date; gt?: Date; lt?: Date };
   updatedAt?: Date | { gte?: Date; lte?: Date; gt?: Date; lt?: Date };
 
@@ -174,7 +182,7 @@ export interface PayrollWhere {
 
 export interface DiscountOrderBy {
   id?: ORDER_BY_DIRECTION;
-  calculationOrder?: ORDER_BY_DIRECTION;
+  discountType?: ORDER_BY_DIRECTION;
   reference?: ORDER_BY_DIRECTION;
   percentage?: ORDER_BY_DIRECTION;
   value?: ORDER_BY_DIRECTION;
@@ -305,15 +313,20 @@ export interface PayrollUpdateFormData {
 export interface DiscountCreateFormData {
   percentage?: number | null;
   value?: number | null;
-  calculationOrder?: number;
   reference: string;
+  discountType?: string;
+  isPersistent?: boolean;
+  expirationDate?: Date | null;
 }
 
 export interface DiscountUpdateFormData {
   percentage?: number | null;
   value?: number | null;
-  calculationOrder?: number;
   reference?: string;
+  discountType?: string;
+  isPersistent?: boolean;
+  isActive?: boolean;
+  expirationDate?: Date | null;
 }
 
 // Query form data types

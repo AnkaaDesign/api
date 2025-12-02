@@ -19,9 +19,4 @@ export abstract class DiscountRepository {
   abstract delete(id: string, tx?: PrismaTransaction): Promise<void>;
   abstract deleteMany(ids: string[], tx?: PrismaTransaction): Promise<void>;
   abstract count(where?: any): Promise<number>;
-  abstract updateOrder(
-    payrollId: string,
-    updates: { id: string; calculationOrder: number }[],
-    tx?: PrismaTransaction,
-  ): Promise<Discount[]>;
 }
