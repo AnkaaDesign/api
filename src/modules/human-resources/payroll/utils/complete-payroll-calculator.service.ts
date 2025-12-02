@@ -353,11 +353,12 @@ export class CompletePayrollCalculatorService {
     });
     const unionContribution = roundCurrency(unionResult.amount);
 
-    // Alimony (court-ordered)
+    // Alimony (court-ordered) - calculated as percentage of gross salary
     const alimony = this.getDiscountAmount(
       persistentDiscounts,
       PayrollDiscountType.ALIMONY,
       0,
+      grossSalary, // Base value for percentage calculation
     );
 
     // Garnishment (judicial)
@@ -503,11 +504,21 @@ export class CompletePayrollCalculatorService {
     discounts: Array<{ type: PayrollDiscountType; value?: number; percentage?: number }>,
     type: PayrollDiscountType,
     defaultValue: number = 0,
+    baseValueForPercentage?: number,
   ): number {
     const discount = discounts.find(d => d.type === type);
     if (!discount) return defaultValue;
 
-    // For now, just return fixed value. Percentage calculation would need base value.
-    return discount.value || defaultValue;
+    // If discount has a fixed value, use it
+    if (discount.value && discount.value > 0) {
+      return discount.value;
+    }
+
+    // If discount has a percentage and we have a base value, calculate it
+    if (discount.percentage && discount.percentage > 0 && baseValueForPercentage) {
+      return roundCurrency((baseValueForPercentage * discount.percentage) / 100);
+    }
+
+    return defaultValue;
   }
 }

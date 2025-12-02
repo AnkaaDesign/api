@@ -243,12 +243,12 @@ export class PayrollCalculatorService {
       });
     }
 
-    // 2. Apply discounts in order of calculationOrder
-    const sortedDiscounts = discounts
-      .filter(discount => discount.percentage !== null || discount.value !== null)
-      .sort((a, b) => a.calculationOrder - b.calculationOrder);
+    // 2. Apply discounts in the order received (sorted by createdAt from DB)
+    const filteredDiscounts = discounts
+      .filter(discount => discount.percentage !== null || discount.value !== null);
 
-    for (const discount of sortedDiscounts) {
+    for (let i = 0; i < filteredDiscounts.length; i++) {
+      const discount = filteredDiscounts[i];
       let discountAmount = 0;
 
       if (discount.percentage !== null && discount.percentage > 0) {
@@ -260,7 +260,7 @@ export class PayrollCalculatorService {
           type: 'percentage',
           value: discount.percentage,
           amount: discountAmount,
-          calculationOrder: discount.calculationOrder,
+          calculationOrder: i + 1,
         });
       } else if (discount.value !== null && discount.value > 0) {
         // Fixed value discount
@@ -271,7 +271,7 @@ export class PayrollCalculatorService {
           type: 'fixed',
           value: discount.value,
           amount: discountAmount,
-          calculationOrder: discount.calculationOrder,
+          calculationOrder: i + 1,
         });
       }
 

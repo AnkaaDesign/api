@@ -20,7 +20,6 @@ export const discountCreateSchema = z
   .object({
     percentage: percentageSchema.nullable().optional(),
     value: moneySchema.nullable().optional(),
-    calculationOrder: z.number().int().min(1, 'Ordem de cálculo deve ser pelo menos 1').default(1),
     reference: createNameSchema(1, 200, 'Referência'),
   })
   .refine(
@@ -36,7 +35,6 @@ export const discountUpdateSchema = z
   .object({
     percentage: percentageSchema.nullable().optional(),
     value: moneySchema.nullable().optional(),
-    calculationOrder: z.number().int().min(1, 'Ordem de cálculo deve ser pelo menos 1').optional(),
     reference: createNameSchema(1, 200, 'Referência').optional(),
   })
   .refine(
@@ -168,8 +166,7 @@ export const mapPayrollToFormData = (payroll: any): PayrollUpdateFormData => {
     baseRemuneration: payroll.baseRemuneration,
     discounts: payroll.discounts?.map((discount: any) => ({
       percentage: discount.percentage,
-      fixedValue: discount.fixedValue,
-      calculationOrder: discount.calculationOrder,
+      value: discount.value,
       reference: discount.reference,
     })),
   };
@@ -204,7 +201,7 @@ export const payrollIncludeSchema = z
           where: z.object({}).optional(),
           orderBy: z
             .object({
-              calculationOrder: z.enum(['asc', 'desc']).optional(),
+              createdAt: z.enum(['asc', 'desc']).optional(),
             })
             .optional(),
         }),
