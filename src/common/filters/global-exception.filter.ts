@@ -29,7 +29,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const requestId = uuidv4();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let errorResponse: ErrorResponse = {
+    const errorResponse: ErrorResponse = {
       success: false,
       message: 'Ocorreu um erro inesperado. Por favor, tente novamente.',
       error: 'UNKNOWN_ERROR',
@@ -80,7 +80,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       // Handle Prisma errors
       switch (exception.code) {
-        case 'P2002':
+        case 'P2002': {
           status = HttpStatus.CONFLICT;
           errorResponse.error = 'UNIQUE_CONSTRAINT_VIOLATION';
 
@@ -96,28 +96,32 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
           // Provide specific Portuguese error messages for each unique field
           const uniqueFieldMessages: Record<string, string> = {
-            'email': 'Este email já está em uso.',
-            'phone': 'Este telefone já está em uso.',
-            'cpf': 'Este CPF já está cadastrado.',
-            'pis': 'Este PIS já está cadastrado.',
-            'payrollNumber': 'Este número da folha de pagamento já está em uso.',
-            'secullumId': 'Este ID Secullum já está cadastrado.',
-            'sessionToken': 'Este token de sessão já está em uso.',
-            'preferenceId': 'Esta preferência já está cadastrada.',
+            email: 'Este email já está em uso.',
+            phone: 'Este telefone já está em uso.',
+            cpf: 'Este CPF já está cadastrado.',
+            pis: 'Este PIS já está cadastrado.',
+            payrollNumber: 'Este número da folha de pagamento já está em uso.',
+            secullumId: 'Este ID Secullum já está cadastrado.',
+            sessionToken: 'Este token de sessão já está em uso.',
+            preferenceId: 'Esta preferência já está cadastrada.',
           };
 
-          errorResponse.message = uniqueFieldMessages[fieldName] || 'Este valor já está em uso no sistema.';
+          errorResponse.message =
+            uniqueFieldMessages[fieldName] || 'Este valor já está em uso no sistema.';
           break;
-        case 'P2003':
+        }
+        case 'P2003': {
           status = HttpStatus.BAD_REQUEST;
           errorResponse.message = 'Referência inválida. Verifique os dados relacionados.';
           errorResponse.error = 'FOREIGN_KEY_CONSTRAINT_VIOLATION';
           break;
-        case 'P2025':
+        }
+        case 'P2025': {
           status = HttpStatus.NOT_FOUND;
           errorResponse.message = 'Registro não encontrado.';
           errorResponse.error = 'NOT_FOUND';
           break;
+        }
         case 'P2014':
           status = HttpStatus.BAD_REQUEST;
           errorResponse.message = 'Relacionamento inválido nos dados.';

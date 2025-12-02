@@ -1,7 +1,12 @@
 // packages/schemas/src/customer.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, emailSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  emailSchema,
+} from './common';
 import type { Customer } from '@types';
 import { isValidCPF, isValidCNPJ, cleanCNPJ, cleanCPF } from '@utils';
 
@@ -157,7 +162,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -171,7 +176,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -185,7 +190,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -199,7 +204,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -213,7 +218,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -227,7 +232,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -241,7 +246,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -255,7 +260,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -269,7 +274,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -285,7 +290,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -301,7 +306,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -315,7 +320,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -329,7 +334,7 @@ export const customerWhereSchema: z.ZodType<any> = z
           contains: z.string().optional(),
           startsWith: z.string().optional(),
           endsWith: z.string().optional(),
-          mode: z.enum(["default", "insensitive"]).optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
         }),
       ])
       .optional(),
@@ -457,21 +462,21 @@ const customerTransform = (data: any) => {
 
   // Text search (case insensitive)
   if (searchingFor) {
-    console.log("[CustomerTransform] Processing searchingFor:", searchingFor);
+    console.log('[CustomerTransform] Processing searchingFor:', searchingFor);
     // Clean the search term to get just numbers for document searches
-    const cleanedSearch = searchingFor.replace(/\D/g, "");
-    console.log("[CustomerTransform] Cleaned search (numbers only):", cleanedSearch);
+    const cleanedSearch = searchingFor.replace(/\D/g, '');
+    console.log('[CustomerTransform] Cleaned search (numbers only):', cleanedSearch);
 
     const searchConditions: any[] = [
-      { fantasyName: { contains: searchingFor, mode: "insensitive" } },
-      { corporateName: { contains: searchingFor, mode: "insensitive" } },
-      { email: { contains: searchingFor, mode: "insensitive" } },
-      { city: { contains: searchingFor, mode: "insensitive" } },
-      { state: { contains: searchingFor, mode: "insensitive" } },
-      { neighborhood: { contains: searchingFor, mode: "insensitive" } },
-      { address: { contains: searchingFor, mode: "insensitive" } },
-      { tasks: { some: { truck: { plate: { contains: searchingFor, mode: "insensitive" } } } } },
-      { tasks: { some: { serialNumber: { contains: searchingFor, mode: "insensitive" } } } },
+      { fantasyName: { contains: searchingFor, mode: 'insensitive' } },
+      { corporateName: { contains: searchingFor, mode: 'insensitive' } },
+      { email: { contains: searchingFor, mode: 'insensitive' } },
+      { city: { contains: searchingFor, mode: 'insensitive' } },
+      { state: { contains: searchingFor, mode: 'insensitive' } },
+      { neighborhood: { contains: searchingFor, mode: 'insensitive' } },
+      { address: { contains: searchingFor, mode: 'insensitive' } },
+      { tasks: { some: { truck: { plate: { contains: searchingFor, mode: 'insensitive' } } } } },
+      { tasks: { some: { serialNumber: { contains: searchingFor, mode: 'insensitive' } } } },
     ];
 
     // Add CNPJ search conditions - search both with original input and cleaned version
@@ -490,7 +495,10 @@ const customerTransform = (data: any) => {
     }
 
     andConditions.push({ OR: searchConditions });
-    console.log("[CustomerTransform] Added search OR conditions, total searchConditions:", searchConditions.length);
+    console.log(
+      '[CustomerTransform] Added search OR conditions, total searchConditions:',
+      searchConditions.length,
+    );
   }
 
   // Has tasks filter
@@ -531,9 +539,9 @@ const customerTransform = (data: any) => {
     andConditions.push({
       tasks: {
         some: {
-          status: taskStatus
-        }
-      }
+          status: taskStatus,
+        },
+      },
     });
   }
 
@@ -542,9 +550,9 @@ const customerTransform = (data: any) => {
     andConditions.push({
       tasks: {
         some: {
-          status: { in: taskStatuses }
-        }
-      }
+          status: { in: taskStatuses },
+        },
+      },
     });
   }
 
@@ -553,9 +561,9 @@ const customerTransform = (data: any) => {
     andConditions.push({
       tasks: {
         some: {
-          createdById: taskCreatedBy
-        }
-      }
+          createdById: taskCreatedBy,
+        },
+      },
     });
   }
 
@@ -590,8 +598,11 @@ const customerTransform = (data: any) => {
   delete data.taskCreatedBy;
 
   // Apply conditions to where clause
-  console.log("[CustomerTransform] andConditions count:", andConditions.length);
-  console.log("[CustomerTransform] Existing data.where:", JSON.stringify(data.where || {}).substring(0, 200));
+  console.log('[CustomerTransform] andConditions count:', andConditions.length);
+  console.log(
+    '[CustomerTransform] Existing data.where:',
+    JSON.stringify(data.where || {}).substring(0, 200),
+  );
   if (andConditions.length > 0) {
     if (data.where) {
       // Merge existing where conditions with new andConditions
@@ -608,7 +619,10 @@ const customerTransform = (data: any) => {
     }
   }
 
-  console.log("[CustomerTransform] Final data.where:", JSON.stringify(data.where || {}).substring(0, 300));
+  console.log(
+    '[CustomerTransform] Final data.where:',
+    JSON.stringify(data.where || {}).substring(0, 300),
+  );
   return data;
 };
 
@@ -654,7 +668,7 @@ export const customerGetManySchema = z
 
 export const customerGetByIdSchema = z.object({
   include: customerIncludeSchema.optional(),
-  id: z.string().uuid("Cliente inválido"),
+  id: z.string().uuid('Cliente inválido'),
 });
 
 // =====================
@@ -665,82 +679,146 @@ const toFormData = <T>(data: T) => data;
 
 export const customerCreateSchema = z
   .object({
-    fantasyName: z.string().min(1, "Nome fantasia é obrigatório"),
+    fantasyName: z.string().min(1, 'Nome fantasia é obrigatório'),
     cnpj: z
       .string()
       .nullable()
       .optional()
-      .refine((val) => !val || val === "" || isValidCNPJ(val), { message: "CNPJ inválido" }),
+      .refine(val => !val || val === '' || isValidCNPJ(val), { message: 'CNPJ inválido' }),
     cpf: z
       .string()
       .nullable()
       .optional()
-      .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
+      .refine(val => !val || val === '' || isValidCPF(val), { message: 'CPF inválido' }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
-    streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
+    streetType: z
+      .enum([
+        'STREET',
+        'AVENUE',
+        'ALLEY',
+        'CROSSING',
+        'SQUARE',
+        'HIGHWAY',
+        'ROAD',
+        'WAY',
+        'PLAZA',
+        'LANE',
+        'DEADEND',
+        'SMALL_STREET',
+        'PATH',
+        'PASSAGE',
+        'GARDEN',
+        'BLOCK',
+        'LOT',
+        'SITE',
+        'PARK',
+        'FARM',
+        'RANCH',
+        'CONDOMINIUM',
+        'COMPLEX',
+        'RESIDENTIAL',
+        'OTHER',
+      ])
+      .nullable()
+      .optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().length(2, "Estado deve ter 2 caracteres").nullable().optional(),
+    state: z.string().length(2, 'Estado deve ter 2 caracteres').nullable().optional(),
     zipCode: z.string().nullable().optional(),
-    site: z.string().url("URL inválida").nullable().optional(),
+    site: z.string().url('URL inválida').nullable().optional(),
     phones: z.array(z.string()).default([]),
     tags: z.array(z.string()).default([]),
-    logoId: z.string().uuid("Logo inválido").nullable().optional(),
-    economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
-    registrationStatus: z.enum(["ACTIVE", "SUSPENDED", "UNFIT", "ACTIVE_NOT_REGULAR", "DEREGISTERED"]).nullable().optional(),
+    logoId: z.string().uuid('Logo inválido').nullable().optional(),
+    economicActivityId: z.string().uuid('Atividade econômica inválida').nullable().optional(),
+    registrationStatus: z
+      .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
+      .nullable()
+      .optional(),
   })
   .transform(toFormData)
   .refine(
-    (data) => {
+    data => {
       // At least one document (CNPJ or CPF) must be provided
       return data.cnpj || data.cpf;
     },
     {
-      message: "É necessário informar CNPJ ou CPF",
-      path: ["cnpj"],
+      message: 'É necessário informar CNPJ ou CPF',
+      path: ['cnpj'],
     },
   );
 
 // Minimal schema for quick customer creation (e.g., from combobox)
 export const customerQuickCreateSchema = z
   .object({
-    fantasyName: z.string().min(1, "Nome fantasia é obrigatório"),
+    fantasyName: z.string().min(1, 'Nome fantasia é obrigatório'),
   })
   .transform(toFormData);
 
 export const customerUpdateSchema = z
   .object({
-    fantasyName: z.string().min(1, "Nome fantasia é obrigatório").optional(),
+    fantasyName: z.string().min(1, 'Nome fantasia é obrigatório').optional(),
     cnpj: z
       .string()
       .nullable()
       .optional()
-      .refine((val) => !val || val === "" || isValidCNPJ(val), { message: "CNPJ inválido" }),
+      .refine(val => !val || val === '' || isValidCNPJ(val), { message: 'CNPJ inválido' }),
     cpf: z
       .string()
       .nullable()
       .optional()
-      .refine((val) => !val || val === "" || isValidCPF(val), { message: "CPF inválido" }),
+      .refine(val => !val || val === '' || isValidCPF(val), { message: 'CPF inválido' }),
     corporateName: z.string().nullable().optional(),
     email: emailSchema.nullable().optional(),
-    streetType: z.enum(["STREET", "AVENUE", "ALLEY", "CROSSING", "SQUARE", "HIGHWAY", "ROAD", "WAY", "PLAZA", "LANE", "DEADEND", "SMALL_STREET", "PATH", "PASSAGE", "GARDEN", "BLOCK", "LOT", "SITE", "PARK", "FARM", "RANCH", "CONDOMINIUM", "COMPLEX", "RESIDENTIAL", "OTHER"]).nullable().optional(),
+    streetType: z
+      .enum([
+        'STREET',
+        'AVENUE',
+        'ALLEY',
+        'CROSSING',
+        'SQUARE',
+        'HIGHWAY',
+        'ROAD',
+        'WAY',
+        'PLAZA',
+        'LANE',
+        'DEADEND',
+        'SMALL_STREET',
+        'PATH',
+        'PASSAGE',
+        'GARDEN',
+        'BLOCK',
+        'LOT',
+        'SITE',
+        'PARK',
+        'FARM',
+        'RANCH',
+        'CONDOMINIUM',
+        'COMPLEX',
+        'RESIDENTIAL',
+        'OTHER',
+      ])
+      .nullable()
+      .optional(),
     address: z.string().nullable().optional(),
     addressNumber: z.string().nullable().optional(),
     addressComplement: z.string().nullable().optional(),
     neighborhood: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    state: z.string().length(2, "Estado deve ter 2 caracteres").nullable().optional(),
+    state: z.string().length(2, 'Estado deve ter 2 caracteres').nullable().optional(),
     zipCode: z.string().nullable().optional(),
-    site: z.string().url("URL inválida").nullable().optional(),
+    site: z.string().url('URL inválida').nullable().optional(),
     phones: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
-    logoId: z.string().uuid("Logo inválido").nullable().optional(),
-    economicActivityId: z.string().uuid("Atividade econômica inválida").nullable().optional(),
-    registrationStatus: z.enum(["ACTIVE", "SUSPENDED", "UNFIT", "ACTIVE_NOT_REGULAR", "DEREGISTERED"]).nullable().optional(),
+    logoId: z.string().uuid('Logo inválido').nullable().optional(),
+    economicActivityId: z.string().uuid('Atividade econômica inválida').nullable().optional(),
+    registrationStatus: z
+      .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
+      .nullable()
+      .optional(),
   })
   .transform(toFormData);
 
@@ -756,15 +834,17 @@ export const customerBatchUpdateSchema = z.object({
   customers: z
     .array(
       z.object({
-        id: z.string().uuid("Cliente inválido"),
+        id: z.string().uuid('Cliente inválido'),
         data: customerUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um cliente deve ser fornecido"),
+    .min(1, 'Pelo menos um cliente deve ser fornecido'),
 });
 
 export const customerBatchDeleteSchema = z.object({
-  customerIds: z.array(z.string().uuid("Cliente inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  customerIds: z
+    .array(z.string().uuid('Cliente inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -809,11 +889,11 @@ export const customerMergeConflictsSchema = z
   .optional();
 
 export const customerMergeSchema = z.object({
-  targetCustomerId: z.string().uuid({ message: "ID do cliente principal inválido" }),
+  targetCustomerId: z.string().uuid({ message: 'ID do cliente principal inválido' }),
   sourceCustomerIds: z
-    .array(z.string().uuid({ message: "ID de cliente inválido" }))
-    .min(1, { message: "É necessário selecionar pelo menos 1 cliente para mesclar" })
-    .max(10, { message: "Máximo de 10 clientes podem ser mesclados por vez" }),
+    .array(z.string().uuid({ message: 'ID de cliente inválido' }))
+    .min(1, { message: 'É necessário selecionar pelo menos 1 cliente para mesclar' })
+    .max(10, { message: 'Máximo de 10 clientes podem ser mesclados por vez' }),
   conflictResolutions: z.record(z.any()).optional(),
 });
 
@@ -824,24 +904,32 @@ export type CustomerMergeFormData = z.infer<typeof customerMergeSchema>;
 // Helper Functions
 // =====================
 
-export const mapCustomerToFormData = createMapToFormDataHelper<Customer, CustomerUpdateFormData>((customer) => ({
-  fantasyName: customer.fantasyName,
-  cnpj: customer.cnpj,
-  cpf: customer.cpf,
-  corporateName: customer.corporateName,
-  email: customer.email,
-  streetType: customer.streetType as any,
-  address: customer.address,
-  addressNumber: customer.addressNumber,
-  addressComplement: customer.addressComplement,
-  neighborhood: customer.neighborhood,
-  city: customer.city,
-  state: customer.state,
-  zipCode: customer.zipCode,
-  site: customer.site,
-  phones: customer.phones,
-  tags: customer.tags,
-  logoId: customer.logoId,
-  economicActivityId: customer.economicActivityId,
-  registrationStatus: customer.registrationStatus as "ACTIVE" | "SUSPENDED" | "UNFIT" | "ACTIVE_NOT_REGULAR" | "DEREGISTERED" | null,
-}));
+export const mapCustomerToFormData = createMapToFormDataHelper<Customer, CustomerUpdateFormData>(
+  customer => ({
+    fantasyName: customer.fantasyName,
+    cnpj: customer.cnpj,
+    cpf: customer.cpf,
+    corporateName: customer.corporateName,
+    email: customer.email,
+    streetType: customer.streetType as any,
+    address: customer.address,
+    addressNumber: customer.addressNumber,
+    addressComplement: customer.addressComplement,
+    neighborhood: customer.neighborhood,
+    city: customer.city,
+    state: customer.state,
+    zipCode: customer.zipCode,
+    site: customer.site,
+    phones: customer.phones,
+    tags: customer.tags,
+    logoId: customer.logoId,
+    economicActivityId: customer.economicActivityId,
+    registrationStatus: customer.registrationStatus as
+      | 'ACTIVE'
+      | 'SUSPENDED'
+      | 'UNFIT'
+      | 'ACTIVE_NOT_REGULAR'
+      | 'DEREGISTERED'
+      | null,
+  }),
+);

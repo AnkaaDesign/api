@@ -211,10 +211,7 @@ export class DeploymentService {
   /**
    * Buscar deployment por ID
    */
-  async findById(
-    id: string,
-    include?: DeploymentInclude,
-  ): Promise<DeploymentGetUniqueResponse> {
+  async findById(id: string, include?: DeploymentInclude): Promise<DeploymentGetUniqueResponse> {
     try {
       const deployment = await this.deploymentRepository.findById(id, { include });
 
@@ -236,9 +233,7 @@ export class DeploymentService {
   /**
    * Buscar deployments com filtros
    */
-  async findMany(
-    params: DeploymentGetManyFormData,
-  ): Promise<DeploymentGetManyResponse> {
+  async findMany(params: DeploymentGetManyFormData): Promise<DeploymentGetManyResponse> {
     try {
       const options: FindManyOptions<DeploymentInclude> = {
         where: params.where,
@@ -348,7 +343,7 @@ export class DeploymentService {
     userId: string,
   ): Promise<DeploymentBatchResponse> {
     try {
-      const results = await this.prisma.$transaction(async (tx) => {
+      const results = await this.prisma.$transaction(async tx => {
         const created: Deployment[] = [];
         const errors: Array<{ index: number; error: string }> = [];
 
@@ -384,7 +379,7 @@ export class DeploymentService {
         message: `${results.created.length} deployment(s) criado(s) com sucesso.`,
         data: {
           success: results.created,
-          failed: results.errors.map((e) => ({
+          failed: results.errors.map(e => ({
             index: e.index,
             error: e.error,
             data: data.deployments[e.index],
@@ -408,7 +403,7 @@ export class DeploymentService {
     userId: string,
   ): Promise<DeploymentBatchResponse> {
     try {
-      const results = await this.prisma.$transaction(async (tx) => {
+      const results = await this.prisma.$transaction(async tx => {
         const updated: Deployment[] = [];
         const errors: Array<{ id: string; error: string }> = [];
 
@@ -473,7 +468,7 @@ export class DeploymentService {
     userId: string,
   ): Promise<DeploymentBatchResponse> {
     try {
-      const results = await this.prisma.$transaction(async (tx) => {
+      const results = await this.prisma.$transaction(async tx => {
         const deleted: Deployment[] = [];
         const errors: Array<{ id: string; error: string }> = [];
 
@@ -709,7 +704,7 @@ export class DeploymentService {
       });
 
       // Format the response
-      const formattedCommits = commits.map((commit) => ({
+      const formattedCommits = commits.map(commit => ({
         hash: commit.hash,
         shortHash: commit.shortHash,
         author: commit.author,
@@ -865,10 +860,7 @@ export class DeploymentService {
       const hmac = crypto.createHmac('sha256', secret);
       const expectedSignature = 'sha256=' + hmac.update(payload).digest('hex');
 
-      return crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature),
-      );
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
     } catch (error) {
       this.logger.error(`Signature verification error: ${error.message}`);
       return false;
@@ -894,7 +886,7 @@ export class DeploymentService {
         commitHash,
         branch,
       })
-      .catch((error) => {
+      .catch(error => {
         this.logger.error(`Deployment ${deploymentId} failed in background: ${error.message}`);
       });
   }

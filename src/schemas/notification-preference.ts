@@ -1,9 +1,10 @@
 // packages/schemas/src/notification-preference.ts
 
-import { z } from "zod";
+import { z } from 'zod';
 import {
   createMapToFormDataHelper,
-  orderByDirectionSchema, normalizeOrderBy,
+  orderByDirectionSchema,
+  normalizeOrderBy,
   createStringWhereSchema,
   createDateWhereSchema,
   createBooleanWhereSchema,
@@ -11,7 +12,7 @@ import {
   createBatchCreateSchema,
   createBatchUpdateSchema,
   createBatchQuerySchema,
-} from "./common";
+} from './common';
 import { NOTIFICATION_CHANNEL, NOTIFICATION_IMPORTANCE } from '@constants';
 import type { NotificationPreference } from '@types';
 
@@ -22,7 +23,9 @@ import type { NotificationPreference } from '@types';
 export const notificationPreferenceIncludeSchema = z
   .object({
     preferences: z.boolean().optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .optional();
 
@@ -65,9 +68,13 @@ export const notificationPreferenceWhereSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
       // Boolean operators
-      AND: z.union([notificationPreferenceWhereSchema, z.array(notificationPreferenceWhereSchema)]).optional(),
+      AND: z
+        .union([notificationPreferenceWhereSchema, z.array(notificationPreferenceWhereSchema)])
+        .optional(),
       OR: z.array(notificationPreferenceWhereSchema).optional(),
-      NOT: z.union([notificationPreferenceWhereSchema, z.array(notificationPreferenceWhereSchema)]).optional(),
+      NOT: z
+        .union([notificationPreferenceWhereSchema, z.array(notificationPreferenceWhereSchema)])
+        .optional(),
 
       // Fields
       id: createStringWhereSchema().optional(),
@@ -156,7 +163,7 @@ const notificationPreferenceTransform = (data: any) => {
   const andConditions: any[] = [];
 
   // Boolean filters
-  if (typeof data.enabled === "boolean") {
+  if (typeof data.enabled === 'boolean') {
     andConditions.push({ enabled: data.enabled });
     delete data.enabled;
   }
@@ -170,17 +177,29 @@ const notificationPreferenceTransform = (data: any) => {
   }
 
   // Array filters
-  if (data.notificationPreferenceIds && Array.isArray(data.notificationPreferenceIds) && data.notificationPreferenceIds.length > 0) {
+  if (
+    data.notificationPreferenceIds &&
+    Array.isArray(data.notificationPreferenceIds) &&
+    data.notificationPreferenceIds.length > 0
+  ) {
     andConditions.push({ id: { in: data.notificationPreferenceIds } });
     delete data.notificationPreferenceIds;
   }
 
-  if (data.notificationTypes && Array.isArray(data.notificationTypes) && data.notificationTypes.length > 0) {
+  if (
+    data.notificationTypes &&
+    Array.isArray(data.notificationTypes) &&
+    data.notificationTypes.length > 0
+  ) {
     andConditions.push({ notificationType: { in: data.notificationTypes } });
     delete data.notificationTypes;
   }
 
-  if (data.importanceLevels && Array.isArray(data.importanceLevels) && data.importanceLevels.length > 0) {
+  if (
+    data.importanceLevels &&
+    Array.isArray(data.importanceLevels) &&
+    data.importanceLevels.length > 0
+  ) {
     andConditions.push({ importance: { in: data.importanceLevels } });
     delete data.importanceLevels;
   }
@@ -226,7 +245,7 @@ export const notificationPreferenceGetManySchema = z
 
 export const notificationPreferenceGetByIdSchema = z.object({
   include: notificationPreferenceIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Preferência de notificação inválida" }),
+  id: z.string().uuid({ message: 'Preferência de notificação inválida' }),
 });
 
 // =====================
@@ -237,9 +256,11 @@ const toFormData = <T>(data: T) => data;
 
 export const notificationPreferenceCreateSchema = z
   .object({
-    notificationType: z.string().min(1, "Tipo de notificação é obrigatório"),
+    notificationType: z.string().min(1, 'Tipo de notificação é obrigatório'),
     enabled: z.boolean(),
-    channels: z.array(z.nativeEnum(NOTIFICATION_CHANNEL)).min(1, "Deve incluir pelo menos um canal"),
+    channels: z
+      .array(z.nativeEnum(NOTIFICATION_CHANNEL))
+      .min(1, 'Deve incluir pelo menos um canal'),
     importance: z.nativeEnum(NOTIFICATION_IMPORTANCE),
   })
   .transform(toFormData);
@@ -248,7 +269,10 @@ export const notificationPreferenceUpdateSchema = z
   .object({
     notificationType: z.string().min(1).optional(),
     enabled: z.boolean().optional(),
-    channels: z.array(z.nativeEnum(NOTIFICATION_CHANNEL)).min(1, "Deve incluir pelo menos um canal").optional(),
+    channels: z
+      .array(z.nativeEnum(NOTIFICATION_CHANNEL))
+      .min(1, 'Deve incluir pelo menos um canal')
+      .optional(),
     importance: z.nativeEnum(NOTIFICATION_IMPORTANCE).optional(),
   })
   .transform(toFormData);
@@ -257,35 +281,57 @@ export const notificationPreferenceUpdateSchema = z
 // Batch Operations
 // =====================
 
-export const notificationPreferenceBatchCreateSchema = createBatchCreateSchema(notificationPreferenceCreateSchema, "preferência de notificação");
-export const notificationPreferenceBatchUpdateSchema = createBatchUpdateSchema(notificationPreferenceUpdateSchema, "preferência de notificação");
+export const notificationPreferenceBatchCreateSchema = createBatchCreateSchema(
+  notificationPreferenceCreateSchema,
+  'preferência de notificação',
+);
+export const notificationPreferenceBatchUpdateSchema = createBatchUpdateSchema(
+  notificationPreferenceUpdateSchema,
+  'preferência de notificação',
+);
 // Custom batch delete schema with normalized property name
 export const notificationPreferenceBatchDeleteSchema = z.object({
   notificationPreferenceIds: z
-    .array(z.string().uuid({ message: "Preferência de notificação inválida" }))
-    .min(1, "Deve incluir pelo menos uma preferência de notificação")
-    .max(100, "Limite máximo de 100 preferências de notificação por vez"),
+    .array(z.string().uuid({ message: 'Preferência de notificação inválida' }))
+    .min(1, 'Deve incluir pelo menos uma preferência de notificação')
+    .max(100, 'Limite máximo de 100 preferências de notificação por vez'),
   reason: z.string().optional(),
 });
-export const notificationPreferenceQuerySchema = createBatchQuerySchema(notificationPreferenceIncludeSchema);
+export const notificationPreferenceQuerySchema = createBatchQuerySchema(
+  notificationPreferenceIncludeSchema,
+);
 
 // =====================
 // Type Inference
 // =====================
 
 // Query types
-export type NotificationPreferenceGetManyFormData = z.infer<typeof notificationPreferenceGetManySchema>;
-export type NotificationPreferenceGetByIdFormData = z.infer<typeof notificationPreferenceGetByIdSchema>;
+export type NotificationPreferenceGetManyFormData = z.infer<
+  typeof notificationPreferenceGetManySchema
+>;
+export type NotificationPreferenceGetByIdFormData = z.infer<
+  typeof notificationPreferenceGetByIdSchema
+>;
 export type NotificationPreferenceQueryFormData = z.infer<typeof notificationPreferenceQuerySchema>;
 
 // CRUD types
-export type NotificationPreferenceCreateFormData = z.infer<typeof notificationPreferenceCreateSchema>;
-export type NotificationPreferenceUpdateFormData = z.infer<typeof notificationPreferenceUpdateSchema>;
+export type NotificationPreferenceCreateFormData = z.infer<
+  typeof notificationPreferenceCreateSchema
+>;
+export type NotificationPreferenceUpdateFormData = z.infer<
+  typeof notificationPreferenceUpdateSchema
+>;
 
 // Batch types
-export type NotificationPreferenceBatchCreateFormData = z.infer<typeof notificationPreferenceBatchCreateSchema>;
-export type NotificationPreferenceBatchUpdateFormData = z.infer<typeof notificationPreferenceBatchUpdateSchema>;
-export type NotificationPreferenceBatchDeleteFormData = z.infer<typeof notificationPreferenceBatchDeleteSchema>;
+export type NotificationPreferenceBatchCreateFormData = z.infer<
+  typeof notificationPreferenceBatchCreateSchema
+>;
+export type NotificationPreferenceBatchUpdateFormData = z.infer<
+  typeof notificationPreferenceBatchUpdateSchema
+>;
+export type NotificationPreferenceBatchDeleteFormData = z.infer<
+  typeof notificationPreferenceBatchDeleteSchema
+>;
 
 // Include/OrderBy/Where types
 export type NotificationPreferenceInclude = z.infer<typeof notificationPreferenceIncludeSchema>;
@@ -296,7 +342,10 @@ export type NotificationPreferenceWhere = z.infer<typeof notificationPreferenceW
 // Helper Functions
 // =====================
 
-export const mapNotificationPreferenceToFormData = createMapToFormDataHelper<NotificationPreference, NotificationPreferenceUpdateFormData>((preference) => ({
+export const mapNotificationPreferenceToFormData = createMapToFormDataHelper<
+  NotificationPreference,
+  NotificationPreferenceUpdateFormData
+>(preference => ({
   notificationType: preference.notificationType,
   enabled: preference.enabled,
   channels: preference.channels,

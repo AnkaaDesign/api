@@ -1,9 +1,17 @@
 // packages/interfaces/src/borrow.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
 import type { ORDER_BY_DIRECTION, BORROW_STATUS } from '@constants';
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Main Entity Interface
@@ -70,5 +78,7 @@ export interface BorrowDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface BorrowBatchCreateResponse<T> extends BaseBatchResponse<Borrow, T> {}
-export interface BorrowBatchUpdateResponse<T> extends BaseBatchResponse<Borrow, T & { id: string }> {}
-export interface BorrowBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface BorrowBatchUpdateResponse<T>
+  extends BaseBatchResponse<Borrow, T & { id: string }> {}
+export interface BorrowBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

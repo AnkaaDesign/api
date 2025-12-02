@@ -450,9 +450,14 @@ export class SupplierService {
 
         // Atualizar o fornecedor with logo ID if a new file was uploaded
         const updateData = logoFile ? { ...data, logoId } : data;
-        const updatedSupplier = await this.supplierRepository.updateWithTransaction(tx, id, updateData, {
-          include,
-        });
+        const updatedSupplier = await this.supplierRepository.updateWithTransaction(
+          tx,
+          id,
+          updateData,
+          {
+            include,
+          },
+        );
 
         // Registrar mudanças individuais de campos no changelog
         await trackAndLogFieldChanges({

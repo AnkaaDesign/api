@@ -262,7 +262,6 @@ export class MaintenanceController {
   ): Promise<MaintenanceUpdateResponse> {
     return this.maintenanceService.finish(id, query.include, userId);
   }
-
 }
 
 @Controller('maintenance-items')

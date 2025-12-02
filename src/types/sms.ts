@@ -13,7 +13,7 @@ export interface SendSmsOptions {
 
 export interface SmsDeliveryStatus {
   messageId: string;
-  status: "pending" | "sent" | "delivered" | "failed";
+  status: 'pending' | 'sent' | 'delivered' | 'failed';
   error?: string;
   timestamp?: Date;
 }

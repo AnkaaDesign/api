@@ -96,11 +96,7 @@ export class ChangeLogController {
   }
 
   @Get('order/:id/history')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   async getOrderHistory(@Param('id') orderId: string) {
     const data = await this.changeLogService.getOrderHistory(orderId);
 

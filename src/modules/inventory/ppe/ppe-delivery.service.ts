@@ -555,7 +555,7 @@ export class PpeDeliveryService {
 
     // If not provided, try to get from item's PPE fields
     if (!sizeInfo && item.ppeType) {
-      sizeInfo = item.ppeSize || undefined;
+      // Note: ppeSize field removed from Item model
       ppeType = item.ppeType;
     }
 
@@ -1043,7 +1043,7 @@ export class PpeDeliveryService {
             userName,
             quantity: originalData?.quantity,
           };
-        })
+        }),
       );
 
       return {
@@ -1227,13 +1227,8 @@ export class PpeDeliveryService {
             break;
         }
 
-        // Validate size match
-        if (sizeInfo && oldDelivery.item.ppeSize !== sizeInfo) {
-          throw new BadRequestException(
-            `O tamanho do PPE (${oldDelivery.item.ppeSize}) não corresponde ao tamanho do usuário (${sizeInfo}). ` +
-              `Não é possível marcar esta entrega como concluída.`,
-          );
-        }
+        // Note: Size validation removed - ppeSize field no longer in Item model
+        // Size should be validated at creation time via additionalInfo
       }
 
       const updatedDelivery = await this.repository.updateWithTransaction(
@@ -1367,13 +1362,8 @@ export class PpeDeliveryService {
             break;
         }
 
-        // Validate size match
-        if (sizeInfo && oldDelivery.item.ppeSize !== sizeInfo) {
-          throw new BadRequestException(
-            `O tamanho do PPE (${oldDelivery.item.ppeSize}) não corresponde ao tamanho do usuário (${sizeInfo}). ` +
-              `Não é possível marcar esta entrega como concluída.`,
-          );
-        }
+        // Note: Size validation removed - ppeSize field no longer in Item model
+        // Size should be validated at creation time via additionalInfo
       }
 
       const updatedDelivery = await this.repository.updateWithTransaction(
@@ -2062,16 +2052,8 @@ export class PpeDeliveryService {
                 break;
             }
 
-            // Validate size match
-            if (sizeInfo && delivery.item.ppeSize !== sizeInfo) {
-              results.push({
-                id: deliveryId,
-                success: false,
-                error: `O tamanho do PPE (${delivery.item.ppeSize}) não corresponde ao tamanho do usuário (${sizeInfo})`,
-              });
-              failedCount++;
-              continue;
-            }
+            // Note: Size validation removed - ppeSize field no longer in Item model
+            // Size should be validated at creation time via additionalInfo
           }
 
           // Update delivery status to delivered
@@ -2095,7 +2077,11 @@ export class PpeDeliveryService {
 
           // Try to auto-create the next delivery if this is linked to a schedule
           try {
-            const nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
+            const nextDelivery = await this.autoCreateNextDelivery(
+              updatedDelivery,
+              transaction,
+              userId,
+            );
             if (nextDelivery) {
               console.log(
                 `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
@@ -2113,7 +2099,11 @@ export class PpeDeliveryService {
             action: CHANGE_ACTION.UPDATE,
             field: 'batch_mark_delivered',
             oldValue: { status: delivery.status, actualDeliveryDate: null },
-            newValue: { status: PPE_DELIVERY_STATUS.DELIVERED, actualDeliveryDate, reviewedBy: reviewedById },
+            newValue: {
+              status: PPE_DELIVERY_STATUS.DELIVERED,
+              actualDeliveryDate,
+              reviewedBy: reviewedById,
+            },
             reason: 'Entrega marcada como entregue em lote',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: deliveryId,
@@ -2205,5 +2195,4 @@ export class PpeDeliveryService {
       },
     };
   }
-
 }

@@ -25,7 +25,11 @@ import { ExternalWithdrawalRepository } from './external-withdrawal.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma, ExternalWithdrawal as PrismaExternalWithdrawal } from '@prisma/client';
-import { EXTERNAL_WITHDRAWAL_STATUS_ORDER, EXTERNAL_WITHDRAWAL_STATUS, EXTERNAL_WITHDRAWAL_TYPE } from '../../../../../constants';
+import {
+  EXTERNAL_WITHDRAWAL_STATUS_ORDER,
+  EXTERNAL_WITHDRAWAL_STATUS,
+  EXTERNAL_WITHDRAWAL_TYPE,
+} from '../../../../../constants';
 
 @Injectable()
 export class ExternalWithdrawalPrismaRepository
@@ -59,14 +63,14 @@ export class ExternalWithdrawalPrismaRepository
       type: databaseEntity.type,
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
-      nfeId: databaseEntity.nfeId,
-      receiptId: databaseEntity.receiptId,
       notes: databaseEntity.notes,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
-      nfe: databaseEntity.nfe,
-      receipt: databaseEntity.receipt,
+      invoices: databaseEntity.invoices,
+      invoiceReimbursements: databaseEntity.invoiceReimbursements,
+      receipts: databaseEntity.receipts,
+      reimbursements: databaseEntity.reimbursements,
       items: databaseEntity.items,
     };
   }

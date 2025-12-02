@@ -14,7 +14,17 @@ import {
   ALERT_TYPE_LABELS,
 } from '@constants';
 
-import { PRIORITY_TYPE, RISK_LEVEL, HEALTH_STATUS, PERFORMANCE_LEVEL, URGENCY_LEVEL, EFFORT_LEVEL, CONFIDENCE_LEVEL, PERCENTAGE_ADJUST_TYPE, ALERT_TYPE } from '@constants';
+import {
+  PRIORITY_TYPE,
+  RISK_LEVEL,
+  HEALTH_STATUS,
+  PERFORMANCE_LEVEL,
+  URGENCY_LEVEL,
+  EFFORT_LEVEL,
+  CONFIDENCE_LEVEL,
+  PERCENTAGE_ADJUST_TYPE,
+  ALERT_TYPE,
+} from '@constants';
 
 // Priority and Risk
 export function getPriorityTypeLabel(type: PRIORITY_TYPE): string {

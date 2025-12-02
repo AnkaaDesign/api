@@ -1,5 +1,5 @@
 import { SCHEDULE_FREQUENCY } from '@constants';
-import { addDays, addWeeks, addMonths, addYears, startOfDay } from "date-fns";
+import { addDays, addWeeks, addMonths, addYears, startOfDay } from 'date-fns';
 
 /**
  * Universal schedule calculation utility
@@ -135,18 +135,18 @@ export function formatScheduleDescription(
     month?: string | null;
   },
 ): string {
-  if (!frequency) return "";
+  if (!frequency) return '';
 
   const parts: string[] = [];
 
   switch (frequency) {
     case SCHEDULE_FREQUENCY.ONCE:
-      parts.push("Uma vez");
+      parts.push('Uma vez');
       break;
 
     case SCHEDULE_FREQUENCY.DAILY:
       if (interval === 1) {
-        parts.push("Diariamente");
+        parts.push('Diariamente');
       } else {
         parts.push(`A cada ${interval} dias`);
       }
@@ -154,9 +154,9 @@ export function formatScheduleDescription(
 
     case SCHEDULE_FREQUENCY.WEEKLY:
       if (interval === 1) {
-        parts.push("Semanalmente");
+        parts.push('Semanalmente');
       } else if (interval === 2) {
-        parts.push("Quinzenalmente");
+        parts.push('Quinzenalmente');
       } else {
         parts.push(`A cada ${interval} semanas`);
       }
@@ -168,15 +168,15 @@ export function formatScheduleDescription(
 
     case SCHEDULE_FREQUENCY.MONTHLY:
       if (interval === 1) {
-        parts.push("Mensalmente");
+        parts.push('Mensalmente');
       } else if (interval === 2) {
-        parts.push("Bimestralmente");
+        parts.push('Bimestralmente');
       } else if (interval === 3) {
-        parts.push("Trimestralmente");
+        parts.push('Trimestralmente');
       } else if (interval === 4) {
-        parts.push("Quadrimestralmente");
+        parts.push('Quadrimestralmente');
       } else if (interval === 6) {
-        parts.push("Semestralmente");
+        parts.push('Semestralmente');
       } else {
         parts.push(`A cada ${interval} meses`);
       }
@@ -188,7 +188,7 @@ export function formatScheduleDescription(
 
     case SCHEDULE_FREQUENCY.ANNUAL:
       if (interval === 1) {
-        parts.push("Anualmente");
+        parts.push('Anualmente');
       } else {
         parts.push(`A cada ${interval} anos`);
       }
@@ -205,7 +205,7 @@ export function formatScheduleDescription(
       parts.push(frequency);
   }
 
-  return parts.join(" ");
+  return parts.join(' ');
 }
 
 /**
@@ -213,13 +213,13 @@ export function formatScheduleDescription(
  */
 function getDayOfWeekLabel(dayOfWeek: string): string {
   const labels: Record<string, string> = {
-    MONDAY: "segundas-feiras",
-    TUESDAY: "terças-feiras",
-    WEDNESDAY: "quartas-feiras",
-    THURSDAY: "quintas-feiras",
-    FRIDAY: "sextas-feiras",
-    SATURDAY: "sábados",
-    SUNDAY: "domingos",
+    MONDAY: 'segundas-feiras',
+    TUESDAY: 'terças-feiras',
+    WEDNESDAY: 'quartas-feiras',
+    THURSDAY: 'quintas-feiras',
+    FRIDAY: 'sextas-feiras',
+    SATURDAY: 'sábados',
+    SUNDAY: 'domingos',
   };
   return labels[dayOfWeek.toUpperCase()] ?? dayOfWeek;
 }
@@ -229,18 +229,18 @@ function getDayOfWeekLabel(dayOfWeek: string): string {
  */
 function getMonthLabel(month: string): string {
   const labels: Record<string, string> = {
-    JANUARY: "Janeiro",
-    FEBRUARY: "Fevereiro",
-    MARCH: "Março",
-    APRIL: "Abril",
-    MAY: "Maio",
-    JUNE: "Junho",
-    JULY: "Julho",
-    AUGUST: "Agosto",
-    SEPTEMBER: "Setembro",
-    OCTOBER: "Outubro",
-    NOVEMBER: "Novembro",
-    DECEMBER: "Dezembro",
+    JANUARY: 'Janeiro',
+    FEBRUARY: 'Fevereiro',
+    MARCH: 'Março',
+    APRIL: 'Abril',
+    MAY: 'Maio',
+    JUNE: 'Junho',
+    JULY: 'Julho',
+    AUGUST: 'Agosto',
+    SEPTEMBER: 'Setembro',
+    OCTOBER: 'Outubro',
+    NOVEMBER: 'Novembro',
+    DECEMBER: 'Dezembro',
   };
   return labels[month.toUpperCase()] ?? month;
 }

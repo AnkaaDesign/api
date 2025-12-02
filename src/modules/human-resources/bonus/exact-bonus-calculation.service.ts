@@ -26,8 +26,13 @@ export class ExactBonusCalculationService {
     if (normalized.includes('junioriv') || normalized.includes('júnioriv')) return 4;
     if (normalized.includes('junioriii') || normalized.includes('júnioriii')) return 3;
     if (normalized.includes('juniorii') || normalized.includes('júniorii')) return 2;
-    if (normalized.includes('juniori') || normalized.includes('júniori') ||
-        normalized === 'junior' || normalized === 'júnior') return 1;
+    if (
+      normalized.includes('juniori') ||
+      normalized.includes('júniori') ||
+      normalized === 'junior' ||
+      normalized === 'júnior'
+    )
+      return 1;
 
     // Pleno levels (5-8) - Check IV, III, II, then I
     if (normalized.includes('plenoiv')) return 8;
@@ -43,8 +48,13 @@ export class ExactBonusCalculationService {
     if (normalized.includes('senior') || normalized.includes('sênior')) return 11; // Default to Senior III
 
     // Default based on general category
-    if (normalized.includes('junior') || normalized.includes('júnior') ||
-        normalized.includes('auxiliar') || normalized.includes('estagiário')) return 1;
+    if (
+      normalized.includes('junior') ||
+      normalized.includes('júnior') ||
+      normalized.includes('auxiliar') ||
+      normalized.includes('estagiário')
+    )
+      return 1;
     if (normalized.includes('pleno')) return 5;
     if (normalized.includes('senior') || normalized.includes('sênior')) return 11;
 
@@ -55,11 +65,11 @@ export class ExactBonusCalculationService {
    * EXACT performance level multipliers from Excel spreadsheet
    */
   private readonly performanceMultipliers: Record<number, number> = {
-    1: 1.0,       // Base value
-    2: 2.0,       // Exactly 2x base
-    3: 3.0,       // Exactly 3x base
-    4: 3.5,       // Exactly 3.5x base
-    5: 4.0,       // Exactly 4x base
+    1: 1.0, // Base value
+    2: 2.0, // Exactly 2x base
+    3: 3.0, // Exactly 3x base
+    4: 3.5, // Exactly 3.5x base
+    5: 4.0, // Exactly 4x base
   };
 
   /**
@@ -67,14 +77,14 @@ export class ExactBonusCalculationService {
    * These were reverse-engineered from actual Excel values
    */
   private readonly positionFactorsFromPosition9: Record<number, number> = {
-    1: 0.0972,  // Position 1: 9.72% of Position 9
-    2: 0.1932,  // Position 2: 19.32% of Position 9
-    3: 0.3220,  // Position 3: 32.20% of Position 9
-    4: 0.4609,  // Position 4: 46.09% of Position 9
-    5: 0.5985,  // Position 5: 59.85% of Position 9
-    6: 0.7210,  // Position 6: 72.10% of Position 9
-    7: 0.8283,  // Position 7: 82.83% of Position 9
-    8: 0.9205,  // Position 8: 92.05% of Position 9
+    1: 0.0972, // Position 1: 9.72% of Position 9
+    2: 0.1932, // Position 2: 19.32% of Position 9
+    3: 0.322, // Position 3: 32.20% of Position 9
+    4: 0.4609, // Position 4: 46.09% of Position 9
+    5: 0.5985, // Position 5: 59.85% of Position 9
+    6: 0.721, // Position 6: 72.10% of Position 9
+    7: 0.8283, // Position 7: 82.83% of Position 9
+    8: 0.9205, // Position 8: 92.05% of Position 9
   };
 
   /**
@@ -83,14 +93,13 @@ export class ExactBonusCalculationService {
    */
   private calculatePosition11Base(averageTasksPerUser: number): number {
     const b1 = averageTasksPerUser;
-    const polynomial = (
+    const polynomial =
       3.31 * Math.pow(b1, 5) -
       61.07 * Math.pow(b1, 4) +
       364.82 * Math.pow(b1, 3) -
       719.54 * Math.pow(b1, 2) +
       465.16 * b1 -
-      3.24
-    );
+      3.24;
     return polynomial * 0.4; // 40% as per Excel formula
   }
 
@@ -122,7 +131,11 @@ export class ExactBonusCalculationService {
    * @param performanceLevel User's performance level (1-5)
    * @param averageTasksPerUser B1 value (average weighted tasks per eligible user)
    */
-  calculateBonus(positionName: string, performanceLevel: number, averageTasksPerUser: number): number {
+  calculateBonus(
+    positionName: string,
+    performanceLevel: number,
+    averageTasksPerUser: number,
+  ): number {
     try {
       const positionLevel = this.getPositionLevel(positionName);
       const clampedPerformanceLevel = Math.max(1, Math.min(5, performanceLevel));
@@ -150,11 +163,10 @@ export class ExactBonusCalculationService {
 
       this.logger.debug(
         `Bonus calculation: Position "${positionName}" (level ${positionLevel}), ` +
-        `Performance ${clampedPerformanceLevel}, Tasks ${taskCount.toFixed(2)} = R$ ${bonusValue.toFixed(2)}`
+          `Performance ${clampedPerformanceLevel}, Tasks ${taskCount.toFixed(2)} = R$ ${bonusValue.toFixed(2)}`,
       );
 
       return Math.max(0, bonusValue); // Ensure non-negative
-
     } catch (error) {
       this.logger.error('Error in bonus calculation:', error);
       return 0;
@@ -164,7 +176,11 @@ export class ExactBonusCalculationService {
   /**
    * Get detailed calculation breakdown for debugging
    */
-  getCalculationDetails(positionName: string, performanceLevel: number, averageTasksPerUser: number): {
+  getCalculationDetails(
+    positionName: string,
+    performanceLevel: number,
+    averageTasksPerUser: number,
+  ): {
     positionLevel: number;
     positionName: string;
     performanceLevel: number;
@@ -194,7 +210,7 @@ export class ExactBonusCalculationService {
       positionBase,
       performanceMultiplier,
       bonusValue,
-      formula: `Position11Base(${taskCount.toFixed(2)}) = R$ ${position11Base.toFixed(2)} → Cascade[${positionLevel}] = R$ ${positionBase.toFixed(2)} × Performance[${clampedPerformanceLevel}] = R$ ${bonusValue.toFixed(2)}`
+      formula: `Position11Base(${taskCount.toFixed(2)}) = R$ ${position11Base.toFixed(2)} → Cascade[${positionLevel}] = R$ ${positionBase.toFixed(2)} × Performance[${clampedPerformanceLevel}] = R$ ${bonusValue.toFixed(2)}`,
     };
   }
 
@@ -214,7 +230,7 @@ export class ExactBonusCalculationService {
       position: test.position,
       level: test.level,
       tasks: test.tasks,
-      bonus: this.calculateBonus(test.position, test.level, test.tasks)
+      bonus: this.calculateBonus(test.position, test.level, test.tasks),
     }));
   }
 }

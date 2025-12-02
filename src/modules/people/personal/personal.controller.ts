@@ -182,7 +182,9 @@ export class PersonalController {
 
     try {
       const result = await this.personalService.requestEpi(userId, data);
-      this.logger.log(`[PPE Request API] Request successful for user: ${userId}, delivery ID: ${result.data.id}`);
+      this.logger.log(
+        `[PPE Request API] Request successful for user: ${userId}, delivery ID: ${result.data.id}`,
+      );
       return result;
     } catch (error) {
       this.logger.error(`[PPE Request API] Request failed for user: ${userId}`, error);
@@ -244,7 +246,7 @@ export class PersonalController {
   )
   async getMyHolidays(
     @Query('year') year?: string,
-    @UserId() userId: string,
+    @UserId() userId?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -281,7 +283,7 @@ export class PersonalController {
     @Query('endDate') endDate: string,
     @Query('page') page?: string,
     @Query('take') take?: string,
-    @UserId() userId: string,
+    @UserId() userId?: string,
   ): Promise<{
     success: boolean;
     data: any;

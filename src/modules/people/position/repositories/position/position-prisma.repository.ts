@@ -44,7 +44,6 @@ export class PositionPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Position {
     const position = databaseEntity as Position;
 
-
     // Add virtual remuneration field from latest remuneration record
     if (position.remunerations && position.remunerations.length > 0) {
       // Assuming remunerations are ordered by createdAt desc
@@ -102,7 +101,7 @@ export class PositionPrismaRepository
     if (Array.isArray(orderBy)) {
       // Check if any orderBy contains 'remuneration' (virtual field)
       const hasRemunerationSort = orderBy.some(
-        (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+        order => typeof order === 'object' && order !== null && 'remuneration' in order,
       );
 
       if (hasRemunerationSort) {
@@ -273,7 +272,7 @@ export class PositionPrismaRepository
 
     if (Array.isArray(orderBy)) {
       return orderBy.some(
-        (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+        order => typeof order === 'object' && order !== null && 'remuneration' in order,
       );
     }
 
@@ -285,7 +284,7 @@ export class PositionPrismaRepository
 
     const orderByArray = Array.isArray(orderBy) ? orderBy : [orderBy];
     const remunerationOrder = orderByArray.find(
-      (order) => typeof order === 'object' && order !== null && 'remuneration' in order,
+      order => typeof order === 'object' && order !== null && 'remuneration' in order,
     );
 
     if (!remunerationOrder || typeof remunerationOrder !== 'object') return positions;
@@ -293,10 +292,8 @@ export class PositionPrismaRepository
     const direction = (remunerationOrder as any).remuneration === 'desc' ? -1 : 1;
 
     return [...positions].sort((a, b) => {
-      const aValue =
-        a.remunerations && a.remunerations.length > 0 ? a.remunerations[0].value : 0;
-      const bValue =
-        b.remunerations && b.remunerations.length > 0 ? b.remunerations[0].value : 0;
+      const aValue = a.remunerations && a.remunerations.length > 0 ? a.remunerations[0].value : 0;
+      const bValue = b.remunerations && b.remunerations.length > 0 ? b.remunerations[0].value : 0;
 
       return (aValue - bValue) * direction;
     });

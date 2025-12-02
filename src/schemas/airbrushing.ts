@@ -1,7 +1,13 @@
 // packages/schemas/src/airbrushing.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableDate, toFormData } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableDate,
+  toFormData,
+} from './common';
 import type { Airbrushing } from '@types';
 import { AIRBRUSHING_STATUS } from '@constants';
 
@@ -444,7 +450,10 @@ const airbrushingTransform = (data: any): any => {
   // Transform convenience filters to where conditions
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ task: { name: { contains: data.searchingFor, mode: "insensitive" } } }, { task: { customer: { name: { contains: data.searchingFor, mode: "insensitive" } } } }],
+      OR: [
+        { task: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { task: { customer: { name: { contains: data.searchingFor, mode: 'insensitive' } } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -510,7 +519,11 @@ const airbrushingTransform = (data: any): any => {
   // Merge with existing where conditions
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -566,20 +579,20 @@ export const airbrushingCreateSchema = z.preprocess(
     finishDate: nullableDate.optional(),
     price: z
       .number({
-        invalid_type_error: "Preço inválido",
+        invalid_type_error: 'Preço inválido',
       })
-      .min(0, "Preço deve ser maior ou igual a zero")
+      .min(0, 'Preço deve ser maior ou igual a zero')
       .nullable()
       .optional(),
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PENDING),
-    taskId: z.string().uuid("Tarefa inválida"),
+    taskId: z.string().uuid('Tarefa inválida'),
     budgetIds: z.array(z.string().uuid()).optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
     reimbursementIds: z.array(z.string().uuid()).optional(),
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
-  })
+  }),
 );
 
 export const airbrushingUpdateSchema = z.preprocess(
@@ -589,20 +602,20 @@ export const airbrushingUpdateSchema = z.preprocess(
     finishDate: nullableDate.optional(),
     price: z
       .number({
-        invalid_type_error: "Preço inválido",
+        invalid_type_error: 'Preço inválido',
       })
-      .min(0, "Preço deve ser maior ou igual a zero")
+      .min(0, 'Preço deve ser maior ou igual a zero')
       .nullable()
       .optional(),
     status: z.nativeEnum(AIRBRUSHING_STATUS).optional(),
-    taskId: z.string().uuid("Tarefa inválida").optional(),
+    taskId: z.string().uuid('Tarefa inválida').optional(),
     budgetIds: z.array(z.string().uuid()).optional(),
     invoiceIds: z.array(z.string().uuid()).optional(),
     receiptIds: z.array(z.string().uuid()).optional(),
     reimbursementIds: z.array(z.string().uuid()).optional(),
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
-  })
+  }),
 );
 
 // =====================
@@ -617,15 +630,17 @@ export const airbrushingBatchUpdateSchema = z.object({
   airbrushings: z
     .array(
       z.object({
-        id: z.string().uuid("Airbrushing inválido"),
+        id: z.string().uuid('Airbrushing inválido'),
         data: airbrushingUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const airbrushingBatchDeleteSchema = z.object({
-  airbrushingIds: z.array(z.string().uuid("Airbrushing inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  airbrushingIds: z
+    .array(z.string().uuid('Airbrushing inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -639,7 +654,7 @@ export const airbrushingQuerySchema = z.object({
 
 export const airbrushingGetByIdSchema = z.object({
   include: airbrushingIncludeSchema.optional(),
-  id: z.string().uuid("Airbrushing inválido"),
+  id: z.string().uuid('Airbrushing inválido'),
 });
 
 // =====================
@@ -671,9 +686,9 @@ export const airbrushingCreateNestedSchema = z
     finishDate: nullableDate.optional(),
     price: z
       .number({
-        invalid_type_error: "Preço inválido",
+        invalid_type_error: 'Preço inválido',
       })
-      .min(0, "Preço deve ser maior ou igual a zero")
+      .min(0, 'Preço deve ser maior ou igual a zero')
       .nullable()
       .optional(),
     status: z.nativeEnum(AIRBRUSHING_STATUS).default(AIRBRUSHING_STATUS.PENDING),
@@ -692,16 +707,19 @@ export type AirbrushingCreateNestedFormData = z.infer<typeof airbrushingCreateNe
 // Helper Functions
 // =====================
 
-export const mapAirbrushingToFormData = createMapToFormDataHelper<Airbrushing, AirbrushingUpdateFormData>((airbrushing) => ({
+export const mapAirbrushingToFormData = createMapToFormDataHelper<
+  Airbrushing,
+  AirbrushingUpdateFormData
+>(airbrushing => ({
   startDate: airbrushing.startDate,
   finishDate: airbrushing.finishDate,
   price: airbrushing.price,
   status: airbrushing.status,
   taskId: airbrushing.taskId,
-  budgetIds: airbrushing.budgets?.map((file) => file.id),
-  invoiceIds: airbrushing.invoices?.map((file) => file.id),
-  receiptIds: airbrushing.receipts?.map((file) => file.id),
-  reimbursementIds: airbrushing.reimbursements?.map((file) => file.id),
-  reimbursementInvoiceIds: airbrushing.invoiceReimbursements?.map((file) => file.id),
-  artworkIds: airbrushing.artworks?.map((file) => file.id),
+  budgetIds: airbrushing.budgets?.map(file => file.id),
+  invoiceIds: airbrushing.invoices?.map(file => file.id),
+  receiptIds: airbrushing.receipts?.map(file => file.id),
+  reimbursementIds: airbrushing.reimbursements?.map(file => file.id),
+  reimbursementInvoiceIds: airbrushing.invoiceReimbursements?.map(file => file.id),
+  artworkIds: airbrushing.artworks?.map(file => file.id),
 }));

@@ -1,7 +1,7 @@
 // packages/utils/src/customer.ts
 
 import type { Customer } from '@types';
-import { formatCNPJ } from "./formatters";
+import { formatCNPJ } from './formatters';
 
 // =====================
 // Display Formatters
@@ -22,7 +22,7 @@ export const formatCustomerFullDisplay = (customer: Customer): string => {
     parts.push(`CNPJ: ${formatCNPJ(customer.cnpj)}`);
   }
 
-  return parts.join(" - ");
+  return parts.join(' - ');
 };
 
 export const formatCustomerContact = (customer: Customer): string => {
@@ -36,7 +36,7 @@ export const formatCustomerContact = (customer: Customer): string => {
     contacts.push(`Tel: ${customer.phones[0]}`);
   }
 
-  return contacts.join(" | ") || "Sem contato";
+  return contacts.join(' | ') || 'Sem contato';
 };
 
 export const formatCustomerAddress = (customer: Customer): string => {
@@ -46,46 +46,46 @@ export const formatCustomerAddress = (customer: Customer): string => {
   if (customer.city) parts.push(customer.city);
   if (customer.state) parts.push(customer.state);
 
-  return parts.join(", ") || "Endereço não informado";
+  return parts.join(', ') || 'Endereço não informado';
 };
 
 export const getCustomerInitials = (customer: Customer): string => {
   return customer.fantasyName
-    .split(" ")
-    .map((word) => word.charAt(0).toUpperCase())
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase())
     .slice(0, 2)
-    .join("");
+    .join('');
 };
 
 export const validateBrazilianState = (state: string): boolean => {
   const validStates = [
-    "AC",
-    "AL",
-    "AP",
-    "AM",
-    "BA",
-    "CE",
-    "DF",
-    "ES",
-    "GO",
-    "MA",
-    "MT",
-    "MS",
-    "MG",
-    "PA",
-    "PB",
-    "PR",
-    "PE",
-    "PI",
-    "RJ",
-    "RN",
-    "RS",
-    "RO",
-    "RR",
-    "SC",
-    "SP",
-    "SE",
-    "TO",
+    'AC',
+    'AL',
+    'AP',
+    'AM',
+    'BA',
+    'CE',
+    'DF',
+    'ES',
+    'GO',
+    'MA',
+    'MT',
+    'MS',
+    'MG',
+    'PA',
+    'PB',
+    'PR',
+    'PE',
+    'PI',
+    'RJ',
+    'RN',
+    'RS',
+    'RO',
+    'RR',
+    'SC',
+    'SP',
+    'SE',
+    'TO',
   ];
   return validStates.includes(state.toUpperCase());
 };

@@ -1,8 +1,21 @@
 // packages/types/src/notification.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, NOTIFICATION_IMPORTANCE, ORDER_BY_DIRECTION } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type {
+  NOTIFICATION_TYPE,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_IMPORTANCE,
+  ORDER_BY_DIRECTION,
+} from '@constants';
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Seen Notification Interface
@@ -115,7 +128,8 @@ export interface NotificationUpdateResponse extends BaseUpdateResponse<Notificat
 export interface NotificationDeleteResponse extends BaseDeleteResponse {}
 
 // SeenNotification responses
-export interface SeenNotificationGetUniqueResponse extends BaseGetUniqueResponse<SeenNotification> {}
+export interface SeenNotificationGetUniqueResponse
+  extends BaseGetUniqueResponse<SeenNotification> {}
 export interface SeenNotificationGetManyResponse extends BaseGetManyResponse<SeenNotification> {}
 export interface SeenNotificationCreateResponse extends BaseCreateResponse<SeenNotification> {}
 export interface SeenNotificationUpdateResponse extends BaseUpdateResponse<SeenNotification> {}
@@ -127,10 +141,15 @@ export interface SeenNotificationDeleteResponse extends BaseDeleteResponse {}
 
 // Notification batch operations
 export interface NotificationBatchCreateResponse<T> extends BaseBatchResponse<Notification, T> {}
-export interface NotificationBatchUpdateResponse<T> extends BaseBatchResponse<Notification, T & { id: string }> {}
-export interface NotificationBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface NotificationBatchUpdateResponse<T>
+  extends BaseBatchResponse<Notification, T & { id: string }> {}
+export interface NotificationBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // SeenNotification batch operations
-export interface SeenNotificationBatchCreateResponse<T> extends BaseBatchResponse<SeenNotification, T> {}
-export interface SeenNotificationBatchUpdateResponse<T> extends BaseBatchResponse<SeenNotification, T & { id: string }> {}
-export interface SeenNotificationBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface SeenNotificationBatchCreateResponse<T>
+  extends BaseBatchResponse<SeenNotification, T> {}
+export interface SeenNotificationBatchUpdateResponse<T>
+  extends BaseBatchResponse<SeenNotification, T & { id: string }> {}
+export interface SeenNotificationBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

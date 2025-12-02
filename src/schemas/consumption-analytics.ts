@@ -11,7 +11,9 @@ import { ACTIVITY_OPERATION } from '@constants';
 const consumptionPeriodSchema = z.object({
   id: z.string({ required_error: 'ID do período é obrigatório' }),
   label: z.string({ required_error: 'Label do período é obrigatório' }),
-  startDate: z.coerce.date({ errorMap: () => ({ message: 'Data inicial do período é obrigatória' }) }),
+  startDate: z.coerce.date({
+    errorMap: () => ({ message: 'Data inicial do período é obrigatória' }),
+  }),
   endDate: z.coerce.date({ errorMap: () => ({ message: 'Data final do período é obrigatória' }) }),
 });
 
@@ -48,10 +50,7 @@ export const consumptionAnalyticsSchema = z
       .default([]),
 
     // Period comparison (optional)
-    periods: z
-      .array(consumptionPeriodSchema)
-      .optional()
-      .default([]),
+    periods: z.array(consumptionPeriodSchema).optional().default([]),
 
     // Pagination
     offset: z.coerce.number().int().min(0).default(0).optional(),
@@ -68,7 +67,7 @@ export const consumptionAnalyticsSchema = z
       .optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate that end date is after start date
       return data.endDate >= data.startDate;
     },
@@ -78,13 +77,17 @@ export const consumptionAnalyticsSchema = z
     },
   )
   .refine(
-    (data) => {
+    data => {
       // Validate that we don't have multiple comparison modes active
       const hasSectorComparison = data.sectorIds && data.sectorIds.length >= 2;
       const hasUserComparison = data.userIds && data.userIds.length >= 2;
       const hasPeriodComparison = data.periods && data.periods.length >= 2;
 
-      const activeComparisons = [hasSectorComparison, hasUserComparison, hasPeriodComparison].filter(Boolean).length;
+      const activeComparisons = [
+        hasSectorComparison,
+        hasUserComparison,
+        hasPeriodComparison,
+      ].filter(Boolean).length;
       return activeComparisons <= 1;
     },
     {
@@ -139,7 +142,7 @@ export const consumptionTimeSeriesSchema = z
       .optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate that end date is after start date
       return data.endDate >= data.startDate;
     },
@@ -149,7 +152,7 @@ export const consumptionTimeSeriesSchema = z
     },
   )
   .refine(
-    (data) => {
+    data => {
       // Validate that we don't have both sector and user comparisons
       const hasSectorComparison = data.sectorIds && data.sectorIds.length >= 2;
       const hasUserComparison = data.userIds && data.userIds.length >= 2;

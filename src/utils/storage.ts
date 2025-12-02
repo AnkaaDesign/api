@@ -10,7 +10,7 @@ export interface StorageAdapter {
 export class LocalStorageAdapter implements StorageAdapter {
   private prefix: string;
 
-  constructor(prefix: string = "") {
+  constructor(prefix: string = '') {
     this.prefix = prefix;
   }
 
@@ -41,7 +41,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   clear(): void {
     try {
       const keys = Object.keys(localStorage);
-      keys.forEach((key) => {
+      keys.forEach(key => {
         if (key.startsWith(this.prefix)) {
           localStorage.removeItem(key);
         }
@@ -57,7 +57,7 @@ export class TokenManager {
   private adapter: StorageAdapter;
   private tokenKey: string;
 
-  constructor(adapter: StorageAdapter, tokenKey: string = "token") {
+  constructor(adapter: StorageAdapter, tokenKey: string = 'token') {
     this.adapter = adapter;
     this.tokenKey = tokenKey;
   }
@@ -84,7 +84,7 @@ export class TokenManager {
 
 // Platform-specific storage keys
 export const STORAGE_KEYS = {
-  WEB: "ankaa_token",
-  MOBILE: "@ankaa:token",
-  DEFAULT: "auth_token",
+  WEB: 'ankaa_token',
+  MOBILE: '@ankaa:token',
+  DEFAULT: 'auth_token',
 } as const;

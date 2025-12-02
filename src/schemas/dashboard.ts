@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 import { DASHBOARD_TIME_PERIOD } from '@constants';
 
 // Base dashboard query schema with date filtering
@@ -37,7 +37,9 @@ export const administrationDashboardQuerySchema = baseDashboardQuerySchema.exten
   sectorId: z.string().uuid().optional(),
 });
 
-export type AdministrationDashboardQueryFormData = z.infer<typeof administrationDashboardQuerySchema>;
+export type AdministrationDashboardQueryFormData = z.infer<
+  typeof administrationDashboardQuerySchema
+>;
 
 // Paint dashboard query
 export const paintDashboardQuerySchema = baseDashboardQuerySchema.extend({

@@ -3,21 +3,29 @@
 // Browser-compatible crypto for verification code generation
 const getCrypto = () => {
   // Check globalThis first (works in Node.js and browsers)
-  if (typeof globalThis !== "undefined" && globalThis.crypto && typeof globalThis.crypto.getRandomValues === "function") {
+  if (
+    typeof globalThis !== 'undefined' &&
+    globalThis.crypto &&
+    typeof globalThis.crypto.getRandomValues === 'function'
+  ) {
     return globalThis.crypto;
   }
 
   // Check window for browser environments
-  if (typeof globalThis !== "undefined" && (globalThis as any).window && (globalThis as any).window.crypto) {
+  if (
+    typeof globalThis !== 'undefined' &&
+    (globalThis as any).window &&
+    (globalThis as any).window.crypto
+  ) {
     return (globalThis as any).window.crypto;
   }
 
   // Node.js environment - only import when needed
   try {
-    const crypto = require("crypto");
+    const crypto = require('crypto');
     return crypto;
   } catch {
-    throw new Error("Crypto not available in this environment");
+    throw new Error('Crypto not available in this environment');
   }
 };
 
@@ -25,16 +33,16 @@ const getCrypto = () => {
 const getRandomBytes = (size: number): Uint8Array => {
   const crypto = getCrypto();
 
-  if (typeof crypto.getRandomValues === "function") {
+  if (typeof crypto.getRandomValues === 'function') {
     // Browser crypto API
     const array = new Uint8Array(size);
     crypto.getRandomValues(array);
     return array;
-  } else if (typeof crypto.randomBytes === "function") {
+  } else if (typeof crypto.randomBytes === 'function') {
     // Node.js crypto API
     return new Uint8Array(crypto.randomBytes(size));
   } else {
-    throw new Error("No secure random number generator available");
+    throw new Error('No secure random number generator available');
   }
 };
 
@@ -64,8 +72,8 @@ export const generateVerificationCode = (): string => {
 
   // Additional safety check to ensure positive number
   if (code < 100000 || code > 999999) {
-    console.error("Verification code out of range:", code);
-    return "100000"; // Fallback to a valid code
+    console.error('Verification code out of range:', code);
+    return '100000'; // Fallback to a valid code
   }
 
   return code.toString();
@@ -92,7 +100,7 @@ export const generateMultipleVerificationCodes = (count: number): string[] => {
  * - Must not be all the same digit (e.g., 111111)
  */
 export const isValidVerificationCodeFormat = (code: string): boolean => {
-  if (!code || typeof code !== "string") {
+  if (!code || typeof code !== 'string') {
     return false;
   }
 
@@ -113,7 +121,7 @@ export const isValidVerificationCodeFormat = (code: string): boolean => {
  * Sanitizes a verification code input by removing non-numeric characters
  */
 export const sanitizeVerificationCode = (input: string): string => {
-  return input.replace(/\D/g, "").substring(0, 6);
+  return input.replace(/\D/g, '').substring(0, 6);
 };
 
 // =====================
@@ -161,7 +169,7 @@ export const formatTimeUntilExpiration = (expiresAt: Date | null): string => {
   const timeRemaining = getTimeUntilExpiration(expiresAt);
 
   if (timeRemaining <= 0) {
-    return "Expirado";
+    return 'Expirado';
   }
 
   const minutes = Math.floor(timeRemaining / (1000 * 60));
@@ -207,8 +215,8 @@ export const canResendCode = (lastSentAt: Date | null, cooldownMinutes: number =
  */
 export const generateSecureToken = (length: number = 32): string => {
   const bytes = getRandomBytes(Math.ceil(length / 2));
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0'))
+    .join('')
     .substring(0, length);
 };
 
@@ -219,7 +227,7 @@ export const generateSecureToken = (length: number = 32): string => {
 export const hashVerificationCode = (code: string): string => {
   // For demonstration - in production you might want to use a proper hashing library
   // But for verification codes with short lifespans, plain text storage is often acceptable
-  return Buffer.from(code).toString("base64");
+  return Buffer.from(code).toString('base64');
 };
 
 /**
@@ -238,7 +246,10 @@ export const validateCodeSecurity = (
   }
 
   // Check for sequential numbers (123456, 654321)
-  const isSequential = /^(?:012345|123456|234567|345678|456789|567890|654321|543210|432109|321098|210987|109876)$/.test(code);
+  const isSequential =
+    /^(?:012345|123456|234567|345678|456789|567890|654321|543210|432109|321098|210987|109876)$/.test(
+      code,
+    );
   if (isSequential) {
     issues.push(VERIFICATION_ERROR_MESSAGES.SEQUENTIAL_PATTERN);
   }
@@ -274,43 +285,43 @@ export const VERIFICATION_CODE_CONSTANTS = {
 
 export const VERIFICATION_ERROR_MESSAGES = {
   // Format validation
-  INVALID_FORMAT: "Código deve ter exatamente 6 dígitos",
-  INVALID_LENGTH: "Código deve ter 6 dígitos",
-  NON_NUMERIC: "Código deve conter apenas números",
+  INVALID_FORMAT: 'Código deve ter exatamente 6 dígitos',
+  INVALID_LENGTH: 'Código deve ter 6 dígitos',
+  NON_NUMERIC: 'Código deve conter apenas números',
 
   // Security validation
-  ALL_SAME_DIGITS: "Código não pode ter todos os dígitos iguais",
-  SEQUENTIAL_PATTERN: "Código não pode ser sequencial",
-  REPETITIVE_PATTERN: "Código não pode ter padrões repetitivos",
+  ALL_SAME_DIGITS: 'Código não pode ter todos os dígitos iguais',
+  SEQUENTIAL_PATTERN: 'Código não pode ser sequencial',
+  REPETITIVE_PATTERN: 'Código não pode ter padrões repetitivos',
 
   // Expiration and timing
-  CODE_EXPIRED: "Código de verificação expirado",
-  CODE_NOT_FOUND: "Código de verificação não encontrado",
-  CODE_ALREADY_USED: "Código de verificação já foi utilizado",
+  CODE_EXPIRED: 'Código de verificação expirado',
+  CODE_NOT_FOUND: 'Código de verificação não encontrado',
+  CODE_ALREADY_USED: 'Código de verificação já foi utilizado',
 
   // Verification process
-  CODE_MISMATCH: "Código de verificação inválido",
-  TOO_MANY_ATTEMPTS: "Muitas tentativas de verificação. Solicite um novo código",
-  VERIFICATION_FAILED: "Falha na verificação do código",
+  CODE_MISMATCH: 'Código de verificação inválido',
+  TOO_MANY_ATTEMPTS: 'Muitas tentativas de verificação. Solicite um novo código',
+  VERIFICATION_FAILED: 'Falha na verificação do código',
 
   // Resend cooldown
-  RESEND_TOO_SOON: "Aguarde antes de solicitar um novo código",
-  COOLDOWN_ACTIVE: "Código já enviado recentemente. Aguarde para solicitar novamente",
+  RESEND_TOO_SOON: 'Aguarde antes de solicitar um novo código',
+  COOLDOWN_ACTIVE: 'Código já enviado recentemente. Aguarde para solicitar novamente',
 
   // Network and service errors
-  SEND_FAILED: "Falha ao enviar código de verificação",
-  SERVICE_UNAVAILABLE: "Serviço de verificação temporariamente indisponível",
-  RATE_LIMIT_EXCEEDED: "Limite de tentativas excedido. Tente novamente mais tarde",
+  SEND_FAILED: 'Falha ao enviar código de verificação',
+  SERVICE_UNAVAILABLE: 'Serviço de verificação temporariamente indisponível',
+  RATE_LIMIT_EXCEEDED: 'Limite de tentativas excedido. Tente novamente mais tarde',
 
   // Contact method validation
-  INVALID_EMAIL: "Endereço de email inválido",
-  INVALID_PHONE: "Número de telefone inválido",
-  UNSUPPORTED_CONTACT_METHOD: "Método de contato não suportado",
+  INVALID_EMAIL: 'Endereço de email inválido',
+  INVALID_PHONE: 'Número de telefone inválido',
+  UNSUPPORTED_CONTACT_METHOD: 'Método de contato não suportado',
 
   // General errors
-  VERIFICATION_CANCELLED: "Verificação cancelada",
-  UNKNOWN_ERROR: "Erro desconhecido na verificação",
-  INVALID_REQUEST: "Solicitação de verificação inválida",
+  VERIFICATION_CANCELLED: 'Verificação cancelada',
+  UNKNOWN_ERROR: 'Erro desconhecido na verificação',
+  INVALID_REQUEST: 'Solicitação de verificação inválida',
 } as const;
 
 // =====================
@@ -318,12 +329,12 @@ export const VERIFICATION_ERROR_MESSAGES = {
 // =====================
 
 export const VERIFICATION_SUCCESS_MESSAGES = {
-  CODE_SENT: "Código de verificação enviado com sucesso",
-  CODE_VERIFIED: "Código verificado com sucesso",
-  EMAIL_VERIFIED: "Email verificado com sucesso",
-  PHONE_VERIFIED: "Telefone verificado com sucesso",
-  VERIFICATION_COMPLETE: "Verificação concluída com sucesso",
-  CODE_RESENT: "Novo código de verificação enviado",
+  CODE_SENT: 'Código de verificação enviado com sucesso',
+  CODE_VERIFIED: 'Código verificado com sucesso',
+  EMAIL_VERIFIED: 'Email verificado com sucesso',
+  PHONE_VERIFIED: 'Telefone verificado com sucesso',
+  VERIFICATION_COMPLETE: 'Verificação concluída com sucesso',
+  CODE_RESENT: 'Novo código de verificação enviado',
 } as const;
 
 // =====================
@@ -348,7 +359,9 @@ export interface VerificationCodeValidation {
 /**
  * Creates a complete verification code data object
  */
-export const createVerificationCodeData = (expirationMinutes: number = VERIFICATION_CODE_CONSTANTS.DEFAULT_EXPIRATION_MINUTES): VerificationCodeData => {
+export const createVerificationCodeData = (
+  expirationMinutes: number = VERIFICATION_CODE_CONSTANTS.DEFAULT_EXPIRATION_MINUTES,
+): VerificationCodeData => {
   const code = generateVerificationCode();
   const expiresAt = createVerificationCodeExpiration(expirationMinutes);
   const createdAt = new Date();
@@ -365,7 +378,11 @@ export const createVerificationCodeData = (expirationMinutes: number = VERIFICAT
 /**
  * Validates a verification code comprehensively with standardized error messages
  */
-export const validateVerificationCode = (inputCode: string, storedCode: string, expiresAt: Date | null): VerificationCodeValidation => {
+export const validateVerificationCode = (
+  inputCode: string,
+  storedCode: string,
+  expiresAt: Date | null,
+): VerificationCodeValidation => {
   const errors: string[] = [];
 
   // Basic format validation

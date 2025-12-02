@@ -111,10 +111,13 @@ export class ExternalWithdrawalController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'receipts', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async create(
     @Body(new ZodValidationPipe(externalWithdrawalCreateSchema))
@@ -122,7 +125,8 @@ export class ExternalWithdrawalController {
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
     },
@@ -131,8 +135,10 @@ export class ExternalWithdrawalController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+          console.log(
+            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
+          );
         }
       });
     }
@@ -201,10 +207,13 @@ export class ExternalWithdrawalController {
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'receipts', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -213,7 +222,8 @@ export class ExternalWithdrawalController {
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
     },
@@ -222,8 +232,10 @@ export class ExternalWithdrawalController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+          console.log(
+            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
+          );
         }
       });
     }
@@ -233,10 +245,13 @@ export class ExternalWithdrawalController {
   @Patch(':id')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'receipts', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'receipts', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   async partialUpdate(
     @Param('id', ParseUUIDPipe) id: string,
@@ -245,7 +260,8 @@ export class ExternalWithdrawalController {
     @Query(new ZodQueryValidationPipe(externalWithdrawalQuerySchema))
     query: ExternalWithdrawalQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       receipts?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
     },
@@ -254,8 +270,10 @@ export class ExternalWithdrawalController {
     if (files) {
       Object.entries(files).forEach(([key, fileArray]) => {
         if (fileArray && fileArray.length > 0) {
-          console.log(`[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })));
+          console.log(
+            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
+            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
+          );
         }
       });
     }

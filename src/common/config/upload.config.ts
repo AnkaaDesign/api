@@ -2,7 +2,14 @@ import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer
 import { BadRequestException, Logger } from '@nestjs/common';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
-import { existsSync, mkdirSync, statSync } from 'fs';
+import {
+  existsSync,
+  mkdirSync,
+  statSync,
+  writeFileSync,
+  unlinkSync,
+  promises as fsPromises,
+} from 'fs';
 import { Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -61,6 +68,7 @@ function validateFileType(buffer: Buffer, mimeType: string): boolean {
  */
 function sanitizeFilename(originalname: string): string {
   // Remove path separators and dangerous characters
+  // eslint-disable-next-line no-control-regex
   let sanitized = originalname
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, '') // Remove invalid characters
     .replace(/^\.+/, '') // Remove leading dots
@@ -99,11 +107,11 @@ function ensureUploadDirectory(uploadPath: string): void {
 
     // Test write permission by creating a temporary file
     const testFile = join(uploadPath, `.write-test-${Date.now()}`);
-    require('fs').writeFileSync(testFile, 'test');
-    require('fs').unlinkSync(testFile);
+    writeFileSync(testFile, 'test');
+    unlinkSync(testFile);
 
     logger.log(`Upload directory is ready: ${uploadPath}`);
-  } catch (error: any) {
+  } catch (error) {
     logger.error(`Failed to prepare upload directory: ${error.message}`);
     throw new Error(`Upload directory setup failed: ${error.message}`);
   }
@@ -114,7 +122,7 @@ function ensureUploadDirectory(uploadPath: string): void {
  */
 function checkDiskSpace(uploadPath: string, fileSize: number): void {
   try {
-    const stats = require('fs').statSync(uploadPath);
+    const _stats = statSync(uploadPath);
     // This is a basic check - in production, you might want to use a library
     // like 'check-disk-space' for more accurate disk space checking
 
@@ -125,13 +133,13 @@ function checkDiskSpace(uploadPath: string, fileSize: number): void {
     if (fileSize > availableSpace) {
       throw new BadRequestException('Espaço em disco insuficiente para upload');
     }
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof BadRequestException) {
       throw error;
     }
     // If we can't check disk space, log warning but don't fail
     const logger = new Logger('UploadConfig');
-    logger.warn(`Could not check disk space: ${error.message}`);
+    logger.warn(`Could not check disk space: ${(error as Error).message}`);
   }
 }
 
@@ -162,15 +170,14 @@ export function createUploadConfig(): MulterOptions {
           // Check disk space before accepting file
           checkDiskSpace(uploadPath, file.size || maxFileSize);
           cb(null, uploadPath);
-        } catch (error: any) {
-          cb(error, '');
+        } catch (error) {
+          cb(error as Error, '');
         }
       },
       filename: (req: Request, file: Express.Multer.File, cb) => {
         try {
           // Generate secure filename
           const sanitizedName = sanitizeFilename(file.originalname);
-          const fileExt = extname(sanitizedName) || '.bin';
           const uuid = uuidv4();
           const timestamp = Date.now();
 
@@ -178,8 +185,8 @@ export function createUploadConfig(): MulterOptions {
           const filename = `${timestamp}_${uuid}_${sanitizedName}`;
 
           cb(null, filename);
-        } catch (error: any) {
-          cb(error, '');
+        } catch (error) {
+          cb(error as Error, '');
         }
       },
     }),
@@ -234,9 +241,9 @@ export function createUploadConfig(): MulterOptions {
         // Log successful validation
         logger.log(`File accepted: ${file.originalname} (${file.mimetype})`);
         cb(null, true);
-      } catch (error: any) {
-        logger.error(`File validation error: ${error.message}`);
-        cb(error, false);
+      } catch (error) {
+        logger.error(`File validation error: ${(error as Error).message}`);
+        cb(error as Error, false);
       }
     },
   };
@@ -253,8 +260,7 @@ export async function validateUploadedFile(
 
   try {
     // Read first 32 bytes to check file signature
-    const fs = require('fs').promises;
-    const fileHandle = await fs.open(filePath, 'r');
+    const fileHandle = await fsPromises.open(filePath, 'r');
     const buffer = Buffer.alloc(32);
     await fileHandle.read(buffer, 0, 32, 0);
     await fileHandle.close();
@@ -266,8 +272,8 @@ export async function validateUploadedFile(
     }
 
     return isValid;
-  } catch (error: any) {
-    logger.error(`Error validating file content: ${error.message}`);
+  } catch (error) {
+    logger.error(`Error validating file content: ${(error as Error).message}`);
     return false;
   }
 }
@@ -282,14 +288,13 @@ export async function cleanupTemporaryFiles(
   const logger = new Logger('FileCleanup');
 
   try {
-    const fs = require('fs').promises;
-    const files = await fs.readdir(uploadPath);
+    const files = await fsPromises.readdir(uploadPath);
     const now = Date.now();
     let cleanedCount = 0;
 
     for (const file of files) {
       const filePath = join(uploadPath, file);
-      const stats = await fs.stat(filePath);
+      const stats = await fsPromises.stat(filePath);
 
       // Skip if not a file
       if (!stats.isFile()) continue;
@@ -299,7 +304,7 @@ export async function cleanupTemporaryFiles(
       if (fileAge > maxAgeMs) {
         // Check if file is a temporary file (contains timestamp in name)
         if (file.includes('_') && /^\d+_/.test(file)) {
-          await fs.unlink(filePath);
+          await fsPromises.unlink(filePath);
           cleanedCount++;
         }
       }
@@ -308,8 +313,8 @@ export async function cleanupTemporaryFiles(
     if (cleanedCount > 0) {
       logger.log(`Cleaned up ${cleanedCount} temporary files older than ${maxAgeMs}ms`);
     }
-  } catch (error: any) {
-    logger.error(`Error cleaning up temporary files: ${error.message}`);
+  } catch (error) {
+    logger.error(`Error cleaning up temporary files: ${(error as Error).message}`);
   }
 }
 
@@ -325,8 +330,7 @@ export async function getUploadStats(uploadPath: string): Promise<{
   const logger = new Logger('UploadStats');
 
   try {
-    const fs = require('fs').promises;
-    const files = await fs.readdir(uploadPath);
+    const files = await fsPromises.readdir(uploadPath);
 
     let totalFiles = 0;
     let totalSize = 0;
@@ -335,7 +339,7 @@ export async function getUploadStats(uploadPath: string): Promise<{
 
     for (const file of files) {
       const filePath = join(uploadPath, file);
-      const stats = await fs.stat(filePath);
+      const stats = await fsPromises.stat(filePath);
 
       if (stats.isFile()) {
         totalFiles++;
@@ -357,8 +361,8 @@ export async function getUploadStats(uploadPath: string): Promise<{
       oldestFile,
       newestFile,
     };
-  } catch (error: any) {
-    logger.error(`Error getting upload stats: ${error.message}`);
+  } catch (error) {
+    logger.error(`Error getting upload stats: ${(error as Error).message}`);
     return {
       totalFiles: 0,
       totalSize: 0,

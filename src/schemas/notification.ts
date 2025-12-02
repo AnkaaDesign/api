@@ -1,8 +1,8 @@
 // packages/schemas/src/notification.ts
 
-import { z } from "zod";
+import { z } from 'zod';
 import { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL, NOTIFICATION_IMPORTANCE } from '@constants';
-import { nullableDate, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { nullableDate, orderByDirectionSchema, normalizeOrderBy } from './common';
 
 // =====================
 // Include Schemas
@@ -395,7 +395,10 @@ const notificationTransform = (data: any) => {
 
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ title: { contains: data.searchingFor, mode: "insensitive" } }, { body: { contains: data.searchingFor, mode: "insensitive" } }],
+      OR: [
+        { title: { contains: data.searchingFor, mode: 'insensitive' } },
+        { body: { contains: data.searchingFor, mode: 'insensitive' } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -436,17 +439,19 @@ const notificationTransform = (data: any) => {
   if (data.scheduledAtRange) {
     const scheduledAtCondition: any = {};
     if (data.scheduledAtRange.gte) {
-      const fromDate = data.scheduledAtRange.gte instanceof Date
-        ? data.scheduledAtRange.gte
-        : new Date(data.scheduledAtRange.gte);
+      const fromDate =
+        data.scheduledAtRange.gte instanceof Date
+          ? data.scheduledAtRange.gte
+          : new Date(data.scheduledAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       scheduledAtCondition.gte = fromDate;
     }
     if (data.scheduledAtRange.lte) {
-      const toDate = data.scheduledAtRange.lte instanceof Date
-        ? data.scheduledAtRange.lte
-        : new Date(data.scheduledAtRange.lte);
+      const toDate =
+        data.scheduledAtRange.lte instanceof Date
+          ? data.scheduledAtRange.lte
+          : new Date(data.scheduledAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       scheduledAtCondition.lte = toDate;
@@ -460,17 +465,19 @@ const notificationTransform = (data: any) => {
   if (data.sentAtRange) {
     const sentAtCondition: any = {};
     if (data.sentAtRange.gte) {
-      const fromDate = data.sentAtRange.gte instanceof Date
-        ? data.sentAtRange.gte
-        : new Date(data.sentAtRange.gte);
+      const fromDate =
+        data.sentAtRange.gte instanceof Date
+          ? data.sentAtRange.gte
+          : new Date(data.sentAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       sentAtCondition.gte = fromDate;
     }
     if (data.sentAtRange.lte) {
-      const toDate = data.sentAtRange.lte instanceof Date
-        ? data.sentAtRange.lte
-        : new Date(data.sentAtRange.lte);
+      const toDate =
+        data.sentAtRange.lte instanceof Date
+          ? data.sentAtRange.lte
+          : new Date(data.sentAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       sentAtCondition.lte = toDate;
@@ -484,17 +491,15 @@ const notificationTransform = (data: any) => {
   if (data.createdAt) {
     const createdAtCondition: any = {};
     if (data.createdAt.gte) {
-      const fromDate = data.createdAt.gte instanceof Date
-        ? data.createdAt.gte
-        : new Date(data.createdAt.gte);
+      const fromDate =
+        data.createdAt.gte instanceof Date ? data.createdAt.gte : new Date(data.createdAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       createdAtCondition.gte = fromDate;
     }
     if (data.createdAt.lte) {
-      const toDate = data.createdAt.lte instanceof Date
-        ? data.createdAt.lte
-        : new Date(data.createdAt.lte);
+      const toDate =
+        data.createdAt.lte instanceof Date ? data.createdAt.lte : new Date(data.createdAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       createdAtCondition.lte = toDate;
@@ -508,17 +513,15 @@ const notificationTransform = (data: any) => {
   if (data.updatedAt) {
     const updatedAtCondition: any = {};
     if (data.updatedAt.gte) {
-      const fromDate = data.updatedAt.gte instanceof Date
-        ? data.updatedAt.gte
-        : new Date(data.updatedAt.gte);
+      const fromDate =
+        data.updatedAt.gte instanceof Date ? data.updatedAt.gte : new Date(data.updatedAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       updatedAtCondition.gte = fromDate;
     }
     if (data.updatedAt.lte) {
-      const toDate = data.updatedAt.lte instanceof Date
-        ? data.updatedAt.lte
-        : new Date(data.updatedAt.lte);
+      const toDate =
+        data.updatedAt.lte instanceof Date ? data.updatedAt.lte : new Date(data.updatedAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       updatedAtCondition.lte = toDate;
@@ -531,7 +534,11 @@ const notificationTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -567,17 +574,19 @@ const seenNotificationTransform = (data: any) => {
   if (data.seenAtRange) {
     const seenAtCondition: any = {};
     if (data.seenAtRange.gte) {
-      const fromDate = data.seenAtRange.gte instanceof Date
-        ? data.seenAtRange.gte
-        : new Date(data.seenAtRange.gte);
+      const fromDate =
+        data.seenAtRange.gte instanceof Date
+          ? data.seenAtRange.gte
+          : new Date(data.seenAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       seenAtCondition.gte = fromDate;
     }
     if (data.seenAtRange.lte) {
-      const toDate = data.seenAtRange.lte instanceof Date
-        ? data.seenAtRange.lte
-        : new Date(data.seenAtRange.lte);
+      const toDate =
+        data.seenAtRange.lte instanceof Date
+          ? data.seenAtRange.lte
+          : new Date(data.seenAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       seenAtCondition.lte = toDate;
@@ -591,17 +600,15 @@ const seenNotificationTransform = (data: any) => {
   if (data.createdAt) {
     const createdAtCondition: any = {};
     if (data.createdAt.gte) {
-      const fromDate = data.createdAt.gte instanceof Date
-        ? data.createdAt.gte
-        : new Date(data.createdAt.gte);
+      const fromDate =
+        data.createdAt.gte instanceof Date ? data.createdAt.gte : new Date(data.createdAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       createdAtCondition.gte = fromDate;
     }
     if (data.createdAt.lte) {
-      const toDate = data.createdAt.lte instanceof Date
-        ? data.createdAt.lte
-        : new Date(data.createdAt.lte);
+      const toDate =
+        data.createdAt.lte instanceof Date ? data.createdAt.lte : new Date(data.createdAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       createdAtCondition.lte = toDate;
@@ -615,17 +622,15 @@ const seenNotificationTransform = (data: any) => {
   if (data.updatedAt) {
     const updatedAtCondition: any = {};
     if (data.updatedAt.gte) {
-      const fromDate = data.updatedAt.gte instanceof Date
-        ? data.updatedAt.gte
-        : new Date(data.updatedAt.gte);
+      const fromDate =
+        data.updatedAt.gte instanceof Date ? data.updatedAt.gte : new Date(data.updatedAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       updatedAtCondition.gte = fromDate;
     }
     if (data.updatedAt.lte) {
-      const toDate = data.updatedAt.lte instanceof Date
-        ? data.updatedAt.lte
-        : new Date(data.updatedAt.lte);
+      const toDate =
+        data.updatedAt.lte instanceof Date ? data.updatedAt.lte : new Date(data.updatedAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       updatedAtCondition.lte = toDate;
@@ -638,7 +643,11 @@ const seenNotificationTransform = (data: any) => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -707,12 +716,12 @@ export const seenNotificationGetManySchema = z
 
 export const notificationGetByIdSchema = z.object({
   include: notificationIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Notificação inválida" }),
+  id: z.string().uuid({ message: 'Notificação inválida' }),
 });
 
 export const seenNotificationGetByIdSchema = z.object({
   include: seenNotificationIncludeSchema.optional(),
-  id: z.string().uuid({ message: "Visualização inválida" }),
+  id: z.string().uuid({ message: 'Visualização inválida' }),
 });
 
 // =====================
@@ -727,26 +736,26 @@ const toFormData = <T>(data: T) => data;
 
 export const notificationCreateSchema = z
   .object({
-    userId: z.union([z.string().uuid({ message: "Usuário inválido" }), z.null()]).optional(),
-    title: z.string().min(1, "Título é obrigatório"),
-    body: z.string().min(1, "Corpo é obrigatório"),
+    userId: z.union([z.string().uuid({ message: 'Usuário inválido' }), z.null()]).optional(),
+    title: z.string().min(1, 'Título é obrigatório'),
+    body: z.string().min(1, 'Corpo é obrigatório'),
     type: z.enum(Object.values(NOTIFICATION_TYPE) as [string, ...string[]], {
-      errorMap: () => ({ message: "tipo de notificação inválido" }),
+      errorMap: () => ({ message: 'tipo de notificação inválido' }),
     }),
     channel: z
       .array(
         z.enum(Object.values(NOTIFICATION_CHANNEL) as [string, ...string[]], {
-          errorMap: () => ({ message: "canal de notificação inválido" }),
+          errorMap: () => ({ message: 'canal de notificação inválido' }),
         }),
       )
       .default([NOTIFICATION_CHANNEL.IN_APP]),
     importance: z
       .enum(Object.values(NOTIFICATION_IMPORTANCE) as [string, ...string[]], {
-        errorMap: () => ({ message: "importância da notificação inválida" }),
+        errorMap: () => ({ message: 'importância da notificação inválida' }),
       })
       .default(NOTIFICATION_IMPORTANCE.NORMAL),
     actionType: z.string().nullable().optional(),
-    actionUrl: z.string().url("URL de ação inválida").nullable().optional(),
+    actionUrl: z.string().url('URL de ação inválida').nullable().optional(),
     scheduledAt: nullableDate.optional(),
     sentAt: nullableDate.optional(),
   })
@@ -754,28 +763,28 @@ export const notificationCreateSchema = z
 
 export const notificationUpdateSchema = z
   .object({
-    userId: z.union([z.string().uuid({ message: "Usuário inválido" }), z.null()]).optional(),
-    title: z.string().min(1, "Título é obrigatório").optional(),
-    body: z.string().min(1, "Corpo é obrigatório").optional(),
+    userId: z.union([z.string().uuid({ message: 'Usuário inválido' }), z.null()]).optional(),
+    title: z.string().min(1, 'Título é obrigatório').optional(),
+    body: z.string().min(1, 'Corpo é obrigatório').optional(),
     type: z
       .enum(Object.values(NOTIFICATION_TYPE) as [string, ...string[]], {
-        errorMap: () => ({ message: "tipo de notificação inválido" }),
+        errorMap: () => ({ message: 'tipo de notificação inválido' }),
       })
       .optional(),
     channel: z
       .array(
         z.enum(Object.values(NOTIFICATION_CHANNEL) as [string, ...string[]], {
-          errorMap: () => ({ message: "canal de notificação inválido" }),
+          errorMap: () => ({ message: 'canal de notificação inválido' }),
         }),
       )
       .optional(),
     importance: z
       .enum(Object.values(NOTIFICATION_IMPORTANCE) as [string, ...string[]], {
-        errorMap: () => ({ message: "importância da notificação inválida" }),
+        errorMap: () => ({ message: 'importância da notificação inválida' }),
       })
       .optional(),
     actionType: z.string().nullable().optional(),
-    actionUrl: z.string().url("URL de ação inválida").nullable().optional(),
+    actionUrl: z.string().url('URL de ação inválida').nullable().optional(),
     scheduledAt: nullableDate.optional(),
     sentAt: nullableDate.optional(),
   })
@@ -783,16 +792,16 @@ export const notificationUpdateSchema = z
 
 export const seenNotificationCreateSchema = z
   .object({
-    userId: z.string().uuid({ message: "Usuário inválido" }),
-    notificationId: z.string().uuid({ message: "Notificação inválida" }),
+    userId: z.string().uuid({ message: 'Usuário inválido' }),
+    notificationId: z.string().uuid({ message: 'Notificação inválida' }),
     seenAt: z.date().default(() => new Date()),
   })
   .transform(toFormData);
 
 export const seenNotificationUpdateSchema = z
   .object({
-    userId: z.string().uuid({ message: "Usuário inválido" }).optional(),
-    notificationId: z.string().uuid({ message: "Notificação inválida" }).optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).optional(),
+    notificationId: z.string().uuid({ message: 'Notificação inválida' }).optional(),
     seenAt: z.date().optional(),
   })
   .transform(toFormData);
@@ -802,22 +811,26 @@ export const seenNotificationUpdateSchema = z
 // =====================
 
 export const notificationBatchCreateSchema = z.object({
-  notifications: z.array(notificationCreateSchema).min(1, "Pelo menos uma notificação deve ser fornecida"),
+  notifications: z
+    .array(notificationCreateSchema)
+    .min(1, 'Pelo menos uma notificação deve ser fornecida'),
 });
 
 export const notificationBatchUpdateSchema = z.object({
   notifications: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Notificação inválida" }),
+        id: z.string().uuid({ message: 'Notificação inválida' }),
         data: notificationUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma notificação deve ser fornecida"),
+    .min(1, 'Pelo menos uma notificação deve ser fornecida'),
 });
 
 export const notificationBatchDeleteSchema = z.object({
-  notificationIds: z.array(z.string().uuid({ message: "Notificação inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  notificationIds: z
+    .array(z.string().uuid({ message: 'Notificação inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -826,22 +839,26 @@ export const notificationQuerySchema = z.object({
 });
 
 export const seenNotificationBatchCreateSchema = z.object({
-  seenNotifications: z.array(seenNotificationCreateSchema).min(1, "Pelo menos uma notificação vista deve ser fornecida"),
+  seenNotifications: z
+    .array(seenNotificationCreateSchema)
+    .min(1, 'Pelo menos uma notificação vista deve ser fornecida'),
 });
 
 export const seenNotificationBatchUpdateSchema = z.object({
   seenNotifications: z
     .array(
       z.object({
-        id: z.string().uuid({ message: "Notificação vista inválida" }),
+        id: z.string().uuid({ message: 'Notificação vista inválida' }),
         data: seenNotificationUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma notificação vista deve ser fornecida"),
+    .min(1, 'Pelo menos uma notificação vista deve ser fornecida'),
 });
 
 export const seenNotificationBatchDeleteSchema = z.object({
-  seenNotificationIds: z.array(z.string().uuid({ message: "Visualização inválida" })).min(1, "Pelo menos um ID deve ser fornecido"),
+  seenNotificationIds: z
+    .array(z.string().uuid({ message: 'Visualização inválida' }))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter

@@ -95,9 +95,4 @@ export abstract class PpeDeliveryScheduleRepository extends BaseStringRepository
    * Activate PPE delivery schedule
    */
   abstract activate(id: string, tx?: PrismaTransaction): Promise<PpeDeliverySchedule>;
-
-  /**
-   * Find schedules requiring reschedule
-   */
-  abstract findSchedulesForReschedule(tx?: PrismaTransaction): Promise<PpeDeliverySchedule[]>;
 }

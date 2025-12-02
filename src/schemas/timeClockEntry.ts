@@ -1,12 +1,12 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 // Note: Time clock entries are now managed internally without external integrations
-import { dateRangeSchema } from "./common";
+import { dateRangeSchema } from './common';
 
 // Time validation - HH:MM format
 export const timeSchema = z
   .string()
-  .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, "Formato inválido. Use HH:MM")
+  .regex(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, 'Formato inválido. Use HH:MM')
   .nullable()
   .optional();
 
@@ -31,25 +31,25 @@ const timeClockEntryBaseSchema = z.object({
   longitude: z.number().nullable().optional(),
   accuracy: z.number().nullable().optional(),
   address: z.string().nullable().optional(),
-  source: z.string().default("WEB"),
+  source: z.string().default('WEB'),
   deviceId: z.string().nullable().optional(),
   hasPhoto: z.boolean().default(false),
 });
 
 // Create schema
 export const timeClockEntryCreateSchema = timeClockEntryBaseSchema.extend({
-  userId: z.string().uuid("Usuário inválido"),
+  userId: z.string().uuid('Usuário inválido'),
   date: z.coerce.date(),
 });
 
 // Update schema
 export const timeClockEntryUpdateSchema = timeClockEntryBaseSchema.partial().extend({
-  id: z.string().uuid("Registro inválido"),
+  id: z.string().uuid('Registro inválido'),
 });
 
 // Batch update schema for inline editing
 export const timeClockEntryBatchUpdateSchema = z.object({
-  entries: z.array(timeClockEntryUpdateSchema).min(1, "Deve incluir pelo menos uma entrada"),
+  entries: z.array(timeClockEntryUpdateSchema).min(1, 'Deve incluir pelo menos uma entrada'),
 });
 
 // Time clock justification schema
@@ -57,7 +57,7 @@ export const timeClockJustificationSchema = z.object({
   originalTime: z.string(),
   newTime: timeSchema,
   field: z.string(),
-  reason: z.string().min(5, "A justificativa deve ter pelo menos 5 caracteres"),
+  reason: z.string().min(5, 'A justificativa deve ter pelo menos 5 caracteres'),
 });
 
 // Include schema for relations
@@ -95,7 +95,12 @@ export const timeClockEntryIncludeSchema = z
 export const timeClockEntryWhereSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
-      id: z.union([z.string(), z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() })]).optional(),
+      id: z
+        .union([
+          z.string(),
+          z.object({ in: z.array(z.string()).optional(), notIn: z.array(z.string()).optional() }),
+        ])
+        .optional(),
       userId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       date: z.union([z.coerce.date(), dateRangeSchema]).optional(),
       source: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
@@ -113,12 +118,12 @@ export const timeClockEntryWhereSchema: z.ZodSchema = z.lazy(() =>
 // Order by schema
 export const timeClockEntryOrderBySchema = z
   .object({
-    date: z.enum(["asc", "desc"]).optional(),
-    createdAt: z.enum(["asc", "desc"]).optional(),
-    updatedAt: z.enum(["asc", "desc"]).optional(),
+    date: z.enum(['asc', 'desc']).optional(),
+    createdAt: z.enum(['asc', 'desc']).optional(),
+    updatedAt: z.enum(['asc', 'desc']).optional(),
     user: z
       .object({
-        name: z.enum(["asc", "desc"]).optional(),
+        name: z.enum(['asc', 'desc']).optional(),
       })
       .optional(),
   })
@@ -138,15 +143,15 @@ export const timeClockEntryQueryBaseSchema = z.object({
 });
 
 // Query params schema with transform
-export const timeClockEntryQuerySchema = timeClockEntryQueryBaseSchema.transform((data) => {
+export const timeClockEntryQuerySchema = timeClockEntryQueryBaseSchema.transform(data => {
   // Handle searchingFor parameter
-  if (data.searchingFor && typeof data.searchingFor === "string") {
+  if (data.searchingFor && typeof data.searchingFor === 'string') {
     data.where = {
       ...data.where,
       OR: [
         {
           user: {
-            name: { contains: data.searchingFor, mode: "insensitive" },
+            name: { contains: data.searchingFor, mode: 'insensitive' },
           },
         },
         {
@@ -187,27 +192,33 @@ export const timeClockEntryQuerySchema = timeClockEntryQueryBaseSchema.transform
 
 // Move time entry to another day schema
 export const timeClockEntryMoveDaySchema = z.object({
-  entryId: z.string().uuid("Registro de ponto inválido"),
-  field: z.enum(["entry1", "exit1", "entry2", "exit2", "entry3", "exit3", "entry4", "exit4", "entry5", "exit5"], {
-    errorMap: () => ({ message: "Campo inválido" }),
-  }),
+  entryId: z.string().uuid('Registro de ponto inválido'),
+  field: z.enum(
+    ['entry1', 'exit1', 'entry2', 'exit2', 'entry3', 'exit3', 'entry4', 'exit4', 'entry5', 'exit5'],
+    {
+      errorMap: () => ({ message: 'Campo inválido' }),
+    },
+  ),
   dayOffset: z
     .number()
     .int()
     .min(-7)
     .max(7)
-    .refine((val) => val !== 0, "O deslocamento deve ser diferente de zero"),
+    .refine(val => val !== 0, 'O deslocamento deve ser diferente de zero'),
   version: z.string().optional(), // For optimistic locking
 });
 
 // Partial adjustment schema
 export const timeClockPartialAdjustmentSchema = z.object({
-  entryId: z.string().uuid("Registro de ponto inválido"),
-  field: z.enum(["entry1", "exit1", "entry2", "exit2", "entry3", "exit3", "entry4", "exit4", "entry5", "exit5"], {
-    errorMap: () => ({ message: "Campo inválido" }),
-  }),
+  entryId: z.string().uuid('Registro de ponto inválido'),
+  field: z.enum(
+    ['entry1', 'exit1', 'entry2', 'exit2', 'entry3', 'exit3', 'entry4', 'exit4', 'entry5', 'exit5'],
+    {
+      errorMap: () => ({ message: 'Campo inválido' }),
+    },
+  ),
   time: timeSchema,
-  reason: z.string().min(5, "O motivo deve ter pelo menos 5 caracteres"),
+  reason: z.string().min(5, 'O motivo deve ter pelo menos 5 caracteres'),
 });
 
 // Type exports

@@ -11,7 +11,8 @@ import type { PrismaTransaction } from '../repositories/file.repository';
 @Injectable()
 export class FolderRenameService {
   private readonly logger = new Logger(FolderRenameService.name);
-  private readonly webdavRoot = process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
+  private readonly webdavRoot =
+    process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -70,9 +71,7 @@ export class FolderRenameService {
         }
       } catch (error: any) {
         this.logger.error(`Failed to rename folder ${oldFolderPath} → ${newFolderPath}:`, error);
-        throw new InternalServerErrorException(
-          `Failed to rename folder: ${error.message}`,
-        );
+        throw new InternalServerErrorException(`Failed to rename folder: ${error.message}`);
       }
     }
 
@@ -102,9 +101,7 @@ export class FolderRenameService {
       this.logger.log(`Updated ${filesUpdated} file paths in database`);
     } catch (error: any) {
       this.logger.error(`Failed to update file paths in database:`, error);
-      throw new InternalServerErrorException(
-        `Failed to update file paths: ${error.message}`,
-      );
+      throw new InternalServerErrorException(`Failed to update file paths: ${error.message}`);
     }
 
     return { foldersRenamed, filesUpdated };

@@ -6,10 +6,13 @@ import { WEEK_DAY, MONTH } from '@constants';
 // Date Formatting
 // =====================
 
-export const formatDate = (date: Date | string | null | undefined, _locale: string = "pt-BR"): string => {
-  if (!date) return "-";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Data inválida";
+export const formatDate = (
+  date: Date | string | null | undefined,
+  _locale: string = 'pt-BR',
+): string => {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Data inválida';
 
   // Fix dates with malformed years (e.g., year 2 instead of 2025)
   // This handles corrupted data where the year was truncated
@@ -18,51 +21,54 @@ export const formatDate = (date: Date | string | null | undefined, _locale: stri
   }
 
   return new Intl.DateTimeFormat(_locale, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
   }).format(d);
 };
 
-export const formatDateTime = (date: Date | string | null | undefined, _locale: string = "pt-BR"): string => {
-  if (!date) return "-";
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Data inválida";
+export const formatDateTime = (
+  date: Date | string | null | undefined,
+  _locale: string = 'pt-BR',
+): string => {
+  if (!date) return '-';
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Data inválida';
 
   return new Intl.DateTimeFormat(_locale, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(d);
 };
 
-export const formatTime = (date: Date | string, _locale: string = "pt-BR"): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Hora inválida";
+export const formatTime = (date: Date | string, _locale: string = 'pt-BR'): string => {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Hora inválida';
 
   return new Intl.DateTimeFormat(_locale, {
-    hour: "2-digit",
-    minute: "2-digit",
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(d);
 };
 
-export const formatDateLong = (date: Date | string, _locale: string = "pt-BR"): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Data inválida";
+export const formatDateLong = (date: Date | string, _locale: string = 'pt-BR'): string => {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Data inválida';
 
   return new Intl.DateTimeFormat(_locale, {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
   }).format(d);
 };
 
-export const formatRelativeTime = (date: Date | string, _locale: string = "pt-BR"): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Data inválida";
+export const formatRelativeTime = (date: Date | string, _locale: string = 'pt-BR'): string => {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Data inválida';
 
   const now = new Date();
   const diffMs = d.getTime() - now.getTime(); // Changed: future - now (positive for future, negative for past)
@@ -77,16 +83,20 @@ export const formatRelativeTime = (date: Date | string, _locale: string = "pt-BR
   const diffMonths = Math.floor(diffDays / 30);
   const diffYears = Math.floor(diffDays / 365);
 
-  const prefix = isFuture ? "daqui" : "há";
-  const suffix = isFuture ? "" : "";
+  const prefix = isFuture ? 'daqui' : 'há';
+  const suffix = isFuture ? '' : '';
 
-  if (diffSeconds < 60) return "agora mesmo";
-  if (diffMinutes < 60) return `${prefix} ${diffMinutes} ${diffMinutes === 1 ? "minuto" : "minutos"}${suffix}`;
-  if (diffHours < 24) return `${prefix} ${diffHours} ${diffHours === 1 ? "hora" : "horas"}${suffix}`;
-  if (diffDays < 7) return `${prefix} ${diffDays} ${diffDays === 1 ? "dia" : "dias"}${suffix}`;
-  if (diffDays < 30) return `${prefix} ${diffWeeks} ${diffWeeks === 1 ? "semana" : "semanas"}${suffix}`;
-  if (diffMonths < 12) return `${prefix} ${diffMonths} ${diffMonths === 1 ? "mês" : "meses"}${suffix}`;
-  return `${prefix} ${diffYears} ${diffYears === 1 ? "ano" : "anos"}${suffix}`;
+  if (diffSeconds < 60) return 'agora mesmo';
+  if (diffMinutes < 60)
+    return `${prefix} ${diffMinutes} ${diffMinutes === 1 ? 'minuto' : 'minutos'}${suffix}`;
+  if (diffHours < 24)
+    return `${prefix} ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}${suffix}`;
+  if (diffDays < 7) return `${prefix} ${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}${suffix}`;
+  if (diffDays < 30)
+    return `${prefix} ${diffWeeks} ${diffWeeks === 1 ? 'semana' : 'semanas'}${suffix}`;
+  if (diffMonths < 12)
+    return `${prefix} ${diffMonths} ${diffMonths === 1 ? 'mês' : 'meses'}${suffix}`;
+  return `${prefix} ${diffYears} ${diffYears === 1 ? 'ano' : 'anos'}${suffix}`;
 };
 
 // =====================
@@ -94,7 +104,7 @@ export const formatRelativeTime = (date: Date | string, _locale: string = "pt-BR
 // =====================
 
 export const addDays = (date: Date | string, days: number): Date => {
-  const d = new Date(typeof date === "string" ? new Date(date) : date);
+  const d = new Date(typeof date === 'string' ? new Date(date) : date);
   d.setDate(d.getDate() + days);
   return d;
 };
@@ -104,13 +114,13 @@ export const addWeeks = (date: Date | string, weeks: number): Date => {
 };
 
 export const addMonths = (date: Date | string, months: number): Date => {
-  const d = new Date(typeof date === "string" ? new Date(date) : date);
+  const d = new Date(typeof date === 'string' ? new Date(date) : date);
   d.setMonth(d.getMonth() + months);
   return d;
 };
 
 export const addYears = (date: Date | string, years: number): Date => {
-  const d = new Date(typeof date === "string" ? new Date(date) : date);
+  const d = new Date(typeof date === 'string' ? new Date(date) : date);
   d.setFullYear(d.getFullYear() + years);
   return d;
 };
@@ -139,7 +149,11 @@ export const isSameDay = (date1: Date | string, date2: Date | string): boolean =
   const d1 = new Date(date1);
   const d2 = new Date(date2);
 
-  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate()
+  );
 };
 
 export const isSameWeek = (date1: Date | string, date2: Date | string): boolean => {
@@ -204,7 +218,11 @@ export const isThisYear = (date: Date | string): boolean => {
 // Date Range Helpers
 // =====================
 
-export const isDateInRange = (date: Date | string, startDate: Date | string, endDate: Date | string): boolean => {
+export const isDateInRange = (
+  date: Date | string,
+  startDate: Date | string,
+  endDate: Date | string,
+): boolean => {
   const d = new Date(date);
   const start = new Date(startDate);
   const end = new Date(endDate);
@@ -328,13 +346,17 @@ export const getPreviousWorkday = (date: Date | string): Date => {
   return prevDay;
 };
 
-export const getWorkdaysBetween = (startDate: Date | string, endDate: Date | string, excludeHolidays: Date[] = []): number => {
+export const getWorkdaysBetween = (
+  startDate: Date | string,
+  endDate: Date | string,
+  excludeHolidays: Date[] = [],
+): number => {
   let count = 0;
   let current = new Date(startDate);
   const end = new Date(endDate);
 
   while (current <= end) {
-    if (isWeekday(current) && !excludeHolidays.some((holiday) => isSameDay(current, holiday))) {
+    if (isWeekday(current) && !excludeHolidays.some(holiday => isSameDay(current, holiday))) {
       count++;
     }
     current = addDays(current, 1);
@@ -424,11 +446,11 @@ export const createDateRange = (startDate?: Date | string, endDate?: Date | stri
   const range: DateRange = {};
 
   if (startDate) {
-    range.gte = typeof startDate === "string" ? new Date(startDate) : startDate;
+    range.gte = typeof startDate === 'string' ? new Date(startDate) : startDate;
   }
 
   if (endDate) {
-    range.lte = typeof endDate === "string" ? new Date(endDate) : endDate;
+    range.lte = typeof endDate === 'string' ? new Date(endDate) : endDate;
   }
 
   return range;
@@ -488,20 +510,20 @@ export const createThisYearRange = (): DateRange => {
 // Date Parsing
 // =====================
 
-export const parseDate = (dateString: string, format: string = "DD/MM/YYYY"): Date | null => {
+export const parseDate = (dateString: string, format: string = 'DD/MM/YYYY'): Date | null => {
   try {
-    if (format === "DD/MM/YYYY") {
-      const [day, month, year] = dateString.split("/");
+    if (format === 'DD/MM/YYYY') {
+      const [day, month, year] = dateString.split('/');
       return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     }
 
-    if (format === "MM/DD/YYYY") {
-      const [month, day, year] = dateString.split("/");
+    if (format === 'MM/DD/YYYY') {
+      const [month, day, year] = dateString.split('/');
       return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     }
 
-    if (format === "YYYY-MM-DD") {
-      const [year, month, day] = dateString.split("-");
+    if (format === 'YYYY-MM-DD') {
+      const [year, month, day] = dateString.split('-');
       return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
     }
 
@@ -515,23 +537,26 @@ export const parseDate = (dateString: string, format: string = "DD/MM/YYYY"): Da
 // Timezone Helpers
 // =====================
 
-export const formatDateInTimezone = (date: Date | string, timezone: string = "America/Sao_Paulo"): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
+export const formatDateInTimezone = (
+  date: Date | string,
+  timezone: string = 'America/Sao_Paulo',
+): string => {
+  const d = typeof date === 'string' ? new Date(date) : date;
 
-  return new Intl.DateTimeFormat("pt-BR", {
+  return new Intl.DateTimeFormat('pt-BR', {
     timeZone: timezone,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   }).format(d);
 };
 
-export const getTimezoneOffset = (timezone: string = "America/Sao_Paulo"): number => {
+export const getTimezoneOffset = (timezone: string = 'America/Sao_Paulo'): number => {
   const now = new Date();
   const utc = new Date(now.getTime() + now.getTimezoneOffset() * 60000);
-  const targetTime = new Date(utc.toLocaleString("en-US", { timeZone: timezone }));
+  const targetTime = new Date(utc.toLocaleString('en-US', { timeZone: timezone }));
   return (targetTime.getTime() - utc.getTime()) / (1000 * 60 * 60);
 };
 
@@ -571,14 +596,17 @@ export const getTimeAgo = (date: Date | string): string => {
   return dateUtils.formatRelativeTime(date);
 };
 
-export const getDurationBetweenDates = (startDate: Date | string | null, endDate: Date | string | null): string => {
-  if (!startDate || !endDate) return "-";
+export const getDurationBetweenDates = (
+  startDate: Date | string | null,
+  endDate: Date | string | null,
+): string => {
+  if (!startDate || !endDate) return '-';
 
   const start = new Date(startDate);
   const end = new Date(endDate);
   const diff = end.getTime() - start.getTime();
 
-  if (diff < 0) return "-";
+  if (diff < 0) return '-';
 
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
@@ -627,22 +655,22 @@ export const monthToNumber = (month: MONTH): number => {
 // Additional Time/Date Utilities
 // =====================
 
-export const formatDateToDayOfWeek = (date: Date | string, _locale: string = "pt-BR"): string => {
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (isNaN(d.getTime())) return "Data inválida";
+export const formatDateToDayOfWeek = (date: Date | string, _locale: string = 'pt-BR'): string => {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  if (isNaN(d.getTime())) return 'Data inválida';
 
   return new Intl.DateTimeFormat(_locale, {
-    weekday: "long",
+    weekday: 'long',
   }).format(d);
 };
 
 export const parseTime = (timeString: string): Date | null => {
-  if (!timeString || typeof timeString !== "string") {
+  if (!timeString || typeof timeString !== 'string') {
     return null;
   }
 
   // Handle various time formats: "HH:MM", "HH:MM:SS", "HHMM", etc.
-  const cleaned = timeString.replace(/\D/g, "");
+  const cleaned = timeString.replace(/\D/g, '');
 
   if (cleaned.length < 3) {
     return null;
@@ -697,15 +725,23 @@ export const parseTime = (timeString: string): Date | null => {
 /**
  * Get the current payroll period based on today's date.
  *
- * Ankaa uses a 26th-to-25th monthly cycle for payroll:
- * - If today is the 26th or later, the current period is for NEXT month
- * - If today is before the 26th, the current period is for CURRENT month
+ * Ankaa uses a 26th-to-25th monthly cycle for payroll periods, but the "current period"
+ * only changes after the 5th of the month (payment date).
+ *
+ * THE 5TH DAY RULE:
+ * - Days 1-5: Current period = PREVIOUS month (payment hasn't occurred yet)
+ * - Days 6-31: Current period = CURRENT month (payment occurred on the 5th)
+ *
+ * Why: Because payment happens on the 5th, until payment is made, users are still
+ * in the "previous" period for display and editing purposes.
  *
  * Examples:
- * - September 25th → Period: September (Aug 26 - Sep 25)
- * - September 26th → Period: October (Sep 26 - Oct 25)
- * - September 30th → Period: October (Sep 26 - Oct 25)
- * - October 1st → Period: October (Sep 26 - Oct 25)
+ * - November 3rd → Period: October (payment not yet made)
+ * - November 6th → Period: November (payment made on 5th)
+ * - December 31st → Period: December
+ * - January 5th → Period: December of previous year (payment not yet made)
+ *
+ * Period Dates: 26th of previous month at 00:00:00 to 25th of current month at 23:59:59
  *
  * @param referenceDate - Optional date to check (defaults to today)
  * @returns Object with year and month for the current payroll period
@@ -716,13 +752,13 @@ export const getCurrentPayrollPeriod = (referenceDate?: Date): { year: number; m
   let year = date.getFullYear();
   let month = date.getMonth() + 1; // getMonth() is 0-based, we want 1-based
 
-  // If today is the 26th or later, the period is for the next month
-  if (day >= 26) {
-    month += 1;
-    // Handle year rollover
-    if (month > 12) {
-      month = 1;
-      year += 1;
+  // 5th day rule: If we're on or before the 5th, we're still in the previous month's period
+  if (day <= 5) {
+    month -= 1;
+    // Handle year rollover (January -> December of previous year)
+    if (month < 1) {
+      month = 12;
+      year -= 1;
     }
   }
 

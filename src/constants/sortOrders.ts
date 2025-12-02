@@ -107,7 +107,7 @@ import {
   STATISTICS_GROUP_BY,
   STATISTICS_METRIC,
   STATISTICS_PERIOD,
-} from "./enums";
+} from './enums';
 
 /**
  * Maps enum values to their sort order for logical sorting
@@ -120,7 +120,6 @@ import {
 // =====================
 // ABC/XYZ Analysis Order Maps
 // =====================
-
 
 export const PAINT_BRAND_STATUS_ORDER: Record<PAINT_BRAND_STATUS, number> = {
   [PAINT_BRAND_STATUS.ACTIVE]: 1,
@@ -1374,4 +1373,3 @@ export const STATISTICS_PERIOD_ORDER: Record<string, number> = {
   [STATISTICS_PERIOD.LAST_YEAR]: 13,
   [STATISTICS_PERIOD.CUSTOM]: 14,
 };
-

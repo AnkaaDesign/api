@@ -87,7 +87,8 @@ export enum FileTypeCategory {
 @Injectable()
 export class WebDAVService {
   private readonly logger = new Logger(WebDAVService.name);
-  private readonly webdavRoot = process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
+  private readonly webdavRoot =
+    process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
 
   /**
    * WebDAV folder structure mapping - matches physical folder structure
@@ -285,10 +286,10 @@ export class WebDAVService {
       // TASKS: Add customer folder for task-related financial files
       else if (
         (fileContext === 'taskBudgets' ||
-         fileContext === 'taskInvoices' ||
-         fileContext === 'taskReceipts' ||
-         fileContext === 'taskReimbursements' ||
-         fileContext === 'taskNfeReimbursements') &&
+          fileContext === 'taskInvoices' ||
+          fileContext === 'taskReceipts' ||
+          fileContext === 'taskReimbursements' ||
+          fileContext === 'taskNfeReimbursements') &&
         customerName
       ) {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
@@ -302,11 +303,11 @@ export class WebDAVService {
       // AIRBRUSHING: Add customer folder for airbrushing-related files
       else if (
         (fileContext === 'airbrushingArtworks' ||
-         fileContext === 'airbrushingBudgets' ||
-         fileContext === 'airbrushingInvoices' ||
-         fileContext === 'airbrushingReceipts' ||
-         fileContext === 'airbrushingReimbursements' ||
-         fileContext === 'airbrushingNfeReimbursements') &&
+          fileContext === 'airbrushingBudgets' ||
+          fileContext === 'airbrushingInvoices' ||
+          fileContext === 'airbrushingReceipts' ||
+          fileContext === 'airbrushingReimbursements' ||
+          fileContext === 'airbrushingNfeReimbursements') &&
         customerName
       ) {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
@@ -315,9 +316,9 @@ export class WebDAVService {
       // EXTERNAL WITHDRAWALS: Add customer folder
       else if (
         (fileContext === 'externalWithdrawalInvoices' ||
-         fileContext === 'externalWithdrawalReceipts' ||
-         fileContext === 'externalWithdrawalReimbursements' ||
-         fileContext === 'externalWithdrawalNfeReimbursements') &&
+          fileContext === 'externalWithdrawalReceipts' ||
+          fileContext === 'externalWithdrawalReimbursements' ||
+          fileContext === 'externalWithdrawalNfeReimbursements') &&
         customerName
       ) {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
@@ -326,10 +327,10 @@ export class WebDAVService {
       // ORDERS: Add supplier folder for order-related files
       else if (
         (fileContext === 'orderBudgets' ||
-         fileContext === 'orderInvoices' ||
-         fileContext === 'orderReceipts' ||
-         fileContext === 'orderReimbursements' ||
-         fileContext === 'orderNfeReimbursements') &&
+          fileContext === 'orderInvoices' ||
+          fileContext === 'orderReceipts' ||
+          fileContext === 'orderReimbursements' ||
+          fileContext === 'orderNfeReimbursements') &&
         supplierName
       ) {
         const sanitizedSupplierName = this.sanitizeFileName(supplierName);

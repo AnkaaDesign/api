@@ -3,10 +3,10 @@ import type { WeeklyScheduleConfig, MonthlyScheduleConfig, YearlyScheduleConfig 
 import { ORDER_STATUS, SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, MONTH_OCCURRENCE } from '@constants';
 import { ORDER_STATUS_LABELS, SCHEDULE_FREQUENCY_LABELS } from '@constants';
 import { ORDER_STATUS_ORDER } from '@constants';
-import { addDays, addMonths, addWeeks, addYears, dateUtils } from "./date";
-import { numberUtils } from "./number";
-import { startOfDay, getDay, setDate, setMonth } from "date-fns";
-import type { OrderStatus } from "@prisma/client";
+import { addDays, addMonths, addWeeks, addYears, dateUtils } from './date';
+import { numberUtils } from './number';
+import { startOfDay, getDay, setDate, setMonth } from 'date-fns';
+import type { OrderStatus } from '@prisma/client';
 
 /**
  * Map ORDER_STATUS enum to Prisma OrderStatus enum
@@ -35,9 +35,24 @@ export function isValidStatusTransition(fromStatus: ORDER_STATUS, toStatus: ORDE
       ORDER_STATUS.CANCELLED,
       ORDER_STATUS.RECEIVED, // Allow direct transition (handled by service to go through FULFILLED)
     ],
-    [ORDER_STATUS.PARTIALLY_FULFILLED]: [ORDER_STATUS.FULFILLED, ORDER_STATUS.OVERDUE, ORDER_STATUS.PARTIALLY_RECEIVED, ORDER_STATUS.CANCELLED],
-    [ORDER_STATUS.FULFILLED]: [ORDER_STATUS.PARTIALLY_RECEIVED, ORDER_STATUS.RECEIVED, ORDER_STATUS.OVERDUE],
-    [ORDER_STATUS.OVERDUE]: [ORDER_STATUS.PARTIALLY_FULFILLED, ORDER_STATUS.FULFILLED, ORDER_STATUS.PARTIALLY_RECEIVED, ORDER_STATUS.RECEIVED, ORDER_STATUS.CANCELLED],
+    [ORDER_STATUS.PARTIALLY_FULFILLED]: [
+      ORDER_STATUS.FULFILLED,
+      ORDER_STATUS.OVERDUE,
+      ORDER_STATUS.PARTIALLY_RECEIVED,
+      ORDER_STATUS.CANCELLED,
+    ],
+    [ORDER_STATUS.FULFILLED]: [
+      ORDER_STATUS.PARTIALLY_RECEIVED,
+      ORDER_STATUS.RECEIVED,
+      ORDER_STATUS.OVERDUE,
+    ],
+    [ORDER_STATUS.OVERDUE]: [
+      ORDER_STATUS.PARTIALLY_FULFILLED,
+      ORDER_STATUS.FULFILLED,
+      ORDER_STATUS.PARTIALLY_RECEIVED,
+      ORDER_STATUS.RECEIVED,
+      ORDER_STATUS.CANCELLED,
+    ],
     [ORDER_STATUS.PARTIALLY_RECEIVED]: [ORDER_STATUS.RECEIVED],
     [ORDER_STATUS.RECEIVED]: [], // Final state
     [ORDER_STATUS.CANCELLED]: [], // Final state
@@ -58,15 +73,15 @@ export function getOrderStatusLabel(status: ORDER_STATUS): string {
  */
 export function getOrderStatusColor(status: ORDER_STATUS): string {
   const colors: Record<ORDER_STATUS, string> = {
-    [ORDER_STATUS.CREATED]: "blue",
-    [ORDER_STATUS.PARTIALLY_FULFILLED]: "yellow",
-    [ORDER_STATUS.FULFILLED]: "green",
-    [ORDER_STATUS.OVERDUE]: "red",
-    [ORDER_STATUS.PARTIALLY_RECEIVED]: "orange",
-    [ORDER_STATUS.RECEIVED]: "green",
-    [ORDER_STATUS.CANCELLED]: "gray",
+    [ORDER_STATUS.CREATED]: 'blue',
+    [ORDER_STATUS.PARTIALLY_FULFILLED]: 'yellow',
+    [ORDER_STATUS.FULFILLED]: 'green',
+    [ORDER_STATUS.OVERDUE]: 'red',
+    [ORDER_STATUS.PARTIALLY_RECEIVED]: 'orange',
+    [ORDER_STATUS.RECEIVED]: 'green',
+    [ORDER_STATUS.CANCELLED]: 'gray',
   };
-  return colors[status] || "default";
+  return colors[status] || 'default';
 }
 
 /**
@@ -172,17 +187,17 @@ export function isOrderItemPartiallyReceived(item: OrderItem): boolean {
 /**
  * Get order item status
  */
-export function getOrderItemStatus(item: OrderItem): "pending" | "partial" | "complete" {
-  if (isOrderItemFullyReceived(item)) return "complete";
-  if (isOrderItemPartiallyReceived(item)) return "partial";
-  return "pending";
+export function getOrderItemStatus(item: OrderItem): 'pending' | 'partial' | 'complete' {
+  if (isOrderItemFullyReceived(item)) return 'complete';
+  if (isOrderItemPartiallyReceived(item)) return 'partial';
+  return 'pending';
 }
 
 /**
  * Format order display
  */
 export function formatOrderDisplay(order: Order): string {
-  const supplierName = order.supplier?.fantasyName || "Fornecedor desconhecido";
+  const supplierName = order.supplier?.fantasyName || 'Fornecedor desconhecido';
   const status = getOrderStatusLabel(order.status);
   return `${supplierName} - ${status}`;
 }
@@ -191,7 +206,7 @@ export function formatOrderDisplay(order: Order): string {
  * Format order summary
  */
 export function formatOrderSummary(order: Order): string {
-  const description = order.description || "Sem descrição";
+  const description = order.description || 'Sem descrição';
   const status = getOrderStatusLabel(order.status);
   const total = formatOrderTotal(order);
 
@@ -223,12 +238,12 @@ export function groupOrdersByStatus(orders: Order[]): Record<ORDER_STATUS, Order
   const groups = {} as Record<ORDER_STATUS, Order[]>;
 
   // Initialize all statuses
-  Object.values(ORDER_STATUS).forEach((status) => {
+  Object.values(ORDER_STATUS).forEach(status => {
     groups[status as ORDER_STATUS] = [];
   });
 
   // Group orders
-  orders.forEach((order) => {
+  orders.forEach(order => {
     groups[order.status].push(order);
   });
 
@@ -241,7 +256,7 @@ export function groupOrdersByStatus(orders: Order[]): Record<ORDER_STATUS, Order
 export function groupOrdersBySupplier(orders: Order[]): Record<string, Order[]> {
   return orders.reduce(
     (groups, order) => {
-      const supplierName = order.supplier?.fantasyName || "Sem fornecedor";
+      const supplierName = order.supplier?.fantasyName || 'Sem fornecedor';
       if (!groups[supplierName]) {
         groups[supplierName] = [];
       }
@@ -255,18 +270,18 @@ export function groupOrdersBySupplier(orders: Order[]): Record<string, Order[]> 
 /**
  * Sort orders by date
  */
-export function sortOrdersByDate(orders: Order[], order: "asc" | "desc" = "desc"): Order[] {
+export function sortOrdersByDate(orders: Order[], order: 'asc' | 'desc' = 'desc'): Order[] {
   return [...orders].sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
 /**
  * Sort orders by forecast date
  */
-export function sortOrdersByForecast(orders: Order[], order: "asc" | "desc" = "asc"): Order[] {
+export function sortOrdersByForecast(orders: Order[], order: 'asc' | 'desc' = 'asc'): Order[] {
   return [...orders].sort((a, b) => {
     if (!a.forecast && !b.forecast) return 0;
     if (!a.forecast) return 1;
@@ -274,7 +289,7 @@ export function sortOrdersByForecast(orders: Order[], order: "asc" | "desc" = "a
 
     const dateA = new Date(a.forecast).getTime();
     const dateB = new Date(b.forecast).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }
 
@@ -282,7 +297,7 @@ export function sortOrdersByForecast(orders: Order[], order: "asc" | "desc" = "a
  * Filter orders by date range
  */
 export function filterOrdersByDateRange(orders: Order[], startDate: Date, endDate: Date): Order[] {
-  return orders.filter((order) => {
+  return orders.filter(order => {
     const orderDate = new Date(order.createdAt);
     return orderDate >= startDate && orderDate <= endDate;
   });
@@ -378,7 +393,7 @@ export function getDaysUntilNextRun(schedule: OrderSchedule): number | null {
 export function formatScheduleSummary(schedule: OrderSchedule): string {
   const frequency = getFrequencyLabel(schedule.frequency);
   const itemCount = schedule.items.length;
-  const status = schedule.isActive ? "Ativo" : "Inativo";
+  const status = schedule.isActive ? 'Ativo' : 'Inativo';
 
   return `${frequency} - ${itemCount} itens - ${status}`;
 }
@@ -430,7 +445,11 @@ function calculateNextDailyRun(fromDate: Date, frequencyCount: number = 1): Date
 /**
  * Calculate next weekly run
  */
-function calculateNextWeeklyRun(fromDate: Date, weeklyConfig?: WeeklyScheduleConfig | null, frequencyCount: number = 1): Date | null {
+function calculateNextWeeklyRun(
+  fromDate: Date,
+  weeklyConfig?: WeeklyScheduleConfig | null,
+  frequencyCount: number = 1,
+): Date | null {
   if (!weeklyConfig) return null;
 
   const weekDays = [
@@ -443,7 +462,7 @@ function calculateNextWeeklyRun(fromDate: Date, weeklyConfig?: WeeklyScheduleCon
     { day: 6, enabled: weeklyConfig.saturday },
   ];
 
-  const enabledDays = weekDays.filter((d) => d.enabled).map((d) => d.day);
+  const enabledDays = weekDays.filter(d => d.enabled).map(d => d.day);
   if (enabledDays.length === 0) return null;
 
   let nextDate = new Date(fromDate);
@@ -465,7 +484,11 @@ function calculateNextWeeklyRun(fromDate: Date, weeklyConfig?: WeeklyScheduleCon
 /**
  * Calculate next monthly run
  */
-function calculateNextMonthlyRun(fromDate: Date, monthlyConfig?: MonthlyScheduleConfig | null, frequencyCount: number = 1): Date | null {
+function calculateNextMonthlyRun(
+  fromDate: Date,
+  monthlyConfig?: MonthlyScheduleConfig | null,
+  frequencyCount: number = 1,
+): Date | null {
   if (!monthlyConfig) return null;
 
   let nextDate = new Date(fromDate);
@@ -491,7 +514,12 @@ function calculateNextMonthlyRun(fromDate: Date, monthlyConfig?: MonthlySchedule
     return nextDate;
   } else if (monthlyConfig.occurrence && monthlyConfig.dayOfWeek) {
     // Occurrence pattern (e.g., "first Monday")
-    return calculateOccurrenceDate(nextDate, monthlyConfig.occurrence, monthlyConfig.dayOfWeek, frequencyCount);
+    return calculateOccurrenceDate(
+      nextDate,
+      monthlyConfig.occurrence,
+      monthlyConfig.dayOfWeek,
+      frequencyCount,
+    );
   }
 
   return null;
@@ -500,7 +528,11 @@ function calculateNextMonthlyRun(fromDate: Date, monthlyConfig?: MonthlySchedule
 /**
  * Calculate next yearly run
  */
-function calculateNextYearlyRun(fromDate: Date, yearlyConfig?: YearlyScheduleConfig | null, frequencyCount: number = 1): Date | null {
+function calculateNextYearlyRun(
+  fromDate: Date,
+  yearlyConfig?: YearlyScheduleConfig | null,
+  frequencyCount: number = 1,
+): Date | null {
   if (!yearlyConfig || !yearlyConfig.month) return null;
 
   let nextDate = new Date(fromDate);
@@ -519,13 +551,23 @@ function calculateNextYearlyRun(fromDate: Date, yearlyConfig?: YearlyScheduleCon
     }
   } else if (yearlyConfig.occurrence && yearlyConfig.dayOfWeek) {
     // Occurrence pattern
-    nextDate = calculateOccurrenceDate(nextDate, yearlyConfig.occurrence, yearlyConfig.dayOfWeek, 0);
+    nextDate = calculateOccurrenceDate(
+      nextDate,
+      yearlyConfig.occurrence,
+      yearlyConfig.dayOfWeek,
+      0,
+    );
 
     // If date has passed this year, move to next year cycle
     if (nextDate <= fromDate) {
       nextDate = addYears(nextDate, frequencyCount);
       nextDate = setMonth(nextDate, targetMonth);
-      nextDate = calculateOccurrenceDate(nextDate, yearlyConfig.occurrence, yearlyConfig.dayOfWeek, 0);
+      nextDate = calculateOccurrenceDate(
+        nextDate,
+        yearlyConfig.occurrence,
+        yearlyConfig.dayOfWeek,
+        0,
+      );
     }
   }
 
@@ -535,7 +577,12 @@ function calculateNextYearlyRun(fromDate: Date, yearlyConfig?: YearlyScheduleCon
 /**
  * Calculate date for occurrence pattern (e.g., "first Monday of month")
  */
-function calculateOccurrenceDate(baseDate: Date, occurrence: string, dayOfWeek: string, monthsToAdd: number = 0): Date {
+function calculateOccurrenceDate(
+  baseDate: Date,
+  occurrence: string,
+  dayOfWeek: string,
+  monthsToAdd: number = 0,
+): Date {
   let targetDate = new Date(baseDate);
 
   if (monthsToAdd > 0) {

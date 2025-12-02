@@ -19,7 +19,7 @@ export function mapWhereClause(where: WhereClause): WhereClause {
   if (!where) return where;
 
   // If it's a primitive value, return as is
-  if (typeof where !== "object" || where === null) {
+  if (typeof where !== 'object' || where === null) {
     return where;
   }
 
@@ -30,7 +30,7 @@ export function mapWhereClause(where: WhereClause): WhereClause {
 
   // If it's an array, map each element
   if (Array.isArray(where)) {
-    return where.map((item) => mapWhereClause(item));
+    return where.map(item => mapWhereClause(item));
   }
 
   // If it's an object, recursively map each property

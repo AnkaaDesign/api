@@ -9,10 +9,14 @@ import {
   MaintenanceScheduleStatus,
   DayOfWeek,
   Month,
-  RescheduleReason,
 } from '@prisma/client';
 import { MaintenanceScheduleRepository } from './maintenance-schedule.repository';
-import { SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, RESCHEDULE_REASON } from '../../../../../constants/enums';
+import {
+  SCHEDULE_FREQUENCY,
+  WEEK_DAY,
+  MONTH,
+  RESCHEDULE_REASON,
+} from '../../../../../constants/enums';
 import {
   FindManyOptions,
   FindManyResult,
@@ -63,7 +67,6 @@ export class MaintenanceSchedulePrismaRepository
       dayOfWeek: databaseEntity.dayOfWeek as WEEK_DAY | null,
       month: databaseEntity.month as MONTH | null,
       customMonths: (databaseEntity.customMonths || []) as MONTH[],
-      rescheduleReason: databaseEntity.rescheduleReason as RESCHEDULE_REASON | null,
     } as MaintenanceSchedule;
   }
 
@@ -120,7 +123,6 @@ export class MaintenanceSchedulePrismaRepository
       dayOfWeek,
       month,
       customMonths,
-      rescheduleReason,
       weeklyConfigId,
       monthlyConfigId,
       yearlyConfigId,
@@ -142,9 +144,6 @@ export class MaintenanceSchedulePrismaRepository
     }
     if (customMonths !== undefined) {
       updateInput.customMonths = customMonths as Month[];
-    }
-    if (rescheduleReason !== undefined) {
-      updateInput.rescheduleReason = rescheduleReason as RescheduleReason | null;
     }
 
     if (itemId !== undefined) {

@@ -1,18 +1,27 @@
 // packages/interfaces/src/task.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { ORDER_BY_DIRECTION, TASK_STATUS, COMMISSION_STATUS } from '@constants';
-import type { Sector, SectorIncludes, SectorOrderBy } from "./sector";
-import type { Customer, CustomerIncludes, CustomerOrderBy } from "./customer";
-import type { File, FileIncludes } from "./file";
-import type { Observation, ObservationIncludes } from "./observation";
-import type { Paint, PaintIncludes, PaintOrderBy } from "./paint";
-import type { User, UserIncludes, UserOrderBy } from "./user";
-import type { ServiceOrder, ServiceOrderIncludes } from "./serviceOrder";
-import type { Budget, BudgetIncludes } from "./budget";
-import type { Airbrushing, AirbrushingIncludes } from "./airbrushing";
-import type { Cut, CutIncludes } from "./cut";
-import type { Truck, TruckIncludes } from "./truck";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  ORDER_BY_DIRECTION,
+} from './common';
+import type { TASK_STATUS, COMMISSION_STATUS } from '@constants';
+import type { Sector, SectorIncludes, SectorOrderBy } from './sector';
+import type { Customer, CustomerIncludes, CustomerOrderBy } from './customer';
+import type { File, FileIncludes } from './file';
+import type { Observation, ObservationIncludes } from './observation';
+import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
+import type { User, UserIncludes, UserOrderBy } from './user';
+import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
+import type { Budget, BudgetIncludes } from './budget';
+import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
+import type { Cut, CutIncludes } from './cut';
+import type { Truck, TruckIncludes } from './garage';
 
 // =====================
 // Task Interface
@@ -193,6 +202,28 @@ export interface TaskOrderBy {
 }
 
 // =====================
+// Where Types
+// =====================
+
+export interface TaskWhere {
+  id?: string;
+  name?: string;
+  status?: TASK_STATUS;
+  commission?: COMMISSION_STATUS;
+  serialNumber?: string;
+  details?: string;
+  entryDate?: Date;
+  term?: Date;
+  startedAt?: Date | null;
+  finishedAt?: Date | null;
+  paintId?: string | null;
+  customerId?: string;
+  sectorId?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// =====================
 // Response Interfaces
 // =====================
 
@@ -208,4 +239,5 @@ export interface TaskDeleteResponse extends BaseDeleteResponse {}
 
 export interface TaskBatchCreateResponse<T> extends BaseBatchResponse<Task, T> {}
 export interface TaskBatchUpdateResponse<T> extends BaseBatchResponse<Task, T & { id: string }> {}
-export interface TaskBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface TaskBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

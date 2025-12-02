@@ -82,17 +82,14 @@ export class ObservationController {
   @Post()
   @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'files', maxCount: 10 },
-    ], multerConfig)
-  )
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(observationCreateSchema))
     data: ObservationCreateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       files?: Express.Multer.File[];
     },
   ): Promise<ObservationCreateResponse> {
@@ -154,18 +151,15 @@ export class ObservationController {
 
   @Put(':id')
   @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
-  @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'files', maxCount: 10 },
-    ], multerConfig)
-  )
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(observationUpdateSchema))
     data: ObservationUpdateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
     @UserId() userId: string,
-    @UploadedFiles() files?: {
+    @UploadedFiles()
+    files?: {
       files?: Express.Multer.File[];
     },
   ): Promise<ObservationUpdateResponse> {

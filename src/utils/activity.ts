@@ -1,7 +1,11 @@
 import type { Activity } from '@types';
 import { ACTIVITY_OPERATION } from '@constants';
-import { dateUtils } from "./date";
-import { getActivityOperationLabel, getActivityReasonLabel, getActivityLevelLabel } from "./enumLabelGetter";
+import { dateUtils } from './date';
+import {
+  getActivityOperationLabel,
+  getActivityReasonLabel,
+  getActivityLevelLabel,
+} from './enumLabelGetter';
 
 // Re-export the enum label getters for convenience
 export { getActivityOperationLabel, getActivityReasonLabel, getActivityLevelLabel };
@@ -11,10 +15,10 @@ export { getActivityOperationLabel, getActivityReasonLabel, getActivityLevelLabe
  */
 export function getActivityOperationColor(operation: ACTIVITY_OPERATION): string {
   const colors: Record<ACTIVITY_OPERATION, string> = {
-    [ACTIVITY_OPERATION.INBOUND]: "green",
-    [ACTIVITY_OPERATION.OUTBOUND]: "red",
+    [ACTIVITY_OPERATION.INBOUND]: 'green',
+    [ACTIVITY_OPERATION.OUTBOUND]: 'red',
   };
-  return colors[operation] || "gray";
+  return colors[operation] || 'gray';
 }
 
 /**
@@ -32,8 +36,8 @@ export function getActivityValue(activity: Activity): number {
 export function formatActivityDescription(activity: Activity): string {
   const operation = getActivityOperationLabel(activity.operation);
   const quantity = activity.quantity;
-  const itemName = activity.item?.name || "Item desconhecido";
-  const userName = activity.user?.name || "Usuário desconhecido";
+  const itemName = activity.item?.name || 'Item desconhecido';
+  const userName = activity.user?.name || 'Usuário desconhecido';
 
   return `${operation}: ${quantity}x ${itemName} por ${userName}`;
 }
@@ -41,7 +45,7 @@ export function formatActivityDescription(activity: Activity): string {
 /**
  * Get formatted date for activity
  */
-export function getActivityDate(activity: Activity, format: string = "dd/MM/yyyy HH:mm"): string {
+export function getActivityDate(activity: Activity, format: string = 'dd/MM/yyyy HH:mm'): string {
   return dateUtils.formatDate(activity.createdAt, format);
 }
 
@@ -81,7 +85,7 @@ export function getActivityImpact(activity: Activity): number {
 export function groupActivitiesByDate(activities: Activity[]): Record<string, Activity[]> {
   return activities.reduce(
     (groups, activity) => {
-      const date = dateUtils.formatDate(activity.createdAt, "yyyy-MM-dd");
+      const date = dateUtils.formatDate(activity.createdAt, 'yyyy-MM-dd');
       if (!groups[date]) {
         groups[date] = [];
       }
@@ -104,8 +108,12 @@ export function calculateNetQuantityChange(activities: Activity[]): number {
 /**
  * Filter activities by date range
  */
-export function filterActivitiesByDateRange(activities: Activity[], startDate: Date, endDate: Date): Activity[] {
-  return activities.filter((activity) => {
+export function filterActivitiesByDateRange(
+  activities: Activity[],
+  startDate: Date,
+  endDate: Date,
+): Activity[] {
+  return activities.filter(activity => {
     const activityDate = new Date(activity.createdAt);
     return activityDate >= startDate && activityDate <= endDate;
   });
@@ -114,10 +122,13 @@ export function filterActivitiesByDateRange(activities: Activity[], startDate: D
 /**
  * Sort activities by date
  */
-export function sortActivitiesByDate(activities: Activity[], order: "asc" | "desc" = "desc"): Activity[] {
+export function sortActivitiesByDate(
+  activities: Activity[],
+  order: 'asc' | 'desc' = 'desc',
+): Activity[] {
   return [...activities].sort((a, b) => {
     const dateA = new Date(a.createdAt).getTime();
     const dateB = new Date(b.createdAt).getTime();
-    return order === "asc" ? dateA - dateB : dateB - dateA;
+    return order === 'asc' ? dateA - dateB : dateB - dateA;
   });
 }

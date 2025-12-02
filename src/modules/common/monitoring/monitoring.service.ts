@@ -43,7 +43,7 @@ export class MonitoringService {
 
   constructor(private readonly serverService: ServerService) {
     // Initialize with current health on startup
-    this.collectHealthMetrics().catch((err) =>
+    this.collectHealthMetrics().catch(err =>
       this.logger.error('Failed to collect initial health metrics', err),
     );
   }
@@ -64,7 +64,7 @@ export class MonitoringService {
       cutoffTime.setHours(cutoffTime.getHours() - this.HISTORY_RETENTION_HOURS);
 
       this.healthHistory = this.healthHistory.filter(
-        (metric) => new Date(metric.timestamp) > cutoffTime,
+        metric => new Date(metric.timestamp) > cutoffTime,
       );
 
       // Limit array size as additional safeguard
@@ -99,7 +99,7 @@ export class MonitoringService {
     cutoffTime.setHours(cutoffTime.getHours() - hours);
 
     const filteredHistory = this.healthHistory.filter(
-      (metric) => new Date(metric.timestamp) > cutoffTime,
+      metric => new Date(metric.timestamp) > cutoffTime,
     );
 
     // If no history available, return at least current health
@@ -177,7 +177,7 @@ export class MonitoringService {
 
     // Determine overall status
     let status: 'healthy' | 'warning' | 'critical' = 'healthy';
-    if (alerts.some((a) => a.severity === 'critical')) {
+    if (alerts.some(a => a.severity === 'critical')) {
       status = 'critical';
     } else if (alerts.length > 0) {
       status = 'warning';
@@ -187,7 +187,7 @@ export class MonitoringService {
     let services;
     try {
       const systemServices = await this.serverService.getSystemServices();
-      const healthyCount = systemServices.filter((s) => s.status === 'running').length;
+      const healthyCount = systemServices.filter(s => s.status === 'active').length;
       const totalCount = systemServices.length;
 
       services = {

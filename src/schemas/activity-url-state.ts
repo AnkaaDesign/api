@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 import { ACTIVITY_OPERATION, ACTIVITY_REASON } from '@constants';
 
 // =====================
@@ -66,7 +66,7 @@ export const activitySelectedItemsSchema = z.object({
   selectedItems: z.array(activitySelectedItemSchema).max(MAX_SELECTED_ITEMS).default([]),
 
   // Selection mode
-  selectionMode: z.enum(["simple", "detailed"]).default("simple"),
+  selectionMode: z.enum(['simple', 'detailed']).default('simple'),
 });
 
 export type ActivitySelectedItemsParams = z.infer<typeof activitySelectedItemsSchema>;
@@ -84,7 +84,7 @@ export const activityQuantityAssignmentSchema = z.object({
   quantityAssignments: z.record(z.string().uuid(), z.number().min(0.01).max(999999)).optional(),
 
   // Quantity calculation mode
-  quantityMode: z.enum(["global", "individual", "calculated"]).default("individual"),
+  quantityMode: z.enum(['global', 'individual', 'calculated']).default('individual'),
 
   // Auto-calculate quantities based on current stock
   useStockPercentage: z.boolean().default(false),
@@ -120,7 +120,7 @@ export const activityPaginationSchema = z.object({
       supplierIds: z.array(z.string().uuid()).max(20).default([]),
 
       // Stock filters
-      stockFilter: z.enum(["all", "inStock", "lowStock", "outOfStock"]).default("all"),
+      stockFilter: z.enum(['all', 'inStock', 'lowStock', 'outOfStock']).default('all'),
       minStock: z.number().min(0).optional(),
       maxStock: z.number().min(0).optional(),
 
@@ -131,8 +131,19 @@ export const activityPaginationSchema = z.object({
     .default({}),
 
   // Sorting
-  sortBy: z.enum(["name", "uniCode", "quantity", "category.name", "brand.name", "supplier.fantasyName", "createdAt", "updatedAt"]).default("name"),
-  sortOrder: z.enum(["asc", "desc"]).default("asc"),
+  sortBy: z
+    .enum([
+      'name',
+      'uniCode',
+      'quantity',
+      'category.name',
+      'brand.name',
+      'supplier.fantasyName',
+      'createdAt',
+      'updatedAt',
+    ])
+    .default('name'),
+  sortOrder: z.enum(['asc', 'desc']).default('asc'),
 });
 
 export type ActivityPaginationParams = z.infer<typeof activityPaginationSchema>;
@@ -144,7 +155,7 @@ export type ActivityPaginationParams = z.infer<typeof activityPaginationSchema>;
 export const activityFormUrlStateSchema = z.object({
   // Form step/mode
   step: z.coerce.number().int().min(1).max(3).default(1),
-  mode: z.enum(["create", "batch", "quick"]).default("batch"),
+  mode: z.enum(['create', 'batch', 'quick']).default('batch'),
 
   // Operation configuration
   ...activityOperationTypeSchema.shape,
@@ -191,7 +202,7 @@ export type ActivityFormUrlState = z.infer<typeof activityFormUrlStateSchema>;
  * Uses base64 encoding of JSON for better compression
  */
 function compressUuidArray(uuids: string[]): string {
-  if (uuids.length === 0) return "";
+  if (uuids.length === 0) return '';
 
   try {
     // For small arrays, use direct JSON
@@ -215,7 +226,7 @@ function decompressUuidArray(compressed: string): string[] {
 
   try {
     // Try direct JSON parse first
-    if (compressed.startsWith("[")) {
+    if (compressed.startsWith('[')) {
       return JSON.parse(compressed);
     }
 
@@ -231,165 +242,169 @@ function decompressUuidArray(compressed: string): string[] {
  * Serializes activity form state to URL-safe parameters
  * Implements compression and optimization strategies
  */
-export function serializeActivityFormToUrlParams(state: Partial<ActivityFormUrlState>): URLSearchParams {
+export function serializeActivityFormToUrlParams(
+  state: Partial<ActivityFormUrlState>,
+): URLSearchParams {
   const params = new URLSearchParams();
 
   // Only include non-default values to keep URL clean
   if (state.step && state.step !== 1) {
-    params.set("step", state.step.toString());
+    params.set('step', state.step.toString());
   }
 
-  if (state.mode && state.mode !== "batch") {
-    params.set("mode", state.mode);
+  if (state.mode && state.mode !== 'batch') {
+    params.set('mode', state.mode);
   }
 
   // Operation type
   if (state.operation) {
-    params.set("op", state.operation);
+    params.set('op', state.operation);
   }
 
   if (state.reason) {
-    params.set("reason", state.reason);
+    params.set('reason', state.reason);
   }
 
   if (state.requiresUser) {
-    params.set("reqUser", "1");
+    params.set('reqUser', '1');
   }
 
   // User selection
   if (state.globalUserId) {
-    params.set("gUser", state.globalUserId);
+    params.set('gUser', state.globalUserId);
   }
 
   if (state.userAssignments && Object.keys(state.userAssignments).length > 0) {
-    params.set("userAssign", btoa(JSON.stringify(state.userAssignments)));
+    params.set('userAssign', btoa(JSON.stringify(state.userAssignments)));
   }
 
   if (state.userSearch) {
-    params.set("uSearch", state.userSearch);
+    params.set('uSearch', state.userSearch);
   }
 
   if (state.activeUsersOnly === false) {
-    params.set("allUsers", "1");
+    params.set('allUsers', '1');
   }
 
   // Selected items - use compression for large arrays
   if (state.selectedIds && state.selectedIds.length > 0) {
     const compressed = compressUuidArray(state.selectedIds);
-    params.set("selected", compressed);
+    params.set('selected', compressed);
   }
 
   if (state.selectedItems && state.selectedItems.length > 0) {
     // Use base64 compression for detailed items
     const compressed = btoa(JSON.stringify(state.selectedItems));
-    params.set("items", compressed);
+    params.set('items', compressed);
   }
 
-  if (state.selectionMode && state.selectionMode !== "simple") {
-    params.set("selMode", state.selectionMode);
+  if (state.selectionMode && state.selectionMode !== 'simple') {
+    params.set('selMode', state.selectionMode);
   }
 
   // Quantities
   if (state.globalQuantity) {
-    params.set("gQty", state.globalQuantity.toString());
+    params.set('gQty', state.globalQuantity.toString());
   }
 
   if (state.quantityAssignments && Object.keys(state.quantityAssignments).length > 0) {
-    params.set("qtyAssign", btoa(JSON.stringify(state.quantityAssignments)));
+    params.set('qtyAssign', btoa(JSON.stringify(state.quantityAssignments)));
   }
 
-  if (state.quantityMode && state.quantityMode !== "individual") {
-    params.set("qtyMode", state.quantityMode);
+  if (state.quantityMode && state.quantityMode !== 'individual') {
+    params.set('qtyMode', state.quantityMode);
   }
 
   if (state.useStockPercentage) {
-    params.set("useStock", "1");
+    params.set('useStock', '1');
     if (state.stockPercentage) {
-      params.set("stockPct", state.stockPercentage.toString());
+      params.set('stockPct', state.stockPercentage.toString());
     }
   }
 
   // Pagination
   if (state.page && state.page !== 1) {
-    params.set("page", state.page.toString());
+    params.set('page', state.page.toString());
   }
 
   if (state.limit && state.limit !== 40) {
-    params.set("limit", state.limit.toString());
+    params.set('limit', state.limit.toString());
   }
 
   if (state.search) {
-    params.set("q", state.search);
+    params.set('q', state.search);
   }
 
   // Filters - only include non-default values
   if (state.filters) {
     const filters = state.filters;
 
-    if (filters.showInactive) params.set("inactive", "1");
-    if (filters.showSelectedOnly) params.set("selOnly", "1");
+    if (filters.showInactive) params.set('inactive', '1');
+    if (filters.showSelectedOnly) params.set('selOnly', '1');
 
     if (filters.categoryIds.length > 0) {
-      params.set("cats", compressUuidArray(filters.categoryIds));
+      params.set('cats', compressUuidArray(filters.categoryIds));
     }
 
     if (filters.brandIds.length > 0) {
-      params.set("brands", compressUuidArray(filters.brandIds));
+      params.set('brands', compressUuidArray(filters.brandIds));
     }
 
     if (filters.supplierIds.length > 0) {
-      params.set("suppliers", compressUuidArray(filters.supplierIds));
+      params.set('suppliers', compressUuidArray(filters.supplierIds));
     }
 
-    if (filters.stockFilter !== "all") {
-      params.set("stock", filters.stockFilter);
+    if (filters.stockFilter !== 'all') {
+      params.set('stock', filters.stockFilter);
     }
 
     if (filters.minStock !== undefined) {
-      params.set("minStock", filters.minStock.toString());
+      params.set('minStock', filters.minStock.toString());
     }
 
     if (filters.maxStock !== undefined) {
-      params.set("maxStock", filters.maxStock.toString());
+      params.set('maxStock', filters.maxStock.toString());
     }
 
     if (filters.isPpeOnly) {
-      params.set("ppe", "1");
+      params.set('ppe', '1');
     }
 
     if (filters.ppeTypes.length > 0) {
-      params.set("ppeTypes", JSON.stringify(filters.ppeTypes));
+      params.set('ppeTypes', JSON.stringify(filters.ppeTypes));
     }
   }
 
   // Sorting
-  if (state.sortBy && state.sortBy !== "name") {
-    params.set("sort", state.sortBy);
+  if (state.sortBy && state.sortBy !== 'name') {
+    params.set('sort', state.sortBy);
   }
 
-  if (state.sortOrder && state.sortOrder !== "asc") {
-    params.set("order", state.sortOrder);
+  if (state.sortOrder && state.sortOrder !== 'asc') {
+    params.set('order', state.sortOrder);
   }
 
   // Preferences - only include non-defaults
   if (state.preferences) {
     const prefs = state.preferences;
 
-    if (prefs.autoSubmit) params.set("autoSubmit", "1");
-    if (!prefs.confirmBeforeSubmit) params.set("noConfirm", "1");
-    if (!prefs.showPreview) params.set("noPreview", "1");
-    if (prefs.compactView) params.set("compact", "1");
+    if (prefs.autoSubmit) params.set('autoSubmit', '1');
+    if (!prefs.confirmBeforeSubmit) params.set('noConfirm', '1');
+    if (!prefs.showPreview) params.set('noPreview', '1');
+    if (prefs.compactView) params.set('compact', '1');
   }
 
   // Form state
   if (state.formData?.isDirty) {
-    params.set("dirty", "1");
+    params.set('dirty', '1');
   }
 
   // Check URL length and warn if too long
   const urlString = params.toString();
   if (urlString.length > MAX_URL_LENGTH) {
-    console.warn(`Activity form URL state is ${urlString.length} characters, which may cause issues. Consider reducing selected items.`);
+    console.warn(
+      `Activity form URL state is ${urlString.length} characters, which may cause issues. Consider reducing selected items.`,
+    );
   }
 
   return params;
@@ -398,11 +413,13 @@ export function serializeActivityFormToUrlParams(state: Partial<ActivityFormUrlS
 /**
  * Deserializes URL parameters back to activity form state
  */
-export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams): Partial<ActivityFormUrlState> {
+export function deserializeUrlParamsToActivityForm(
+  searchParams: URLSearchParams,
+): Partial<ActivityFormUrlState> {
   const state: Partial<ActivityFormUrlState> = {};
 
   // Parse step
-  const step = searchParams.get("step");
+  const step = searchParams.get('step');
   if (step) {
     const parsed = parseInt(step, 10);
     if (parsed >= 1 && parsed <= 3) {
@@ -411,76 +428,76 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
   }
 
   // Parse mode
-  const mode = searchParams.get("mode");
-  if (mode && ["create", "batch", "quick"].includes(mode)) {
+  const mode = searchParams.get('mode');
+  if (mode && ['create', 'batch', 'quick'].includes(mode)) {
     state.mode = mode as any;
   }
 
   // Parse operation type
-  const operation = searchParams.get("op");
+  const operation = searchParams.get('op');
   if (operation && Object.values(ACTIVITY_OPERATION).includes(operation as any)) {
     state.operation = operation as any;
   }
 
-  const reason = searchParams.get("reason");
+  const reason = searchParams.get('reason');
   if (reason && Object.values(ACTIVITY_REASON).includes(reason as any)) {
     state.reason = reason as any;
   }
 
-  if (searchParams.get("reqUser") === "1") {
+  if (searchParams.get('reqUser') === '1') {
     state.requiresUser = true;
   }
 
   // Parse user selection
-  const globalUserId = searchParams.get("gUser");
+  const globalUserId = searchParams.get('gUser');
   if (globalUserId) {
     state.globalUserId = globalUserId;
   }
 
-  const userAssignments = searchParams.get("userAssign");
+  const userAssignments = searchParams.get('userAssign');
   if (userAssignments) {
     try {
       state.userAssignments = JSON.parse(atob(userAssignments));
     } catch {
-      console.warn("Failed to parse user assignments from URL");
+      console.warn('Failed to parse user assignments from URL');
     }
   }
 
-  const userSearch = searchParams.get("uSearch");
+  const userSearch = searchParams.get('uSearch');
   if (userSearch) {
     state.userSearch = userSearch;
   }
 
-  if (searchParams.get("allUsers") === "1") {
+  if (searchParams.get('allUsers') === '1') {
     state.activeUsersOnly = false;
   }
 
   // Parse selected items
-  const selectedIds = searchParams.get("selected");
+  const selectedIds = searchParams.get('selected');
   if (selectedIds) {
     try {
       state.selectedIds = decompressUuidArray(selectedIds);
     } catch {
-      console.warn("Failed to parse selected IDs from URL");
+      console.warn('Failed to parse selected IDs from URL');
     }
   }
 
-  const selectedItems = searchParams.get("items");
+  const selectedItems = searchParams.get('items');
   if (selectedItems) {
     try {
       state.selectedItems = JSON.parse(atob(selectedItems));
     } catch {
-      console.warn("Failed to parse selected items from URL");
+      console.warn('Failed to parse selected items from URL');
     }
   }
 
-  const selectionMode = searchParams.get("selMode");
-  if (selectionMode && ["simple", "detailed"].includes(selectionMode)) {
+  const selectionMode = searchParams.get('selMode');
+  if (selectionMode && ['simple', 'detailed'].includes(selectionMode)) {
     state.selectionMode = selectionMode as any;
   }
 
   // Parse quantities
-  const globalQuantity = searchParams.get("gQty");
+  const globalQuantity = searchParams.get('gQty');
   if (globalQuantity) {
     const parsed = parseFloat(globalQuantity);
     if (!isNaN(parsed) && parsed > 0) {
@@ -488,24 +505,24 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
     }
   }
 
-  const quantityAssignments = searchParams.get("qtyAssign");
+  const quantityAssignments = searchParams.get('qtyAssign');
   if (quantityAssignments) {
     try {
       state.quantityAssignments = JSON.parse(atob(quantityAssignments));
     } catch {
-      console.warn("Failed to parse quantity assignments from URL");
+      console.warn('Failed to parse quantity assignments from URL');
     }
   }
 
-  const quantityMode = searchParams.get("qtyMode");
-  if (quantityMode && ["global", "individual", "calculated"].includes(quantityMode)) {
+  const quantityMode = searchParams.get('qtyMode');
+  if (quantityMode && ['global', 'individual', 'calculated'].includes(quantityMode)) {
     state.quantityMode = quantityMode as any;
   }
 
-  if (searchParams.get("useStock") === "1") {
+  if (searchParams.get('useStock') === '1') {
     state.useStockPercentage = true;
 
-    const stockPercentage = searchParams.get("stockPct");
+    const stockPercentage = searchParams.get('stockPct');
     if (stockPercentage) {
       const parsed = parseFloat(stockPercentage);
       if (!isNaN(parsed) && parsed >= 1 && parsed <= 100) {
@@ -515,7 +532,7 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
   }
 
   // Parse pagination
-  const page = searchParams.get("page");
+  const page = searchParams.get('page');
   if (page) {
     const parsed = parseInt(page, 10);
     if (!isNaN(parsed) && parsed >= 1) {
@@ -523,7 +540,7 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
     }
   }
 
-  const limit = searchParams.get("limit");
+  const limit = searchParams.get('limit');
   if (limit) {
     const parsed = parseInt(limit, 10);
     if (!isNaN(parsed) && parsed >= 10 && parsed <= 100) {
@@ -531,7 +548,7 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
     }
   }
 
-  const search = searchParams.get("q");
+  const search = searchParams.get('q');
   if (search) {
     state.search = search;
   }
@@ -539,47 +556,47 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
   // Parse filters
   const filters: any = {};
 
-  if (searchParams.get("inactive") === "1") {
+  if (searchParams.get('inactive') === '1') {
     filters.showInactive = true;
   }
 
-  if (searchParams.get("selOnly") === "1") {
+  if (searchParams.get('selOnly') === '1') {
     filters.showSelectedOnly = true;
   }
 
-  const categoryIds = searchParams.get("cats");
+  const categoryIds = searchParams.get('cats');
   if (categoryIds) {
     try {
       filters.categoryIds = decompressUuidArray(categoryIds);
     } catch {
-      console.warn("Failed to parse category IDs from URL");
+      console.warn('Failed to parse category IDs from URL');
     }
   }
 
-  const brandIds = searchParams.get("brands");
+  const brandIds = searchParams.get('brands');
   if (brandIds) {
     try {
       filters.brandIds = decompressUuidArray(brandIds);
     } catch {
-      console.warn("Failed to parse brand IDs from URL");
+      console.warn('Failed to parse brand IDs from URL');
     }
   }
 
-  const supplierIds = searchParams.get("suppliers");
+  const supplierIds = searchParams.get('suppliers');
   if (supplierIds) {
     try {
       filters.supplierIds = decompressUuidArray(supplierIds);
     } catch {
-      console.warn("Failed to parse supplier IDs from URL");
+      console.warn('Failed to parse supplier IDs from URL');
     }
   }
 
-  const stockFilter = searchParams.get("stock");
-  if (stockFilter && ["all", "inStock", "lowStock", "outOfStock"].includes(stockFilter)) {
+  const stockFilter = searchParams.get('stock');
+  if (stockFilter && ['all', 'inStock', 'lowStock', 'outOfStock'].includes(stockFilter)) {
     filters.stockFilter = stockFilter;
   }
 
-  const minStock = searchParams.get("minStock");
+  const minStock = searchParams.get('minStock');
   if (minStock) {
     const parsed = parseFloat(minStock);
     if (!isNaN(parsed) && parsed >= 0) {
@@ -587,7 +604,7 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
     }
   }
 
-  const maxStock = searchParams.get("maxStock");
+  const maxStock = searchParams.get('maxStock');
   if (maxStock) {
     const parsed = parseFloat(maxStock);
     if (!isNaN(parsed) && parsed >= 0) {
@@ -595,16 +612,16 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
     }
   }
 
-  if (searchParams.get("ppe") === "1") {
+  if (searchParams.get('ppe') === '1') {
     filters.isPpeOnly = true;
   }
 
-  const ppeTypes = searchParams.get("ppeTypes");
+  const ppeTypes = searchParams.get('ppeTypes');
   if (ppeTypes) {
     try {
       filters.ppeTypes = JSON.parse(ppeTypes);
     } catch {
-      console.warn("Failed to parse PPE types from URL");
+      console.warn('Failed to parse PPE types from URL');
     }
   }
 
@@ -613,32 +630,32 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
   }
 
   // Parse sorting
-  const sortBy = searchParams.get("sort");
+  const sortBy = searchParams.get('sort');
   if (sortBy) {
     state.sortBy = sortBy as any;
   }
 
-  const sortOrder = searchParams.get("order");
-  if (sortOrder && ["asc", "desc"].includes(sortOrder)) {
+  const sortOrder = searchParams.get('order');
+  if (sortOrder && ['asc', 'desc'].includes(sortOrder)) {
     state.sortOrder = sortOrder as any;
   }
 
   // Parse preferences
   const preferences: any = {};
 
-  if (searchParams.get("autoSubmit") === "1") {
+  if (searchParams.get('autoSubmit') === '1') {
     preferences.autoSubmit = true;
   }
 
-  if (searchParams.get("noConfirm") === "1") {
+  if (searchParams.get('noConfirm') === '1') {
     preferences.confirmBeforeSubmit = false;
   }
 
-  if (searchParams.get("noPreview") === "1") {
+  if (searchParams.get('noPreview') === '1') {
     preferences.showPreview = false;
   }
 
-  if (searchParams.get("compact") === "1") {
+  if (searchParams.get('compact') === '1') {
     preferences.compactView = true;
   }
 
@@ -647,7 +664,7 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
   }
 
   // Parse form state
-  if (searchParams.get("dirty") === "1") {
+  if (searchParams.get('dirty') === '1') {
     state.formData = { isDirty: true };
   }
 
@@ -657,12 +674,15 @@ export function deserializeUrlParamsToActivityForm(searchParams: URLSearchParams
 /**
  * Gets default activity form values with URL params merged
  */
-export function getDefaultActivityFormValues(searchParams: URLSearchParams, baseDefaults?: Partial<ActivityFormUrlState>): ActivityFormUrlState {
+export function getDefaultActivityFormValues(
+  searchParams: URLSearchParams,
+  baseDefaults?: Partial<ActivityFormUrlState>,
+): ActivityFormUrlState {
   const urlState = deserializeUrlParamsToActivityForm(searchParams);
 
   const defaults: ActivityFormUrlState = {
     step: 1,
-    mode: "batch",
+    mode: 'batch',
     operation: undefined,
     reason: undefined,
     requiresUser: false,
@@ -672,10 +692,10 @@ export function getDefaultActivityFormValues(searchParams: URLSearchParams, base
     activeUsersOnly: true,
     selectedIds: [],
     selectedItems: [],
-    selectionMode: "simple",
+    selectionMode: 'simple',
     globalQuantity: undefined,
     quantityAssignments: undefined,
-    quantityMode: "individual",
+    quantityMode: 'individual',
     useStockPercentage: false,
     stockPercentage: undefined,
     page: 1,
@@ -687,14 +707,14 @@ export function getDefaultActivityFormValues(searchParams: URLSearchParams, base
       categoryIds: [],
       brandIds: [],
       supplierIds: [],
-      stockFilter: "all",
+      stockFilter: 'all',
       minStock: undefined,
       maxStock: undefined,
       isPpeOnly: false,
       ppeTypes: [],
     },
-    sortBy: "name",
-    sortOrder: "asc",
+    sortBy: 'name',
+    sortOrder: 'asc',
     preferences: {
       autoSubmit: false,
       confirmBeforeSubmit: true,
@@ -722,34 +742,50 @@ export function validateActivityFormUrlState(state: Partial<ActivityFormUrlState
 
   // Check selected items limit
   if (state.selectedIds && state.selectedIds.length > MAX_SELECTED_ITEMS) {
-    errors.push(`Too many selected items (${state.selectedIds.length}). Maximum is ${MAX_SELECTED_ITEMS}.`);
+    errors.push(
+      `Too many selected items (${state.selectedIds.length}). Maximum is ${MAX_SELECTED_ITEMS}.`,
+    );
   }
 
   if (state.selectedItems && state.selectedItems.length > MAX_SELECTED_ITEMS) {
-    errors.push(`Too many detailed items (${state.selectedItems.length}). Maximum is ${MAX_SELECTED_ITEMS}.`);
+    errors.push(
+      `Too many detailed items (${state.selectedItems.length}). Maximum is ${MAX_SELECTED_ITEMS}.`,
+    );
   }
 
   // Check for conflicting configurations
-  if (state.globalQuantity && state.quantityMode === "individual") {
-    warnings.push("Global quantity is set but quantity mode is 'individual'. Global quantity will be ignored.");
+  if (state.globalQuantity && state.quantityMode === 'individual') {
+    warnings.push(
+      "Global quantity is set but quantity mode is 'individual'. Global quantity will be ignored.",
+    );
   }
 
-  if (state.quantityAssignments && Object.keys(state.quantityAssignments).length > 0 && state.quantityMode === "global") {
-    warnings.push("Individual quantity assignments are set but quantity mode is 'global'. Individual assignments will be ignored.");
+  if (
+    state.quantityAssignments &&
+    Object.keys(state.quantityAssignments).length > 0 &&
+    state.quantityMode === 'global'
+  ) {
+    warnings.push(
+      "Individual quantity assignments are set but quantity mode is 'global'. Individual assignments will be ignored.",
+    );
   }
 
   // Check stock percentage configuration
   if (state.useStockPercentage && !state.stockPercentage) {
-    warnings.push("Stock percentage mode is enabled but no percentage is specified. Defaulting to 100%.");
+    warnings.push(
+      'Stock percentage mode is enabled but no percentage is specified. Defaulting to 100%.',
+    );
   }
 
   if (state.stockPercentage && !state.useStockPercentage) {
-    warnings.push("Stock percentage is specified but percentage mode is not enabled.");
+    warnings.push('Stock percentage is specified but percentage mode is not enabled.');
   }
 
   // Check user assignments
   if (state.userAssignments && state.globalUserId) {
-    warnings.push("Both global user and individual user assignments are set. Individual assignments will take precedence.");
+    warnings.push(
+      'Both global user and individual user assignments are set. Individual assignments will take precedence.',
+    );
   }
 
   return {
@@ -788,7 +824,7 @@ export interface ActivityFormUrlStateManager {
   // Quantity management
   setGlobalQuantity: (quantity: number) => void;
   setItemQuantity: (itemId: string, quantity: number) => void;
-  setQuantityMode: (mode: "global" | "individual" | "calculated") => void;
+  setQuantityMode: (mode: 'global' | 'individual' | 'calculated') => void;
 
   // Pagination
   setPage: (page: number) => void;

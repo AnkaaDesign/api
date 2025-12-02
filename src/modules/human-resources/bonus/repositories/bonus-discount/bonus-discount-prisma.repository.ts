@@ -10,9 +10,7 @@ import {
   FindManyResult,
   FindManyOptions,
 } from '../../../../../types';
-import {
-  BonusDiscountCreateFormData,
-} from '../../../../../schemas';
+import { BonusDiscountCreateFormData } from '../../../../../schemas';
 import { BonusDiscountRepository, BonusDiscountUpdateFormData } from './bonus-discount.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { BonusDiscount as PrismaBonusDiscount, Prisma } from '@prisma/client';
@@ -70,7 +68,9 @@ export class BonusDiscountPrismaRepository
   ): Prisma.BonusDiscountUpdateInput {
     const updateInput: Prisma.BonusDiscountUpdateInput = {
       ...(formData.reference !== undefined && { reference: formData.reference }),
-      ...(formData.calculationOrder !== undefined && { calculationOrder: formData.calculationOrder }),
+      ...(formData.calculationOrder !== undefined && {
+        calculationOrder: formData.calculationOrder,
+      }),
       ...(formData.percentage !== undefined && { percentage: formData.percentage }),
       ...(formData.value !== undefined && { value: formData.value }),
     };
@@ -78,14 +78,20 @@ export class BonusDiscountPrismaRepository
     return updateInput;
   }
 
-  protected mapIncludeToDatabaseInclude(include?: BonusDiscountIncludes): Prisma.BonusDiscountInclude | undefined {
+  protected mapIncludeToDatabaseInclude(
+    include?: BonusDiscountIncludes,
+  ): Prisma.BonusDiscountInclude | undefined {
     if (!include) return undefined;
 
     // Deep clone to avoid mutating the original
     const mappedInclude = JSON.parse(JSON.stringify(include));
 
     // Handle bonus include with select
-    if (mappedInclude.bonus && typeof mappedInclude.bonus === 'object' && mappedInclude.bonus.include) {
+    if (
+      mappedInclude.bonus &&
+      typeof mappedInclude.bonus === 'object' &&
+      mappedInclude.bonus.include
+    ) {
       // Already properly structured
     } else if (mappedInclude.bonus && Object.keys(mappedInclude.bonus).length === 0) {
       // Empty object means include all
@@ -101,7 +107,9 @@ export class BonusDiscountPrismaRepository
     return orderBy as Prisma.BonusDiscountOrderByWithRelationInput | undefined;
   }
 
-  protected mapWhereToDatabaseWhere(where?: BonusDiscountWhere): Prisma.BonusDiscountWhereInput | undefined {
+  protected mapWhereToDatabaseWhere(
+    where?: BonusDiscountWhere,
+  ): Prisma.BonusDiscountWhereInput | undefined {
     return where as Prisma.BonusDiscountWhereInput | undefined;
   }
 
@@ -193,13 +201,7 @@ export class BonusDiscountPrismaRepository
     options?: FindManyOptions<BonusDiscountOrderBy, BonusDiscountWhere, BonusDiscountIncludes>,
   ): Promise<FindManyResult<BonusDiscount>> {
     try {
-      const {
-        where,
-        orderBy,
-        page = 1,
-        take = 20,
-        include,
-      } = options || {};
+      const { where, orderBy, page = 1, take = 20, include } = options || {};
       const skip = Math.max(0, (page - 1) * take);
 
       const whereClause = this.mapWhereToDatabaseWhere(where);
@@ -254,10 +256,7 @@ export class BonusDiscountPrismaRepository
     }
   }
 
-  async deleteWithTransaction(
-    transaction: PrismaTransaction,
-    id: string,
-  ): Promise<BonusDiscount> {
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<BonusDiscount> {
     try {
       const result = await transaction.bonusDiscount.delete({
         where: { id },
@@ -289,7 +288,8 @@ export class BonusDiscountPrismaRepository
     options?: { include?: BonusDiscountIncludes },
   ): Promise<BonusDiscount[]> {
     try {
-      const includeInput = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       const results = await this.prisma.bonusDiscount.findMany({
         where: { bonusId },
@@ -310,7 +310,8 @@ export class BonusDiscountPrismaRepository
     options?: { include?: BonusDiscountIncludes },
   ): Promise<BonusDiscount[]> {
     try {
-      const includeInput = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const includeInput =
+        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       const results = await transaction.bonusDiscount.findMany({
         where: { bonusId },
@@ -330,13 +331,7 @@ export class BonusDiscountPrismaRepository
     options?: BonusDiscountGetManyParams,
   ): Promise<FindManyResult<BonusDiscount>> {
     try {
-      const {
-        where,
-        orderBy,
-        page = 1,
-        take = 20,
-        include,
-      } = options || {};
+      const { where, orderBy, page = 1, take = 20, include } = options || {};
       const skip = Math.max(0, (page - 1) * take);
 
       const whereClause: Prisma.BonusDiscountWhereInput = {
@@ -371,13 +366,7 @@ export class BonusDiscountPrismaRepository
     options?: BonusDiscountGetManyParams,
   ): Promise<FindManyResult<BonusDiscount>> {
     try {
-      const {
-        where,
-        orderBy,
-        page = 1,
-        take = 20,
-        include,
-      } = options || {};
+      const { where, orderBy, page = 1, take = 20, include } = options || {};
       const skip = Math.max(0, (page - 1) * take);
 
       const whereClause: Prisma.BonusDiscountWhereInput = {

@@ -349,7 +349,9 @@ export class TaskPrismaRepository
       for (const cutItem of cuts) {
         // Skip cuts without fileId (file must be uploaded first)
         if (!cutItem.fileId) {
-          console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+          console.warn(
+            '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+          );
           continue;
         }
         // If quantity is specified, create multiple records
@@ -403,10 +405,19 @@ export class TaskPrismaRepository
     }
 
     // Handle budget creation (object with items and expiresIn)
-    if (budget && typeof budget === 'object' && budget.items && Array.isArray(budget.items) && budget.items.length > 0) {
+    if (
+      budget &&
+      typeof budget === 'object' &&
+      budget.items &&
+      Array.isArray(budget.items) &&
+      budget.items.length > 0
+    ) {
       console.log('✅ Processing budget object:', budget.items.length, 'items');
       // Calculate total from items
-      const total = budget.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+      const total = budget.items.reduce(
+        (sum: number, item: any) => sum + Number(item.amount || 0),
+        0,
+      );
       taskData.budget = {
         create: {
           total,
@@ -439,21 +450,27 @@ export class TaskPrismaRepository
             startDate: item.startDate || null,
             finishDate: item.finishDate || null,
             // Connect existing file IDs if provided
-            receipts: item.receiptIds && item.receiptIds.length > 0
-              ? { connect: item.receiptIds.map((id: string) => ({ id })) }
-              : undefined,
-            invoices: item.invoiceIds && item.invoiceIds.length > 0
-              ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
-              : undefined,
-            artworks: item.artworkIds && item.artworkIds.length > 0
-              ? { connect: item.artworkIds.map((id: string) => ({ id })) }
-              : undefined,
+            receipts:
+              item.receiptIds && item.receiptIds.length > 0
+                ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+                : undefined,
+            invoices:
+              item.invoiceIds && item.invoiceIds.length > 0
+                ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+                : undefined,
+            artworks:
+              item.artworkIds && item.artworkIds.length > 0
+                ? { connect: item.artworkIds.map((id: string) => ({ id })) }
+                : undefined,
           };
           console.log(`[TaskRepository] Final airbrushing data:`, airbrushingData);
           return airbrushingData;
         }),
       };
-      console.log('[TaskRepository] taskData.airbrushings:', JSON.stringify(taskData.airbrushings, null, 2));
+      console.log(
+        '[TaskRepository] taskData.airbrushings:',
+        JSON.stringify(taskData.airbrushings, null, 2),
+      );
     } else {
       console.log('❌ No airbrushings to process');
     }
@@ -520,7 +537,6 @@ export class TaskPrismaRepository
       updateData.status = mapTaskStatusToPrisma(status);
       updateData.statusOrder = getTaskStatusOrder(status);
     }
-
 
     // Handle optional relations with proper null handling
     if (customerId !== undefined) {
@@ -664,7 +680,9 @@ export class TaskPrismaRepository
         for (const cutItem of cuts) {
           // Skip cuts without fileId (file must be uploaded first)
           if (!cutItem.fileId) {
-            console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+            console.warn(
+              '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+            );
             continue;
           }
           // If quantity is specified, create multiple records
@@ -688,7 +706,9 @@ export class TaskPrismaRepository
         console.log('⚠️  Processing single cut field (deprecated method)');
         // Skip cut without fileId (file must be uploaded first)
         if (!cut.fileId) {
-          console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+          console.warn(
+            '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+          );
         } else {
           // Extract quantity and create multiple cut records
           const quantity = (cut as any).quantity || 1;
@@ -732,10 +752,18 @@ export class TaskPrismaRepository
       if (budget === null) {
         console.log('🗑️ Deleting budget');
         updateData.budget = { delete: true };
-      } else if (typeof budget === 'object' && budget.items && Array.isArray(budget.items) && budget.items.length > 0) {
+      } else if (
+        typeof budget === 'object' &&
+        budget.items &&
+        Array.isArray(budget.items) &&
+        budget.items.length > 0
+      ) {
         console.log('✅ Updating budget object:', budget.items.length, 'items');
         // Calculate total from items
-        const total = budget.items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        const total = budget.items.reduce(
+          (sum: number, item: any) => sum + Number(item.amount || 0),
+          0,
+        );
         updateData.budget = {
           upsert: {
             create: {
@@ -777,7 +805,10 @@ export class TaskPrismaRepository
         updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
         console.log('✅ Updating airbrushings array:', airbrushings.length, 'items');
-        console.log('[TaskRepository.UPDATE] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
+        console.log(
+          '[TaskRepository.UPDATE] Airbrushing items:',
+          JSON.stringify(airbrushings, null, 2),
+        );
         updateData.airbrushings = {
           deleteMany: {}, // Delete all existing airbrushings
           create: airbrushings.map((item: any, index: number) => {
@@ -788,21 +819,27 @@ export class TaskPrismaRepository
               startDate: item.startDate || null,
               finishDate: item.finishDate || null,
               // Connect existing file IDs if provided
-              receipts: item.receiptIds && item.receiptIds.length > 0
-                ? { connect: item.receiptIds.map((id: string) => ({ id })) }
-                : undefined,
-              invoices: item.invoiceIds && item.invoiceIds.length > 0
-                ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
-                : undefined,
-              artworks: item.artworkIds && item.artworkIds.length > 0
-                ? { connect: item.artworkIds.map((id: string) => ({ id })) }
-                : undefined,
+              receipts:
+                item.receiptIds && item.receiptIds.length > 0
+                  ? { connect: item.receiptIds.map((id: string) => ({ id })) }
+                  : undefined,
+              invoices:
+                item.invoiceIds && item.invoiceIds.length > 0
+                  ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
+                  : undefined,
+              artworks:
+                item.artworkIds && item.artworkIds.length > 0
+                  ? { connect: item.artworkIds.map((id: string) => ({ id })) }
+                  : undefined,
             };
             console.log(`[TaskRepository.UPDATE] Final airbrushing data:`, airbrushingData);
             return airbrushingData;
           }),
         };
-        console.log('[TaskRepository.UPDATE] updateData.airbrushings:', JSON.stringify(updateData.airbrushings, null, 2));
+        console.log(
+          '[TaskRepository.UPDATE] updateData.airbrushings:',
+          JSON.stringify(updateData.airbrushings, null, 2),
+        );
       }
     }
 
@@ -825,7 +862,7 @@ export class TaskPrismaRepository
 
         return {
           ...value,
-          include: processedInclude
+          include: processedInclude,
         };
       }
 
@@ -846,7 +883,10 @@ export class TaskPrismaRepository
     }
 
     // LOG: Input includes
-    this.logger.log('[mapIncludeToDatabaseInclude] Input include:', JSON.stringify(include, null, 2));
+    this.logger.log(
+      '[mapIncludeToDatabaseInclude] Input include:',
+      JSON.stringify(include, null, 2),
+    );
 
     // Start with default include to ensure observation.files are always included
     const databaseInclude: any = { ...this.getDefaultInclude() };
@@ -874,7 +914,7 @@ export class TaskPrismaRepository
           if (existingValue && typeof existingValue === 'object' && 'include' in existingValue) {
             databaseInclude[key] = {
               ...existingValue,
-              include: { ...existingValue.include, ...processedValue.include }
+              include: { ...existingValue.include, ...processedValue.include },
             };
           } else {
             databaseInclude[key] = processedValue;
@@ -884,7 +924,10 @@ export class TaskPrismaRepository
     });
 
     // LOG: Output includes being sent to Prisma
-    this.logger.log('[mapIncludeToDatabaseInclude] Output include for Prisma:', JSON.stringify(databaseInclude, null, 2));
+    this.logger.log(
+      '[mapIncludeToDatabaseInclude] Output include for Prisma:',
+      JSON.stringify(databaseInclude, null, 2),
+    );
 
     return databaseInclude as Prisma.TaskInclude;
   }
@@ -998,19 +1041,28 @@ export class TaskPrismaRepository
     // LOG: Check first task's truck data structure
     if (tasks.length > 0 && tasks[0].truck) {
       const truck: any = tasks[0].truck; // Cast to any to check actual runtime data
-      this.logger.log('[findManyWithTransaction] First task truck data:', JSON.stringify({
-        hasTruck: !!truck,
-        truckId: truck?.id,
-        leftLayoutId: truck?.leftSideLayoutId,
-        rightLayoutId: truck?.rightSideLayoutId,
-        hasLeftLayoutId: !!truck?.leftSideLayoutId,
-        hasRightLayoutId: !!truck?.rightSideLayoutId,
-      }, null, 2));
+      this.logger.log(
+        '[findManyWithTransaction] First task truck data:',
+        JSON.stringify(
+          {
+            hasTruck: !!truck,
+            truckId: truck?.id,
+            leftLayoutId: truck?.leftSideLayoutId,
+            rightLayoutId: truck?.rightSideLayoutId,
+            hasLeftLayoutId: !!truck?.leftSideLayoutId,
+            hasRightLayoutId: !!truck?.rightSideLayoutId,
+          },
+          null,
+          2,
+        ),
+      );
     }
 
     // Verify count matches expectations
     if (total > 0 && tasks.length === 0 && skip === 0) {
-      this.logger.warn('[TaskRepository] WARNING: Count returned records but findMany returned empty!');
+      this.logger.warn(
+        '[TaskRepository] WARNING: Count returned records but findMany returned empty!',
+      );
     }
 
     return {

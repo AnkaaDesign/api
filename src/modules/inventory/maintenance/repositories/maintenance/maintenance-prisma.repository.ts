@@ -10,7 +10,12 @@ import {
   MaintenanceOrderBy,
   MaintenanceWhere,
 } from '../../../../../schemas/maintenance';
-import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../../types';
+import {
+  FindManyOptions,
+  FindManyResult,
+  CreateOptions,
+  UpdateOptions,
+} from '../../../../../types';
 import { MaintenanceRepository } from './maintenance.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -161,7 +166,9 @@ export class MaintenancePrismaRepository
     this.logger.log(`[mapOrderByToDatabaseOrderBy] Input: ${JSON.stringify(orderBy)}`);
 
     if (!orderBy) {
-      this.logger.log('[mapOrderByToDatabaseOrderBy] No orderBy, using default: { createdAt: "desc" }');
+      this.logger.log(
+        '[mapOrderByToDatabaseOrderBy] No orderBy, using default: { createdAt: "desc" }',
+      );
       return { createdAt: 'desc' };
     }
 
@@ -182,12 +189,16 @@ export class MaintenancePrismaRepository
     // Handle single orderBy object
     if (typeof orderBy === 'object' && 'status' in orderBy) {
       const result = { statusOrder: orderBy.status };
-      this.logger.log(`[mapOrderByToDatabaseOrderBy] Single object with status result: ${JSON.stringify(result)}`);
+      this.logger.log(
+        `[mapOrderByToDatabaseOrderBy] Single object with status result: ${JSON.stringify(result)}`,
+      );
       return result;
     }
 
     // Pass through as-is (including statusOrder)
-    this.logger.log(`[mapOrderByToDatabaseOrderBy] Pass-through result: ${JSON.stringify(orderBy)}`);
+    this.logger.log(
+      `[mapOrderByToDatabaseOrderBy] Pass-through result: ${JSON.stringify(orderBy)}`,
+    );
     return orderBy;
   }
 

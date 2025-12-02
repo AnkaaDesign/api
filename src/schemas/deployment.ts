@@ -1,15 +1,8 @@
 // packages/schemas/src/deployment.ts
 
-import { z } from "zod";
-import {
-  DEPLOYMENT_STATUS,
-  DEPLOYMENT_ENVIRONMENT,
-  DEPLOYMENT_TRIGGER,
-} from '@constants';
-import {
-  orderByDirectionSchema,
-  normalizeOrderBy,
-} from "./common";
+import { z } from 'zod';
+import { DEPLOYMENT_STATUS, DEPLOYMENT_ENVIRONMENT, DEPLOYMENT_TRIGGER } from '@constants';
+import { orderByDirectionSchema, normalizeOrderBy } from './common';
 
 // =====================
 // Include Schema
@@ -171,25 +164,23 @@ export type DeploymentOrderBy = z.infer<typeof deploymentOrderBySchema>;
 // =====================
 
 export const deploymentCreateSchema = z.object({
-  appId: z
-    .string()
-    .uuid("ID do app inválido"),
+  appId: z.string().uuid('ID do app inválido'),
 
-  gitCommitId: z
-    .string()
-    .uuid("ID do commit inválido"),
+  gitCommitId: z.string().uuid('ID do commit inválido'),
 
   environment: z.nativeEnum(DEPLOYMENT_ENVIRONMENT, {
-    errorMap: () => ({ message: "Ambiente inválido" }),
+    errorMap: () => ({ message: 'Ambiente inválido' }),
   }),
 
-  triggeredBy: z.nativeEnum(DEPLOYMENT_TRIGGER, {
-    errorMap: () => ({ message: "Tipo de gatilho inválido" }),
-  }).optional(),
+  triggeredBy: z
+    .nativeEnum(DEPLOYMENT_TRIGGER, {
+      errorMap: () => ({ message: 'Tipo de gatilho inválido' }),
+    })
+    .optional(),
 
   workflowRunId: z
     .string()
-    .max(255, "ID do workflow deve ter no máximo 255 caracteres")
+    .max(255, 'ID do workflow deve ter no máximo 255 caracteres')
     .optional()
     .nullable(),
 
@@ -198,7 +189,7 @@ export const deploymentCreateSchema = z.object({
   version: z.string().max(255).optional().nullable(),
   rollbackData: z.any().optional().nullable(),
   deploymentLog: z.string().optional().nullable(),
-  healthCheckUrl: z.string().url("URL inválida").optional().nullable(),
+  healthCheckUrl: z.string().url('URL inválida').optional().nullable(),
   healthCheckStatus: z.string().max(255).optional().nullable(),
 });
 
@@ -215,7 +206,7 @@ export const deploymentUpdateSchema = z.object({
   previousCommit: z.string().max(255).optional().nullable(),
   rollbackData: z.any().optional().nullable(),
   deploymentLog: z.string().optional().nullable(),
-  healthCheckUrl: z.string().url("URL inválida").optional().nullable(),
+  healthCheckUrl: z.string().url('URL inválida').optional().nullable(),
   healthCheckStatus: z.string().max(255).optional().nullable(),
   completedAt: z.coerce.date().optional().nullable(),
   rolledBackAt: z.coerce.date().optional().nullable(),
@@ -238,15 +229,15 @@ export const deploymentGetManySchema = z
 
     searchingFor: z.string().optional(),
   })
-  .transform((data) => {
+  .transform(data => {
     // Transform searchingFor into where clause
-    if (data.searchingFor && typeof data.searchingFor === "string") {
+    if (data.searchingFor && typeof data.searchingFor === 'string') {
       data.where = {
         ...data.where,
         OR: [
-          { appId: { contains: data.searchingFor, mode: "insensitive" } },
-          { gitCommitId: { contains: data.searchingFor, mode: "insensitive" } },
-          { version: { contains: data.searchingFor, mode: "insensitive" } },
+          { appId: { contains: data.searchingFor, mode: 'insensitive' } },
+          { gitCommitId: { contains: data.searchingFor, mode: 'insensitive' } },
+          { version: { contains: data.searchingFor, mode: 'insensitive' } },
         ],
       };
       delete data.searchingFor;
@@ -267,7 +258,10 @@ export type DeploymentQueryFormData = z.infer<typeof deploymentQuerySchema>;
 // =====================
 
 export const deploymentBatchCreateSchema = z.object({
-  deployments: z.array(deploymentCreateSchema).min(1, "Deve incluir pelo menos um deployment").max(50, "Limite máximo de 50 deployments"),
+  deployments: z
+    .array(deploymentCreateSchema)
+    .min(1, 'Deve incluir pelo menos um deployment')
+    .max(50, 'Limite máximo de 50 deployments'),
 });
 
 export type DeploymentBatchCreateFormData = z.infer<typeof deploymentBatchCreateSchema>;
@@ -276,18 +270,21 @@ export const deploymentBatchUpdateSchema = z.object({
   updates: z
     .array(
       z.object({
-        id: z.string().uuid("ID inválido"),
+        id: z.string().uuid('ID inválido'),
         data: deploymentUpdateSchema,
       }),
     )
-    .min(1, "Deve incluir pelo menos uma atualização")
-    .max(50, "Limite máximo de 50 atualizações"),
+    .min(1, 'Deve incluir pelo menos uma atualização')
+    .max(50, 'Limite máximo de 50 atualizações'),
 });
 
 export type DeploymentBatchUpdateFormData = z.infer<typeof deploymentBatchUpdateSchema>;
 
 export const deploymentBatchDeleteSchema = z.object({
-  ids: z.array(z.string().uuid("ID inválido")).min(1, "Deve incluir pelo menos um ID").max(50, "Limite máximo de 50 IDs"),
+  ids: z
+    .array(z.string().uuid('ID inválido'))
+    .min(1, 'Deve incluir pelo menos um ID')
+    .max(50, 'Limite máximo de 50 IDs'),
 });
 
 export type DeploymentBatchDeleteFormData = z.infer<typeof deploymentBatchDeleteSchema>;

@@ -26,7 +26,11 @@ import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
-import { ReadRateLimit, WriteRateLimit, NoRateLimit } from '@modules/common/throttler/throttler.decorators';
+import {
+  ReadRateLimit,
+  WriteRateLimit,
+  NoRateLimit,
+} from '@modules/common/throttler/throttler.decorators';
 import type {
   DeploymentBatchResponse,
   DeploymentCreateResponse,
@@ -142,7 +146,11 @@ export class DeploymentController {
     @Param('environment') environment: string,
     @Query(new ZodQueryValidationPipe(deploymentQuerySchema)) query: DeploymentQueryFormData,
   ): Promise<DeploymentGetUniqueResponse> {
-    return this.deploymentService.getCurrentDeployment(appName, environment as DEPLOYMENT_ENVIRONMENT, query.include);
+    return this.deploymentService.getCurrentDeployment(
+      appName,
+      environment as DEPLOYMENT_ENVIRONMENT,
+      query.include,
+    );
   }
 
   /**
@@ -160,7 +168,13 @@ export class DeploymentController {
     @UserId() userId: string,
   ): Promise<DeploymentCreateResponse> {
     // Pass userId as-is (can be null/undefined for public deployments)
-    return this.deploymentService.createDeployment(application, commitHash, environment as DEPLOYMENT_ENVIRONMENT, userId, query.include);
+    return this.deploymentService.createDeployment(
+      application,
+      commitHash,
+      environment as DEPLOYMENT_ENVIRONMENT,
+      userId,
+      query.include,
+    );
   }
 
   // Dynamic routes (must come after static routes)
@@ -222,9 +236,12 @@ export class DeploymentController {
     // Note: This is a simplified implementation
     // In production, you'd want to stream from DeploymentExecutorService
     return interval(1000).pipe(
-      map((index) => ({
-        data: { message: `Log entry ${index} for deployment ${id}`, timestamp: new Date() },
-      }) as MessageEvent),
+      map(
+        index =>
+          ({
+            data: { message: `Log entry ${index} for deployment ${id}`, timestamp: new Date() },
+          }) as MessageEvent,
+      ),
     );
   }
 
@@ -244,7 +261,11 @@ export class DeploymentController {
     }
 
     const rawBody = req.rawBody?.toString() || JSON.stringify(req.body);
-    const isValid = this.deploymentService.verifyWebhookSignature(rawBody, signature, webhookSecret);
+    const isValid = this.deploymentService.verifyWebhookSignature(
+      rawBody,
+      signature,
+      webhookSecret,
+    );
 
     if (!isValid) {
       throw new UnauthorizedException('Invalid signature');

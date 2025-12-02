@@ -2,9 +2,23 @@
 // Analytics & Chart Enum Label Getters
 // =====================
 
-import { TREND_DIRECTION_LABELS, TREND_TYPE_LABELS, PERIOD_TYPE_LABELS, CHART_TYPE_LABELS, GROUP_BY_LABELS, TIME_RANGE_LABELS } from '@constants';
+import {
+  TREND_DIRECTION_LABELS,
+  TREND_TYPE_LABELS,
+  PERIOD_TYPE_LABELS,
+  CHART_TYPE_LABELS,
+  GROUP_BY_LABELS,
+  TIME_RANGE_LABELS,
+} from '@constants';
 
-import { TREND_DIRECTION, TREND_TYPE, PERIOD_TYPE, CHART_TYPE, GROUP_BY, TIME_RANGE } from '@constants';
+import {
+  TREND_DIRECTION,
+  TREND_TYPE,
+  PERIOD_TYPE,
+  CHART_TYPE,
+  GROUP_BY,
+  TIME_RANGE,
+} from '@constants';
 
 // Trend and Analytics
 export function getTrendDirectionLabel(direction: TREND_DIRECTION): string {

@@ -1,9 +1,21 @@
 // packages/interfaces/src/externalWithdrawal.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { ORDER_BY_DIRECTION, EXTERNAL_WITHDRAWAL_TYPE, EXTERNAL_WITHDRAWAL_STATUS } from '@constants';
-import type { File, FileIncludes } from "./file";
-import type { Item, ItemIncludes, ItemOrderBy } from "./item";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type {
+  ORDER_BY_DIRECTION,
+  EXTERNAL_WITHDRAWAL_TYPE,
+  EXTERNAL_WITHDRAWAL_STATUS,
+} from '@constants';
+import type { File, FileIncludes } from './file';
+import type { Item, ItemIncludes, ItemOrderBy } from './item';
 
 // =====================
 // Main Entity Interfaces
@@ -21,7 +33,9 @@ export interface ExternalWithdrawal extends BaseEntity {
 
   // Relations (optional, populated based on query)
   invoices?: File[];
+  invoiceReimbursements?: File[];
   receipts?: File[];
+  reimbursements?: File[];
   items?: ExternalWithdrawalItem[];
 }
 
@@ -107,17 +121,23 @@ export interface ExternalWithdrawalItemOrderBy {
 // =====================
 
 // ExternalWithdrawal Responses
-export interface ExternalWithdrawalGetUniqueResponse extends BaseGetUniqueResponse<ExternalWithdrawal> {}
-export interface ExternalWithdrawalGetManyResponse extends BaseGetManyResponse<ExternalWithdrawal> {}
+export interface ExternalWithdrawalGetUniqueResponse
+  extends BaseGetUniqueResponse<ExternalWithdrawal> {}
+export interface ExternalWithdrawalGetManyResponse
+  extends BaseGetManyResponse<ExternalWithdrawal> {}
 export interface ExternalWithdrawalCreateResponse extends BaseCreateResponse<ExternalWithdrawal> {}
 export interface ExternalWithdrawalUpdateResponse extends BaseUpdateResponse<ExternalWithdrawal> {}
 export interface ExternalWithdrawalDeleteResponse extends BaseDeleteResponse {}
 
 // ExternalWithdrawalItem Responses
-export interface ExternalWithdrawalItemGetUniqueResponse extends BaseGetUniqueResponse<ExternalWithdrawalItem> {}
-export interface ExternalWithdrawalItemGetManyResponse extends BaseGetManyResponse<ExternalWithdrawalItem> {}
-export interface ExternalWithdrawalItemCreateResponse extends BaseCreateResponse<ExternalWithdrawalItem> {}
-export interface ExternalWithdrawalItemUpdateResponse extends BaseUpdateResponse<ExternalWithdrawalItem> {}
+export interface ExternalWithdrawalItemGetUniqueResponse
+  extends BaseGetUniqueResponse<ExternalWithdrawalItem> {}
+export interface ExternalWithdrawalItemGetManyResponse
+  extends BaseGetManyResponse<ExternalWithdrawalItem> {}
+export interface ExternalWithdrawalItemCreateResponse
+  extends BaseCreateResponse<ExternalWithdrawalItem> {}
+export interface ExternalWithdrawalItemUpdateResponse
+  extends BaseUpdateResponse<ExternalWithdrawalItem> {}
 export interface ExternalWithdrawalItemDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
@@ -125,11 +145,17 @@ export interface ExternalWithdrawalItemDeleteResponse extends BaseDeleteResponse
 // =====================
 
 // ExternalWithdrawal Batch Operations
-export interface ExternalWithdrawalBatchCreateResponse<T> extends BaseBatchResponse<ExternalWithdrawal, T> {}
-export interface ExternalWithdrawalBatchUpdateResponse<T> extends BaseBatchResponse<ExternalWithdrawal, T & { id: string }> {}
-export interface ExternalWithdrawalBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ExternalWithdrawalBatchCreateResponse<T>
+  extends BaseBatchResponse<ExternalWithdrawal, T> {}
+export interface ExternalWithdrawalBatchUpdateResponse<T>
+  extends BaseBatchResponse<ExternalWithdrawal, T & { id: string }> {}
+export interface ExternalWithdrawalBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // ExternalWithdrawalItem Batch Operations
-export interface ExternalWithdrawalItemBatchCreateResponse<T> extends BaseBatchResponse<ExternalWithdrawalItem, T> {}
-export interface ExternalWithdrawalItemBatchUpdateResponse<T> extends BaseBatchResponse<ExternalWithdrawalItem, T & { id: string }> {}
-export interface ExternalWithdrawalItemBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ExternalWithdrawalItemBatchCreateResponse<T>
+  extends BaseBatchResponse<ExternalWithdrawalItem, T> {}
+export interface ExternalWithdrawalItemBatchUpdateResponse<T>
+  extends BaseBatchResponse<ExternalWithdrawalItem, T & { id: string }> {}
+export interface ExternalWithdrawalItemBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

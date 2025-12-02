@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
-import { trackFieldChanges, trackAndLogFieldChanges, logEntityChange } from '@modules/common/changelog/utils';
+import {
+  trackFieldChanges,
+  trackAndLogFieldChanges,
+  logEntityChange,
+} from '@modules/common/changelog/utils';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
 import { ItemBrandRepository } from './repositories/item-brand/item-brand.repository';
 import { ItemRepository } from './repositories/item/item.repository';

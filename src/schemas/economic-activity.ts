@@ -1,7 +1,7 @@
 // packages/schemas/src/economic-activity.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from "./common";
+import { z } from 'zod';
+import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy } from './common';
 import type { EconomicActivity } from '@types';
 
 // =====================
@@ -105,7 +105,7 @@ export const economicActivityWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.coerce.string().optional(),
             in: z.array(z.coerce.string()).optional(),
             notIn: z.array(z.coerce.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -121,7 +121,7 @@ export const economicActivityWhereSchema: z.ZodSchema = z.lazy(() =>
             endsWith: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -199,8 +199,8 @@ const economicActivityTransform = (data: any): any => {
   if (searchingFor) {
     andConditions.push({
       OR: [
-        { code: { contains: searchingFor, mode: "insensitive" } },
-        { description: { contains: searchingFor, mode: "insensitive" } },
+        { code: { contains: searchingFor, mode: 'insensitive' } },
+        { description: { contains: searchingFor, mode: 'insensitive' } },
       ],
     });
   }
@@ -211,7 +211,11 @@ const economicActivityTransform = (data: any): any => {
 
   if (andConditions.length > 0) {
     if (data.where) {
-      data.where = data.where.AND ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] } : andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
+      data.where = data.where.AND
+        ? { ...data.where, AND: [...(data.where.AND || []), ...andConditions] }
+        : andConditions.length === 1
+          ? andConditions[0]
+          : { AND: andConditions };
     } else {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
@@ -270,18 +274,18 @@ export const economicActivityCreateSchema = z
   .object({
     code: z
       .string({
-        required_error: "Código CNAE é obrigatório",
-        invalid_type_error: "Código CNAE inválido",
+        required_error: 'Código CNAE é obrigatório',
+        invalid_type_error: 'Código CNAE inválido',
       })
-      .min(1, "Código CNAE é obrigatório")
-      .max(20, "Código CNAE deve ter no máximo 20 caracteres"),
+      .min(1, 'Código CNAE é obrigatório')
+      .max(20, 'Código CNAE deve ter no máximo 20 caracteres'),
     description: z
       .string({
-        required_error: "Descrição é obrigatória",
-        invalid_type_error: "Descrição inválida",
+        required_error: 'Descrição é obrigatória',
+        invalid_type_error: 'Descrição inválida',
       })
-      .min(1, "Descrição é obrigatória")
-      .max(500, "Descrição deve ter no máximo 500 caracteres"),
+      .min(1, 'Descrição é obrigatória')
+      .max(500, 'Descrição deve ter no máximo 500 caracteres'),
   })
   .transform(toFormData);
 
@@ -289,17 +293,17 @@ export const economicActivityUpdateSchema = z
   .object({
     code: z
       .string({
-        invalid_type_error: "Código CNAE inválido",
+        invalid_type_error: 'Código CNAE inválido',
       })
-      .min(1, "Código CNAE é obrigatório")
-      .max(20, "Código CNAE deve ter no máximo 20 caracteres")
+      .min(1, 'Código CNAE é obrigatório')
+      .max(20, 'Código CNAE deve ter no máximo 20 caracteres')
       .optional(),
     description: z
       .string({
-        invalid_type_error: "Descrição inválida",
+        invalid_type_error: 'Descrição inválida',
       })
-      .min(1, "Descrição é obrigatória")
-      .max(500, "Descrição deve ter no máximo 500 caracteres")
+      .min(1, 'Descrição é obrigatória')
+      .max(500, 'Descrição deve ter no máximo 500 caracteres')
       .optional(),
   })
   .transform(toFormData);
@@ -309,22 +313,26 @@ export const economicActivityUpdateSchema = z
 // =====================
 
 export const economicActivityBatchCreateSchema = z.object({
-  economicActivities: z.array(economicActivityCreateSchema).min(1, "Pelo menos uma atividade econômica deve ser fornecida"),
+  economicActivities: z
+    .array(economicActivityCreateSchema)
+    .min(1, 'Pelo menos uma atividade econômica deve ser fornecida'),
 });
 
 export const economicActivityBatchUpdateSchema = z.object({
   economicActivities: z
     .array(
       z.object({
-        id: z.string().uuid("Atividade econômica inválida"),
+        id: z.string().uuid('Atividade econômica inválida'),
         data: economicActivityUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atividade econômica deve ser fornecida"),
+    .min(1, 'Pelo menos uma atividade econômica deve ser fornecida'),
 });
 
 export const economicActivityBatchDeleteSchema = z.object({
-  economicActivityIds: z.array(z.string().uuid("Atividade econômica inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  economicActivityIds: z
+    .array(z.string().uuid('Atividade econômica inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -334,7 +342,7 @@ export const economicActivityQuerySchema = z.object({
 
 export const economicActivityGetByIdSchema = z.object({
   include: economicActivityIncludeSchema.optional(),
-  id: z.string().uuid("Atividade econômica inválida"),
+  id: z.string().uuid('Atividade econômica inválida'),
 });
 
 // =====================
@@ -355,7 +363,10 @@ export type EconomicActivityInclude = z.infer<typeof economicActivityIncludeSche
 export type EconomicActivityOrderBy = z.infer<typeof economicActivityOrderBySchema>;
 export type EconomicActivityWhere = z.infer<typeof economicActivityWhereSchema>;
 
-export const mapEconomicActivityToFormData = createMapToFormDataHelper<EconomicActivity, EconomicActivityUpdateFormData>((economicActivity) => ({
+export const mapEconomicActivityToFormData = createMapToFormDataHelper<
+  EconomicActivity,
+  EconomicActivityUpdateFormData
+>(economicActivity => ({
   code: economicActivity.code,
   description: economicActivity.description,
 }));

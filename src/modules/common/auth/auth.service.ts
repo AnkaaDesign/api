@@ -687,9 +687,7 @@ export class AuthService {
 
     // Prevent changing status to the same value
     if (oldStatus === status) {
-      throw new BadRequestException(
-        `Usuário já está com status ${USER_STATUS_LABELS[status]}.`,
-      );
+      throw new BadRequestException(`Usuário já está com status ${USER_STATUS_LABELS[status]}.`);
     }
 
     const newStatusOrder = USER_STATUS_ORDER[status];
@@ -708,8 +706,7 @@ export class AuthService {
       field: 'status',
       oldValue: oldStatus,
       newValue: status,
-      reason:
-        reason || `Status alterado para ${USER_STATUS_LABELS[status]}`,
+      reason: reason || `Status alterado para ${USER_STATUS_LABELS[status]}`,
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: adminUserId,
       userId: adminUserId,

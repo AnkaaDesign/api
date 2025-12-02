@@ -1,7 +1,7 @@
 // packages/utils/src/supplier.ts
 
 import type { Supplier } from '@types';
-import { formatCNPJ } from "./formatters";
+import { formatCNPJ } from './formatters';
 
 // =====================
 // Display Formatters
@@ -22,7 +22,7 @@ export const formatSupplierFullDisplay = (supplier: Supplier): string => {
     parts.push(`CNPJ: ${formatCNPJ(supplier.cnpj)}`);
   }
 
-  return parts.join(" - ");
+  return parts.join(' - ');
 };
 
 export const formatSupplierContact = (supplier: Supplier): string => {
@@ -36,7 +36,7 @@ export const formatSupplierContact = (supplier: Supplier): string => {
     contacts.push(`Tel: ${supplier.phones[0]}`);
   }
 
-  return contacts.join(" | ") || "Sem contato";
+  return contacts.join(' | ') || 'Sem contato';
 };
 
 export const formatSupplierAddress = (supplier: Supplier): string => {
@@ -46,15 +46,15 @@ export const formatSupplierAddress = (supplier: Supplier): string => {
   if (supplier.city) parts.push(supplier.city);
   if (supplier.state) parts.push(supplier.state);
 
-  return parts.join(", ") || "Endereço não informado";
+  return parts.join(', ') || 'Endereço não informado';
 };
 
 export const getSupplierInitials = (supplier: Supplier): string => {
   return supplier.fantasyName
-    .split(" ")
-    .map((word) => word.charAt(0).toUpperCase())
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase())
     .slice(0, 2)
-    .join("");
+    .join('');
 };
 // =====================
 // Export all utilities

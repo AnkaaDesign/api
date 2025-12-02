@@ -41,24 +41,28 @@ export class CronService {
       this.logger.log('User status transitions completed successfully.');
       this.logger.log(
         `Results: ${result.totalProcessed} users processed, ` +
-        `${result.exp1ToExp2} transitioned from EXP1 to EXP2, ` +
-        `${result.exp2ToEffected} transitioned from EXP2 to EFFECTED, ` +
-        `${result.errors.length} errors`
+          `${result.exp1ToExp2} transitioned from EXP1 to EXP2, ` +
+          `${result.exp2ToEffected} transitioned from EXP2 to EFFECTED, ` +
+          `${result.errors.length} errors`,
       );
 
       // Log details about transitions
       if (result.exp1ToExp2 > 0) {
-        this.logger.log(`${result.exp1ToExp2} users completed Experience Period 1 and moved to Experience Period 2`);
+        this.logger.log(
+          `${result.exp1ToExp2} users completed Experience Period 1 and moved to Experience Period 2`,
+        );
       }
 
       if (result.exp2ToEffected > 0) {
-        this.logger.log(`${result.exp2ToEffected} users completed Experience Period 2 and became EFFECTED`);
+        this.logger.log(
+          `${result.exp2ToEffected} users completed Experience Period 2 and became EFFECTED`,
+        );
       }
 
       // Log warning if there were errors
       if (result.errors.length > 0) {
         this.logger.error(`Failed to transition ${result.errors.length} users`);
-        result.errors.forEach((error) => {
+        result.errors.forEach(error => {
           this.logger.error(`User ${error.userId}: ${error.error}`);
         });
       }
@@ -67,7 +71,6 @@ export class CronService {
       if (result.totalProcessed === 0) {
         this.logger.log('No users required status transitions today');
       }
-
     } catch (error) {
       this.logger.error('Failed to run user status transitions cron job', error);
       // In a production environment, you might want to:
@@ -134,7 +137,7 @@ export class CronService {
 
           this.logger.log(
             `Order ${order.id} (${order.description}) updated to OVERDUE status. ` +
-            `Forecast was: ${order.forecast ? new Date(order.forecast).toISOString().split('T')[0] : 'N/A'}`
+              `Forecast was: ${order.forecast ? new Date(order.forecast).toISOString().split('T')[0] : 'N/A'}`,
           );
 
           totalSuccess++;
@@ -149,14 +152,14 @@ export class CronService {
       this.logger.log('Overdue orders update completed successfully.');
       this.logger.log(
         `Results: ${overdueOrders.data.length} orders processed, ` +
-        `${totalSuccess} updated to OVERDUE, ` +
-        `${totalFailed} errors`
+          `${totalSuccess} updated to OVERDUE, ` +
+          `${totalFailed} errors`,
       );
 
       // Log warning if there were errors
       if (errors.length > 0) {
         this.logger.error(`Failed to update ${errors.length} orders to OVERDUE status`);
-        errors.forEach((error) => {
+        errors.forEach(error => {
           this.logger.error(`Order ${error.orderId}: ${error.error}`);
         });
       }
@@ -167,7 +170,6 @@ export class CronService {
         totalFailed,
         errors,
       };
-
     } catch (error) {
       this.logger.error('Failed to run overdue orders update cron job', error);
       // In a production environment, you might want to:

@@ -85,7 +85,12 @@ function normalizeValue(value: any): any {
 
   // Handle Prisma Decimal objects - convert to number for comparison
   // Decimal objects have d, e, s properties and a toNumber() method
-  if (value && typeof value === 'object' && 'toNumber' in value && typeof value.toNumber === 'function') {
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toNumber' in value &&
+    typeof value.toNumber === 'function'
+  ) {
     return value.toNumber();
   }
 

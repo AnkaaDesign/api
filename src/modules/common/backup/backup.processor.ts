@@ -152,14 +152,16 @@ export class BackupProcessor {
 
         const [, username, password, host, port, dbName] = match;
 
-        this.logger.warn(`⚠️  RESTORING DATABASE FROM BACKUP! This will overwrite all current data.`);
+        this.logger.warn(
+          `⚠️  RESTORING DATABASE FROM BACKUP! This will overwrite all current data.`,
+        );
 
         const env = { PGPASSWORD: password };
 
         // Step 1: Terminate all connections to the database
         this.logger.log(`Terminating all connections to database: ${dbName}`);
         const terminateCmd = `psql -h ${host} -p ${port} -U ${username} -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid();"`;
-        await execAsync(terminateCmd, { env }).catch((err) => {
+        await execAsync(terminateCmd, { env }).catch(err => {
           this.logger.warn(`Some connections could not be terminated: ${err.message}`);
         });
 
@@ -187,11 +189,12 @@ export class BackupProcessor {
         await fs.unlink(sqlFile);
 
         this.logger.log(`✅ Database restored successfully from backup: ${backupId}`);
-
       } else if (metadata.type === 'files') {
         // ========== WEBDAV FILES RESTORE ==========
         this.logger.log(`Restoring WEBDAV FILES backup: ${backupId}`);
-        this.logger.warn(`⚠️  RESTORING WEBDAV FILES! This will overwrite existing files in /srv/webdav`);
+        this.logger.warn(
+          `⚠️  RESTORING WEBDAV FILES! This will overwrite existing files in /srv/webdav`,
+        );
 
         // WebDAV files should be restored to /srv/webdav (their original location)
         const webdavRoot = '/srv/webdav';
@@ -213,11 +216,12 @@ export class BackupProcessor {
         }
 
         this.logger.log(`✅ WebDAV files restored successfully to ${webdavRoot}`);
-
       } else if (metadata.type === 'system') {
         // ========== SYSTEM CONFIG RESTORE ==========
         this.logger.log(`Restoring SYSTEM CONFIGURATION backup: ${backupId}`);
-        this.logger.warn(`⚠️  RESTORING SYSTEM CONFIGS! This will overwrite existing configuration files`);
+        this.logger.warn(
+          `⚠️  RESTORING SYSTEM CONFIGS! This will overwrite existing configuration files`,
+        );
 
         // System files are stored with absolute paths and must be extracted to root (/)
         // Using --absolute-names to preserve the absolute paths
@@ -225,8 +229,9 @@ export class BackupProcessor {
         await execAsync(extractCommand);
 
         this.logger.log(`✅ System configuration files restored successfully`);
-        this.logger.warn(`⚠️  You may need to restart services (nginx, samba, etc.) for changes to take effect`);
-
+        this.logger.warn(
+          `⚠️  You may need to restart services (nginx, samba, etc.) for changes to take effect`,
+        );
       } else if (metadata.type === 'full') {
         // ========== FULL BACKUP RESTORE ==========
         this.logger.log(`Restoring FULL backup: ${backupId}`);
@@ -280,7 +285,6 @@ export class BackupProcessor {
         await fs.rm(tempExtractPath, { recursive: true, force: true });
 
         this.logger.log(`✅ Full backup restored successfully`);
-
       } else {
         // Unknown backup type
         throw new Error(`Unknown backup type: ${metadata.type}`);
@@ -318,9 +322,7 @@ export class BackupProcessor {
       const result = await this.backupService.cleanupExpiredBackups();
 
       if (result.deletedCount > 0) {
-        this.logger.log(
-          `Cleanup completed: ${result.deletedCount} expired backups deleted`,
-        );
+        this.logger.log(`Cleanup completed: ${result.deletedCount} expired backups deleted`);
         this.logger.log(`Deleted backup IDs: ${result.deletedBackups.join(', ')}`);
       } else {
         this.logger.log('Cleanup completed: No expired backups found');

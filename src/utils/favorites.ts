@@ -1,6 +1,6 @@
 import { FAVORITE_PAGES } from '@constants';
 
-const FAVORITES_KEY = "ankaa_favorite_pages";
+const FAVORITES_KEY = 'ankaa_favorite_pages';
 
 export interface FavoritePage {
   page: FAVORITE_PAGES;
@@ -14,20 +14,20 @@ export function getFavoritePages(): FavoritePage[] {
 
     return JSON.parse(storedData) as FavoritePage[];
   } catch (error) {
-    console.error("Failed to get favorite pages:", error);
+    console.error('Failed to get favorite pages:', error);
     return [];
   }
 }
 
 export function isFavoritePage(page: FAVORITE_PAGES): boolean {
   const favorites = getFavoritePages();
-  return favorites.some((fav) => fav.page === page);
+  return favorites.some(fav => fav.page === page);
 }
 
 export function toggleFavoritePage(page: FAVORITE_PAGES): boolean {
   try {
     const favorites = getFavoritePages();
-    const existingIndex = favorites.findIndex((fav) => fav.page === page);
+    const existingIndex = favorites.findIndex(fav => fav.page === page);
 
     if (existingIndex >= 0) {
       // Remove from favorites
@@ -44,7 +44,7 @@ export function toggleFavoritePage(page: FAVORITE_PAGES): boolean {
       return true; // Now favorited
     }
   } catch (error) {
-    console.error("Failed to toggle favorite page:", error);
+    console.error('Failed to toggle favorite page:', error);
     return false;
   }
 }
@@ -52,7 +52,7 @@ export function toggleFavoritePage(page: FAVORITE_PAGES): boolean {
 export function addFavoritePage(page: FAVORITE_PAGES): boolean {
   try {
     const favorites = getFavoritePages();
-    const alreadyExists = favorites.some((fav) => fav.page === page);
+    const alreadyExists = favorites.some(fav => fav.page === page);
 
     if (!alreadyExists) {
       favorites.push({
@@ -64,7 +64,7 @@ export function addFavoritePage(page: FAVORITE_PAGES): boolean {
 
     return true;
   } catch (error) {
-    console.error("Failed to add favorite page:", error);
+    console.error('Failed to add favorite page:', error);
     return false;
   }
 }
@@ -72,7 +72,7 @@ export function addFavoritePage(page: FAVORITE_PAGES): boolean {
 export function removeFavoritePage(page: FAVORITE_PAGES): boolean {
   try {
     const favorites = getFavoritePages();
-    const filteredFavorites = favorites.filter((fav) => fav.page !== page);
+    const filteredFavorites = favorites.filter(fav => fav.page !== page);
 
     if (filteredFavorites.length !== favorites.length) {
       localStorage.setItem(FAVORITES_KEY, JSON.stringify(filteredFavorites));
@@ -81,7 +81,7 @@ export function removeFavoritePage(page: FAVORITE_PAGES): boolean {
 
     return false;
   } catch (error) {
-    console.error("Failed to remove favorite page:", error);
+    console.error('Failed to remove favorite page:', error);
     return false;
   }
 }
@@ -90,7 +90,7 @@ export function clearFavoritePages(): void {
   try {
     localStorage.removeItem(FAVORITES_KEY);
   } catch (error) {
-    console.error("Failed to clear favorite pages:", error);
+    console.error('Failed to clear favorite pages:', error);
   }
 }
 
@@ -100,5 +100,7 @@ export function getFavoritePagesCount(): number {
 
 // Sort favorites by most recently added first
 export function getFavoritePagesSorted(): FavoritePage[] {
-  return getFavoritePages().sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+  return getFavoritePages().sort(
+    (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime(),
+  );
 }

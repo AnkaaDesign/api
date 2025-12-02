@@ -1158,7 +1158,15 @@ export class MaintenanceScheduleService {
       if (schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY) {
         // For weekly schedules, update dayOfWeek to match the completion date's day of week
         const completionDay = baseDate.getDay();
-        const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+        const dayNames = [
+          'SUNDAY',
+          'MONDAY',
+          'TUESDAY',
+          'WEDNESDAY',
+          'THURSDAY',
+          'FRIDAY',
+          'SATURDAY',
+        ];
         scheduleUpdateData.dayOfWeek = dayNames[completionDay];
         this.logger.log(
           `[MAINTENANCE COMPLETION] Updating schedule dayOfWeek to ${scheduleUpdateData.dayOfWeek} based on completion date`,
@@ -1171,7 +1179,20 @@ export class MaintenanceScheduleService {
         );
       } else if (schedule.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
         // For annual schedules, update both month and dayOfMonth
-        const monthNames = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+        const monthNames = [
+          'JANUARY',
+          'FEBRUARY',
+          'MARCH',
+          'APRIL',
+          'MAY',
+          'JUNE',
+          'JULY',
+          'AUGUST',
+          'SEPTEMBER',
+          'OCTOBER',
+          'NOVEMBER',
+          'DECEMBER',
+        ];
         scheduleUpdateData.month = monthNames[baseDate.getMonth()];
         scheduleUpdateData.dayOfMonth = baseDate.getDate();
         this.logger.log(
@@ -1226,15 +1247,11 @@ export class MaintenanceScheduleService {
         `[MAINTENANCE COMPLETION] ✅ SUCCESS! Created next maintenance ${createdMaintenance.id} for schedule ${scheduleId}, scheduled for ${nextRunDate.toISOString()}`,
       );
     } catch (error) {
-      this.logger.error(
-        `[MAINTENANCE COMPLETION] ❌ FAILED for schedule ${scheduleId}:`,
-        error,
-      );
+      this.logger.error(`[MAINTENANCE COMPLETION] ❌ FAILED for schedule ${scheduleId}:`, error);
       this.logger.error(`[MAINTENANCE COMPLETION] Error stack:`, error.stack);
       // Don't throw error to prevent maintenance status update from failing
       // The maintenance is still completed, but the next one wasn't created
       // Log the error for investigation
     }
   }
-
 }

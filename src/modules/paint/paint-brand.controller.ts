@@ -131,7 +131,10 @@ export class PaintBrandController {
   @Delete('batch')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async batchDelete(@Body(new ZodValidationPipe(paintBrandBatchDeleteSchema)) data: PaintBrandBatchDeleteFormData, @UserId() userId: string) {
+  async batchDelete(
+    @Body(new ZodValidationPipe(paintBrandBatchDeleteSchema)) data: PaintBrandBatchDeleteFormData,
+    @UserId() userId: string,
+  ) {
     return this.paintBrandService.batchDelete(data, userId);
   }
 }

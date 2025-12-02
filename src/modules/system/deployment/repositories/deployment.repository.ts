@@ -23,5 +23,8 @@ export abstract class DeploymentRepository extends BaseStringRepository<
 > {
   // Deployment-specific methods
   abstract findByGitCommit(gitCommitId: string, tx?: PrismaTransaction): Promise<Deployment | null>;
-  abstract findLatestByEnvironment(environment: string, tx?: PrismaTransaction): Promise<Deployment | null>;
+  abstract findLatestByEnvironment(
+    environment: string,
+    tx?: PrismaTransaction,
+  ): Promise<Deployment | null>;
 }

@@ -50,114 +50,114 @@ async function bootstrap() {
 
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Configure query string parser to handle bracket notation from axios
-  app.set('query parser', (str: string) => {
-    return qs.parse(str, {
-      depth: 10,
-      arrayLimit: 100,
-      parameterLimit: 1000,
-      parseArrays: true,
-      allowDots: true,  // Changed to true to support array[0].field notation
-      strictNullHandling: true,
-      decoder: (value, defaultDecoder, charset, type) => {
-        // Handle boolean strings
-        if (value === 'true') return true;
-        if (value === 'false') return false;
-        // Handle numeric strings for pagination
-        if (type === 'value' && /^\d+$/.test(value)) {
-          return parseInt(value, 10);
-        }
-        return defaultDecoder(value, defaultDecoder, charset);
+    // Configure query string parser to handle bracket notation from axios
+    app.set('query parser', (str: string) => {
+      return qs.parse(str, {
+        depth: 10,
+        arrayLimit: 100,
+        parameterLimit: 1000,
+        parseArrays: true,
+        allowDots: true, // Changed to true to support array[0].field notation
+        strictNullHandling: true,
+        decoder: (value, defaultDecoder, charset, type) => {
+          // Handle boolean strings
+          if (value === 'true') return true;
+          if (value === 'false') return false;
+          // Handle numeric strings for pagination
+          if (type === 'value' && /^\d+$/.test(value)) {
+            return parseInt(value, 10);
+          }
+          return defaultDecoder(value, defaultDecoder, charset);
+        },
+      });
+    });
+
+    // Capture raw body for webhook signature verification
+    // This must be done BEFORE any JSON parsing
+    app.use((req: any, res, next) => {
+      if (req.url === '/deployments/webhook' && req.method === 'POST') {
+        let data = '';
+        req.setEncoding('utf8');
+        req.on('data', (chunk: string) => {
+          data += chunk;
+        });
+        req.on('end', () => {
+          req.rawBody = Buffer.from(data, 'utf8');
+          req.body = JSON.parse(data);
+          next();
+        });
+      } else {
+        next();
+      }
+    });
+
+    // NestJS handles body parsing automatically for JSON and URL-encoded
+    // We don't need custom JSON parsing middleware
+    // Multer handles multipart/form-data
+    // The webhook route above handles its own raw body capture
+
+    // Security headers with Helmet
+    // Temporarily disable some security features for debugging
+    const helmetConfig = {
+      ...securityConfig.helmet,
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    };
+    app.use(helmet(helmetConfig));
+
+    const validationPipe = new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      forbidNonWhitelisted: false,
+      transformOptions: {
+        enableImplicitConversion: true,
       },
     });
-  });
 
-  // Capture raw body for webhook signature verification
-  // This must be done BEFORE any JSON parsing
-  app.use((req: any, res, next) => {
-    if (req.url === '/deployments/webhook' && req.method === 'POST') {
-      let data = '';
-      req.setEncoding('utf8');
-      req.on('data', (chunk: string) => {
-        data += chunk;
-      });
-      req.on('end', () => {
-        req.rawBody = Buffer.from(data, 'utf8');
-        req.body = JSON.parse(data);
-        next();
-      });
-    } else {
-      next();
-    }
-  });
+    // CORS configuration with security settings
+    app.enableCors(securityConfig.cors);
 
-  // NestJS handles body parsing automatically for JSON and URL-encoded
-  // We don't need custom JSON parsing middleware
-  // Multer handles multipart/form-data
-  // The webhook route above handles its own raw body capture
+    // Upload security middleware
+    app.use(uploadSecurityMiddleware);
 
-  // Security headers with Helmet
-  // Temporarily disable some security features for debugging
-  const helmetConfig = {
-    ...securityConfig.helmet,
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-  };
-  app.use(helmet(helmetConfig));
+    // Configure static file serving with security headers for uploads
+    const uploadPath = env.UPLOAD_DIR || join(__dirname, '..', '..', 'uploads');
+    app.useStaticAssets(uploadPath, {
+      prefix: '/uploads/',
+      // Security headers for static files
+      setHeaders: (res, path) => {
+        // Prevent execution of uploaded files
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Disposition', 'attachment');
+        res.setHeader('X-Frame-Options', 'DENY');
 
-  const validationPipe = new ValidationPipe({
-    whitelist: true,
-    transform: true,
-    forbidNonWhitelisted: false,
-    transformOptions: {
-      enableImplicitConversion: true,
-    },
-  });
+        // Cache control for uploaded files
+        if (path.includes('/temp/')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+        }
+      },
+    });
 
-  // CORS configuration with security settings
-  app.enableCors(securityConfig.cors);
-
-  // Upload security middleware
-  app.use(uploadSecurityMiddleware);
-
-  // Configure static file serving with security headers for uploads
-  const uploadPath = env.UPLOAD_DIR || join(__dirname, '..', '..', 'uploads');
-  app.useStaticAssets(uploadPath, {
-    prefix: '/uploads/',
-    // Security headers for static files
-    setHeaders: (res, path) => {
-      // Prevent execution of uploaded files
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Content-Disposition', 'attachment');
-      res.setHeader('X-Frame-Options', 'DENY');
-
-      // Cache control for uploaded files
-      if (path.includes('/temp/')) {
-        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      } else {
+    // Serve favicon and other static assets from public directory
+    const publicPath = join(__dirname, '..', '..', 'public');
+    app.useStaticAssets(publicPath, {
+      setHeaders: res => {
         res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
-      }
-    },
-  });
+      },
+    });
 
-  // Serve favicon and other static assets from public directory
-  const publicPath = join(__dirname, '..', '..', 'public');
-  app.useStaticAssets(publicPath, {
-    setHeaders: (res) => {
-      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
-    },
-  });
+    app.useGlobalPipes(validationPipe);
+    app.useGlobalInterceptors(new UserContextInterceptor());
+    app.useGlobalFilters(new GlobalExceptionFilter());
 
-  app.useGlobalPipes(validationPipe);
-  app.useGlobalInterceptors(new UserContextInterceptor());
-  app.useGlobalFilters(new GlobalExceptionFilter());
+    // Upload error handling middleware
+    app.use(handleMulterError);
+    app.use(uploadCleanupMiddleware);
 
-  // Upload error handling middleware
-  app.use(handleMulterError);
-  app.use(uploadCleanupMiddleware);
-
-  // No global prefix - API runs on subdomain (api.ankaa.live, test.api.ankaa.live)
-  // app.setGlobalPrefix('api'); // REMOVED: Using subdomain architecture
+    // No global prefix - API runs on subdomain (api.ankaa.live, test.api.ankaa.live)
+    // app.setGlobalPrefix('api'); // REMOVED: Using subdomain architecture
 
     const port = env.API_PORT ?? env.PORT ?? 3030;
     // Bind to 0.0.0.0 to accept connections from all interfaces (IPv4)
@@ -178,7 +178,7 @@ async function bootstrap() {
 }
 
 // Start the application with error handling
-bootstrap().catch((error) => {
+bootstrap().catch(error => {
   console.error('Bootstrap failed:', error);
   console.error('Stack trace:', error.stack);
   process.exit(1);

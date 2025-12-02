@@ -38,11 +38,7 @@ export class RepositoryController {
 
   @Post()
   @WriteRateLimit()
-  async create(
-    @Body() data: any,
-    @Query() query: any,
-    @UserId() userId: string,
-  ) {
+  async create(@Body() data: any, @Query() query: any, @UserId() userId: string) {
     return this.repositoryService.create(data, userId, query.include);
   }
 
@@ -59,10 +55,7 @@ export class RepositoryController {
 
   @Delete(':id')
   @WriteRateLimit()
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.repositoryService.delete(id, userId);
   }
 }

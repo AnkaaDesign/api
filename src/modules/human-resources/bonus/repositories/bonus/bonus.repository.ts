@@ -109,7 +109,7 @@ export abstract class BonusRepository extends BaseStringRepository<
     year: string,
     month: string,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus | null>;
 
   abstract findOrGenerateLive(
@@ -117,27 +117,19 @@ export abstract class BonusRepository extends BaseStringRepository<
     year: number,
     month: number,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus>;
 
   abstract findByPeriod(
     year: string,
     month: string,
     include?: BonusInclude,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Bonus[]>;
-
-  abstract getPayrollData(
-    year: string,
-    month: string,
-    userId?: string,
-    sectorId?: string,
-    tx?: PrismaTransaction
-  ): Promise<any[]>;
 
   abstract batchCreate(
     data: BonusCreateFormData[],
-    options?: CreateManyOptions<BonusInclude>
+    options?: CreateManyOptions<BonusInclude>,
   ): Promise<BatchCreateResult<Bonus, BonusCreateFormData>>;
 }
 

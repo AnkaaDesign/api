@@ -1,8 +1,24 @@
 // packages/schemas/src/common.ts
 
-import { cleanCNPJ, cleanCPF, cleanPhone, cleanPIS, cleanEmail, cleanSmsCode, cleanContactMethod } from '@utils';
-import { isValidCNPJ, isValidCPF, isValidPhone, isValidPIS, isValidEmail, isValidSmsCode, isValidContactMethod } from '@utils';
-import { z } from "zod";
+import {
+  cleanCNPJ,
+  cleanCPF,
+  cleanPhone,
+  cleanPIS,
+  cleanEmail,
+  cleanSmsCode,
+  cleanContactMethod,
+} from '@utils';
+import {
+  isValidCNPJ,
+  isValidCPF,
+  isValidPhone,
+  isValidPIS,
+  isValidEmail,
+  isValidSmsCode,
+  isValidContactMethod,
+} from '@utils';
+import { z } from 'zod';
 
 // =====================
 // Base Validation Schemas
@@ -15,26 +31,26 @@ export const dateRangeSchema = z
     lte: z.coerce.date().optional(),
   })
   .refine(
-    (data) => {
+    data => {
       if (data.gte && data.lte) {
         return data.lte >= data.gte;
       }
       return true;
     },
     {
-      message: "Data final deve ser posterior ou igual à data inicial",
-      path: ["lte"],
+      message: 'Data final deve ser posterior ou igual à data inicial',
+      path: ['lte'],
     },
   );
 
 export const nullableDate = z.coerce.date().nullable();
 export const optionalDate = z.coerce.date().optional();
 export const requiredDate = z.coerce.date({
-  required_error: "Data é obrigatória",
-  invalid_type_error: "Data inválida",
+  required_error: 'Data é obrigatória',
+  invalid_type_error: 'Data inválida',
 });
 
-export const createDateSchema = (label = "data") =>
+export const createDateSchema = (label = 'data') =>
   z.coerce.date({
     required_error: `${label} é obrigatória`,
     invalid_type_error: `${label} inválida`,
@@ -43,7 +59,7 @@ export const nullableNumber = z.number().nullable();
 export const nullableString = z
   .string()
   .nullable()
-  .transform((val) => (val === "" ? null : val));
+  .transform(val => (val === '' ? null : val));
 
 // Additional number utilities for better null/undefined handling
 export const optionalNumber = z.number().nullable().optional();
@@ -51,36 +67,39 @@ export const optionalPositiveNumber = z.number().positive().nullable().optional(
 export const optionalNonNegativeNumber = z.number().min(0).nullable().optional();
 
 // UUID validation schemas
-export const createUuidSchema = (label = "ID") => z.string().uuid({ message: `${label} inválido` });
+export const createUuidSchema = (label = 'ID') => z.string().uuid({ message: `${label} inválido` });
 
-export const uuidArraySchema = (label = "valor") =>
+export const uuidArraySchema = (label = 'valor') =>
   z
     .array(z.string().uuid({ message: `${label} inválido` }))
     .min(1, `Deve conter pelo menos um ${label}`)
-    .refine((arr) => new Set(arr).size === arr.length, {
+    .refine(arr => new Set(arr).size === arr.length, {
       message: `Lista de ${label} contém duplicatas`,
     });
 
 // Document validation schemas
-export const cpfSchema = z.string().transform(cleanCPF).refine(isValidCPF, { message: "CPF inválido" });
+export const cpfSchema = z
+  .string()
+  .transform(cleanCPF)
+  .refine(isValidCPF, { message: 'CPF inválido' });
 
 export const cnpjSchema = z
   .string()
-  .transform((val) => {
-    if (!val || val.trim() === "") return "";
+  .transform(val => {
+    if (!val || val.trim() === '') return '';
     return cleanCNPJ(val);
   })
   .refine(
-    (val) => {
+    val => {
       // Empty string is valid (for optional fields)
-      if (!val || val === "") return true;
+      if (!val || val === '') return true;
       // Only validate if we have a complete CNPJ (14 digits)
       // Partial inputs during typing should be allowed
       if (val.length < 14) return true;
       // Only validate complete CNPJs
       return isValidCNPJ(val);
     },
-    { message: "CNPJ inválido" },
+    { message: 'CNPJ inválido' },
   );
 
 // Optional CNPJ schema for nullable fields
@@ -88,44 +107,44 @@ export const cnpjOptionalSchema = z
   .union([
     z
       .string()
-      .transform((val) => {
-        if (!val || val.trim() === "") return null;
+      .transform(val => {
+        if (!val || val.trim() === '') return null;
         return cleanCNPJ(val);
       })
       .refine(
-        (val) => {
+        val => {
           // Allow null/empty values
-          if (!val || val === "") return true;
+          if (!val || val === '') return true;
           // Only validate if we have exactly 14 digits
           if (val.length !== 14) return true; // Don't validate partial CNPJs
           // Validate complete CNPJs
           return isValidCNPJ(val);
         },
-        { message: "CNPJ inválido" },
+        { message: 'CNPJ inválido' },
       ),
     z.null(),
     z.undefined(),
   ])
   .optional()
   .refine(
-    (val) => {
+    val => {
       // null, undefined, or empty string are valid
-      if (!val || val === null || val === undefined || val === "") return true;
+      if (!val || val === null || val === undefined || val === '') return true;
       // Only validate if we have a complete CNPJ (14 digits)
       // Partial inputs during typing should be allowed
       if (val.length < 14) return true;
       // Only validate complete CNPJs
       return isValidCNPJ(val);
     },
-    { message: "CNPJ inválido" },
+    { message: 'CNPJ inválido' },
   );
 
 export const phoneSchema = z
   .string()
-  .transform((val) => {
+  .transform(val => {
     // Don't transform if the value is already valid
     // This preserves existing phone numbers that might be in different formats
-    if (!val || val.trim() === "") {
+    if (!val || val.trim() === '') {
       return null;
     }
 
@@ -145,41 +164,56 @@ export const phoneSchema = z
     }
   })
   .refine(
-    (val) => {
+    val => {
       // Allow null/empty values (for optional phones)
       if (!val || val === null) return true;
       // Otherwise must be valid
       return isValidPhone(val);
     },
-    { message: "Número de telefone inválido" },
+    { message: 'Número de telefone inválido' },
   )
   .nullable();
 
-export const pisSchema = z.string().transform(cleanPIS).refine(isValidPIS, { message: "PIS inválido" });
+export const pisSchema = z
+  .string()
+  .transform(cleanPIS)
+  .refine(isValidPIS, { message: 'PIS inválido' });
 
 // Enhanced email schema with comprehensive validation
-export const emailSchema = z.string().transform(cleanEmail).refine(isValidEmail, { message: "E-mail inválido" });
+export const emailSchema = z
+  .string()
+  .transform(cleanEmail)
+  .refine(isValidEmail, { message: 'E-mail inválido' });
 
 // Contact method schema (email or phone)
-export const contactMethodSchema = z.string().transform(cleanContactMethod).refine(isValidContactMethod, { message: "Digite um email ou telefone válido" });
+export const contactMethodSchema = z
+  .string()
+  .transform(cleanContactMethod)
+  .refine(isValidContactMethod, { message: 'Digite um email ou telefone válido' });
 
 // SMS code schema
-export const smsCodeSchema = z.string().transform(cleanSmsCode).refine(isValidSmsCode, { message: "Código SMS inválido" });
+export const smsCodeSchema = z
+  .string()
+  .transform(cleanSmsCode)
+  .refine(isValidSmsCode, { message: 'Código SMS inválido' });
 
 // Generic 6-digit verification code schema (unified for all verification types)
 export const verificationCodeSchema = z
   .string()
-  .length(6, "Código deve ter exatamente 6 dígitos")
-  .regex(/^\d{6}$/, "Código deve conter apenas números");
+  .length(6, 'Código deve ter exatamente 6 dígitos')
+  .regex(/^\d{6}$/, 'Código deve conter apenas números');
 
 // Enhanced phone schema with better validation
-export const phoneSchemaEnhanced = z.string().transform(cleanPhone).refine(isValidPhone, { message: "Número de telefone inválido" });
+export const phoneSchemaEnhanced = z
+  .string()
+  .transform(cleanPhone)
+  .refine(isValidPhone, { message: 'Número de telefone inválido' });
 
 // =====================
 // Generic Range Schemas
 // =====================
 
-export const createNumberRangeSchema = (label = "valor") =>
+export const createNumberRangeSchema = (label = 'valor') =>
   z.object({
     gte: z.number().min(0, `${label} mínimo deve ser maior ou igual a 0`).optional(),
     lte: z.number().min(0, `${label} máximo deve ser maior ou igual a 0`).optional(),
@@ -195,32 +229,32 @@ export const createIntRangeSchema = () =>
 // Generic Text Validation Schemas
 // =====================
 
-export const createNameSchema = (minLength = 2, maxLength = 200, label = "nome") =>
+export const createNameSchema = (minLength = 2, maxLength = 200, label = 'nome') =>
   z
     .string()
-    .transform((val) => val.trim())
-    .refine((val) => val.length > 0, {
+    .transform(val => val.trim())
+    .refine(val => val.length > 0, {
       message: `${label} não pode ser vazio`,
     })
-    .refine((val) => val.length >= minLength, {
+    .refine(val => val.length >= minLength, {
       message: `${label} deve ter pelo menos ${minLength} caracteres`,
     })
-    .refine((val) => val.length <= maxLength, {
+    .refine(val => val.length <= maxLength, {
       message: `${label} deve ter no máximo ${maxLength} caracteres`,
     });
 
 export const createDescriptionSchema = (minLength = 3, maxLength = 1000, required = true) => {
   const baseSchema = z
     .string()
-    .transform((val) => val.trim())
-    .refine((val) => val.length >= minLength, {
+    .transform(val => val.trim())
+    .refine(val => val.length >= minLength, {
       message: `Descrição deve ter pelo menos ${minLength} caracteres`,
     })
-    .refine((val) => val.length <= maxLength, {
+    .refine(val => val.length <= maxLength, {
       message: `Descrição deve ter no máximo ${maxLength} caracteres`,
     })
-    .refine((val) => val.length > 0, {
-      message: "Descrição não pode ser vazia",
+    .refine(val => val.length > 0, {
+      message: 'Descrição não pode ser vazia',
     });
 
   if (required) {
@@ -231,17 +265,22 @@ export const createDescriptionSchema = (minLength = 3, maxLength = 1000, require
   return z
     .string()
     .optional()
-    .transform((val: string | undefined) => (val === "" || val === undefined ? undefined : val?.trim()))
-    .refine((val: string | undefined) => !val || (val.length >= minLength && val.length <= maxLength), {
-      message: `Descrição deve ter entre ${minLength} e ${maxLength} caracteres`,
-    });
+    .transform((val: string | undefined) =>
+      val === '' || val === undefined ? undefined : val?.trim(),
+    )
+    .refine(
+      (val: string | undefined) => !val || (val.length >= minLength && val.length <= maxLength),
+      {
+        message: `Descrição deve ter entre ${minLength} e ${maxLength} caracteres`,
+      },
+    );
 };
 
 // =====================
 // Pagination and Ordering
 // =====================
 
-export const orderByDirectionSchema = z.enum(["asc", "desc"]);
+export const orderByDirectionSchema = z.enum(['asc', 'desc']);
 
 // Schema for orderBy with nulls handling (Prisma 4+ format)
 // Supports both simple direction and object with sort + nulls
@@ -249,7 +288,7 @@ export const orderByWithNullsSchema = z.union([
   orderByDirectionSchema,
   z.object({
     sort: orderByDirectionSchema,
-    nulls: z.enum(["first", "last"]).optional(),
+    nulls: z.enum(['first', 'last']).optional(),
   }),
 ]);
 
@@ -292,12 +331,23 @@ export const normalizeOrderBy = (orderBy: any): any => {
 // Generic Batch Operations Schemas
 // =====================
 
-export const createBatchCreateSchema = <T extends z.ZodType<any>>(itemSchema: T, itemName: string, maxItems = 100) =>
+export const createBatchCreateSchema = <T extends z.ZodType<any>>(
+  itemSchema: T,
+  itemName: string,
+  maxItems = 100,
+) =>
   z.object({
-    [`${itemName}s`]: z.array(itemSchema).min(1, `Deve incluir pelo menos um ${itemName}`).max(maxItems, `Limite máximo de ${maxItems} ${itemName}s por vez`),
+    [`${itemName}s`]: z
+      .array(itemSchema)
+      .min(1, `Deve incluir pelo menos um ${itemName}`)
+      .max(maxItems, `Limite máximo de ${maxItems} ${itemName}s por vez`),
   });
 
-export const createBatchUpdateSchema = <T extends z.ZodType<any>>(updateSchema: T, itemName: string, maxItems = 100) =>
+export const createBatchUpdateSchema = <T extends z.ZodType<any>>(
+  updateSchema: T,
+  itemName: string,
+  maxItems = 100,
+) =>
   z.object({
     [`${itemName}s`]: z
       .array(
@@ -329,16 +379,34 @@ export const createBatchQuerySchema = <T extends z.ZodType<any>>(includeSchema: 
 // Array Validation Helpers
 // =====================
 
-export const createArraySchema = <T extends z.ZodType<any>>(itemSchema: T, minItems = 0, maxItems = 100, label = "item") =>
+export const createArraySchema = <T extends z.ZodType<any>>(
+  itemSchema: T,
+  minItems = 0,
+  maxItems = 100,
+  label = 'item',
+) =>
   z
     .array(itemSchema)
-    .min(minItems, minItems > 0 ? `Deve incluir pelo menos ${minItems} ${label}${minItems > 1 ? "s" : ""}` : undefined)
+    .min(
+      minItems,
+      minItems > 0
+        ? `Deve incluir pelo menos ${minItems} ${label}${minItems > 1 ? 's' : ''}`
+        : undefined,
+    )
     .max(maxItems, `Limite máximo de ${maxItems} ${label}s`);
 
-export const createUniqueArraySchema = <T extends z.ZodType<any>>(itemSchema: T, minItems = 0, maxItems = 100, label = "item") =>
-  createArraySchema(itemSchema, minItems, maxItems, label).refine((arr) => new Set(arr).size === arr.length, {
-    message: `Lista não pode conter ${label}s duplicados`,
-  });
+export const createUniqueArraySchema = <T extends z.ZodType<any>>(
+  itemSchema: T,
+  minItems = 0,
+  maxItems = 100,
+  label = 'item',
+) =>
+  createArraySchema(itemSchema, minItems, maxItems, label).refine(
+    arr => new Set(arr).size === arr.length,
+    {
+      message: `Lista não pode conter ${label}s duplicados`,
+    },
+  );
 
 // =====================
 // Status Change Schemas
@@ -347,19 +415,23 @@ export const createUniqueArraySchema = <T extends z.ZodType<any>>(itemSchema: T,
 export const createStatusChangeSchema = <TStatus extends z.ZodType<any>>(statusSchema: TStatus) =>
   z.object({
     newStatus: statusSchema,
-    reason: z.string().min(3, "Motivo deve ter pelo menos 3 caracteres").optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }),
+    reason: z.string().min(3, 'Motivo deve ter pelo menos 3 caracteres').optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }),
   });
 
-export const createBulkStatusChangeSchema = <TStatus extends z.ZodType<any>>(statusSchema: TStatus, entityName = "entidade", maxItems = 100) =>
+export const createBulkStatusChangeSchema = <TStatus extends z.ZodType<any>>(
+  statusSchema: TStatus,
+  entityName = 'entidade',
+  maxItems = 100,
+) =>
   z.object({
     [`${entityName}Ids`]: z
       .array(z.string().uuid({ message: `${entityName} inválido` }))
       .min(1, `Deve incluir pelo menos um ${entityName}`)
       .max(maxItems, `Limite máximo de ${maxItems} ${entityName}s por vez`),
     newStatus: statusSchema,
-    reason: z.string().min(3, "Motivo deve ter pelo menos 3 caracteres").optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }),
+    reason: z.string().min(3, 'Motivo deve ter pelo menos 3 caracteres').optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }),
   });
 
 // =====================
@@ -381,7 +453,7 @@ export const createDateRangeSchema = (fieldName: string) =>
         .optional(),
     })
     .refine(
-      (data) => {
+      data => {
         if (data.gte && data.lte) {
           return data.lte >= data.gte;
         }
@@ -389,7 +461,7 @@ export const createDateRangeSchema = (fieldName: string) =>
       },
       {
         message: `Data final de ${fieldName} deve ser posterior ou igual à data inicial`,
-        path: ["lte"],
+        path: ['lte'],
       },
     );
 
@@ -397,7 +469,9 @@ export const createDateRangeSchema = (fieldName: string) =>
 // Common Utility Functions
 // =====================
 
-export const createMapToFormDataHelper = <TEntity, TFormData>(mapper: (entity: TEntity) => TFormData) => mapper;
+export const createMapToFormDataHelper = <TEntity, TFormData>(
+  mapper: (entity: TEntity) => TFormData,
+) => mapper;
 
 // Transform function for form data that handles multipart/form-data string encoding
 // When data comes from multipart/form-data, arrays and objects are JSON-stringified
@@ -425,8 +499,10 @@ export const toFormData = <T>(data: T): T => {
     // Try to parse string values that might be JSON-encoded arrays or objects
     if (typeof value === 'string') {
       // Check if it looks like a JSON array or object
-      if ((value.startsWith('[') && value.endsWith(']')) ||
-          (value.startsWith('{') && value.endsWith('}'))) {
+      if (
+        (value.startsWith('[') && value.endsWith(']')) ||
+        (value.startsWith('{') && value.endsWith('}'))
+      ) {
         try {
           result[key] = JSON.parse(value);
           continue;
@@ -439,10 +515,19 @@ export const toFormData = <T>(data: T): T => {
 
       // For number fields in forms, try to convert string to number
       // Only do this for fields that are explicitly numeric fields (not IDs)
-      const numberFields = ['price', 'quantity', 'amount', 'value', 'total', 'cost', 'weight', 'height', 'width', 'length'];
-      const isNumberField = numberFields.some(field =>
-        key.toLowerCase().includes(field)
-      );
+      const numberFields = [
+        'price',
+        'quantity',
+        'amount',
+        'value',
+        'total',
+        'cost',
+        'weight',
+        'height',
+        'width',
+        'length',
+      ];
+      const isNumberField = numberFields.some(field => key.toLowerCase().includes(field));
 
       // Try to parse as number only for known numeric fields
       if (isNumberField && value !== '') {
@@ -468,13 +553,13 @@ export const toFormData = <T>(data: T): T => {
 export const createAuditSchema = () =>
   z.object({
     entityType: z.string(),
-    entityId: z.string().uuid({ message: "Entidade inválida" }),
+    entityId: z.string().uuid({ message: 'Entidade inválida' }),
     action: z.string(),
     field: z.string().optional(),
     oldValue: z.any().optional(),
     newValue: z.any().optional(),
     reason: z.string().optional(),
-    userId: z.string().uuid({ message: "Usuário inválido" }).optional(),
+    userId: z.string().uuid({ message: 'Usuário inválido' }).optional(),
   });
 
 // =====================
@@ -482,33 +567,41 @@ export const createAuditSchema = () =>
 // =====================
 
 // URL validation with Portuguese message
-export const urlSchema = z.string().url({ message: "URL inválida" });
+export const urlSchema = z.string().url({ message: 'URL inválida' });
 
 // State code validation (Brazilian states)
-export const stateCodeSchema = z.string().length(2, { message: "Estado deve ter 2 caracteres" }).toUpperCase();
+export const stateCodeSchema = z
+  .string()
+  .length(2, { message: 'Estado deve ter 2 caracteres' })
+  .toUpperCase();
 
 // Hex color validation
-export const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, { message: "Cor HEX inválida" });
+export const hexColorSchema = z
+  .string()
+  .regex(/^#[0-9A-Fa-f]{6}$/, { message: 'Cor HEX inválida' });
 
 // Percentage validation (0-100)
-export const percentageSchema = z.number().min(0, { message: "Porcentagem deve ser maior ou igual a 0" }).max(100, { message: "Porcentagem deve ser menor ou igual a 100" });
+export const percentageSchema = z
+  .number()
+  .min(0, { message: 'Porcentagem deve ser maior ou igual a 0' })
+  .max(100, { message: 'Porcentagem deve ser menor ou igual a 100' });
 
 // Money/currency validation (non-negative with 2 decimal places)
 export const moneySchema = z
   .number()
-  .min(0, { message: "Valor deve ser maior ou igual a 0" })
-  .transform((val) => Math.round(val * 100) / 100) // Round to 2 decimal places
+  .min(0, { message: 'Valor deve ser maior ou igual a 0' })
+  .transform(val => Math.round(val * 100) / 100) // Round to 2 decimal places
   .refine(
-    (val) => {
+    val => {
       // Check if the value has at most 2 decimal places after rounding
       const decimalPlaces = (val.toString().split('.')[1] || '').length;
       return decimalPlaces <= 2;
     },
-    { message: "Valor deve ter no máximo 2 casas decimais" }
+    { message: 'Valor deve ter no máximo 2 casas decimais' },
   );
 
 // Positive quantity validation
-export const quantitySchema = z.number().positive({ message: "Quantidade deve ser positiva" });
+export const quantitySchema = z.number().positive({ message: 'Quantidade deve ser positiva' });
 
 // File size validation helper
 export const createFileSizeSchema = (maxSizeMB: number) =>
@@ -527,7 +620,7 @@ export const paginationSchema = z.object({
 });
 
 // Search mode for case sensitivity
-export const searchModeSchema = z.enum(["default", "insensitive"]);
+export const searchModeSchema = z.enum(['default', 'insensitive']);
 
 // =====================
 // Where Clause Helpers
@@ -631,8 +724,8 @@ export const createSearchTransform = (searchingFor: string, fields: string[]) =>
   if (!searchingFor?.trim()) return null;
 
   return {
-    OR: fields.map((field) => ({
-      [field]: { contains: searchingFor.trim(), mode: "insensitive" },
+    OR: fields.map(field => ({
+      [field]: { contains: searchingFor.trim(), mode: 'insensitive' },
     })),
   };
 };
@@ -692,11 +785,23 @@ export const createIncludeSchema = (relations: Record<string, any>) =>
 // Common Business Field Schemas
 // =====================
 
-export const fantasyNameSchema = createNameSchema(2, 255, "Nome fantasia");
-export const corporateNameSchema = createNameSchema(2, 255, "Razão social").nullable().optional();
-export const addressSchema = z.string().max(500, { message: "Endereço deve ter no máximo 500 caracteres" }).nullable().optional();
-export const citySchema = z.string().max(100, { message: "Cidade deve ter no máximo 100 caracteres" }).nullable().optional();
-export const notesSchema = z.string().max(1000, { message: "Observações devem ter no máximo 1000 caracteres" }).nullable().optional();
+export const fantasyNameSchema = createNameSchema(2, 255, 'Nome fantasia');
+export const corporateNameSchema = createNameSchema(2, 255, 'Razão social').nullable().optional();
+export const addressSchema = z
+  .string()
+  .max(500, { message: 'Endereço deve ter no máximo 500 caracteres' })
+  .nullable()
+  .optional();
+export const citySchema = z
+  .string()
+  .max(100, { message: 'Cidade deve ter no máximo 100 caracteres' })
+  .nullable()
+  .optional();
+export const notesSchema = z
+  .string()
+  .max(1000, { message: 'Observações devem ter no máximo 1000 caracteres' })
+  .nullable()
+  .optional();
 
 // =====================
 // Export commonly used validation patterns

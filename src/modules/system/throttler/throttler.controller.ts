@@ -46,10 +46,7 @@ export class ThrottlerController {
 
   @Delete('keys')
   @HttpCode(HttpStatus.OK)
-  async clearThrottlerKeys(
-    @UserId() userId: string,
-    @Query('pattern') pattern?: string,
-  ) {
+  async clearThrottlerKeys(@UserId() userId: string, @Query('pattern') pattern?: string) {
     const deletedCount = await this.throttlerService.clearKeys(pattern);
     return {
       success: true,
@@ -60,10 +57,7 @@ export class ThrottlerController {
 
   @Delete('key')
   @HttpCode(HttpStatus.OK)
-  async clearSpecificKey(
-    @UserId() userId: string,
-    @Query('key') key: string,
-  ) {
+  async clearSpecificKey(@UserId() userId: string, @Query('key') key: string) {
     const result = await this.throttlerService.clearSpecificKey(key);
     return {
       success: true,
@@ -74,10 +68,7 @@ export class ThrottlerController {
 
   @Delete('user-keys')
   @HttpCode(HttpStatus.OK)
-  async clearUserKeys(
-    @UserId() userId: string,
-    @Query('userId') targetUserId?: string,
-  ) {
+  async clearUserKeys(@UserId() userId: string, @Query('userId') targetUserId?: string) {
     const userIdToClean = targetUserId || userId;
     const deletedCount = await this.throttlerService.clearUserKeys(userIdToClean);
     return {
@@ -89,10 +80,7 @@ export class ThrottlerController {
 
   @Delete('ip-keys')
   @HttpCode(HttpStatus.OK)
-  async clearIpKeys(
-    @UserId() userId: string,
-    @Query('ip') ip: string,
-  ) {
+  async clearIpKeys(@UserId() userId: string, @Query('ip') ip: string) {
     const deletedCount = await this.throttlerService.clearIpKeys(ip);
     return {
       success: true,

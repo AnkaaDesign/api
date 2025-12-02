@@ -1,7 +1,12 @@
 // packages/schemas/src/maintenance.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, dateRangeSchema } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  dateRangeSchema,
+} from './common';
 import type { Maintenance, MaintenanceItem } from '@types';
 import { MAINTENANCE_STATUS, SCHEDULE_FREQUENCY } from '@constants';
 
@@ -107,7 +112,9 @@ export const maintenanceIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+      _count: z
+        .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+        .optional(),
     })
     .partial(),
 );
@@ -136,7 +143,9 @@ export const maintenanceItemIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -280,7 +289,7 @@ export const maintenanceWhereSchema: z.ZodSchema = z.lazy(() =>
             contains: z.string().optional(),
             startsWith: z.string().optional(),
             endsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -504,14 +513,14 @@ const maintenanceFilters = {
   status: z
     .array(
       z.enum(Object.values(MAINTENANCE_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "status inválido" }),
+        errorMap: () => ({ message: 'status inválido' }),
       }),
     )
     .optional(),
   frequency: z
     .array(
       z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "frequência inválida" }),
+        errorMap: () => ({ message: 'frequência inválida' }),
       }),
     )
     .optional(),
@@ -559,15 +568,21 @@ const maintenanceTransform = (data: any): any => {
   const andConditions: any[] = [];
 
   // Handle searchingFor
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
       OR: [
-        { name: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { description: { contains: data.searchingFor.trim(), mode: "insensitive" } },
-        { item: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } },
-        { item: { brand: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-        { item: { category: { name: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
-        { item: { supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: "insensitive" } } } },
+        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { item: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        { item: { brand: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } } },
+        {
+          item: { category: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } },
+        },
+        {
+          item: {
+            supplier: { fantasyName: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+          },
+        },
       ],
     });
     delete data.searchingFor;
@@ -610,7 +625,11 @@ const maintenanceTransform = (data: any): any => {
   }
 
   // Handle maintenanceScheduleIds filter
-  if (data.maintenanceScheduleIds && Array.isArray(data.maintenanceScheduleIds) && data.maintenanceScheduleIds.length > 0) {
+  if (
+    data.maintenanceScheduleIds &&
+    Array.isArray(data.maintenanceScheduleIds) &&
+    data.maintenanceScheduleIds.length > 0
+  ) {
     andConditions.push({ maintenanceScheduleId: { in: data.maintenanceScheduleIds } });
     delete data.maintenanceScheduleIds;
   }
@@ -628,7 +647,7 @@ const maintenanceTransform = (data: any): any => {
   }
 
   // Handle isActive filter
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
   }
@@ -640,20 +659,22 @@ const maintenanceTransform = (data: any): any => {
   }
 
   // Handle nextRunRange filter
-  if (data.nextRunRange && typeof data.nextRunRange === "object") {
+  if (data.nextRunRange && typeof data.nextRunRange === 'object') {
     const nextRunCondition: any = {};
     if (data.nextRunRange.gte) {
-      const fromDate = data.nextRunRange.gte instanceof Date
-        ? data.nextRunRange.gte
-        : new Date(data.nextRunRange.gte);
+      const fromDate =
+        data.nextRunRange.gte instanceof Date
+          ? data.nextRunRange.gte
+          : new Date(data.nextRunRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       nextRunCondition.gte = fromDate;
     }
     if (data.nextRunRange.lte) {
-      const toDate = data.nextRunRange.lte instanceof Date
-        ? data.nextRunRange.lte
-        : new Date(data.nextRunRange.lte);
+      const toDate =
+        data.nextRunRange.lte instanceof Date
+          ? data.nextRunRange.lte
+          : new Date(data.nextRunRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       nextRunCondition.lte = toDate;
@@ -665,20 +686,22 @@ const maintenanceTransform = (data: any): any => {
   }
 
   // Handle lastRunRange filter
-  if (data.lastRunRange && typeof data.lastRunRange === "object") {
+  if (data.lastRunRange && typeof data.lastRunRange === 'object') {
     const lastRunCondition: any = {};
     if (data.lastRunRange.gte) {
-      const fromDate = data.lastRunRange.gte instanceof Date
-        ? data.lastRunRange.gte
-        : new Date(data.lastRunRange.gte);
+      const fromDate =
+        data.lastRunRange.gte instanceof Date
+          ? data.lastRunRange.gte
+          : new Date(data.lastRunRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       lastRunCondition.gte = fromDate;
     }
     if (data.lastRunRange.lte) {
-      const toDate = data.lastRunRange.lte instanceof Date
-        ? data.lastRunRange.lte
-        : new Date(data.lastRunRange.lte);
+      const toDate =
+        data.lastRunRange.lte instanceof Date
+          ? data.lastRunRange.lte
+          : new Date(data.lastRunRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       lastRunCondition.lte = toDate;
@@ -690,20 +713,22 @@ const maintenanceTransform = (data: any): any => {
   }
 
   // Handle finishedAtRange filter
-  if (data.finishedAtRange && typeof data.finishedAtRange === "object") {
+  if (data.finishedAtRange && typeof data.finishedAtRange === 'object') {
     const finishedAtCondition: any = {};
     if (data.finishedAtRange.gte) {
-      const fromDate = data.finishedAtRange.gte instanceof Date
-        ? data.finishedAtRange.gte
-        : new Date(data.finishedAtRange.gte);
+      const fromDate =
+        data.finishedAtRange.gte instanceof Date
+          ? data.finishedAtRange.gte
+          : new Date(data.finishedAtRange.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       finishedAtCondition.gte = fromDate;
     }
     if (data.finishedAtRange.lte) {
-      const toDate = data.finishedAtRange.lte instanceof Date
-        ? data.finishedAtRange.lte
-        : new Date(data.finishedAtRange.lte);
+      const toDate =
+        data.finishedAtRange.lte instanceof Date
+          ? data.finishedAtRange.lte
+          : new Date(data.finishedAtRange.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       finishedAtCondition.lte = toDate;
@@ -768,10 +793,10 @@ const maintenanceItemTransform = (data: any): any => {
   }
 
   // Handle quantityRange filter
-  if (data.quantityRange && typeof data.quantityRange === "object") {
+  if (data.quantityRange && typeof data.quantityRange === 'object') {
     const quantityCondition: any = {};
-    if (typeof data.quantityRange.min === "number") quantityCondition.gte = data.quantityRange.min;
-    if (typeof data.quantityRange.max === "number") quantityCondition.lte = data.quantityRange.max;
+    if (typeof data.quantityRange.min === 'number') quantityCondition.gte = data.quantityRange.min;
+    if (typeof data.quantityRange.max === 'number') quantityCondition.lte = data.quantityRange.max;
     if (Object.keys(quantityCondition).length > 0) {
       andConditions.push({ quantity: quantityCondition });
     }
@@ -885,34 +910,37 @@ const toFormData = <T>(data: T) => data;
 
 export const maintenanceCreateSchema = z
   .object({
-    name: z.string().min(1, "Nome é obrigatório").max(255, "Nome deve ter no máximo 255 caracteres"),
+    name: z
+      .string()
+      .min(1, 'Nome é obrigatório')
+      .max(255, 'Nome deve ter no máximo 255 caracteres'),
     description: z.string().optional(),
     status: z
       .enum(Object.values(MAINTENANCE_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status inválido" }),
+        errorMap: () => ({ message: 'Status inválido' }),
       })
       .default(MAINTENANCE_STATUS.PENDING),
-    itemId: z.string().uuid("Item inválido"),
-    maintenanceScheduleId: z.string().uuid("Cronograma de manutenção inválido").optional(),
-    scheduledFor: z.coerce.date({ invalid_type_error: "Data inválida" }).optional().nullable(),
+    itemId: z.string().uuid('Item inválido'),
+    maintenanceScheduleId: z.string().uuid('Cronograma de manutenção inválido').optional(),
+    scheduledFor: z.coerce.date({ invalid_type_error: 'Data inválida' }).optional().nullable(),
     itemsNeeded: z
       .array(
         z.object({
-          itemId: z.string().min(1, "Item é obrigatório"),
-          quantity: z.number().positive("Quantidade deve ser positiva").default(1),
+          itemId: z.string().min(1, 'Item é obrigatório'),
+          quantity: z.number().positive('Quantidade deve ser positiva').default(1),
         }),
       )
       .optional()
       .nullable()
       .default([])
-      .transform((items) => {
+      .transform(items => {
         // Handle null/undefined
         if (!items || items.length === 0) return [];
         // Filter out items with empty or invalid itemId
-        return items.filter((item) => item.itemId && item.itemId.trim() !== "");
+        return items.filter(item => item.itemId && item.itemId.trim() !== '');
       }),
     // Auto-creation field
-    originalMaintenanceId: z.string().uuid("Manutenção original inválida").optional(),
+    originalMaintenanceId: z.string().uuid('Manutenção original inválida').optional(),
   })
   .transform(toFormData);
 
@@ -922,20 +950,24 @@ export const maintenanceUpdateSchema = z
     description: z.string().nullable().optional(),
     status: z
       .enum(Object.values(MAINTENANCE_STATUS) as [string, ...string[]], {
-        errorMap: () => ({ message: "Status inválido" }),
+        errorMap: () => ({ message: 'Status inválido' }),
       })
       .optional(),
-    itemId: z.string().uuid("Item inválido").optional(),
-    maintenanceScheduleId: z.string().uuid("Cronograma de manutenção inválido").nullable().optional(),
+    itemId: z.string().uuid('Item inválido').optional(),
+    maintenanceScheduleId: z
+      .string()
+      .uuid('Cronograma de manutenção inválido')
+      .nullable()
+      .optional(),
     scheduledFor: z.coerce.date().nullable().optional(),
     startedAt: z.coerce.date().nullable().optional(),
     finishedAt: z.coerce.date().nullable().optional(),
     timeTaken: z.number().int().min(0).nullable().optional(),
     // Auto-creation field
-    originalMaintenanceId: z.string().uuid("Manutenção original inválida").nullable().optional(),
+    originalMaintenanceId: z.string().uuid('Manutenção original inválida').nullable().optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate that finishedAt is only set when status is COMPLETED
       if (data.finishedAt && data.status && data.status !== MAINTENANCE_STATUS.COMPLETED) {
         return false;
@@ -944,22 +976,22 @@ export const maintenanceUpdateSchema = z
     },
     {
       message: "Data de conclusão só pode ser definida quando o status é 'Concluído'",
-      path: ["finishedAt"],
+      path: ['finishedAt'],
     },
   )
   .transform(toFormData);
 
 export const maintenanceItemCreateSchema = z
   .object({
-    maintenanceId: z.string().uuid("Manutenção inválida"),
-    itemId: z.string().uuid("Item inválido"),
-    quantity: z.number().positive("Quantidade deve ser positiva").default(1),
+    maintenanceId: z.string().uuid('Manutenção inválida'),
+    itemId: z.string().uuid('Item inválido'),
+    quantity: z.number().positive('Quantidade deve ser positiva').default(1),
   })
   .transform(toFormData);
 
 export const maintenanceItemUpdateSchema = z
   .object({
-    quantity: z.number().positive("Quantidade deve ser positiva").optional(),
+    quantity: z.number().positive('Quantidade deve ser positiva').optional(),
   })
   .transform(toFormData);
 
@@ -975,15 +1007,17 @@ export const maintenanceBatchUpdateSchema = z.object({
   maintenances: z
     .array(
       z.object({
-        id: z.string().uuid("Manutenção inválida"),
+        id: z.string().uuid('Manutenção inválida'),
         data: maintenanceUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const maintenanceBatchDeleteSchema = z.object({
-  maintenanceIds: z.array(z.string().uuid("Manutenção inválida")).min(1, "Pelo menos um ID deve ser fornecido"),
+  maintenanceIds: z
+    .array(z.string().uuid('Manutenção inválida'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 export const maintenanceItemBatchCreateSchema = z.object({
@@ -994,15 +1028,17 @@ export const maintenanceItemBatchUpdateSchema = z.object({
   maintenanceItems: z
     .array(
       z.object({
-        id: z.string().uuid("Item de manutenção inválido"),
+        id: z.string().uuid('Item de manutenção inválido'),
         data: maintenanceItemUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária"),
+    .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
 export const maintenanceItemBatchDeleteSchema = z.object({
-  maintenanceItemIds: z.array(z.string().uuid("Item de manutenção inválido")).min(1, "Pelo menos um ID deve ser fornecido"),
+  maintenanceItemIds: z
+    .array(z.string().uuid('Item de manutenção inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // =====================
@@ -1011,12 +1047,12 @@ export const maintenanceItemBatchDeleteSchema = z.object({
 
 export const maintenanceGetByIdSchema = z.object({
   include: maintenanceIncludeSchema.optional(),
-  id: z.string().uuid("Manutenção inválida"),
+  id: z.string().uuid('Manutenção inválida'),
 });
 
 export const maintenanceItemGetByIdSchema = z.object({
   include: maintenanceItemIncludeSchema.optional(),
-  id: z.string().uuid("Item de manutenção inválido"),
+  id: z.string().uuid('Item de manutenção inválido'),
 });
 
 // Query schema for include parameter
@@ -1069,7 +1105,10 @@ export type MaintenanceItemWhere = z.infer<typeof maintenanceItemWhereSchema>;
 // FormData Helpers
 // =====================
 
-export const mapMaintenanceToFormData = createMapToFormDataHelper<Maintenance, MaintenanceUpdateFormData>((maintenance) => ({
+export const mapMaintenanceToFormData = createMapToFormDataHelper<
+  Maintenance,
+  MaintenanceUpdateFormData
+>(maintenance => ({
   name: maintenance.name,
   description: maintenance.description,
   status: maintenance.status as MAINTENANCE_STATUS,
@@ -1082,7 +1121,10 @@ export const mapMaintenanceToFormData = createMapToFormDataHelper<Maintenance, M
   originalMaintenanceId: maintenance.originalMaintenanceId,
 }));
 
-export const mapMaintenanceItemToFormData = createMapToFormDataHelper<MaintenanceItem, MaintenanceItemUpdateFormData>((maintenanceItem) => ({
+export const mapMaintenanceItemToFormData = createMapToFormDataHelper<
+  MaintenanceItem,
+  MaintenanceItemUpdateFormData
+>(maintenanceItem => ({
   quantity: maintenanceItem.quantity,
 }));
 
@@ -1151,7 +1193,9 @@ export const maintenanceScheduleIncludeSchema = z
         }),
       ])
       .optional(),
-    _count: z.union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })]).optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
   })
   .partial();
 
@@ -1196,9 +1240,13 @@ export const maintenanceScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
       // Logical operators
-      AND: z.union([maintenanceScheduleWhereSchema, z.array(maintenanceScheduleWhereSchema)]).optional(),
+      AND: z
+        .union([maintenanceScheduleWhereSchema, z.array(maintenanceScheduleWhereSchema)])
+        .optional(),
       OR: z.array(maintenanceScheduleWhereSchema).optional(),
-      NOT: z.union([maintenanceScheduleWhereSchema, z.array(maintenanceScheduleWhereSchema)]).optional(),
+      NOT: z
+        .union([maintenanceScheduleWhereSchema, z.array(maintenanceScheduleWhereSchema)])
+        .optional(),
 
       // Fields
       id: z
@@ -1221,7 +1269,7 @@ export const maintenanceScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
             not: z.string().optional(),
             contains: z.string().optional(),
             startsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -1235,7 +1283,7 @@ export const maintenanceScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
             not: z.union([z.string(), z.null()]).optional(),
             contains: z.string().optional(),
             startsWith: z.string().optional(),
-            mode: z.enum(["default", "insensitive"]).optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
           }),
         ])
         .optional(),
@@ -1377,11 +1425,11 @@ const maintenanceScheduleFilters = {
   frequency: z
     .array(
       z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       }),
     )
     .optional(),
-  itemIds: z.array(z.string().uuid("Item inválido")).optional(),
+  itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
   hasNextRun: z.boolean().optional(),
   nextRunRange: dateRangeSchema.optional(),
@@ -1406,9 +1454,12 @@ const maintenanceScheduleTransform = (data: any): any => {
   const andConditions: any[] = [];
 
   // Handle searchingFor - search in names and descriptions
-  if (data.searchingFor && typeof data.searchingFor === "string" && data.searchingFor.trim()) {
+  if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      OR: [{ name: { contains: data.searchingFor.trim(), mode: "insensitive" } }, { description: { contains: data.searchingFor.trim(), mode: "insensitive" } }],
+      OR: [
+        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -1426,7 +1477,7 @@ const maintenanceScheduleTransform = (data: any): any => {
   }
 
   // Handle isActive filter
-  if (typeof data.isActive === "boolean") {
+  if (typeof data.isActive === 'boolean') {
     andConditions.push({ isActive: data.isActive });
     delete data.isActive;
   }
@@ -1441,24 +1492,26 @@ const maintenanceScheduleTransform = (data: any): any => {
   }
 
   // Handle date range filters
-  const dateRangeFields = ["nextRunRange", "lastRunRange", "finishedAtRange", "createdAtRange"];
+  const dateRangeFields = ['nextRunRange', 'lastRunRange', 'finishedAtRange', 'createdAtRange'];
 
-  dateRangeFields.forEach((rangeField) => {
-    const field = rangeField.replace("Range", "");
-    if (data[rangeField] && typeof data[rangeField] === "object") {
+  dateRangeFields.forEach(rangeField => {
+    const field = rangeField.replace('Range', '');
+    if (data[rangeField] && typeof data[rangeField] === 'object') {
       const dateCondition: any = {};
       if (data[rangeField].gte) {
-        const fromDate = data[rangeField].gte instanceof Date
-          ? data[rangeField].gte
-          : new Date(data[rangeField].gte);
+        const fromDate =
+          data[rangeField].gte instanceof Date
+            ? data[rangeField].gte
+            : new Date(data[rangeField].gte);
         // Set to start of day (00:00:00)
         fromDate.setHours(0, 0, 0, 0);
         dateCondition.gte = fromDate;
       }
       if (data[rangeField].lte) {
-        const toDate = data[rangeField].lte instanceof Date
-          ? data[rangeField].lte
-          : new Date(data[rangeField].lte);
+        const toDate =
+          data[rangeField].lte instanceof Date
+            ? data[rangeField].lte
+            : new Date(data[rangeField].lte);
         // Set to end of day (23:59:59.999)
         toDate.setHours(23, 59, 59, 999);
         dateCondition.lte = toDate;
@@ -1523,19 +1576,26 @@ export const maintenanceScheduleGetManySchema = z
 // CRUD Schemas
 export const maintenanceScheduleCreateSchema = z
   .object({
-    name: z.string().min(1, "Nome é obrigatório").max(255, "Nome deve ter no máximo 255 caracteres"),
+    name: z
+      .string()
+      .min(1, 'Nome é obrigatório')
+      .max(255, 'Nome deve ter no máximo 255 caracteres'),
     description: z.string().optional(),
-    itemId: z.string().uuid("Item inválido").optional(),
+    itemId: z.string().uuid('Item inválido').optional(),
     frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-      errorMap: () => ({ message: "Frequência inválida" }),
+      errorMap: () => ({ message: 'Frequência inválida' }),
     }),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").default(1),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .default(1),
     isActive: z.boolean().default(true),
     maintenanceItemsConfig: z
       .array(
         z.object({
-          itemId: z.string().uuid("Item inválido"),
-          quantity: z.number().positive("Quantidade deve ser positiva").default(1),
+          itemId: z.string().uuid('Item inválido'),
+          quantity: z.number().positive('Quantidade deve ser positiva').default(1),
         }),
       )
       .optional()
@@ -1543,21 +1603,26 @@ export const maintenanceScheduleCreateSchema = z
 
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),
-    dayOfMonth: z.number().int().min(1, "Dia do mês deve ser entre 1 e 31").max(31, "Dia do mês deve ser entre 1 e 31").optional(),
+    dayOfMonth: z
+      .number()
+      .int()
+      .min(1, 'Dia do mês deve ser entre 1 e 31')
+      .max(31, 'Dia do mês deve ser entre 1 e 31')
+      .optional(),
     dayOfWeek: z.string().optional(), // DayOfWeek enum values
     month: z.string().optional(), // Month enum values
     customMonths: z.array(z.string()).optional(), // Array of Month enum values
 
     // Schedule configuration IDs (when using advanced configurations)
-    weeklyConfigId: z.string().uuid("Configuração semanal inválida").optional(),
-    monthlyConfigId: z.string().uuid("Configuração mensal inválida").optional(),
-    yearlyConfigId: z.string().uuid("Configuração anual inválida").optional(),
+    weeklyConfigId: z.string().uuid('Configuração semanal inválida').optional(),
+    monthlyConfigId: z.string().uuid('Configuração mensal inválida').optional(),
+    yearlyConfigId: z.string().uuid('Configuração anual inválida').optional(),
 
     // Runtime fields
     nextRun: z.coerce.date().optional(),
   })
   .refine(
-    (data) => {
+    data => {
       // Validate frequency-specific requirements
       // nextRun is sufficient for most frequencies if other specific fields are not provided
       switch (data.frequency) {
@@ -1582,8 +1647,8 @@ export const maintenanceScheduleCreateSchema = z
       }
     },
     {
-      message: "Configuração de agendamento incompleta para a frequência selecionada",
-      path: ["frequency"],
+      message: 'Configuração de agendamento incompleta para a frequência selecionada',
+      path: ['frequency'],
     },
   )
   .transform(toFormData);
@@ -1592,19 +1657,23 @@ export const maintenanceScheduleUpdateSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
     description: z.string().optional(),
-    itemId: z.string().uuid("Item inválido").nullable().optional(),
+    itemId: z.string().uuid('Item inválido').nullable().optional(),
     frequency: z
       .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
-        errorMap: () => ({ message: "Frequência inválida" }),
+        errorMap: () => ({ message: 'Frequência inválida' }),
       })
       .optional(),
-    frequencyCount: z.number().int().positive("Contagem de frequência deve ser positiva").optional(),
+    frequencyCount: z
+      .number()
+      .int()
+      .positive('Contagem de frequência deve ser positiva')
+      .optional(),
     isActive: z.boolean().optional(),
     maintenanceItemsConfig: z
       .array(
         z.object({
-          itemId: z.string().uuid("Item inválido"),
-          quantity: z.number().positive("Quantidade deve ser positiva").default(1),
+          itemId: z.string().uuid('Item inválido'),
+          quantity: z.number().positive('Quantidade deve ser positiva').default(1),
         }),
       )
       .optional(),
@@ -1623,8 +1692,8 @@ export const maintenanceScheduleUpdateSchema = z
 
     // Auto-creation fields
     finishedAt: z.coerce.date().nullable().optional(),
-    lastRunId: z.string().uuid("Última execução inválida").nullable().optional(),
-    originalScheduleId: z.string().uuid("Agendamento original inválido").nullable().optional(),
+    lastRunId: z.string().uuid('Última execução inválida').nullable().optional(),
+    originalScheduleId: z.string().uuid('Agendamento original inválido').nullable().optional(),
     nextRun: z.coerce.date().nullable().optional(),
     lastRun: z.coerce.date().nullable().optional(),
   })
@@ -1632,29 +1701,35 @@ export const maintenanceScheduleUpdateSchema = z
 
 // Batch Schemas
 export const maintenanceScheduleBatchCreateSchema = z.object({
-  maintenanceSchedules: z.array(maintenanceScheduleCreateSchema).min(1, "Deve incluir pelo menos um agendamento").max(50, "Máximo de 50 agendamentos por vez"),
+  maintenanceSchedules: z
+    .array(maintenanceScheduleCreateSchema)
+    .min(1, 'Deve incluir pelo menos um agendamento')
+    .max(50, 'Máximo de 50 agendamentos por vez'),
 });
 
 export const maintenanceScheduleBatchUpdateSchema = z.object({
   maintenanceSchedules: z
     .array(
       z.object({
-        id: z.string().uuid("Agendamento inválido"),
+        id: z.string().uuid('Agendamento inválido'),
         data: maintenanceScheduleUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos uma atualização é necessária")
-    .max(50, "Máximo de 50 atualizações por vez"),
+    .min(1, 'Pelo menos uma atualização é necessária')
+    .max(50, 'Máximo de 50 atualizações por vez'),
 });
 
 export const maintenanceScheduleBatchDeleteSchema = z.object({
-  maintenanceScheduleIds: z.array(z.string().uuid("Agendamento inválido")).min(1, "Pelo menos um ID deve ser fornecido").max(50, "Máximo de 50 exclusões por vez"),
+  maintenanceScheduleIds: z
+    .array(z.string().uuid('Agendamento inválido'))
+    .min(1, 'Pelo menos um ID deve ser fornecido')
+    .max(50, 'Máximo de 50 exclusões por vez'),
 });
 
 // Additional Query Schemas
 export const maintenanceScheduleGetByIdSchema = z.object({
   include: maintenanceScheduleIncludeSchema.optional(),
-  id: z.string().uuid("Agendamento inválido"),
+  id: z.string().uuid('Agendamento inválido'),
 });
 
 // Query schema for include parameter
@@ -1670,9 +1745,15 @@ export type MaintenanceScheduleQueryFormData = z.infer<typeof maintenanceSchedul
 export type MaintenanceScheduleCreateFormData = z.infer<typeof maintenanceScheduleCreateSchema>;
 export type MaintenanceScheduleUpdateFormData = z.infer<typeof maintenanceScheduleUpdateSchema>;
 
-export type MaintenanceScheduleBatchCreateFormData = z.infer<typeof maintenanceScheduleBatchCreateSchema>;
-export type MaintenanceScheduleBatchUpdateFormData = z.infer<typeof maintenanceScheduleBatchUpdateSchema>;
-export type MaintenanceScheduleBatchDeleteFormData = z.infer<typeof maintenanceScheduleBatchDeleteSchema>;
+export type MaintenanceScheduleBatchCreateFormData = z.infer<
+  typeof maintenanceScheduleBatchCreateSchema
+>;
+export type MaintenanceScheduleBatchUpdateFormData = z.infer<
+  typeof maintenanceScheduleBatchUpdateSchema
+>;
+export type MaintenanceScheduleBatchDeleteFormData = z.infer<
+  typeof maintenanceScheduleBatchDeleteSchema
+>;
 
 export type MaintenanceScheduleInclude = z.infer<typeof maintenanceScheduleIncludeSchema>;
 export type MaintenanceScheduleOrderBy = z.infer<typeof maintenanceScheduleOrderBySchema>;

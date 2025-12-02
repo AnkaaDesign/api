@@ -110,44 +110,47 @@ export class TaskController {
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'budgets', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'receipts', maxCount: 10 },
-      { name: 'artworks', maxCount: 10 },
-      { name: 'cutFiles', maxCount: 20 },
-      // Airbrushing files - support up to 10 airbrushings with multiple files each
-      { name: 'airbrushings[0].receipts', maxCount: 10 },
-      { name: 'airbrushings[0].invoices', maxCount: 10 },
-      { name: 'airbrushings[0].artworks', maxCount: 20 },
-      { name: 'airbrushings[1].receipts', maxCount: 10 },
-      { name: 'airbrushings[1].invoices', maxCount: 10 },
-      { name: 'airbrushings[1].artworks', maxCount: 20 },
-      { name: 'airbrushings[2].receipts', maxCount: 10 },
-      { name: 'airbrushings[2].invoices', maxCount: 10 },
-      { name: 'airbrushings[2].artworks', maxCount: 20 },
-      { name: 'airbrushings[3].receipts', maxCount: 10 },
-      { name: 'airbrushings[3].invoices', maxCount: 10 },
-      { name: 'airbrushings[3].artworks', maxCount: 20 },
-      { name: 'airbrushings[4].receipts', maxCount: 10 },
-      { name: 'airbrushings[4].invoices', maxCount: 10 },
-      { name: 'airbrushings[4].artworks', maxCount: 20 },
-      { name: 'airbrushings[5].receipts', maxCount: 10 },
-      { name: 'airbrushings[5].invoices', maxCount: 10 },
-      { name: 'airbrushings[5].artworks', maxCount: 20 },
-      { name: 'airbrushings[6].receipts', maxCount: 10 },
-      { name: 'airbrushings[6].invoices', maxCount: 10 },
-      { name: 'airbrushings[6].artworks', maxCount: 20 },
-      { name: 'airbrushings[7].receipts', maxCount: 10 },
-      { name: 'airbrushings[7].invoices', maxCount: 10 },
-      { name: 'airbrushings[7].artworks', maxCount: 20 },
-      { name: 'airbrushings[8].receipts', maxCount: 10 },
-      { name: 'airbrushings[8].invoices', maxCount: 10 },
-      { name: 'airbrushings[8].artworks', maxCount: 20 },
-      { name: 'airbrushings[9].receipts', maxCount: 10 },
-      { name: 'airbrushings[9].invoices', maxCount: 10 },
-      { name: 'airbrushings[9].artworks', maxCount: 20 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'budgets', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'receipts', maxCount: 10 },
+        { name: 'artworks', maxCount: 10 },
+        { name: 'cutFiles', maxCount: 20 },
+        // Airbrushing files - support up to 10 airbrushings with multiple files each
+        { name: 'airbrushings[0].receipts', maxCount: 10 },
+        { name: 'airbrushings[0].invoices', maxCount: 10 },
+        { name: 'airbrushings[0].artworks', maxCount: 20 },
+        { name: 'airbrushings[1].receipts', maxCount: 10 },
+        { name: 'airbrushings[1].invoices', maxCount: 10 },
+        { name: 'airbrushings[1].artworks', maxCount: 20 },
+        { name: 'airbrushings[2].receipts', maxCount: 10 },
+        { name: 'airbrushings[2].invoices', maxCount: 10 },
+        { name: 'airbrushings[2].artworks', maxCount: 20 },
+        { name: 'airbrushings[3].receipts', maxCount: 10 },
+        { name: 'airbrushings[3].invoices', maxCount: 10 },
+        { name: 'airbrushings[3].artworks', maxCount: 20 },
+        { name: 'airbrushings[4].receipts', maxCount: 10 },
+        { name: 'airbrushings[4].invoices', maxCount: 10 },
+        { name: 'airbrushings[4].artworks', maxCount: 20 },
+        { name: 'airbrushings[5].receipts', maxCount: 10 },
+        { name: 'airbrushings[5].invoices', maxCount: 10 },
+        { name: 'airbrushings[5].artworks', maxCount: 20 },
+        { name: 'airbrushings[6].receipts', maxCount: 10 },
+        { name: 'airbrushings[6].invoices', maxCount: 10 },
+        { name: 'airbrushings[6].artworks', maxCount: 20 },
+        { name: 'airbrushings[7].receipts', maxCount: 10 },
+        { name: 'airbrushings[7].invoices', maxCount: 10 },
+        { name: 'airbrushings[7].artworks', maxCount: 20 },
+        { name: 'airbrushings[8].receipts', maxCount: 10 },
+        { name: 'airbrushings[8].invoices', maxCount: 10 },
+        { name: 'airbrushings[8].artworks', maxCount: 20 },
+        { name: 'airbrushings[9].receipts', maxCount: 10 },
+        { name: 'airbrushings[9].invoices', maxCount: 10 },
+        { name: 'airbrushings[9].artworks', maxCount: 20 },
+      ],
+      multerConfig,
+    ),
   )
   async create(
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskCreateSchema)) data: TaskCreateFormData,
@@ -173,22 +176,29 @@ export class TaskController {
   @Put('batch')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'budgets', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'receipts', maxCount: 10 },
-      { name: 'artworks', maxCount: 10 },
-      { name: 'cutFiles', maxCount: 20 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'budgets', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'receipts', maxCount: 10 },
+        { name: 'artworks', maxCount: 10 },
+        { name: 'cutFiles', maxCount: 20 },
+      ],
+      multerConfig,
+    ),
   )
   async batchUpdate(
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema)) data: TaskBatchUpdateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskBatchUpdateSchema))
+    data: TaskBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     // Log what we're receiving
-    console.log('[TaskController.batchUpdate] Files received:', files ? Object.keys(files) : 'none');
+    console.log(
+      '[TaskController.batchUpdate] Files received:',
+      files ? Object.keys(files) : 'none',
+    );
     if (files && files.artworks) {
       console.log('[TaskController.batchUpdate] Artworks count:', files.artworks.length);
       console.log('[TaskController.batchUpdate] First artwork:', {
@@ -227,12 +237,7 @@ export class TaskController {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    return this.tasksService.bulkAddArtworks(
-      data.taskIds,
-      data.artworkIds,
-      userId,
-      query.include,
-    );
+    return this.tasksService.bulkAddArtworks(data.taskIds, data.artworkIds, userId, query.include);
   }
 
   @Post('bulk/documents')
@@ -270,12 +275,7 @@ export class TaskController {
     total: number;
     errors: Array<{ taskId: string; error: string }>;
   }> {
-    return this.tasksService.bulkAddPaints(
-      data.taskIds,
-      data.paintIds,
-      userId,
-      query.include,
-    );
+    return this.tasksService.bulkAddPaints(data.taskIds, data.paintIds, userId, query.include);
   }
 
   @Post('bulk/cutting-plans')
@@ -293,7 +293,13 @@ export class TaskController {
   }> {
     return this.tasksService.bulkAddCuttingPlans(
       data.taskIds,
-      data.cutData,
+      {
+        fileId: data.cutData.fileId!,
+        type: data.cutData.type!,
+        origin: data.cutData.origin,
+        reason: data.cutData.reason,
+        quantity: data.cutData.quantity,
+      },
       userId,
       query.include,
     );
@@ -302,9 +308,7 @@ export class TaskController {
   @Post('bulk/upload-files')
   @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(
-    FilesInterceptor('files', 10, multerConfig)
-  )
+  @UseInterceptors(FilesInterceptor('files', 10, multerConfig))
   async bulkUploadFiles(
     @Body(new ZodValidationPipe(taskBulkFileUploadSchema)) data: TaskBulkFileUploadFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -409,10 +413,7 @@ export class TaskController {
     return this.tasksService.findMany({
       ...query,
       where: {
-        OR: [
-          { status: TASK_STATUS.PENDING },
-          { status: TASK_STATUS.IN_PRODUCTION },
-        ],
+        OR: [{ status: TASK_STATUS.PENDING }, { status: TASK_STATUS.IN_PRODUCTION }],
         truck: {
           OR: [
             { leftSideLayoutId: { not: null } },
@@ -501,53 +502,57 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'budgets', maxCount: 10 },
-      { name: 'invoices', maxCount: 10 },
-      { name: 'receipts', maxCount: 10 },
-      { name: 'artworks', maxCount: 10 },
-      { name: 'cutFiles', maxCount: 20 },
-      { name: 'observationFiles', maxCount: 10 },
-      // Airbrushing files - support up to 10 airbrushings with multiple files each
-      { name: 'airbrushings[0].receipts', maxCount: 10 },
-      { name: 'airbrushings[0].invoices', maxCount: 10 },
-      { name: 'airbrushings[0].artworks', maxCount: 20 },
-      { name: 'airbrushings[1].receipts', maxCount: 10 },
-      { name: 'airbrushings[1].invoices', maxCount: 10 },
-      { name: 'airbrushings[1].artworks', maxCount: 20 },
-      { name: 'airbrushings[2].receipts', maxCount: 10 },
-      { name: 'airbrushings[2].invoices', maxCount: 10 },
-      { name: 'airbrushings[2].artworks', maxCount: 20 },
-      { name: 'airbrushings[3].receipts', maxCount: 10 },
-      { name: 'airbrushings[3].invoices', maxCount: 10 },
-      { name: 'airbrushings[3].artworks', maxCount: 20 },
-      { name: 'airbrushings[4].receipts', maxCount: 10 },
-      { name: 'airbrushings[4].invoices', maxCount: 10 },
-      { name: 'airbrushings[4].artworks', maxCount: 20 },
-      { name: 'airbrushings[5].receipts', maxCount: 10 },
-      { name: 'airbrushings[5].invoices', maxCount: 10 },
-      { name: 'airbrushings[5].artworks', maxCount: 20 },
-      { name: 'airbrushings[6].receipts', maxCount: 10 },
-      { name: 'airbrushings[6].invoices', maxCount: 10 },
-      { name: 'airbrushings[6].artworks', maxCount: 20 },
-      { name: 'airbrushings[7].receipts', maxCount: 10 },
-      { name: 'airbrushings[7].invoices', maxCount: 10 },
-      { name: 'airbrushings[7].artworks', maxCount: 20 },
-      { name: 'airbrushings[8].receipts', maxCount: 10 },
-      { name: 'airbrushings[8].invoices', maxCount: 10 },
-      { name: 'airbrushings[8].artworks', maxCount: 20 },
-      { name: 'airbrushings[9].receipts', maxCount: 10 },
-      { name: 'airbrushings[9].invoices', maxCount: 10 },
-      { name: 'airbrushings[9].artworks', maxCount: 20 },
-      // Layout photos - one photo per side (matches backend service check at line 685)
-      { name: 'layoutPhotos.leftSide', maxCount: 1 },
-      { name: 'layoutPhotos.rightSide', maxCount: 1 },
-      { name: 'layoutPhotos.backSide', maxCount: 1 },
-    ], multerConfig)
+    FileFieldsInterceptor(
+      [
+        { name: 'budgets', maxCount: 10 },
+        { name: 'invoices', maxCount: 10 },
+        { name: 'receipts', maxCount: 10 },
+        { name: 'artworks', maxCount: 10 },
+        { name: 'cutFiles', maxCount: 20 },
+        { name: 'observationFiles', maxCount: 10 },
+        // Airbrushing files - support up to 10 airbrushings with multiple files each
+        { name: 'airbrushings[0].receipts', maxCount: 10 },
+        { name: 'airbrushings[0].invoices', maxCount: 10 },
+        { name: 'airbrushings[0].artworks', maxCount: 20 },
+        { name: 'airbrushings[1].receipts', maxCount: 10 },
+        { name: 'airbrushings[1].invoices', maxCount: 10 },
+        { name: 'airbrushings[1].artworks', maxCount: 20 },
+        { name: 'airbrushings[2].receipts', maxCount: 10 },
+        { name: 'airbrushings[2].invoices', maxCount: 10 },
+        { name: 'airbrushings[2].artworks', maxCount: 20 },
+        { name: 'airbrushings[3].receipts', maxCount: 10 },
+        { name: 'airbrushings[3].invoices', maxCount: 10 },
+        { name: 'airbrushings[3].artworks', maxCount: 20 },
+        { name: 'airbrushings[4].receipts', maxCount: 10 },
+        { name: 'airbrushings[4].invoices', maxCount: 10 },
+        { name: 'airbrushings[4].artworks', maxCount: 20 },
+        { name: 'airbrushings[5].receipts', maxCount: 10 },
+        { name: 'airbrushings[5].invoices', maxCount: 10 },
+        { name: 'airbrushings[5].artworks', maxCount: 20 },
+        { name: 'airbrushings[6].receipts', maxCount: 10 },
+        { name: 'airbrushings[6].invoices', maxCount: 10 },
+        { name: 'airbrushings[6].artworks', maxCount: 20 },
+        { name: 'airbrushings[7].receipts', maxCount: 10 },
+        { name: 'airbrushings[7].invoices', maxCount: 10 },
+        { name: 'airbrushings[7].artworks', maxCount: 20 },
+        { name: 'airbrushings[8].receipts', maxCount: 10 },
+        { name: 'airbrushings[8].invoices', maxCount: 10 },
+        { name: 'airbrushings[8].artworks', maxCount: 20 },
+        { name: 'airbrushings[9].receipts', maxCount: 10 },
+        { name: 'airbrushings[9].invoices', maxCount: 10 },
+        { name: 'airbrushings[9].artworks', maxCount: 20 },
+        // Layout photos - one photo per side (matches backend service check at line 685)
+        { name: 'layoutPhotos.leftSide', maxCount: 1 },
+        { name: 'layoutPhotos.rightSide', maxCount: 1 },
+        { name: 'layoutPhotos.backSide', maxCount: 1 },
+      ],
+      multerConfig,
+    ),
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema)) data: TaskUpdateFormData = {} as TaskUpdateFormData,
+    @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema))
+    data: TaskUpdateFormData = {} as TaskUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
@@ -558,13 +563,20 @@ export class TaskController {
     console.log('[TaskController.update] Task ID:', id);
     console.log('[TaskController.update] User role:', user?.role);
     console.log('[TaskController.update] ========== AIRBRUSHINGS DATA ==========');
-    console.log('[TaskController.update] data.airbrushings:', JSON.stringify(data.airbrushings, null, 2));
+    console.log(
+      '[TaskController.update] data.airbrushings:',
+      JSON.stringify(data.airbrushings, null, 2),
+    );
     console.log('[TaskController.update] ========== FILES RECEIVED ==========');
     console.log('[TaskController.update] All file fields:', Object.keys(files || {}));
-    const airbrushingFileFields = Object.keys(files || {}).filter(k => k.startsWith('airbrushings['));
+    const airbrushingFileFields = Object.keys(files || {}).filter(k =>
+      k.startsWith('airbrushings['),
+    );
     console.log('[TaskController.update] Airbrushing file fields:', airbrushingFileFields);
     airbrushingFileFields.forEach(field => {
-      console.log(`[TaskController.update]   ${field}: ${(files as any)[field]?.length || 0} files`);
+      console.log(
+        `[TaskController.update]   ${field}: ${(files as any)[field]?.length || 0} files`,
+      );
     });
     console.log('[TaskController.update] Body keys:', Object.keys(data || {}));
     console.log('[TaskController.update] Body:', JSON.stringify(data).substring(0, 200));
@@ -583,7 +595,14 @@ export class TaskController {
       observationFilesCount: files?.observationFiles?.length || 0,
     });
 
-    return this.tasksService.update(id, data, query.include, userId, user?.role as SECTOR_PRIVILEGES, files);
+    return this.tasksService.update(
+      id,
+      data,
+      query.include,
+      userId,
+      user?.role as SECTOR_PRIVILEGES,
+      files,
+    );
   }
 
   @Delete(':id')
@@ -607,7 +626,7 @@ export class TaskController {
   async uploadBudget() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "budgets".'
+        'Use PUT /tasks/:id com FormData incluindo o campo "budgets".',
     );
   }
 
@@ -617,7 +636,7 @@ export class TaskController {
   async uploadInvoice() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "invoices".'
+        'Use PUT /tasks/:id com FormData incluindo o campo "invoices".',
     );
   }
 
@@ -627,7 +646,7 @@ export class TaskController {
   async uploadReceipt() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "receipts".'
+        'Use PUT /tasks/:id com FormData incluindo o campo "receipts".',
     );
   }
 
@@ -637,7 +656,7 @@ export class TaskController {
   async uploadReimbursement() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo apropriado.'
+        'Use PUT /tasks/:id com FormData incluindo o campo apropriado.',
     );
   }
 
@@ -647,7 +666,7 @@ export class TaskController {
   async uploadReimbursementInvoice() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo apropriado.'
+        'Use PUT /tasks/:id com FormData incluindo o campo apropriado.',
     );
   }
 
@@ -657,7 +676,7 @@ export class TaskController {
   async uploadArtwork() {
     throw new BadRequestException(
       'Endpoint obsoleto: Arquivos devem ser enviados junto com a atualização da tarefa. ' +
-      'Use PUT /tasks/:id com FormData incluindo o campo "artworks".'
+        'Use PUT /tasks/:id com FormData incluindo o campo "artworks".',
     );
   }
 }

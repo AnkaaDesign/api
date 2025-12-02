@@ -63,7 +63,8 @@ export interface ConsumptionItemSimple {
 /**
  * Consumption item (comparison mode)
  */
-export interface ConsumptionItemComparison extends Omit<ConsumptionItemSimple, 'totalQuantity' | 'totalValue' | 'movementCount'> {
+export interface ConsumptionItemComparison
+  extends Omit<ConsumptionItemSimple, 'totalQuantity' | 'totalValue' | 'movementCount'> {
   // Total across all entities
   totalQuantity: number;
   totalValue: number;
@@ -116,9 +117,7 @@ export interface ConsumptionAnalyticsData {
 /**
  * Consumption analytics response
  */
-export interface ConsumptionAnalyticsResponse extends BaseResponse {
-  data: ConsumptionAnalyticsData;
-}
+export interface ConsumptionAnalyticsResponse extends BaseResponse<ConsumptionAnalyticsData> {}
 
 /**
  * Time series data point for area charts
@@ -142,6 +141,4 @@ export interface ConsumptionTimeSeriesData {
   }[];
 }
 
-export interface ConsumptionTimeSeriesResponse extends BaseResponse {
-  data: ConsumptionTimeSeriesData;
-}
+export interface ConsumptionTimeSeriesResponse extends BaseResponse<ConsumptionTimeSeriesData> {}

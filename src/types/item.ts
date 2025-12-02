@@ -1,14 +1,37 @@
 // packages/interfaces/src/item.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse, BaseMergeResponse } from "./common";
-import type { MEASURE_UNIT, ORDER_BY_DIRECTION, ABC_CATEGORY, XYZ_CATEGORY, PPE_TYPE, PPE_SIZE, PPE_DELIVERY_MODE, ITEM_CATEGORY_TYPE } from '@constants';
-import type { Supplier, SupplierIncludes, SupplierOrderBy } from "./supplier";
-import type { Activity, ActivityIncludes } from "./activity";
-import type { Borrow, BorrowIncludes } from "./borrow";
-import type { OrderItem, OrderItemIncludes } from "./order";
-import type { PpeDelivery, PpeDeliveryIncludes, PpeDeliverySchedule, PpeDeliveryScheduleIncludes } from "./ppe";
-import type { Measure, MeasureIncludes } from "./measure";
-import type { MonetaryValue, MonetaryValueIncludes } from "./position";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+  BaseMergeResponse,
+} from './common';
+import type {
+  MEASURE_UNIT,
+  ORDER_BY_DIRECTION,
+  ABC_CATEGORY,
+  XYZ_CATEGORY,
+  PPE_TYPE,
+  PPE_SIZE,
+  PPE_DELIVERY_MODE,
+  ITEM_CATEGORY_TYPE,
+} from '@constants';
+import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
+import type { Activity, ActivityIncludes } from './activity';
+import type { Borrow, BorrowIncludes } from './borrow';
+import type { OrderItem, OrderItemIncludes } from './order';
+import type {
+  PpeDelivery,
+  PpeDeliveryIncludes,
+  PpeDeliverySchedule,
+  PpeDeliveryScheduleIncludes,
+} from './ppe';
+import type { Measure, MeasureIncludes } from './measure';
+import type { MonetaryValue, MonetaryValueIncludes } from './position';
 
 // Re-export MonetaryValue for convenience
 export type { MonetaryValue };
@@ -206,48 +229,236 @@ export interface ItemWhere {
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
 
   // String fields
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
   uniCode?:
     | string
-    | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] }
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      }
     | null;
 
   // Number fields
-  quantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  maxQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  reorderPoint?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  reorderQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  boxQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  icms?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  ipi?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  totalPrice?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  monthlyConsumption?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
-  monthlyConsumptionTrendPercent?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
-  estimatedLeadTime?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
+  quantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  maxQuantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  reorderPoint?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  reorderQuantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  boxQuantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  icms?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  ipi?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  totalPrice?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  monthlyConsumption?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
+  monthlyConsumptionTrendPercent?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
+  estimatedLeadTime?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
 
   // Enum fields
-  abcCategory?: ABC_CATEGORY | { equals?: ABC_CATEGORY; not?: ABC_CATEGORY; in?: ABC_CATEGORY[]; notIn?: ABC_CATEGORY[] } | null;
-  xyzCategory?: XYZ_CATEGORY | { equals?: XYZ_CATEGORY; not?: XYZ_CATEGORY; in?: XYZ_CATEGORY[]; notIn?: XYZ_CATEGORY[] } | null;
+  abcCategory?:
+    | ABC_CATEGORY
+    | { equals?: ABC_CATEGORY; not?: ABC_CATEGORY; in?: ABC_CATEGORY[]; notIn?: ABC_CATEGORY[] }
+    | null;
+  xyzCategory?:
+    | XYZ_CATEGORY
+    | { equals?: XYZ_CATEGORY; not?: XYZ_CATEGORY; in?: XYZ_CATEGORY[]; notIn?: XYZ_CATEGORY[] }
+    | null;
 
   // PPE-specific enum fields
-  ppeType?: PPE_TYPE | { equals?: PPE_TYPE; not?: PPE_TYPE; in?: PPE_TYPE[]; notIn?: PPE_TYPE[] } | null;
-  ppeDeliveryMode?: PPE_DELIVERY_MODE | { equals?: PPE_DELIVERY_MODE; not?: PPE_DELIVERY_MODE; in?: PPE_DELIVERY_MODE[]; notIn?: PPE_DELIVERY_MODE[] } | null;
+  ppeType?:
+    | PPE_TYPE
+    | { equals?: PPE_TYPE; not?: PPE_TYPE; in?: PPE_TYPE[]; notIn?: PPE_TYPE[] }
+    | null;
+  ppeDeliveryMode?:
+    | PPE_DELIVERY_MODE
+    | {
+        equals?: PPE_DELIVERY_MODE;
+        not?: PPE_DELIVERY_MODE;
+        in?: PPE_DELIVERY_MODE[];
+        notIn?: PPE_DELIVERY_MODE[];
+      }
+    | null;
 
   // PPE-specific string fields
   ppeCA?:
     | string
-    | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] }
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      }
     | null;
 
   // PPE-specific number fields
-  ppeStandardQuantity?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] } | null;
+  ppeStandardQuantity?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      }
+    | null;
 
   // Boolean fields
   shouldAssignToUser?: boolean | { equals?: boolean; not?: boolean };
   isActive?: boolean | { equals?: boolean; not?: boolean };
 
   // Array fields
-  barcodes?: string[] | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
+  barcodes?:
+    | string[]
+    | { has?: string; hasEvery?: string[]; hasSome?: string[]; isEmpty?: boolean };
 
   // Relation IDs
   brandId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
@@ -255,8 +466,30 @@ export interface ItemWhere {
   supplierId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 
   // Relations
   brand?: ItemBrandIncludes;
@@ -272,11 +505,44 @@ export interface ItemBrandWhere {
 
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 export interface ItemCategoryWhere {
@@ -287,13 +553,64 @@ export interface ItemCategoryWhere {
 
   // Fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  name?: string | { equals?: string; not?: string; contains?: string; startsWith?: string; endsWith?: string; mode?: "default" | "insensitive"; in?: string[]; notIn?: string[] };
-  type?: ITEM_CATEGORY_TYPE | { equals?: ITEM_CATEGORY_TYPE; not?: ITEM_CATEGORY_TYPE; in?: ITEM_CATEGORY_TYPE[]; notIn?: ITEM_CATEGORY_TYPE[] };
-  typeOrder?: number | { equals?: number; not?: number; lt?: number; lte?: number; gt?: number; gte?: number; in?: number[]; notIn?: number[] };
+  name?:
+    | string
+    | {
+        equals?: string;
+        not?: string;
+        contains?: string;
+        startsWith?: string;
+        endsWith?: string;
+        mode?: 'default' | 'insensitive';
+        in?: string[];
+        notIn?: string[];
+      };
+  type?:
+    | ITEM_CATEGORY_TYPE
+    | {
+        equals?: ITEM_CATEGORY_TYPE;
+        not?: ITEM_CATEGORY_TYPE;
+        in?: ITEM_CATEGORY_TYPE[];
+        notIn?: ITEM_CATEGORY_TYPE[];
+      };
+  typeOrder?:
+    | number
+    | {
+        equals?: number;
+        not?: number;
+        lt?: number;
+        lte?: number;
+        gt?: number;
+        gte?: number;
+        in?: number[];
+        notIn?: number[];
+      };
 
   // Date fields
-  createdAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
-  updatedAt?: Date | { equals?: Date; not?: Date; lt?: Date; lte?: Date; gt?: Date; gte?: Date; in?: Date[]; notIn?: Date[] };
+  createdAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
+  updatedAt?:
+    | Date
+    | {
+        equals?: Date;
+        not?: Date;
+        lt?: Date;
+        lte?: Date;
+        gt?: Date;
+        gte?: Date;
+        in?: Date[];
+        notIn?: Date[];
+      };
 }
 
 // =====================
@@ -420,17 +737,22 @@ export interface ItemCategoryGetByIdParams {
 // Item batch operations
 export interface ItemBatchCreateResponse<T> extends BaseBatchResponse<Item, T> {}
 export interface ItemBatchUpdateResponse<T> extends BaseBatchResponse<Item, T & { id: string }> {}
-export interface ItemBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // ItemBrand batch operations
 export interface ItemBrandBatchCreateResponse<T> extends BaseBatchResponse<ItemBrand, T> {}
-export interface ItemBrandBatchUpdateResponse<T> extends BaseBatchResponse<ItemBrand, T & { id: string }> {}
-export interface ItemBrandBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemBrandBatchUpdateResponse<T>
+  extends BaseBatchResponse<ItemBrand, T & { id: string }> {}
+export interface ItemBrandBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // ItemCategory batch operations
 export interface ItemCategoryBatchCreateResponse<T> extends BaseBatchResponse<ItemCategory, T> {}
-export interface ItemCategoryBatchUpdateResponse<T> extends BaseBatchResponse<ItemCategory, T & { id: string }> {}
-export interface ItemCategoryBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemCategoryBatchUpdateResponse<T>
+  extends BaseBatchResponse<ItemCategory, T & { id: string }> {}
+export interface ItemCategoryBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
 
 // =====================
 // Stock Management Response Types

@@ -1,7 +1,13 @@
 // packages/schemas/src/borrow.ts
 
-import { z } from "zod";
-import { createMapToFormDataHelper, orderByDirectionSchema, normalizeOrderBy, nullableDate, toFormData } from "./common";
+import { z } from 'zod';
+import {
+  createMapToFormDataHelper,
+  orderByDirectionSchema,
+  normalizeOrderBy,
+  nullableDate,
+  toFormData,
+} from './common';
 import type { Borrow } from '@types';
 import { BORROW_STATUS } from '@constants';
 
@@ -203,7 +209,9 @@ export const borrowWhereSchema: z.ZodType<any> = z.lazy(() =>
             equals: z.enum(Object.values(BORROW_STATUS) as [string, ...string[]]).optional(),
             not: z.enum(Object.values(BORROW_STATUS) as [string, ...string[]]).optional(),
             in: z.array(z.enum(Object.values(BORROW_STATUS) as [string, ...string[]])).optional(),
-            notIn: z.array(z.enum(Object.values(BORROW_STATUS) as [string, ...string[]])).optional(),
+            notIn: z
+              .array(z.enum(Object.values(BORROW_STATUS) as [string, ...string[]]))
+              .optional(),
           }),
         ])
         .optional(),
@@ -325,7 +333,10 @@ const borrowTransform = (data: any) => {
   // Transform convenience filters to where conditions
   if (data.searchingFor) {
     andConditions.push({
-      OR: [{ item: { name: { contains: data.searchingFor, mode: "insensitive" } } }, { user: { name: { contains: data.searchingFor, mode: "insensitive" } } }],
+      OR: [
+        { item: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+        { user: { name: { contains: data.searchingFor, mode: 'insensitive' } } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -425,17 +436,15 @@ const borrowTransform = (data: any) => {
   if (data.createdAt) {
     const createdAtCondition: any = {};
     if (data.createdAt.gte) {
-      const fromDate = data.createdAt.gte instanceof Date
-        ? data.createdAt.gte
-        : new Date(data.createdAt.gte);
+      const fromDate =
+        data.createdAt.gte instanceof Date ? data.createdAt.gte : new Date(data.createdAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       createdAtCondition.gte = fromDate;
     }
     if (data.createdAt.lte) {
-      const toDate = data.createdAt.lte instanceof Date
-        ? data.createdAt.lte
-        : new Date(data.createdAt.lte);
+      const toDate =
+        data.createdAt.lte instanceof Date ? data.createdAt.lte : new Date(data.createdAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       createdAtCondition.lte = toDate;
@@ -449,17 +458,15 @@ const borrowTransform = (data: any) => {
   if (data.returnedAt) {
     const returnedAtCondition: any = {};
     if (data.returnedAt.gte) {
-      const fromDate = data.returnedAt.gte instanceof Date
-        ? data.returnedAt.gte
-        : new Date(data.returnedAt.gte);
+      const fromDate =
+        data.returnedAt.gte instanceof Date ? data.returnedAt.gte : new Date(data.returnedAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       returnedAtCondition.gte = fromDate;
     }
     if (data.returnedAt.lte) {
-      const toDate = data.returnedAt.lte instanceof Date
-        ? data.returnedAt.lte
-        : new Date(data.returnedAt.lte);
+      const toDate =
+        data.returnedAt.lte instanceof Date ? data.returnedAt.lte : new Date(data.returnedAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       returnedAtCondition.lte = toDate;
@@ -473,17 +480,15 @@ const borrowTransform = (data: any) => {
   if (data.updatedAt) {
     const updatedAtCondition: any = {};
     if (data.updatedAt.gte) {
-      const fromDate = data.updatedAt.gte instanceof Date
-        ? data.updatedAt.gte
-        : new Date(data.updatedAt.gte);
+      const fromDate =
+        data.updatedAt.gte instanceof Date ? data.updatedAt.gte : new Date(data.updatedAt.gte);
       // Set to start of day (00:00:00)
       fromDate.setHours(0, 0, 0, 0);
       updatedAtCondition.gte = fromDate;
     }
     if (data.updatedAt.lte) {
-      const toDate = data.updatedAt.lte instanceof Date
-        ? data.updatedAt.lte
-        : new Date(data.updatedAt.lte);
+      const toDate =
+        data.updatedAt.lte instanceof Date ? data.updatedAt.lte : new Date(data.updatedAt.lte);
       // Set to end of day (23:59:59.999)
       toDate.setHours(23, 59, 59, 999);
       updatedAtCondition.lte = toDate;
@@ -562,23 +567,23 @@ export const borrowCreateSchema = z
   .object({
     itemId: z
       .string({
-        required_error: "Item é obrigatório",
-        invalid_type_error: "Item inválido",
+        required_error: 'Item é obrigatório',
+        invalid_type_error: 'Item inválido',
       })
-      .uuid("Item inválido"),
+      .uuid('Item inválido'),
     userId: z
       .string({
-        required_error: "Usuário é obrigatório",
-        invalid_type_error: "Usuário inválido",
+        required_error: 'Usuário é obrigatório',
+        invalid_type_error: 'Usuário inválido',
       })
-      .uuid("Usuário inválido"),
+      .uuid('Usuário inválido'),
     quantity: z
       .number({
-        required_error: "Quantidade é obrigatória",
-        invalid_type_error: "Quantidade inválida",
+        required_error: 'Quantidade é obrigatória',
+        invalid_type_error: 'Quantidade inválida',
       })
-      .int("Quantidade deve ser um número inteiro")
-      .positive("Quantidade deve ser positiva")
+      .int('Quantidade deve ser um número inteiro')
+      .positive('Quantidade deve ser positiva')
       .default(1),
     returnedAt: nullableDate.optional(),
   })
@@ -588,25 +593,25 @@ export const borrowUpdateSchema = z
   .object({
     itemId: z
       .string({
-        invalid_type_error: "Item inválido",
+        invalid_type_error: 'Item inválido',
       })
-      .uuid("Item inválido")
+      .uuid('Item inválido')
       .optional(),
     userId: z
       .string({
-        invalid_type_error: "Usuário inválido",
+        invalid_type_error: 'Usuário inválido',
       })
-      .uuid("Usuário inválido")
+      .uuid('Usuário inválido')
       .optional(),
     quantity: z
       .number({
-        invalid_type_error: "Quantidade inválida",
+        invalid_type_error: 'Quantidade inválida',
       })
-      .positive("Quantidade deve ser positiva")
+      .positive('Quantidade deve ser positiva')
       .optional(),
     status: z
       .enum(Object.values(BORROW_STATUS) as [string, ...string[]], {
-        invalid_type_error: "Status inválido",
+        invalid_type_error: 'Status inválido',
       })
       .optional(),
     statusOrder: z.number().int().positive().optional(),
@@ -619,7 +624,7 @@ export const borrowUpdateSchema = z
 // =====================
 
 export const borrowBatchCreateSchema = z.object({
-  borrows: z.array(borrowCreateSchema).min(1, "Pelo menos um empréstimo deve ser fornecido"),
+  borrows: z.array(borrowCreateSchema).min(1, 'Pelo menos um empréstimo deve ser fornecido'),
 });
 
 export const borrowBatchUpdateSchema = z.object({
@@ -628,14 +633,14 @@ export const borrowBatchUpdateSchema = z.object({
       z.object({
         id: z
           .string({
-            required_error: "Empréstimo é obrigatório",
-            invalid_type_error: "Empréstimo inválido",
+            required_error: 'Empréstimo é obrigatório',
+            invalid_type_error: 'Empréstimo inválido',
           })
-          .uuid("Empréstimo inválido"),
+          .uuid('Empréstimo inválido'),
         data: borrowUpdateSchema,
       }),
     )
-    .min(1, "Pelo menos um empréstimo é necessário"),
+    .min(1, 'Pelo menos um empréstimo é necessário'),
 });
 
 export const borrowBatchDeleteSchema = z.object({
@@ -643,12 +648,12 @@ export const borrowBatchDeleteSchema = z.object({
     .array(
       z
         .string({
-          required_error: "Empréstimo é obrigatório",
-          invalid_type_error: "Empréstimo inválido",
+          required_error: 'Empréstimo é obrigatório',
+          invalid_type_error: 'Empréstimo inválido',
         })
-        .uuid("Empréstimo inválido"),
+        .uuid('Empréstimo inválido'),
     )
-    .min(1, "Pelo menos um ID deve ser fornecido"),
+    .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
@@ -687,11 +692,13 @@ export type BorrowWhere = z.infer<typeof borrowWhereSchema>;
 // Helper Functions
 // =====================
 
-export const mapBorrowToFormData = createMapToFormDataHelper<Borrow, BorrowUpdateFormData>((borrow) => ({
-  itemId: borrow.itemId,
-  userId: borrow.userId,
-  quantity: borrow.quantity,
-  status: borrow.status,
-  statusOrder: borrow.statusOrder,
-  returnedAt: borrow.returnedAt,
-}));
+export const mapBorrowToFormData = createMapToFormDataHelper<Borrow, BorrowUpdateFormData>(
+  borrow => ({
+    itemId: borrow.itemId,
+    userId: borrow.userId,
+    quantity: borrow.quantity,
+    status: borrow.status,
+    statusOrder: borrow.statusOrder,
+    returnedAt: borrow.returnedAt,
+  }),
+);

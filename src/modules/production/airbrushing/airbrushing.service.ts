@@ -201,7 +201,11 @@ export class AirbrushingService {
         await this.validateAirbrushing(data, id, tx);
 
         // Process file uploads if provided and get new file IDs
-        let newFileIds = { receiptIds: [] as string[], invoiceIds: [] as string[], artworkIds: [] as string[] };
+        let newFileIds = {
+          receiptIds: [] as string[],
+          invoiceIds: [] as string[],
+          artworkIds: [] as string[],
+        };
         if (files && (files.receipts?.length || files.invoices?.length || files.artworks?.length)) {
           newFileIds = await this.processAirbrushingFileUploads(id, files, userId, tx);
         }
@@ -212,7 +216,10 @@ export class AirbrushingService {
         const combinedArtworkIds = [...(data.artworkIds || []), ...newFileIds.artworkIds];
 
         // Update data with combined file IDs if any new files were uploaded
-        const hasNewFiles = newFileIds.receiptIds.length > 0 || newFileIds.invoiceIds.length > 0 || newFileIds.artworkIds.length > 0;
+        const hasNewFiles =
+          newFileIds.receiptIds.length > 0 ||
+          newFileIds.invoiceIds.length > 0 ||
+          newFileIds.artworkIds.length > 0;
         const updateData = hasNewFiles
           ? {
               ...data,

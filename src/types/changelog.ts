@@ -1,8 +1,21 @@
 // packages/interfaces/src/changelog.ts
 
-import type { BaseEntity, BaseGetUniqueResponse, BaseGetManyResponse, BaseCreateResponse, BaseUpdateResponse, BaseDeleteResponse, BaseBatchResponse } from "./common";
-import type { CHANGE_LOG_ACTION, CHANGE_LOG_ENTITY_TYPE, ORDER_BY_DIRECTION, CHANGE_TRIGGERED_BY } from '@constants';
-import type { User, UserIncludes, UserOrderBy } from "./user";
+import type {
+  BaseEntity,
+  BaseGetUniqueResponse,
+  BaseGetManyResponse,
+  BaseCreateResponse,
+  BaseUpdateResponse,
+  BaseDeleteResponse,
+  BaseBatchResponse,
+} from './common';
+import type {
+  CHANGE_LOG_ACTION,
+  CHANGE_LOG_ENTITY_TYPE,
+  ORDER_BY_DIRECTION,
+  CHANGE_TRIGGERED_BY,
+} from '@constants';
+import type { User, UserIncludes, UserOrderBy } from './user';
 
 // =====================
 // Main Entity Interface
@@ -69,5 +82,7 @@ export interface ChangeLogDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ChangeLogBatchCreateResponse<T> extends BaseBatchResponse<ChangeLog, T> {}
-export interface ChangeLogBatchUpdateResponse<T> extends BaseBatchResponse<ChangeLog, T & { id: string }> {}
-export interface ChangeLogBatchDeleteResponse extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ChangeLogBatchUpdateResponse<T>
+  extends BaseBatchResponse<ChangeLog, T & { id: string }> {}
+export interface ChangeLogBatchDeleteResponse
+  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}

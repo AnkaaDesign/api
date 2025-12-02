@@ -33,31 +33,34 @@ export const getWarningSeverityLevel = (severity: WARNING_SEVERITY): number => {
 
 export const getWarningSeverityDescription = (severity: WARNING_SEVERITY): string => {
   const descriptions = {
-    VERBAL: "Advertência Verbal",
-    WRITTEN: "Advertência Escrita",
-    SUSPENSION: "Suspensão",
-    FINAL_WARNING: "Advertência Final",
+    VERBAL: 'Advertência Verbal',
+    WRITTEN: 'Advertência Escrita',
+    SUSPENSION: 'Suspensão',
+    FINAL_WARNING: 'Advertência Final',
   };
 
-  return descriptions[severity] || "Não definido";
+  return descriptions[severity] || 'Não definido';
 };
 
 export const getWarningCategoryDescription = (category: WARNING_CATEGORY): string => {
   const descriptions = {
-    ATTENDANCE: "Frequência/Pontualidade",
-    PERFORMANCE: "Desempenho",
-    BEHAVIOR: "Comportamento",
-    SAFETY: "Segurança",
-    POLICY_VIOLATION: "Violação de Política",
-    INSUBORDINATION: "Insubordinação",
-    MISCONDUCT: "Má Conduta",
-    OTHER: "Outros",
+    ATTENDANCE: 'Frequência/Pontualidade',
+    PERFORMANCE: 'Desempenho',
+    BEHAVIOR: 'Comportamento',
+    SAFETY: 'Segurança',
+    POLICY_VIOLATION: 'Violação de Política',
+    INSUBORDINATION: 'Insubordinação',
+    MISCONDUCT: 'Má Conduta',
+    OTHER: 'Outros',
   };
 
-  return descriptions[category] || "Não definido";
+  return descriptions[category] || 'Não definido';
 };
 
-export const validateWarningEscalation = (currentSeverity: WARNING_SEVERITY, newSeverity: WARNING_SEVERITY): boolean => {
+export const validateWarningEscalation = (
+  currentSeverity: WARNING_SEVERITY,
+  newSeverity: WARNING_SEVERITY,
+): boolean => {
   const currentLevel = getWarningSeverityLevel(currentSeverity);
   const newLevel = getWarningSeverityLevel(newSeverity);
 
@@ -82,11 +85,13 @@ export const isWarningOverdue = (warning: Warning): boolean => {
   return followUpDate < now && !warning.resolvedAt;
 };
 
-export const getWarningStatus = (warning: Warning): "active" | "resolved" | "overdue" | "pending_followup" => {
-  if (warning.resolvedAt) return "resolved";
-  if (isWarningOverdue(warning)) return "overdue";
-  if (warning.followUpDate && !warning.resolvedAt) return "pending_followup";
-  return "active";
+export const getWarningStatus = (
+  warning: Warning,
+): 'active' | 'resolved' | 'overdue' | 'pending_followup' => {
+  if (warning.resolvedAt) return 'resolved';
+  if (isWarningOverdue(warning)) return 'overdue';
+  if (warning.followUpDate && !warning.resolvedAt) return 'pending_followup';
+  return 'active';
 };
 
 export const generateWarningReport = (
@@ -104,7 +109,7 @@ export const generateWarningReport = (
   let totalAge = 0;
   let overdueCount = 0;
 
-  warnings.forEach((warning) => {
+  warnings.forEach(warning => {
     // Count by severity
     const severity = warning.severity as WARNING_SEVERITY;
     bySeverity[severity] = (bySeverity[severity] || 0) + 1;
