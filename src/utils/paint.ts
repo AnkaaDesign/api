@@ -1,7 +1,7 @@
 import ColorJS from 'colorjs.io';
 import type { Paint, PaintFormula, PaintFormulaComponent, Item } from '@types';
-import { PAINT_FINISH_LABELS, COLOR_PALETTE_LABELS, MEASURE_UNIT, MEASURE_TYPE } from '@constants';
-import { PAINT_FINISH, COLOR_PALETTE } from '@constants';
+import { PAINT_FINISH_LABELS, MEASURE_UNIT, MEASURE_TYPE } from '@constants';
+import { PAINT_FINISH } from '@constants';
 
 // =====================
 // Helper functions for measures array
@@ -180,12 +180,6 @@ export function getPaintFinishLabel(finish: PAINT_FINISH): string {
   return PAINT_FINISH_LABELS[finish] || finish;
 }
 
-/**
- * Get human-readable label for color palette
- */
-export function getColorPaletteLabel(color: COLOR_PALETTE): string {
-  return COLOR_PALETTE_LABELS[color] || color;
-}
 
 // =====================
 // Weight/Volume Calculation Utilities

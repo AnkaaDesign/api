@@ -3374,28 +3374,6 @@ function extractMeasurements(
   return measurements;
 }
 
-function getColorPalette(name: string): string {
-  const nameLower = name.toLowerCase();
-
-  if (nameLower.includes('preto') || nameLower.includes('black')) return 'BLACK';
-  if (nameLower.includes('cinza') || nameLower.includes('gray') || nameLower.includes('grey'))
-    return 'GRAY';
-  if (nameLower.includes('branco') || nameLower.includes('white')) return 'WHITE';
-  if (nameLower.includes('prata') || nameLower.includes('silver')) return 'SILVER';
-  if (nameLower.includes('dourado') || nameLower.includes('gold')) return 'GOLDEN';
-  if (nameLower.includes('amarelo') || nameLower.includes('yellow')) return 'YELLOW';
-  if (nameLower.includes('laranja') || nameLower.includes('orange')) return 'ORANGE';
-  if (nameLower.includes('marrom') || nameLower.includes('brown')) return 'BROWN';
-  if (nameLower.includes('vermelho') || nameLower.includes('red')) return 'RED';
-  if (nameLower.includes('rosa') || nameLower.includes('pink')) return 'PINK';
-  if (nameLower.includes('roxo') || nameLower.includes('purple')) return 'PURPLE';
-  if (nameLower.includes('azul') || nameLower.includes('blue')) return 'BLUE';
-  if (nameLower.includes('verde') || nameLower.includes('green')) return 'GREEN';
-  if (nameLower.includes('bege') || nameLower.includes('beige')) return 'BEIGE';
-
-  return 'BLACK'; // Default
-}
-
 function getPaintFinish(name: string): string {
   const nameLower = name.toLowerCase();
 
@@ -4023,8 +4001,8 @@ async function migratePaints() {
   let successCount = 0;
   let errorCount = 0;
 
-  // Track colorOrder per palette for sequential ordering
-  const colorOrderByPalette: Record<string, number> = {};
+  // Track colorOrder for sequential ordering
+  let colorOrderCounter = 0;
 
   // Weight data for paint components (used in price calculations)
   const weightData = [
@@ -4107,15 +4085,10 @@ async function migratePaints() {
       //   }
       // }
 
-      const palette = getColorPalette(color.name);
       const finish = getPaintFinish(color.name);
 
-      // ENHANCED: Assign sequential colorOrder per palette for drag-and-drop persistence
-      const paletteKey = palette || 'UNKNOWN';
-      if (!colorOrderByPalette[paletteKey]) {
-        colorOrderByPalette[paletteKey] = 0;
-      }
-      const colorOrder = colorOrderByPalette[paletteKey]++;
+      // Assign sequential colorOrder for drag-and-drop persistence
+      const colorOrder = colorOrderCounter++;
 
       const paint = await prisma.paint.create({
         data: {
@@ -4125,9 +4098,7 @@ async function migratePaints() {
           paintTypeId,
           paintBrandId,
           finish: finish as any,
-          palette: palette as any,
-          paletteOrder: 1,
-          colorOrder, // Sequential order within palette
+          colorOrder,
         },
       });
 

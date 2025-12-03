@@ -736,8 +736,6 @@ export class PaintService {
           'finish',
           'brand',
           'manufacturer',
-          'palette',
-          'paletteOrder',
           'paintTypeId',
         ];
 
@@ -1055,8 +1053,6 @@ export class PaintService {
           'finish',
           'brand',
           'manufacturer',
-          'palette',
-          'paletteOrder',
           'paintTypeId',
         ];
 
@@ -1072,8 +1068,6 @@ export class PaintService {
             paintBrandId: true,
             manufacturer: true,
             tags: true,
-            palette: true,
-            paletteOrder: true,
             paintTypeId: true,
             createdAt: true,
             updatedAt: true,
@@ -1579,7 +1573,6 @@ export class PaintService {
       'manufacturer',
       'paintTypeId',
       'paintBrandId',
-      'palette',
     ];
 
     for (const field of fieldsToCheck) {

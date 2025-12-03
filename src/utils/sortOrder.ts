@@ -11,7 +11,6 @@ import {
   WARNING_CATEGORY_ORDER,
   MAINTENANCE_STATUS_ORDER,
   MAINTENANCE_FREQUENCY_ORDER,
-  COLOR_PALETTE_ORDER,
   ACTIVITY_REASON_ORDER,
   PAINT_BRAND_ORDER,
   PAINT_FINISH_ORDER,
@@ -108,10 +107,6 @@ export function getMaintenanceStatusOrder(status: string): number {
   return getSortOrder(status, MAINTENANCE_STATUS_ORDER);
 }
 
-export function getColorPaletteOrder(palette: string): number {
-  return getSortOrder(palette, COLOR_PALETTE_ORDER);
-}
-
 export function getActivityReasonOrder(reason: string): number {
   return getSortOrder(reason, ACTIVITY_REASON_ORDER);
 }
@@ -138,7 +133,6 @@ export {
   WARNING_CATEGORY_ORDER,
   MAINTENANCE_STATUS_ORDER,
   MAINTENANCE_FREQUENCY_ORDER,
-  COLOR_PALETTE_ORDER,
   ACTIVITY_REASON_ORDER,
   PAINT_BRAND_ORDER,
   PAINT_FINISH_ORDER,

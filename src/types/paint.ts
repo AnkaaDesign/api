@@ -13,7 +13,6 @@ import type {
 import type {
   PAINT_FINISH,
   ORDER_BY_DIRECTION,
-  COLOR_PALETTE,
   TRUCK_MANUFACTURER,
   PAINT_TYPE_ENUM,
 } from '@constants';
@@ -53,8 +52,6 @@ export interface Paint extends BaseEntity {
   finish: PAINT_FINISH;
   manufacturer: TRUCK_MANUFACTURER | null;
   tags: string[];
-  palette: COLOR_PALETTE;
-  paletteOrder: number;
   colorOrder: number;
   paintTypeId: string;
   paintBrandId: string | null;
@@ -263,8 +260,6 @@ export interface PaintOrderBy {
   hex?: ORDER_BY_DIRECTION;
   finish?: ORDER_BY_DIRECTION;
   manufacturer?: ORDER_BY_DIRECTION;
-  palette?: ORDER_BY_DIRECTION;
-  paletteOrder?: ORDER_BY_DIRECTION;
   colorOrder?: ORDER_BY_DIRECTION;
   paintTypeId?: ORDER_BY_DIRECTION;
   paintBrandId?: ORDER_BY_DIRECTION;
@@ -432,28 +427,8 @@ export interface PaintWhere {
         notIn?: TRUCK_MANUFACTURER[];
       }
     | null;
-  palette?:
-    | COLOR_PALETTE
-    | {
-        equals?: COLOR_PALETTE;
-        not?: COLOR_PALETTE;
-        in?: COLOR_PALETTE[];
-        notIn?: COLOR_PALETTE[];
-      };
 
   // Number fields
-  paletteOrder?:
-    | number
-    | {
-        equals?: number;
-        not?: number;
-        lt?: number;
-        lte?: number;
-        gt?: number;
-        gte?: number;
-        in?: number[];
-        notIn?: number[];
-      };
   colorOrder?:
     | number
     | {
@@ -779,7 +754,6 @@ export interface PaintComponentFilters {
     hex?: string;
     finish?: PAINT_FINISH | PAINT_FINISH[];
     manufacturer?: TRUCK_MANUFACTURER | TRUCK_MANUFACTURER[];
-    palette?: COLOR_PALETTE | COLOR_PALETTE[];
     tags?: string[];
   };
 }

@@ -210,23 +210,6 @@ export enum CHART_TYPE {
   STACKED = 'STACKED',
 }
 
-export enum COLOR_PALETTE {
-  BLACK = 'BLACK',
-  GRAY = 'GRAY',
-  WHITE = 'WHITE',
-  SILVER = 'SILVER',
-  GOLDEN = 'GOLDEN',
-  YELLOW = 'YELLOW',
-  ORANGE = 'ORANGE',
-  BROWN = 'BROWN',
-  RED = 'RED',
-  PINK = 'PINK',
-  PURPLE = 'PURPLE',
-  BLUE = 'BLUE',
-  GREEN = 'GREEN',
-  BEIGE = 'BEIGE',
-}
-
 // =====================
 // Statistics & Analytics Enums
 // =====================

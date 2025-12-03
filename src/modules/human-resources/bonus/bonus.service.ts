@@ -43,6 +43,7 @@ interface LiveBonusData {
   positionName: string;
   performanceLevel: number;
   baseBonus: number;
+  netBonus?: number;
   weightedTasks: number;
   tasks: any[];
   averageTasksPerEmployee: number;

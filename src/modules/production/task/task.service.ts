@@ -2717,7 +2717,92 @@ export class TaskService {
         };
       }
 
-      // 5. Create update data with just the field being rolled back
+      // 5b. Special handling for file relationship fields (many-to-many with File)
+      // These are the File[] relations on Task that need Prisma's { set: [...] } syntax
+      const fileRelationFields = ['artworks', 'budgets', 'invoices', 'invoiceReimbursements', 'receipts', 'reimbursements'];
+      if (fileRelationFields.includes(fieldToRevert)) {
+        this.logger.log(`[Rollback] Starting ${fieldToRevert} rollback for task ${changeLog.entityId}`);
+        this.logger.log(`[Rollback] oldValue type: ${typeof oldValue}`);
+
+        // Parse oldValue if it's a JSON string
+        let parsedOldValue = oldValue;
+        if (typeof oldValue === 'string') {
+          try {
+            parsedOldValue = JSON.parse(oldValue);
+            this.logger.log(`[Rollback] Parsed oldValue from string to ${typeof parsedOldValue}`);
+          } catch (e) {
+            this.logger.error(`[Rollback] Failed to parse oldValue: ${e.message}`);
+            parsedOldValue = oldValue;
+          }
+        }
+
+        // Extract file IDs from the parsed value
+        // oldValue can be: array of file objects [{id, filename, ...}], array of IDs, or null/empty
+        let fileIds: string[] = [];
+        if (parsedOldValue && Array.isArray(parsedOldValue)) {
+          fileIds = parsedOldValue.map((item: any) => {
+            // Handle both full file objects and plain IDs
+            return typeof item === 'string' ? item : item.id;
+          }).filter((id: string) => id); // Filter out any null/undefined
+        }
+
+        this.logger.log(`[Rollback] Setting ${fieldToRevert} to ${fileIds.length} files: ${fileIds.join(', ')}`);
+
+        // Update the task using Prisma's relationship set syntax
+        await tx.task.update({
+          where: { id: changeLog.entityId },
+          data: {
+            [fieldToRevert]: {
+              set: fileIds.map(id => ({ id })),
+            },
+          },
+        });
+
+        // Fetch updated task with proper typing using repository
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+              artworks: true,
+            },
+          },
+        );
+
+        // Log the rollback action
+        const fieldNamePt = translateFieldName(fieldToRevert);
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue, // What we're rolling back from
+          newValue: changeLog.oldValue, // What we're rolling back to
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        this.logger.log(
+          `Field '${fieldToRevert}' rolled back for task ${changeLog.entityId} by user ${userId}`,
+        );
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
+      }
+
+      // 6. Create update data with just the field being rolled back
       const updateData: any = {
         [fieldToRevert]: convertedValue,
       };

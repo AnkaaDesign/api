@@ -813,8 +813,6 @@ model Paint {
   finish           PaintFinish
   manufacturer     TruckManufacturer?
   tags             String[]
-  palette          ColorPalette       @default(BLACK)
-  paletteOrder     Int                @default(1)
   paintTypeId      String
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
@@ -836,7 +834,6 @@ model Paint {
   @@index([paintTypeId])
   @@index([paintBrandId])
   @@index([paintTypeId, paintBrandId])
-  @@index([palette, paletteOrder])
   @@index([colorOrder])
 }
 
@@ -1795,22 +1792,6 @@ enum PaintFinish {
 }
 
 
-enum ColorPalette {
-  BLACK
-  GRAY
-  WHITE
-  SILVER
-  GOLDEN
-  YELLOW
-  ORANGE
-  BROWN
-  RED
-  PINK
-  PURPLE
-  BLUE
-  GREEN
-  BEIGE
-}
 
 enum TruckManufacturer {
   SCANIA
