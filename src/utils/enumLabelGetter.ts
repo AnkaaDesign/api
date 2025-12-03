@@ -5,7 +5,7 @@
 // Note: Domain-specific enum label getters have been moved to their respective modules:
 //
 // Paint module:
-// - getPaintTypeLabel, getPaintBrandLabel, getPaintFinishLabel, getColorPaletteLabel -> packages/utils/src/paint.ts
+// - getPaintTypeLabel, getPaintBrandLabel, getPaintFinishLabel -> packages/utils/src/paint.ts
 //
 // Work module:
 // - getTaskStatusLabel -> apps/api/src/modules/work/task/utils.ts

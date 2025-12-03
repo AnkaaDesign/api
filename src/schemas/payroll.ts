@@ -213,7 +213,26 @@ export const payrollIncludeSchema = z
         z.object({
           include: z
             .object({
-              position: z.boolean().optional(),
+              position: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    include: z
+                      .object({
+                        remunerations: z
+                          .union([
+                            z.boolean(),
+                            z.object({
+                              orderBy: z.object({ createdAt: z.enum(['asc', 'desc']) }).optional(),
+                              take: z.number().optional(),
+                            }),
+                          ])
+                          .optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
               sector: z.boolean().optional(),
             })
             .optional(),
