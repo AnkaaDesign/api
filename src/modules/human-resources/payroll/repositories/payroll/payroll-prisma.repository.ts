@@ -45,7 +45,7 @@ export class PayrollPrismaRepository
     Prisma.PayrollCreateInput,
     Prisma.PayrollUpdateInput,
     Prisma.PayrollInclude,
-    Prisma.PayrollOrderByWithRelationInput,
+    Prisma.PayrollOrderByWithRelationInput | Prisma.PayrollOrderByWithRelationInput[],
     Prisma.PayrollWhereInput
   >
   implements PayrollRepository

@@ -15,15 +15,12 @@ import { PaintRepository } from './paint.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import {
-  ColorPalette,
   PaintBrand,
   PaintFinish,
   Prisma,
   Paint as PrismaPaint,
   TruckManufacturer,
 } from '@prisma/client';
-import { COLOR_PALETTE } from '../../../../constants/enums';
-import { getColorPaletteOrder } from '../../../../utils';
 import { WebDAVService } from '@modules/common/file/services/webdav.service';
 
 @Injectable()
@@ -109,8 +106,6 @@ export class PaintPrismaRepository
         : undefined,
       manufacturer: (restFormData.manufacturer as TruckManufacturer) || null,
       tags: restFormData.tags || [],
-      palette: restFormData.palette as ColorPalette,
-      paletteOrder: getColorPaletteOrder(restFormData.palette || COLOR_PALETTE.BLACK),
       paintType: {
         connect: { id: restFormData.paintTypeId },
       },
@@ -164,15 +159,6 @@ export class PaintPrismaRepository
 
     if (restFormData.tags !== undefined) {
       updateInput.tags = restFormData.tags;
-    }
-
-    if (restFormData.palette !== undefined) {
-      updateInput.palette = restFormData.palette as ColorPalette;
-      updateInput.paletteOrder = getColorPaletteOrder(restFormData.palette);
-    }
-
-    if (restFormData.paletteOrder !== undefined) {
-      updateInput.paletteOrder = restFormData.paletteOrder;
     }
 
     if (restFormData.paintTypeId !== undefined) {

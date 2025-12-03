@@ -31,7 +31,6 @@ import {
   DASHBOARD_TIME_PERIOD,
   PAINT_FINISH,
   PAINT_BRAND,
-  COLOR_PALETTE,
   TRUCK_MANUFACTURER,
   ACTIVE_USER_STATUSES,
 } from '../../../../../constants/enums';
@@ -43,7 +42,6 @@ import {
   NOTIFICATION_TYPE_LABELS,
   PAINT_FINISH_LABELS,
   PAINT_BRAND_LABELS,
-  COLOR_PALETTE_LABELS,
   TRUCK_MANUFACTURER_LABELS,
 } from '../../../../../constants/enum-labels';
 
@@ -1367,10 +1365,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     totalFormulas: number;
     byFinish: DashboardChartData;
     byBrand: DashboardChartData;
-    byPalette: DashboardChartData;
   }> {
     const sanitizedWhere = this.sanitizeWhereForGroupBy(where);
-    const [total, totalFormulas, byFinish, byBrandId, byPalette] = await Promise.all([
+    const [total, totalFormulas, byFinish, byBrandId] = await Promise.all([
       this.prisma.paint.count({ where }),
       this.prisma.paintFormula.count({
         where: where?.id ? { paintId: where.id } : undefined,
@@ -1382,11 +1379,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
       }),
       this.prisma.paint.groupBy({
         by: ['paintBrandId'],
-        where: sanitizedWhere,
-        _count: { id: true },
-      }),
-      this.prisma.paint.groupBy({
-        by: ['palette'],
         where: sanitizedWhere,
         _count: { id: true },
       }),
@@ -1430,17 +1422,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
           {
             label: 'Tintas',
             data: byBrandId.map(b => (b as any)._count?.id ?? 0),
-          },
-        ],
-      },
-      byPalette: {
-        labels: byPalette.map(
-          p => COLOR_PALETTE_LABELS[(p as any).palette as COLOR_PALETTE] || (p as any).palette,
-        ),
-        datasets: [
-          {
-            label: 'Tintas',
-            data: byPalette.map(p => (p as any)._count?.id ?? 0),
           },
         ],
       },
@@ -1861,22 +1842,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     const totalColors = paints.length;
 
-    // Group by palette
-    const paletteGroups = paints.reduce(
-      (acc, paint) => {
-        const palette = paint.palette || 'UNKNOWN';
-        acc[palette] = (acc[palette] || 0) + 1;
-        return acc;
-      },
-      {} as Record<string, number>,
-    );
-
-    const colorsByPalette = Object.entries(paletteGroups).map(([palette, count]) => ({
-      palette: COLOR_PALETTE_LABELS[palette as COLOR_PALETTE] || palette,
-      count,
-      percentage: totalColors > 0 ? (count / totalColors) * 100 : 0,
-    }));
-
     // Group by finish
     const finishGroups = paints.reduce(
       (acc, paint) => {
@@ -1913,7 +1878,6 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     return {
       totalColors,
-      colorsByPalette,
       colorsByFinish,
       colorsByManufacturer,
     };

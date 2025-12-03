@@ -409,11 +409,6 @@ export interface PaintComponentInventory {
 
 export interface PaintColorAnalysis {
   totalColors: number;
-  colorsByPalette: Array<{
-    palette: string;
-    count: number;
-    percentage: number;
-  }>;
   colorsByFinish: Array<{
     finish: string;
     count: number;

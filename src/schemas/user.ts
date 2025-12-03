@@ -56,7 +56,15 @@ export const userIncludeSchema = z
           include: z
             .object({
               users: z.boolean().optional(),
-              remunerations: z.boolean().optional(),
+              remunerations: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    orderBy: z.object({ createdAt: z.enum(['asc', 'desc']) }).optional(),
+                    take: z.number().optional(),
+                  }),
+                ])
+                .optional(),
             })
             .optional(),
         }),
