@@ -347,6 +347,13 @@ export class PaintService {
         delete (modifiedQuery as any).similarColor; // Remove color similarity params before passing to repository
         delete (modifiedQuery as any).similarColorThreshold;
 
+        // When color similarity is active, we need to fetch ALL paints to find the most similar ones
+        // The sorting will be done by the similarity algorithm, not by orderBy
+        if (hasColorSimilarity) {
+          delete (modifiedQuery as any).orderBy; // Remove orderBy - similarity will determine order
+          (modifiedQuery as any).limit = 10000; // Fetch all paints to find similar colors across entire catalog
+        }
+
         // Apply search conditions
         if (!modifiedQuery.where) {
           modifiedQuery.where = {};
@@ -402,6 +409,13 @@ export class PaintService {
       const modifiedQuery = { ...query };
       delete (modifiedQuery as any).similarColor; // Remove color similarity params before passing to repository
       delete (modifiedQuery as any).similarColorThreshold;
+
+      // When color similarity is active, we need to fetch ALL paints to find the most similar ones
+      // The sorting will be done by the similarity algorithm, not by orderBy
+      if (hasColorSimilarity) {
+        delete (modifiedQuery as any).orderBy; // Remove orderBy - similarity will determine order
+        (modifiedQuery as any).limit = 10000; // Fetch all paints to find similar colors across entire catalog
+      }
 
       let result = await this.paintRepository.findMany(modifiedQuery);
 
