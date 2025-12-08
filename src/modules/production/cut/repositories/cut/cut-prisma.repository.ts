@@ -20,6 +20,8 @@ import {
   FindManyResult,
 } from '../../../../../types';
 import { Prisma } from '@prisma/client';
+import { getCutStatusOrder } from '../../../../../utils/sortOrder';
+import { CUT_STATUS } from '../../../../../constants/enums';
 
 @Injectable()
 export class CutPrismaRepository
@@ -52,10 +54,15 @@ export class CutPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: CutCreateFormData,
   ): Prisma.CutCreateInput {
+    // Determine status (default to PENDING if not provided)
+    const status = formData.status || CUT_STATUS.PENDING;
+
     const input: Prisma.CutCreateInput = {
       file: { connect: { id: formData.fileId } },
       type: formData.type,
       origin: formData.origin,
+      status,
+      statusOrder: getCutStatusOrder(status),
     };
 
     // Optional fields
@@ -69,10 +76,6 @@ export class CutPrismaRepository
 
     if (formData.parentCutId) {
       input.parentCut = { connect: { id: formData.parentCutId } };
-    }
-
-    if (formData.status) {
-      input.status = formData.status;
     }
 
     if (formData.startedAt) {
@@ -119,6 +122,8 @@ export class CutPrismaRepository
     }
     if (formData.status !== undefined) {
       updateInput.status = formData.status;
+      // Update statusOrder when status changes
+      updateInput.statusOrder = getCutStatusOrder(formData.status);
     }
     if (formData.startedAt !== undefined) {
       updateInput.startedAt = formData.startedAt;
@@ -231,7 +236,7 @@ export class CutPrismaRepository
       }),
       transaction.cut.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { statusOrder: 'asc' },
         skip,
         take,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
