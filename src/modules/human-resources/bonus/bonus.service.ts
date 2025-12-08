@@ -349,6 +349,8 @@ export class BonusService {
       // ========================================================================
       // This structure matches what Prisma returns for a saved bonus with includes
       // For live bonus, position comes from current user.position (real-time)
+      // Note: Period dates are NOT stored - they can be calculated from year/month
+      // Period is always: 26th of (month-1) to 25th of (month)
       const liveBonus = {
         // Core bonus fields (same as database columns)
         id: `live-${userId}-${year}-${month}`,

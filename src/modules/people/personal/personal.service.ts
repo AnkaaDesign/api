@@ -9,6 +9,7 @@ import { BorrowService } from '@modules/inventory/borrow/borrow.service';
 import { PpeDeliveryService } from '@modules/inventory/ppe/ppe-delivery.service';
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
+import { BonusService } from '@modules/human-resources/bonus/bonus.service';
 import { PPE_DELIVERY_STATUS } from '../../../constants/enums';
 import type {
   VacationGetManyResponse,
@@ -16,6 +17,7 @@ import type {
   PpeDeliveryGetManyResponse,
   PpeDeliveryCreateResponse,
   ActivityGetManyResponse,
+  BonusGetManyResponse,
 } from '../../../types';
 import type {
   VacationGetManyFormData,
@@ -23,6 +25,7 @@ import type {
   PpeDeliveryGetManyFormData,
   PpeDeliveryCreateFormData,
   ActivityGetManyFormData,
+  BonusGetManyFormData,
 } from '../../../schemas';
 
 /**
@@ -41,6 +44,7 @@ export class PersonalService {
     private readonly ppeDeliveryService: PpeDeliveryService,
     private readonly activityService: ActivityService,
     private readonly secullumService: SecullumService,
+    private readonly bonusService: BonusService,
   ) {}
 
   /**
@@ -288,5 +292,193 @@ export class PersonalService {
         endDate: params.endDate,
       },
     };
+  }
+
+  // =====================
+  // MY BONUSES (Meu Bônus)
+  // =====================
+
+  /**
+   * Get user's bonuses (Meu Bônus)
+   * Returns saved bonuses from database filtered by authenticated userId
+   *
+   * @param userId - Authenticated user ID
+   * @param query - Query parameters for filtering/pagination
+   * @returns User's saved bonuses
+   */
+  async getMyBonuses(
+    userId: string,
+    query: BonusGetManyFormData,
+  ): Promise<BonusGetManyResponse> {
+    // Merge user filter with query - user can only see their own bonuses
+    const userFilteredQuery = {
+      ...query,
+      where: {
+        ...query.where,
+        userId, // Force filter by authenticated user
+      },
+    };
+
+    return this.bonusService.findManyWithWhere(userFilteredQuery);
+  }
+
+  /**
+   * Get user's bonus detail by ID (Meu Bônus - Detalhes)
+   * Returns a specific saved bonus for the authenticated user
+   * Validates that the bonus belongs to the authenticated user
+   *
+   * @param userId - Authenticated user ID
+   * @param bonusId - Bonus ID to retrieve
+   * @param include - Optional relations to include
+   * @returns User's bonus detail
+   */
+  async getMyBonusDetail(
+    userId: string,
+    bonusId: string,
+    include?: any,
+  ): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    // First get the bonus
+    const bonus = await this.bonusService.findByIdOrLive(bonusId, include, userId);
+
+    // Verify the bonus belongs to the authenticated user
+    if (bonus.userId !== userId) {
+      throw new NotFoundException('Bônus não encontrado.');
+    }
+
+    return {
+      success: true,
+      data: bonus,
+      message: 'Bônus carregado com sucesso.',
+    };
+  }
+
+  /**
+   * Get user's live bonus for a specific period (Meu Bônus Ao Vivo)
+   * Calculates real-time bonus based on current task data
+   * Returns the same structure as saved bonus for consistent frontend handling
+   *
+   * @param userId - Authenticated user ID
+   * @param year - Year of the bonus period
+   * @param month - Month of the bonus period (1-12)
+   * @returns Live bonus calculation or null if not eligible
+   */
+  async getMyLiveBonus(
+    userId: string,
+    year: number,
+    month: number,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: any | null;
+  }> {
+    // Validate month and year
+    if (month < 1 || month > 12) {
+      throw new BadRequestException('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new BadRequestException('Ano deve estar entre 2020 e 2030');
+    }
+
+    // First check if there's already a saved bonus for this period
+    const savedBonus = await this.prisma.bonus.findFirst({
+      where: {
+        userId,
+        year,
+        month,
+      },
+      include: {
+        user: {
+          include: {
+            position: true,
+            sector: true,
+          },
+        },
+        payroll: {
+          include: {
+            position: true,
+          },
+        },
+        tasks: {
+          include: {
+            customer: {
+              select: {
+                id: true,
+                fantasyName: true,
+              },
+            },
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        bonusDiscounts: {
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    // If saved bonus exists, return it (with position from payroll snapshot or user)
+    if (savedBonus) {
+      const position = (savedBonus as any).payroll?.position || savedBonus.user?.position || null;
+      return {
+        success: true,
+        message: 'Bônus salvo encontrado para este período.',
+        data: {
+          ...savedBonus,
+          position,
+          isLive: false, // Indicates this is a saved bonus, not live
+        },
+      };
+    }
+
+    // No saved bonus - calculate live bonus
+    try {
+      const liveBonus = await this.bonusService.calculateLiveBonusData(userId, year, month);
+
+      if (!liveBonus) {
+        return {
+          success: true,
+          message: 'Usuário não elegível para bônus neste período.',
+          data: null,
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Cálculo de bônus ao vivo obtido com sucesso.',
+        data: {
+          ...liveBonus,
+          isLive: true, // Indicates this is a live calculation
+        },
+      };
+    } catch (error) {
+      this.logger.error(`Error calculating live bonus for user ${userId}:`, error);
+
+      // Return null data with appropriate message for non-bonifiable users
+      if (error instanceof BadRequestException) {
+        return {
+          success: true,
+          message: error.message,
+          data: null,
+        };
+      }
+
+      throw error;
+    }
   }
 }

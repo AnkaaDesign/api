@@ -1,0 +1,15 @@
+<svg width="1000" height="440" viewBox="0 0 1000 440" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+      <!-- Title text -->
+      <text x="50" y="25" text-anchor="start" font-size="16" font-weight="bold" fill="#000">Primalta 9,50</text>
+      <text x="50" y="45" text-anchor="start" font-size="14" fill="#666">Motorista</text>
+      <!-- Main container -->
+      <rect x="50" y="50" width="800" height="240" fill="none" stroke="#000" stroke-width="1"/>
+      <line x1="50" y1="310" x2="850" y2="310" stroke="#0066cc" stroke-width="1"/>
+      <polygon points="50,310 55,307 55,313" fill="#0066cc"/>
+      <polygon points="850,310 845,307 845,313" fill="#0066cc"/>
+      <text x="450" y="325" text-anchor="middle" font-size="12" fill="#0066cc">800</text>
+    <line x1="30" y1="50" x2="30" y2="290" stroke="#0066cc" stroke-width="1"/>
+    <polygon points="30,50 27,55 33,55" fill="#0066cc"/>
+    <polygon points="30,290 27,285 33,285" fill="#0066cc"/>
+    <text x="20" y="170" text-anchor="middle" font-size="12" fill="#0066cc" transform="rotate(-90, 20, 170)">240</text>
+    </svg>
