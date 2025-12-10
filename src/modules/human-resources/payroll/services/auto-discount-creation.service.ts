@@ -321,7 +321,7 @@ export class AutoDiscountCreationService {
     absenceHours: number;
     absenceDays: number;
   }) {
-    const { payrollId, amount, absenceHours, absenceDays } = params;
+    const { payrollId, amount, absenceHours } = params;
 
     return prisma.payrollDiscount.create({
       data: {
@@ -329,9 +329,10 @@ export class AutoDiscountCreationService {
         discountType: PayrollDiscountType.ABSENCE,
         value: roundCurrency(amount),
         percentage: null,
-        reference: `Faltas (${absenceHours.toFixed(2)}h / ${absenceDays} dia${absenceDays !== 1 ? 's' : ''})`,
+        reference: 'Faltas',
         isPersistent: false,
         isActive: true,
+        baseValue: absenceHours, // Store hours for display formatting
       },
     });
   }
@@ -357,9 +358,10 @@ export class AutoDiscountCreationService {
         discountType: PayrollDiscountType.LATE_ARRIVAL,
         value: roundCurrency(amount),
         percentage: null,
-        reference: `Atrasos (${lateMinutes} min)`,
+        reference: 'Atrasos',
         isPersistent: false,
         isActive: true,
+        baseValue: lateMinutes / 60, // Store as decimal hours for consistent formatting
       },
     });
   }
@@ -535,9 +537,10 @@ export class AutoDiscountCreationService {
         discountType: PayrollDiscountType.ABSENCE,
         value: roundCurrency(calculation.absenceDeductions.absenceAmount),
         percentage: null,
-        reference: `Faltas (${calculation.absenceDeductions.absenceHours.toFixed(2)}h / ${calculation.absenceDeductions.absenceDays} dia${calculation.absenceDeductions.absenceDays !== 1 ? 's' : ''})`,
+        reference: 'Faltas',
         isPersistent: false,
         isActive: true,
+        baseValue: calculation.absenceDeductions.absenceHours, // Store hours for display formatting
       });
     }
 
@@ -550,9 +553,10 @@ export class AutoDiscountCreationService {
         discountType: PayrollDiscountType.LATE_ARRIVAL,
         value: roundCurrency(calculation.absenceDeductions.lateArrivalAmount),
         percentage: null,
-        reference: `Atrasos (${calculation.absenceDeductions.lateArrivalMinutes} min)`,
+        reference: 'Atrasos',
         isPersistent: false,
         isActive: true,
+        baseValue: calculation.absenceDeductions.lateArrivalMinutes / 60, // Store as decimal hours for consistent formatting
       });
     }
 
