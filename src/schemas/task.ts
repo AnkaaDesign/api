@@ -1415,7 +1415,7 @@ export const taskCreateSchema = z
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
-    customerId: z.string().uuid('Cliente inválido').min(1, 'Cliente é obrigatório'),
+    customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
@@ -1436,7 +1436,7 @@ export const taskCreateSchema = z
     nfeId: z.string().uuid('NFe inválida').nullable().optional(),
     receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
-    services: z.array(taskServiceOrderCreateSchema).min(1, 'Pelo menos um serviço é obrigatório'),
+    services: z.array(taskServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckCreateSchema.nullable().optional(),
     truckLayoutData: taskLayoutDataSchema, // Layout data for truck

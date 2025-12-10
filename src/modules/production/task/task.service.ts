@@ -563,10 +563,13 @@ export class TaskService {
     try {
       const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
+        // Also include file relations for changelog tracking
         const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
+            artworks: true, // Include for changelog tracking
+            observation: { include: { files: true } }, // Include for changelog tracking
           },
         });
 
@@ -904,10 +907,13 @@ export class TaskService {
         };
 
         // Update the task - always include customer for file organization
+        // Also include file relations for changelog tracking
         let updatedTask = await this.tasksRepository.updateWithTransaction(tx, id, updateData, {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
+            artworks: true, // Include for changelog tracking
+            observation: { include: { files: true } }, // Include for changelog tracking
           },
         });
 
@@ -1151,7 +1157,11 @@ export class TaskService {
             updatedTask = (await tx.task.update({
               where: { id },
               data: fileUpdates,
-              include: include,
+              include: {
+                ...include,
+                artworks: true, // Include for changelog tracking
+                observation: { include: { files: true } }, // Include for changelog tracking
+              },
             })) as any;
           }
         }
@@ -1388,6 +1398,61 @@ export class TaskService {
               oldValue: serializeAirbrushings(oldAirbrushings),
               newValue: serializeAirbrushings(newAirbrushings),
               reason: `Aerografias alteradas de ${oldAirbrushings.length} para ${newAirbrushings.length}`,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+          }
+        }
+
+        // Track observation changes
+        if (data.observation !== undefined) {
+          const oldObservation = existingTask.observation;
+          const newObservation = updatedTask?.observation;
+
+          // Serialize observation for comparison
+          const serializeObservation = (obs: any) => {
+            if (!obs) return null;
+            return {
+              description: obs.description || '',
+              fileIds: obs.files?.map((f: any) => f.id) || obs.fileIds || [],
+            };
+          };
+
+          const oldObsSerialized = JSON.stringify(serializeObservation(oldObservation));
+          const newObsSerialized = JSON.stringify(serializeObservation(newObservation));
+
+          // Only create changelog if observation actually changed
+          if (oldObsSerialized !== newObsSerialized) {
+            const oldObs = serializeObservation(oldObservation);
+            const newObs = serializeObservation(newObservation);
+
+            // Build reason description
+            const changeReasons: string[] = [];
+            if (!oldObservation && newObservation) {
+              changeReasons.push('Observação adicionada');
+            } else if (oldObservation && !newObservation) {
+              changeReasons.push('Observação removida');
+            } else {
+              if (oldObs?.description !== newObs?.description) {
+                changeReasons.push('Descrição alterada');
+              }
+              const oldFileCount = oldObs?.fileIds?.length || 0;
+              const newFileCount = newObs?.fileIds?.length || 0;
+              if (oldFileCount !== newFileCount) {
+                changeReasons.push(`Arquivos: ${oldFileCount} → ${newFileCount}`);
+              }
+            }
+
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'observation',
+              oldValue: oldObs,
+              newValue: newObs,
+              reason: changeReasons.join(', ') || 'Observação alterada',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
               userId: userId || '',
@@ -2576,12 +2641,7 @@ export class TaskService {
   ): Promise<void> {
     const transaction = tx || this.prisma;
 
-    // Validate services for creation
-    if (!existingId && (!data.services || data.services.length === 0)) {
-      throw new BadRequestException('A tarefa deve conter pelo menos um serviço para ser criada.');
-    }
-
-    // Validate customer exists
+    // Validate customer exists (only if customerId is provided)
     if (data.customerId) {
       const customer = await transaction.customer.findUnique({ where: { id: data.customerId } });
       if (!customer) {

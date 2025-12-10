@@ -396,7 +396,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch-approve')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchApprovePpeDeliveries(
     @Body() data: { deliveryIds: string[]; reviewedBy?: string },
@@ -410,7 +410,7 @@ export class PpeController {
   }
 
   @Post('deliveries/batch-reject')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchRejectPpeDeliveries(
     @Body() data: { deliveryIds: string[]; reviewedBy?: string; reason?: string },
