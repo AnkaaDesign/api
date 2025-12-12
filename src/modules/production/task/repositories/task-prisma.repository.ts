@@ -122,11 +122,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   services: {
     orderBy: { createdAt: 'desc' },
   },
-  truck: {
-    include: {
-      garage: { select: { id: true, name: true } },
-    },
-  },
+  truck: true,
   airbrushings: {
     orderBy: { createdAt: 'desc' },
   },
@@ -622,39 +618,53 @@ export class TaskPrismaRepository
       };
     }
 
-    // Handle truck update
+    // Handle consolidated truck update (all fields including layouts)
+    // This handles: plate, chassisNumber, serialNumber, spot, and layouts
     if (truck !== undefined) {
       if (truck === null) {
         updateData.truck = { delete: true };
       } else {
-        const truckCreateData: any = {
-          xPosition: truck.xPosition ?? null,
-          yPosition: truck.yPosition ?? null,
-          garage: truck.garageId ? { connect: { id: truck.garageId } } : undefined,
-        };
-
-        // Add plate and chassisNumber for truck creation
-        if (plate !== undefined) truckCreateData.plate = plate;
-        if (chassisNumber !== undefined) truckCreateData.chassisNumber = chassisNumber;
-
+        const truckCreateData: any = {};
         const truckUpdateData: any = {};
-        if (truck.xPosition !== undefined) truckUpdateData.xPosition = truck.xPosition ?? null;
-        if (truck.yPosition !== undefined) truckUpdateData.yPosition = truck.yPosition ?? null;
-        if (truck.garageId !== undefined) {
-          truckUpdateData.garage =
-            truck.garageId === null ? { disconnect: true } : { connect: { id: truck.garageId } };
+
+        // Basic truck fields from nested truck object
+        // Note: serialNumber is a Task field, not a Truck field
+        if (truck.plate !== undefined) {
+          truckCreateData.plate = truck.plate;
+          truckUpdateData.plate = truck.plate;
+        }
+        if (truck.chassisNumber !== undefined) {
+          truckCreateData.chassisNumber = truck.chassisNumber;
+          truckUpdateData.chassisNumber = truck.chassisNumber;
+        }
+        if (truck.spot !== undefined) {
+          truckCreateData.spot = truck.spot;
+          truckUpdateData.spot = truck.spot;
         }
 
-        // Add plate and chassisNumber for truck update
-        if (plate !== undefined) truckUpdateData.plate = plate;
-        if (chassisNumber !== undefined) truckUpdateData.chassisNumber = chassisNumber;
+        // Legacy support: also check top-level plate and chassisNumber
+        if (plate !== undefined && truck.plate === undefined) {
+          truckCreateData.plate = plate;
+          truckUpdateData.plate = plate;
+        }
+        if (chassisNumber !== undefined && truck.chassisNumber === undefined) {
+          truckCreateData.chassisNumber = chassisNumber;
+          truckUpdateData.chassisNumber = chassisNumber;
+        }
 
-        updateData.truck = {
-          upsert: {
-            create: truckCreateData,
-            update: truckUpdateData,
-          },
-        };
+        // Note: Layout updates (leftSideLayout, rightSideLayout, backSideLayout) are handled
+        // entirely in the service layer because they require complex operations
+        // (create/update/delete layout sections). Do NOT pass them to Prisma here.
+
+        // Only add truck upsert if there are actual fields to update
+        if (Object.keys(truckCreateData).length > 0 || Object.keys(truckUpdateData).length > 0) {
+          updateData.truck = {
+            upsert: {
+              create: truckCreateData,
+              update: truckUpdateData,
+            },
+          };
+        }
       }
     }
 

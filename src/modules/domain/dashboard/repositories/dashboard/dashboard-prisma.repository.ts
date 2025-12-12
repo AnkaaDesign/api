@@ -2354,38 +2354,69 @@ export class DashboardPrismaRepository implements DashboardRepository {
     };
   }
 
-  async getGarageUtilizationMetrics(garageId?: string): Promise<{
+  async getGarageUtilizationMetrics(_garageId?: string): Promise<{
     totalGarages: number;
     totalLanes: number;
     totalParkingSpots: number;
     occupiedSpots: number;
     spotsByGarage: DashboardChartData;
   }> {
-    const where = garageId ? { id: garageId } : {};
-
-    const garages = await this.prisma.garage.findMany({
-      where,
-      include: {
-        _count: { select: { trucks: true } },
+    // Get trucks that are currently at the company:
+    // - Have an active task (PENDING or IN_PRODUCTION status)
+    // - Have an entry date (meaning they've arrived at the company)
+    const trucks = await this.prisma.truck.findMany({
+      where: {
+        task: {
+          status: { in: ['PENDING', 'IN_PRODUCTION'] },
+          entryDate: { not: null, lte: new Date() }, // Entry date exists and is before or equal to today
+        },
       },
+      select: { spot: true },
     });
 
-    const totalGarages = garages.length;
-    const totalLanes = 0; // lanes field removed from Garage model
-    const totalParkingSpots = garages.reduce((sum, garage) => sum + garage._count.trucks, 0);
+    // Count trucks by garage (B1, B2, B3, PATIO)
+    // PATIO only counts trucks with explicit 'PATIO' spot assignment
+    // Trucks without spot (null) are NOT counted - they haven't been assigned yet
+    const garageNames = ['Pátio', 'Barracão 1', 'Barracão 2', 'Barracão 3'];
+    const garageCounts = {
+      PATIO: 0,
+      B1: 0,
+      B2: 0,
+      B3: 0,
+    };
+
+    for (const truck of trucks) {
+      if (truck.spot?.startsWith('B1_')) {
+        garageCounts.B1++;
+      } else if (truck.spot?.startsWith('B2_')) {
+        garageCounts.B2++;
+      } else if (truck.spot?.startsWith('B3_')) {
+        garageCounts.B3++;
+      } else {
+        // Trucks with null spot or 'PATIO' are in the patio (at the company but not in a garage)
+        garageCounts.PATIO++;
+      }
+    }
+
+    // Garage dimensions:
+    // B1: Width 20m, Length 30m
+    // B2: Width 18.5m, Length 30.5m
+    // B3: Width 20m, Length 40m
+    // Each garage has 3 lanes with 2 spots each = 6 spots per garage (typical capacity)
+    const totalGarages = 4; // PATIO + B1 + B2 + B3
+    const totalLanes = 9; // 3 garages x 3 lanes each
+    const totalParkingSpots = 18; // 6 spots per garage x 3 garages = 18 total garage spots (2 per lane)
+    const occupiedSpots = garageCounts.B1 + garageCounts.B2 + garageCounts.B3; // Only count garage spots, not patio
 
     const spotsByGarage: DashboardChartData = {
-      labels: garages.map(g => g.name),
+      labels: garageNames,
       datasets: [
         {
           label: 'Caminhões por Garagem',
-          data: garages.map(g => g._count.trucks),
+          data: [garageCounts.PATIO, garageCounts.B1, garageCounts.B2, garageCounts.B3],
         },
       ],
     };
-
-    // Calculate occupied spots based on actual truck count
-    const occupiedSpots = totalParkingSpots;
 
     return {
       totalGarages,
@@ -2407,7 +2438,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         select: {
           id: true,
           plate: true,
-          garage: { select: { name: true } },
+          spot: true,
           task: { select: { status: true, name: true } },
         },
       }),
@@ -2440,11 +2471,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
 
     const byPosition = trucks.map(truck => ({
       id: truck.id,
-      name: `${truck.plate || 'Sem placa'} - ${truck.task.name}`,
+      name: `${truck.plate || 'Sem placa'} - ${truck.task?.name || 'N/A'}`,
       value: 1,
       metadata: {
-        position: truck.garage?.name || 'Sem posição',
-        inProduction: truck.task.status === TASK_STATUS.IN_PRODUCTION,
+        position: truck.spot || 'Sem posição',
+        inProduction: truck.task?.status === TASK_STATUS.IN_PRODUCTION,
       },
     }));
 

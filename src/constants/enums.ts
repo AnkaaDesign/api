@@ -41,9 +41,14 @@ export enum SECTOR_PRIVILEGES {
   FINANCIAL = 'FINANCIAL',
   ADMIN = 'ADMIN',
   PRODUCTION = 'PRODUCTION',
-  LEADER = 'LEADER',
   HUMAN_RESOURCES = 'HUMAN_RESOURCES',
   EXTERNAL = 'EXTERNAL',
+  /**
+   * Virtual privilege for team leaders (users who manage a sector).
+   * NOT stored in database - checked via user.managedSector relationship.
+   * Use in @Roles decorator or requiredPrivilege to allow team leaders access.
+   */
+  TEAM_LEADER = 'TEAM_LEADER',
 }
 
 export enum USER_STATUS {
@@ -688,6 +693,52 @@ export enum PAINT_BASE_TYPE {
 // =====================
 // Truck & Garage Enums
 // =====================
+
+/**
+ * Truck parking spots in garages (Barracões)
+ * Format: B{garage}_F{lane}_V{spot} where garage=1-3, lane=1-3, spot=1-3
+ * PATIO = trucks in the company but not assigned to a garage spot yet
+ *
+ * Static garage configuration:
+ * - 3 Garages: B1, B2, B3
+ * - Each garage has 3 lanes (F1, F2, F3): 3m width
+ * - Each lane can have up to 3 spots (V1, V2, V3)
+ * - Minimum spacing between trucks: 2m
+ */
+export enum TRUCK_SPOT {
+  // Garage 1 (B1)
+  B1_F1_V1 = 'B1_F1_V1',
+  B1_F1_V2 = 'B1_F1_V2',
+  B1_F1_V3 = 'B1_F1_V3',
+  B1_F2_V1 = 'B1_F2_V1',
+  B1_F2_V2 = 'B1_F2_V2',
+  B1_F2_V3 = 'B1_F2_V3',
+  B1_F3_V1 = 'B1_F3_V1',
+  B1_F3_V2 = 'B1_F3_V2',
+  B1_F3_V3 = 'B1_F3_V3',
+  // Garage 2 (B2)
+  B2_F1_V1 = 'B2_F1_V1',
+  B2_F1_V2 = 'B2_F1_V2',
+  B2_F1_V3 = 'B2_F1_V3',
+  B2_F2_V1 = 'B2_F2_V1',
+  B2_F2_V2 = 'B2_F2_V2',
+  B2_F2_V3 = 'B2_F2_V3',
+  B2_F3_V1 = 'B2_F3_V1',
+  B2_F3_V2 = 'B2_F3_V2',
+  B2_F3_V3 = 'B2_F3_V3',
+  // Garage 3 (B3)
+  B3_F1_V1 = 'B3_F1_V1',
+  B3_F1_V2 = 'B3_F1_V2',
+  B3_F1_V3 = 'B3_F1_V3',
+  B3_F2_V1 = 'B3_F2_V1',
+  B3_F2_V2 = 'B3_F2_V2',
+  B3_F2_V3 = 'B3_F2_V3',
+  B3_F3_V1 = 'B3_F3_V1',
+  B3_F3_V2 = 'B3_F3_V2',
+  B3_F3_V3 = 'B3_F3_V3',
+  // Patio (outside, not assigned to a garage spot)
+  PATIO = 'PATIO',
+}
 
 export enum TRUCK_MANUFACTURER {
   SCANIA = 'SCANIA',

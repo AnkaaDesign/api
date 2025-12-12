@@ -20,11 +20,13 @@ import type { Task, TaskIncludes } from './task';
 export interface Sector extends BaseEntity {
   name: string;
   privileges: SECTOR_PRIVILEGES;
+  managerId: string | null;
 
   // Relations
   users?: User[];
   tasks?: Task[];
-  managedByUsers?: User[];
+  /** The user who manages this sector (via Sector.managerId) */
+  manager?: User;
 
   // Count fields (when included)
   _count?: {
@@ -48,7 +50,7 @@ export interface SectorIncludes {
     | {
         include?: TaskIncludes;
       };
-  managedByUsers?:
+  manager?:
     | boolean
     | {
         include?: UserIncludes;
@@ -102,11 +104,13 @@ export interface SectorBatchDeleteResponse
 export interface SectorCreateFormData {
   name: string;
   privileges: SECTOR_PRIVILEGES;
+  managerId?: string | null;
 }
 
 export interface SectorUpdateFormData {
   name?: string;
   privileges?: SECTOR_PRIVILEGES;
+  managerId?: string | null;
 }
 
 export interface SectorGetManyFormData {

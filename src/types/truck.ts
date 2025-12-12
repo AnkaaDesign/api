@@ -11,8 +11,8 @@ import type {
   ORDER_BY_DIRECTION,
 } from './common';
 import type { Task, TaskIncludes, TaskOrderBy, TaskWhere } from './task';
-import type { Garage, GarageIncludes, GarageOrderBy, GarageWhere } from './garage';
 import type { Layout, LayoutIncludes, LayoutOrderBy, LayoutWhere } from './layout';
+import type { TRUCK_SPOT } from '@constants';
 
 // =====================
 // Main Entity Interface
@@ -21,17 +21,14 @@ import type { Layout, LayoutIncludes, LayoutOrderBy, LayoutWhere } from './layou
 export interface Truck extends BaseEntity {
   plate: string | null;
   chassisNumber: string | null;
-  xPosition: number | null;
-  yPosition: number | null;
+  spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
   taskId: string;
-  garageId: string | null;
   backSideLayoutId: string | null;
   leftSideLayoutId: string | null;
   rightSideLayoutId: string | null;
 
   // Relations (optional, populated based on query)
   task?: Task;
-  garage?: Garage | null;
   backSideLayout?: Layout | null;
   leftSideLayout?: Layout | null;
   rightSideLayout?: Layout | null;
@@ -46,11 +43,6 @@ export interface TruckIncludes {
     | boolean
     | {
         include?: TaskIncludes;
-      };
-  garage?:
-    | boolean
-    | {
-        include?: GarageIncludes;
       };
   backSideLayout?:
     | boolean
@@ -77,17 +69,14 @@ export interface TruckOrderBy {
   id?: ORDER_BY_DIRECTION;
   plate?: ORDER_BY_DIRECTION;
   chassisNumber?: ORDER_BY_DIRECTION;
-  xPosition?: ORDER_BY_DIRECTION;
-  yPosition?: ORDER_BY_DIRECTION;
+  spot?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
-  garageId?: ORDER_BY_DIRECTION;
   backSideLayoutId?: ORDER_BY_DIRECTION;
   leftSideLayoutId?: ORDER_BY_DIRECTION;
   rightSideLayoutId?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;
-  garage?: GarageOrderBy;
 }
 
 // =====================
@@ -103,7 +92,6 @@ export interface TruckWhere {
   // ID fields
   id?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
   taskId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] };
-  garageId?: string | { equals?: string; not?: string; in?: string[]; notIn?: string[] } | null;
   backSideLayoutId?:
     | string
     | { equals?: string; not?: string; in?: string[]; notIn?: string[] }
@@ -145,31 +133,14 @@ export interface TruckWhere {
       }
     | null;
 
-  // Number fields
-  xPosition?:
-    | number
+  // Enum fields
+  spot?:
+    | TRUCK_SPOT
     | {
-        equals?: number;
-        not?: number;
-        lt?: number;
-        lte?: number;
-        gt?: number;
-        gte?: number;
-        in?: number[];
-        notIn?: number[];
-      }
-    | null;
-  yPosition?:
-    | number
-    | {
-        equals?: number;
-        not?: number;
-        lt?: number;
-        lte?: number;
-        gt?: number;
-        gte?: number;
-        in?: number[];
-        notIn?: number[];
+        equals?: TRUCK_SPOT;
+        not?: TRUCK_SPOT;
+        in?: TRUCK_SPOT[];
+        notIn?: TRUCK_SPOT[];
       }
     | null;
 
@@ -201,7 +172,6 @@ export interface TruckWhere {
 
   // Relations
   task?: TaskWhere;
-  garage?: GarageWhere | null;
   backSideLayout?: LayoutWhere | null;
   leftSideLayout?: LayoutWhere | null;
   rightSideLayout?: LayoutWhere | null;

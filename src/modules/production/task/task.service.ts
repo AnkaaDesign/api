@@ -33,6 +33,7 @@ import {
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
+  TRUCK_SPOT,
 } from '../../../constants/enums';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -124,43 +125,47 @@ export class TaskService {
         // Create the task first WITHOUT files
         const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
 
-        // Create truck and layouts if layout data is provided
+        // Create truck and layouts if consolidated truck data is provided
+        const truckData = (data as any).truck;
         if (
-          data.truckLayoutData &&
-          (data.truckLayoutData.leftSide ||
-            data.truckLayoutData.rightSide ||
-            data.truckLayoutData.backSide)
+          truckData &&
+          (truckData.leftSideLayout ||
+            truckData.rightSideLayout ||
+            truckData.backSideLayout ||
+            truckData.plate ||
+            truckData.chassisNumber ||
+            truckData.spot)
         ) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
-          // Create truck with optional plate and manufacturer
+          // Create truck with basic fields
           const truck = await tx.truck.create({
             data: {
               taskId: newTask.id,
-              xPosition: null,
-              yPosition: null,
-              garageId: null,
-              ...(data.truckLayoutData.plate && { plate: data.truckLayoutData.plate }),
-              ...(data.truckLayoutData.manufacturer && {
-                manufacturer: data.truckLayoutData.manufacturer,
-              }),
+              plate: truckData.plate || null,
+              chassisNumber: truckData.chassisNumber || null,
+              spot: truckData.spot || null,
             },
           });
           this.logger.log(`[Task Create] Truck created: ${truck.id}`);
 
-          // Create layouts for each side
-          const layoutPromises = [];
+          // Helper function to create layout for a side
+          const createLayout = async (
+            layoutData: any,
+            layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+            sideName: string,
+          ) => {
+            if (!layoutData) return;
 
-          if (data.truckLayoutData.leftSide) {
-            this.logger.log(`[Task Create] Creating left layout`);
-            const leftLayout = await tx.layout.create({
+            this.logger.log(`[Task Create] Creating ${sideName} layout`);
+            const layout = await tx.layout.create({
               data: {
-                height: data.truckLayoutData.leftSide.height,
-                ...(data.truckLayoutData.leftSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.leftSide.photoId } },
+                height: layoutData.height,
+                ...(layoutData.photoId && {
+                  photo: { connect: { id: layoutData.photoId } },
                 }),
                 layoutSections: {
-                  create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
+                  create: layoutData.layoutSections.map((section, index) => ({
                     width: section.width,
                     isDoor: section.isDoor,
                     doorHeight: section.doorHeight,
@@ -171,60 +176,15 @@ export class TaskService {
             });
             await tx.truck.update({
               where: { id: truck.id },
-              data: { leftSideLayoutId: leftLayout.id },
+              data: { [layoutField]: layout.id },
             });
-            this.logger.log(`[Task Create] Left layout created: ${leftLayout.id}`);
-          }
+            this.logger.log(`[Task Create] ${sideName} layout created: ${layout.id}`);
+          };
 
-          if (data.truckLayoutData.rightSide) {
-            this.logger.log(`[Task Create] Creating right layout`);
-            const rightLayout = await tx.layout.create({
-              data: {
-                height: data.truckLayoutData.rightSide.height,
-                ...(data.truckLayoutData.rightSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.rightSide.photoId } },
-                }),
-                layoutSections: {
-                  create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
-                },
-              },
-            });
-            await tx.truck.update({
-              where: { id: truck.id },
-              data: { rightSideLayoutId: rightLayout.id },
-            });
-            this.logger.log(`[Task Create] Right layout created: ${rightLayout.id}`);
-          }
-
-          if (data.truckLayoutData.backSide) {
-            this.logger.log(`[Task Create] Creating back layout`);
-            const backLayout = await tx.layout.create({
-              data: {
-                height: data.truckLayoutData.backSide.height,
-                ...(data.truckLayoutData.backSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.backSide.photoId } },
-                }),
-                layoutSections: {
-                  create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
-                },
-              },
-            });
-            await tx.truck.update({
-              where: { id: truck.id },
-              data: { backSideLayoutId: backLayout.id },
-            });
-            this.logger.log(`[Task Create] Back layout created: ${backLayout.id}`);
-          }
+          // Create layouts for each side using the new consolidated format
+          await createLayout(truckData.leftSideLayout, 'leftSideLayoutId', 'left');
+          await createLayout(truckData.rightSideLayout, 'rightSideLayoutId', 'right');
+          await createLayout(truckData.backSideLayout, 'backSideLayoutId', 'back');
 
           // Update task with truck
           await tx.task.update({
@@ -585,195 +545,149 @@ export class TaskService {
         // Validate task data
         await this.validateTask(data, id, tx);
 
-        // Handle truck and layout creation/update if layout data is provided
-        if (
-          data.truckLayoutData &&
-          (data.truckLayoutData.leftSide ||
-            data.truckLayoutData.rightSide ||
-            data.truckLayoutData.backSide)
-        ) {
-          this.logger.log(`[Task Update] Processing truck layouts for task ${id}`);
-
-          // Get or create truck
-          let truckId = existingTask.truck?.id;
-          const leftLayoutId = existingTask.truck?.leftSideLayoutId;
-          const rightLayoutId = existingTask.truck?.rightSideLayoutId;
-          const backLayoutId = existingTask.truck?.backSideLayoutId;
-
-          if (!truckId) {
-            this.logger.log(`[Task Update] No truck exists - creating one`);
-            const newTruck = await tx.truck.create({
-              data: {
-                taskId: id,
-                xPosition: null,
-                yPosition: null,
-                garageId: null,
-              },
-            });
-            truckId = newTruck.id;
-            this.logger.log(`[Task Update] Truck created: ${truckId}`);
+        // Handle truck and layout updates (consolidated in single truck object)
+        const truckData = (data as any).truck;
+        if (truckData !== undefined) {
+          if (truckData === null) {
+            // Delete truck if explicitly set to null
+            if (existingTask.truck) {
+              this.logger.log(`[Task Update] Deleting truck for task ${id}`);
+              // Layouts will be cascade deleted if configured, otherwise delete manually
+              const truck = existingTask.truck;
+              if (truck.leftSideLayoutId) {
+                await tx.layoutSection.deleteMany({ where: { layoutId: truck.leftSideLayoutId } });
+                await tx.layout.delete({ where: { id: truck.leftSideLayoutId } });
+              }
+              if (truck.rightSideLayoutId) {
+                await tx.layoutSection.deleteMany({ where: { layoutId: truck.rightSideLayoutId } });
+                await tx.layout.delete({ where: { id: truck.rightSideLayoutId } });
+              }
+              if (truck.backSideLayoutId) {
+                await tx.layoutSection.deleteMany({ where: { layoutId: truck.backSideLayoutId } });
+                await tx.layout.delete({ where: { id: truck.backSideLayoutId } });
+              }
+              await tx.truck.delete({ where: { id: truck.id } });
+            }
           } else {
-            this.logger.log(`[Task Update] Using existing truck: ${truckId}`);
-          }
+            // Create or update truck
+            let truckId = existingTask.truck?.id;
+            const existingTruck = existingTask.truck;
 
-          // Delete and recreate ONLY the sides that are being updated
-          if (data.truckLayoutData.leftSide && leftLayoutId) {
-            this.logger.log(`[Task Update] Deleting existing left layout: ${leftLayoutId}`);
-            await tx.layoutSection.deleteMany({ where: { layoutId: leftLayoutId } });
-            await tx.layout.delete({ where: { id: leftLayoutId } });
-            await tx.truck.update({ where: { id: truckId }, data: { leftSideLayoutId: null } });
-          }
-          if (data.truckLayoutData.rightSide && rightLayoutId) {
-            this.logger.log(`[Task Update] Deleting existing right layout: ${rightLayoutId}`);
-            await tx.layoutSection.deleteMany({ where: { layoutId: rightLayoutId } });
-            await tx.layout.delete({ where: { id: rightLayoutId } });
-            await tx.truck.update({ where: { id: truckId }, data: { rightSideLayoutId: null } });
-          }
-          if (data.truckLayoutData.backSide && backLayoutId) {
-            this.logger.log(`[Task Update] Deleting existing back layout: ${backLayoutId}`);
-            await tx.layoutSection.deleteMany({ where: { layoutId: backLayoutId } });
-            await tx.layout.delete({ where: { id: backLayoutId } });
-            await tx.truck.update({ where: { id: truckId }, data: { backSideLayoutId: null } });
-          }
-
-          // Create new layouts for sides that are in the payload
-          if (data.truckLayoutData.leftSide) {
-            this.logger.log(`[Task Update] Creating new left layout`);
-            const leftLayout = await tx.layout.create({
-              data: {
-                height: data.truckLayoutData.leftSide.height,
-                ...(data.truckLayoutData.leftSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.leftSide.photoId } },
-                }),
-                layoutSections: {
-                  create: data.truckLayoutData.leftSide.layoutSections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
+            if (!truckId) {
+              // Create new truck
+              this.logger.log(`[Task Update] Creating truck for task ${id}`);
+              const newTruck = await tx.truck.create({
+                data: {
+                  taskId: id,
+                  plate: truckData.plate || null,
+                  chassisNumber: truckData.chassisNumber || null,
+                  spot: truckData.spot || null,
                 },
-              },
-            });
-            await tx.truck.update({
-              where: { id: truckId },
-              data: { leftSideLayoutId: leftLayout.id },
-            });
-            this.logger.log(`[Task Update] Left layout created: ${leftLayout.id}`);
-          }
+              });
+              truckId = newTruck.id;
+            } else {
+              // Update existing truck basic fields
+              const updateFields: any = {};
+              if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
+              if (truckData.chassisNumber !== undefined) updateFields.chassisNumber = truckData.chassisNumber;
+              if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
-          if (data.truckLayoutData.rightSide) {
-            this.logger.log(`[Task Update] Creating new right layout`);
-            const rightLayout = await tx.layout.create({
-              data: {
-                height: data.truckLayoutData.rightSide.height,
-                ...(data.truckLayoutData.rightSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.rightSide.photoId } },
-                }),
-                layoutSections: {
-                  create: data.truckLayoutData.rightSide.layoutSections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
-                },
-              },
-            });
-            await tx.truck.update({
-              where: { id: truckId },
-              data: { rightSideLayoutId: rightLayout.id },
-            });
-            this.logger.log(`[Task Update] Right layout created: ${rightLayout.id}`);
-          }
+              if (Object.keys(updateFields).length > 0) {
+                await tx.truck.update({ where: { id: truckId }, data: updateFields });
+                this.logger.log(`[Task Update] Truck basic fields updated`);
+              }
+            }
 
-          if (data.truckLayoutData.backSide) {
-            this.logger.log(`[Task Update] Creating new back layout`);
-            const backLayout = await tx.layout.create({
-              data: {
-                height: data.truckLayoutData.backSide.height,
-                ...(data.truckLayoutData.backSide.photoId && {
-                  photo: { connect: { id: data.truckLayoutData.backSide.photoId } },
-                }),
-                layoutSections: {
-                  create: data.truckLayoutData.backSide.layoutSections.map((section, index) => ({
-                    width: section.width,
-                    isDoor: section.isDoor,
-                    doorHeight: section.doorHeight,
-                    position: section.position ?? index,
-                  })),
-                },
-              },
-            });
-            await tx.truck.update({
-              where: { id: truckId },
-              data: { backSideLayoutId: backLayout.id },
-            });
-            this.logger.log(`[Task Update] Back layout created: ${backLayout.id}`);
-          }
+            // Handle layouts - helper function to process each side
+            const processLayout = async (
+              layoutData: any,
+              existingLayoutId: string | null,
+              layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+            ) => {
+              if (layoutData === undefined) return; // Not in payload, skip
 
-          // Update task with truck if it didn't have one
-          if (!existingTask.truck) {
-            await tx.task.update({
-              where: { id },
-              data: { truck: { connect: { id: truckId } } },
-            });
-            this.logger.log(`[Task Update] Task updated with truck`);
-          }
+              if (layoutData === null) {
+                // Delete existing layout
+                if (existingLayoutId) {
+                  this.logger.log(`[Task Update] Deleting ${layoutField}`);
+                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                  await tx.layout.delete({ where: { id: existingLayoutId } });
+                  await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
+                }
+              } else {
+                // Create or update layout
+                if (existingLayoutId) {
+                  // Delete existing and recreate (simpler than complex update)
+                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                  await tx.layout.delete({ where: { id: existingLayoutId } });
+                }
 
-          // Upload layout photo files if provided
-          if (files) {
-            const customerName = existingTask.customer?.fantasyName;
+                const newLayout = await tx.layout.create({
+                  data: {
+                    height: layoutData.height,
+                    ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
+                    layoutSections: {
+                      create: layoutData.layoutSections.map((section: any, index: number) => ({
+                        width: section.width,
+                        isDoor: section.isDoor,
+                        doorHeight: section.doorHeight,
+                        position: section.position ?? index,
+                      })),
+                    },
+                  },
+                });
+                await tx.truck.update({
+                  where: { id: truckId! },
+                  data: { [layoutField]: newLayout.id },
+                });
+                this.logger.log(`[Task Update] ${layoutField} created: ${newLayout.id}`);
+              }
+            };
 
-            // Check for layout photos in files object (e.g., files['layoutPhotos.leftSide'], files['layoutPhotos.rightSide'], files['layoutPhotos.backSide'])
-            for (const [key, fileArray] of Object.entries(files)) {
-              if (key.startsWith('layoutPhotos.')) {
-                const side = key.replace('layoutPhotos.', ''); // leftSide, rightSide, or backSide
-                const photoFile = Array.isArray(fileArray) ? fileArray[0] : fileArray;
+            // Process each layout side
+            await processLayout(truckData.leftSideLayout, existingTruck?.leftSideLayoutId || null, 'leftSideLayoutId');
+            await processLayout(truckData.rightSideLayout, existingTruck?.rightSideLayoutId || null, 'rightSideLayoutId');
+            await processLayout(truckData.backSideLayout, existingTruck?.backSideLayoutId || null, 'backSideLayoutId');
+
+            // Handle layout photo uploads
+            if (files) {
+              const customerName = existingTask.customer?.fantasyName;
+              const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
+
+              for (const key of layoutPhotoKeys) {
+                const side = key.replace('layoutPhotos.', '') as 'leftSide' | 'rightSide' | 'backSide';
+                const photoFile = Array.isArray((files as any)[key]) ? (files as any)[key][0] : (files as any)[key];
 
                 if (photoFile) {
-                  this.logger.log(`[Task Update] Uploading layout photo for ${side}`);
-
-                  // Upload the photo file
                   const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
-                    tx,
-                    photoFile,
-                    'layoutPhotos',
-                    userId,
-                    {
-                      entityId: id,
-                      entityType: 'LAYOUT',
-                      customerName,
-                    },
+                    tx, photoFile, 'layoutPhotos', userId,
+                    { entityId: id, entityType: 'LAYOUT', customerName },
                   );
 
-                  // Update the corresponding layout with the photo
-                  const layoutFieldMap: Record<string, string> = {
+                  const layoutFieldMap = {
                     leftSide: 'leftSideLayoutId',
                     rightSide: 'rightSideLayoutId',
                     backSide: 'backSideLayoutId',
-                  };
+                  } as const;
 
-                  const layoutIdField = layoutFieldMap[side];
                   const layoutId = await tx.truck
-                    .findUnique({
-                      where: { id: truckId },
-                      select: { [layoutIdField]: true },
-                    })
-                    .then(truck => truck?.[layoutIdField]);
+                    .findUnique({ where: { id: truckId }, select: { [layoutFieldMap[side]]: true } })
+                    .then(t => t?.[layoutFieldMap[side]]);
 
                   if (layoutId) {
-                    await tx.layout.update({
-                      where: { id: layoutId },
-                      data: { photoId: uploadedPhoto.id },
-                    });
-                    this.logger.log(
-                      `[Task Update] Layout ${layoutId} updated with photo ${uploadedPhoto.id}`,
-                    );
+                    await tx.layout.update({ where: { id: layoutId }, data: { photoId: uploadedPhoto.id } });
                   }
                 }
               }
             }
+          }
+
+          // After processing layouts in service, remove layout fields from truck data
+          // so the repository doesn't try to process them again
+          if (truckData) {
+            delete truckData.leftSideLayout;
+            delete truckData.rightSideLayout;
+            delete truckData.backSideLayout;
           }
         }
 
@@ -1971,14 +1885,15 @@ export class TaskService {
           result.totalFailed = (result.totalFailed || 0) + failedItems.length;
         }
 
-        // Process truckLayoutData for each successfully updated task
+        // Process consolidated truck data with layouts for each successfully updated task
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
+          const truckData = (updateData as any)?.truck;
           if (
-            updateData?.truckLayoutData &&
-            (updateData.truckLayoutData.leftSide ||
-              updateData.truckLayoutData.rightSide ||
-              updateData.truckLayoutData.backSide)
+            truckData &&
+            (truckData.leftSideLayout ||
+              truckData.rightSideLayout ||
+              truckData.backSideLayout)
           ) {
             this.logger.log(`[batchUpdate] Processing truck layouts for task ${task.id}`);
 
@@ -2007,9 +1922,9 @@ export class TaskService {
               const newTruck = await tx.truck.create({
                 data: {
                   taskId: task.id,
-                  xPosition: null,
-                  yPosition: null,
-                  garageId: null,
+                  plate: truckData.plate || null,
+                  chassisNumber: truckData.chassisNumber || null,
+                  spot: truckData.spot || null,
                 },
               });
               truckId = newTruck.id;
@@ -2018,37 +1933,33 @@ export class TaskService {
               this.logger.log(`[batchUpdate] Using existing truck: ${truckId}`);
             }
 
-            // Delete and recreate ONLY the sides that are being updated
-            if (updateData.truckLayoutData.leftSide && leftLayoutId) {
-              this.logger.log(`[batchUpdate] Deleting existing left layout: ${leftLayoutId}`);
-              await tx.layoutSection.deleteMany({ where: { layoutId: leftLayoutId } });
-              await tx.layout.delete({ where: { id: leftLayoutId } });
-              await tx.truck.update({ where: { id: truckId }, data: { leftSideLayoutId: null } });
-            }
-            if (updateData.truckLayoutData.rightSide && rightLayoutId) {
-              this.logger.log(`[batchUpdate] Deleting existing right layout: ${rightLayoutId}`);
-              await tx.layoutSection.deleteMany({ where: { layoutId: rightLayoutId } });
-              await tx.layout.delete({ where: { id: rightLayoutId } });
-              await tx.truck.update({ where: { id: truckId }, data: { rightSideLayoutId: null } });
-            }
-            if (updateData.truckLayoutData.backSide && backLayoutId) {
-              this.logger.log(`[batchUpdate] Deleting existing back layout: ${backLayoutId}`);
-              await tx.layoutSection.deleteMany({ where: { layoutId: backLayoutId } });
-              await tx.layout.delete({ where: { id: backLayoutId } });
-              await tx.truck.update({ where: { id: truckId }, data: { backSideLayoutId: null } });
-            }
+            // Helper function to process layout updates
+            const processLayout = async (
+              layoutData: any,
+              existingLayoutId: string | null,
+              layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+              sideName: string,
+            ) => {
+              if (!layoutData) return;
 
-            // Create new layouts for sides that are in the payload
-            if (updateData.truckLayoutData.leftSide) {
-              this.logger.log(`[batchUpdate] Creating new left layout for task ${task.id}`);
-              const leftLayout = await tx.layout.create({
+              // Delete existing layout if present
+              if (existingLayoutId) {
+                this.logger.log(`[batchUpdate] Deleting existing ${sideName} layout: ${existingLayoutId}`);
+                await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                await tx.layout.delete({ where: { id: existingLayoutId } });
+                await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
+              }
+
+              // Create new layout
+              this.logger.log(`[batchUpdate] Creating new ${sideName} layout for task ${task.id}`);
+              const newLayout = await tx.layout.create({
                 data: {
-                  height: updateData.truckLayoutData.leftSide.height,
-                  ...(updateData.truckLayoutData.leftSide.photoId && {
-                    photo: { connect: { id: updateData.truckLayoutData.leftSide.photoId } },
+                  height: layoutData.height,
+                  ...(layoutData.photoId && {
+                    photo: { connect: { id: layoutData.photoId } },
                   }),
                   layoutSections: {
-                    create: updateData.truckLayoutData.leftSide.layoutSections.map(
+                    create: layoutData.layoutSections.map(
                       (section: any, index: number) => ({
                         width: section.width,
                         isDoor: section.isDoor,
@@ -2060,65 +1971,16 @@ export class TaskService {
                 },
               });
               await tx.truck.update({
-                where: { id: truckId },
-                data: { leftSideLayoutId: leftLayout.id },
+                where: { id: truckId! },
+                data: { [layoutField]: newLayout.id },
               });
-              this.logger.log(`[batchUpdate] Left layout created: ${leftLayout.id}`);
-            }
+              this.logger.log(`[batchUpdate] ${sideName} layout created: ${newLayout.id}`);
+            };
 
-            if (updateData.truckLayoutData.rightSide) {
-              this.logger.log(`[batchUpdate] Creating new right layout for task ${task.id}`);
-              const rightLayout = await tx.layout.create({
-                data: {
-                  height: updateData.truckLayoutData.rightSide.height,
-                  ...(updateData.truckLayoutData.rightSide.photoId && {
-                    photo: { connect: { id: updateData.truckLayoutData.rightSide.photoId } },
-                  }),
-                  layoutSections: {
-                    create: updateData.truckLayoutData.rightSide.layoutSections.map(
-                      (section: any, index: number) => ({
-                        width: section.width,
-                        isDoor: section.isDoor,
-                        doorHeight: section.doorHeight,
-                        position: section.position ?? index,
-                      }),
-                    ),
-                  },
-                },
-              });
-              await tx.truck.update({
-                where: { id: truckId },
-                data: { rightSideLayoutId: rightLayout.id },
-              });
-              this.logger.log(`[batchUpdate] Right layout created: ${rightLayout.id}`);
-            }
-
-            if (updateData.truckLayoutData.backSide) {
-              this.logger.log(`[batchUpdate] Creating new back layout for task ${task.id}`);
-              const backLayout = await tx.layout.create({
-                data: {
-                  height: updateData.truckLayoutData.backSide.height,
-                  ...(updateData.truckLayoutData.backSide.photoId && {
-                    photo: { connect: { id: updateData.truckLayoutData.backSide.photoId } },
-                  }),
-                  layoutSections: {
-                    create: updateData.truckLayoutData.backSide.layoutSections.map(
-                      (section: any, index: number) => ({
-                        width: section.width,
-                        isDoor: section.isDoor,
-                        doorHeight: section.doorHeight,
-                        position: section.position ?? index,
-                      }),
-                    ),
-                  },
-                },
-              });
-              await tx.truck.update({
-                where: { id: truckId },
-                data: { backSideLayoutId: backLayout.id },
-              });
-              this.logger.log(`[batchUpdate] Back layout created: ${backLayout.id}`);
-            }
+            // Process each side using the consolidated format
+            await processLayout(truckData.leftSideLayout, leftLayoutId, 'leftSideLayoutId', 'left');
+            await processLayout(truckData.rightSideLayout, rightLayoutId, 'rightSideLayoutId', 'right');
+            await processLayout(truckData.backSideLayout, backLayoutId, 'backSideLayoutId', 'back');
 
             this.logger.log(`[batchUpdate] Finished processing layouts for task ${task.id}`);
           }
@@ -3098,14 +2960,12 @@ export class TaskService {
   // =====================
 
   /**
-   * Update the position of a truck associated with a task
+   * Update the spot (parking position) of a truck associated with a task
    */
   async updateTaskPosition(
     taskId: string,
     positionData: {
-      xPosition?: number | null;
-      yPosition?: number | null;
-      garageId?: string | null;
+      spot?: TRUCK_SPOT | null;
     },
     include?: TaskInclude,
     userId?: string,
@@ -3133,38 +2993,43 @@ export class TaskService {
         throw new BadRequestException(`Tarefa ${taskId} não possui caminhão associado`);
       }
 
-      // Validate that truck has layout before positioning
-      if (!task.truck.leftSideLayout && !task.truck.rightSideLayout && !task.truck.backSideLayout) {
+      // Validate that truck has layout before positioning (except for PATIO)
+      if (
+        positionData.spot &&
+        positionData.spot !== TRUCK_SPOT.PATIO &&
+        !task.truck.leftSideLayout &&
+        !task.truck.rightSideLayout &&
+        !task.truck.backSideLayout
+      ) {
         throw new BadRequestException(
           `O caminhão da tarefa "${task.name}" não possui layout configurado. Configure pelo menos um layout (Motorista, Sapo ou Traseira) antes de posicionar o caminhão na garagem.`,
         );
       }
 
-      // Validate position if provided
-      if (
-        positionData.xPosition !== undefined &&
-        positionData.yPosition !== undefined &&
-        positionData.garageId &&
-        positionData.garageId !== null
-      ) {
-        await this.validateTruckPosition(
-          task.truck.id,
-          positionData.xPosition,
-          positionData.yPosition,
-          positionData.garageId,
-          task.truck,
-          tx,
-        );
+      // Validate spot availability (check if spot is already occupied)
+      if (positionData.spot && positionData.spot !== TRUCK_SPOT.PATIO) {
+        const existingTruck = await tx.truck.findFirst({
+          where: {
+            spot: positionData.spot,
+            id: { not: task.truck.id },
+          },
+        });
+
+        if (existingTruck) {
+          throw new BadRequestException(
+            `A vaga ${positionData.spot} já está ocupada por outro caminhão`,
+          );
+        }
       }
 
-      // Update truck position
+      const oldSpot = task.truck.spot;
+
+      // Update truck spot
       await tx.truck.update({
         where: { id: task.truck.id },
         data: {
-          xPosition: positionData.xPosition,
-          yPosition: positionData.yPosition,
-          garageId: positionData.garageId,
-        } as any,
+          spot: positionData.spot,
+        },
       });
 
       // Log the change
@@ -3174,13 +3039,9 @@ export class TaskService {
           entityId: task.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          oldValue: {
-            xPosition: task.truck.xPosition,
-            yPosition: task.truck.yPosition,
-            garageId: task.truck.garageId,
-          },
-          newValue: positionData,
-          reason: `Position updated for task ${task.id}`,
+          oldValue: { spot: oldSpot },
+          newValue: { spot: positionData.spot },
+          reason: `Spot updated for task ${task.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -3192,7 +3053,7 @@ export class TaskService {
 
       return {
         success: true,
-        message: 'Posição do caminhão atualizada com sucesso',
+        message: 'Vaga do caminhão atualizada com sucesso',
         data: updatedTask,
       };
     });
@@ -3240,7 +3101,7 @@ export class TaskService {
   }
 
   /**
-   * Swap positions of two trucks
+   * Swap spots of two trucks
    */
   async swapTaskPositions(
     taskId1: string,
@@ -3268,28 +3129,19 @@ export class TaskService {
         throw new BadRequestException('Ambas as tarefas devem ter caminhões associados');
       }
 
-      // Store original positions
-      const truck1Position = {
-        xPosition: task1.truck.xPosition,
-        yPosition: task1.truck.yPosition,
-        garageId: task1.truck.garageId,
-      };
+      // Store original spots
+      const truck1Spot = task1.truck.spot;
+      const truck2Spot = task2.truck.spot;
 
-      const truck2Position = {
-        xPosition: task2.truck.xPosition,
-        yPosition: task2.truck.yPosition,
-        garageId: task2.truck.garageId,
-      };
-
-      // Swap positions
+      // Swap spots
       await tx.truck.update({
         where: { id: task1.truck.id },
-        data: truck2Position,
+        data: { spot: truck2Spot },
       });
 
       await tx.truck.update({
         where: { id: task2.truck.id },
-        data: truck1Position,
+        data: { spot: truck1Spot },
       });
 
       // Log changes
@@ -3299,9 +3151,9 @@ export class TaskService {
           entityId: task1.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          oldValue: truck1Position,
-          newValue: truck2Position,
-          reason: `Position swapped with truck ${task2.truck.id}`,
+          oldValue: { spot: truck1Spot },
+          newValue: { spot: truck2Spot },
+          reason: `Spot swapped with truck ${task2.truck.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -3312,9 +3164,9 @@ export class TaskService {
           entityId: task2.truck.id,
           action: CHANGE_ACTION.UPDATE,
           userId,
-          oldValue: truck2Position,
-          newValue: truck1Position,
-          reason: `Position swapped with truck ${task1.truck.id}`,
+          oldValue: { spot: truck2Spot },
+          newValue: { spot: truck1Spot },
+          reason: `Spot swapped with truck ${task1.truck.id}`,
           triggeredBy: CHANGE_TRIGGERED_BY.TASK_UPDATE,
           triggeredById: null,
           transaction: tx,
@@ -3327,7 +3179,7 @@ export class TaskService {
 
       return {
         success: true,
-        message: 'Posições dos caminhões trocadas com sucesso',
+        message: 'Vagas dos caminhões trocadas com sucesso',
         data: {
           task1: updatedTask1,
           task2: updatedTask2,
@@ -3337,83 +3189,10 @@ export class TaskService {
   }
 
   /**
-   * Validate truck position within garage constraints
-   */
-  private async validateTruckPosition(
-    truckId: string,
-    xPosition: number | null,
-    yPosition: number | null,
-    garageId: string,
-    truck: any,
-    tx: PrismaTransaction,
-  ): Promise<void> {
-    // If position is null, it means truck is in virtual "Patio" garage
-    if (xPosition === null || yPosition === null) {
-      return;
-    }
-
-    // Fetch garage
-    const garage = await tx.garage.findUnique({
-      where: { id: garageId },
-    });
-
-    if (!garage) {
-      throw new NotFoundException(`Garagem ${garageId} não encontrada`);
-    }
-
-    // Calculate truck dimensions from layouts
-    const truckWidth = this.calculateTruckWidth(truck);
-    const truckLength = this.calculateTruckLength(truck);
-
-    // Validate truck fits within garage dimensions
-    if (xPosition + truckWidth > garage.width) {
-      throw new BadRequestException(
-        `Caminhão não cabe na garagem: largura do caminhão (${truckWidth}m) + posição X (${xPosition}m) excede largura da garagem (${garage.width}m)`,
-      );
-    }
-
-    if (yPosition + truckLength > garage.length) {
-      throw new BadRequestException(
-        `Caminhão não cabe na garagem: comprimento do caminhão (${truckLength}m) + posição Y (${yPosition}m) excede comprimento da garagem (${garage.length}m)`,
-      );
-    }
-
-    // Check for overlapping trucks in the same garage
-    const overlappingTrucks = await tx.truck.findMany({
-      where: {
-        garageId,
-        id: { not: truckId },
-        xPosition: { not: null },
-        yPosition: { not: null },
-      },
-      include: {
-        leftSideLayout: { include: { layoutSections: true } },
-        rightSideLayout: { include: { layoutSections: true } },
-        backSideLayout: { include: { layoutSections: true } },
-      },
-    });
-
-    for (const otherTruck of overlappingTrucks) {
-      const otherWidth = this.calculateTruckWidth(otherTruck);
-      const otherLength = this.calculateTruckLength(otherTruck);
-
-      const overlaps =
-        xPosition < (otherTruck.xPosition || 0) + otherWidth &&
-        xPosition + truckWidth > (otherTruck.xPosition || 0) &&
-        yPosition < (otherTruck.yPosition || 0) + otherLength &&
-        yPosition + truckLength > (otherTruck.yPosition || 0);
-
-      if (overlaps) {
-        throw new BadRequestException(`Posição conflita com outro caminhão na garagem`);
-      }
-    }
-  }
-
-  /**
-   * Calculate truck width from layouts
+   * Calculate truck width from layouts (sum of layout section widths)
    */
   private calculateTruckWidth(truck: any): number {
-    // Width is typically from the side layouts (left or right)
+    // Width is the sum of section widths from side layouts
     const leftWidth =
       truck.leftSideLayout?.layoutSections?.reduce(
         (sum: number, section: any) => sum + section.width,
@@ -3426,8 +3205,14 @@ export class TaskService {
         0,
       ) || 0;
 
-    // Use the maximum width from available layouts, default to 2.5m if no layout
-    return Math.max(leftWidth, rightWidth) || 2.5;
+    // Use the maximum width from available layouts, default to 5m if no layout
+    const baseLength = Math.max(leftWidth, rightWidth) || 5;
+
+    // Add cabin length for trucks under 10m
+    if (baseLength < 10) {
+      return baseLength + 2.8;
+    }
+    return baseLength;
   }
 
   /**

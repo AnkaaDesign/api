@@ -84,25 +84,12 @@ export class SecullumController {
       const user = userResponse.data;
       this.logger.log(`Found Ankaa user: ${user.name} (ID: ${user.id})`);
       this.logger.log(
-        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}, SecullumId: ${user.secullumId}`,
+        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
       );
 
-      // First check if user already has secullumId
-      if (user.secullumId) {
-        this.logger.log(
-          `User already has Secullum mapping: ${user.secullumId}, using existing mapping`,
-        );
-        // Use existing mapping
-        return await this.secullumService.getTimeEntries({
-          employeeId: user.secullumId,
-          startDate,
-          endDate,
-        });
-      }
-
-      // If no secullumId, try to find and map automatically
+      // Find Secullum employee using CPF/PIS/PayrollNumber lookup
       this.logger.log(
-        `No existing Secullum mapping found, attempting to match user by CPF, PIS, and Payroll Number`,
+        `Attempting to match user by CPF, PIS, and Payroll Number`,
       );
 
       const secullumEmployee = await this.secullumService.findSecullumEmployee({
@@ -128,19 +115,7 @@ export class SecullumController {
         `Successfully found matching Secullum employee: ${JSON.stringify(secullumEmployee.data)}`,
       );
 
-      // Save the mapping for future use
-      this.logger.log(
-        `Saving Ankaa-Secullum mapping: User ${targetUserId} -> Secullum ${secullumEmployee.data.secullumId}`,
-      );
-      await this.userService.update(targetUserId, {
-        secullumId: secullumEmployee.data.secullumId.toString(),
-      });
-
-      this.logger.log(
-        `Successfully mapped and saved: User ${targetUserId} (${user.name}) -> Secullum employee ${secullumEmployee.data.secullumId}`,
-      );
-
-      // Now fetch the time entries using the mapped Secullum ID
+      // Fetch the time entries using the matched Secullum ID
       return await this.secullumService.getTimeEntries({
         employeeId: secullumEmployee.data.secullumId.toString(),
         startDate,
@@ -211,7 +186,7 @@ export class SecullumController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.LEADER,
+    
   )
   @HttpCode(HttpStatus.OK)
   async getCalculations(
@@ -242,56 +217,40 @@ export class SecullumController {
       const user = userResponse.data;
       this.logger.log(`Found Ankaa user: ${user.name} (ID: ${user.id})`);
       this.logger.log(
-        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}, SecullumId: ${user.secullumId}`,
+        `User details - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
       );
 
-      // First check if user already has secullumId
-      let secullumEmployeeId = user.secullumId;
+      // Find Secullum employee using CPF/PIS/PayrollNumber lookup
+      this.logger.log(
+        `Attempting to match user by CPF, PIS, and Payroll Number`,
+      );
 
-      if (!secullumEmployeeId) {
-        this.logger.log(
-          `No existing Secullum mapping found, attempting to match user by CPF, PIS, and Payroll Number`,
+      const secullumEmployee = await this.secullumService.findSecullumEmployee({
+        cpf: user.cpf || undefined,
+        pis: user.pis || undefined,
+        payrollNumber: user.payrollNumber || undefined,
+      });
+
+      if (!secullumEmployee.success || !secullumEmployee.data) {
+        this.logger.error(`Failed to find matching Secullum employee for user: ${user.name}`);
+        this.logger.error(
+          `Search criteria - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
         );
-
-        // If no secullumId, try to find and map automatically
-        const secullumEmployee = await this.secullumService.findSecullumEmployee({
-          cpf: user.cpf || undefined,
-          pis: user.pis || undefined,
-          payrollNumber: user.payrollNumber || undefined,
-        });
-
-        if (!secullumEmployee.success || !secullumEmployee.data) {
-          this.logger.error(`Failed to find matching Secullum employee for user: ${user.name}`);
-          this.logger.error(
-            `Search criteria - CPF: ${user.cpf}, PIS: ${user.pis}, PayrollNumber: ${user.payrollNumber}`,
-          );
-          return {
-            success: false,
-            message: `No Secullum employee found matching user: ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
-          };
-        }
-
-        // Save the mapping for future use
-        secullumEmployeeId = secullumEmployee.data.secullumId.toString();
-        this.logger.log(
-          `Saving Ankaa-Secullum mapping: User ${targetUserId} -> Secullum ${secullumEmployeeId}`,
-        );
-        await this.userService.update(targetUserId, {
-          secullumId: secullumEmployeeId,
-        });
-
-        this.logger.log(
-          `Successfully mapped and saved: User ${targetUserId} (${user.name}) -> Secullum employee ${secullumEmployeeId}`,
-        );
-      } else {
-        this.logger.log(
-          `User already has Secullum mapping: ${secullumEmployeeId}, using existing mapping`,
-        );
+        return {
+          success: false,
+          message: `No Secullum employee found matching user: ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
+        };
       }
+
+      this.logger.log(
+        `Successfully found matching Secullum employee: ${JSON.stringify(secullumEmployee.data)}`,
+      );
+
+      const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
 
       // Fetch calculations using the Secullum ID
       return await this.secullumService.getCalculations({
-        employeeId: secullumEmployeeId!,
+        employeeId: secullumEmployeeId,
         period,
         startDate,
         endDate,
@@ -335,7 +294,18 @@ export class SecullumController {
    */
   @Get('holidays')
   @ReadRateLimit()
-  @Roles(SECTOR_PRIVILEGES.BASIC) // All users can see holidays
+  @Roles(
+    SECTOR_PRIVILEGES.BASIC,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  ) // All authenticated users can see holidays
   @HttpCode(HttpStatus.OK)
   async getHolidays(
     @UserId() userId: string,
@@ -484,20 +454,19 @@ export class SecullumController {
   }
 
   /**
-   * Sync user mapping between our system and Secullum
-   * POST /integrations/secullum/sync-user-mapping
+   * Check user mapping between our system and Secullum
+   * GET /integrations/secullum/check-user-mapping
+   * Returns mapping report showing which users can be matched to Secullum employees
+   * No data is saved - this is purely a diagnostic/reporting endpoint
    */
-  @Post('sync-user-mapping')
-  @WriteRateLimit()
+  @Get('check-user-mapping')
+  @ReadRateLimit()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async syncUserMapping(
+  async checkUserMapping(
     @UserId() userId: string,
-    @Body() body?: { dryRun?: boolean },
   ): Promise<any> {
-    this.logger.log(`User ${userId} syncing user mappings with Secullum`);
-
-    const dryRun = body?.dryRun ?? false;
+    this.logger.log(`User ${userId} checking user mappings with Secullum`);
 
     try {
       // Get all Secullum employees
@@ -525,7 +494,6 @@ export class SecullumController {
       const mappingResults = {
         matched: [] as any[],
         unmatched: [] as any[],
-        updated: [] as any[],
       };
 
       // Normalize CPF for comparison
@@ -559,18 +527,6 @@ export class SecullumController {
             secullumName: matchingEmployee.Nome,
             matchedBy: userCpf ? 'CPF' : userPis ? 'PIS' : 'PayrollNumber',
           });
-
-          // Update secullumId if not already set and not in dry run
-          if (!dryRun && user.secullumId !== matchingEmployee.Id.toString()) {
-            await this.userService.update(user.id, {
-              secullumId: matchingEmployee.Id.toString(),
-            });
-            mappingResults.updated.push({
-              userId: user.id,
-              userName: user.name,
-              secullumId: matchingEmployee.Id,
-            });
-          }
         } else {
           mappingResults.unmatched.push({
             userId: user.id,
@@ -584,21 +540,19 @@ export class SecullumController {
 
       return {
         success: true,
-        dryRun,
         summary: {
           totalUsers: ourUsers.length,
           totalSecullumEmployees: secullumEmployees.data.length,
           matched: mappingResults.matched.length,
           unmatched: mappingResults.unmatched.length,
-          updated: dryRun ? 0 : mappingResults.updated.length,
         },
         details: mappingResults,
       };
     } catch (error) {
-      this.logger.error('Error syncing user mapping', error);
+      this.logger.error('Error checking user mapping', error);
       return {
         success: false,
-        message: 'Failed to sync user mapping',
+        message: 'Failed to check user mapping',
         error: error.message,
       };
     }

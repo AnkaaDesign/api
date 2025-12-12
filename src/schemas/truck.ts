@@ -8,6 +8,7 @@ import {
   createNameSchema,
 } from './common';
 import type { Truck } from '@types';
+import { TRUCK_SPOT } from '@constants';
 
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
@@ -33,18 +34,6 @@ export const truckIncludeSchema: z.ZodSchema = z.lazy(() =>
                 artworks: z.boolean().optional(),
                 logoPaints: z.boolean().optional(),
                 services: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      garage: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                trucks: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -100,10 +89,8 @@ export const truckOrderBySchema = z
       id: orderByDirectionSchema.optional(),
       plate: orderByDirectionSchema.optional(),
       chassisNumber: orderByDirectionSchema.optional(),
-      xPosition: orderByDirectionSchema.optional(),
-      yPosition: orderByDirectionSchema.optional(),
+      spot: orderByDirectionSchema.optional(),
       taskId: orderByDirectionSchema.optional(),
-      garageId: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
     }),
@@ -112,10 +99,8 @@ export const truckOrderBySchema = z
         id: orderByDirectionSchema.optional(),
         plate: orderByDirectionSchema.optional(),
         chassisNumber: orderByDirectionSchema.optional(),
-        xPosition: orderByDirectionSchema.optional(),
-        yPosition: orderByDirectionSchema.optional(),
+        spot: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
-        garageId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       }),
@@ -126,6 +111,9 @@ export const truckOrderBySchema = z
 // =====================
 // Where Schema
 // =====================
+
+// Schema for TRUCK_SPOT enum values
+const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
 
 export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
   z
@@ -152,14 +140,19 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       chassisNumber: z
         .union([z.string(), z.object({ contains: z.string().optional() })])
         .optional(),
-      xPosition: z
-        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
-        .optional(),
-      yPosition: z
-        .union([z.number(), z.object({ gte: z.number().optional(), lte: z.number().optional() })])
+      spot: z
+        .union([
+          truckSpotSchema,
+          z.object({
+            equals: truckSpotSchema.optional(),
+            not: truckSpotSchema.optional(),
+            in: z.array(truckSpotSchema).optional(),
+            notIn: z.array(truckSpotSchema).optional(),
+          }),
+        ])
+        .nullable()
         .optional(),
       taskId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
-      garageId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       createdAt: z
         .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
         .optional(),
@@ -168,7 +161,6 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       // Relations
       task: z.any().optional(),
-      garage: z.any().optional(),
       leftSideLayout: z.any().optional(),
       rightSideLayout: z.any().optional(),
       backSideLayout: z.any().optional(),
@@ -212,8 +204,6 @@ const truckTransform = (data: any): any => {
         // Related task
         { task: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { task: { serialNumber: { contains: searchTerm, mode: 'insensitive' } } },
-        // Related garage
-        { garage: { name: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -228,18 +218,39 @@ const truckTransform = (data: any): any => {
     delete data.hasTask;
   }
 
-  if (data.hasGarage === true) {
-    andConditions.push({ garageId: { not: null } });
-    delete data.hasGarage;
-  } else if (data.hasGarage === false) {
-    andConditions.push({ garageId: null });
-    delete data.hasGarage;
+  // Filter by spot (has spot assigned or not)
+  if (data.hasSpot === true) {
+    andConditions.push({ spot: { not: null } });
+    delete data.hasSpot;
+  } else if (data.hasSpot === false) {
+    andConditions.push({ spot: null });
+    delete data.hasSpot;
   }
 
-  // Array filters with "in" operator
-  if (data.garageIds && Array.isArray(data.garageIds) && data.garageIds.length > 0) {
-    andConditions.push({ garageId: { in: data.garageIds } });
-    delete data.garageIds;
+  // Filter by specific spots
+  if (data.spots && Array.isArray(data.spots) && data.spots.length > 0) {
+    andConditions.push({ spot: { in: data.spots } });
+    delete data.spots;
+  }
+
+  // Filter by garage (B1, B2, B3) - filter spots that start with the garage prefix
+  if (data.garageNumber && typeof data.garageNumber === 'string') {
+    const prefix = `B${data.garageNumber}_`;
+    const garageSpots = Object.values(TRUCK_SPOT).filter(
+      (spot) => spot.startsWith(prefix) && spot !== 'PATIO',
+    );
+    if (garageSpots.length > 0) {
+      andConditions.push({ spot: { in: garageSpots } });
+    }
+    delete data.garageNumber;
+  }
+
+  // Filter trucks in patio (not assigned to a garage spot)
+  if (data.inPatio === true) {
+    andConditions.push({
+      OR: [{ spot: null }, { spot: TRUCK_SPOT.PATIO }],
+    });
+    delete data.inPatio;
   }
 
   if (data.taskIds && Array.isArray(data.taskIds) && data.taskIds.length > 0) {
@@ -343,9 +354,12 @@ export const truckGetManySchema = z
     searchingFor: z.string().optional(),
     // Boolean relation filters
     hasTask: z.boolean().optional(),
-    hasGarage: z.boolean().optional(),
+    hasSpot: z.boolean().optional(),
+    inPatio: z.boolean().optional(),
+    // Spot filters
+    spots: z.array(truckSpotSchema).optional(),
+    garageNumber: z.enum(['1', '2', '3']).optional(),
     // Entity ID filters
-    garageIds: z.array(z.string()).optional(),
     taskIds: z.array(z.string()).optional(),
     // Date range filters
     createdAtRange: z
@@ -449,13 +463,11 @@ export const truckCreateSchema = z.object({
     .optional()
     .transform(val => (val === '' ? null : val)),
 
-  // Position fields
-  xPosition: z.number().nullable().optional(),
-  yPosition: z.number().nullable().optional(),
+  // Parking spot
+  spot: truckSpotSchema.nullable().optional(),
 
   // Relations
   taskId: z.string().uuid('Tarefa inválida'),
-  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
   leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
   rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
   backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
@@ -480,13 +492,11 @@ export const truckUpdateSchema = z.object({
     .optional()
     .transform(val => (val === '' ? null : val)),
 
-  // Position fields
-  xPosition: z.number().nullable().optional(),
-  yPosition: z.number().nullable().optional(),
+  // Parking spot
+  spot: truckSpotSchema.nullable().optional(),
 
   // Relations
   taskId: z.string().uuid('Tarefa inválida').optional(),
-  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
   leftSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
   rightSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
   backSideLayoutId: z.string().uuid('Layout inválido').nullable().optional(),
@@ -557,45 +567,39 @@ export type TruckWhere = z.infer<typeof truckWhereSchema>;
 export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>(truck => ({
   plate: truck.plate,
   chassisNumber: truck.chassisNumber,
-  xPosition: truck.xPosition,
-  yPosition: truck.yPosition,
+  spot: truck.spot,
   taskId: truck.taskId,
-  garageId: truck.garageId,
   leftSideLayoutId: truck.leftSideLayoutId,
   rightSideLayoutId: truck.rightSideLayoutId,
   backSideLayoutId: truck.backSideLayoutId,
 }));
 
 // =====================
-// Truck Positioning Schemas
+// Truck Spot Assignment Schemas
 // =====================
 
-// Schema for updating a single truck position
-export const truckPositionUpdateSchema = z.object({
-  xPosition: z.number().nullable().optional(),
-  yPosition: z.number().nullable().optional(),
-  garageId: z.string().uuid().nullable().optional(),
+// Schema for updating a single truck's spot
+export const truckSpotUpdateSchema = z.object({
+  spot: truckSpotSchema.nullable(),
 });
 
-export type TruckPositionUpdateFormData = z.infer<typeof truckPositionUpdateSchema>;
+export type TruckSpotUpdateFormData = z.infer<typeof truckSpotUpdateSchema>;
 
-// Schema for bulk updating truck positions
-export const truckBulkPositionUpdateSchema = z.object({
+// Schema for bulk updating truck spots
+export const truckBulkSpotUpdateSchema = z.object({
   updates: z.array(
     z.object({
       truckId: z.string().uuid(),
-      xPosition: z.number().nullable().optional(),
-      yPosition: z.number().nullable().optional(),
-      garageId: z.string().uuid().nullable().optional(),
+      spot: truckSpotSchema.nullable(),
     }),
   ),
 });
 
-export type TruckBulkPositionUpdateFormData = z.infer<typeof truckBulkPositionUpdateSchema>;
+export type TruckBulkSpotUpdateFormData = z.infer<typeof truckBulkSpotUpdateSchema>;
 
-// Schema for swapping two trucks
-export const truckSwapPositionSchema = z.object({
+// Schema for swapping two trucks' spots
+export const truckSwapSpotSchema = z.object({
   targetTruckId: z.string().uuid(),
 });
 
-export type TruckSwapPositionFormData = z.infer<typeof truckSwapPositionSchema>;
+export type TruckSwapSpotFormData = z.infer<typeof truckSwapSpotSchema>;
