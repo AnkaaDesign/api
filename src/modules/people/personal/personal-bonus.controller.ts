@@ -24,7 +24,7 @@ import { bonusGetManySchema } from '../../../schemas';
 // All roles that can access personal bonus data
 const ALL_ROLES = [
   SECTOR_PRIVILEGES.PRODUCTION,
-  SECTOR_PRIVILEGES.LEADER,
+  
   SECTOR_PRIVILEGES.WAREHOUSE,
   SECTOR_PRIVILEGES.MAINTENANCE,
   SECTOR_PRIVILEGES.DESIGNER,

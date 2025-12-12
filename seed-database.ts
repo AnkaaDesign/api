@@ -1253,7 +1253,8 @@ async function migrateUsers() {
         }
 
         // Calculate performance level from aliquot or stored level
-        let performanceLevel = 0;
+        // DEFAULT: Set performanceLevel = 3 for users with bonifiable positions
+        let performanceLevel = 3; // Default to level 3 for bonifiable positions
         if (employee?.aliquot) {
           // Aliquot is a value 1-5 representing performance level
           const aliquot = parseFloatValue(employee.aliquot);
@@ -1263,6 +1264,10 @@ async function migrateUsers() {
           }
         } else if (employee?.position && idMappings.positions[`${employee.position}_level`]) {
           performanceLevel = Number(idMappings.positions[`${employee.position}_level`]);
+        }
+        // If still 0 and user has a bonifiable position, default to 3
+        if (performanceLevel === 0 && employee?.position) {
+          performanceLevel = 3;
         }
 
         // Handle duplicate constraints by making unique values
@@ -5215,6 +5220,55 @@ async function updatePositionsBonifiableFlag() {
   }
 }
 
+// Function to update performance level to 3 for users with bonifiable positions
+async function updatePerformanceLevelForBonifiableUsers() {
+  console.log('\n🔄 Updating performanceLevel for users with bonifiable positions...');
+
+  try {
+    // Get all users with bonifiable positions and performanceLevel = 0
+    const usersToUpdate = await prisma.user.findMany({
+      where: {
+        performanceLevel: 0,
+        position: {
+          bonifiable: true,
+        },
+      },
+      include: {
+        position: true,
+      },
+    });
+
+    if (usersToUpdate.length === 0) {
+      console.log('  ✅ No users need performance level update');
+      return;
+    }
+
+    console.log(`  📋 Found ${usersToUpdate.length} users with bonifiable positions and performanceLevel = 0`);
+
+    // Update all users to performanceLevel = 3
+    const result = await prisma.user.updateMany({
+      where: {
+        performanceLevel: 0,
+        position: {
+          bonifiable: true,
+        },
+      },
+      data: {
+        performanceLevel: 3, // Default to level 3 for bonifiable positions
+      },
+    });
+
+    console.log(`  ✅ Updated ${result.count} users to performanceLevel = 3`);
+
+    // Log the updated users
+    for (const user of usersToUpdate) {
+      console.log(`    - ${user.name} (${user.position?.name || 'No position'}): 0 → 3`);
+    }
+  } catch (error) {
+    console.error('❌ Failed to update performance levels:', error);
+  }
+}
+
 // Main migration function
 // Helper function to get bonus period dates (26th to 25th)
 function getBonusPeriod(year: number, month: number): { startDate: Date; endDate: Date } {
@@ -5463,9 +5517,10 @@ async function createBonusesForEligibleUsers() {
 
     let totalBonusesCreated = 0;
 
-    // Create bonuses only for August, September, and October (months 8, 9, 10)
-    // These are the months with hardcoded bonus values from payroll PDFs
-    const monthsToCreate = [8, 9, 10]; // Aug, Sept, Oct
+    // Create bonuses for August, September, October, and November (months 8, 9, 10, 11)
+    // Months 8-10 have hardcoded bonus values from payroll PDFs
+    // Month 11 (November) will be fully calculated with proper discounts
+    const monthsToCreate = [8, 9, 10, 11]; // Aug, Sept, Oct, Nov
 
     for (const month of monthsToCreate) {
 
@@ -5563,37 +5618,57 @@ async function createBonusesForEligibleUsers() {
             );
           }
 
-          // Calculate weighted task count for B1
+          // NEW WORKFLOW: Calculate RAW and WEIGHTED task counts separately
+          // RAW task count: FULL=1.0, PARTIAL=0.5, SUSPENDED=1.0 (for BASE bonus)
+          // WEIGHTED task count: FULL=1.0, PARTIAL=0.5, SUSPENDED=0 (for NET bonus)
+          let rawTaskCount = 0;
           let weightedTaskCount = 0;
+          let suspendedTaskCount = 0;
+          const suspendedTaskIds: string[] = [];
+
           for (const task of tasksForB1) {
             if (task.commission === 'FULL_COMMISSION') {
+              rawTaskCount += 1;
               weightedTaskCount += 1;
             } else if (task.commission === 'PARTIAL_COMMISSION') {
+              rawTaskCount += 0.5;
               weightedTaskCount += 0.5;
+            } else if (task.commission === 'SUSPENDED_COMMISSION') {
+              rawTaskCount += 1; // Suspended counts as FULL for base calculation
+              // weightedTaskCount += 0 (not counted for net calculation)
+              suspendedTaskCount++;
+              suspendedTaskIds.push(task.id);
             }
-            // NO_COMMISSION and SUSPENDED_COMMISSION contribute 0
+            // NO_COMMISSION contributes 0 to both
           }
 
-          // Calculate B1 (average tasks per eligible user)
+          // Calculate RAW average (for BASE bonus - includes suspended as 1.0)
+          let rawAverageTasksPerUser =
+            eligibleUserCount > 0
+              ? Math.round((rawTaskCount / eligibleUserCount) * 100) / 100
+              : 0;
+
+          // Calculate WEIGHTED average (for NET bonus - suspended = 0)
           let averageTasksPerUser =
             eligibleUserCount > 0
               ? Math.round((weightedTaskCount / eligibleUserCount) * 100) / 100
               : 0;
 
           // Skip if no tasks to distribute, but create demo data for testing
-          if (averageTasksPerUser === 0) {
+          if (rawAverageTasksPerUser === 0) {
             // Use different demo values for different months to show variety in calculations
             const demoValues = [
               12.5, 18.3, 25.7, 15.2, 20.8, 22.1, 16.4, 19.7, 24.3, 14.9, 21.6, 17.8,
             ];
-            averageTasksPerUser = demoValues[(month - 1) % 12];
+            rawAverageTasksPerUser = demoValues[(month - 1) % 12];
+            averageTasksPerUser = rawAverageTasksPerUser; // Same if no real data
             console.log(
-              `    💡 No actual tasks found - using demo averageTasksPerUser value: ${averageTasksPerUser} for ${month}/${currentYear}`,
+              `    💡 No actual tasks found - using demo averageTasksPerUser value: ${rawAverageTasksPerUser} for ${month}/${currentYear}`,
             );
           }
 
-          // Get performance level
-          const performanceLevel = user.performanceLevel || 1;
+          // Get performance level (default to 3 if not set)
+          const performanceLevel = user.performanceLevel || 3;
 
           // Check if we have hardcoded bonus value for this user/month (only the bonus value is hardcoded)
           const userPayrollNumber = user.payrollNumber;
@@ -5601,34 +5676,43 @@ async function createBonusesForEligibleUsers() {
             ? hardcodedBonusByPayrollNumber[userPayrollNumber][month] ?? 0
             : 0;
 
-          // Use hardcoded bonus value if available, otherwise fall back to calculated value
-          const bonusValue = hardcodedBonus > 0
+          // Calculate BASE bonus using RAW average (suspended = 1.0)
+          const baseBonusValue = hardcodedBonus > 0
             ? hardcodedBonus
             : calculateBonusValue(
                 user.position!.name,
                 performanceLevel,
-                averageTasksPerUser,
+                rawAverageTasksPerUser,
               );
 
-          // Calculate weighted tasks from REAL task data (FULL_COMMISSION = 1, PARTIAL_COMMISSION = 0.5)
-          // This uses ALL tasks in the period, not filtered by user
-          let userWeightedTasks = 0;
-          for (const task of tasksForB1) {
-            if (task.commission === 'FULL_COMMISSION') {
-              userWeightedTasks += 1;
-            } else if (task.commission === 'PARTIAL_COMMISSION') {
-              userWeightedTasks += 0.5;
-            }
+          // Calculate NET bonus using WEIGHTED average (suspended = 0)
+          // ALWAYS calculate net with weighted average when there are suspended tasks
+          // This ensures discounts are applied even when base is from hardcoded PDF values
+          let netBonusValue = baseBonusValue;
+          if (suspendedTaskCount > 0) {
+            const calculatedNetBonus = calculateBonusValue(
+              user.position!.name,
+              performanceLevel,
+              averageTasksPerUser,
+            );
+            // Only apply discount if base > calculated net (normal case)
+            // If calculated net >= base (edge case at very low averages due to polynomial),
+            // user should NOT benefit from suspended tasks, so net = base (no discount)
+            netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
           }
+
+          // Calculate discount from suspended tasks (always >= 0)
+          const suspendedTasksDiscount = Math.max(0, Math.round((baseBonusValue - netBonusValue) * 100) / 100);
 
           console.log(`      📊 Calculation details for ${user.name}:`);
           console.log(
             `         Position: ${user.position!.name} (Level ${getDetailedPositionLevel(user.position!.name)})`,
           );
           console.log(`         Performance Level: ${performanceLevel}`);
-          console.log(`         B1 (Avg Tasks/User): ${averageTasksPerUser}`);
-          console.log(`         Bonus Value: R$ ${bonusValue.toFixed(2)}${hardcodedBonus > 0 ? ' (FROM PDF)' : ' (calculated)'}`);
-          console.log(`         Weighted Tasks: ${userWeightedTasks}`);
+          console.log(`         RAW Tasks: ${rawTaskCount} (avg: ${rawAverageTasksPerUser}) | WEIGHTED Tasks: ${weightedTaskCount} (avg: ${averageTasksPerUser})`);
+          console.log(`         Suspended Tasks: ${suspendedTaskCount}`);
+          console.log(`         BASE Bonus: R$ ${baseBonusValue.toFixed(2)}${hardcodedBonus > 0 ? ' (FROM PDF)' : ' (calculated)'}`);
+          console.log(`         NET Bonus: R$ ${netBonusValue.toFixed(2)} (after suspended discount: R$ ${suspendedTasksDiscount.toFixed(2)})`);
 
           // Determine bonus status based on current date and month
           // For past months or if we're past day 26 of current month, use CONFIRMED
@@ -5640,16 +5724,16 @@ async function createBonusesForEligibleUsers() {
 
           // For demo purposes, all past months should be CONFIRMED
 
-          // Create the bonus with all new fields
+          // Create the bonus with new workflow: baseBonus (raw) and netBonus (weighted)
           const bonus = await prisma.bonus.create({
             data: {
               userId: user.id,
               year: currentYear,
               month: month,
               performanceLevel: performanceLevel,
-              baseBonus: bonusValue,
-              netBonus: bonusValue, // Initially same as baseBonus, will be updated if discounts are added
-              weightedTasks: userWeightedTasks,
+              baseBonus: baseBonusValue,
+              netBonus: netBonusValue,
+              weightedTasks: weightedTaskCount,
               averageTaskPerUser: averageTasksPerUser,
             },
           });
@@ -5657,11 +5741,35 @@ async function createBonusesForEligibleUsers() {
           bonusesCreatedThisMonth.push(bonus.id);
           totalBonusesCreated++;
 
-          // NO bonus discounts - using clean bonus values from PDFs for testing
-          // Bonus discounts were removed to ensure payroll calculations match PDF data
+          // Create "Tarefas Suspensas" discount if there's a discount value and suspended tasks
+          if (suspendedTasksDiscount > 0 && suspendedTaskIds.length > 0) {
+            const discount = await prisma.bonusDiscount.create({
+              data: {
+                bonusId: bonus.id,
+                reference: 'Tarefas Suspensas',
+                value: suspendedTasksDiscount,
+                percentage: null,
+                calculationOrder: 1,
+              },
+            });
+
+            // Link suspended tasks to this discount
+            await prisma.task.updateMany({
+              where: {
+                id: { in: suspendedTaskIds },
+              },
+              data: {
+                bonusDiscountId: discount.id,
+              },
+            });
+
+            console.log(
+              `    💸 Created "Tarefas Suspensas" discount: R$ ${suspendedTasksDiscount.toFixed(2)} (${suspendedTaskIds.length} tasks)`,
+            );
+          }
 
           console.log(
-            `    ✅ Created bonus for ${user.name} - ${month}/${currentYear}: R$ ${bonusValue.toFixed(2)} (B1=${averageTasksPerUser})`,
+            `    ✅ Created bonus for ${user.name} - ${month}/${currentYear}: BASE R$ ${baseBonusValue.toFixed(2)} | NET R$ ${netBonusValue.toFixed(2)} (B1=${rawAverageTasksPerUser})`,
           );
         } catch (error: any) {
           console.error(
@@ -6782,6 +6890,7 @@ async function main() {
     await updatePositionsBonifiableFlag(); // Update bonifiable flag for positions
     await migrateSectors();
     await migrateUsers();
+    await updatePerformanceLevelForBonifiableUsers(); // Set performanceLevel = 3 for bonifiable users
     await migrateSuppliers();
     await createItemCategoriesAndBrands();
     await migrateBrandsAsCustomers();

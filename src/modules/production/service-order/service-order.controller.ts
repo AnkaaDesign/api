@@ -98,7 +98,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -111,7 +111,7 @@ export class ServiceOrderController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(serviceOrderCreateSchema)) data: ServiceOrderCreateFormData,
@@ -123,7 +123,7 @@ export class ServiceOrderController {
 
   // Batch Operations
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(serviceOrderBatchCreateSchema))
@@ -136,7 +136,7 @@ export class ServiceOrderController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(serviceOrderBatchUpdateSchema))
     data: ServiceOrderBatchUpdateFormData,
@@ -148,7 +148,7 @@ export class ServiceOrderController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(serviceOrderBatchDeleteSchema))
@@ -163,7 +163,7 @@ export class ServiceOrderController {
   // =====================
 
   @Put(':id/status')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: SERVICE_ORDER_STATUS,
@@ -182,7 +182,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -195,7 +195,7 @@ export class ServiceOrderController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.TEAM_LEADER)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(serviceOrderUpdateSchema)) data: ServiceOrderUpdateFormData,
@@ -206,7 +206,7 @@ export class ServiceOrderController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -228,7 +228,7 @@ export class ServiceController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -240,7 +240,7 @@ export class ServiceController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(serviceCreateSchema)) data: ServiceCreateFormData,
@@ -252,7 +252,7 @@ export class ServiceController {
 
   // Batch Operations
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(serviceBatchCreateSchema)) data: ServiceBatchCreateFormData,
@@ -263,7 +263,7 @@ export class ServiceController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(serviceBatchUpdateSchema)) data: ServiceBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
@@ -273,7 +273,7 @@ export class ServiceController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(serviceBatchDeleteSchema)) data: ServiceBatchDeleteFormData,
@@ -291,7 +291,7 @@ export class ServiceController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -304,7 +304,7 @@ export class ServiceController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(serviceUpdateSchema)) data: ServiceUpdateFormData,
@@ -315,7 +315,7 @@ export class ServiceController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

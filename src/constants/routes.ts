@@ -458,25 +458,8 @@ export const routes = {
       root: '/producao/recorte',
     },
     garages: {
-      create: '/producao/garagens/cadastrar',
-      details: (id: string) => `/producao/garagens/detalhes/${id}`,
-      edit: (id: string) => `/producao/garagens/editar/${id}`,
-      lanes: {
-        create: (_garageId: string) => `/producao/garagens/${_garageId}/lanes/cadastrar`,
-        details: (_garageId: string, laneId: string) =>
-          `/producao/garagens/lanes/detalhes/${laneId}`,
-        edit: (_garageId: string, laneId: string) =>
-          `/producao/garagens/${_garageId}/lanes/editar/${laneId}`,
-      },
-      list: '/producao/garagens',
-      parkingSpots: {
-        create: (_garageId: string) => `/producao/garagens/${_garageId}/parking-spots/cadastrar`,
-        details: (_garageId: string, spotId: string) =>
-          `/producao/garagens/parking-spots/detalhes/${spotId}`,
-        edit: (_garageId: string, spotId: string) =>
-          `/producao/garagens/${_garageId}/parking-spots/editar/${spotId}`,
-      },
-      root: '/producao/garagens',
+      root: '/producao/barracoes',
+      patio: '/producao/barracoes/patio',
     },
     history: {
       cancelled: '/producao/historico/cancelados',

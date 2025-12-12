@@ -305,7 +305,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
             include: z
               .object({
                 task: z.boolean().optional(),
-                garage: z.boolean().optional(),
                 leftSideLayout: z
                   .union([
                     z.boolean(),
@@ -614,10 +613,10 @@ const taskTransform = (data: any): any => {
         { generalPainting: { code: { contains: searchTerm, mode: 'insensitive' } } },
         { logoPaints: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
         { logoPaints: { some: { code: { contains: searchTerm, mode: 'insensitive' } } } },
-        // Truck search - plate, chassisNumber
+        // Truck search - plate, chassisNumber, serialNumber
         { truck: { plate: { contains: searchTerm, mode: 'insensitive' } } },
         { truck: { chassisNumber: { contains: searchTerm, mode: 'insensitive' } } },
-        { truck: { garage: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { truck: { serialNumber: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -879,9 +878,10 @@ const taskTransform = (data: any): any => {
     delete data.logoPaintIds;
   }
 
-  if (data.garageIds && Array.isArray(data.garageIds) && data.garageIds.length > 0) {
-    andConditions.push({ truck: { garageId: { in: data.garageIds } } });
-    delete data.garageIds;
+  // Filter by truck spot (garage position)
+  if (data.spots && Array.isArray(data.spots) && data.spots.length > 0) {
+    andConditions.push({ truck: { spot: { in: data.spots } } });
+    delete data.spots;
   }
 
   // Date range filters
@@ -1124,7 +1124,7 @@ export const taskGetManySchema = z
     truckIds: z.array(z.string()).optional(),
     paintIds: z.array(z.string()).optional(), // Filter by general painting/paint ID
     logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
-    garageIds: z.array(z.string()).optional(), // Filter tasks by truck garage location
+    spots: z.array(z.string()).optional(), // Filter tasks by truck spot/position
     // Numeric range filters
     progressRange: z
       .object({
@@ -1328,61 +1328,53 @@ const taskServiceOrderCreateSchema = z.object({
   finishedAt: nullableDate.optional(),
 });
 
-// Truck schema
-const taskTruckCreateSchema = z.object({
-  xPosition: z.number().nullable().optional(),
-  yPosition: z.number().nullable().optional(),
-  garageId: z.string().uuid('Garagem inválida').nullable().optional(),
+// Layout section schema
+const layoutSectionSchema = z.object({
+  id: z.string().uuid().optional(), // Existing section ID for updates
+  width: z.number().positive(),
+  isDoor: z.boolean(),
+  doorHeight: z.number().nullable(),
+  position: z.number(),
 });
 
-// Layout data schema for embedding in task create/update
-const taskLayoutDataSchema = z
+// Layout side schema
+const layoutSideSchema = z
   .object({
-    leftSide: z
-      .object({
-        height: z.number().positive(),
-        layoutSections: z.array(
-          z.object({
-            width: z.number().positive(),
-            isDoor: z.boolean(),
-            doorHeight: z.number().nullable(),
-            position: z.number(),
-          }),
-        ),
-        photoId: z.string().uuid().nullable().optional(),
-      })
+    id: z.string().uuid().optional(), // Existing layout ID for updates
+    height: z.number().positive(),
+    layoutSections: z.array(layoutSectionSchema),
+    photoId: z.string().uuid().nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
+// Consolidated truck schema - ALL truck fields in one place
+const taskTruckSchema = z
+  .object({
+    // Basic truck fields
+    plate: z
+      .string()
       .nullable()
-      .optional(),
-    rightSide: z
-      .object({
-        height: z.number().positive(),
-        layoutSections: z.array(
-          z.object({
-            width: z.number().positive(),
-            isDoor: z.boolean(),
-            doorHeight: z.number().nullable(),
-            position: z.number(),
-          }),
-        ),
-        photoId: z.string().uuid().nullable().optional(),
-      })
+      .optional()
+      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
+        message: 'Placa deve conter apenas letras maiúsculas, números e hífens',
+      }),
+    chassisNumber: z
+      .string()
       .nullable()
-      .optional(),
-    backSide: z
-      .object({
-        height: z.number().positive(),
-        layoutSections: z.array(
-          z.object({
-            width: z.number().positive(),
-            isDoor: z.boolean(),
-            doorHeight: z.number().nullable(),
-            position: z.number(),
-          }),
-        ),
-        photoId: z.string().uuid().nullable().optional(),
-      })
-      .nullable()
-      .optional(),
+      .optional()
+      .refine((val) => {
+        if (!val) return true;
+        const cleaned = val.replace(/\s/g, '').toUpperCase();
+        return /^[A-Z0-9]{17}$/.test(cleaned);
+      }, {
+        message: 'Número do chassi deve ter exatamente 17 caracteres alfanuméricos',
+      }),
+    spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
+    // Layout data - embedded in truck for single payload
+    leftSideLayout: layoutSideSchema,
+    rightSideLayout: layoutSideSchema,
+    backSideLayout: layoutSideSchema,
   })
   .nullable()
   .optional();
@@ -1438,8 +1430,7 @@ export const taskCreateSchema = z
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
-    truck: taskTruckCreateSchema.nullable().optional(),
-    truckLayoutData: taskLayoutDataSchema, // Layout data for truck
+    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -1539,8 +1530,7 @@ export const taskUpdateSchema = z
     observation: taskObservationCreateSchema.nullable().optional(),
     services: z.array(taskServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
-    truck: taskTruckCreateSchema.nullable().optional(),
-    truckLayoutData: taskLayoutDataSchema, // Layout data for truck
+    truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
@@ -1700,23 +1690,24 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
 // Task Positioning Schemas
 // =====================
 
-// Schema for updating a single truck position
+import { TRUCK_SPOT } from '@constants';
+
+// Spot schema using the TRUCK_SPOT enum
+const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
+
+// Schema for updating a single truck spot
 export const taskPositionUpdateSchema = z.object({
-  xPosition: z.number().nullable().optional(),
-  yPosition: z.number().nullable().optional(),
-  garageId: z.string().uuid().nullable().optional(),
+  spot: truckSpotSchema.nullable().optional(),
 });
 
 export type TaskPositionUpdateFormData = z.infer<typeof taskPositionUpdateSchema>;
 
-// Schema for bulk updating truck positions
+// Schema for bulk updating truck spots
 export const taskBulkPositionUpdateSchema = z.object({
   updates: z.array(
     z.object({
       taskId: z.string().uuid(),
-      xPosition: z.number().nullable().optional(),
-      yPosition: z.number().nullable().optional(),
-      garageId: z.string().uuid().nullable().optional(),
+      spot: truckSpotSchema.nullable().optional(),
     }),
   ),
 });

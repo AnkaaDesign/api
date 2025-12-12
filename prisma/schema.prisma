@@ -944,14 +944,17 @@ model Warning {
 }
 
 model Sector {
-  id             String           @id @default(uuid())
-  name           String
-  privileges     SectorPrivileges @default(BASIC)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  tasks          Task[]
-  managedByUsers User[]           @relation("USER_MANAGED_SECTOR")
-  users          User[]
+  id         String           @id @default(uuid())
+  name       String
+  privileges SectorPrivileges @default(BASIC)
+  managerId  String?          @unique
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  tasks      Task[]
+  manager    User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
+  users      User[]
+
+  @@index([managerId])
 }
 
 model Service {
@@ -1109,25 +1112,22 @@ model Cut {
 }
 
 model Truck {
-  id                String   @id @default(uuid())
-  plate             String?  @unique
+  id                String      @id @default(uuid())
+  plate             String?     @unique
   chassisNumber     String?
-  xPosition         Float?
-  yPosition         Float?
-  taskId            String   @unique
-  garageId          String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  backSideLayoutId  String?  @unique
-  leftSideLayoutId  String?  @unique
-  rightSideLayoutId String?  @unique
-  backSideLayout    Layout?  @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
-  garage            Garage?  @relation("TRUCK_GARAGE", fields: [garageId], references: [id])
-  leftSideLayout    Layout?  @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
-  rightSideLayout   Layout?  @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
-  task              Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  spot              TRUCK_SPOT? // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
+  taskId            String      @unique
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  backSideLayoutId  String?     @unique
+  leftSideLayoutId  String?     @unique
+  rightSideLayoutId String?     @unique
+  backSideLayout    Layout?     @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
+  leftSideLayout    Layout?     @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
+  rightSideLayout   Layout?     @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  task              Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
-  @@index([garageId])
+  @@index([spot])
   @@index([plate])
 }
 
@@ -1158,15 +1158,10 @@ model LayoutSection {
   @@index([layoutId, position])
 }
 
-model Garage {
-  id        String   @id @default(uuid())
-  name      String
-  width     Float    @default(25)
-  length    Float    @default(45)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  trucks    Truck[]  @relation("TRUCK_GARAGE")
-}
+// Garage model removed - garages are now static configuration
+// See: api/src/constants/garage.ts and shared types for static garage definitions
+// 3 Garages: B1 (20x30m), B2 (18.5x30.5m), B3 (20x40m)
+// Each has 3 lanes (F1, F2, F3) with 3 spots (V1, V2, V3) each
 
 model SecullumToken {
   id           String   @id @default(uuid())
@@ -1209,14 +1204,12 @@ model User {
   verified              Boolean            @default(false)
   admissional           DateTime?
   sectorId              String?
-  managedSectorId       String?
   requirePasswordChange Boolean            @default(false)
   lastLoginAt           DateTime?
   verificationCode      String?
   verificationExpiresAt DateTime?
   verificationType      VerificationType?
   sessionToken          String?            @unique
-  secullumId            String?            @unique @map("secullum_id")
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   performanceLevel      Int                @default(0)
@@ -1245,7 +1238,7 @@ model User {
   seenNotification      SeenNotification[]
   createdTasks          Task[]             @relation("TASK_CREATED_BY")
   avatar                File?              @relation("USER_AVATAR", fields: [avatarId], references: [id])
-  managedSector         Sector?            @relation("USER_MANAGED_SECTOR", fields: [managedSectorId], references: [id])
+  managedSector         Sector?            @relation("SECTOR_MANAGER")
   position              Position?          @relation("USER_POSITION", fields: [positionId], references: [id])
   sector                Sector?            @relation(fields: [sectorId], references: [id])
   vacations             Vacation[]
@@ -1972,6 +1965,44 @@ enum MonthOccurrence {
   THIRD
   FOURTH
   LAST
+}
+
+// Truck parking spots in garages
+// Format: B{garage}_F{lane}_V{spot} where garage=1-3, lane=1-3, spot=1-3
+// PATIO = trucks in the yard, not assigned to a garage spot yet
+enum TRUCK_SPOT {
+  // Garage 1 (B1)
+  B1_F1_V1
+  B1_F1_V2
+  B1_F1_V3
+  B1_F2_V1
+  B1_F2_V2
+  B1_F2_V3
+  B1_F3_V1
+  B1_F3_V2
+  B1_F3_V3
+  // Garage 2 (B2)
+  B2_F1_V1
+  B2_F1_V2
+  B2_F1_V3
+  B2_F2_V1
+  B2_F2_V2
+  B2_F2_V3
+  B2_F3_V1
+  B2_F3_V2
+  B2_F3_V3
+  // Garage 3 (B3)
+  B3_F1_V1
+  B3_F1_V2
+  B3_F1_V3
+  B3_F2_V1
+  B3_F2_V2
+  B3_F2_V3
+  B3_F3_V1
+  B3_F3_V2
+  B3_F3_V3
+  // Patio (outside, not in a garage)
+  PATIO
 }
 
 enum OrderTriggerType {

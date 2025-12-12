@@ -11,6 +11,7 @@ import { PpeModule } from '@modules/inventory/ppe/ppe.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
 import { BonusModule } from '@modules/human-resources/bonus/bonus.module';
+import { WarningModule } from '../warning/warning.module';
 
 /**
  * Personal Module
@@ -18,7 +19,7 @@ import { BonusModule } from '@modules/human-resources/bonus/bonus.module';
  * All endpoints automatically filter data by authenticated user
  *
  * Controllers:
- * - PersonalController (/personal/*) - vacations, loans, EPIs, activities, holidays
+ * - PersonalController (/personal/*) - vacations, loans, EPIs, activities, warnings, holidays
  * - PersonalBonusController (/bonuses/*) - personal bonus data (my-bonuses, my-live-bonus)
  */
 @Module({
@@ -31,6 +32,7 @@ import { BonusModule } from '@modules/human-resources/bonus/bonus.module';
     ActivityModule,
     SecullumModule, // Required for Secullum calculations
     BonusModule, // Required for bonus/my-bonuses endpoints
+    WarningModule, // Required for warnings/my-warnings endpoints
   ],
   controllers: [PersonalController, PersonalBonusController],
   providers: [PersonalService],

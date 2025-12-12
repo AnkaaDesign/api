@@ -29,6 +29,7 @@ import type {
   PpeDeliveryGetManyResponse,
   PpeDeliveryCreateResponse,
   ActivityGetManyResponse,
+  WarningGetManyResponse,
 } from '../../../types';
 import type {
   VacationGetManyFormData,
@@ -36,6 +37,7 @@ import type {
   PpeDeliveryGetManyFormData,
   PpeDeliveryCreateFormData,
   ActivityGetManyFormData,
+  WarningGetManyFormData,
 } from '../../../schemas';
 import {
   vacationGetManySchema,
@@ -44,6 +46,7 @@ import {
   ppeDeliveryCreateSchema,
   ppeDeliveryPersonalRequestSchema,
   activityGetManySchema,
+  warningGetManySchema,
 } from '../../../schemas';
 
 /**
@@ -57,6 +60,7 @@ import {
  * - GET /personal/my-epis - Get authenticated user's PPE deliveries
  * - POST /personal/my-epis/request - Request new EPIs
  * - GET /personal/my-activities - Get authenticated user's activities
+ * - GET /personal/my-warnings - Get authenticated user's warnings (avisos)
  * - GET /personal/my-holidays - Get holidays (public/company holidays)
  */
 @Controller('personal')
@@ -78,7 +82,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -107,7 +111,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -136,7 +140,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -162,7 +166,7 @@ export class PersonalController {
   @HttpCode(HttpStatus.CREATED)
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -204,7 +208,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -222,6 +226,35 @@ export class PersonalController {
   }
 
   // =====================
+  // MY WARNINGS (Meus Avisos)
+  // =====================
+
+  /**
+   * Get authenticated user's warnings
+   * Filters warnings by userId automatically
+   */
+  @Get('my-warnings')
+  @ReadRateLimit()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyWarnings(
+    @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
+    @UserId() userId: string,
+  ): Promise<WarningGetManyResponse> {
+    return this.personalService.getMyWarnings(userId, query);
+  }
+
+  // =====================
   // MY HOLIDAYS (Meus Feriados)
   // =====================
 
@@ -234,7 +267,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,
@@ -268,7 +301,7 @@ export class PersonalController {
   @ReadRateLimit()
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.DESIGNER,

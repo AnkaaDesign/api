@@ -101,7 +101,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             cpf: 'Este CPF já está cadastrado.',
             pis: 'Este PIS já está cadastrado.',
             payrollNumber: 'Este número da folha de pagamento já está em uso.',
-            secullumId: 'Este ID Secullum já está cadastrado.',
             sessionToken: 'Este token de sessão já está em uso.',
             preferenceId: 'Esta preferência já está cadastrada.',
           };

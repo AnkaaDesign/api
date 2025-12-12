@@ -45,8 +45,12 @@ interface LiveBonusData {
   baseBonus: number;
   netBonus?: number;
   weightedTasks: number;
+  rawTaskCount: number; // Task count with suspended as 1.0
+  suspendedTasksCount: number;
+  suspendedTasksDiscount: number; // Discount from suspended tasks (baseBonus - netBonus)
   tasks: any[];
   averageTasksPerEmployee: number;
+  rawAverageTasksPerEmployee: number; // Average with suspended as 1.0
   isLive: true;
 }
 
@@ -57,7 +61,10 @@ interface LiveBonusCalculationResult {
   totalActiveUsers: number;
   totalEligibleUsersForAverage: number; // Users with performanceLevel > 0
   totalWeightedTasks: number;
+  totalRawTaskCount: number; // Task count with suspended as 1.0
+  totalSuspendedTasks: number;
   averageTasksPerEmployee: number;
+  rawAverageTasksPerEmployee: number; // Average with suspended as 1.0
   calculatedAt: Date;
   isLive: true;
 }
@@ -68,7 +75,7 @@ interface LiveBonusCalculationResult {
 
 /**
  * Calculate weighted task count from tasks array
- * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5
+ * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5, SUSPENDED_COMMISSION = 0.0
  */
 function calculatePonderedTaskCount(tasks: any[]): number {
   if (!tasks || tasks.length === 0) return 0;
@@ -79,8 +86,38 @@ function calculatePonderedTaskCount(tasks: any[]): number {
     } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
       return sum + 0.5;
     }
+    // SUSPENDED_COMMISSION and NO_COMMISSION = 0.0
     return sum;
   }, 0);
+}
+
+/**
+ * Calculate raw task count for base bonus calculation
+ * Treats SUSPENDED_COMMISSION as FULL_COMMISSION (1.0) for base value calculation
+ * FULL_COMMISSION = 1.0, PARTIAL_COMMISSION = 0.5, SUSPENDED_COMMISSION = 1.0
+ */
+function calculateRawTaskCount(tasks: any[]): number {
+  if (!tasks || tasks.length === 0) return 0;
+
+  return tasks.reduce((sum, task) => {
+    if (task.commission === COMMISSION_STATUS.FULL_COMMISSION) {
+      return sum + 1.0;
+    } else if (task.commission === COMMISSION_STATUS.PARTIAL_COMMISSION) {
+      return sum + 0.5;
+    } else if (task.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION) {
+      return sum + 1.0; // Suspended tasks count as full for base calculation
+    }
+    // NO_COMMISSION = 0.0
+    return sum;
+  }, 0);
+}
+
+/**
+ * Count suspended tasks in the array
+ */
+function countSuspendedTasks(tasks: any[]): number {
+  if (!tasks || tasks.length === 0) return 0;
+  return tasks.filter(task => task.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION).length;
 }
 
 /**
@@ -351,6 +388,25 @@ export class BonusService {
       // For live bonus, position comes from current user.position (real-time)
       // Note: Period dates are NOT stored - they can be calculated from year/month
       // Period is always: 26th of (month-1) to 25th of (month)
+
+      // Build "Tarefas Suspensas" discount if applicable
+      const suspendedTasksDiscount = userLiveBonus?.suspendedTasksDiscount || 0;
+      const bonusDiscounts: any[] = [];
+
+      if (suspendedTasksDiscount > 0 && liveData.totalSuspendedTasks > 0) {
+        bonusDiscounts.push({
+          id: `live-discount-suspended-${userId}-${year}-${month}`,
+          bonusId: `live-${userId}-${year}-${month}`,
+          reference: 'Tarefas Suspensas',
+          value: suspendedTasksDiscount,
+          percentage: null,
+          calculationOrder: 1,
+          suspendedTasks: (userLiveBonus?.tasks || []).filter(
+            (t: any) => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION,
+          ),
+        });
+      }
+
       const liveBonus = {
         // Core bonus fields (same as database columns)
         id: `live-${userId}-${year}-${month}`,
@@ -359,7 +415,7 @@ export class BonusService {
         month,
         performanceLevel: userLiveBonus?.performanceLevel || user.performanceLevel || 0,
         baseBonus: userLiveBonus?.baseBonus || 0,
-        netBonus: userLiveBonus?.baseBonus || 0, // Same as baseBonus initially
+        netBonus: userLiveBonus?.netBonus || userLiveBonus?.baseBonus || 0,
         weightedTasks: liveData.totalWeightedTasks,
         averageTaskPerUser: liveData.averageTasksPerEmployee,
         payrollId: null,
@@ -397,8 +453,8 @@ export class BonusService {
           sector: task.sector || null,
         })),
 
-        // BonusDiscounts relation (empty for live calculation)
-        bonusDiscounts: [],
+        // BonusDiscounts relation - includes "Tarefas Suspensas" if applicable
+        bonusDiscounts,
 
         // Users relation (all bonifiable users for this period)
         users: allEligibleUsers,
@@ -971,6 +1027,14 @@ export class BonusService {
    * Calculate live bonuses for a given period.
    * This is used when the current period is requested and we need real-time calculations.
    *
+   * NEW WORKFLOW:
+   * 1. Get ALL tasks (including SUSPENDED_COMMISSION)
+   * 2. Calculate RAW task count (suspended = 1.0) for BASE bonus calculation
+   * 3. Calculate WEIGHTED task count (suspended = 0.0) for NET bonus calculation
+   * 4. BASE bonus = calculated with raw average
+   * 5. NET bonus = calculated with weighted average
+   * 6. DISCOUNT "Tarefas Suspensas" = BASE - NET
+   *
    * @param year The year
    * @param month The month (1-12)
    * @returns Live calculated bonus data for all eligible users
@@ -1014,11 +1078,15 @@ export class BonusService {
         },
       });
 
-      // Get all eligible tasks in the period
-      const eligibleTasks = await this.prisma.task.findMany({
+      // Get ALL tasks in the period (including SUSPENDED_COMMISSION for base calculation)
+      const allTasks = await this.prisma.task.findMany({
         where: {
           commission: {
-            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+            in: [
+              COMMISSION_STATUS.FULL_COMMISSION,
+              COMMISSION_STATUS.PARTIAL_COMMISSION,
+              COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            ],
           },
           finishedAt: {
             gte: startDate,
@@ -1047,18 +1115,30 @@ export class BonusService {
         },
       });
 
-      // Calculate weighted task count using utility function
-      const totalWeightedTasks = calculatePonderedTaskCount(eligibleTasks);
+      // Calculate RAW task count (suspended = 1.0) for BASE bonus
+      const totalRawTaskCount = calculateRawTaskCount(allTasks);
+
+      // Calculate WEIGHTED task count (suspended = 0.0) for NET bonus
+      const totalWeightedTasks = calculatePonderedTaskCount(allTasks);
+
+      // Count suspended tasks
+      const totalSuspendedTasks = countSuspendedTasks(allTasks);
 
       // For average calculation, only count users with performanceLevel > 0
       // (this is the divisor in the bonus formula)
       const usersWithPerformance = allBonifiableUsers.filter(u => u.performanceLevel > 0);
       const totalEligibleUsers = usersWithPerformance.length;
+
+      // Calculate RAW average (for BASE bonus - includes suspended as 1.0)
+      const rawAverageTasksPerUser =
+        totalEligibleUsers > 0 ? roundAverage(totalRawTaskCount / totalEligibleUsers) : 0;
+
+      // Calculate WEIGHTED average (for NET bonus - suspended = 0.0)
       const averageTasksPerUser =
         totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
 
       this.logger.log(
-        `Period ${month}/${year}: ${totalWeightedTasks} weighted tasks / ${totalEligibleUsers} eligible users (with performance > 0) = ${averageTasksPerUser.toFixed(2)} tasks per user`,
+        `Period ${month}/${year}: RAW ${totalRawTaskCount} tasks (raw avg: ${rawAverageTasksPerUser.toFixed(2)}) | WEIGHTED ${totalWeightedTasks} tasks (weighted avg: ${averageTasksPerUser.toFixed(2)}) | ${totalSuspendedTasks} suspended tasks | ${totalEligibleUsers} eligible users`,
       );
 
       // Calculate bonus for ALL bonifiable users (including performanceLevel = 0)
@@ -1067,11 +1147,27 @@ export class BonusService {
       const bonuses: LiveBonusData[] = allBonifiableUsers.map(user => {
         const positionName = user.position?.name || 'DEFAULT';
 
-        // Calculate bonus value - will be 0 for performanceLevel = 0
-        const bonusValue = this.exactBonusCalculationService.calculateBonus(
+        // Calculate BASE bonus using RAW average (suspended = 1.0)
+        const baseBonusValue = this.exactBonusCalculationService.calculateBonus(
+          positionName,
+          user.performanceLevel,
+          rawAverageTasksPerUser,
+        );
+
+        // Calculate NET bonus using WEIGHTED average (suspended = 0.0)
+        const calculatedNetBonus = this.exactBonusCalculationService.calculateBonus(
           positionName,
           user.performanceLevel,
           averageTasksPerUser,
+        );
+
+        // Net bonus should not exceed base bonus (edge case at very low averages due to polynomial)
+        // Users should NOT benefit from suspended tasks
+        const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
+
+        // Calculate discount from suspended tasks (always >= 0)
+        const suspendedTasksDiscount = roundCurrency(
+          Math.max(0, roundCurrency(baseBonusValue) - roundCurrency(netBonusValue)),
         );
 
         // ALL users share the same tasks pool - this is how the bonus system works
@@ -1081,10 +1177,15 @@ export class BonusService {
           userName: user.name,
           positionName,
           performanceLevel: user.performanceLevel,
-          baseBonus: roundCurrency(bonusValue),
-          weightedTasks: totalWeightedTasks,           // Period total (same for all)
-          tasks: eligibleTasks,                         // All tasks (same for all)
-          averageTasksPerEmployee: averageTasksPerUser, // Period average (same for all)
+          baseBonus: roundCurrency(baseBonusValue),
+          netBonus: roundCurrency(netBonusValue),
+          weightedTasks: totalWeightedTasks,
+          rawTaskCount: totalRawTaskCount,
+          suspendedTasksCount: totalSuspendedTasks,
+          suspendedTasksDiscount,
+          tasks: allTasks,
+          averageTasksPerEmployee: averageTasksPerUser,
+          rawAverageTasksPerEmployee: rawAverageTasksPerUser,
           isLive: true as const,
         };
       });
@@ -1096,7 +1197,10 @@ export class BonusService {
         totalActiveUsers: allBonifiableUsers.length,
         totalEligibleUsersForAverage: totalEligibleUsers,
         totalWeightedTasks,
+        totalRawTaskCount,
+        totalSuspendedTasks,
         averageTasksPerEmployee: averageTasksPerUser,
+        rawAverageTasksPerEmployee: rawAverageTasksPerUser,
         calculatedAt: new Date(),
         isLive: true,
       };
@@ -1267,6 +1371,22 @@ export class BonusService {
         } else if (liveBonus) {
           // No saved bonus but has live calculation
           // BUILD LIVE BONUS IN EXACT SAME STRUCTURE AS SAVED BONUS
+
+          // Build "Tarefas Suspensas" discount if applicable
+          const suspendedTasksDiscount = liveBonus.suspendedTasksDiscount || 0;
+          const liveBonusDiscounts: any[] = [];
+
+          if (suspendedTasksDiscount > 0) {
+            liveBonusDiscounts.push({
+              id: `live-discount-suspended-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+              bonusId: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+              reference: 'Tarefas Suspensas',
+              value: suspendedTasksDiscount,
+              percentage: null,
+              calculationOrder: 1,
+            });
+          }
+
           mergedBonuses.push({
             // Core bonus fields (same as database columns)
             id: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
@@ -1275,7 +1395,7 @@ export class BonusService {
             month: currentPeriod.month,
             performanceLevel: liveBonus.performanceLevel,
             baseBonus: liveBonus.baseBonus,
-            netBonus: liveBonus.baseBonus, // Same as baseBonus initially
+            netBonus: liveBonus.netBonus || liveBonus.baseBonus, // Use calculated netBonus
             weightedTasks: liveData.totalWeightedTasks,
             averageTaskPerUser: liveData.averageTasksPerEmployee,
             payrollId: null,
@@ -1296,7 +1416,7 @@ export class BonusService {
               customer: task.customer || null,
               sector: task.sector || null,
             })),
-            bonusDiscounts: [],
+            bonusDiscounts: liveBonusDiscounts,
             users: allEligibleUserRefs,
           });
         } else {
@@ -1364,6 +1484,14 @@ export class BonusService {
    * Calculate and save bonuses for a period.
    * Creates bonus records for ALL active users with payroll numbers.
    * Non-eligible users get bonus value 0 and performance level 0.
+   *
+   * NEW WORKFLOW:
+   * 1. Get ALL tasks (including SUSPENDED_COMMISSION)
+   * 2. Calculate RAW task count (suspended = 1.0) for BASE bonus calculation
+   * 3. Calculate WEIGHTED task count (suspended = 0.0) for NET bonus calculation
+   * 4. BASE bonus = calculated with raw average
+   * 5. NET bonus = calculated with weighted average
+   * 6. Create DISCOUNT "Tarefas Suspensas" = BASE - NET (as fixed value discount)
    */
   async calculateAndSaveBonuses(
     year: string,
@@ -1374,7 +1502,7 @@ export class BonusService {
       const yearNum = parseInt(year);
       const monthNum = parseInt(month);
 
-      // Get live calculation data for eligible users
+      // Get live calculation data for eligible users (now includes suspended task calculations)
       const liveData = await this.calculateLiveBonuses(yearNum, monthNum);
 
       // Get ALL active users with payroll numbers (not just eligible ones)
@@ -1410,11 +1538,15 @@ export class BonusService {
       const periodStart = getPeriodStart(yearNum, monthNum);
       const periodEnd = getPeriodEnd(yearNum, monthNum);
 
-      // Get all tasks for this period - ALL users share the same task pool
+      // Get all tasks for this period (including suspended) - ALL users share the same task pool
       const allTasksForPeriod = await this.prisma.task.findMany({
         where: {
           commission: {
-            in: [COMMISSION_STATUS.FULL_COMMISSION, COMMISSION_STATUS.PARTIAL_COMMISSION],
+            in: [
+              COMMISSION_STATUS.FULL_COMMISSION,
+              COMMISSION_STATUS.PARTIAL_COMMISSION,
+              COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            ],
           },
           finishedAt: {
             gte: periodStart,
@@ -1422,8 +1554,13 @@ export class BonusService {
           },
           status: TASK_STATUS.COMPLETED,
         },
-        select: { id: true },
+        select: { id: true, commission: true },
       });
+
+      // Get suspended task IDs for linking to discounts
+      const suspendedTaskIds = allTasksForPeriod
+        .filter(t => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION)
+        .map(t => t.id);
 
       // All task IDs for connecting to bonuses (same for all users)
       const allTaskIds = allTasksForPeriod.map(t => t.id);
@@ -1446,10 +1583,15 @@ export class BonusService {
                 year: yearNum,
                 month: monthNum,
               },
+              include: {
+                bonusDiscounts: true,
+              },
             });
 
             // Eligible users get calculated values, non-eligible get 0
             const baseBonus = isEligible ? eligibleBonus.baseBonus : 0;
+            const netBonus = isEligible ? (eligibleBonus.netBonus || eligibleBonus.baseBonus) : 0;
+            const suspendedTasksDiscount = isEligible ? eligibleBonus.suspendedTasksDiscount : 0;
 
             // All users share the same period-level data
             const bonusPayload = {
@@ -1458,10 +1600,12 @@ export class BonusService {
               month: monthNum,
               performanceLevel: isEligible ? eligibleBonus.performanceLevel : 0,
               baseBonus,
-              netBonus: baseBonus, // Initially same as baseBonus, discounts applied separately
-              weightedTasks: totalWeightedTasks,      // Period total (same for all)
-              averageTaskPerUser: averageTasksPerUser, // Period average (same for all)
+              netBonus, // Net bonus after suspended tasks discount
+              weightedTasks: totalWeightedTasks,
+              averageTaskPerUser: averageTasksPerUser,
             };
+
+            let bonusId: string;
 
             if (existingBonus) {
               await tx.bonus.update({
@@ -1473,8 +1617,17 @@ export class BonusService {
                   users: { set: allBonusUserIds.map(uid => ({ id: uid })) },
                 },
               });
+              bonusId = existingBonus.id;
+
+              // Delete existing "Tarefas Suspensas" discount to recreate it
+              await tx.bonusDiscount.deleteMany({
+                where: {
+                  bonusId: existingBonus.id,
+                  reference: 'Tarefas Suspensas',
+                },
+              });
             } else {
-              await tx.bonus.create({
+              const newBonus = await tx.bonus.create({
                 data: {
                   ...bonusPayload,
                   // Connect ALL period tasks and ALL eligible users (same for all bonuses)
@@ -1482,6 +1635,34 @@ export class BonusService {
                   users: { connect: allBonusUserIds.map(uid => ({ id: uid })) },
                 },
               });
+              bonusId = newBonus.id;
+            }
+
+            // Create "Tarefas Suspensas" discount if there's a discount value and suspended tasks
+            if (suspendedTasksDiscount > 0 && suspendedTaskIds.length > 0) {
+              const discount = await tx.bonusDiscount.create({
+                data: {
+                  bonusId,
+                  reference: 'Tarefas Suspensas',
+                  value: suspendedTasksDiscount,
+                  percentage: null,
+                  calculationOrder: 1,
+                },
+              });
+
+              // Link suspended tasks to this discount
+              await tx.task.updateMany({
+                where: {
+                  id: { in: suspendedTaskIds },
+                },
+                data: {
+                  bonusDiscountId: discount.id,
+                },
+              });
+
+              this.logger.debug(
+                `Created "Tarefas Suspensas" discount for user ${user.name}: R$ ${suspendedTasksDiscount.toFixed(2)} (${suspendedTaskIds.length} tasks)`,
+              );
             }
 
             successCount++;
@@ -1493,7 +1674,7 @@ export class BonusService {
       });
 
       this.logger.log(
-        `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users)`,
+        `Monthly bonus calculation completed: ${successCount} success, ${failedCount} failed (${allActiveUsers.length} total active users). Suspended tasks: ${suspendedTaskIds.length}`,
       );
 
       return { totalSuccess: successCount, totalFailed: failedCount };

@@ -63,9 +63,13 @@ export class WarningService {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
-        select: { managedSectorId: true },
+        select: {
+          managedSector: {
+            select: { id: true }
+          }
+        },
       });
-      return user;
+      return user ? { managedSectorId: user.managedSector?.id || null } : null;
     } catch (error: any) {
       this.logger.error('Error fetching user managed sector:', error);
       return null;

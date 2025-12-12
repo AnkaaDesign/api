@@ -10,6 +10,7 @@ import { PpeDeliveryService } from '@modules/inventory/ppe/ppe-delivery.service'
 import { ActivityService } from '@modules/inventory/activity/activity.service';
 import { SecullumService } from '@modules/integrations/secullum/secullum.service';
 import { BonusService } from '@modules/human-resources/bonus/bonus.service';
+import { WarningService } from '../warning/warning.service';
 import { PPE_DELIVERY_STATUS } from '../../../constants/enums';
 import type {
   VacationGetManyResponse,
@@ -18,6 +19,7 @@ import type {
   PpeDeliveryCreateResponse,
   ActivityGetManyResponse,
   BonusGetManyResponse,
+  WarningGetManyResponse,
 } from '../../../types';
 import type {
   VacationGetManyFormData,
@@ -26,6 +28,7 @@ import type {
   PpeDeliveryCreateFormData,
   ActivityGetManyFormData,
   BonusGetManyFormData,
+  WarningGetManyFormData,
 } from '../../../schemas';
 
 /**
@@ -45,6 +48,7 @@ export class PersonalService {
     private readonly activityService: ActivityService,
     private readonly secullumService: SecullumService,
     private readonly bonusService: BonusService,
+    private readonly warningService: WarningService,
   ) {}
 
   /**
@@ -183,6 +187,30 @@ export class PersonalService {
   }
 
   /**
+   * Get user's warnings (Meus Avisos)
+   * Filters warnings by authenticated userId
+   *
+   * @param userId - Authenticated user ID
+   * @param query - Query parameters for filtering/pagination
+   * @returns User's warnings
+   */
+  async getMyWarnings(
+    userId: string,
+    query: WarningGetManyFormData,
+  ): Promise<WarningGetManyResponse> {
+    // Merge user filter with query - user can only see their own warnings
+    const userFilteredQuery: WarningGetManyFormData = {
+      ...query,
+      where: {
+        ...query.where,
+        userId, // Force filter by authenticated user
+      },
+    };
+
+    return this.warningService.findMany(userFilteredQuery);
+  }
+
+  /**
    * Get holidays (Meus Feriados)
    * Note: Holidays are not user-specific but public/company-wide
    * This provides a convenient endpoint for users to check holidays
@@ -248,13 +276,15 @@ export class PersonalService {
       );
     }
 
-    // Get user with Secullum employee ID
+    // Get user with CPF, PIS, and payrollNumber for Secullum lookup
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
         name: true,
-        secullumId: true,
+        cpf: true,
+        pis: true,
+        payrollNumber: true,
       },
     });
 
@@ -262,15 +292,27 @@ export class PersonalService {
       throw new NotFoundException('User not found');
     }
 
-    if (!user.secullumId) {
+    // Find Secullum employee using CPF/PIS/PayrollNumber lookup
+    const secullumEmployee = await this.secullumService.findSecullumEmployee({
+      cpf: user.cpf || undefined,
+      pis: user.pis || undefined,
+      payrollNumber: user.payrollNumber || undefined,
+    });
+
+    if (!secullumEmployee.success || !secullumEmployee.data) {
+      this.logger.warn(
+        `No Secullum employee found for user ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
+      );
       throw new BadRequestException(
-        'User does not have a Secullum employee ID associated. Please contact HR to link your Secullum account.',
+        `No Secullum employee found matching your registration. Please contact HR to verify your CPF, PIS, or Payroll Number.`,
       );
     }
 
+    const secullumEmployeeId = secullumEmployee.data.secullumId.toString();
+
     // Fetch calculations from Secullum
     const calculationsResponse = await this.secullumService.getCalculations({
-      employeeId: user.secullumId,
+      employeeId: secullumEmployeeId,
       startDate: params.startDate,
       endDate: params.endDate,
     });
@@ -287,7 +329,7 @@ export class PersonalService {
       meta: {
         userId: user.id,
         userName: user.name,
-        secullumEmployeeId: user.secullumId,
+        secullumEmployeeId,
         startDate: params.startDate,
         endDate: params.endDate,
       },
