@@ -39,6 +39,7 @@ import {
   trackFieldChanges,
   trackAndLogFieldChanges,
   logEntityChange,
+  hasValueChanged,
 } from '@modules/common/changelog/utils/changelog-helpers';
 import {
   CHANGE_TRIGGERED_BY,
@@ -313,23 +314,8 @@ export class UserService {
       }
     }
 
-    if (data.managedSectorId !== undefined) {
-      if (data.managedSectorId === null) {
-        // Permitir remover o setor gerenciado
-      } else {
-        const managedSector = await transaction.sector.findUnique({
-          where: { id: data.managedSectorId },
-        });
-        if (!managedSector) {
-          throw new NotFoundException('Setor gerenciado não encontrado.');
-        }
-
-        // Regra de negócio: usuário não pode gerenciar seu próprio setor
-        if (data.sectorId && data.managedSectorId === data.sectorId) {
-          throw new BadRequestException('Usuário não pode gerenciar seu próprio setor.');
-        }
-      }
-    }
+    // Note: managedSector is now handled via Sector.managerId relation
+    // The business logic for sector management should be handled in the Sector service
 
     // Validar que ao atualizar status para DISMISSED, o usuário não tenha pendências
     if (isUpdate && (data.status as USER_STATUS) === USER_STATUS.DISMISSED) {
@@ -672,12 +658,25 @@ export class UserService {
           }
         }
 
+        // Extract isSectorLeader before creating user (it's not a database field on User)
+        const isSectorLeader = (data as any).isSectorLeader;
+        const { isSectorLeader: _isSectorLeader, ...createData } = data as any;
+
         // Criar o usuário
         const newUser = await this.userRepository.createWithTransaction(
           tx,
-          { ...data, avatarId },
+          { ...createData, avatarId },
           { include },
         );
+
+        // Handle isSectorLeader flag - update Sector.managerId relationship
+        if (isSectorLeader && createData.sectorId) {
+          await tx.sector.update({
+            where: { id: createData.sectorId },
+            data: { managerId: newUser.id },
+          });
+          this.logger.log(`New user ${newUser.id} set as manager of sector ${createData.sectorId}`);
+        }
 
         // Registrar no changelog
         await logEntityChange({
@@ -718,7 +717,6 @@ export class UserService {
           pis: 'PIS',
           payrollNumber: 'Número da folha de pagamento',
           sessionToken: 'Token de sessão',
-          secullumId: 'ID Secullum',
         };
         const fieldName = fieldNames[field] || field || 'Campo';
         throw new BadRequestException(`${fieldName} já está em uso.`);
@@ -879,9 +877,36 @@ export class UserService {
           }
         }
 
+        // Handle isSectorLeader flag - update Sector.managerId relationship
+        const isSectorLeader = (data as any).isSectorLeader;
+        const targetSectorId = data.sectorId ?? existingUser.sectorId;
+
+        if (typeof isSectorLeader === 'boolean') {
+          if (isSectorLeader && targetSectorId) {
+            // Set this user as the manager of their sector
+            await tx.sector.update({
+              where: { id: targetSectorId },
+              data: { managerId: id },
+            });
+            this.logger.log(`User ${id} set as manager of sector ${targetSectorId}`);
+          } else if (!isSectorLeader) {
+            // Check if user was the manager of any sector and remove them
+            const managedSector = await tx.sector.findFirst({
+              where: { managerId: id },
+            });
+            if (managedSector) {
+              await tx.sector.update({
+                where: { id: managedSector.id },
+                data: { managerId: null },
+              });
+              this.logger.log(`User ${id} removed as manager of sector ${managedSector.id}`);
+            }
+          }
+        }
+
         // Prepare data for database update
-        // Remove currentStatus (validation-only field) and other non-database fields
-        const { currentStatus, ...dataForDb } = data as any;
+        // Remove currentStatus, isSectorLeader (validation-only fields) and other non-database fields
+        const { currentStatus, isSectorLeader: _isSectorLeader, ...dataForDb } = data as any;
         const dbUpdateData = avatarFile ? { ...dataForDb, avatarId } : dataForDb;
 
         // Prepare update data for tracking
@@ -913,7 +938,6 @@ export class UserService {
           'positionId',
           'performanceLevel',
           'sectorId',
-          'managedSectorId',
           'verified',
           'requirePasswordChange',
           'birth',
@@ -931,7 +955,6 @@ export class UserService {
           'state',
           'zipCode',
           'site',
-          'secullumId',
         ];
 
         // Track regular fields
@@ -989,8 +1012,8 @@ export class UserService {
             const oldValue = oldPpeSize?.[field];
             const newValue = newPpeSize[field];
 
-            // Only log if the value actually changed
-            if (oldValue !== newValue) {
+            // Only log if the value actually changed (using proper comparison for null/undefined)
+            if (hasValueChanged(oldValue, newValue)) {
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.USER,
                 entityId: id,
@@ -1034,7 +1057,6 @@ export class UserService {
           pis: 'PIS',
           payrollNumber: 'Número da folha de pagamento',
           sessionToken: 'Token de sessão',
-          secullumId: 'ID Secullum',
         };
         const fieldName = fieldNames[field] || field || 'Campo';
         throw new BadRequestException(`${fieldName} já está em uso.`);
@@ -1427,7 +1449,6 @@ export class UserService {
                 'positionId',
                 'performanceLevel',
                 'sectorId',
-                'managedSectorId',
                 'verified',
                 'requirePasswordChange',
                 'birth',
@@ -1440,7 +1461,6 @@ export class UserService {
                 'state',
                 'zipCode',
                 'site',
-                'secullumId',
               ];
 
               await trackAndLogFieldChanges({

@@ -71,11 +71,14 @@ export class VacationController {
   @Get('my-vacations')
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.EXTERNAL,
   )
   async getMyVacations(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
@@ -94,7 +97,7 @@ export class VacationController {
 
   // Team-specific endpoint for leaders (must be before dynamic :id route)
   @Get('team-vacations')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles( SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async getTeamVacations(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
     @UserId() userId: string,

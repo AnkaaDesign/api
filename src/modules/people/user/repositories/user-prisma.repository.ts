@@ -78,7 +78,6 @@ export class UserPrismaRepository
     const {
       positionId,
       sectorId,
-      managedSectorId,
       avatarId,
       ppeSize,
       notificationPreferences,
@@ -107,9 +106,8 @@ export class UserPrismaRepository
       createInput.sector = { connect: { id: sectorId } };
     }
 
-    if (managedSectorId) {
-      createInput.managedSector = { connect: { id: managedSectorId } };
-    }
+    // Note: managedSector is now handled via Sector.managerId relation
+    // To make a user a sector manager, update the Sector's managerId field
 
     if (avatarId) {
       createInput.avatar = { connect: { id: avatarId } };
@@ -142,7 +140,6 @@ export class UserPrismaRepository
     const {
       positionId,
       sectorId,
-      managedSectorId,
       avatarId,
       preferences,
       userId,
@@ -179,11 +176,8 @@ export class UserPrismaRepository
       updateInput.sector = sectorId ? { connect: { id: sectorId } } : { disconnect: true };
     }
 
-    if (managedSectorId !== undefined) {
-      updateInput.managedSector = managedSectorId
-        ? { connect: { id: managedSectorId } }
-        : { disconnect: true };
-    }
+    // Note: managedSector is now handled via Sector.managerId relation
+    // To make a user a sector manager, update the Sector's managerId field
 
     if (avatarId !== undefined) {
       updateInput.avatar = avatarId ? { connect: { id: avatarId } } : { disconnect: true };

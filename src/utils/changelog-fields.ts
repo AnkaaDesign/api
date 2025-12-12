@@ -150,7 +150,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     performanceLevel: 'Nível de Desempenho',
     sector: 'Setor',
     sectorId: 'Setor',
-    managedSectorId: 'Setor Gerenciado',
     status: 'Status',
     statusOrder: 'Ordem do Status',
     verified: 'Verificado',
@@ -405,9 +404,11 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
   [CHANGE_LOG_ENTITY_TYPE.SECTOR]: {
     name: 'Nome',
     privileges: 'Privilégios',
+    managerId: 'Gerente do Setor',
     users: 'Usuários',
     positions: 'Cargos',
     tasks: 'Tarefas',
+    'manager.name': 'Nome do Gerente',
   },
   [CHANGE_LOG_ENTITY_TYPE.PARKING_SPOT]: {
     name: 'Número',
@@ -1551,7 +1552,8 @@ export function formatFieldValue(
         field === 'managedSectorId' ||
         field === 'approvedBy' ||
         field === 'rejectedBy' ||
-        field === 'cancelledBy'
+        field === 'cancelledBy' ||
+        field === 'managerId'
       ) {
         return value; // Will be replaced with entity name
       }

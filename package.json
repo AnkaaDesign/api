@@ -60,7 +60,7 @@
     "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^7.4.2",
     "@nestjs/websockets": "^10.4.20",
-    "@prisma/client": "^6.17.0",
+    "@prisma/client": "^6.19.1",
     "@types/bull": "^4.10.4",
     "@types/fluent-ffmpeg": "^2.1.27",
     "@types/helmet": "^4.0.0",

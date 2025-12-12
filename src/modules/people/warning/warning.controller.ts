@@ -77,7 +77,7 @@ export class WarningController {
   @Get('my-warnings')
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.ADMIN,
@@ -100,7 +100,7 @@ export class WarningController {
 
   // Team warnings endpoint for team leaders (must be before dynamic :id route)
   @Get('team-warnings')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles( SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async getTeamWarnings(
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
     @UserId() userId: string,

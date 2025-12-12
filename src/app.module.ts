@@ -39,10 +39,12 @@ import { SupplierModule } from './modules/inventory/supplier/supplier.module';
 import { TaskModule } from './modules/production/task/task.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
 import { LayoutModule } from './modules/production/layout/layout.module';
+import { TruckModule } from './modules/production/truck/truck.module';
 import { UserModule } from './modules/people/user/user.module';
 import { ProfileModule } from './modules/people/profile/profile.module';
 import { VacationModule } from './modules/people/vacation/vacation.module';
 import { PersonalModule } from './modules/people/personal/personal.module';
+import { TeamStaffModule } from './modules/people/team-staff/team-staff.module';
 import { ThrottlerModule } from './modules/common/throttler/throttler.module';
 import { SchedulerModule } from './modules/common/scheduler/scheduler.module';
 import { SecullumModule } from './modules/integrations/secullum/secullum.module';
@@ -108,10 +110,12 @@ import { AppsModule } from './modules/system/app/app.module';
     SupplierModule,
     TaskModule,
     LayoutModule,
+    TruckModule,
     UserModule,
     ProfileModule,
     VacationModule,
     PersonalModule,
+    TeamStaffModule,
     SchedulerModule,
     SecullumModule,
     ServerModule,

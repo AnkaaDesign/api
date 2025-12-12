@@ -58,7 +58,6 @@ export interface User extends BaseEntity {
   birth: Date; // Date of birth
   performanceLevel: number;
   sectorId: string | null;
-  managedSectorId: string | null;
   address: string | null;
   addressNumber: string | null;
   addressComplement: string | null;
@@ -73,7 +72,6 @@ export interface User extends BaseEntity {
   requirePasswordChange?: boolean;
   lastLoginAt?: Date | null;
   sessionToken: string | null;
-  secullumId: string | null;
   payrollNumber: number | null;
 
   // Status timestamp tracking
@@ -273,7 +271,6 @@ export interface UserOrderBy {
   updatedAt?: ORDER_BY_DIRECTION;
   position?: PositionOrderBy;
   sector?: SectorOrderBy;
-  managedSectorId?: ORDER_BY_DIRECTION;
   managedSector?: SectorOrderBy;
 }
 

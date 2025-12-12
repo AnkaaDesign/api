@@ -54,7 +54,10 @@ export class AuthGuard implements CanActivate {
       });
 
       // Check if user still exists and is active
-      const user = await this.userRepository.findById(payload.sub);
+      // Include managedSector to check for team leader status
+      const user = await this.userRepository.findById(payload.sub, {
+        include: { managedSector: true },
+      });
 
       if (!user) {
         throw new UnauthorizedException('Usuário não encontrado.');
@@ -92,25 +95,57 @@ export class AuthGuard implements CanActivate {
 
       // Check role-based access
       if (roles?.length) {
-        // If roles are required but user has no role (no sector assigned)
-        if (!payload.role) {
-          console.warn(`User ${payload.sub} has no role assigned (missing sector privileges)`);
-          throw new ForbiddenException(
-            'Acesso negado. Sua conta não tem um setor atribuído. Entre em contato com o administrador.',
-          );
-        }
-
-        // Check if user's role can access any of the required roles using privilege hierarchy
-        const userPrivilege = payload.role as SECTOR_PRIVILEGES;
         const requiredPrivileges = roles as SECTOR_PRIVILEGES[];
+        const userPrivilege = payload.role as SECTOR_PRIVILEGES;
 
-        if (!canAccessAnyPrivilege(userPrivilege, requiredPrivileges)) {
-          console.warn(
-            `Access denied for user ${payload.sub}. Required roles: ${roles.join(', ')}, User role: ${payload.role}`,
-          );
-          throw new ForbiddenException(
-            `Acesso negado. Privilégios insuficientes. Necessário: ${roles.join(' ou ')}, Atual: ${payload.role}`,
-          );
+        // Check if TEAM_LEADER is one of the required privileges
+        const teamLeaderRequired = requiredPrivileges.includes(SECTOR_PRIVILEGES.TEAM_LEADER);
+        const isTeamLeader = Boolean(user.managedSector);
+
+        // If TEAM_LEADER is required and user is a team leader, allow access
+        if (teamLeaderRequired && isTeamLeader) {
+          // Team leader access granted
+        } else {
+          // Check regular privilege-based access
+          // If roles are required but user has no role (no sector assigned)
+          if (!payload.role) {
+            console.warn(`User ${payload.sub} has no role assigned (missing sector privileges)`);
+            throw new ForbiddenException(
+              'Acesso negado. Sua conta não tem um setor atribuído. Entre em contato com o administrador.',
+            );
+          }
+
+          // Filter out TEAM_LEADER from required privileges for regular check
+          const regularPrivileges = requiredPrivileges.filter(p => p !== SECTOR_PRIVILEGES.TEAM_LEADER);
+
+          // If there are regular privileges to check
+          if (regularPrivileges.length > 0) {
+            if (!canAccessAnyPrivilege(userPrivilege, regularPrivileges)) {
+              // If team leader was also an option but user is not a team leader
+              if (teamLeaderRequired) {
+                console.warn(
+                  `Access denied for user ${payload.sub}. Required roles: ${roles.join(', ')}, User role: ${payload.role}, Is team leader: ${isTeamLeader}`,
+                );
+                throw new ForbiddenException(
+                  `Acesso negado. Privilégios insuficientes. Necessário: ${roles.join(' ou ')}, Atual: ${payload.role}`,
+                );
+              }
+              console.warn(
+                `Access denied for user ${payload.sub}. Required roles: ${roles.join(', ')}, User role: ${payload.role}`,
+              );
+              throw new ForbiddenException(
+                `Acesso negado. Privilégios insuficientes. Necessário: ${roles.join(' ou ')}, Atual: ${payload.role}`,
+              );
+            }
+          } else if (teamLeaderRequired && !isTeamLeader) {
+            // Only TEAM_LEADER was required but user is not a team leader
+            console.warn(
+              `Access denied for user ${payload.sub}. Required: TEAM_LEADER, Is team leader: ${isTeamLeader}`,
+            );
+            throw new ForbiddenException(
+              'Acesso negado. Apenas líderes de equipe podem acessar este recurso.',
+            );
+          }
         }
       }
     } catch (err) {

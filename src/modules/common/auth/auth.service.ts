@@ -86,7 +86,7 @@ export class AuthService {
       throw new NotFoundException('Email ou número não cadastrado.');
     }
 
-    const user = await this.usersRepository.findById(foundUser.id, { include: { sector: true } });
+    const user = await this.usersRepository.findById(foundUser.id, { include: { sector: true, managedSector: true } });
 
     if (!user) {
       throw new NotFoundException('Usuário não encontrado.');
@@ -183,6 +183,12 @@ export class AuthService {
                 id: user.sector.id,
                 name: user.sector.name,
                 privileges: user.sector.privileges,
+              }
+            : null,
+          managedSector: user.managedSector
+            ? {
+                id: user.managedSector.id,
+                name: user.managedSector.name,
               }
             : null,
         },
@@ -925,6 +931,7 @@ export class AuthService {
         sector: true,
         ppeSize: true,
         preference: true,
+        managedSector: true,
       },
     });
 
@@ -951,6 +958,7 @@ export class AuthService {
     const user = await this.usersRepository.findById(userId, {
       include: {
         sector: true,
+        managedSector: true,
       },
     });
 
@@ -1011,6 +1019,12 @@ export class AuthService {
                 id: user.sector.id,
                 name: user.sector.name,
                 privileges: user.sector.privileges,
+              }
+            : null,
+          managedSector: user.managedSector
+            ? {
+                id: user.managedSector.id,
+                name: user.managedSector.name,
               }
             : null,
         },

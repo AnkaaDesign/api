@@ -95,7 +95,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findMany(
@@ -107,7 +107,7 @@ export class TaskController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -163,7 +163,7 @@ export class TaskController {
 
   // Batch Operations
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(taskBatchCreateSchema)) data: TaskBatchCreateFormData,
@@ -174,7 +174,7 @@ export class TaskController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(
     FileFieldsInterceptor(
       [
@@ -211,7 +211,7 @@ export class TaskController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(taskBatchDeleteSchema)) data: TaskBatchDeleteFormData,
@@ -225,7 +225,7 @@ export class TaskController {
   // =====================
 
   @Post('bulk/arts')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async bulkAddArtworks(
     @Body(new ZodValidationPipe(taskBulkArtsSchema)) data: TaskBulkArtsFormData,
@@ -241,7 +241,7 @@ export class TaskController {
   }
 
   @Post('bulk/documents')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async bulkAddDocuments(
     @Body(new ZodValidationPipe(taskBulkDocumentsSchema)) data: TaskBulkDocumentsFormData,
@@ -263,7 +263,7 @@ export class TaskController {
   }
 
   @Post('bulk/paints')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async bulkAddPaints(
     @Body(new ZodValidationPipe(taskBulkPaintsSchema)) data: TaskBulkPaintsFormData,
@@ -279,7 +279,7 @@ export class TaskController {
   }
 
   @Post('bulk/cutting-plans')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async bulkAddCuttingPlans(
     @Body(new ZodValidationPipe(taskBulkCuttingPlansSchema)) data: TaskBulkCuttingPlansFormData,
@@ -306,7 +306,7 @@ export class TaskController {
   }
 
   @Post('bulk/upload-files')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   @UseInterceptors(FilesInterceptor('files', 10, multerConfig))
   async bulkUploadFiles(
@@ -338,7 +338,7 @@ export class TaskController {
   // =====================
 
   @Post(':id/duplicate')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   async duplicate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskDuplicateSchema)) data: TaskDuplicateFormData,
@@ -351,7 +351,7 @@ export class TaskController {
   }
 
   @Put(':id/start')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async startTask(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -367,7 +367,7 @@ export class TaskController {
   }
 
   @Put(':id/finish')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async finishTask(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -383,7 +383,7 @@ export class TaskController {
   }
 
   @Post('rollback-field')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   async rollbackFieldChange(
     @Body() data: { changeLogId: string },
     @UserId() userId: string,
@@ -402,7 +402,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInProductionTasks(
@@ -425,8 +425,6 @@ export class TaskController {
       include: {
         truck: {
           include: {
-            garage: true,
-            lane: true,
             leftSideLayout: { include: { layoutSections: true } },
             rightSideLayout: { include: { layoutSections: true } },
             backSideLayout: { include: { layoutSections: true } },
@@ -438,7 +436,7 @@ export class TaskController {
   }
 
   @Put(':id/position')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async updateTaskPosition(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskPositionUpdateSchema)) data: TaskPositionUpdateFormData,
@@ -449,7 +447,7 @@ export class TaskController {
   }
 
   @Post('bulk-position')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async bulkUpdatePositions(
     @Body(new ZodValidationPipe(taskBulkPositionUpdateSchema)) data: TaskBulkPositionUpdateFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -459,7 +457,7 @@ export class TaskController {
   }
 
   @Post(':id/swap')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION,  SECTOR_PRIVILEGES.ADMIN)
   async swapTaskPositions(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(taskSwapPositionSchema)) data: TaskSwapPositionFormData,
@@ -480,7 +478,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findById(
@@ -498,7 +496,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(
@@ -606,7 +604,7 @@ export class TaskController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -621,7 +619,7 @@ export class TaskController {
   // using FormData with the file fields directly in the request body
 
   @Post(':id/upload/budgets')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadBudget() {
     throw new BadRequestException(
@@ -631,7 +629,7 @@ export class TaskController {
   }
 
   @Post(':id/upload/invoices')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadInvoice() {
     throw new BadRequestException(
@@ -641,7 +639,7 @@ export class TaskController {
   }
 
   @Post(':id/upload/receipts')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadReceipt() {
     throw new BadRequestException(
@@ -651,7 +649,7 @@ export class TaskController {
   }
 
   @Post(':id/upload/reimbursements')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadReimbursement() {
     throw new BadRequestException(
@@ -661,7 +659,7 @@ export class TaskController {
   }
 
   @Post(':id/upload/reimbursement-invoices')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadReimbursementInvoice() {
     throw new BadRequestException(
@@ -671,7 +669,7 @@ export class TaskController {
   }
 
   @Post(':id/upload/artworks')
-  @Roles(SECTOR_PRIVILEGES.LEADER, SECTOR_PRIVILEGES.ADMIN)
+  @Roles( SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async uploadArtwork() {
     throw new BadRequestException(

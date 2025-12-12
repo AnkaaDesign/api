@@ -777,7 +777,7 @@ export class PayrollService {
         bonusAmount,
         cpf: userAny.cpf || undefined,
         pis: userAny.pis || undefined,
-        payrollNumber: userAny.payrollNumber?.toString() || userAny.secullumId || undefined,
+        payrollNumber: userAny.payrollNumber?.toString() || undefined,
         dependentsCount: userAny.dependentsCount || 0,
         useSimplifiedDeduction: userAny.hasSimplifiedDeduction ?? true,
         unionMember: userAny.unionMember || false,

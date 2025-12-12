@@ -20,12 +20,12 @@ export interface AuthUser {
   requirePasswordChange?: boolean;
   verified?: boolean;
   sectorId?: string | null;
-  managedSectorId?: string | null;
   sector?: {
     id: string;
     name: string;
     privileges: string;
   } | null;
+  /** The sector this user manages (via Sector.managerId), if any */
   managedSector?: {
     id: string;
     name: string;
