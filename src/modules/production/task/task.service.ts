@@ -125,17 +125,11 @@ export class TaskService {
         // Create the task first WITHOUT files
         const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
 
-        // Create truck and layouts if consolidated truck data is provided
+        // Create truck with layouts ONLY if layouts are provided
+        // Note: Basic truck creation (plate, chassisNumber, spot) is handled by the repository
         const truckData = (data as any).truck;
-        if (
-          truckData &&
-          (truckData.leftSideLayout ||
-            truckData.rightSideLayout ||
-            truckData.backSideLayout ||
-            truckData.plate ||
-            truckData.chassisNumber ||
-            truckData.spot)
-        ) {
+        const hasLayouts = truckData && (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
+        if (hasLayouts) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
           // Create truck with basic fields
