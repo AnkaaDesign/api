@@ -300,14 +300,17 @@ export class TaskPrismaRepository
 
     // Handle truck creation
     if (truck) {
-      const truckData: any = {
-        xPosition: truck.xPosition ?? null,
-        yPosition: truck.yPosition ?? null,
-      };
+      const truckData: any = {};
 
       // Add plate and chassisNumber if provided (from top-level or truck object)
       if (plate !== undefined) truckData.plate = plate;
+      else if (truck.plate !== undefined) truckData.plate = truck.plate;
+
       if (chassisNumber !== undefined) truckData.chassisNumber = chassisNumber;
+      else if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
+
+      // Add spot if provided
+      if (truck.spot !== undefined) truckData.spot = truck.spot;
 
       // Add garage connection if garageId is provided
       if (truck.garageId) {
