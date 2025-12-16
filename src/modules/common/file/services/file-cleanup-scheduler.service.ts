@@ -25,7 +25,7 @@ interface CleanupStats {
 export class FileCleanupSchedulerService {
   private readonly logger = new Logger(FileCleanupSchedulerService.name);
   private readonly orphanedFileAgeThresholdDays = 7; // Delete orphaned files older than 7 days
-  private readonly webdavRoot: string;
+  private readonly filesRoot: string;
   private readonly uploadDir: string;
 
   // Folders managed via Samba that should be excluded from orphaned file cleanup
@@ -36,7 +36,7 @@ export class FileCleanupSchedulerService {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly prisma: PrismaService,
   ) {
-    this.webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+    this.filesRoot = process.env.FILES_ROOT || '/srv/files';
     this.uploadDir = process.env.UPLOAD_DIR || './uploads';
   }
 
@@ -145,16 +145,16 @@ export class FileCleanupSchedulerService {
       });
       const dbFilePaths = new Set(dbFiles.map(f => f.path));
 
-      // Scan WebDAV directory (excluding Samba-managed folders)
-      if (UPLOAD_CONFIG.useWebDAV && existsSync(this.webdavRoot)) {
-        this.logger.log(`Scanning WebDAV directory: ${this.webdavRoot}`);
+      // Scan files storage directory (excluding Samba-managed folders)
+      if (existsSync(this.filesRoot)) {
+        this.logger.log(`Scanning files storage directory: ${this.filesRoot}`);
         this.logger.log(`Excluding Samba folders: ${this.sambaExcludedFolders.join(', ')}`);
-        const webdavOrphans = await this.scanDirectoryForOrphans(
-          this.webdavRoot,
+        const filesOrphans = await this.scanDirectoryForOrphans(
+          this.filesRoot,
           dbFilePaths,
           this.sambaExcludedFolders, // Exclude Samba-managed folders
         );
-        orphanedFiles.push(...webdavOrphans);
+        orphanedFiles.push(...filesOrphans);
       }
 
       // Scan upload directory (but skip temp folder - handled by upload-init.service)

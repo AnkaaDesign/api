@@ -795,7 +795,7 @@ export class ObservationService {
       // Process files
       if (files.files && files.files.length > 0) {
         for (const file of files.files) {
-          const fileRecord = await this.saveFileToWebDAV(
+          const fileRecord = await this.saveFileTostorage(
             file,
             'observations',
             observationId,
@@ -816,9 +816,9 @@ export class ObservationService {
   }
 
   /**
-   * Save file to WebDAV and link to observation
+   * Save file to storage and link to observation
    */
-  private async saveFileToWebDAV(
+  private async saveFileTostorage(
     file: Express.Multer.File,
     fileContext: string,
     entityId: string,
@@ -856,7 +856,7 @@ export class ObservationService {
       this.logger.log(`Saved and linked file ${file.originalname} to observation ${entityId}`);
       return fileRecord;
     } catch (error) {
-      this.logger.error(`Error saving file to WebDAV:`, error);
+      this.logger.error(`Error saving file to storage:`, error);
       throw error;
     }
   }

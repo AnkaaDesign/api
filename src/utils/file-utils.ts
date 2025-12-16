@@ -542,25 +542,25 @@ export const getIconForMimeType = (
 };
 
 // =====================
-// WebDAV URL Builder
+// Files Storage URL Builder
 // =====================
 
 /**
- * Convert a file path to a WebDAV URL
+ * Convert a file path to a public URL (served by nginx via arquivos.ankaa.live)
  * This is a standalone utility that doesn't require DI
  */
-export const getWebDAVUrl = (filePath: string): string => {
+export const getFileUrl = (filePath: string): string => {
   // If already a URL or data URL, return as-is
   if (!filePath || filePath.startsWith('http') || filePath.startsWith('data:')) {
     return filePath;
   }
 
-  const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
-  const webdavRoot = process.env.UPLOAD_DIR || './uploads';
+  const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+  const filesRoot = process.env.FILES_ROOT || './uploads/files';
 
   // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
   const normalizedFilePath = filePath.replace(/^\.\//, '');
-  const normalizedRoot = webdavRoot.replace(/^\.\//, '');
+  const normalizedRoot = filesRoot.replace(/^\.\//, '');
 
   const relativePath = normalizedFilePath.replace(normalizedRoot, '').replace(/\\/g, '/');
   const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
@@ -581,7 +581,7 @@ export const transformPaintColorPreview = (paint: any): any => {
   ) {
     return {
       ...paint,
-      colorPreview: getWebDAVUrl(paint.colorPreview),
+      colorPreview: getFileUrl(paint.colorPreview),
     };
   }
   return paint;

@@ -605,7 +605,7 @@ export class UserService {
           userName,
         },
       );
-      this.logger.log(`Avatar file created and moved to WebDAV: ${fileRecord.path}`);
+      this.logger.log(`Avatar file created and moved to storage: ${fileRecord.path}`);
       return fileRecord.id;
     } catch (error: any) {
       this.logger.error(`Failed to process avatar file: ${error.message}`);

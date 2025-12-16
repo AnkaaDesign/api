@@ -10,7 +10,7 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PaintRepository } from './repositories/paint/paint.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { WebDAVService } from '@modules/common/file/services/webdav.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import { promises as fs } from 'fs';
 import type {
   PaintBatchCreateResponse,
@@ -55,32 +55,31 @@ export class PaintService {
     private readonly paintRepository: PaintRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly itemRepository: ItemRepository,
-    private readonly webdavService: WebDAVService,
+    private readonly filesStorageService: FilesStorageService,
   ) {}
 
   /**
-   * Upload colorPreview file to WebDAV and return the file path
-   * (URL is generated at retrieval time like task artworks - ensures correct URL in all environments)
+   * Upload colorPreview file to storage and return the file path
+   * (URL is generated at retrieval time - ensures correct URL in all environments)
    */
   private async uploadColorPreviewFile(
     file: Express.Multer.File,
     paintName: string,
   ): Promise<string> {
     try {
-      // Generate WebDAV path for paint color preview
-      const webdavPath = this.webdavService.generateWebDAVFilePath(
+      // Generate storage path for paint color preview
+      const storagePath = this.filesStorageService.generateFilePath(
         file.originalname || `${paintName}.webp`,
         'paintColor',
         file.mimetype,
       );
 
-      // Move file to WebDAV
-      await this.webdavService.moveToWebDAV(file.path, webdavPath);
+      // Move file to storage
+      await this.filesStorageService.moveToStorage(file.path, storagePath);
 
       // Return the path (not URL) - URL will be generated at retrieval time
-      // This follows the same pattern as task artworks which work correctly
-      this.logger.log(`Color preview uploaded to WebDAV path: ${webdavPath}`);
-      return webdavPath;
+      this.logger.log(`Color preview uploaded to storage path: ${storagePath}`);
+      return storagePath;
     } catch (error: any) {
       this.logger.error('Failed to upload color preview file:', error);
       // Clean up temp file on error

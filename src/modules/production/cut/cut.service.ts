@@ -257,7 +257,7 @@ export class CutService {
           const uploadedFile = await this.fileService.createFromUploadWithTransaction(
             tx,
             file,
-            'plotterAdesivo', // fileContext for WebDAV folder organization (cutType determines subfolder)
+            'plotterAdesivo', // fileContext for storage folder organization (cutType determines subfolder)
             userId,
             {
               entityId: context?.entityId,

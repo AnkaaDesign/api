@@ -38,12 +38,12 @@ export class BackupProcessor {
             break;
           case 'files':
             if (!paths || paths.length === 0) {
-              // If no paths specified for files backup, backup entire WebDAV directory
-              this.logger.log('No paths specified, performing full WebDAV backup');
-              backupPath = await this.backupService.performWebDAVBackup(backupId);
+              // If no paths specified for files backup, backup entire files storage directory
+              this.logger.log('No paths specified, performing full files storage backup');
+              backupPath = await this.backupService.performFilesBackup(backupId);
             } else {
-              // Backup specific WebDAV directories
-              backupPath = await this.backupService.performWebDAVBackup(backupId, paths);
+              // Backup specific files storage directories
+              backupPath = await this.backupService.performFilesBackup(backupId, paths);
             }
             break;
           case 'system':
@@ -190,32 +190,32 @@ export class BackupProcessor {
 
         this.logger.log(`✅ Database restored successfully from backup: ${backupId}`);
       } else if (metadata.type === 'files') {
-        // ========== WEBDAV FILES RESTORE ==========
-        this.logger.log(`Restoring WEBDAV FILES backup: ${backupId}`);
+        // ========== FILES STORAGE RESTORE ==========
+        this.logger.log(`Restoring FILES STORAGE backup: ${backupId}`);
         this.logger.warn(
-          `⚠️  RESTORING WEBDAV FILES! This will overwrite existing files in /srv/webdav`,
+          `⚠️  RESTORING FILES STORAGE! This will overwrite existing files in /srv/files`,
         );
 
-        // WebDAV files should be restored to /srv/webdav (their original location)
-        const webdavRoot = '/srv/webdav';
+        // files storage files should be restored to /srv/files (their original location)
+        const filesRoot = '/srv/files';
 
-        // Ensure WebDAV directory exists
-        await fs.mkdir(webdavRoot, { recursive: true });
+        // Ensure files storage directory exists
+        await fs.mkdir(filesRoot, { recursive: true });
 
-        // Extract backup to WebDAV root (files are stored with relative paths)
+        // Extract backup to files storage root (files are stored with relative paths)
         // Use sudo to preserve proper ownership and avoid permission errors
-        const extractCommand = `sudo tar -xzf "${backupPath}" -C "${webdavRoot}"`;
+        const extractCommand = `sudo tar -xzf "${backupPath}" -C "${filesRoot}"`;
         await execAsync(extractCommand);
 
-        // Set proper WebDAV permissions
+        // Set proper files storage permissions
         try {
-          await execAsync(`sudo chown -R www-data:www-data "${webdavRoot}"`);
-          await execAsync(`sudo chmod -R 2775 "${webdavRoot}"`);
+          await execAsync(`sudo chown -R www-data:www-data "${filesRoot}"`);
+          await execAsync(`sudo chmod -R 2775 "${filesRoot}"`);
         } catch (permError) {
-          this.logger.warn(`Could not set WebDAV permissions: ${permError.message}`);
+          this.logger.warn(`Could not set files storage permissions: ${permError.message}`);
         }
 
-        this.logger.log(`✅ WebDAV files restored successfully to ${webdavRoot}`);
+        this.logger.log(`✅ files storage files restored successfully to ${filesRoot}`);
       } else if (metadata.type === 'system') {
         // ========== SYSTEM CONFIG RESTORE ==========
         this.logger.log(`Restoring SYSTEM CONFIGURATION backup: ${backupId}`);

@@ -243,7 +243,7 @@ export class SupplierService {
   }
 
   /**
-   * Process and save logo file to WebDAV
+   * Process and save logo file to storage
    */
   private async processLogoFile(
     logoFile: Express.Multer.File,
@@ -266,7 +266,7 @@ export class SupplierService {
         },
       );
 
-      this.logger.log(`Logo file created and moved to WebDAV: ${fileRecord.path}`);
+      this.logger.log(`Logo file created and moved to storage: ${fileRecord.path}`);
 
       return fileRecord.id;
     } catch (error: any) {

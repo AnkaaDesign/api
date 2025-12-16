@@ -75,7 +75,7 @@ export class ProfileService {
 
   /**
    * Upload user avatar photo
-   * Stores in WebDAV: Colaboradores/{userName}/avatar.ext
+   * Stores in storage: Colaboradores/{userName}/avatar.ext
    */
   async uploadPhoto(userId: string, photo: Express.Multer.File): Promise<UserUpdateResponse> {
     this.logger.log(`Uploading avatar for user ${userId}`);
@@ -98,13 +98,13 @@ export class ProfileService {
       }
 
       // Upload new avatar file using FileService
-      // This will store it in: /srv/webdav/Colaboradores/{userName}/avatar.ext
+      // This will store it in: /srv/files/Colaboradores/{userName}/avatar.ext
       const uploadedFile = await this.fileService.createFromUpload(
         photo,
         undefined, // No includes needed for File entity
         userId,
         {
-          fileContext: 'userAvatar', // WebDAV folder context
+          fileContext: 'userAvatar', // storage folder context
           entityId: userId,
           entityType: 'user',
           userName: user.name, // Used for folder organization: Colaboradores/{userName}/

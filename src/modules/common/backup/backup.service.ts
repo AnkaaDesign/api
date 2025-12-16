@@ -69,8 +69,8 @@ export interface CreateBackupDto {
 @Injectable()
 export class BackupService implements OnModuleInit {
   private readonly logger = new Logger(BackupService.name);
-  private readonly webdavRoot = '/srv/webdav';
-  private readonly backupBasePath = process.env.BACKUP_PATH || `${this.webdavRoot}/Backup`;
+  private readonly filesRoot = '/srv/files';
+  private readonly backupBasePath = process.env.BACKUP_PATH || `${this.filesRoot}/Backup`;
   private readonly isDevelopment = process.env.NODE_ENV !== 'production';
   private readonly productionBasePath = '/home/kennedy/ankaa';
 
@@ -128,7 +128,7 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Get full backup directory path with date organization
-   * Example: /srv/webdav/Backup/database/2025/10/25/
+   * Example: /srv/files/Backup/database/2025/10/25/
    */
   private getBackupDirectoryPath(
     type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema',
@@ -147,7 +147,7 @@ export class BackupService implements OnModuleInit {
       for (const dir of baseDirectories) {
         const dirPath = path.join(this.backupBasePath, dir);
         await fs.mkdir(dirPath, { recursive: true });
-        // Set proper permissions for WebDAV (www-data:www-data, 2775) - production only
+        // Set proper permissions for files storage (www-data:www-data, 2775) - production only
         if (!this.isDevelopment) {
           try {
             await execAsync(`sudo chown www-data:www-data "${dirPath}"`);
@@ -176,7 +176,7 @@ export class BackupService implements OnModuleInit {
 
     try {
       await fs.mkdir(backupFolderPath, { recursive: true });
-      // Set proper WebDAV permissions - production only
+      // Set proper files storage permissions - production only
       if (!this.isDevelopment) {
         try {
           await execAsync(`sudo chown -R www-data:www-data "${backupFolderPath}"`);
@@ -766,47 +766,12 @@ export class BackupService implements OnModuleInit {
     }
   }
 
-  async performFilesBackup(backupId: string, paths: string[]): Promise<string> {
-    try {
-      // Ensure date-based directory exists with backup ID subfolder (files type becomes 'arquivos')
-      const backupDir = await this.ensureDateBasedDirectory('arquivos', backupId);
-
-      const backupFileName = `${backupId}.tar.gz`;
-      const finalBackupPath = path.join(backupDir, backupFileName);
-
-      // Validate paths exist and are accessible
-      const validPaths: string[] = [];
-      for (const targetPath of paths) {
-        try {
-          await fs.access(targetPath);
-          validPaths.push(targetPath);
-        } catch (error) {
-          this.logger.warn(`Path not accessible, skipping: ${targetPath}`);
-        }
-      }
-
-      if (validPaths.length === 0) {
-        throw new Error('No valid paths found for backup');
-      }
-
-      // Create tar archive
-      const pathsStr = validPaths.join(' ');
-      const tarCommand = `tar -czf "${finalBackupPath}" ${pathsStr}`;
-      await execAsync(tarCommand);
-
-      this.logger.log(`Files backup completed: ${backupId}`);
-      return finalBackupPath;
-    } catch (error) {
-      this.logger.error(`Files backup failed: ${error.message}`);
-      throw error;
-    }
-  }
-
   /**
-   * Backup entire WebDAV directory as "arquivos"
+   * Backup files storage directory as "arquivos"
+   * Can backup specific paths or entire files storage directory
    * Excludes the Backup folder to avoid recursion
    */
-  async performWebDAVBackup(backupId: string, paths?: string[]): Promise<string> {
+  async performFilesBackup(backupId: string, paths?: string[]): Promise<string> {
     try {
       // Ensure date-based directory exists with backup ID subfolder
       const backupDir = await this.ensureDateBasedDirectory('arquivos', backupId);
@@ -817,10 +782,10 @@ export class BackupService implements OnModuleInit {
       let tarCommand: string;
 
       if (paths && paths.length > 0) {
-        // Backup specific WebDAV subdirectories
+        // Backup specific files storage subdirectories
         const validPaths: string[] = [];
         for (const targetPath of paths) {
-          const fullPath = path.join(this.webdavRoot, targetPath);
+          const fullPath = path.join(this.filesRoot, targetPath);
           try {
             await fs.access(fullPath);
             validPaths.push(targetPath); // Use relative path for tar
@@ -830,24 +795,24 @@ export class BackupService implements OnModuleInit {
         }
 
         if (validPaths.length === 0) {
-          throw new Error('No valid WebDAV paths found for backup');
+          throw new Error('No valid files storage paths found for backup');
         }
 
         const pathsStr = validPaths.join(' ');
-        tarCommand = `tar --exclude=Backup -czf "${finalBackupPath}" -C "${this.webdavRoot}" ${pathsStr}`;
-        this.logger.log(`Starting WebDAV backup for paths: ${pathsStr}`);
+        tarCommand = `tar --exclude=Backup -czf "${finalBackupPath}" -C "${this.filesRoot}" ${pathsStr}`;
+        this.logger.log(`Starting files storage backup for paths: ${pathsStr}`);
       } else {
-        // Backup entire WebDAV directory excluding Backup folder
-        tarCommand = `tar --exclude=Backup -czf "${finalBackupPath}" -C "${this.webdavRoot}" .`;
-        this.logger.log(`Starting full WebDAV backup: ${this.webdavRoot} -> ${finalBackupPath}`);
+        // Backup entire files storage directory excluding Backup folder
+        tarCommand = `tar --exclude=Backup -czf "${finalBackupPath}" -C "${this.filesRoot}" .`;
+        this.logger.log(`Starting full files storage backup: ${this.filesRoot} -> ${finalBackupPath}`);
       }
 
       await execAsync(tarCommand);
 
-      this.logger.log(`WebDAV backup completed: ${backupId}`);
+      this.logger.log(`files storage backup completed: ${backupId}`);
       return finalBackupPath;
     } catch (error) {
-      this.logger.error(`WebDAV backup failed: ${error.message}`);
+      this.logger.error(`files storage backup failed: ${error.message}`);
       throw error;
     }
   }
@@ -909,11 +874,11 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * List all folders in the WebDAV directory (excluding Backup, Lixeira, hidden files, etc.)
+   * List all folders in the files storage directory (excluding Backup, Lixeira, hidden files, etc.)
    */
-  async listWebDAVFolders(): Promise<string[]> {
+  async listStorageFolders(): Promise<string[]> {
     try {
-      const entries = await fs.readdir(this.webdavRoot, { withFileTypes: true });
+      const entries = await fs.readdir(this.filesRoot, { withFileTypes: true });
 
       // Filter to only directories, excluding special folders
       const excludeFolders = ['Backup', 'Lixeira', '.recycle', 'Thumbnails'];
@@ -931,10 +896,10 @@ export class BackupService implements OnModuleInit {
         .map(entry => entry.name)
         .sort(); // Sort alphabetically
 
-      this.logger.log(`Found ${folders.length} WebDAV folders: ${folders.join(', ')}`);
+      this.logger.log(`Found ${folders.length} storage folders: ${folders.join(', ')}`);
       return folders;
     } catch (error) {
-      this.logger.error(`Failed to list WebDAV folders: ${error.message}`);
+      this.logger.error(`Failed to list storage folders: ${error.message}`);
       throw error;
     }
   }
@@ -987,7 +952,7 @@ export class BackupService implements OnModuleInit {
       const metadataPath = path.join(backupDir, `${metadata.id}.json`);
       await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
 
-      // Set WebDAV permissions on metadata file
+      // Set files storage permissions on metadata file
       try {
         await execAsync(`sudo chown www-data:www-data "${metadataPath}"`);
         await execAsync(`sudo chmod 664 "${metadataPath}"`);
@@ -1338,8 +1303,8 @@ export class BackupService implements OnModuleInit {
       case 'database':
         return await this.performEnhancedDatabaseBackup(backupId, options);
       case 'files':
-        // Files backup = WebDAV folders (use relative paths from /srv/webdav)
-        return await this.performWebDAVBackup(backupId, paths);
+        // Files backup = storage folders (use relative paths from /srv/files)
+        return await this.performFilesBackup(backupId, paths);
       case 'system':
         return await this.performSystemBackup(backupId, paths);
       case 'full':
