@@ -21,7 +21,7 @@ import {
   Paint as PrismaPaint,
   TruckManufacturer,
 } from '@prisma/client';
-import { WebDAVService } from '@modules/common/file/services/webdav.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 
 @Injectable()
 export class PaintPrismaRepository
@@ -45,7 +45,7 @@ export class PaintPrismaRepository
 
   constructor(
     protected readonly prisma: PrismaService,
-    private readonly webdavService: WebDAVService,
+    private readonly filesStorageService: FilesStorageService,
   ) {
     super(prisma);
   }
@@ -63,7 +63,7 @@ export class PaintPrismaRepository
       !mapped.colorPreview.startsWith('data:')
     ) {
       // It's a path, generate URL
-      mapped.colorPreview = this.webdavService.getWebDAVUrl(mapped.colorPreview);
+      mapped.colorPreview = this.filesStorageService.getFileUrl(mapped.colorPreview);
     }
 
     // Recursively map nested relations

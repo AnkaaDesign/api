@@ -1,0 +1,54 @@
+[Unit]
+Description=Ankaa API Server (NestJS)
+Documentation=https://github.com/ankaa-design/ankaa
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=kennedy
+Group=ankaa
+WorkingDirectory=/home/kennedy/ankaa/api
+
+# Environment
+Environment=NODE_ENV=production
+Environment=PORT=3030
+EnvironmentFile=/home/kennedy/ankaa/api/.env.production
+
+# Node.js executable
+ExecStart=/usr/bin/node dist/main.js
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=2G
+CPUQuota=200%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Allow write access to specific directories
+ReadWritePaths=/home/kennedy/ankaa/api/uploads
+ReadWritePaths=/home/kennedy/ankaa/api/logs
+ReadWritePaths=/srv/files
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ankaa-api
+
+[Install]
+WantedBy=multi-user.target

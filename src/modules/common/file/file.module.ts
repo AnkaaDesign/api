@@ -16,7 +16,7 @@ import { EnsureUploadDirMiddleware } from './middleware/upload.middleware';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueModule } from './thumbnail-queue.module';
 import { ThumbnailMonitoringController } from './thumbnail-monitoring.controller';
-import { WebDAVModule } from './services/webdav.module';
+import { FilesStorageModule } from './services/files-storage.module';
 import { UPLOAD_CONFIG, fileFilter } from './config/upload.config';
 import { FileCleanupSchedulerService } from './services/file-cleanup-scheduler.service';
 import { ThumbnailRetrySchedulerService } from './services/thumbnail-retry-scheduler.service';
@@ -33,7 +33,7 @@ if (!existsSync(uploadDir)) {
     PrismaModule,
     ChangeLogModule,
     UserModule,
-    WebDAVModule,
+    FilesStorageModule,
     ThumbnailQueueModule,
     MulterModule.register({
       storage: diskStorage({

@@ -22,7 +22,7 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { FileService } from './file.service';
-import { WebDAVService } from './services/webdav.service';
+import { FilesStorageService } from './services/files-storage.service';
 import { multerConfig } from './config/upload.config';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
@@ -75,7 +75,7 @@ import type {
 export class FileController {
   constructor(
     private readonly fileService: FileService,
-    private readonly webdavService: WebDAVService,
+    private readonly filesStorageService: FilesStorageService,
   ) {}
 
   // File Upload Endpoints - Static routes first
@@ -298,29 +298,27 @@ export class FileController {
     };
   }
 
-  // WebDAV Configuration Endpoints
-  @Get('webdav/contexts')
+  // Files Storage Configuration Endpoints
+  @Get('storage/contexts')
   @NoRateLimit()
-  async getWebDAVContexts(@Query('entityType') entityType?: string): Promise<{
+  async getStorageContexts(@Query('entityType') entityType?: string): Promise<{
     success: boolean;
     data: {
       folderMapping: any;
       availableContexts: string[];
-      useWebDAV: boolean;
     };
     message: string;
   }> {
-    const folderMapping = this.webdavService.getFolderMapping();
-    const availableContexts = this.webdavService.getAvailableContextsForEntity(entityType);
+    const folderMapping = this.filesStorageService.getFolderMapping();
+    const availableContexts = this.filesStorageService.getAvailableContextsForEntity(entityType);
 
     return {
       success: true,
       data: {
         folderMapping,
         availableContexts,
-        useWebDAV: true, // Assuming WebDAV is enabled
       },
-      message: 'Contextos WebDAV carregados com sucesso.',
+      message: 'Contextos de armazenamento carregados com sucesso.',
     };
   }
 }

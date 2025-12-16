@@ -202,11 +202,11 @@ export class BackupController {
     }
   }
 
-  @Get('webdav-folders')
-  @ApiOperation({ summary: 'Get list of WebDAV folders available for backup' })
+  @Get('storage-folders')
+  @ApiOperation({ summary: 'Get list of storage folders available for backup' })
   @ApiResponse({
     status: 200,
-    description: 'List of WebDAV folder names',
+    description: 'List of files storage folder names',
     schema: {
       type: 'object',
       properties: {
@@ -219,19 +219,19 @@ export class BackupController {
       },
     },
   })
-  async getWebDAVFolders() {
+  async getStorageFolders() {
     try {
-      const folders = await this.backupService.listWebDAVFolders();
+      const folders = await this.backupService.listStorageFolders();
       return {
         success: true,
         data: folders,
-        message: 'WebDAV folders retrieved successfully',
+        message: 'storage folders retrieved successfully',
       };
     } catch (error) {
       return {
         success: false,
         data: [],
-        message: error.message || 'Failed to list WebDAV folders',
+        message: error.message || 'Failed to list storage folders',
       };
     }
   }

@@ -4,12 +4,12 @@ import { ThumbnailQueueService } from './thumbnail-queue.service';
 import { ThumbnailProcessorService } from './thumbnail-processor.service';
 import { ThumbnailService } from './thumbnail.service';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
-import { WebDAVModule } from './services/webdav.module';
+import { FilesStorageModule } from './services/files-storage.module';
 
 @Module({
   imports: [
     PrismaModule,
-    WebDAVModule,
+    FilesStorageModule,
     BullModule.registerQueue({
       name: 'thumbnail-generation',
       redis: {

@@ -381,7 +381,7 @@ export class OrderService {
   }
 
   /**
-   * Process file uploads for an order and save to WebDAV
+   * Process file uploads for an order and save to storage
    */
   private async processOrderFileUploads(
     orderId: string,
@@ -413,7 +413,7 @@ export class OrderService {
       // Process budgets
       if (files.budgets && files.budgets.length > 0) {
         for (const file of files.budgets) {
-          await this.saveFileToWebDAV(
+          await this.saveFileTostorage(
             file,
             'orderBudgets',
             orderId,
@@ -428,7 +428,7 @@ export class OrderService {
       // Process invoices
       if (files.invoices && files.invoices.length > 0) {
         for (const file of files.invoices) {
-          await this.saveFileToWebDAV(
+          await this.saveFileTostorage(
             file,
             'orderInvoices',
             orderId,
@@ -443,7 +443,7 @@ export class OrderService {
       // Process receipts
       if (files.receipts && files.receipts.length > 0) {
         for (const file of files.receipts) {
-          await this.saveFileToWebDAV(
+          await this.saveFileTostorage(
             file,
             'orderReceipts',
             orderId,
@@ -458,7 +458,7 @@ export class OrderService {
       // Process reimbursements
       if (files.reimbursements && files.reimbursements.length > 0) {
         for (const file of files.reimbursements) {
-          await this.saveFileToWebDAV(
+          await this.saveFileTostorage(
             file,
             'orderReimbursements',
             orderId,
@@ -473,7 +473,7 @@ export class OrderService {
       // Process reimbursement invoices
       if (files.reimbursementInvoices && files.reimbursementInvoices.length > 0) {
         for (const file of files.reimbursementInvoices) {
-          await this.saveFileToWebDAV(
+          await this.saveFileTostorage(
             file,
             'orderNfeReimbursements',
             orderId,
@@ -493,9 +493,9 @@ export class OrderService {
   }
 
   /**
-   * Save a file to WebDAV and create file record
+   * Save a file to storage and create file record
    */
-  private async saveFileToWebDAV(
+  private async saveFileTostorage(
     file: Express.Multer.File,
     fileContext: string,
     entityId: string,
@@ -548,7 +548,7 @@ export class OrderService {
       this.logger.log(`Saved and linked file ${file.originalname} to order ${entityId}`);
       return fileRecord;
     } catch (error) {
-      this.logger.error(`Error saving file to WebDAV:`, error);
+      this.logger.error(`Error saving file to storage:`, error);
       throw error;
     }
   }

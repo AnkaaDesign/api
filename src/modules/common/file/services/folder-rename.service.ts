@@ -11,8 +11,8 @@ import type { PrismaTransaction } from '../repositories/file.repository';
 @Injectable()
 export class FolderRenameService {
   private readonly logger = new Logger(FolderRenameService.name);
-  private readonly webdavRoot =
-    process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
+  private readonly filesRoot =
+    process.env.FILES_ROOT || process.env.UPLOAD_DIR || './uploads/files';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -194,8 +194,8 @@ export class FolderRenameService {
 
     // Rename each folder
     for (const folder of foldersToRename) {
-      const oldPath = join(this.webdavRoot, folder.base, folder.name);
-      const newPath = join(this.webdavRoot, folder.base, newSanitized);
+      const oldPath = join(this.filesRoot, folder.base, folder.name);
+      const newPath = join(this.filesRoot, folder.base, newSanitized);
 
       const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
       totalFoldersRenamed += result.foldersRenamed;
@@ -254,8 +254,8 @@ export class FolderRenameService {
 
     // Rename each folder
     for (const folder of foldersToRename) {
-      const oldPath = join(this.webdavRoot, folder.base, folder.name);
-      const newPath = join(this.webdavRoot, folder.base, newSanitized);
+      const oldPath = join(this.filesRoot, folder.base, folder.name);
+      const newPath = join(this.filesRoot, folder.base, newSanitized);
 
       const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
       totalFoldersRenamed += result.foldersRenamed;
@@ -302,8 +302,8 @@ export class FolderRenameService {
 
     // Rename each folder
     for (const folder of foldersToRename) {
-      const oldPath = join(this.webdavRoot, folder.base, folder.name);
-      const newPath = join(this.webdavRoot, folder.base, newSanitized);
+      const oldPath = join(this.filesRoot, folder.base, folder.name);
+      const newPath = join(this.filesRoot, folder.base, newSanitized);
 
       const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
       totalFoldersRenamed += result.foldersRenamed;

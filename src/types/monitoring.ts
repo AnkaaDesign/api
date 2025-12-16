@@ -159,10 +159,10 @@ export interface BackupMetadata extends BaseEntity {
 }
 
 // =====================
-// WebDAV Folder Types
+// Files Storage Folder Types
 // =====================
 
-export interface WebDavFolder {
+export interface StorageFolder {
   name: string;
   path: string;
   fullPath: string;
@@ -188,14 +188,14 @@ export interface WebDavFolder {
     expirationDate?: Date;
     permissions: 'read' | 'write' | 'admin';
   };
-  children?: WebDavFolder[];
+  children?: StorageFolder[];
 }
 
-export interface WebDavInfo extends BaseEntity {
+export interface StorageInfo extends BaseEntity {
   serverUrl: string;
   username?: string;
   isConnected: boolean;
-  rootFolder: WebDavFolder;
+  rootFolder: StorageFolder;
   statistics: {
     totalFiles: number;
     totalFolders: number;
@@ -362,7 +362,7 @@ export interface BackupMetadataIncludes {
   alerts?: boolean;
 }
 
-export interface WebDavInfoIncludes {
+export interface StorageInfoIncludes {
   rootFolder?:
     | boolean
     | {
@@ -417,7 +417,7 @@ export interface BackupMetadataOrderBy {
   updatedAt?: ORDER_BY_DIRECTION;
 }
 
-export interface WebDavInfoOrderBy {
+export interface StorageInfoOrderBy {
   id?: ORDER_BY_DIRECTION;
   serverUrl?: ORDER_BY_DIRECTION;
   lastSync?: ORDER_BY_DIRECTION;
@@ -446,8 +446,8 @@ export interface RaidStatusGetManyResponse extends BaseGetManyResponse<RaidStatu
 export interface BackupMetadataGetUniqueResponse extends BaseGetUniqueResponse<BackupMetadata> {}
 export interface BackupMetadataGetManyResponse extends BaseGetManyResponse<BackupMetadata> {}
 
-export interface WebDavInfoGetUniqueResponse extends BaseGetUniqueResponse<WebDavInfo> {}
-export interface WebDavInfoGetManyResponse extends BaseGetManyResponse<WebDavInfo> {}
+export interface StorageInfoGetUniqueResponse extends BaseGetUniqueResponse<StorageInfo> {}
+export interface StorageInfoGetManyResponse extends BaseGetManyResponse<StorageInfo> {}
 
 export interface SystemMetricsGetUniqueResponse extends BaseGetUniqueResponse<SystemMetrics> {}
 export interface SystemMetricsGetManyResponse extends BaseGetManyResponse<SystemMetrics> {}

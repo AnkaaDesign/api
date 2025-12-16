@@ -3,19 +3,20 @@ import { BadRequestException } from '@nestjs/common';
 import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
-import type { WebDAVFolderMapping } from '../services/webdav.service';
+import type { FilesFolderMapping } from '../services/files-storage.service';
 
 // Upload configuration
 export const UPLOAD_CONFIG = {
   // Maximum file size (default: 100MB)
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB in bytes
 
-  // Upload directory (temporary staging before WebDAV)
+  // Upload directory (temporary staging before files storage)
   uploadDir: process.env.UPLOAD_DIR || './uploads',
 
-  // WebDAV configuration
-  useWebDAV: process.env.USE_WEBDAV === 'true' || true, // Enable WebDAV by default
-  webdavRoot: process.env.WEBDAV_ROOT || './uploads/webdav', // Use relative path for development, production sets WEBDAV_ROOT to /srv/webdav
+  // Files storage configuration
+  // Production: FILES_ROOT=/srv/files (served by nginx via arquivos.ankaa.live, accessible locally via Samba)
+  // Development: FILES_ROOT=./uploads/files
+  filesRoot: process.env.FILES_ROOT || './uploads/files',
 
   // Allowed file types (MIME types)
   allowedMimeTypes: [
@@ -165,17 +166,17 @@ export const fileFilter = (req: any, file: Express.Multer.File, callback: Functi
   callback(null, true);
 };
 
-// Storage configuration - now uses temporary directory for staging
+// Storage configuration - uses temporary directory for staging before moving to files storage
 export const storageConfig = diskStorage({
   destination: (req, file, callback) => {
     try {
-      // Use a temporary staging directory before moving to WebDAV
+      // Use a temporary staging directory before moving to files storage
       const tempDir = path.join(UPLOAD_CONFIG.uploadDir, 'temp');
 
       console.log('🗂️ File upload staging destination:', {
         tempDir: tempDir,
         originalFilename: file.originalname,
-        useWebDAV: UPLOAD_CONFIG.useWebDAV,
+        filesRoot: UPLOAD_CONFIG.filesRoot,
       });
 
       // Ensure the temporary directory exists
@@ -218,20 +219,20 @@ export const multerConfig = {
   },
 };
 
-// Helper function to generate public URL (supports both upload and WebDAV paths)
+// Helper function to generate public URL for files
 export function generateFileUrl(filename: string, filePath: string): string {
   const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
-  const webdavBaseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
+  const filesBaseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
 
-  // Check if file is in WebDAV structure
-  if (UPLOAD_CONFIG.useWebDAV && filePath.includes(UPLOAD_CONFIG.webdavRoot)) {
-    // Generate WebDAV URL
-    const relativePath = filePath.replace(UPLOAD_CONFIG.webdavRoot, '').replace(/\\/g, '/');
+  // Check if file is in files storage structure
+  if (filePath.includes(UPLOAD_CONFIG.filesRoot)) {
+    // Generate files storage URL (served by nginx via arquivos.ankaa.live)
+    const relativePath = filePath.replace(UPLOAD_CONFIG.filesRoot, '').replace(/\\/g, '/');
     const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
-    return `${webdavBaseUrl}${cleanPath}`;
+    return `${filesBaseUrl}${cleanPath}`;
   }
 
-  // Fallback to traditional upload path
+  // Fallback to API file serving for legacy uploads
   const relativePath = filePath.replace(UPLOAD_CONFIG.uploadDir, '').replace(/\\/g, '/');
   const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
   return `${baseUrl}/api/files/static${cleanPath}`;

@@ -27,7 +27,7 @@ import { generateFileUrl, validateFileSize, UPLOAD_CONFIG } from './config/uploa
 import { validateFileLimit } from './config/file-limits.config';
 import { ThumbnailService } from './thumbnail.service';
 import { ThumbnailQueueService, ThumbnailJobData } from './thumbnail-queue.service';
-import { WebDAVService, type WebDAVFolderMapping } from './services/webdav.service';
+import { FilesStorageService, type FilesFolderMapping } from './services/files-storage.service';
 import { FileRelationshipField, FILE_RELATIONSHIP_MAP } from '../../../utils';
 import type {
   FileBatchCreateResponse,
@@ -60,21 +60,21 @@ export class FileService {
     private readonly changeLogService: ChangeLogService,
     private readonly thumbnailService: ThumbnailService,
     private readonly thumbnailQueueService: ThumbnailQueueService,
-    private readonly webdavService: WebDAVService,
+    private readonly filesStorageService: FilesStorageService,
   ) {}
 
   /**
-   * Transform file data to include generated URL (supports WebDAV and upload paths)
+   * Transform file data to include generated URL
    */
   private transformFileWithUrl(file: File): File & { url: string } {
-    // Check if file is in WebDAV structure for URL generation
-    const isWebDAVFile = UPLOAD_CONFIG.useWebDAV && file.path.includes(UPLOAD_CONFIG.webdavRoot);
+    // Check if file is in files storage structure
+    const isStoredFile = file.path.includes(UPLOAD_CONFIG.filesRoot);
 
     let url: string;
 
-    if (isWebDAVFile) {
-      // Generate WebDAV URL for files in WebDAV
-      url = this.webdavService.getWebDAVUrl(file.path);
+    if (isStoredFile) {
+      // Generate URL for files in storage (served by nginx via arquivos.ankaa.live)
+      url = this.filesStorageService.getFileUrl(file.path);
     } else {
       // For local files (temp uploads, etc.), use the file serving endpoint
       const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
@@ -230,15 +230,15 @@ export class FileService {
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-        const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+        const filesRoot = process.env.FILES_ROOT || '/srv/files';
         const uploadsDir = process.env.UPLOAD_DIR || './uploads';
 
         let nginxInternalPath: string;
 
-        // Check if file is in WebDAV or local uploads
-        if (file.path.startsWith(webdavRoot)) {
-          // WebDAV file: Map /srv/webdav/... to /internal-files/...
-          const relativePath = file.path.replace(webdavRoot, '');
+        // Check if file is in files storage or local uploads
+        if (file.path.startsWith(filesRoot)) {
+          // Files storage: Map /srv/files/... to /internal-files/...
+          const relativePath = file.path.replace(filesRoot, '');
           nginxInternalPath = `/internal-files${relativePath}`;
         } else if (
           file.path.startsWith(uploadsDir) ||
@@ -311,15 +311,15 @@ export class FileService {
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-        const webdavRoot = process.env.WEBDAV_ROOT || '/srv/webdav';
+        const filesRoot = process.env.FILES_ROOT || '/srv/files';
         const uploadsDir = process.env.UPLOAD_DIR || './uploads';
 
         let nginxInternalPath: string;
 
-        // Check if file is in WebDAV or local uploads
-        if (file.path.startsWith(webdavRoot)) {
-          // WebDAV file: Map /srv/webdav/... to /internal-files/...
-          const relativePath = file.path.replace(webdavRoot, '');
+        // Check if file is in files storage or local uploads
+        if (file.path.startsWith(filesRoot)) {
+          // Files storage: Map /srv/files/... to /internal-files/...
+          const relativePath = file.path.replace(filesRoot, '');
           nginxInternalPath = `/internal-files${relativePath}`;
         } else if (
           file.path.startsWith(uploadsDir) ||
@@ -366,8 +366,7 @@ export class FileService {
   async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
     try {
       // Check environment configuration
-      const useWebdav = process.env.USE_WEBDAV === 'true';
-      const webdavRoot = process.env.WEBDAV_ROOT || './uploads/webdav';
+      const filesRoot = process.env.FILES_ROOT || './uploads/files';
       const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true';
 
       const file = await this.fileRepository.findById(id);
@@ -390,9 +389,9 @@ export class FileService {
       const thumbnailSize = this.thumbnailService.getThumbnailSize(size);
       const thumbnailSizeStr = `${thumbnailSize.width}x${thumbnailSize.height}`;
 
-      // Use WebDAVService to get consistent thumbnail folder path (same as generation)
+      // Use FilesStorageService to get consistent thumbnail folder path (same as generation)
       // This ensures thumbnails are found regardless of environment
-      const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+      const thumbnailFolder = this.filesStorageService.getFolderPath(
         'thumbnails',
         'image/webp',
         undefined,
@@ -494,17 +493,16 @@ export class FileService {
       // Development: Stream file directly with Node.js
       if (useXAccelRedirect) {
         let nginxInternalPath: string;
-        if (useWebdav && webdavRoot) {
-          // WebDAV: Map /srv/webdav/Thumbnails/... to /internal-thumbnails/...
-          const thumbnailsDir = join(webdavRoot, 'Thumbnails');
-          const absolutePath = resolve(actualPath);
+        // Files storage: Map /srv/files/Thumbnails/... to /internal-thumbnails/...
+        const thumbnailsDir = join(filesRoot, 'Thumbnails');
+        const absolutePath = resolve(actualPath);
+
+        if (absolutePath.includes(thumbnailsDir) || absolutePath.includes('/Thumbnails/')) {
           const relativePath = absolutePath.replace(thumbnailsDir, '');
           nginxInternalPath = `/internal-thumbnails${relativePath}`;
         } else {
           // Local: Map ./uploads/thumbnails/... to /internal-uploads/thumbnails/...
           const uploadsDir = resolve(environmentConfig.upload.uploadDir);
-          const thumbnailsDir = join(uploadsDir, 'thumbnails');
-          const absolutePath = resolve(actualPath);
           const relativePath = absolutePath.replace(uploadsDir, '');
           nginxInternalPath = `/internal-uploads${relativePath}`;
         }
@@ -615,17 +613,17 @@ export class FileService {
   }
 
   /**
-   * Delete physical file from storage (supports both upload and WebDAV paths)
+   * Delete physical file from storage
    */
   private async deletePhysicalFile(filePath: string, fileId?: string): Promise<void> {
     try {
-      // Determine if file is in WebDAV structure
-      const isWebDAVFile = UPLOAD_CONFIG.useWebDAV && filePath.includes(UPLOAD_CONFIG.webdavRoot);
+      // Determine if file is in files storage structure
+      const isStoredFile = filePath.includes(UPLOAD_CONFIG.filesRoot);
 
-      if (isWebDAVFile) {
-        // Use WebDAV service for deletion
-        await this.webdavService.deleteFromWebDAV(filePath);
-        this.logger.log(`Arquivo WebDAV removido: ${filePath}`);
+      if (isStoredFile) {
+        // Use files storage service for deletion
+        await this.filesStorageService.deleteFromStorage(filePath);
+        this.logger.log(`Arquivo removido do storage: ${filePath}`);
       } else {
         // Traditional file system deletion
         if (existsSync(filePath)) {
@@ -1382,7 +1380,7 @@ export class FileService {
   async createFromUploadWithTransaction(
     tx: PrismaTransaction,
     file: Express.Multer.File,
-    fileContext: keyof WebDAVFolderMapping | null,
+    fileContext: keyof FilesFolderMapping | null,
     userId?: string,
     contextData?: {
       entityId?: string;
@@ -1406,8 +1404,8 @@ export class FileService {
         throw new BadRequestException(`Arquivo de origem não encontrado: ${file.path}`);
       }
 
-      // Generate proper WebDAV path based on context
-      const webdavPath = this.webdavService.generateWebDAVFilePath(
+      // Generate proper storage path based on context
+      const storagePath = this.filesStorageService.generateFilePath(
         file.originalname,
         fileContext,
         file.mimetype,
@@ -1421,12 +1419,12 @@ export class FileService {
         contextData?.cutType,
       );
 
-      // Create file data with WebDAV path (file will be moved there after validation)
+      // Create file data with storage path (file will be moved there after validation)
       const createData: FileCreateFormData = {
         filename: file.originalname,
         originalName: file.originalname,
         mimetype: file.mimetype,
-        path: webdavPath, // Use final WebDAV path
+        path: storagePath, // Use final storage path
         size: file.size,
       };
 
@@ -1454,15 +1452,15 @@ export class FileService {
         transaction: tx,
       });
 
-      // Move file to WebDAV (this happens after transaction but before commit)
+      // Move file to storage (this happens after transaction but before commit)
       // If this fails, the transaction will roll back
       try {
-        await this.webdavService.moveToWebDAV(file.path, webdavPath);
-        this.logger.log(`Moved file to WebDAV: ${file.path} → ${webdavPath}`);
+        await this.filesStorageService.moveToStorage(file.path, storagePath);
+        this.logger.log(`Moved file to storage: ${file.path} -> ${storagePath}`);
       } catch (error: any) {
-        this.logger.error(`Failed to move file to WebDAV: ${error.message}`);
+        this.logger.error(`Failed to move file to storage: ${error.message}`);
         throw new InternalServerErrorException(
-          `Falha ao mover arquivo para WebDAV: ${error.message}`,
+          `Falha ao mover arquivo para storage: ${error.message}`,
         );
       }
 
@@ -1474,7 +1472,7 @@ export class FileService {
         try {
           this.logger.log(`Generating thumbnail synchronously for image ${newFile.id}`);
           const thumbnailResult = await this.thumbnailService.generateThumbnail(
-            webdavPath,
+            storagePath,
             file.mimetype,
             newFile.id,
             {
@@ -1540,7 +1538,7 @@ export class FileService {
     include?: FileInclude,
     userId?: string,
     contextData?: {
-      fileContext?: keyof WebDAVFolderMapping;
+      fileContext?: keyof FilesFolderMapping;
       entityId?: string;
       entityType?: string;
       customerName?: string;
