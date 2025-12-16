@@ -1815,13 +1815,12 @@ export class UserService {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Find users where exp1EndAt is today and status is EXPERIENCE_PERIOD_1
+      // Find users where exp1EndAt has passed (today or earlier) and status is still EXPERIENCE_PERIOD_1
       const usersEndingExp1 = await this.prisma.user.findMany({
         where: {
           status: USER_STATUS.EXPERIENCE_PERIOD_1,
           exp1EndAt: {
-            gte: today,
-            lt: tomorrow,
+            lt: tomorrow, // Catches all users whose exp1 ended today or earlier
           },
         },
         include: {
@@ -1830,7 +1829,7 @@ export class UserService {
         },
       });
 
-      this.logger.log(`Found ${usersEndingExp1.length} users ending Experience Period 1 today`);
+      this.logger.log(`Found ${usersEndingExp1.length} users with Experience Period 1 ended (pending transition)`);
 
       // Transition users from exp1 to exp2
       for (const user of usersEndingExp1) {
@@ -1878,13 +1877,12 @@ export class UserService {
         }
       }
 
-      // Find users where exp2EndAt is today and status is EXPERIENCE_PERIOD_2
+      // Find users where exp2EndAt has passed (today or earlier) and status is still EXPERIENCE_PERIOD_2
       const usersEndingExp2 = await this.prisma.user.findMany({
         where: {
           status: USER_STATUS.EXPERIENCE_PERIOD_2,
           exp2EndAt: {
-            gte: today,
-            lt: tomorrow,
+            lt: tomorrow, // Catches all users whose exp2 ended today or earlier
           },
         },
         include: {
@@ -1893,7 +1891,7 @@ export class UserService {
         },
       });
 
-      this.logger.log(`Found ${usersEndingExp2.length} users ending Experience Period 2 today`);
+      this.logger.log(`Found ${usersEndingExp2.length} users with Experience Period 2 ended (pending transition)`);
 
       // Transition users from exp2 to effected
       for (const user of usersEndingExp2) {

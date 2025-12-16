@@ -24,14 +24,15 @@ export class CronService {
 
   /**
    * Process automatic user status transitions when experience periods end
-   * Runs daily at midnight (00:00)
+   * Runs daily at 1 AM (01:00)
    *
    * This cron job:
-   * - Finds users where exp1EndAt is today and transitions them from EXPERIENCE_PERIOD_1 to EXPERIENCE_PERIOD_2
-   * - Finds users where exp2EndAt is today and transitions them from EXPERIENCE_PERIOD_2 to EFFECTED
+   * - Finds users where exp1EndAt has passed and transitions them from EXPERIENCE_PERIOD_1 to EXPERIENCE_PERIOD_2
+   * - Finds users where exp2EndAt has passed and transitions them from EXPERIENCE_PERIOD_2 to EFFECTED
    * - Logs all changes to the changelog system
+   * - Catches users even if they were missed on previous days (e.g., server downtime, user created after cron ran)
    */
-  @Cron('0 0 * * *')
+  @Cron('0 1 * * *')
   async processUserStatusTransitions() {
     this.logger.log('Starting automatic user status transitions cron job...');
 
@@ -69,7 +70,7 @@ export class CronService {
 
       // Log if no transitions occurred
       if (result.totalProcessed === 0) {
-        this.logger.log('No users required status transitions today');
+        this.logger.log('No users required status transitions');
       }
     } catch (error) {
       this.logger.error('Failed to run user status transitions cron job', error);
