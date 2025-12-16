@@ -3,7 +3,7 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ItemModule } from '@modules/inventory/item/item.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
-import { WebDAVModule } from '@modules/common/file/services/webdav.module';
+import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
 // Controllers
 import { PaintUnifiedController } from './paint.controller';
 import { PaintBrandController } from './paint-brand.controller';
@@ -35,7 +35,7 @@ import { PaintBrandRepository } from './repositories/paint-brand/paint-brand.rep
 import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-brand-prisma.repository';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, WebDAVModule],
+  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FilesStorageModule],
   exports: [
     PaintService,
     PaintTypeService,

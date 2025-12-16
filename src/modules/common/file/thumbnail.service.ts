@@ -5,7 +5,7 @@ const sharp = require('sharp');
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
-import { WebDAVService } from './services/webdav.service';
+import { FilesStorageService } from './services/files-storage.service';
 import { THUMBNAIL_CONFIG } from './config/thumbnail.config';
 
 const execAsync = promisify(exec);
@@ -62,7 +62,7 @@ export class ThumbnailService {
     inkscape: false,
   };
 
-  constructor(private readonly webdavService: WebDAVService) {
+  constructor(private readonly filesStorageService: FilesStorageService) {
     this.checkAvailableTools();
   }
 
@@ -780,8 +780,8 @@ export class ThumbnailService {
     // Generate thumbnail filename (without timestamp for consistent caching)
     const thumbnailFilename = `${fileId}_${thumbnailSize}.${options.format}`;
 
-    // Use WebDAVService to get the folder path for thumbnails
-    const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+    // Use FilesStorageService to get the folder path for thumbnails
+    const thumbnailFolder = this.filesStorageService.getFolderPath(
       'thumbnails',
       'image/webp', // Default MIME type for thumbnails
       undefined, // entityId
@@ -795,8 +795,8 @@ export class ThumbnailService {
       thumbnailSize, // thumbnailSize parameter
     );
 
-    // Ensure the WebDAV directory exists
-    await this.webdavService.ensureWebDAVDirectory(thumbnailFolder);
+    // Ensure the directory exists
+    await this.filesStorageService.ensureDirectory(thumbnailFolder);
 
     // Construct the full path manually (without timestamp)
     const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
@@ -810,8 +810,8 @@ export class ThumbnailService {
    */
   private generateThumbnailUrl(thumbnailPath: string, fileId?: string): string {
     if (!fileId) {
-      // Fallback to WebDAV URL if fileId is not provided (shouldn't happen)
-      return this.webdavService.getWebDAVUrl(thumbnailPath);
+      // Fallback to storage URL if fileId is not provided (shouldn't happen)
+      return this.filesStorageService.getFileUrl(thumbnailPath);
     }
 
     // Generate API endpoint URL for thumbnail
@@ -825,7 +825,7 @@ export class ThumbnailService {
    */
   async deleteThumbnails(fileId: string): Promise<void> {
     try {
-      // Delete thumbnails from all size directories in WebDAV
+      // Delete thumbnails from all size directories
       for (const [size, dimensions] of Object.entries(this.thumbnailSizes)) {
         const thumbnailSize = `${dimensions.width}x${dimensions.height}`;
 
@@ -834,8 +834,8 @@ export class ThumbnailService {
         for (const format of formats) {
           const thumbnailFilename = `${fileId}_${thumbnailSize}.${format}`;
 
-          // Get WebDAV folder path for thumbnails
-          const thumbnailFolder = this.webdavService.getWebDAVFolderPath(
+          // Get folder path for thumbnails
+          const thumbnailFolder = this.filesStorageService.getFolderPath(
             'thumbnails',
             'image/webp',
             undefined,
@@ -852,8 +852,8 @@ export class ThumbnailService {
           // Construct the full path
           const thumbnailPath = join(thumbnailFolder, thumbnailFilename);
 
-          // Use WebDAVService to delete the file
-          await this.webdavService.deleteFromWebDAV(thumbnailPath);
+          // Delete the file from storage
+          await this.filesStorageService.deleteFromStorage(thumbnailPath);
           this.logger.log(`Thumbnail removido: ${thumbnailPath}`);
         }
       }

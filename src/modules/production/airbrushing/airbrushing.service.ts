@@ -628,7 +628,7 @@ export class AirbrushingService {
       // Process receipt files
       if (files.receipts && files.receipts.length > 0) {
         for (const file of files.receipts) {
-          const fileRecord = await this.saveFileToWebDAV(
+          const fileRecord = await this.saveFileTostorage(
             file,
             'airbrushingReceipts',
             airbrushingId,
@@ -644,7 +644,7 @@ export class AirbrushingService {
       // Process invoice files
       if (files.invoices && files.invoices.length > 0) {
         for (const file of files.invoices) {
-          const fileRecord = await this.saveFileToWebDAV(
+          const fileRecord = await this.saveFileTostorage(
             file,
             'airbrushingInvoices',
             airbrushingId,
@@ -660,7 +660,7 @@ export class AirbrushingService {
       // Process artwork files
       if (files.artworks && files.artworks.length > 0) {
         for (const file of files.artworks) {
-          const fileRecord = await this.saveFileToWebDAV(
+          const fileRecord = await this.saveFileTostorage(
             file,
             'airbrushingArtworks',
             airbrushingId,
@@ -681,9 +681,9 @@ export class AirbrushingService {
   }
 
   /**
-   * Save file to WebDAV and link to airbrushing
+   * Save file to storage and link to airbrushing
    */
-  private async saveFileToWebDAV(
+  private async saveFileTostorage(
     file: Express.Multer.File,
     fileContext: string,
     entityId: string,
@@ -737,7 +737,7 @@ export class AirbrushingService {
       this.logger.log(`Saved and linked file ${file.originalname} to airbrushing ${entityId}`);
       return fileRecord;
     } catch (error) {
-      this.logger.error(`Error saving file to WebDAV:`, error);
+      this.logger.error(`Error saving file to storage:`, error);
       throw error;
     }
   }

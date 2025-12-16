@@ -96,7 +96,7 @@ export interface SharedFolder {
   group: string;
   size: string;
   lastModified: Date;
-  webdavPath?: string;
+  filesPath?: string;
   description?: string;
   type?: string;
 }
@@ -337,25 +337,25 @@ export class ServerService {
 
   async getSharedFolders(): Promise<SharedFolder[]> {
     try {
-      // Use proper WebDAV mount point, fallback to samba if not available
-      const webdavRoot = '/srv/webdav';
+      // Use proper files storage mount point, fallback to samba if not available
+      const filesRoot = '/srv/files';
 
-      if (!fs.existsSync(webdavRoot)) {
-        this.logger.warn(`WebDAV root directory does not exist: ${webdavRoot}`);
+      if (!fs.existsSync(filesRoot)) {
+        this.logger.warn(`files storage root directory does not exist: ${filesRoot}`);
         return [];
       }
 
-      // Check WebDAV service status
-      const webdavServiceStatus = await this.checkWebDAVServiceStatus();
-      if (!webdavServiceStatus.isRunning) {
-        this.logger.warn('WebDAV service is not running properly');
+      // Check files storage service status
+      const filesServiceStatus = await this.checkFilesServiceStatus();
+      if (!filesServiceStatus.isRunning) {
+        this.logger.warn('files storage service is not running properly');
       }
 
-      // WebDAV-exclusive folders (not served via API, only accessible via WebDAV)
-      const webdavOnlyFolders = ['Rascunhos', 'Fotos', 'Auxiliares', 'Artes'];
+      // files storage-exclusive folders (not served via API, only accessible via files storage)
+      const sambaOnlyFolders = ['Rascunhos', 'Fotos', 'Auxiliares', 'Artes'];
 
-      // Get all subdirectories in the WebDAV root
-      const { stdout: lsOutput } = await execPromise(`ls -la "${webdavRoot}"`);
+      // Get all subdirectories in the files storage root
+      const { stdout: lsOutput } = await execPromise(`ls -la "${filesRoot}"`);
       const lines = lsOutput.split('\n').slice(1); // Skip the "total" line
 
       const folderPromises = lines
@@ -373,7 +373,7 @@ export class ServerService {
             !trimmed.endsWith(' ..') && // Skip parent directory
             !trimmed.endsWith(' .DS_Store') && // Skip macOS files
             !trimmed.endsWith(' .recycle') && // Skip recycle bin
-            !webdavOnlyFolders.includes(folderName) // Skip WebDAV-exclusive folders
+            !sambaOnlyFolders.includes(folderName) // Skip files storage-exclusive folders
           );
         })
         .map(async line => {
@@ -385,7 +385,7 @@ export class ServerService {
             const owner = parts[2];
             const group = parts[3];
             const folderName = parts.slice(8).join(' '); // Handle names with spaces
-            const folderPath = path.join(webdavRoot, folderName);
+            const folderPath = path.join(filesRoot, folderName);
 
             if (!fs.existsSync(folderPath)) return null;
 
@@ -394,8 +394,8 @@ export class ServerService {
             // Get folder size and enhanced statistics
             const enhancedStats = await this.getEnhancedFolderStats(folderPath);
 
-            // Get additional WebDAV-specific information
-            const webdavInfo = await this.getWebDAVFolderInfo(folderName, folderPath);
+            // Get additional files storage-specific information
+            const filesInfo = await this.getFilesFolderInfo(folderName, folderPath);
 
             // Check folder accessibility
             const accessInfo = await this.checkFolderAccess(folderPath);
@@ -410,10 +410,10 @@ export class ServerService {
               lastModified: stats.mtime,
               fileCount: enhancedStats.fileCount,
               subdirCount: enhancedStats.subdirCount,
-              ...webdavInfo, // Add WebDAV specific metadata
+              ...filesInfo, // Add files storage specific metadata
               ...accessInfo, // Add access information
             } as SharedFolder & {
-              webdavPath?: string;
+              filesPath?: string;
               description?: string;
               type?: string;
               accessible?: boolean;
@@ -433,7 +433,7 @@ export class ServerService {
       // Sort folders by name for consistent display
       validFolders.sort((a, b) => a.name.localeCompare(b.name));
 
-      this.logger.log(`Found ${validFolders.length} WebDAV shared folders`);
+      this.logger.log(`Found ${validFolders.length} files storage shared folders`);
       return validFolders;
     } catch (error) {
       this.logger.error('Failed to get shared folders', error);
@@ -453,7 +453,7 @@ export class ServerService {
       permissions: string;
       owner: string;
       group: string;
-      webdavUrl?: string;
+      filesUrl?: string;
       fileCount?: number;
       folderCount?: number;
     }>;
@@ -462,9 +462,9 @@ export class ServerService {
     parentPath?: string;
   }> {
     try {
-      // Use proper WebDAV mount point, fallback to samba if not available
-      const webdavRoot = '/srv/webdav';
-      const basePath = path.join(webdavRoot, folderName);
+      // Use proper files storage mount point, fallback to samba if not available
+      const filesRoot = '/srv/files';
+      const basePath = path.join(filesRoot, folderName);
       // Decode URL-encoded path to handle special characters (spaces, etc.)
       const decodedSubPath = subPath ? decodeURIComponent(subPath) : undefined;
       const targetPath = decodedSubPath ? path.join(basePath, decodedSubPath) : basePath;
@@ -473,7 +473,7 @@ export class ServerService {
         throw new Error(`Folder does not exist: ${targetPath}`);
       }
 
-      if (!targetPath.startsWith(webdavRoot)) {
+      if (!targetPath.startsWith(filesRoot)) {
         throw new Error('Access denied: Path traversal not allowed');
       }
 
@@ -559,12 +559,12 @@ export class ServerService {
           totalFiles++;
         }
 
-        // Generate WebDAV URL for files
-        let webdavUrl: string | undefined;
+        // Generate files storage URL for files
+        let filesUrl: string | undefined;
         if (!isDirectory) {
-          const relativePath = path.relative(webdavRoot, itemPath);
-          const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
-          webdavUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
+          const relativePath = path.relative(filesRoot, itemPath);
+          const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+          filesUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
         }
 
         files.push({
@@ -575,7 +575,7 @@ export class ServerService {
           permissions,
           owner,
           group,
-          webdavUrl,
+          filesUrl,
           fileCount,
           folderCount,
         });
@@ -653,16 +653,16 @@ export class ServerService {
     }
   }
 
-  private async getWebDAVFolderInfo(
+  private async getFilesFolderInfo(
     folderName: string,
     folderPath: string,
   ): Promise<{
-    webdavPath?: string;
+    filesPath?: string;
     description?: string;
     type?: string;
   }> {
     try {
-      // Map folder names to their purposes based on WebDAV service configuration
+      // Map folder names to their purposes based on files storage service configuration
       const folderDescriptions: Record<string, { description: string; type: string }> = {
         Artes: { description: 'Arquivos de artes e designs para tarefas', type: 'artwork' },
         Auxiliares: { description: 'Arquivos auxiliares e documentos gerais', type: 'general' },
@@ -681,31 +681,31 @@ export class ServerService {
       };
 
       const info = folderDescriptions[folderName] || {
-        description: 'Pasta compartilhada WebDAV',
+        description: 'Pasta compartilhada files storage',
         type: 'other',
       };
 
-      // Generate WebDAV URL
-      const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
-      const webdavPath = `${baseUrl}/${encodeURIComponent(folderName)}`;
+      // Generate files storage URL
+      const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+      const filesPath = `${baseUrl}/${encodeURIComponent(folderName)}`;
 
       return {
-        webdavPath,
+        filesPath,
         description: info.description,
         type: info.type,
       };
     } catch (error) {
-      this.logger.warn(`Failed to get WebDAV info for folder ${folderName}:`, error);
+      this.logger.warn(`Failed to get files storage info for folder ${folderName}:`, error);
       return {};
     }
   }
 
-  private async checkWebDAVServiceStatus(): Promise<{
+  private async checkFilesServiceStatus(): Promise<{
     isRunning: boolean;
     services: Array<{ name: string; status: string }>;
   }> {
     try {
-      // Check nginx (WebDAV is typically served through nginx)
+      // Check nginx (files storage is typically served through nginx)
       const nginxCheck = await this.checkSingleServiceStatus('nginx');
 
       // Check if apache2 is being used instead
@@ -720,7 +720,7 @@ export class ServerService {
 
       return { isRunning, services };
     } catch (error) {
-      this.logger.warn('Failed to check WebDAV service status:', error);
+      this.logger.warn('Failed to check files storage service status:', error);
       return { isRunning: false, services: [] };
     }
   }

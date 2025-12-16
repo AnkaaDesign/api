@@ -4,66 +4,67 @@ import {
   InternalServerErrorException,
   BadRequestException,
 } from '@nestjs/common';
-import { promises as fs, existsSync, statSync } from 'fs';
+import { promises as fs, existsSync } from 'fs';
 import { join, extname, basename, dirname } from 'path';
-import { environmentConfig } from '../../../../common/config/environment.config';
 
 /**
- * WebDAV folder mapping for different file types and contexts
+ * Files storage folder mapping for different file types and contexts
+ * Files are stored in /srv/files (production) and served by nginx via arquivos.ankaa.live
+ * Local access is provided via Samba share
  */
-export interface WebDAVFolderMapping {
+export interface FilesFolderMapping {
   // Entity-specific folders - Tasks
-  tasksArtworks: string; // Artwork files for tasks
-  taskBudgets: string; // Budget documents for tasks
-  taskInvoices: string; // Invoice files for tasks
-  taskReceipts: string; // Receipt files for tasks
-  taskReimbursements: string; // Reimbursement receipts for tasks
-  taskNfeReimbursements: string; // Reimbursement NFEs for tasks
-  cutFiles: string; // Cut request/plan files
+  tasksArtworks: string;
+  taskBudgets: string;
+  taskInvoices: string;
+  taskReceipts: string;
+  taskReimbursements: string;
+  taskNfeReimbursements: string;
+  cutFiles: string;
 
   // Entity-specific folders - Orders
-  orderBudgets: string; // Budget documents for orders
-  orderInvoices: string; // Invoice files for orders
-  orderReceipts: string; // Receipt files for orders
-  orderReimbursements: string; // Reimbursement receipts for orders
-  orderNfeReimbursements: string; // Reimbursement NFEs for orders
+  orderBudgets: string;
+  orderInvoices: string;
+  orderReceipts: string;
+  orderReimbursements: string;
+  orderNfeReimbursements: string;
 
   // Entity-specific folders - Airbrushing
-  airbrushingArtworks: string; // Artwork files for airbrushing
-  airbrushingBudgets: string; // Budget documents for airbrushing
-  airbrushingInvoices: string; // Invoice files for airbrushing
-  airbrushingReceipts: string; // Receipt files for airbrushing
-  airbrushingReimbursements: string; // Reimbursement receipts for airbrushing
-  airbrushingNfeReimbursements: string; // Reimbursement NFEs for airbrushing
+  airbrushingArtworks: string;
+  airbrushingBudgets: string;
+  airbrushingInvoices: string;
+  airbrushingReceipts: string;
+  airbrushingReimbursements: string;
+  airbrushingNfeReimbursements: string;
 
   // Entity-specific folders - External Withdrawal
-  externalWithdrawalInvoices: string; // External withdrawal invoices
-  externalWithdrawalReceipts: string; // External withdrawal receipts
-  externalWithdrawalReimbursements: string; // External withdrawal reimbursement receipts
-  externalWithdrawalNfeReimbursements: string; // External withdrawal reimbursement NFEs
+  externalWithdrawalInvoices: string;
+  externalWithdrawalReceipts: string;
+  externalWithdrawalReimbursements: string;
+  externalWithdrawalNfeReimbursements: string;
 
   // Entity-specific folders - Logos
-  customerLogo: string; // Customer logo files
-  supplierLogo: string; // Supplier logo files
+  customerLogo: string;
+  supplierLogo: string;
 
   // Entity-specific folders - User
-  userAvatar: string; // User avatar files
+  userAvatar: string;
 
   // Entity-specific folders - Other
-  observations: string; // Observation files
-  warning: string; // Warning files
-  layoutPhotos: string; // Layout photo files
-  plotterEspovo: string; // Stencil (Espovo) plotter files
-  plotterAdesivo: string; // Vinyl (Adesivo) plotter files
-  thumbnails: string; // Thumbnail files
-  paintColor: string; // Paint color preview images
+  observations: string;
+  warning: string;
+  layoutPhotos: string;
+  plotterEspovo: string;
+  plotterAdesivo: string;
+  thumbnails: string;
+  paintColor: string;
 
   // General folders
-  general: string; // General files
-  images: string; // General images
-  documents: string; // General documents
-  archives: string; // Archive files
-  temp: string; // Temporary files
+  general: string;
+  images: string;
+  documents: string;
+  archives: string;
+  temp: string;
 }
 
 /**
@@ -82,66 +83,70 @@ export enum FileTypeCategory {
 }
 
 /**
- * WebDAV integration service for file management
+ * Files storage service for file management
+ * Production: FILES_ROOT=/srv/files served by nginx via arquivos.ankaa.live
+ * Local access: Via Samba share at /srv/files
  */
 @Injectable()
-export class WebDAVService {
-  private readonly logger = new Logger(WebDAVService.name);
-  private readonly webdavRoot =
-    process.env.WEBDAV_ROOT || process.env.UPLOAD_DIR || './uploads/webdav';
+export class FilesStorageService {
+  private readonly logger = new Logger(FilesStorageService.name);
+
+  // Files storage root directory
+  // Production: FILES_ROOT=/srv/files
+  // Development: FILES_ROOT=./uploads/files
+  private readonly filesRoot = process.env.FILES_ROOT || './uploads/files';
 
   /**
-   * WebDAV folder structure mapping - matches physical folder structure
-   * Customer/supplier name-based organization is added dynamically in getWebDAVFolderPath
+   * Folder structure mapping - matches physical folder structure in /srv/files
    */
-  private readonly folderMapping: WebDAVFolderMapping = {
+  private readonly folderMapping: FilesFolderMapping = {
     // Task folders (organized by customer fantasyName)
-    tasksArtworks: 'Projetos', // Task artworks -> Projetos/{customerFantasyName}/Imagens or /PDFs
-    taskBudgets: 'Orcamentos/Tarefas', // -> Orcamentos/Tarefas/{customerFantasyName}/
-    taskInvoices: 'Notas Fiscais/Tarefas', // -> Notas Fiscais/Tarefas/{customerFantasyName}/
-    taskReceipts: 'Comprovantes/Tarefas', // -> Comprovantes/Tarefas/{customerFantasyName}/
-    taskReimbursements: 'Reembolsos/Tarefas', // -> Reembolsos/Tarefas/{customerFantasyName}/
-    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas', // -> Notas Fiscais Reembolso/Tarefas/{customerFantasyName}/
-    cutFiles: 'Recortes', // Cut request/plan files -> Recortes/{customerFantasyName}/
+    tasksArtworks: 'Projetos',
+    taskBudgets: 'Orcamentos/Tarefas',
+    taskInvoices: 'Notas Fiscais/Tarefas',
+    taskReceipts: 'Comprovantes/Tarefas',
+    taskReimbursements: 'Reembolsos/Tarefas',
+    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
+    cutFiles: 'Recortes',
 
-    // Order folders (organized by supplier fantasyName for some)
+    // Order folders
     orderBudgets: 'Orcamentos/Pedidos',
     orderInvoices: 'Notas Fiscais/Pedidos',
     orderReceipts: 'Comprovantes/Pedidos',
     orderReimbursements: 'Reembolsos/Pedidos',
     orderNfeReimbursements: 'Notas Fiscais Reembolso/Pedidos',
 
-    // Airbrushing folders (organized by customer fantasyName)
-    airbrushingArtworks: 'Aerografias', // -> Aerografias/{customerFantasyName}/
-    airbrushingBudgets: 'Orcamentos/Aerografias', // -> Orcamentos/Aerografias/{customerFantasyName}/
-    airbrushingInvoices: 'Notas Fiscais/Aerografias', // -> Notas Fiscais/Aerografias/{customerFantasyName}/
-    airbrushingReceipts: 'Comprovantes/Aerografias', // -> Comprovantes/Aerografias/{customerFantasyName}/
-    airbrushingReimbursements: 'Reembolsos/Aerografias', // -> Reembolsos/Aerografias/{customerFantasyName}/
-    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias', // -> Notas Fiscais Reembolso/Aerografias/{customerFantasyName}/
+    // Airbrushing folders
+    airbrushingArtworks: 'Aerografias',
+    airbrushingBudgets: 'Orcamentos/Aerografias',
+    airbrushingInvoices: 'Notas Fiscais/Aerografias',
+    airbrushingReceipts: 'Comprovantes/Aerografias',
+    airbrushingReimbursements: 'Reembolsos/Aerografias',
+    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias',
 
-    // External Withdrawal folders (organized by customer fantasyName)
-    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas', // -> Notas Fiscais/RetiradasExternas/{customerFantasyName}/
-    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas', // -> Comprovantes/RetiradasExternas/{customerFantasyName}/
-    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas', // -> Reembolsos/RetiradasExternas/{customerFantasyName}/
-    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas', // -> Notas Fiscais Reembolso/RetiradasExternas/{customerFantasyName}/
+    // External Withdrawal folders
+    externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas',
+    externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas',
+    externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas',
+    externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
 
-    // Logo folders (organized by customer/supplier fantasyName)
-    customerLogo: 'Logos/Clientes', // Will add customer folder: Logos/Clientes/{customerFantasyName}/
-    supplierLogo: 'Logos/Fornecedores', // Will add supplier folder: Logos/Fornecedores/{supplierFantasyName}/
+    // Logo folders
+    customerLogo: 'Logos/Clientes',
+    supplierLogo: 'Logos/Fornecedores',
 
-    // User folders (organized by user name)
-    userAvatar: 'Colaboradores', // Will add user folder: Colaboradores/{userName}/
+    // User folders
+    userAvatar: 'Colaboradores',
 
     // Other entity folders
-    observations: 'Observacoes', // Will add customer folder: Observacoes/{customerFantasyName}/
-    warning: 'Advertencias', // Will add user folder: Advertencias/{userName}/
-    layoutPhotos: 'Auxiliares/Traseiras/Fotos', // NEW
-    plotterEspovo: 'Plotter', // Will add customer folder + Espovo: Plotter/{customerFantasyName}/Espovo/
-    plotterAdesivo: 'Plotter', // Will add customer folder + Adesivo: Plotter/{customerFantasyName}/Adesivo/
-    thumbnails: 'Thumbnails', // NEW - Will add size folder: Thumbnails/{size}/
-    paintColor: 'Tintas', // Paint color preview images
+    observations: 'Observacoes',
+    warning: 'Advertencias',
+    layoutPhotos: 'Auxiliares/Traseiras/Fotos',
+    plotterEspovo: 'Plotter',
+    plotterAdesivo: 'Plotter',
+    thumbnails: 'Thumbnails',
+    paintColor: 'Tintas',
 
-    // General folders (WebDAV exclusive - will NOT be served via API)
+    // General folders
     general: 'Auxiliares',
     images: 'Fotos',
     documents: 'Auxiliares',
@@ -185,37 +190,37 @@ export class WebDAVService {
     'application/gzip': FileTypeCategory.ARCHIVE,
 
     // Artwork/Design files
-    'application/postscript': FileTypeCategory.ARTWORK, // EPS files
+    'application/postscript': FileTypeCategory.ARTWORK,
     'application/x-eps': FileTypeCategory.ARTWORK,
     'application/eps': FileTypeCategory.ARTWORK,
     'image/eps': FileTypeCategory.ARTWORK,
     'image/x-eps': FileTypeCategory.ARTWORK,
-    'application/vnd.corel-draw': FileTypeCategory.ARTWORK, // CDR files
+    'application/vnd.corel-draw': FileTypeCategory.ARTWORK,
     'application/x-corel-draw': FileTypeCategory.ARTWORK,
     'application/cdr': FileTypeCategory.ARTWORK,
     'application/x-cdr': FileTypeCategory.ARTWORK,
     'image/cdr': FileTypeCategory.ARTWORK,
     'image/x-cdr': FileTypeCategory.ARTWORK,
-    'application/dxf': FileTypeCategory.ARTWORK, // CAD files
+    'application/dxf': FileTypeCategory.ARTWORK,
     'application/x-dxf': FileTypeCategory.ARTWORK,
     'image/vnd.dxf': FileTypeCategory.ARTWORK,
   };
 
   /**
-   * Get WebDAV folder path based on file context with customer/supplier/user name-based organization
+   * Get files storage folder path based on file context
    */
-  getWebDAVFolderPath(
-    fileContext: keyof WebDAVFolderMapping | null,
+  getFolderPath(
+    fileContext: keyof FilesFolderMapping | null,
     mimetype: string,
     entityId?: string,
     entityType?: string,
     projectId?: string,
     projectName?: string,
-    customerName?: string, // Customer fantasy name for organization
-    supplierName?: string, // Supplier fantasy name for organization
-    userName?: string, // User name for warnings
-    cutType?: string, // Cut type: 'STENCIL' or 'VINYL'
-    thumbnailSize?: string, // Thumbnail size e.g., '300x300'
+    customerName?: string,
+    supplierName?: string,
+    userName?: string,
+    cutType?: string,
+    thumbnailSize?: string,
   ): string {
     let folderPath: string;
 
@@ -238,7 +243,7 @@ export class WebDAVService {
           folderPath = this.folderMapping.archives;
           break;
         case FileTypeCategory.ARTWORK:
-          folderPath = this.folderMapping.tasksArtworks; // Default to artwork folder
+          folderPath = this.folderMapping.tasksArtworks;
           break;
         default:
           folderPath = this.folderMapping.general;
@@ -255,11 +260,10 @@ export class WebDAVService {
           folderPath = join(folderPath, sanitizedCustomerName, cutSubfolder);
         }
       }
-      // PROJETOS: Add customer folder for task artworks, then separate by file type (PDFs/Imagens)
+      // PROJETOS: Add customer folder for task artworks
       else if (fileContext === 'tasksArtworks') {
         if (customerName) {
           const sanitizedCustomerName = this.sanitizeFileName(customerName);
-          // Determine subfolder based on file type
           const isPdf = mimetype === 'application/pdf';
           const subfolder = isPdf ? 'PDFs' : 'Imagens';
           folderPath = join(folderPath, sanitizedCustomerName, subfolder);
@@ -273,7 +277,7 @@ export class WebDAVService {
         const sanitizedSupplierName = this.sanitizeFileName(supplierName);
         folderPath = join(folderPath, sanitizedSupplierName);
       }
-      // OBSERVACOES: Add customer folder (via task)
+      // OBSERVACOES: Add customer folder
       else if (fileContext === 'observations' && customerName) {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
         folderPath = join(folderPath, sanitizedCustomerName);
@@ -283,7 +287,7 @@ export class WebDAVService {
         const sanitizedUserName = this.sanitizeFileName(userName);
         folderPath = join(folderPath, sanitizedUserName);
       }
-      // TASKS: Add customer folder for task-related financial files
+      // TASKS: Add customer folder for task-related files
       else if (
         (fileContext === 'taskBudgets' ||
           fileContext === 'taskInvoices' ||
@@ -300,7 +304,7 @@ export class WebDAVService {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
         folderPath = join(folderPath, sanitizedCustomerName);
       }
-      // AIRBRUSHING: Add customer folder for airbrushing-related files
+      // AIRBRUSHING: Add customer folder
       else if (
         (fileContext === 'airbrushingArtworks' ||
           fileContext === 'airbrushingBudgets' ||
@@ -324,7 +328,7 @@ export class WebDAVService {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
         folderPath = join(folderPath, sanitizedCustomerName);
       }
-      // ORDERS: Add supplier folder for order-related files
+      // ORDERS: Add supplier folder
       else if (
         (fileContext === 'orderBudgets' ||
           fileContext === 'orderInvoices' ||
@@ -336,7 +340,7 @@ export class WebDAVService {
         const sanitizedSupplierName = this.sanitizeFileName(supplierName);
         folderPath = join(folderPath, sanitizedSupplierName);
       }
-      // USER AVATAR: Add user folder - Colaboradores/{userName}/
+      // USER AVATAR: Add user folder
       else if (fileContext === 'userAvatar' && userName) {
         const sanitizedUserName = this.sanitizeFileName(userName);
         folderPath = join(folderPath, sanitizedUserName);
@@ -347,43 +351,42 @@ export class WebDAVService {
       }
     }
 
-    // Add project-specific subfolder if provided (for artwork organization)
+    // Add project-specific subfolder if provided
     if (projectId && projectName && fileContext === 'tasksArtworks') {
       const sanitizedProjectName = this.sanitizeFileName(projectName);
       folderPath = join(folderPath, sanitizedProjectName);
     }
 
-    return join(this.webdavRoot, folderPath);
+    return join(this.filesRoot, folderPath);
   }
 
   /**
-   * Ensure WebDAV directory exists
+   * Ensure directory exists with proper permissions
    */
-  async ensureWebDAVDirectory(folderPath: string): Promise<void> {
+  async ensureDirectory(folderPath: string): Promise<void> {
     try {
       if (!existsSync(folderPath)) {
-        this.logger.log(`Creating WebDAV directory: ${folderPath}`);
+        this.logger.log(`Creating directory: ${folderPath}`);
         await fs.mkdir(folderPath, { recursive: true });
 
-        // Set proper permissions for WebDAV
         try {
-          await fs.chmod(folderPath, 0o2775); // rwxrwsr-x
+          await fs.chmod(folderPath, 0o2775);
         } catch (chmodError: any) {
           this.logger.warn(`Could not set permissions for ${folderPath}: ${chmodError.message}`);
         }
       }
     } catch (error: any) {
-      this.logger.error(`Failed to create WebDAV directory ${folderPath}:`, error);
-      throw new InternalServerErrorException(`Failed to create WebDAV directory: ${error.message}`);
+      this.logger.error(`Failed to create directory ${folderPath}:`, error);
+      throw new InternalServerErrorException(`Failed to create directory: ${error.message}`);
     }
   }
 
   /**
-   * Generate WebDAV file path with unique filename and customer/supplier/user support
+   * Generate file path with unique filename
    */
-  generateWebDAVFilePath(
+  generateFilePath(
     originalFilename: string,
-    fileContext: keyof WebDAVFolderMapping | null,
+    fileContext: keyof FilesFolderMapping | null,
     mimetype: string,
     entityId?: string,
     entityType?: string,
@@ -395,7 +398,7 @@ export class WebDAVService {
     cutType?: string,
     thumbnailSize?: string,
   ): string {
-    const folderPath = this.getWebDAVFolderPath(
+    const folderPath = this.getFolderPath(
       fileContext,
       mimetype,
       entityId,
@@ -409,12 +412,9 @@ export class WebDAVService {
       thumbnailSize,
     );
 
-    // Generate unique filename while preserving extension
     const ext = extname(originalFilename);
     const baseName = basename(originalFilename, ext);
     const sanitizedBaseName = this.sanitizeFileName(baseName);
-
-    // Add timestamp to ensure uniqueness
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const uniqueFilename = `${sanitizedBaseName}_${timestamp}${ext}`;
 
@@ -422,91 +422,81 @@ export class WebDAVService {
   }
 
   /**
-   * Move file to WebDAV folder
+   * Move file to storage
    */
-  async moveToWebDAV(sourcePath: string, targetPath: string): Promise<void> {
+  async moveToStorage(sourcePath: string, targetPath: string): Promise<void> {
     try {
-      // Ensure target directory exists
       const targetDir = dirname(targetPath);
-      await this.ensureWebDAVDirectory(targetDir);
+      await this.ensureDirectory(targetDir);
 
-      // Check if source file exists
       if (!existsSync(sourcePath)) {
         throw new BadRequestException(`Source file does not exist: ${sourcePath}`);
       }
 
-      // Move the file
       await fs.rename(sourcePath, targetPath);
 
-      // Set proper file permissions
       try {
-        await fs.chmod(targetPath, 0o664); // rw-rw-r--
+        await fs.chmod(targetPath, 0o664);
       } catch (chmodError: any) {
         this.logger.warn(`Could not set permissions for ${targetPath}: ${chmodError.message}`);
       }
 
-      this.logger.log(`File moved to WebDAV: ${sourcePath} → ${targetPath}`);
+      this.logger.log(`File moved to storage: ${sourcePath} -> ${targetPath}`);
     } catch (error: any) {
-      this.logger.error(`Failed to move file to WebDAV:`, error);
-      throw new InternalServerErrorException(`Failed to move file to WebDAV: ${error.message}`);
+      this.logger.error(`Failed to move file to storage:`, error);
+      throw new InternalServerErrorException(`Failed to move file to storage: ${error.message}`);
     }
   }
 
   /**
-   * Copy file to WebDAV folder (keeps original)
+   * Copy file to storage (keeps original)
    */
-  async copyToWebDAV(sourcePath: string, targetPath: string): Promise<void> {
+  async copyToStorage(sourcePath: string, targetPath: string): Promise<void> {
     try {
-      // Ensure target directory exists
       const targetDir = dirname(targetPath);
-      await this.ensureWebDAVDirectory(targetDir);
+      await this.ensureDirectory(targetDir);
 
-      // Check if source file exists
       if (!existsSync(sourcePath)) {
         throw new BadRequestException(`Source file does not exist: ${sourcePath}`);
       }
 
-      // Copy the file
       await fs.copyFile(sourcePath, targetPath);
 
-      // Set proper file permissions
       try {
-        await fs.chmod(targetPath, 0o664); // rw-rw-r--
+        await fs.chmod(targetPath, 0o664);
       } catch (chmodError: any) {
         this.logger.warn(`Could not set permissions for ${targetPath}: ${chmodError.message}`);
       }
 
-      this.logger.log(`File copied to WebDAV: ${sourcePath} → ${targetPath}`);
+      this.logger.log(`File copied to storage: ${sourcePath} -> ${targetPath}`);
     } catch (error: any) {
-      this.logger.error(`Failed to copy file to WebDAV:`, error);
-      throw new InternalServerErrorException(`Failed to copy file to WebDAV: ${error.message}`);
+      this.logger.error(`Failed to copy file to storage:`, error);
+      throw new InternalServerErrorException(`Failed to copy file to storage: ${error.message}`);
     }
   }
 
   /**
-   * Delete file from WebDAV
+   * Delete file from storage
    */
-  async deleteFromWebDAV(filePath: string): Promise<void> {
+  async deleteFromStorage(filePath: string): Promise<void> {
     try {
       if (existsSync(filePath)) {
         await fs.unlink(filePath);
-        this.logger.log(`File deleted from WebDAV: ${filePath}`);
+        this.logger.log(`File deleted from storage: ${filePath}`);
       }
     } catch (error: any) {
-      this.logger.error(`Failed to delete file from WebDAV: ${filePath}`, error);
-      // Don't throw - deletion should be non-blocking
+      this.logger.error(`Failed to delete file from storage: ${filePath}`, error);
     }
   }
 
   /**
-   * Get WebDAV URL for file access
+   * Get public URL for file access (served by nginx via arquivos.ankaa.live)
    */
-  getWebDAVUrl(filePath: string): string {
-    const baseUrl = process.env.WEBDAV_BASE_URL || 'https://arquivos.ankaa.live';
+  getFileUrl(filePath: string): string {
+    const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
 
-    // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
     const normalizedFilePath = filePath.replace(/^\.\//, '');
-    const normalizedRoot = this.webdavRoot.replace(/^\.\//, '');
+    const normalizedRoot = this.filesRoot.replace(/^\.\//, '');
 
     const relativePath = normalizedFilePath.replace(normalizedRoot, '').replace(/\\/g, '/');
     const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
@@ -526,40 +516,35 @@ export class WebDAVService {
    */
   private sanitizeFileName(filename: string): string {
     return filename
-      .replace(/[<>:"|?*\x00-\x1f]/g, '_') // Replace invalid chars
-      .replace(/\.\./g, '_') // Remove directory traversal
-      .replace(/\s+/g, ' ') // Normalize multiple spaces to single space
-      .trim() // Remove leading/trailing spaces
-      .substring(0, 100); // Limit length
+      .replace(/[<>:"|?*\x00-\x1f]/g, '_')
+      .replace(/\.\./g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .substring(0, 100);
   }
 
   /**
-   * Validate WebDAV connection and permissions
+   * Validate storage access and permissions
    */
-  async validateWebDAVAccess(): Promise<boolean> {
+  async validateStorageAccess(): Promise<boolean> {
     try {
-      const testDir = join(this.webdavRoot, 'Auxiliares', 'test_access');
+      const testDir = join(this.filesRoot, 'Auxiliares', 'test_access');
 
-      // Test directory creation
       if (!existsSync(testDir)) {
         await fs.mkdir(testDir, { recursive: true });
       }
 
-      // Test file write
       const testFile = join(testDir, 'test.txt');
-      await fs.writeFile(testFile, 'WebDAV access test');
+      await fs.writeFile(testFile, 'Storage access test');
+      await fs.readFile(testFile, 'utf-8');
 
-      // Test file read
-      const content = await fs.readFile(testFile, 'utf-8');
-
-      // Cleanup
       await fs.unlink(testFile);
       await fs.rmdir(testDir);
 
-      this.logger.log('WebDAV access validated successfully');
+      this.logger.log('Storage access validated successfully');
       return true;
     } catch (error: any) {
-      this.logger.error('WebDAV access validation failed:', error);
+      this.logger.error('Storage access validation failed:', error);
       return false;
     }
   }
@@ -567,19 +552,26 @@ export class WebDAVService {
   /**
    * Get folder mapping configuration
    */
-  getFolderMapping(): WebDAVFolderMapping {
+  getFolderMapping(): FilesFolderMapping {
     return { ...this.folderMapping };
+  }
+
+  /**
+   * Get files root path
+   */
+  getFilesRoot(): string {
+    return this.filesRoot;
   }
 
   /**
    * Get available file contexts for a given entity type
    */
-  getAvailableContextsForEntity(entityType?: string): Array<keyof WebDAVFolderMapping> {
+  getAvailableContextsForEntity(entityType?: string): Array<keyof FilesFolderMapping> {
     if (!entityType) {
-      return Object.keys(this.folderMapping) as Array<keyof WebDAVFolderMapping>;
+      return Object.keys(this.folderMapping) as Array<keyof FilesFolderMapping>;
     }
 
-    const entityContextMap: Record<string, Array<keyof WebDAVFolderMapping>> = {
+    const entityContextMap: Record<string, Array<keyof FilesFolderMapping>> = {
       task: [
         'tasksArtworks',
         'taskBudgets',
@@ -628,41 +620,35 @@ export class WebDAVService {
     mimetype: string,
     entityType?: string,
     entityId?: string,
-  ): keyof WebDAVFolderMapping | null {
+  ): keyof FilesFolderMapping | null {
     const category = this.getFileCategory(mimetype);
 
-    // If entity type is provided, try to match appropriate context
     if (entityType) {
       const availableContexts = this.getAvailableContextsForEntity(entityType);
 
-      // For tasks, try to match file type to appropriate context
       if (entityType.toLowerCase() === 'task') {
         switch (category) {
           case FileTypeCategory.ARTWORK:
             return 'tasksArtworks';
           case FileTypeCategory.DOCUMENT:
-            // Could be budget or receipt, default to budget
             return 'taskBudgets';
           default:
-            return availableContexts[0] as keyof WebDAVFolderMapping;
+            return availableContexts[0] as keyof FilesFolderMapping;
         }
       }
 
-      // For orders
       if (entityType.toLowerCase() === 'order') {
         switch (category) {
           case FileTypeCategory.DOCUMENT:
             return 'orderBudgets';
           default:
-            return availableContexts[0] as keyof WebDAVFolderMapping;
+            return availableContexts[0] as keyof FilesFolderMapping;
         }
       }
 
-      // Return first available context for other entity types
-      return availableContexts[0] as keyof WebDAVFolderMapping;
+      return availableContexts[0] as keyof FilesFolderMapping;
     }
 
-    // No entity type, use file category
     switch (category) {
       case FileTypeCategory.ARTWORK:
         return 'tasksArtworks';

@@ -1,0 +1,52 @@
+[Unit]
+Description=Ankaa Webhook Server (Node.js)
+Documentation=https://github.com/ankaa-design/ankaa
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=kennedy
+Group=ankaa
+WorkingDirectory=/home/kennedy/ankaa/api
+
+# Environment
+Environment=NODE_ENV=production
+Environment=WEBHOOK_PORT=3001
+EnvironmentFile=/home/kennedy/ankaa/api/.env.production
+
+# Node.js executable - webhook server
+ExecStart=/usr/bin/node dist/webhook-server.js
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+# Resource limits
+LimitNOFILE=65535
+MemoryMax=512M
+CPUQuota=100%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+
+# Allow write access to logs
+ReadWritePaths=/home/kennedy/ankaa/api/logs
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ankaa-webhook
+
+[Install]
+WantedBy=multi-user.target
