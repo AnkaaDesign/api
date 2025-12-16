@@ -423,6 +423,7 @@ export class FilesStorageService {
 
   /**
    * Move file to storage
+   * Uses copy + unlink to handle cross-filesystem moves (EXDEV error)
    */
   async moveToStorage(sourcePath: string, targetPath: string): Promise<void> {
     try {
@@ -433,7 +434,9 @@ export class FilesStorageService {
         throw new BadRequestException(`Source file does not exist: ${sourcePath}`);
       }
 
-      await fs.rename(sourcePath, targetPath);
+      // Use copy + unlink instead of rename to handle cross-filesystem moves
+      await fs.copyFile(sourcePath, targetPath);
+      await fs.unlink(sourcePath);
 
       try {
         await fs.chmod(targetPath, 0o664);
