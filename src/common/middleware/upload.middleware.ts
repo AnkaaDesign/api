@@ -74,8 +74,8 @@ export function handleMulterError(error: any, req: Request, res: Response, next:
 
     return res.status(statusCode).json({
       success: false,
-      error: message,
-      code: error.code,
+      message: message,
+      error: error.code,
     });
   }
 
@@ -84,7 +84,8 @@ export function handleMulterError(error: any, req: Request, res: Response, next:
     logger.warn(`Upload error: ${error.message}`);
     return res.status(400).json({
       success: false,
-      error: error.message || 'Erro no upload do arquivo',
+      message: error.message || 'Erro no upload do arquivo',
+      error: 'UPLOAD_ERROR',
     });
   }
 
@@ -125,8 +126,8 @@ export async function validateUploadedFiles(req: Request, res: Response, next: N
         logger.warn(`File content validation failed: ${file.originalname}`);
         return res.status(400).json({
           success: false,
-          error: `Conteúdo do arquivo não corresponde ao tipo declarado: ${file.originalname}`,
-          code: 'INVALID_FILE_CONTENT',
+          message: `Conteúdo do arquivo não corresponde ao tipo declarado: ${file.originalname}`,
+          error: 'INVALID_FILE_CONTENT',
         });
       }
 
@@ -167,7 +168,8 @@ export async function uploadSecurityMiddleware(req: Request, res: Response, next
         logger.warn(`Invalid content type for upload: ${contentType}`);
         return res.status(400).json({
           success: false,
-          error: 'Tipo de conteúdo inválido para upload de arquivos',
+          message: 'Tipo de conteúdo inválido para upload de arquivos',
+          error: 'INVALID_CONTENT_TYPE',
         });
       }
     }
@@ -182,7 +184,8 @@ export async function uploadSecurityMiddleware(req: Request, res: Response, next
           logger.warn(`Suspicious header value detected: ${header}=${value}`);
           return res.status(400).json({
             success: false,
-            error: 'Requisição inválida',
+            message: 'Requisição inválida',
+            error: 'INVALID_REQUEST',
           });
         }
       }
