@@ -4068,6 +4068,24 @@ async function migratePaints() {
         paintBrandId = idMappings.paintBrands['FARBEN'];
       }
 
+      // Determine manufacturer from CSV data (maps to TruckManufacturer enum)
+      let manufacturer: string | null = null;
+      const csvManufacturer = color.manufacturer?.toUpperCase()?.trim();
+      if (csvManufacturer) {
+        const manufacturerMap: Record<string, string> = {
+          'SCANIA': 'SCANIA',
+          'VOLVO': 'VOLVO',
+          'DAF': 'DAF',
+          'VOLKSWAGEN': 'VOLKSWAGEN',
+          'VW': 'VOLKSWAGEN',
+          'IVECO': 'IVECO',
+          'MERCEDES': 'MERCEDES_BENZ',
+          'MERCEDES_BENZ': 'MERCEDES_BENZ',
+          'MERCEDES-BENZ': 'MERCEDES_BENZ',
+        };
+        manufacturer = manufacturerMap[csvManufacturer] || null;
+      }
+
       // Extract potential code from tags or color name
       // DISABLED: Codes should not be automatically filled
       let extractedCode: string | null = null;
@@ -4104,6 +4122,7 @@ async function migratePaints() {
           paintBrandId,
           finish: finish as any,
           colorOrder,
+          manufacturer: manufacturer as any,
         },
       });
 

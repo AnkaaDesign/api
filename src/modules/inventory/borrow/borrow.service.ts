@@ -218,9 +218,10 @@ export class BorrowService {
     const willBeLost = 'status' in data && data.status === BORROW_STATUS.LOST;
 
     // Validate stock if:
-    // 1. Item is not returned and will not be returned (normal active borrow)
+    // 1. Item is not returned and will not be returned and will not be marked as lost (normal active borrow)
     // 2. Item is being unreturned to ACTIVE status (not LOST)
-    if ((!isReturned && !willBeReturned) || (isUnreturning && !willBeLost)) {
+    // Skip stock validation entirely when marking as LOST - the item is already borrowed, stock doesn't change
+    if (!willBeLost && ((!isReturned && !willBeReturned) || isUnreturning)) {
       // Calcular quantidade total não devolvida para o item (excluindo o empréstimo atual se for atualização)
       // Não incluir empréstimos com status RETURNED ou LOST
       const unreturnedBorrows = await tx.borrow.findMany({
@@ -273,7 +274,11 @@ export class BorrowService {
     }
 
     // Verificar limite de empréstimos simultâneos do usuário
-    if (!isUpdate || (isUpdate && !existingBorrow.returnedAt)) {
+    // Só verificar se NÃO estiver devolvendo/marcando como perdido (essas operações reduzem o contador)
+    const shouldCheckBorrowLimit =
+      !isUpdate || (isUpdate && !existingBorrow.returnedAt && !willBeReturned && !willBeLost);
+
+    if (shouldCheckBorrowLimit) {
       const activeUserBorrows = await tx.borrow.count({
         where: {
           userId: userId,
@@ -795,8 +800,46 @@ export class BorrowService {
         message: `${successMessage}${failureMessage}`,
         data: batchOperationResult,
       };
-    } catch (error) {
-      this.logger.error('Erro na atualização em lote:', error);
+    } catch (error: any) {
+      this.logger.error('Erro na atualização em lote:');
+      this.logger.error(error);
+
+      // Always try to return partial results for validation errors
+      // This ensures the frontend gets the batch result format instead of a generic error
+      if (
+        error.message?.includes('insuficiente') ||
+        error.message?.includes('máximo') ||
+        error.message?.includes('Invalid') ||
+        error.message?.includes('não encontrado') ||
+        error.message?.includes('validation') ||
+        error.message?.includes('já possui um empréstimo') ||
+        error.message?.includes('limite') ||
+        error.message?.includes('não é permitido') ||
+        error.message?.includes('Empréstimo não encontrado')
+      ) {
+        // Return as successful response but with failed items
+        return {
+          success: true, // Important: Keep as true so frontend shows the modal
+          message: 'Operação processada com erros de validação',
+          data: {
+            success: [],
+            failed: data.borrows.map((borrow, index) => ({
+              index,
+              id: borrow.id,
+              error: error.message,
+              data: {
+                ...borrow.data,
+                id: borrow.id,
+              },
+            })),
+            totalProcessed: data.borrows.length,
+            totalSuccess: 0,
+            totalFailed: data.borrows.length,
+          },
+        };
+      }
+
+      // Only throw generic error for unexpected system errors
       throw new InternalServerErrorException(
         'Erro ao atualizar empréstimos em lote. Por favor, tente novamente',
       );

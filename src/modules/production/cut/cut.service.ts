@@ -251,6 +251,23 @@ export class CutService {
               ? JSON.parse(dataWithContext._context)
               : dataWithContext._context;
 
+          // Get customer name: from context, or fetch from task if taskId is provided
+          let customerName = context?.customerName;
+          if (!customerName && data.taskId) {
+            const task = await tx.task.findUnique({
+              where: { id: data.taskId },
+              select: {
+                customer: {
+                  select: { fantasyName: true },
+                },
+              },
+            });
+            customerName = task?.customer?.fantasyName;
+          }
+
+          // Get cut type: from context, or from data
+          const cutType = context?.cutType || data.type;
+
           // Upload file using transactional method (shared by all cuts)
           // Use 'plotterAdesivo' as fileContext - the cutType param will determine the actual subfolder
           // Plotter/{CustomerName}/Adesivo (for VINYL) or Plotter/{CustomerName}/Espovo (for STENCIL)
@@ -262,8 +279,8 @@ export class CutService {
             {
               entityId: context?.entityId,
               entityType: context?.entityType || 'cut',
-              customerName: context?.customerName,
-              cutType: context?.cutType, // 'VINYL' or 'STENCIL' - determines Adesivo vs Espovo subfolder
+              customerName,
+              cutType, // 'VINYL' or 'STENCIL' - determines Adesivo vs Espovo subfolder
             },
             undefined,
           );
