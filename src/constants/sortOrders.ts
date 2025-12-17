@@ -232,8 +232,8 @@ export const BATCH_OPERATION_STATUS_ORDER: Record<string, number> = {
 
 export const BORROW_STATUS_ORDER: Record<string, number> = {
   [BORROW_STATUS.ACTIVE]: 1,
-  [BORROW_STATUS.RETURNED]: 4,
-  [BORROW_STATUS.LOST]: 5,
+  [BORROW_STATUS.RETURNED]: 2,
+  [BORROW_STATUS.LOST]: 3,
 };
 
 export const EXTERNAL_WITHDRAWAL_STATUS_ORDER: Record<string, number> = {

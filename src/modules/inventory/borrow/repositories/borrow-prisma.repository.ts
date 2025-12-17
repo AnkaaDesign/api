@@ -15,7 +15,7 @@ import { BorrowRepository } from './borrow.repository';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { Prisma, Borrow as PrismaBorrow, BorrowStatus } from '@prisma/client';
-import { BORROW_STATUS } from '../../../../constants';
+import { BORROW_STATUS, BORROW_STATUS_ORDER } from '../../../../constants';
 
 @Injectable()
 export class BorrowPrismaRepository
@@ -74,9 +74,15 @@ export class BorrowPrismaRepository
       throw new Error('User ID is required for creating a borrow');
     }
 
+    // Determine status and statusOrder - new borrows default to ACTIVE
+    const status = formData.status || BORROW_STATUS.ACTIVE;
+    const statusOrder = BORROW_STATUS_ORDER[status] ?? BORROW_STATUS_ORDER[BORROW_STATUS.ACTIVE];
+
     const createInput: Prisma.BorrowCreateInput = {
       ...rest,
       quantity: formData.quantity ?? 1,
+      status: status as BorrowStatus,
+      statusOrder,
       item: { connect: { id: itemId } },
       user: { connect: { id: userId } },
     };
@@ -93,6 +99,14 @@ export class BorrowPrismaRepository
 
     if (status !== undefined) {
       updateInput.status = status as BorrowStatus;
+      // Automatically sync statusOrder when status changes
+      // Only set if statusOrder wasn't explicitly provided
+      if (statusOrder === undefined) {
+        const newStatusOrder = BORROW_STATUS_ORDER[status];
+        if (newStatusOrder !== undefined) {
+          updateInput.statusOrder = newStatusOrder;
+        }
+      }
     }
 
     if (statusOrder !== undefined) {
