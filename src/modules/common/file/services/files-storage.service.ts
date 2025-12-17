@@ -221,6 +221,7 @@ export class FilesStorageService {
     userName?: string,
     cutType?: string,
     thumbnailSize?: string,
+    paintName?: string,
   ): string {
     let folderPath: string;
 
@@ -349,6 +350,11 @@ export class FilesStorageService {
       else if (fileContext === 'thumbnails' && thumbnailSize) {
         folderPath = join(folderPath, thumbnailSize);
       }
+      // PAINT COLOR: Add paint name folder
+      else if (fileContext === 'paintColor' && paintName) {
+        const sanitizedPaintName = this.sanitizeFileName(paintName);
+        folderPath = join(folderPath, sanitizedPaintName);
+      }
     }
 
     // Add project-specific subfolder if provided
@@ -397,6 +403,7 @@ export class FilesStorageService {
     userName?: string,
     cutType?: string,
     thumbnailSize?: string,
+    paintName?: string,
   ): string {
     const folderPath = this.getFolderPath(
       fileContext,
@@ -410,6 +417,7 @@ export class FilesStorageService {
       userName,
       cutType,
       thumbnailSize,
+      paintName,
     );
 
     const ext = extname(originalFilename);
