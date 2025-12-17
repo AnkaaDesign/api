@@ -68,10 +68,21 @@ export class PaintService {
   ): Promise<string> {
     try {
       // Generate storage path for paint color preview
+      // Files are organized by paint name: Tintas/{PaintName}/
       const storagePath = this.filesStorageService.generateFilePath(
         file.originalname || `${paintName}.webp`,
         'paintColor',
         file.mimetype,
+        undefined, // entityId
+        undefined, // entityType
+        undefined, // projectId
+        undefined, // projectName
+        undefined, // customerName
+        undefined, // supplierName
+        undefined, // userName
+        undefined, // cutType
+        undefined, // thumbnailSize
+        paintName, // paintName - for folder organization
       );
 
       // Move file to storage
@@ -582,6 +593,7 @@ export class PaintService {
       // Handle colorPreview file upload before transaction
       let colorPreviewUrl: string | null = null;
       if (colorPreviewFile) {
+        // Upload file organized by paint name: Tintas/{PaintName}/
         colorPreviewUrl = await this.uploadColorPreviewFile(colorPreviewFile, data.name);
       }
 
@@ -698,9 +710,13 @@ export class PaintService {
       // Handle colorPreview file upload before transaction
       let colorPreviewUrl: string | null | undefined = undefined;
       if (colorPreviewFile) {
-        // Get paint name for file naming
-        const existingPaintForName = await this.paintRepository.findById(id);
-        const paintName = existingPaintForName?.name || 'preview';
+        // Get paint name for file organization: Tintas/{PaintName}/
+        // Use new name if provided in update data, otherwise fetch existing
+        let paintName = (data as any).name;
+        if (!paintName) {
+          const existingPaint = await this.paintRepository.findById(id);
+          paintName = existingPaint?.name || 'preview';
+        }
         colorPreviewUrl = await this.uploadColorPreviewFile(colorPreviewFile, paintName);
       }
 
