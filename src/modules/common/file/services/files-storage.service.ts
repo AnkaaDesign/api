@@ -107,7 +107,7 @@ export class FilesStorageService {
     taskReceipts: 'Comprovantes/Tarefas',
     taskReimbursements: 'Reembolsos/Tarefas',
     taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
-    cutFiles: 'Recortes',
+    cutFiles: 'Plotter',
 
     // Order folders
     orderBudgets: 'Orcamentos/Pedidos',
