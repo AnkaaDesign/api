@@ -93,8 +93,8 @@ export class NotificationController {
 
   @Get()
   @ApiOperation({
-    summary: 'Get all notifications',
-    description: 'Retrieve a paginated list of notifications with optional filtering',
+    summary: 'Get notifications for current user',
+    description: 'Retrieve a paginated list of notifications for the authenticated user with optional filtering',
   })
   @ApiResponse({
     status: 200,
@@ -107,8 +107,18 @@ export class NotificationController {
   async findMany(
     @Query(new ZodQueryValidationPipe(notificationGetManySchema))
     query: NotificationGetManyFormData,
+    @UserId() userId: string,
   ): Promise<NotificationGetManyResponse> {
-    return this.notificationService.getNotifications(query);
+    // SECURITY: Always filter by the authenticated user's ID
+    // Users should only see their own notifications
+    const filteredQuery: NotificationGetManyFormData = {
+      ...query,
+      where: {
+        ...query.where,
+        userId, // Enforce userId filter
+      },
+    };
+    return this.notificationService.getNotifications(filteredQuery);
   }
 
   @Post()

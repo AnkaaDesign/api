@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationService } from '@modules/common/notification/notification.service';
+import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   TaskCreatedEvent,
@@ -15,12 +16,35 @@ import {
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_CHANNEL,
   NOTIFICATION_ACTION_TYPE,
+  SECTOR_PRIVILEGES,
+  COMMISSION_STATUS,
+  TASK_STATUS,
 } from '../../../constants/enums';
 import { TASK_STATUS_LABELS } from '../../../constants/enum-labels';
+import {
+  TASK_FIELD_NOTIFICATIONS,
+  getFieldConfig,
+  getAllowedRolesForField,
+  canRoleReceiveFieldNotification,
+  getFieldLabel,
+  TaskFieldCategory,
+  CATEGORY_ALLOWED_ROLES,
+} from '@modules/common/notification/task-notification.config';
+
+/**
+ * Commission Status Labels
+ */
+const COMMISSION_STATUS_LABELS: Record<string, string> = {
+  [COMMISSION_STATUS.NO_COMMISSION]: 'Sem Comissão',
+  [COMMISSION_STATUS.PARTIAL_COMMISSION]: 'Comissão Parcial',
+  [COMMISSION_STATUS.FULL_COMMISSION]: 'Comissão Total',
+  [COMMISSION_STATUS.SUSPENDED_COMMISSION]: 'Comissão Suspensa',
+};
 
 /**
  * Task Event Listener
  * Handles all task-related events and creates appropriate notifications
+ * with role-based targeting and multi-channel delivery
  */
 @Injectable()
 export class TaskListener {
@@ -29,6 +53,7 @@ export class TaskListener {
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly notificationService: NotificationService,
+    private readonly preferenceService: NotificationPreferenceService,
     private readonly prisma: PrismaService,
   ) {
     // Register event listeners
@@ -55,6 +80,15 @@ export class TaskListener {
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use 'created' to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          'created',
+        );
+
+        if (channels.length === 0) continue;
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -62,8 +96,8 @@ export class TaskListener {
           title: 'Nova tarefa criada',
           body: `Tarefa "${event.task.name}" foi criada por ${event.createdBy.name}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
@@ -83,22 +117,31 @@ export class TaskListener {
         `Task status changed: ${event.task.id} from ${event.oldStatus} to ${event.newStatus}`,
       );
 
-      const targetUsers = await this.getTargetUsersForStatusChange(event.task);
+      const targetUsers = await this.getTargetUsersForField(event.task, 'status');
 
       const oldStatusLabel = TASK_STATUS_LABELS[event.oldStatus];
       const newStatusLabel = TASK_STATUS_LABELS[event.newStatus];
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use 'status' to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          'status',
+        );
+
+        if (channels.length === 0) continue;
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          importance: NOTIFICATION_IMPORTANCE.HIGH,
           title: 'Status da tarefa alterado',
           body: `Tarefa "${event.task.name}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
@@ -110,42 +153,66 @@ export class TaskListener {
 
   /**
    * Handle task field update event
-   * Notify users based on field type and importance
+   * Notify users based on field type, importance, and role restrictions
    */
   private async handleTaskFieldUpdated(event: TaskFieldUpdatedEvent): Promise<void> {
     try {
       this.logger.log(
-        `Task field updated: ${event.task.id} - ${event.fieldName} changed from ${event.oldValue} to ${event.newValue}`,
+        `Task field updated: ${event.task.id} - ${event.fieldName} changed`,
       );
 
-      // Skip if field is not important enough to notify
-      if (!this.isImportantField(event.fieldName)) {
+      const config = getFieldConfig(event.fieldName);
+
+      // Skip if field is not configured or disabled
+      if (!config || !config.enabled) {
+        this.logger.debug(`Skipping notification for unconfigured/disabled field: ${event.fieldName}`);
         return;
       }
 
-      const targetUsers = await this.getTargetUsersForFieldUpdate(event.task, event.fieldName);
-      const fieldLabel = this.getFieldLabel(event.fieldName);
-      const importance = this.getFieldImportance(event.fieldName);
+      const targetUsers = await this.getTargetUsersForField(event.task, event.fieldName);
 
       // Format the values for display
       const oldValueFormatted = await this.formatFieldValue(event.fieldName, event.oldValue);
       const newValueFormatted = await this.formatFieldValue(event.fieldName, event.newValue);
 
+      // Determine message type (cleared vs updated)
+      const isCleared = event.newValue === null || event.newValue === undefined;
+      const messageConfig = isCleared && config.messages.cleared
+        ? config.messages.cleared
+        : config.messages.updated;
+
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use just the field name to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          event.fieldName,
+        );
+
+        if (channels.length === 0) continue;
+
+        const body = this.interpolateMessage(messageConfig.inApp, {
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber || '',
+          oldValue: oldValueFormatted,
+          newValue: newValueFormatted,
+          changedBy: event.updatedBy.name,
+        });
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
-          importance,
-          title: `Tarefa atualizada: ${fieldLabel}`,
-          body: `${fieldLabel} da tarefa "${event.task.name}" foi alterado de "${oldValueFormatted}" para "${newValueFormatted}" por ${event.updatedBy.name}`,
+          importance: config.importance,
+          title: `Tarefa atualizada: ${config.label}`,
+          body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel: [NOTIFICATION_CHANNEL.IN_APP],
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
-      this.logger.log(`Created ${targetUsers.length} notifications for field update`);
+      this.logger.log(`Created ${targetUsers.length} notifications for field update: ${event.fieldName}`);
     } catch (error) {
       this.logger.error('Error handling task field updated event:', error);
     }
@@ -154,7 +221,7 @@ export class TaskListener {
   /**
    * Handle task field changed event from field tracker
    * Provides detailed handling for file array changes
-   * Notify users based on field type and importance
+   * Notify users based on field type, importance, and role restrictions
    */
   private async handleTaskFieldChanged(event: TaskFieldChangedEvent): Promise<void> {
     try {
@@ -162,14 +229,15 @@ export class TaskListener {
         `Task field changed: ${event.task.id} - ${event.field} (isFileArray: ${event.isFileArray})`,
       );
 
-      // Skip if field is not important enough to notify
-      if (!this.isImportantField(event.field)) {
+      const config = getFieldConfig(event.field);
+
+      // Skip if field is not configured or disabled
+      if (!config || !config.enabled) {
+        this.logger.debug(`Skipping notification for unconfigured/disabled field: ${event.field}`);
         return;
       }
 
-      const targetUsers = await this.getTargetUsersForFieldUpdate(event.task, event.field);
-      const fieldLabel = this.getFieldLabel(event.field);
-      const importance = this.getFieldImportance(event.field);
+      const targetUsers = await this.getTargetUsersForField(event.task, event.field);
 
       // Get the user who made the change
       const changedByUser = await this.prisma.user.findUnique({
@@ -179,50 +247,65 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
-      // Format notification body based on whether it's a file array
-      let notificationBody: string;
+      // Determine message configuration based on change type
+      let messageConfig = config.messages.updated;
+      let messageVars: Record<string, string | number> = {
+        taskName: event.task.name || '',
+        serialNumber: event.task.serialNumber || '',
+        changedBy: changedByName,
+      };
 
       if (event.isFileArray && event.fileChange) {
-        // Special handling for file arrays
+        // Handle file array changes
         const { added, removed } = event.fileChange;
-        const changes: string[] = [];
 
-        if (added > 0) {
-          changes.push(`${added} arquivo(s) adicionado(s)`);
+        if (added > 0 && removed === 0 && config.messages.filesAdded) {
+          messageConfig = config.messages.filesAdded;
+          messageVars.count = added;
+        } else if (removed > 0 && added === 0 && config.messages.filesRemoved) {
+          messageConfig = config.messages.filesRemoved;
+          messageVars.count = removed;
+        } else {
+          // Mixed changes
+          messageVars.count = added + removed;
         }
-        if (removed > 0) {
-          changes.push(`${removed} arquivo(s) removido(s)`);
-        }
-
-        notificationBody = `${fieldLabel} da tarefa "${event.task.name}": ${changes.join(', ')} por ${changedByName}`;
       } else {
         // Regular field change
+        const isCleared = event.newValue === null || event.newValue === undefined;
+
+        if (isCleared && config.messages.cleared) {
+          messageConfig = config.messages.cleared;
+        }
+
         const oldValueFormatted = await this.formatFieldValue(event.field, event.oldValue);
         const newValueFormatted = await this.formatFieldValue(event.field, event.newValue);
 
-        notificationBody = `${fieldLabel} da tarefa "${event.task.name}" foi alterado de "${oldValueFormatted}" para "${newValueFormatted}" por ${changedByName}`;
+        messageVars.oldValue = oldValueFormatted;
+        messageVars.newValue = newValueFormatted;
       }
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use just the field name to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          event.field,
+        );
+
+        if (channels.length === 0) continue;
+
+        const body = this.interpolateMessage(messageConfig.inApp, messageVars);
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
-          importance,
-          title: `Tarefa atualizada: ${fieldLabel}`,
-          body: notificationBody,
+          importance: config.importance,
+          title: `Tarefa atualizada: ${config.label}`,
+          body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel: [NOTIFICATION_CHANNEL.IN_APP],
-          metadata: {
-            taskId: event.task.id,
-            field: event.field,
-            isFileArray: event.isFileArray,
-            ...(event.fileChange && {
-              filesAdded: event.fileChange.added,
-              filesRemoved: event.fileChange.removed,
-            }),
-          },
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
@@ -254,8 +337,24 @@ export class TaskListener {
             ? NOTIFICATION_IMPORTANCE.HIGH
             : NOTIFICATION_IMPORTANCE.NORMAL;
 
+      // Determine channels based on urgency
+      const defaultChannels =
+        event.daysRemaining <= 1
+          ? [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL]
+          : [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
+
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use 'deadline' to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          'deadline',
+          defaultChannels,
+        );
+
+        if (channels.length === 0) continue;
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -263,11 +362,8 @@ export class TaskListener {
           title: 'Prazo da tarefa se aproximando',
           body: `Tarefa "${event.task.name}" tem prazo em ${event.daysRemaining} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel:
-            event.daysRemaining <= 1
-              ? [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL]
-              : [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
@@ -289,6 +385,16 @@ export class TaskListener {
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
+        // Use 'overdue' to match user preference event type
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          'overdue',
+          [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
+        );
+
+        if (channels.length === 0) continue;
+
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -296,12 +402,8 @@ export class TaskListener {
           title: 'Tarefa atrasada',
           body: `Tarefa "${event.task.name}" está atrasada há ${event.daysOverdue} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: `/tasks/${event.task.id}`,
-          channel: [
-            NOTIFICATION_CHANNEL.IN_APP,
-            NOTIFICATION_CHANNEL.PUSH,
-            NOTIFICATION_CHANNEL.EMAIL,
-          ],
+          actionUrl: this.getTaskUrl(event.task),
+          channel: channels,
         });
       }
 
@@ -320,102 +422,25 @@ export class TaskListener {
    * Returns: sector manager + admin users
    */
   private async getTargetUsersForTaskCreated(task: any): Promise<string[]> {
-    const userIds = new Set<string>();
-
-    // Get sector manager
-    if (task.sectorId) {
-      const sector = await this.prisma.sector.findUnique({
-        where: { id: task.sectorId },
-        select: { managerId: true },
-      });
-
-      if (sector?.managerId) {
-        userIds.add(sector.managerId);
-      }
-    }
-
-    // Get admin users (users with admin positions)
-    const admins = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        position: {
-          isNot: null,
-          name: {
-            in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
-          },
-        },
-      },
-      select: { id: true },
-    });
-
-    admins.forEach(admin => userIds.add(admin.id));
-
-    return Array.from(userIds);
+    return this.getTargetUsersWithRoleFilter(task, [
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.LEADER,
+    ]);
   }
 
   /**
-   * Get target users for status change
-   * Returns: assigned users + sector manager + admin users
+   * Get target users for a specific field change
+   * Filters based on role restrictions from config
    */
-  private async getTargetUsersForStatusChange(task: any): Promise<string[]> {
-    const userIds = new Set<string>();
+  private async getTargetUsersForField(task: any, fieldName: string): Promise<string[]> {
+    const allowedRoles = getAllowedRolesForField(fieldName);
 
-    // Get sector manager
-    if (task.sectorId) {
-      const sector = await this.prisma.sector.findUnique({
-        where: { id: task.sectorId },
-        select: { managerId: true },
-      });
-
-      if (sector?.managerId) {
-        userIds.add(sector.managerId);
-      }
+    if (allowedRoles.length === 0) {
+      this.logger.warn(`No allowed roles configured for field: ${fieldName}`);
+      return [];
     }
 
-    // Get admin users (users with admin positions)
-    const admins = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        position: {
-          isNot: null,
-          name: {
-            in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
-          },
-        },
-      },
-      select: { id: true },
-    });
-
-    admins.forEach(admin => userIds.add(admin.id));
-
-    return Array.from(userIds);
-  }
-
-  /**
-   * Get target users for field update
-   * Returns users based on field type
-   */
-  private async getTargetUsersForFieldUpdate(task: any, fieldName: string): Promise<string[]> {
-    // For important fields, notify same users as status change
-    if (this.isHighPriorityField(fieldName)) {
-      return this.getTargetUsersForStatusChange(task);
-    }
-
-    // For regular fields, notify only sector manager
-    const userIds = new Set<string>();
-
-    if (task.sectorId) {
-      const sector = await this.prisma.sector.findUnique({
-        where: { id: task.sectorId },
-        select: { managerId: true },
-      });
-
-      if (sector?.managerId) {
-        userIds.add(sector.managerId);
-      }
-    }
-
-    return Array.from(userIds);
+    return this.getTargetUsersWithRoleFilter(task, allowedRoles);
   }
 
   /**
@@ -423,21 +448,11 @@ export class TaskListener {
    * Returns: assigned users + sector manager
    */
   private async getTargetUsersForDeadline(task: any): Promise<string[]> {
-    const userIds = new Set<string>();
-
-    // Get sector manager
-    if (task.sectorId) {
-      const sector = await this.prisma.sector.findUnique({
-        where: { id: task.sectorId },
-        select: { managerId: true },
-      });
-
-      if (sector?.managerId) {
-        userIds.add(sector.managerId);
-      }
-    }
-
-    return Array.from(userIds);
+    return this.getTargetUsersWithRoleFilter(task, [
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.LEADER,
+      SECTOR_PRIVILEGES.PRODUCTION,
+    ]);
   }
 
   /**
@@ -445,75 +460,115 @@ export class TaskListener {
    * Returns: assigned users + sector manager + admin users
    */
   private async getTargetUsersForOverdue(task: any): Promise<string[]> {
-    return this.getTargetUsersForStatusChange(task);
+    return this.getTargetUsersWithRoleFilter(task, [
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.LEADER,
+      SECTOR_PRIVILEGES.PRODUCTION,
+      SECTOR_PRIVILEGES.FINANCIAL,
+    ]);
+  }
+
+  /**
+   * Get target users filtered by role privileges
+   */
+  private async getTargetUsersWithRoleFilter(
+    task: any,
+    allowedRoles: SECTOR_PRIVILEGES[],
+  ): Promise<string[]> {
+    const userIds = new Set<string>();
+
+    try {
+      // Get sector manager if task has a sector
+      if (task.sectorId) {
+        const sector = await this.prisma.sector.findUnique({
+          where: { id: task.sectorId },
+          select: {
+            managerId: true,
+            privileges: true, // Field is 'privileges' (plural)
+          },
+        });
+
+        if (sector?.managerId) {
+          // Check if sector privileges is in allowed roles
+          if (allowedRoles.includes(sector.privileges as SECTOR_PRIVILEGES)) {
+            userIds.add(sector.managerId);
+          }
+        }
+      }
+
+      // Get users with allowed privileges
+      // Note: 'sector' is an optional relation, so we use 'is' to filter on its fields
+      // The field is 'privileges' (plural) not 'privilege'
+      const users = await this.prisma.user.findMany({
+        where: {
+          isActive: true,
+          sector: {
+            is: {
+              privileges: {
+                in: allowedRoles,
+              },
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      users.forEach(user => userIds.add(user.id));
+    } catch (error) {
+      this.logger.error('Error getting target users with role filter:', error);
+    }
+
+    return Array.from(userIds);
   }
 
   // =====================
-  // Helper Methods - Field Utilities
+  // Helper Methods - Channels
   // =====================
 
   /**
-   * Check if field is important enough to create notifications
+   * Get enabled channels for a user based on their preferences
    */
-  private isImportantField(fieldName: string): boolean {
-    const importantFields = [
-      'term',
-      'forecastDate',
-      'sectorId',
-      'artworks',
-      'budgets',
-      'invoices',
-      'priority',
-      'details',
-    ];
+  private async getEnabledChannelsForUser(
+    userId: string,
+    notificationType: NOTIFICATION_TYPE,
+    eventType: string,
+    defaultChannels?: NOTIFICATION_CHANNEL[],
+  ): Promise<NOTIFICATION_CHANNEL[]> {
+    try {
+      this.logger.debug(`Looking up channels for user ${userId}, type ${notificationType}, event ${eventType}`);
 
-    return importantFields.includes(fieldName);
-  }
+      const channels = await this.preferenceService.getChannelsForEvent(
+        userId,
+        notificationType,
+        eventType,
+      );
 
-  /**
-   * Check if field is high priority
-   */
-  private isHighPriorityField(fieldName: string): boolean {
-    const highPriorityFields = ['term', 'sectorId', 'priority'];
+      this.logger.debug(`Found ${channels.length} channels from preferences: ${channels.join(', ') || 'none'}`);
 
-    return highPriorityFields.includes(fieldName);
-  }
+      // If user has specific preferences, use them
+      if (channels.length > 0) {
+        return channels;
+      }
 
-  /**
-   * Get importance level for a field
-   */
-  private getFieldImportance(fieldName: string): NOTIFICATION_IMPORTANCE {
-    const urgentFields = ['term'];
-    const highFields = ['sectorId', 'priority'];
+      // Otherwise, use defaults from config or provided defaults
+      if (defaultChannels) {
+        return defaultChannels;
+      }
 
-    if (urgentFields.includes(fieldName)) {
-      return NOTIFICATION_IMPORTANCE.URGENT;
+      // Fall back to field config defaults
+      // eventType is now just the field name (e.g., 'status', 'name', 'created')
+      const config = getFieldConfig(eventType);
+
+      return config?.defaultChannels || [NOTIFICATION_CHANNEL.IN_APP];
+    } catch (error) {
+      this.logger.warn(`Error getting channels for user ${userId}, using defaults:`, error);
+      return [NOTIFICATION_CHANNEL.IN_APP];
     }
-
-    if (highFields.includes(fieldName)) {
-      return NOTIFICATION_IMPORTANCE.HIGH;
-    }
-
-    return NOTIFICATION_IMPORTANCE.NORMAL;
   }
 
-  /**
-   * Get human-readable label for a field
-   */
-  private getFieldLabel(fieldName: string): string {
-    const labels: Record<string, string> = {
-      term: 'Prazo',
-      forecastDate: 'Data de Previsão',
-      sectorId: 'Setor',
-      artworks: 'Artes',
-      budgets: 'Orçamentos',
-      invoices: 'Notas Fiscais',
-      priority: 'Prioridade',
-      details: 'Detalhes',
-    };
-
-    return labels[fieldName] || fieldName;
-  }
+  // =====================
+  // Helper Methods - Value Formatting
+  // =====================
 
   /**
    * Format field value for display in notifications
@@ -523,26 +578,164 @@ export class TaskListener {
       return 'N/A';
     }
 
-    // Format dates
-    if (fieldName === 'term' || fieldName === 'forecastDate') {
-      const date = new Date(value);
-      return date.toLocaleDateString('pt-BR');
-    }
+    const config = getFieldConfig(fieldName);
 
-    // Format sector
-    if (fieldName === 'sectorId') {
+    try {
+      switch (config?.formatter) {
+        case 'formatDate':
+          return this.formatDate(value);
+        case 'formatStatus':
+          return TASK_STATUS_LABELS[value] || value;
+        case 'formatCommissionStatus':
+          return COMMISSION_STATUS_LABELS[value] || value;
+        case 'formatSector':
+          return await this.formatSector(value);
+        case 'formatCustomer':
+          return await this.formatCustomer(value);
+        case 'formatPaint':
+          return await this.formatPaint(value);
+        case 'formatContact':
+          return this.formatContact(value);
+        default:
+          return this.formatDefaultValue(value);
+      }
+    } catch (error) {
+      this.logger.warn(`Error formatting field ${fieldName}:`, error);
+      return String(value);
+    }
+  }
+
+  /**
+   * Format date value
+   */
+  private formatDate(value: any): string {
+    if (!value) return 'N/A';
+
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return String(value);
+
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+
+  /**
+   * Format sector ID to name
+   */
+  private async formatSector(sectorId: string): Promise<string> {
+    try {
       const sector = await this.prisma.sector.findUnique({
-        where: { id: value },
+        where: { id: sectorId },
         select: { name: true },
       });
-      return sector?.name || value;
+      return sector?.name || sectorId;
+    } catch {
+      return sectorId;
     }
+  }
 
-    // Format arrays (artworks, budgets, invoices)
+  /**
+   * Format customer ID to name
+   */
+  private async formatCustomer(customerId: string): Promise<string> {
+    try {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { fantasyName: true, corporateName: true },
+      });
+      return customer?.fantasyName || customer?.corporateName || customerId;
+    } catch {
+      return customerId;
+    }
+  }
+
+  /**
+   * Format paint ID to name
+   */
+  private async formatPaint(paintId: string): Promise<string> {
+    try {
+      const paint = await this.prisma.paint.findUnique({
+        where: { id: paintId },
+        select: { name: true, code: true },
+      });
+      return paint ? `${paint.name} (${paint.code})` : paintId;
+    } catch {
+      return paintId;
+    }
+  }
+
+  /**
+   * Format negotiating contact
+   */
+  private formatContact(value: any): string {
+    if (typeof value === 'object' && value !== null) {
+      const name = value.name || '';
+      const phone = value.phone || '';
+      return phone ? `${name} (${phone})` : name;
+    }
+    return String(value);
+  }
+
+  /**
+   * Format default value (arrays, objects, primitives)
+   */
+  private formatDefaultValue(value: any): string {
     if (Array.isArray(value)) {
       return `${value.length} item(ns)`;
     }
 
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'Sim' : 'Não';
+    }
+
     return String(value);
+  }
+
+  /**
+   * Interpolate message template with variables
+   */
+  private interpolateMessage(
+    template: string,
+    vars: Record<string, string | number>,
+  ): string {
+    let result = template;
+
+    for (const [key, value] of Object.entries(vars)) {
+      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), String(value));
+    }
+
+    return result;
+  }
+
+  /**
+   * Get the correct URL for a task based on its status
+   * - PREPARATION → /producao/agenda/detalhes/{id}
+   * - WAITING_PRODUCTION or IN_PRODUCTION → /producao/cronograma/detalhes/{id}
+   * - COMPLETED → /producao/historico/detalhes/{id}
+   */
+  private getTaskUrl(task: any): string {
+    const taskId = task.id;
+    const status = task.status;
+
+    switch (status) {
+      case TASK_STATUS.PREPARATION:
+        return `/producao/agenda/detalhes/${taskId}`;
+      case TASK_STATUS.WAITING_PRODUCTION:
+      case TASK_STATUS.IN_PRODUCTION:
+        return `/producao/cronograma/detalhes/${taskId}`;
+      case TASK_STATUS.COMPLETED:
+        return `/producao/historico/detalhes/${taskId}`;
+      case TASK_STATUS.CANCELLED:
+        return `/producao/historico/detalhes/${taskId}`;
+      default:
+        // Default to agenda for unknown status
+        return `/producao/agenda/detalhes/${taskId}`;
+    }
   }
 }
