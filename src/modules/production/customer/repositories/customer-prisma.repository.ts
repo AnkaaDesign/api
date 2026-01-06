@@ -127,22 +127,23 @@ export class CustomerPrismaRepository
   ): Prisma.CustomerOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
 
-    // If orderBy is an array, take the first element as Prisma expects a single OrderBy object
+    // If orderBy is already an array, return it as is
     if (Array.isArray(orderBy)) {
-      return orderBy[0] as Prisma.CustomerOrderByWithRelationInput;
+      return orderBy as Prisma.CustomerOrderByWithRelationInput;
     }
 
-    // If orderBy is a single object with multiple sorting fields, prioritize the first field
-    // Check if it has multiple keys (e.g., { name: 'asc', createdAt: 'desc' })
-    const keys = Object.keys(orderBy);
-    if (keys.length > 1) {
-      // Take the first key for single field sorting as expected by Prisma
-      const firstKey = keys[0];
-      return { [firstKey]: orderBy[firstKey] } as Prisma.CustomerOrderByWithRelationInput;
-    }
+    // Convert object to array format to support multiple orderBy fields
+    // Prisma supports: [{ field1: 'asc' }, { field2: 'desc' }]
+    const orderByArray: any[] = [];
+    Object.entries(orderBy).forEach(([key, value]) => {
+      if (value !== undefined) {
+        orderByArray.push({ [key]: value });
+      }
+    });
 
-    // If orderBy is a single object with one field, return it directly
-    return orderBy as Prisma.CustomerOrderByWithRelationInput;
+    return orderByArray.length > 0
+      ? (orderByArray as Prisma.CustomerOrderByWithRelationInput)
+      : undefined;
   }
 
   protected mapWhereToDatabaseWhere(where?: CustomerWhere): Prisma.CustomerWhereInput | undefined {

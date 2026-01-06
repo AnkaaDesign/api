@@ -44,11 +44,13 @@ export class ZodValidationPipe implements PipeTransform {
     } catch (error) {
       if (error instanceof ZodError) {
         // Log the detailed Zod error for debugging
-        console.error('[ZodValidationPipe] Zod validation error:', {
-          issues: error.issues,
-          value: value,
-          schema: this.schema.constructor.name,
-        });
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('[ZodValidationPipe] Zod validation error:', {
+            issues: error.issues,
+            value: value,
+            schema: this.schema.constructor.name,
+          });
+        }
 
         const formattedErrors = this.formatZodErrors(error.issues);
         const errorResponse = this.createErrorResponse(formattedErrors, metadata.type);
@@ -629,10 +631,12 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
       if ('searchingFor' in value) {
         // Always convert searchingFor to string, even if it arrives as a number
         parsed.searchingFor = String(value.searchingFor);
-        console.log(
-          '[ZodQueryValidationPipe] Converted searchingFor to string:',
-          parsed.searchingFor,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(
+            '[ZodQueryValidationPipe] Converted searchingFor to string:',
+            parsed.searchingFor,
+          );
+        }
       }
 
       for (const [key, val] of Object.entries(value)) {
@@ -863,10 +867,12 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
                     true;
                 } catch (e) {
                   // If the object is frozen/non-extensible, create a new object
-                  console.warn(
-                    '[ZodQueryValidationPipe] Cannot modify object, creating new structure',
-                    e,
-                  );
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn(
+                      '[ZodQueryValidationPipe] Cannot modify object, creating new structure',
+                      e,
+                    );
+                  }
                   // Skip this assignment as it's likely a parse error
                 }
               } else {
@@ -878,7 +884,9 @@ export class ZodQueryValidationPipe extends ZodValidationPipe {
                 try {
                   current[lastPart] = this.transformValue(val, pathParts);
                 } catch (e) {
-                  console.warn('[ZodQueryValidationPipe] Cannot set value on object', e);
+                  if (process.env.NODE_ENV !== 'production') {
+                    console.warn('[ZodQueryValidationPipe] Cannot set value on object', e);
+                  }
                 }
               }
             } else {

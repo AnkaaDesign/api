@@ -97,7 +97,7 @@ export class VacationController {
 
   // Team-specific endpoint for leaders (must be before dynamic :id route)
   @Get('team-vacations')
-  @Roles( SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES)
   async getTeamVacations(
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
     @UserId() userId: string,

@@ -622,15 +622,19 @@ export class ActivityService {
     });
 
     if (!order) {
-      this.logger.warn(`Pedido ${activity.orderId} não encontrado para atividade ${activity.id}`);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(`Pedido ${activity.orderId} não encontrado para atividade ${activity.id}`);
+      }
       return;
     }
 
     const orderItem = order.items[0];
     if (!orderItem) {
-      this.logger.warn(
-        `Item do pedido ${activity.orderItemId} não encontrado para atividade ${activity.id}`,
-      );
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(
+          `Item do pedido ${activity.orderItemId} não encontrado para atividade ${activity.id}`,
+        );
+      }
       return;
     }
 
@@ -1305,9 +1309,11 @@ export class ActivityService {
       const remainingAfterActivity = item.quantity - effectiveQuantity;
       if (item.reorderPoint && remainingAfterActivity < item.reorderPoint) {
         // Apenas avisar, não bloquear
-        console.warn(
-          `Atenção: Item ${item.name} ficará abaixo do ponto de reposição (${item.reorderPoint})`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `Atenção: Item ${item.name} ficará abaixo do ponto de reposição (${item.reorderPoint})`,
+          );
+        }
       }
     }
 
@@ -1326,9 +1332,11 @@ export class ActivityService {
       // Note: maxQuantity is treated as a guideline/metric, not a hard limit
       // Allow entries to exceed maxQuantity for promotions, bulk purchases, etc.
       if (item.maxQuantity && item.quantity + effectiveQuantity > item.maxQuantity) {
-        console.warn(
-          `INBOUND activity will exceed suggested max quantity for item ${item.name}. Max: ${item.maxQuantity}, Current: ${item.quantity}, Adding: ${effectiveQuantity}`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `INBOUND activity will exceed suggested max quantity for item ${item.name}. Max: ${item.maxQuantity}, Current: ${item.quantity}, Adding: ${effectiveQuantity}`,
+          );
+        }
       }
     }
 
@@ -1419,6 +1427,9 @@ export class ActivityService {
       });
 
       if (!item) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`Item ${itemId} not found during monthly consumption update`);
+        }
         return;
       }
 
@@ -1509,12 +1520,16 @@ export class ActivityService {
           });
         }
 
-        this.logger.log(
-          `Updated monthly consumption for item ${itemId}: ${oldMonthlyConsumption.toFixed(2)} -> ${newMonthlyConsumption.toFixed(2)}`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          this.logger.log(
+            `Updated monthly consumption for item ${itemId}: ${oldMonthlyConsumption.toFixed(2)} -> ${newMonthlyConsumption.toFixed(2)}`,
+          );
+        }
       }
     } catch (error) {
-      this.logger.error(`Erro ao calcular e atualizar consumo mensal do item ${itemId}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.error(`Erro ao calcular e atualizar consumo mensal do item ${itemId}:`, error);
+      }
       // Don't throw error to not affect the main operation
     }
   }
@@ -2082,13 +2097,17 @@ export class ActivityService {
           });
         }
 
-        this.logger.log(
-          `Updated max quantity for item ${itemId}: max=${suggested.max}, monthly consumption=${monthlyConsumption.toFixed(2)}`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          this.logger.log(
+            `Updated max quantity for item ${itemId}: max=${suggested.max}, monthly consumption=${monthlyConsumption.toFixed(2)}`,
+          );
+        }
       }
     } catch (error) {
       // Log error but don't fail the main operation
-      this.logger.error(`Error updating min/max quantities for item ${itemId}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.error(`Error updating min/max quantities for item ${itemId}:`, error);
+      }
     }
   }
 
@@ -2203,13 +2222,17 @@ export class ActivityService {
           transaction: tx,
         });
 
-        this.logger.log(
-          `Updated lead time for item ${itemId}: ${currentLeadTime} -> ${averageLeadTime} days (based on ${leadTimes.length} orders)`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          this.logger.log(
+            `Updated lead time for item ${itemId}: ${currentLeadTime} -> ${averageLeadTime} days (based on ${leadTimes.length} orders)`,
+          );
+        }
       }
     } catch (error) {
       // Log error but don't fail the main operation
-      this.logger.error(`Error updating lead time for item ${itemId}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.error(`Error updating lead time for item ${itemId}:`, error);
+      }
     }
   }
 }

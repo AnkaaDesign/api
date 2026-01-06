@@ -77,7 +77,11 @@ export interface ObservationDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ObservationBatchCreateResponse<T> extends BaseBatchResponse<Observation, T> {}
-export interface ObservationBatchUpdateResponse<T>
-  extends BaseBatchResponse<Observation, T & { id: string }> {}
-export interface ObservationBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ObservationBatchUpdateResponse<T> extends BaseBatchResponse<
+  Observation,
+  T & { id: string }
+> {}
+export interface ObservationBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

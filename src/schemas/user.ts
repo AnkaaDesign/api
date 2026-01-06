@@ -154,7 +154,7 @@ export const userIncludeSchema = z
               files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               commissions: z.boolean().optional(),
-              services: z.boolean().optional(),
+              serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
             })
@@ -766,23 +766,11 @@ const userTransform = (data: any) => {
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
     const searchNumber = parseInt(searchTerm, 10);
-    console.log('[UserTransform] Processing searchingFor:', searchTerm);
-    console.log(
-      '[UserTransform] Parsed number:',
-      searchNumber,
-      'isNaN:',
-      isNaN(searchNumber),
-      'toString match:',
-      searchNumber.toString() === searchTerm,
-    );
 
     // If the search term is purely numeric, search ONLY in payrollNumber for exact match
     if (!isNaN(searchNumber) && searchNumber.toString() === searchTerm) {
-      console.log('[UserTransform] Searching ONLY by payrollNumber:', searchNumber);
       andConditions.push({ payrollNumber: searchNumber });
     } else {
-      console.log('[UserTransform] Searching text fields');
-
       // Otherwise, search across text fields
       const orConditions: any[] = [
         { name: { contains: searchTerm, mode: 'insensitive' } },
@@ -931,11 +919,6 @@ const userTransform = (data: any) => {
   }
 
   // Merge with existing where conditions
-  console.log('[UserTransform] andConditions count:', andConditions.length);
-  console.log(
-    '[UserTransform] Existing data.where:',
-    JSON.stringify(data.where || {}).substring(0, 200),
-  );
   if (andConditions.length > 0) {
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
@@ -948,10 +931,6 @@ const userTransform = (data: any) => {
     }
   }
 
-  console.log(
-    '[UserTransform] Final data.where:',
-    JSON.stringify(data.where || {}).substring(0, 300),
-  );
   return data;
 };
 

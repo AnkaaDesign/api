@@ -70,7 +70,7 @@ export class CutController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -106,7 +106,7 @@ export class CutController {
 
   // Batch operations (must come before dynamic routes)
   @Post('batch')
-  @Roles( SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(cutBatchCreateSchema)) data: CutBatchCreateFormData,
@@ -144,7 +144,7 @@ export class CutController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,

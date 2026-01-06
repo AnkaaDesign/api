@@ -185,9 +185,7 @@ export class CompletePayrollCalculatorService {
       persistentDiscounts = [],
     } = params;
 
-    this.logger.log(
-      `Calculating complete payroll for employee ${employeeId} - ${year}/${month}`,
-    );
+    this.logger.log(`Calculating complete payroll for employee ${employeeId} - ${year}/${month}`);
 
     // ========================================================================
     // STEP 1: GET SECULLUM DATA (hours, overtime, absences)
@@ -308,7 +306,7 @@ export class CompletePayrollCalculatorService {
 
     const absenceHours = secullumData?.unjustifiedAbsenceHours || 0;
     const absenceDays = secullumData?.absenceDays || 0;
-    const absenceAmount = roundCurrency((absenceHours * hourlyRate));
+    const absenceAmount = roundCurrency(absenceHours * hourlyRate);
 
     // Late arrivals
     const lateMinutes = secullumData?.lateArrivalMinutes || 0;
@@ -373,11 +371,7 @@ export class CompletePayrollCalculatorService {
     // ========================================================================
 
     const loans = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.LOAN, 0);
-    const advances = this.getDiscountAmount(
-      persistentDiscounts,
-      PayrollDiscountType.ADVANCE,
-      0,
-    );
+    const advances = this.getDiscountAmount(persistentDiscounts, PayrollDiscountType.ADVANCE, 0);
 
     // ========================================================================
     // STEP 8: CALCULATE CUSTOM DEDUCTIONS

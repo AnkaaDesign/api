@@ -82,28 +82,44 @@ export function validateEnv(): EnvConfig {
     if (result.NODE_ENV === 'production') {
       // Production-specific validations
       if (!result.TWILIO_ACCOUNT_SID || !result.TWILIO_AUTH_TOKEN) {
-        console.warn('⚠️  Twilio credentials not configured - SMS functionality will be disabled');
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            '⚠️  Twilio credentials not configured - SMS functionality will be disabled',
+          );
+        }
       }
 
       if (!result.EMAIL_USER || !result.EMAIL_PASS) {
-        console.warn('⚠️  Email credentials not configured - email functionality will be disabled');
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            '⚠️  Email credentials not configured - email functionality will be disabled',
+          );
+        }
       }
 
       if (result.DISABLE_RATE_LIMITING) {
-        console.warn('⚠️  Rate limiting is disabled in production - this is not recommended');
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('⚠️  Rate limiting is disabled in production - this is not recommended');
+        }
       }
     }
 
-    console.log('✅ Environment variables validated successfully');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('✅ Environment variables validated successfully');
+    }
     return result;
   } catch (error) {
     if (error instanceof z.ZodError) {
       const missingVars = error.errors.map(err => `${err.path.join('.')}: ${err.message}`);
-      console.error('❌ Environment validation failed:');
-      missingVars.forEach(err => console.error(`  - ${err}`));
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Environment validation failed:');
+        missingVars.forEach(err => console.error(`  - ${err}`));
 
-      console.error('\n📋 Please check your .env file and ensure all required variables are set.');
-      console.error('📋 You can copy from .env.example and fill in the values.');
+        console.error(
+          '\n📋 Please check your .env file and ensure all required variables are set.',
+        );
+        console.error('📋 You can copy from .env.example and fill in the values.');
+      }
 
       process.exit(1);
     }

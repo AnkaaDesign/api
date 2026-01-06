@@ -64,12 +64,22 @@ export class PayrollPrismaRepository
     return {
       ...databaseEntity,
       baseRemuneration: Number(databaseEntity.baseRemuneration),
-      overtime50Hours: databaseEntity.overtime50Hours ? Number(databaseEntity.overtime50Hours) : null,
-      overtime50Amount: databaseEntity.overtime50Amount ? Number(databaseEntity.overtime50Amount) : null,
-      overtime100Hours: databaseEntity.overtime100Hours ? Number(databaseEntity.overtime100Hours) : null,
-      overtime100Amount: databaseEntity.overtime100Amount ? Number(databaseEntity.overtime100Amount) : null,
+      overtime50Hours: databaseEntity.overtime50Hours
+        ? Number(databaseEntity.overtime50Hours)
+        : null,
+      overtime50Amount: databaseEntity.overtime50Amount
+        ? Number(databaseEntity.overtime50Amount)
+        : null,
+      overtime100Hours: databaseEntity.overtime100Hours
+        ? Number(databaseEntity.overtime100Hours)
+        : null,
+      overtime100Amount: databaseEntity.overtime100Amount
+        ? Number(databaseEntity.overtime100Amount)
+        : null,
       nightHours: databaseEntity.nightHours ? Number(databaseEntity.nightHours) : null,
-      nightDifferentialAmount: databaseEntity.nightDifferentialAmount ? Number(databaseEntity.nightDifferentialAmount) : null,
+      nightDifferentialAmount: databaseEntity.nightDifferentialAmount
+        ? Number(databaseEntity.nightDifferentialAmount)
+        : null,
       dsrAmount: databaseEntity.dsrAmount ? Number(databaseEntity.dsrAmount) : null,
       dsrDays: databaseEntity.dsrDays || null,
       grossSalary: databaseEntity.grossSalary ? Number(databaseEntity.grossSalary) : null,
@@ -103,7 +113,7 @@ export class PayrollPrismaRepository
     // Handle nested discounts creation
     if (discounts && discounts.length > 0) {
       createInput.discounts = {
-        create: discounts.map((discount) => ({
+        create: discounts.map(discount => ({
           percentage: discount.percentage,
           value: discount.value,
           reference: discount.reference,
@@ -134,7 +144,7 @@ export class PayrollPrismaRepository
     if (discounts !== undefined) {
       updateInput.discounts = {
         deleteMany: {}, // Delete all existing discounts
-        create: discounts.map((discount) => ({
+        create: discounts.map(discount => ({
           percentage: discount.percentage,
           value: discount.value,
           reference: discount.reference,
@@ -206,7 +216,7 @@ export class PayrollPrismaRepository
               },
               createdBy: true,
               sector: true,
-              services: true,
+              serviceOrders: true,
             },
           },
           users: true,

@@ -114,7 +114,11 @@ export interface AirbrushingDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface AirbrushingBatchCreateResponse<T> extends BaseBatchResponse<Airbrushing, T> {}
-export interface AirbrushingBatchUpdateResponse<T>
-  extends BaseBatchResponse<Airbrushing, T & { id: string }> {}
-export interface AirbrushingBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface AirbrushingBatchUpdateResponse<T> extends BaseBatchResponse<
+  Airbrushing,
+  T & { id: string }
+> {}
+export interface AirbrushingBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

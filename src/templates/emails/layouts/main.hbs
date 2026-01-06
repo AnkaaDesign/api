@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>{{title}} - {{companyName}}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f5f5f5;
+    }
+
+    .email-wrapper {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+    }
+
+    .email-header {
+      background: linear-gradient(135deg, #16802B 0%, #1a9933 100%);
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+
+    .email-header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 600;
+    }
+
+    .email-header p {
+      margin: 10px 0 0 0;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .email-body {
+      padding: 40px 30px;
+      background-color: #ffffff;
+    }
+
+    .email-body h2 {
+      color: #16802B;
+      margin: 0 0 20px 0;
+      font-size: 22px;
+    }
+
+    .email-body p {
+      margin: 0 0 15px 0;
+      color: #555;
+      line-height: 1.8;
+    }
+
+    .button {
+      display: inline-block;
+      padding: 14px 32px;
+      background: #16802B;
+      color: #ffffff !important;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      margin: 20px 0;
+      transition: background 0.3s ease;
+    }
+
+    .button:hover {
+      background: #125a1f;
+    }
+
+    .button-center {
+      text-align: center;
+    }
+
+    .email-footer {
+      background-color: #f8f9fa;
+      padding: 30px 20px;
+      text-align: center;
+      border-top: 1px solid #e9ecef;
+    }
+
+    .email-footer p {
+      margin: 5px 0;
+      font-size: 13px;
+      color: #6c757d;
+    }
+
+    .email-footer a {
+      color: #16802B;
+      text-decoration: none;
+    }
+
+    .email-footer a:hover {
+      text-decoration: underline;
+    }
+
+    .divider {
+      height: 1px;
+      background: linear-gradient(to right, transparent, #dee2e6, transparent);
+      margin: 30px 0;
+    }
+
+    @media only screen and (max-width: 600px) {
+      .email-body {
+        padding: 30px 20px;
+      }
+
+      .email-header h1 {
+        font-size: 24px;
+      }
+
+      .button {
+        padding: 12px 24px;
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="email-header">
+      <h1>{{companyName}}</h1>
+      {{#if headerSubtitle}}
+      <p>{{headerSubtitle}}</p>
+      {{/if}}
+    </div>
+
+    <div class="email-body">
+      {{> content}}
+    </div>
+
+    <div class="email-footer">
+      {{> footer}}
+    </div>
+  </div>
+</body>
+</html>

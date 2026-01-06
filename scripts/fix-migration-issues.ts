@@ -46,7 +46,9 @@ const missingUsers = [
 ];
 
 async function createMissingUsers() {
-  console.log('🔧 Starting to create missing users...\n');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('🔧 Starting to create missing users...\n');
+  }
 
   let created = 0;
   let skipped = 0;
@@ -65,7 +67,9 @@ async function createMissingUsers() {
       });
 
       if (existingUser) {
-        console.log(`⏭️  Skipped (already exists): ${userData.name} (${userData.email})`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`⏭️  Skipped (already exists): ${userData.name} (${userData.email})`);
+        }
         skipped++;
         continue;
       }
@@ -88,22 +92,30 @@ async function createMissingUsers() {
         },
       });
 
-      console.log(`✅ Created user: ${newUser.name} (${newUser.email})`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ Created user: ${newUser.name} (${newUser.email})`);
+      }
       created++;
     } catch (error) {
-      console.error(`❌ Error creating user ${userData.name}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`❌ Error creating user ${userData.name}:`, error);
+      }
       errors++;
     }
   }
 
-  console.log('\n📊 Summary:');
-  console.log(`  ✅ Created: ${created}`);
-  console.log(`  ⏭️  Skipped: ${skipped}`);
-  console.log(`  ❌ Errors: ${errors}`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('\n📊 Summary:');
+    console.log(`  ✅ Created: ${created}`);
+    console.log(`  ⏭️  Skipped: ${skipped}`);
+    console.log(`  ❌ Errors: ${errors}`);
+  }
 }
 
 async function migratePlatesFromTasksToTrucks() {
-  console.log('\n🚗 Starting plate migration from tasks to trucks...\n');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('\n🚗 Starting plate migration from tasks to trucks...\n');
+  }
 
   try {
     // Find all tasks that might have plate data
@@ -129,10 +141,14 @@ async function migratePlatesFromTasksToTrucks() {
               where: { id: task.truck.id },
               data: { plate: task.serialNumber },
             });
-            console.log(`✅ Updated truck for task "${task.name}" with plate: ${task.serialNumber}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`✅ Updated truck for task "${task.name}" with plate: ${task.serialNumber}`);
+            }
             updated++;
           } else {
-            console.log(`⏭️  Skipped task "${task.name}" - truck already has plate: ${task.truck.plate}`);
+            if (process.env.NODE_ENV !== 'production') {
+              console.log(`⏭️  Skipped task "${task.name}" - truck already has plate: ${task.truck.plate}`);
+            }
             skipped++;
           }
         } else {
@@ -144,7 +160,9 @@ async function migratePlatesFromTasksToTrucks() {
               taskId: task.id,
             },
           });
-          console.log(`✅ Created truck for task "${task.name}" with plate: ${task.serialNumber}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`✅ Created truck for task "${task.name}" with plate: ${task.serialNumber}`);
+          }
           created++;
         }
 
@@ -156,34 +174,46 @@ async function migratePlatesFromTasksToTrucks() {
       }
     }
 
-    console.log('\n📊 Plate Migration Summary:');
-    console.log(`  ✅ Updated existing trucks: ${updated}`);
-    console.log(`  ✅ Created new trucks: ${created}`);
-    console.log(`  ⏭️  Skipped: ${skipped}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n📊 Plate Migration Summary:');
+      console.log(`  ✅ Updated existing trucks: ${updated}`);
+      console.log(`  ✅ Created new trucks: ${created}`);
+      console.log(`  ⏭️  Skipped: ${skipped}`);
+    }
 
   } catch (error) {
-    console.error('❌ Error during plate migration:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('❌ Error during plate migration:', error);
+    }
   }
 }
 
 async function main() {
   try {
-    console.log('🚀 Starting migration fixes...\n');
-    console.log('=' .repeat(50));
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('🚀 Starting migration fixes...\n');
+      console.log('=' .repeat(50));
+    }
 
     // Step 1: Create missing users
     await createMissingUsers();
 
-    console.log('\n' + '='.repeat(50));
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n' + '='.repeat(50));
+    }
 
     // Step 2: Migrate plates from tasks to trucks
     await migratePlatesFromTasksToTrucks();
 
-    console.log('\n' + '='.repeat(50));
-    console.log('\n✨ Migration fixes completed successfully!');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n' + '='.repeat(50));
+      console.log('\n✨ Migration fixes completed successfully!');
+    }
 
   } catch (error) {
-    console.error('❌ Fatal error:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('❌ Fatal error:', error);
+    }
     process.exit(1);
   } finally {
     await prisma.$disconnect();

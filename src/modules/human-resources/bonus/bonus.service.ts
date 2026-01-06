@@ -246,11 +246,7 @@ export class BonusService {
       }
 
       // Calculate live bonus - returns data in EXACT SAME STRUCTURE as saved bonus
-      const liveBonus = await this.calculateLiveBonusData(
-        parsed.userId,
-        parsed.year,
-        parsed.month,
-      );
+      const liveBonus = await this.calculateLiveBonusData(parsed.userId, parsed.year, parsed.month);
 
       if (!liveBonus) {
         throw new NotFoundException(
@@ -271,11 +267,7 @@ export class BonusService {
    * Returns data in the EXACT SAME STRUCTURE as a saved bonus from database.
    * This allows frontend to use the same code for both live and saved bonuses.
    */
-  async calculateLiveBonusData(
-    userId: string,
-    year: number,
-    month: number,
-  ): Promise<any> {
+  async calculateLiveBonusData(userId: string, year: number, month: number): Promise<any> {
     try {
       // First check if saved bonus exists (like payroll does)
       // Note: Bonus model doesn't have a direct position relation
@@ -639,7 +631,11 @@ export class BonusService {
           skip,
           take,
           include: defaultInclude,
-          orderBy: filters.orderBy || [{ year: 'desc' }, { month: 'desc' }, { user: { name: 'asc' } }],
+          orderBy: filters.orderBy || [
+            { year: 'desc' },
+            { month: 'desc' },
+            { user: { name: 'asc' } },
+          ],
         }),
         this.prisma.bonus.count({ where: filters.where }),
       ]);
@@ -1261,13 +1257,12 @@ export class BonusService {
       // Extract month values from filter (handles both { in: [11] } and direct number)
       const filterMonthValues = Array.isArray(filterMonth?.in)
         ? filterMonth.in
-        : (typeof filterMonth === 'number' ? [filterMonth] : undefined);
+        : typeof filterMonth === 'number'
+          ? [filterMonth]
+          : undefined;
 
       // Check if filter includes current period
-      const includesCurrentPeriod = filterIncludesCurrentPeriod(
-        filterYear,
-        filterMonthValues,
-      );
+      const includesCurrentPeriod = filterIncludesCurrentPeriod(filterYear, filterMonthValues);
 
       // If not querying current period, just return saved data directly from repository
       if (!includesCurrentPeriod) {
@@ -1366,7 +1361,11 @@ export class BonusService {
             ...savedBonus,
             users: savedBonus.users || allEligibleUserRefs,
             // Ensure position is set (from payroll snapshot or user current)
-            position: savedBonus.position || savedBonus.payroll?.position || savedBonus.user?.position || user.position,
+            position:
+              savedBonus.position ||
+              savedBonus.payroll?.position ||
+              savedBonus.user?.position ||
+              user.position,
           });
         } else if (liveBonus) {
           // No saved bonus but has live calculation
@@ -1590,7 +1589,7 @@ export class BonusService {
 
             // Eligible users get calculated values, non-eligible get 0
             const baseBonus = isEligible ? eligibleBonus.baseBonus : 0;
-            const netBonus = isEligible ? (eligibleBonus.netBonus || eligibleBonus.baseBonus) : 0;
+            const netBonus = isEligible ? eligibleBonus.netBonus || eligibleBonus.baseBonus : 0;
             const suspendedTasksDiscount = isEligible ? eligibleBonus.suspendedTasksDiscount : 0;
 
             // All users share the same period-level data

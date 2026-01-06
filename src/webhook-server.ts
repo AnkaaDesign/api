@@ -89,14 +89,18 @@ app.post('/backup/progress', async (req, res) => {
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Webhook processing error:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Webhook processing error:', error);
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Socket.io connection handling
 io.on('connection', socket => {
-  console.log('Client connected:', socket.id);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Client connected:', socket.id);
+  }
 
   socket.on('subscribe', async ({ backupId }) => {
     socket.join(`backup-${backupId}`);
@@ -113,7 +117,9 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Client disconnected:', socket.id);
+    }
   });
 });
 
@@ -135,8 +141,10 @@ function createHmacSignature(payload: any, secret: string): string {
 const PORT = process.env.WEBHOOK_PORT || 3001;
 
 httpServer.listen(PORT, () => {
-  console.log(`Webhook server running on port ${PORT}`);
-  console.log('Configure nginx to proxy webhook.ankaa.live to this port');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`Webhook server running on port ${PORT}`);
+    console.log('Configure nginx to proxy webhook.ankaa.live to this port');
+  }
 });
 
 export default httpServer;

@@ -56,7 +56,7 @@ export const bonusDiscountIncludeSchema = z
                       .object({
                         customer: z.boolean().optional(),
                         sector: z.boolean().optional(),
-                        services: z.boolean().optional(),
+                        serviceOrders: z.boolean().optional(),
                         commissions: z.boolean().optional(),
                       })
                       .optional(),

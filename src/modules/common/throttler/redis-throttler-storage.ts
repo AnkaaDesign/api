@@ -36,7 +36,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     // Completely bypass Redis operations for file operations in development or when rate limiting is disabled
     if (process.env.NODE_ENV === 'development' || process.env.DISABLE_RATE_LIMITING === 'true') {
       if (this.isFileOperationKey(key)) {
-        console.log(`[RedisThrottlerStorage] BYPASSING Redis for file operation key: ${key}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[RedisThrottlerStorage] BYPASSING Redis for file operation key: ${key}`);
+        }
         return {
           totalHits: 1,
           timeToExpire: ttl,
@@ -48,9 +50,11 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
     // Global rate limiting disable
     if (process.env.DISABLE_RATE_LIMITING === 'true') {
-      console.log(
-        `[RedisThrottlerStorage] RATE LIMITING DISABLED - bypassing Redis for key: ${key}`,
-      );
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(
+          `[RedisThrottlerStorage] RATE LIMITING DISABLED - bypassing Redis for key: ${key}`,
+        );
+      }
       return {
         totalHits: 1,
         timeToExpire: ttl,
@@ -66,7 +70,11 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       // Check if the key is blocked first
       const blockedTTL = await this.redis.ttl(blockedKey);
       if (blockedTTL > 0) {
-        console.log(`[RedisThrottlerStorage] Key ${key} is blocked for ${blockedTTL} more seconds`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(
+            `[RedisThrottlerStorage] Key ${key} is blocked for ${blockedTTL} more seconds`,
+          );
+        }
         return {
           totalHits: limit + 1, // Ensure it's over the limit
           timeToExpire: blockedTTL,
@@ -102,9 +110,11 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
         if (blockDuration > 0) {
           const blockDurationInSeconds = Math.floor(blockDuration / 1000);
           await this.redis.set(blockedKey, '1', 'EX', blockDurationInSeconds);
-          console.log(
-            `[RedisThrottlerStorage] Blocking key ${key} for ${blockDurationInSeconds} seconds (${blockDuration}ms)`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(
+              `[RedisThrottlerStorage] Blocking key ${key} for ${blockDurationInSeconds} seconds (${blockDuration}ms)`,
+            );
+          }
         }
 
         return {
@@ -123,7 +133,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
       };
     } catch (error) {
       // If Redis fails, allow the request (fail-open approach)
-      console.error(`[RedisThrottlerStorage] Redis error, allowing request: ${error.message}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`[RedisThrottlerStorage] Redis error, allowing request: ${error.message}`);
+      }
       return {
         totalHits: 1,
         timeToExpire: ttl,
@@ -184,7 +196,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
 
       return keys.length;
     } catch (error) {
-      console.error(`[RedisThrottlerStorage] Error clearing keys: ${error.message}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`[RedisThrottlerStorage] Error clearing keys: ${error.message}`);
+      }
       return 0;
     }
   }
@@ -218,7 +232,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
         keysByThrottler,
       };
     } catch (error) {
-      console.error(`[RedisThrottlerStorage] Error getting stats: ${error.message}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`[RedisThrottlerStorage] Error getting stats: ${error.message}`);
+      }
       return {
         totalKeys: 0,
         blockedKeys: 0,

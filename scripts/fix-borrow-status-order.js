@@ -26,11 +26,13 @@ async function fixStatusOrder() {
         data: { statusOrder: correctOrder }
       });
       fixedCount++;
-      console.log(`Fixed borrow ${borrow.id}: ${borrow.status} -> statusOrder=${correctOrder} (was ${borrow.statusOrder})`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`Fixed borrow ${borrow.id}: ${borrow.status} -> statusOrder=${correctOrder} (was ${borrow.statusOrder})`);
+      }
     }
   }
 
-  console.log(`\nFixed ${fixedCount} borrows out of ${borrows.length} total`);
+  console.error(`\nFixed ${fixedCount} borrows out of ${borrows.length} total`);
 }
 
 fixStatusOrder()

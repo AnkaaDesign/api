@@ -8,7 +8,7 @@ import {
   nullableDate,
 } from './common';
 import type { ServiceOrder } from '@types';
-import { SERVICE_ORDER_STATUS } from '@constants';
+import { SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '@constants';
 
 // =====================
 // ServiceOrder Include Schema Based on Prisma Schema (Second Level Only)
@@ -32,7 +32,7 @@ export const serviceOrderIncludeSchema = z
               files: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               commissions: z.boolean().optional(),
-              services: z.boolean().optional(),
+              serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
             })
@@ -40,6 +40,7 @@ export const serviceOrderIncludeSchema = z
         }),
       ])
       .optional(),
+    assignedTo: z.boolean().optional(),
   })
   .partial();
 
@@ -80,9 +81,11 @@ export const serviceOrderOrderBySchema = z
       .object({
         id: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
+        type: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         description: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
+        assignedToId: orderByDirectionSchema.optional(),
         startedAt: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
@@ -110,9 +113,11 @@ export const serviceOrderOrderBySchema = z
         .object({
           id: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
+          type: orderByDirectionSchema.optional(),
           statusOrder: orderByDirectionSchema.optional(),
           description: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
+          assignedToId: orderByDirectionSchema.optional(),
           startedAt: orderByDirectionSchema.optional(),
           finishedAt: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
@@ -158,6 +163,18 @@ export const serviceOrderWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      type: z
+        .union([
+          z.nativeEnum(SERVICE_ORDER_TYPE),
+          z.object({
+            equals: z.nativeEnum(SERVICE_ORDER_TYPE).optional(),
+            not: z.nativeEnum(SERVICE_ORDER_TYPE).optional(),
+            in: z.array(z.nativeEnum(SERVICE_ORDER_TYPE)).optional(),
+            notIn: z.array(z.nativeEnum(SERVICE_ORDER_TYPE)).optional(),
+          }),
+        ])
+        .optional(),
+
       statusOrder: z
         .union([
           z.number(),
@@ -195,6 +212,19 @@ export const serviceOrderWhereSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             equals: z.string().optional(),
             not: z.string().optional(),
+            in: z.array(z.string()).optional(),
+            notIn: z.array(z.string()).optional(),
+          }),
+        ])
+        .optional(),
+
+      assignedToId: z
+        .union([
+          z.string(),
+          z.null(),
+          z.object({
+            equals: z.string().nullable().optional(),
+            not: z.string().nullable().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
           }),
@@ -269,6 +299,8 @@ export const serviceOrderWhereSchema: z.ZodSchema = z.lazy(() =>
 const serviceOrderFilters = {
   searchingFor: z.string().optional(),
   taskId: z.string().uuid('Tarefa inválida').optional(),
+  assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
+  typeIn: z.array(z.string()).optional(),
   hasTask: z.boolean().optional(),
   hasItems: z.boolean().optional(),
   hasInstallment: z.boolean().optional(),
@@ -378,6 +410,18 @@ const serviceOrderTransform = (data: any) => {
     delete data.statusIn;
   }
 
+  // Handle typeIn filter
+  if (data.typeIn && Array.isArray(data.typeIn) && data.typeIn.length > 0) {
+    andConditions.push({ type: { in: data.typeIn } });
+    delete data.typeIn;
+  }
+
+  // Handle assignedToId filter
+  if (data.assignedToId && typeof data.assignedToId === 'string') {
+    andConditions.push({ assignedToId: data.assignedToId });
+    delete data.assignedToId;
+  }
+
   // Handle date filters
   if (data.createdAt) {
     andConditions.push({ createdAt: data.createdAt });
@@ -473,11 +517,18 @@ export const serviceOrderCreateSchema = z.object({
       errorMap: () => ({ message: 'status inválido' }),
     })
     .default(SERVICE_ORDER_STATUS.PENDING),
+  type: z
+    .enum(Object.values(SERVICE_ORDER_TYPE) as [string, ...string[]], {
+      errorMap: () => ({ message: 'tipo inválido' }),
+    })
+    .default(SERVICE_ORDER_TYPE.PRODUCTION)
+    .optional(),
   description: z
     .string()
     .min(3, { message: 'Minímo de 3 caracteres' })
     .max(400, { message: 'Maxímo de 400 caracteres atingido' }),
   taskId: z.string().uuid('Tarefa inválida'),
+  assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -488,12 +539,18 @@ export const serviceOrderUpdateSchema = z.object({
       errorMap: () => ({ message: 'status inválido' }),
     })
     .optional(),
+  type: z
+    .enum(Object.values(SERVICE_ORDER_TYPE) as [string, ...string[]], {
+      errorMap: () => ({ message: 'tipo inválido' }),
+    })
+    .optional(),
   description: z
     .string()
     .min(3, { message: 'Minímo de 3 caracteres' })
     .max(400, { message: 'Maxímo de 400 caracteres atingido' })
     .optional(),
   taskId: z.string().uuid('Tarefa inválida').optional(),
+  assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -574,9 +631,11 @@ export const mapServiceOrderToFormData = createMapToFormDataHelper<
   ServiceOrderUpdateFormData
 >(serviceOrder => ({
   status: serviceOrder.status || undefined,
+  type: serviceOrder.type || undefined,
   statusOrder: serviceOrder.statusOrder,
   description: serviceOrder.description,
   taskId: serviceOrder.taskId,
+  assignedToId: serviceOrder.assignedToId || undefined,
   startedAt: serviceOrder.startedAt,
   finishedAt: serviceOrder.finishedAt,
 }));

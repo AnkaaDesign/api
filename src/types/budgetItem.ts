@@ -66,7 +66,11 @@ export interface BudgetItemDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface BudgetItemBatchCreateResponse<T> extends BaseBatchResponse<BudgetItem, T> {}
-export interface BudgetItemBatchUpdateResponse<T>
-  extends BaseBatchResponse<BudgetItem, T & { id: string }> {}
-export interface BudgetItemBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface BudgetItemBatchUpdateResponse<T> extends BaseBatchResponse<
+  BudgetItem,
+  T & { id: string }
+> {}
+export interface BudgetItemBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

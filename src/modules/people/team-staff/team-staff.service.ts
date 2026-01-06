@@ -2,7 +2,13 @@
 // Service for handling sector manager's team data queries
 // All methods ensure data is filtered by the manager's sector from database (Sector.managerId)
 
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { VacationService } from '../vacation/vacation.service';
 import { BorrowService } from '@modules/inventory/borrow/borrow.service';
@@ -90,10 +96,7 @@ export class TeamStaffService {
    * @param query - Query parameters for filtering/pagination
    * @returns Users in the managed sector
    */
-  async getTeamUsers(
-    userId: string,
-    query: UserGetManyFormData,
-  ): Promise<UserGetManyResponse> {
+  async getTeamUsers(userId: string, query: UserGetManyFormData): Promise<UserGetManyResponse> {
     // Validate leader and get managedSectorId from database
     const managedSectorId = await this.validateTeamLeader(userId);
 
@@ -399,7 +402,9 @@ export class TeamStaffService {
     // Validate leader and get managedSectorId from database
     const managedSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing borrows from managed sector ${managedSectorId}`);
+    this.logger.log(
+      `Team leader ${userId} accessing borrows from managed sector ${managedSectorId}`,
+    );
 
     // Force filter by managed sector through user relation
     const secureQuery: BorrowGetManyFormData = {
@@ -430,7 +435,9 @@ export class TeamStaffService {
     // Validate leader and get managedSectorId from database
     const managedSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing vacations from managed sector ${managedSectorId}`);
+    this.logger.log(
+      `Team leader ${userId} accessing vacations from managed sector ${managedSectorId}`,
+    );
 
     // Force filter by managed sector through user relation
     const secureQuery: VacationGetManyFormData = {
@@ -492,7 +499,9 @@ export class TeamStaffService {
     // Validate leader and get managedSectorId from database
     const managedSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing activities from managed sector ${managedSectorId}`);
+    this.logger.log(
+      `Team leader ${userId} accessing activities from managed sector ${managedSectorId}`,
+    );
 
     // Force filter by managed sector through user relation
     const secureQuery: ActivityGetManyFormData = {
@@ -523,7 +532,9 @@ export class TeamStaffService {
     // Validate leader and get managedSectorId from database
     const managedSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing warnings from managed sector ${managedSectorId}`);
+    this.logger.log(
+      `Team leader ${userId} accessing warnings from managed sector ${managedSectorId}`,
+    );
 
     // Force filter by managed sector through collaborator relation
     const secureQuery: WarningGetManyFormData = {

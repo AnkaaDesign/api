@@ -8,6 +8,7 @@ import {
   StockCalculationResult,
 } from './atomic-stock-calculator.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { StockNotificationService } from './stock-notification.service';
 import {
   ENTITY_TYPE,
   CHANGE_ACTION,
@@ -48,6 +49,7 @@ export class AtomicStockUpdateService {
   constructor(
     private readonly calculator: AtomicStockCalculatorService,
     private readonly changeLogService: ChangeLogService,
+    private readonly stockNotificationService: StockNotificationService,
   ) {}
 
   /**
@@ -388,34 +390,33 @@ export class AtomicStockUpdateService {
 
   /**
    * Create stock level notifications for items that need attention
+   * Delegates to StockNotificationService which handles:
+   * - Threshold checking (low, critical, out of stock, replenished)
+   * - Deduplication to prevent notification spam
+   * - Targeting users with ADMIN/WAREHOUSE privileges
+   * - Rich metadata including product details and deep links
    */
   private async createStockNotifications(
     plan: AtomicStockUpdatePlan,
     result: StockUpdateResult,
     tx: PrismaTransaction,
   ): Promise<void> {
-    // This would integrate with a notification service when available
-    const criticalItems = plan.calculations.filter(
-      calc => calc.stockLevel === 'CRITICAL' || calc.stockLevel === 'LOW',
-    );
-
-    for (const item of criticalItems) {
-      const levelText = item.stockLevel === 'CRITICAL' ? 'crítico' : 'baixo';
-      const reorderInfo = item.reorderPoint ? `, Ponto de reposição: ${item.reorderPoint}` : '';
-
-      this.logger.warn(
-        `Alerta de estoque ${levelText}: ${item.itemName} (${item.itemId}) ` +
-          `ficou com ${item.finalQuantity} unidades${reorderInfo}`,
+    try {
+      // Process all calculations and create notifications for threshold events
+      const notificationsCreated = await this.stockNotificationService.processStockNotifications(
+        plan.calculations,
+        tx,
       );
 
-      // TODO: Integrate with notification service when available
-      // await this.notificationService.createStockAlert({
-      //   itemId: item.itemId,
-      //   itemName: item.itemName,
-      //   currentQuantity: item.finalQuantity,
-      //   stockLevel: item.stockLevel,
-      //   reorderPoint: item.reorderPoint
-      // });
+      if (notificationsCreated > 0) {
+        this.logger.log(
+          `Created ${notificationsCreated} stock notification(s) for inventory updates`,
+        );
+      }
+    } catch (error) {
+      // Log error but don't fail the transaction
+      // Stock notifications are important but not critical for data integrity
+      this.logger.error('Error creating stock notifications:', error);
     }
   }
 

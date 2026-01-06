@@ -180,7 +180,6 @@ export function getPaintFinishLabel(finish: PAINT_FINISH): string {
   return PAINT_FINISH_LABELS[finish] || finish;
 }
 
-
 // =====================
 // Weight/Volume Calculation Utilities
 // =====================

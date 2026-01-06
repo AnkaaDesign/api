@@ -95,7 +95,7 @@ export class ExternalWithdrawalController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -131,17 +131,6 @@ export class ExternalWithdrawalController {
       invoices?: Express.Multer.File[];
     },
   ): Promise<ExternalWithdrawalCreateResponse> {
-    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] CREATE - Files received:', files ? 'YES' : 'NO');
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
-          );
-        }
-      });
-    }
     return this.externalWithdrawalService.create(data, query.include, userId, files);
   }
 
@@ -191,7 +180,7 @@ export class ExternalWithdrawalController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -228,17 +217,6 @@ export class ExternalWithdrawalController {
       invoices?: Express.Multer.File[];
     },
   ): Promise<ExternalWithdrawalUpdateResponse> {
-    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] UPDATE - Files received:', files ? 'YES' : 'NO');
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
-          );
-        }
-      });
-    }
     return this.externalWithdrawalService.update(id, data, query.include, userId, files);
   }
 
@@ -266,17 +244,6 @@ export class ExternalWithdrawalController {
       invoices?: Express.Multer.File[];
     },
   ): Promise<ExternalWithdrawalUpdateResponse> {
-    console.log('[EXTERNAL WITHDRAWAL CONTROLLER] PATCH - Files received:', files ? 'YES' : 'NO');
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[EXTERNAL WITHDRAWAL CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
-          );
-        }
-      });
-    }
     return this.externalWithdrawalService.update(id, data, query.include, userId, files);
   }
 
@@ -303,7 +270,7 @@ export class ExternalWithdrawalItemController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -401,7 +368,7 @@ export class ExternalWithdrawalItemController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,

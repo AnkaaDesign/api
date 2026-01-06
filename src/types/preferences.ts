@@ -99,14 +99,10 @@ export interface PreferencesOrderBy {
 // =====================
 
 // NotificationPreference responses
-export interface NotificationPreferenceGetUniqueResponse
-  extends BaseGetUniqueResponse<NotificationPreference> {}
-export interface NotificationPreferenceGetManyResponse
-  extends BaseGetManyResponse<NotificationPreference> {}
-export interface NotificationPreferenceCreateResponse
-  extends BaseCreateResponse<NotificationPreference> {}
-export interface NotificationPreferenceUpdateResponse
-  extends BaseUpdateResponse<NotificationPreference> {}
+export interface NotificationPreferenceGetUniqueResponse extends BaseGetUniqueResponse<NotificationPreference> {}
+export interface NotificationPreferenceGetManyResponse extends BaseGetManyResponse<NotificationPreference> {}
+export interface NotificationPreferenceCreateResponse extends BaseCreateResponse<NotificationPreference> {}
+export interface NotificationPreferenceUpdateResponse extends BaseUpdateResponse<NotificationPreference> {}
 export interface NotificationPreferenceDeleteResponse extends BaseDeleteResponse {}
 
 // Preferences responses
@@ -121,16 +117,26 @@ export interface PreferencesDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 // NotificationPreference batch operations
-export interface NotificationPreferenceBatchCreateResponse<T>
-  extends BaseBatchResponse<NotificationPreference, T> {}
-export interface NotificationPreferenceBatchUpdateResponse<T>
-  extends BaseBatchResponse<NotificationPreference, T & { id: string }> {}
-export interface NotificationPreferenceBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface NotificationPreferenceBatchCreateResponse<T> extends BaseBatchResponse<
+  NotificationPreference,
+  T
+> {}
+export interface NotificationPreferenceBatchUpdateResponse<T> extends BaseBatchResponse<
+  NotificationPreference,
+  T & { id: string }
+> {}
+export interface NotificationPreferenceBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // Preferences batch operations
 export interface PreferencesBatchCreateResponse<T> extends BaseBatchResponse<Preferences, T> {}
-export interface PreferencesBatchUpdateResponse<T>
-  extends BaseBatchResponse<Preferences, T & { id: string }> {}
-export interface PreferencesBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PreferencesBatchUpdateResponse<T> extends BaseBatchResponse<
+  Preferences,
+  T & { id: string }
+> {}
+export interface PreferencesBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

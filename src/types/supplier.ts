@@ -120,7 +120,11 @@ export interface SupplierDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface SupplierBatchCreateResponse<T> extends BaseBatchResponse<Supplier, T> {}
-export interface SupplierBatchUpdateResponse<T>
-  extends BaseBatchResponse<Supplier, T & { id: string }> {}
-export interface SupplierBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface SupplierBatchUpdateResponse<T> extends BaseBatchResponse<
+  Supplier,
+  T & { id: string }
+> {}
+export interface SupplierBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

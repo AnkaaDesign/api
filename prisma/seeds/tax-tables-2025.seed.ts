@@ -7,12 +7,9 @@ const prisma = new PrismaClient();
  * Includes INSS and IRRF progressive tables
  */
 async function seedTaxTables2025() {
-  console.log('🌱 Seeding 2025 Tax Tables...');
-
   // ============================================================================
   // INSS 2025 - Progressive Table
   // ============================================================================
-  console.log('📊 Creating INSS 2025 table...');
 
   const inssTaxTable = await prisma.taxTable.upsert({
     where: {
@@ -74,8 +71,6 @@ async function seedTaxTables2025() {
     },
   ];
 
-  console.log('  ✓ INSS table created');
-  console.log('📊 Creating INSS brackets...');
 
   for (const bracket of inssBrackets) {
     await prisma.taxBracket.upsert({
@@ -93,12 +88,9 @@ async function seedTaxTables2025() {
     });
   }
 
-  console.log(`  ✓ Created ${inssBrackets.length} INSS brackets`);
-
   // ============================================================================
   // IRRF 2025 - Progressive Table (Vigência a partir de MAIO/2025)
   // ============================================================================
-  console.log('📊 Creating IRRF 2025 table...');
 
   const irrfTaxTable = await prisma.taxTable.upsert({
     where: {
@@ -173,8 +165,6 @@ async function seedTaxTables2025() {
     },
   ];
 
-  console.log('  ✓ IRRF table created');
-  console.log('📊 Creating IRRF brackets...');
 
   for (const bracket of irrfBrackets) {
     await prisma.taxBracket.upsert({
@@ -191,29 +181,15 @@ async function seedTaxTables2025() {
       },
     });
   }
-
-  console.log(`  ✓ Created ${irrfBrackets.length} IRRF brackets`);
-
-  // ============================================================================
-  // Summary
-  // ============================================================================
-  console.log('\n✅ Tax Tables 2025 seeded successfully!');
-  console.log('\nSummary:');
-  console.log(`  • INSS 2025: ${inssBrackets.length} brackets (Progressive)`);
-  console.log(`  • IRRF 2025: ${irrfBrackets.length} brackets (Progressive, vigência maio/2025)`);
-  console.log(`\n📌 Important Notes:`);
-  console.log(`  • INSS cálculo progressivo: cada alíquota aplica apenas na faixa correspondente`);
-  console.log(`  • IRRF vigência: a partir de MAIO/2025 (MP 1.294/2025)`);
-  console.log(`  • IRRF dedução por dependente: R$ 189,59`);
-  console.log(`  • IRRF desconto simplificado: R$ 607,20 (25%)`);
-  console.log(`  • FGTS: 8% do salário bruto (pago pelo empregador, não deduzido)`);
 }
 
 // Execute if running directly
 if (require.main === module) {
   seedTaxTables2025()
     .catch(e => {
-      console.error('❌ Error seeding tax tables:', e);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error seeding tax tables:', e);
+      }
       process.exit(1);
     })
     .finally(async () => {

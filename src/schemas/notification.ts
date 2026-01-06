@@ -743,12 +743,22 @@ export const notificationCreateSchema = z
       errorMap: () => ({ message: 'tipo de notificação inválido' }),
     }),
     channel: z
-      .array(
-        z.enum(Object.values(NOTIFICATION_CHANNEL) as [string, ...string[]], {
-          errorMap: () => ({ message: 'canal de notificação inválido' }),
-        }),
-      )
-      .default([NOTIFICATION_CHANNEL.IN_APP]),
+      .preprocess(
+        (val) => {
+          // Convert object with numeric keys to array
+          if (val && typeof val === 'object' && !Array.isArray(val)) {
+            return Object.values(val);
+          }
+          return val;
+        },
+        z
+          .array(
+            z.enum(Object.values(NOTIFICATION_CHANNEL) as [string, ...string[]], {
+              errorMap: () => ({ message: 'canal de notificação inválido' }),
+            }),
+          )
+          .default([NOTIFICATION_CHANNEL.IN_APP]),
+      ),
     importance: z
       .enum(Object.values(NOTIFICATION_IMPORTANCE) as [string, ...string[]], {
         errorMap: () => ({ message: 'importância da notificação inválida' }),

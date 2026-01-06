@@ -80,6 +80,9 @@ export class BonusPrismaRepository
     return {
       ...databaseEntity,
       baseBonus: Number(databaseEntity.baseBonus),
+      netBonus: Number(databaseEntity.netBonus),
+      weightedTasks: Number(databaseEntity.weightedTasks),
+      averageTaskPerUser: Number(databaseEntity.averageTaskPerUser),
     } as Bonus;
   }
 

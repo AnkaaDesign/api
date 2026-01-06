@@ -14,7 +14,9 @@ async function getPeriodDates(year: number, month: number) {
 }
 
 async function fixBonusTasks() {
-  console.log('Starting bonus-task relationship fix...\n');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Starting bonus-task relationship fix...\n');
+  }
 
   // Get all bonuses
   const bonuses = await prisma.bonus.findMany({
@@ -26,7 +28,9 @@ async function fixBonusTasks() {
     },
   });
 
-  console.log(`Found ${bonuses.length} bonuses to fix\n`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`Found ${bonuses.length} bonuses to fix\n`);
+  }
 
   let fixed = 0;
   let errors = 0;
@@ -56,15 +60,21 @@ async function fixBonusTasks() {
         },
       });
 
-      console.log(`Fixed bonus ${bonus.id} (user: ${bonus.userId}, period: ${bonus.month}/${bonus.year}) - ${userTasks.length} tasks`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`Fixed bonus ${bonus.id} (user: ${bonus.userId}, period: ${bonus.month}/${bonus.year}) - ${userTasks.length} tasks`);
+      }
       fixed++;
     } catch (error) {
-      console.error(`Error fixing bonus ${bonus.id}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`Error fixing bonus ${bonus.id}:`, error);
+      }
       errors++;
     }
   }
 
-  console.log(`\nCompleted: ${fixed} fixed, ${errors} errors`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`\nCompleted: ${fixed} fixed, ${errors} errors`);
+  }
 }
 
 fixBonusTasks()

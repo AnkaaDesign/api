@@ -737,22 +737,32 @@ export interface ItemCategoryGetByIdParams {
 // Item batch operations
 export interface ItemBatchCreateResponse<T> extends BaseBatchResponse<Item, T> {}
 export interface ItemBatchUpdateResponse<T> extends BaseBatchResponse<Item, T & { id: string }> {}
-export interface ItemBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // ItemBrand batch operations
 export interface ItemBrandBatchCreateResponse<T> extends BaseBatchResponse<ItemBrand, T> {}
-export interface ItemBrandBatchUpdateResponse<T>
-  extends BaseBatchResponse<ItemBrand, T & { id: string }> {}
-export interface ItemBrandBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemBrandBatchUpdateResponse<T> extends BaseBatchResponse<
+  ItemBrand,
+  T & { id: string }
+> {}
+export interface ItemBrandBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // ItemCategory batch operations
 export interface ItemCategoryBatchCreateResponse<T> extends BaseBatchResponse<ItemCategory, T> {}
-export interface ItemCategoryBatchUpdateResponse<T>
-  extends BaseBatchResponse<ItemCategory, T & { id: string }> {}
-export interface ItemCategoryBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ItemCategoryBatchUpdateResponse<T> extends BaseBatchResponse<
+  ItemCategory,
+  T & { id: string }
+> {}
+export interface ItemCategoryBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // =====================
 // Stock Management Response Types

@@ -50,6 +50,7 @@ export class ServicePrismaRepository
     return {
       id: databaseEntity.id,
       description: databaseEntity.description,
+      type: databaseEntity.type,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
     };
@@ -66,6 +67,7 @@ export class ServicePrismaRepository
 
     return {
       description: formData.description,
+      type: formData.type,
     };
   }
 
@@ -76,6 +78,10 @@ export class ServicePrismaRepository
 
     if (formData.description !== undefined) {
       updateInput.description = formData.description;
+    }
+
+    if (formData.type !== undefined) {
+      updateInput.type = formData.type;
     }
 
     return updateInput;

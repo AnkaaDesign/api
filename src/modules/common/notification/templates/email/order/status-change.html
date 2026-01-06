@@ -1,0 +1,83 @@
+<p>O status do pedido <strong>{{orderNumber}}</strong> foi atualizado.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Atualização do Pedido</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Número do Pedido:</span>
+            <span class="info-value"><strong>{{orderNumber}}</strong></span>
+        </div>
+        {{#if supplierName}}
+        <div class="info-row">
+            <span class="info-label">Fornecedor:</span>
+            <span class="info-value">{{supplierName}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Status Anterior:</span>
+            <span class="info-value">{{oldStatus}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Novo Status:</span>
+            <span class="info-value"><strong>{{newStatus}}</strong></span>
+        </div>
+        {{#if expectedDelivery}}
+        <div class="info-row">
+            <span class="info-label">Previsão de Entrega:</span>
+            <span class="info-value">{{expectedDelivery}}</span>
+        </div>
+        {{/if}}
+        {{#if updatedAt}}
+        <div class="info-row">
+            <span class="info-label">Data da Atualização:</span>
+            <span class="info-value">{{updatedAt}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if statusDescription}}
+<p><strong>Detalhes:</strong></p>
+<p>{{statusDescription}}</p>
+{{/if}}
+
+{{#if trackingCode}}
+<div class="info-box" style="margin-top: 20px; background-color: #e7f3ff; border-left-color: #2196F3;">
+    <div class="info-box-title" style="color: #1976D2;">Informações de Rastreamento</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Código de Rastreio:</span>
+            <span class="info-value"><strong>{{trackingCode}}</strong></span>
+        </div>
+        {{#if carrier}}
+        <div class="info-row">
+            <span class="info-label">Transportadora:</span>
+            <span class="info-value">{{carrier}}</span>
+        </div>
+        {{/if}}
+        {{#if trackingUrl}}
+        <div class="info-row">
+            <a href="{{trackingUrl}}" style="color: #2196F3; text-decoration: underline;">Rastrear Pedido</a>
+        </div>
+        {{/if}}
+    </div>
+</div>
+{{/if}}
+
+{{#if nextSteps}}
+<p><strong>Próximos Passos:</strong></p>
+<ul>
+    {{#each nextSteps}}
+    <li>{{this}}</li>
+    {{/each}}
+</ul>
+{{/if}}
+
+{{#if itemsSummary}}
+<p><strong>Resumo dos Itens:</strong></p>
+<p>{{itemsSummary}}</p>
+{{/if}}
+
+{{#if updatedBy}}
+<p class="text-muted text-small">Atualização realizada por: {{updatedBy}}</p>
+{{/if}}

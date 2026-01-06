@@ -2136,31 +2136,36 @@ export class DashboardPrismaRepository implements DashboardRepository {
     inProduction: number;
     completed: number;
     cancelled: number;
-    onHold: number;
+    preparation: number;
+    pending: number;
     averageCompletionHours: number;
   }> {
-    const [total, inProduction, completed, cancelled, onHold, completedTasks] = await Promise.all([
-      this.prisma.task.count({ where }),
-      this.prisma.task.count({
-        where: { ...where, status: TASK_STATUS.IN_PRODUCTION },
-      }),
-      this.prisma.task.count({
-        where: { ...where, status: TASK_STATUS.COMPLETED },
-      }),
-      this.prisma.task.count({
-        where: { ...where, status: TASK_STATUS.CANCELLED },
-      }),
-      this.prisma.task.count({
-        where: { ...where, status: TASK_STATUS.ON_HOLD },
-      }),
-      this.prisma.task.findMany({
-        where: { ...where, status: TASK_STATUS.COMPLETED, finishedAt: { not: null } },
-        select: {
-          createdAt: true,
-          finishedAt: true,
-        },
-      }),
-    ]);
+    const [total, inProduction, completed, cancelled, preparation, pending, completedTasks] =
+      await Promise.all([
+        this.prisma.task.count({ where }),
+        this.prisma.task.count({
+          where: { ...where, status: TASK_STATUS.IN_PRODUCTION },
+        }),
+        this.prisma.task.count({
+          where: { ...where, status: TASK_STATUS.COMPLETED },
+        }),
+        this.prisma.task.count({
+          where: { ...where, status: TASK_STATUS.CANCELLED },
+        }),
+        this.prisma.task.count({
+          where: { ...where, status: TASK_STATUS.PREPARATION },
+        }),
+        this.prisma.task.count({
+          where: { ...where, status: TASK_STATUS.WAITING_PRODUCTION },
+        }),
+        this.prisma.task.findMany({
+          where: { ...where, status: TASK_STATUS.COMPLETED, finishedAt: { not: null } },
+          select: {
+            createdAt: true,
+            finishedAt: true,
+          },
+        }),
+      ]);
 
     const averageCompletionHours =
       completedTasks.length > 0
@@ -2173,7 +2178,15 @@ export class DashboardPrismaRepository implements DashboardRepository {
           }, 0) / completedTasks.length
         : 0;
 
-    return { total, inProduction, completed, cancelled, onHold, averageCompletionHours };
+    return {
+      total,
+      inProduction,
+      completed,
+      cancelled,
+      preparation,
+      pending,
+      averageCompletionHours,
+    };
   }
 
   async getServiceOrderStatistics(where?: any): Promise<{
@@ -2362,12 +2375,12 @@ export class DashboardPrismaRepository implements DashboardRepository {
     spotsByGarage: DashboardChartData;
   }> {
     // Get trucks that are currently at the company:
-    // - Have an active task (PENDING or IN_PRODUCTION status)
+    // - Have an active task (WAITING_PRODUCTION or IN_PRODUCTION status)
     // - Have an entry date (meaning they've arrived at the company)
     const trucks = await this.prisma.truck.findMany({
       where: {
         task: {
-          status: { in: ['PENDING', 'IN_PRODUCTION'] },
+          status: { in: [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.IN_PRODUCTION] },
           entryDate: { not: null, lte: new Date() }, // Entry date exists and is before or equal to today
         },
       },
@@ -2444,7 +2457,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       }),
       this.prisma.truck.count({
         where: {
-          task: { status: { in: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.PENDING] } },
+          task: { status: { in: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.WAITING_PRODUCTION] } },
         },
       }),
     ]);

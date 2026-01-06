@@ -38,9 +38,12 @@ export interface Task extends BaseEntity {
   term: Date | null;
   startedAt: Date | null;
   finishedAt: Date | null;
+  forecastDate: Date | null;
   paintId: string | null;
   customerId: string | null;
+  invoiceToId: string | null;
   sectorId: string | null;
+  negotiatingWith: { name: string; phone: string } | null;
   budgetIds?: string[];
   invoiceIds?: string[];
   receiptIds?: string[];
@@ -53,6 +56,7 @@ export interface Task extends BaseEntity {
   // Relations
   sector?: Sector;
   customer?: Customer;
+  invoiceTo?: Customer;
   budgets?: File[];
   invoices?: File[];
   receipts?: File[];
@@ -63,7 +67,8 @@ export interface Task extends BaseEntity {
   createdBy?: User;
   artworks?: File[];
   logoPaints?: Paint[];
-  services?: ServiceOrder[];
+  services?: ServiceOrder[]; // Alias for backward compatibility
+  serviceOrders?: ServiceOrder[]; // Prisma field name
   budget?: Budget;
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
@@ -239,5 +244,7 @@ export interface TaskDeleteResponse extends BaseDeleteResponse {}
 
 export interface TaskBatchCreateResponse<T> extends BaseBatchResponse<Task, T> {}
 export interface TaskBatchUpdateResponse<T> extends BaseBatchResponse<Task, T & { id: string }> {}
-export interface TaskBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface TaskBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

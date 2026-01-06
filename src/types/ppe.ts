@@ -871,47 +871,31 @@ export interface PpeDeliveryDeleteResponse extends BaseDeleteResponse {}
 // All PPE configuration operations are done through the Item entity
 
 // PpeDeliverySchedule Responses
-export interface PpeDeliveryScheduleGetUniqueResponse
-  extends BaseGetUniqueResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleGetManyResponse
-  extends BaseGetManyResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleCreateResponse
-  extends BaseCreateResponse<PpeDeliverySchedule> {}
-export interface PpeDeliveryScheduleUpdateResponse
-  extends BaseUpdateResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleGetUniqueResponse extends BaseGetUniqueResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleGetManyResponse extends BaseGetManyResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleCreateResponse extends BaseCreateResponse<PpeDeliverySchedule> {}
+export interface PpeDeliveryScheduleUpdateResponse extends BaseUpdateResponse<PpeDeliverySchedule> {}
 export interface PpeDeliveryScheduleDeleteResponse extends BaseDeleteResponse {}
 
 // WeeklyScheduleConfig Responses
-export interface WeeklyScheduleConfigGetUniqueResponse
-  extends BaseGetUniqueResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigGetManyResponse
-  extends BaseGetManyResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigCreateResponse
-  extends BaseCreateResponse<WeeklyScheduleConfig> {}
-export interface WeeklyScheduleConfigUpdateResponse
-  extends BaseUpdateResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigGetManyResponse extends BaseGetManyResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigCreateResponse extends BaseCreateResponse<WeeklyScheduleConfig> {}
+export interface WeeklyScheduleConfigUpdateResponse extends BaseUpdateResponse<WeeklyScheduleConfig> {}
 export interface WeeklyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // MonthlyScheduleConfig Responses
-export interface MonthlyScheduleConfigGetUniqueResponse
-  extends BaseGetUniqueResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigGetManyResponse
-  extends BaseGetManyResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigCreateResponse
-  extends BaseCreateResponse<MonthlyScheduleConfig> {}
-export interface MonthlyScheduleConfigUpdateResponse
-  extends BaseUpdateResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigGetManyResponse extends BaseGetManyResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigCreateResponse extends BaseCreateResponse<MonthlyScheduleConfig> {}
+export interface MonthlyScheduleConfigUpdateResponse extends BaseUpdateResponse<MonthlyScheduleConfig> {}
 export interface MonthlyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // YearlyScheduleConfig Responses
-export interface YearlyScheduleConfigGetUniqueResponse
-  extends BaseGetUniqueResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigGetManyResponse
-  extends BaseGetManyResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigCreateResponse
-  extends BaseCreateResponse<YearlyScheduleConfig> {}
-export interface YearlyScheduleConfigUpdateResponse
-  extends BaseUpdateResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigGetUniqueResponse extends BaseGetUniqueResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigGetManyResponse extends BaseGetManyResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigCreateResponse extends BaseCreateResponse<YearlyScheduleConfig> {}
+export interface YearlyScheduleConfigUpdateResponse extends BaseUpdateResponse<YearlyScheduleConfig> {}
 export interface YearlyScheduleConfigDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
@@ -996,25 +980,39 @@ export interface YearlyScheduleConfigGetByIdParams {
 
 // PpeSize Batch Operations
 export interface PpeSizeBatchCreateResponse<T> extends BaseBatchResponse<PpeSize, T> {}
-export interface PpeSizeBatchUpdateResponse<T>
-  extends BaseBatchResponse<PpeSize, T & { id: string }> {}
-export interface PpeSizeBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeSizeBatchUpdateResponse<T> extends BaseBatchResponse<
+  PpeSize,
+  T & { id: string }
+> {}
+export interface PpeSizeBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PpeDelivery Batch Operations
 export interface PpeDeliveryBatchCreateResponse<T> extends BaseBatchResponse<PpeDelivery, T> {}
-export interface PpeDeliveryBatchUpdateResponse<T>
-  extends BaseBatchResponse<PpeDelivery, T & { id: string }> {}
-export interface PpeDeliveryBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeDeliveryBatchUpdateResponse<T> extends BaseBatchResponse<
+  PpeDelivery,
+  T & { id: string }
+> {}
+export interface PpeDeliveryBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PpeConfig Batch Operations - PPE configuration is now stored directly on the Item model
 // All PPE configuration batch operations are done through the Item entity
 
 // PpeDeliverySchedule Batch Operations
-export interface PpeDeliveryScheduleBatchCreateResponse<T>
-  extends BaseBatchResponse<PpeDeliverySchedule, T> {}
-export interface PpeDeliveryScheduleBatchUpdateResponse<T>
-  extends BaseBatchResponse<PpeDeliverySchedule, T & { id: string }> {}
-export interface PpeDeliveryScheduleBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PpeDeliveryScheduleBatchCreateResponse<T> extends BaseBatchResponse<
+  PpeDeliverySchedule,
+  T
+> {}
+export interface PpeDeliveryScheduleBatchUpdateResponse<T> extends BaseBatchResponse<
+  PpeDeliverySchedule,
+  T & { id: string }
+> {}
+export interface PpeDeliveryScheduleBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

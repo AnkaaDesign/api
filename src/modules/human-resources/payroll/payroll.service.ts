@@ -665,7 +665,9 @@ export class PayrollService {
    */
   async calculateLivePayrollData(userId: string, year: number, month: number): Promise<any> {
     try {
-      this.logger.log(`Calculating live payroll for user ${userId.slice(0, 8)} for ${month}/${year}`);
+      this.logger.log(
+        `Calculating live payroll for user ${userId.slice(0, 8)} for ${month}/${year}`,
+      );
 
       // IMPORTANT: Query repository directly to avoid infinite recursion with findByUserAndMonth
       const savedPayroll = await this.payrollRepository.findByUserAndPeriod(userId, year, month, {
@@ -750,7 +752,9 @@ export class PayrollService {
       // If user is bonifiable but has no calculated bonus (performanceLevel = 0 or no tasks),
       // create a "zero bonus" object so frontend shows R$ 0.00 instead of "Sem bônus"
       if (!liveBonus && isBonifiable) {
-        this.logger.log(`User ${userId.slice(0, 8)} is bonifiable but has performanceLevel=${performanceLevel}, creating zero bonus object`);
+        this.logger.log(
+          `User ${userId.slice(0, 8)} is bonifiable but has performanceLevel=${performanceLevel}, creating zero bonus object`,
+        );
         liveBonus = {
           id: `live-bonus-${userId}-${year}-${month}`,
           userId,
@@ -785,19 +789,21 @@ export class PayrollService {
       });
 
       // Generate auto-discounts (INSS, IRRF, Union, Absences, Late arrivals)
-      const autoDiscounts = await this.autoDiscountService.generateAutoDiscountObjectsForLivePayroll({
-        employeeId: userId,
-        year,
-        month,
-        calculation,
-      });
+      const autoDiscounts =
+        await this.autoDiscountService.generateAutoDiscountObjectsForLivePayroll({
+          employeeId: userId,
+          year,
+          month,
+          calculation,
+        });
 
       // Get persistent discounts from previous month (loans, health insurance, etc.)
-      const persistentDiscounts = await this.persistentDiscountService.getPersistentDiscountsForLivePayroll({
-        employeeId: userId,
-        currentYear: year,
-        currentMonth: month,
-      });
+      const persistentDiscounts =
+        await this.persistentDiscountService.getPersistentDiscountsForLivePayroll({
+          employeeId: userId,
+          currentYear: year,
+          currentMonth: month,
+        });
 
       // Combine all discounts
       const allDiscounts = [...autoDiscounts, ...persistentDiscounts];
@@ -914,7 +920,9 @@ export class PayrollService {
               baseBonus: String(liveBonus.baseBonus || bonusAmount),
               netBonus: String(liveBonus.netBonus || bonusAmount),
               weightedTasks: String(liveBonus.weightedTasks || 0),
-              averageTaskPerUser: String(liveBonus.averageTasksPerEmployee || liveBonus.averageTaskPerUser || 0),
+              averageTaskPerUser: String(
+                liveBonus.averageTasksPerEmployee || liveBonus.averageTaskPerUser || 0,
+              ),
               performanceLevel: liveBonus.performanceLevel || 0,
               payrollId: `live-${userId}-${year}-${month}`,
               createdAt: now,
@@ -930,7 +938,9 @@ export class PayrollService {
           : null,
       };
 
-      this.logger.log(`Live payroll calculated for user ${userId.slice(0, 8)}: Gross R$ ${calculation.grossSalary.toFixed(2)}, Net R$ ${calculation.netSalary.toFixed(2)}`);
+      this.logger.log(
+        `Live payroll calculated for user ${userId.slice(0, 8)}: Gross R$ ${calculation.grossSalary.toFixed(2)}, Net R$ ${calculation.netSalary.toFixed(2)}`,
+      );
 
       return livePayroll;
     } catch (error) {
@@ -1118,7 +1128,9 @@ export class PayrollService {
             return { userId: placeholder.userId, payroll: livePayroll };
           } catch (error) {
             // If calculation fails, fall back to simplified version
-            this.logger.warn(`Failed to calculate live payroll for user ${placeholder.userId}: ${error}`);
+            this.logger.warn(
+              `Failed to calculate live payroll for user ${placeholder.userId}: ${error}`,
+            );
             const user = placeholder.user;
             const baseRemuneration = user.position?.remunerations?.[0]?.value || 0;
             const liveBonus = liveBonusMap.get(placeholder.userId);

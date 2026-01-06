@@ -63,6 +63,13 @@ import {
   convertToBatchOperationResult,
   generateBatchMessage,
 } from '@modules/common/utils/batch-operation.utils';
+import {
+  ItemLowStockEvent,
+  ItemOutOfStockEvent,
+  ItemReorderRequiredEvent,
+  ItemOverstockEvent,
+} from './item.events';
+
 @Injectable()
 export class ItemService {
   private readonly logger = new Logger(ItemService.name);
@@ -73,6 +80,55 @@ export class ItemService {
     private readonly changeLogService: ChangeLogService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  /**
+   * Check stock thresholds and emit appropriate events
+   */
+  private checkStockThresholds(item: Item): void {
+    try {
+      // Check if item is out of stock
+      if (item.quantity === 0) {
+        this.eventEmitter.emit('item.out-of-stock', new ItemOutOfStockEvent(item));
+        this.logger.log(`Emitted out-of-stock event for item ${item.id}: ${item.name}`);
+        return; // No need to check other thresholds if out of stock
+      }
+
+      // Check if item exceeds max quantity
+      if (item.maxQuantity !== null && item.quantity > item.maxQuantity) {
+        this.eventEmitter.emit(
+          'item.overstock',
+          new ItemOverstockEvent(item, item.quantity, item.maxQuantity),
+        );
+        this.logger.log(
+          `Emitted overstock event for item ${item.id}: ${item.quantity}/${item.maxQuantity}`,
+        );
+      }
+
+      // Check if item is at or below reorder point
+      if (item.reorderPoint !== null && item.quantity <= item.reorderPoint) {
+        this.eventEmitter.emit(
+          'item.low-stock',
+          new ItemLowStockEvent(item, item.quantity, item.reorderPoint),
+        );
+        this.logger.log(
+          `Emitted low-stock event for item ${item.id}: ${item.quantity}/${item.reorderPoint}`,
+        );
+
+        // Also emit reorder required if reorder quantity is defined
+        if (item.reorderQuantity !== null && item.reorderQuantity > 0) {
+          this.eventEmitter.emit(
+            'item.reorder-required',
+            new ItemReorderRequiredEvent(item, item.quantity, item.reorderQuantity),
+          );
+          this.logger.log(
+            `Emitted reorder-required event for item ${item.id}: ${item.reorderQuantity} units`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Error checking stock thresholds for item ${item.id}:`, error);
+    }
+  }
 
   /**
    * Comprehensive item validation
@@ -805,6 +861,14 @@ export class ItemService {
             },
           });
           this.logger.log(`Emitted item.updated event for item ${id}`);
+        });
+      }
+
+      // Check stock thresholds if quantity was updated
+      if (data.quantity !== undefined) {
+        // Use setImmediate to emit events asynchronously
+        setImmediate(() => {
+          this.checkStockThresholds(updatedItem);
         });
       }
 

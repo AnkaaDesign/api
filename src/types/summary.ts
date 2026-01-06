@@ -503,9 +503,7 @@ export interface CustomerSummaryResponse extends BaseSummaryResponse<CustomerDas
 export interface GarageSummaryResponse extends BaseSummaryResponse<GarageDashboardSummary> {}
 
 // Notification Module Response
-export interface NotificationSummaryResponse
-  extends BaseSummaryResponse<NotificationDashboardSummary> {}
+export interface NotificationSummaryResponse extends BaseSummaryResponse<NotificationDashboardSummary> {}
 
 // Aggregated Response
-export interface DashboardAggregatedResponse
-  extends BaseSummaryResponse<DashboardAggregatedSummary> {}
+export interface DashboardAggregatedResponse extends BaseSummaryResponse<DashboardAggregatedSummary> {}

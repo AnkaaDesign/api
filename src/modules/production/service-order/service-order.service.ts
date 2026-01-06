@@ -3,8 +3,10 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { assertCanUpdateServiceOrder } from './service-order.permissions';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import {
@@ -68,6 +70,19 @@ export class ServiceOrderService {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
       }
 
+      // Validate assignedTo user exists if provided
+      if (data.assignedToId) {
+        const userExists = await this.prisma.user.findUnique({
+          where: { id: data.assignedToId },
+        });
+
+        if (!userExists) {
+          throw new NotFoundException(
+            'Usuário atribuído não encontrado. Verifique se o ID está correto.',
+          );
+        }
+      }
+
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Create the service order
         const created = await this.serviceOrderRepository.createWithTransaction(tx, data, {
@@ -114,12 +129,23 @@ export class ServiceOrderService {
     data: ServiceOrderUpdateFormData,
     include?: ServiceOrderInclude,
     userId?: string,
+    userPrivilege?: string,
   ): Promise<ServiceOrderUpdateResponse> {
     try {
       const serviceOrderExists = await this.serviceOrderRepository.findById(id);
       if (!serviceOrderExists) {
         throw new NotFoundException(
           'Ordem de serviço não encontrada. Verifique se o ID está correto.',
+        );
+      }
+
+      // Check permissions before allowing update
+      if (userId && userPrivilege) {
+        assertCanUpdateServiceOrder(
+          serviceOrderExists,
+          userId,
+          userPrivilege,
+          data.status as SERVICE_ORDER_STATUS,
         );
       }
 
@@ -131,6 +157,19 @@ export class ServiceOrderService {
 
         if (!taskExists) {
           throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
+        }
+      }
+
+      // If updating assignedToId, validate user exists
+      if (data.assignedToId) {
+        const userExists = await this.prisma.user.findUnique({
+          where: { id: data.assignedToId },
+        });
+
+        if (!userExists) {
+          throw new NotFoundException(
+            'Usuário atribuído não encontrado. Verifique se o ID está correto.',
+          );
         }
       }
 
@@ -147,7 +186,15 @@ export class ServiceOrderService {
           entityId: id,
           oldEntity: oldData,
           newEntity: updated,
-          fieldsToTrack: ['status', 'description', 'taskId', 'startedAt', 'finishedAt'],
+          fieldsToTrack: [
+            'status',
+            'description',
+            'taskId',
+            'startedAt',
+            'finishedAt',
+            'type',
+            'assignedToId',
+          ],
           userId: userId || '',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
@@ -295,6 +342,30 @@ export class ServiceOrderService {
         );
       }
 
+      // Validate all assignedTo user IDs exist if provided
+      const userIdsToValidate = new Set<string>();
+      data.serviceOrders.forEach(item => {
+        if (item.assignedToId) {
+          userIdsToValidate.add(item.assignedToId);
+        }
+      });
+
+      if (userIdsToValidate.size > 0) {
+        const users = await this.prisma.user.findMany({
+          where: { id: { in: Array.from(userIdsToValidate) } },
+          select: { id: true },
+        });
+
+        const existingUserIds = new Set(users.map(u => u.id));
+        const invalidUserIds = Array.from(userIdsToValidate).filter(id => !existingUserIds.has(id));
+
+        if (invalidUserIds.length > 0) {
+          throw new BadRequestException(
+            `Os seguintes usuários não foram encontrados: ${invalidUserIds.join(', ')}`,
+          );
+        }
+      }
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.createManyWithTransaction(
           tx,
@@ -397,6 +468,30 @@ export class ServiceOrderService {
         }
       }
 
+      // Validate assignedTo user IDs if being updated
+      const userIdsToValidate = new Set<string>();
+      data.serviceOrders.forEach(item => {
+        if (item.data.assignedToId) {
+          userIdsToValidate.add(item.data.assignedToId);
+        }
+      });
+
+      if (userIdsToValidate.size > 0) {
+        const users = await this.prisma.user.findMany({
+          where: { id: { in: Array.from(userIdsToValidate) } },
+          select: { id: true },
+        });
+
+        const existingUserIds = new Set(users.map(u => u.id));
+        const invalidUserIds = Array.from(userIdsToValidate).filter(id => !existingUserIds.has(id));
+
+        if (invalidUserIds.length > 0) {
+          throw new BadRequestException(
+            `Os seguintes usuários não foram encontrados: ${invalidUserIds.join(', ')}`,
+          );
+        }
+      }
+
       const updates = data.serviceOrders.map(item => {
         return { id: item.id, data: item.data };
       });
@@ -418,7 +513,15 @@ export class ServiceOrderService {
               entityId: serviceOrder.id,
               oldEntity: oldData,
               newEntity: serviceOrder,
-              fieldsToTrack: ['status', 'description', 'taskId', 'startedAt', 'finishedAt'],
+              fieldsToTrack: [
+                'status',
+                'description',
+                'taskId',
+                'startedAt',
+                'finishedAt',
+                'type',
+                'assignedToId',
+              ],
               userId: userId || '',
               triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
               transaction: tx,

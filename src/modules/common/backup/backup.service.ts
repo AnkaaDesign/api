@@ -804,7 +804,9 @@ export class BackupService implements OnModuleInit {
       } else {
         // Backup entire files storage directory excluding Backup folder
         tarCommand = `tar --exclude=Backup -czf "${finalBackupPath}" -C "${this.filesRoot}" .`;
-        this.logger.log(`Starting full files storage backup: ${this.filesRoot} -> ${finalBackupPath}`);
+        this.logger.log(
+          `Starting full files storage backup: ${this.filesRoot} -> ${finalBackupPath}`,
+        );
       }
 
       await execAsync(tarCommand);

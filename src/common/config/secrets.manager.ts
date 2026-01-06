@@ -39,7 +39,9 @@ export class SecretsManager {
       // Combine salt, iv, authTag, and encrypted data
       return `${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
     } catch (error) {
-      console.error('Failed to encrypt secret:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to encrypt secret:', error);
+      }
       throw new Error('Secret encryption failed');
     }
   }
@@ -69,7 +71,9 @@ export class SecretsManager {
 
       return decrypted;
     } catch (error) {
-      console.error('Failed to decrypt secret:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Failed to decrypt secret:', error);
+      }
       throw new Error('Secret decryption failed');
     }
   }
@@ -82,7 +86,9 @@ export class SecretsManager {
     const value = env[key];
 
     if (!value && env.NODE_ENV === 'production') {
-      console.warn(`⚠️  Secret ${key} not configured in production environment`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`⚠️  Secret ${key} not configured in production environment`);
+      }
     }
 
     return value;
@@ -114,18 +120,24 @@ export class SecretsManager {
     }
 
     if (missingRequired.length > 0) {
-      console.error('❌ Missing required secrets:', missingRequired);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Missing required secrets:', missingRequired);
+      }
       throw new Error(`Required secrets missing: ${missingRequired.join(', ')}`);
     }
 
     if (missingOptional.length > 0 && env.NODE_ENV === 'production') {
-      console.warn(
-        '⚠️  Missing optional secrets (some features may be disabled):',
-        missingOptional,
-      );
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          '⚠️  Missing optional secrets (some features may be disabled):',
+          missingOptional,
+        );
+      }
     }
 
-    console.log('✅ Secrets validation completed');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('✅ Secrets validation completed');
+    }
   }
 
   /**

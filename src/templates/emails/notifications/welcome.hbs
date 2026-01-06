@@ -1,0 +1,23 @@
+{{#*inline "content"}}
+  {{#if userName}}
+  <h2>Olá, {{userName}}!</h2>
+  {{else}}
+  <h2>Bem-vindo!</h2>
+  {{/if}}
+
+  <p>Seja bem-vindo ao {{companyName}}! Estamos felizes em tê-lo conosco.</p>
+
+  <p>Sua conta foi criada com sucesso e você já pode começar a usar nossos serviços.</p>
+
+  {{#if actionUrl}}
+  {{> button url=actionUrl text=(default actionText "Acessar Sistema")}}
+  {{/if}}
+
+  <div class="divider"></div>
+
+  <p style="font-size: 14px; color: #6c757d;">
+    Se você não criou esta conta, por favor entre em contato conosco imediatamente.
+  </p>
+{{/inline}}
+
+{{> ../layouts/main}}

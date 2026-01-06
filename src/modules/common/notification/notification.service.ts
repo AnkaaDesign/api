@@ -4,6 +4,8 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChangeLogService } from '../changelog/changelog.service';
@@ -57,6 +59,9 @@ import {
   NOTIFICATION_IMPORTANCE,
   CHANGE_ACTION,
 } from '../../../constants';
+import { NotificationGatewayService } from './notification-gateway.service';
+import { NotificationTrackingService } from './notification-tracking.service';
+import { NotificationDispatchService } from './notification-dispatch.service';
 
 @Injectable()
 export class NotificationService {
@@ -67,6 +72,10 @@ export class NotificationService {
     private readonly notificationRepository: NotificationRepository,
     private readonly seenNotificationRepository: SeenNotificationRepository,
     private readonly changeLogService: ChangeLogService,
+    @Inject(forwardRef(() => NotificationGatewayService))
+    private readonly gatewayService: NotificationGatewayService,
+    private readonly trackingService: NotificationTrackingService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /**
@@ -209,6 +218,13 @@ export class NotificationService {
     include?: NotificationInclude,
     userId?: string,
   ): Promise<NotificationCreateResponse> {
+    this.logger.log('Creating notification', {
+      type: data.type,
+      userId: data.userId,
+      channels: data.channel,
+      importance: data.importance,
+    });
+
     try {
       const notification = await this.prisma.$transaction(async tx => {
         // Validate notification before creation
@@ -216,6 +232,13 @@ export class NotificationService {
 
         const created = await this.notificationRepository.createWithTransaction(tx, data, {
           include,
+        });
+
+        this.logger.log('Notification created successfully', {
+          notificationId: created.id,
+          userId: created.userId,
+          type: created.type,
+          channels: created.channel,
         });
 
         // Log the creation with improved context
@@ -234,6 +257,9 @@ export class NotificationService {
         return created;
       });
 
+      // Note: WebSocket delivery is handled by NotificationDispatchService for IN_APP channel
+      // This avoids duplicate sends and keeps all channel delivery logic in one place
+
       return {
         success: true,
         data: notification,
@@ -243,7 +269,12 @@ export class NotificationService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      this.logger.error('Erro ao criar notificação:', error);
+      this.logger.error('Error creating notification', {
+        error: error.message,
+        stack: error.stack,
+        type: data.type,
+        userId: data.userId,
+      });
       throw new InternalServerErrorException('Erro ao criar notificação. Tente novamente.');
     }
   }
@@ -302,6 +333,17 @@ export class NotificationService {
         return updated;
       });
 
+      // Emit real-time notification update to user via WebSocket
+      if (notification.userId) {
+        try {
+          this.gatewayService.sendUpdateToUser(notification.userId, notification);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to send real-time notification update to user ${notification.userId}: ${error.message}`,
+          );
+        }
+      }
+
       return {
         success: true,
         data: notification,
@@ -318,6 +360,8 @@ export class NotificationService {
 
   async deleteNotification(id: string, userId?: string): Promise<NotificationDeleteResponse> {
     try {
+      let deletedNotificationUserId: string | null = null;
+
       await this.prisma.$transaction(async tx => {
         // Check if notification exists
         const existing = await this.notificationRepository.findByIdWithTransaction(tx, id);
@@ -327,6 +371,9 @@ export class NotificationService {
             'Notificação não encontrada. Verifique se o ID está correto.',
           );
         }
+
+        // Store userId for real-time notification
+        deletedNotificationUserId = existing.userId;
 
         // Delete notification
         await this.notificationRepository.deleteWithTransaction(tx, id);
@@ -344,6 +391,17 @@ export class NotificationService {
           transaction: tx,
         });
       });
+
+      // Emit real-time notification deletion to user via WebSocket
+      if (deletedNotificationUserId) {
+        try {
+          this.gatewayService.sendDeletionToUser(deletedNotificationUserId, id);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to send real-time notification deletion to user ${deletedNotificationUserId}: ${error.message}`,
+          );
+        }
+      }
 
       return {
         success: true,
@@ -699,6 +757,15 @@ export class NotificationService {
         return seen;
       });
 
+      // Emit real-time notification about seen status via WebSocket
+      try {
+        this.gatewayService.notifyNotificationSeen(userId, notificationId, seenNotification.seenAt);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to send real-time notification seen update to user ${userId}: ${error.message}`,
+        );
+      }
+
       return {
         success: true,
         data: seenNotification,
@@ -787,67 +854,24 @@ export class NotificationService {
     userId?: string,
   ): Promise<NotificationUpdateResponse> {
     try {
-      const notification = await this.prisma.$transaction(async tx => {
-        // Check if notification exists
-        const existing = await this.notificationRepository.findByIdWithTransaction(
-          tx,
-          notificationId,
-        );
+      // Check if notification exists
+      const existing = await this.notificationRepository.findById(notificationId);
 
-        if (!existing) {
-          throw new NotFoundException(
-            'Notificação não encontrada. Verifique se o ID está correto.',
-          );
-        }
+      if (!existing) {
+        throw new NotFoundException('Notificação não encontrada. Verifique se o ID está correto.');
+      }
 
-        // Check if already sent
-        if (existing.sentAt) {
-          throw new BadRequestException('Esta notificação já foi enviada.');
-        }
+      // Check if already sent
+      if (existing.sentAt) {
+        throw new BadRequestException('Esta notificação já foi enviada.');
+      }
 
-        const sentAt = new Date();
+      // Use dispatch service to handle sending across all channels
+      await this.dispatchService.dispatchNotification(notificationId);
 
-        // Send notification (mark as sent)
-        const sent = await this.notificationRepository.updateWithTransaction(
-          tx,
-          notificationId,
-          {
-            sentAt,
-          },
-          { include: { user: true } },
-        );
-
-        // TODO: Implement actual sending logic based on channels
-        const channelsSent: string[] = [];
-        if (existing.channel.includes(NOTIFICATION_CHANNEL.EMAIL)) {
-          // Send email notification
-          channelsSent.push('email');
-        }
-        if (existing.channel.includes(NOTIFICATION_CHANNEL.PUSH)) {
-          // Send push notification
-          channelsSent.push('push');
-        }
-        if (existing.channel.includes(NOTIFICATION_CHANNEL.SMS)) {
-          // Send SMS notification
-          channelsSent.push('SMS');
-        }
-
-        // Log the action with enhanced context
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.NOTIFICATION,
-          entityId: notificationId,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'sentAt',
-          oldValue: null,
-          newValue: sentAt,
-          reason: `Notificação enviada${channelsSent.length > 0 ? ` por: ${channelsSent.join(', ')}` : ''}`,
-          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-          triggeredById: 'system',
-          userId: userId || null,
-          transaction: tx,
-        });
-
-        return sent;
+      // Fetch updated notification
+      const notification = await this.notificationRepository.findById(notificationId, {
+        include: { user: true, deliveries: true },
       });
 
       return {
@@ -1324,5 +1348,165 @@ export class NotificationService {
         'Erro ao buscar visualizações da notificação. Tente novamente.',
       );
     }
+  }
+
+  // =====================
+  // Notification Tracking Operations (Delegated to TrackingService)
+  // =====================
+
+  /**
+   * Mark notification as seen by a user
+   * @deprecated Use trackingService directly
+   */
+  async markAsSeen(notificationId: string, userId: string): Promise<void> {
+    return this.trackingService.markAsSeen(notificationId, userId);
+  }
+
+  /**
+   * Mark notification as delivered on a specific channel
+   * @deprecated Use trackingService directly
+   */
+  async markAsDelivered(notificationId: string, channel: NOTIFICATION_CHANNEL): Promise<void> {
+    return this.trackingService.markAsDelivered(notificationId, channel);
+  }
+
+  /**
+   * Set reminder for a notification
+   * @deprecated Use trackingService directly
+   */
+  async setReminder(notificationId: string, userId: string, remindAt: Date): Promise<void> {
+    return this.trackingService.setReminder(notificationId, userId, remindAt);
+  }
+
+  /**
+   * Get count of unseen notifications for a user
+   * @deprecated Use trackingService directly
+   */
+  async getUnseenCount(userId: string): Promise<number> {
+    return this.trackingService.getUnseenCount(userId);
+  }
+
+  /**
+   * Get unseen notifications for a user
+   * @deprecated Use trackingService directly
+   */
+  async getUnseenNotifications(userId: string): Promise<Notification[]> {
+    return this.trackingService.getUnseenNotifications(userId);
+  }
+
+  /**
+   * Get delivery status for a notification across all channels
+   * @deprecated Use trackingService directly
+   */
+  async getDeliveryStatus(notificationId: string): Promise<any[]> {
+    return this.trackingService.getDeliveryStatus(notificationId);
+  }
+
+  /**
+   * Get delivery statistics for a notification
+   * @deprecated Use trackingService directly
+   */
+  async getDeliveryStats(notificationId: string): Promise<any> {
+    return this.trackingService.getDeliveryStats(notificationId);
+  }
+
+  /**
+   * Find notifications scheduled for a specific time or earlier
+   * @deprecated Use trackingService directly
+   */
+  async findScheduledNotifications(before: Date): Promise<Notification[]> {
+    return this.trackingService.findScheduledNotifications(before);
+  }
+
+  /**
+   * Schedule a notification for future delivery
+   */
+  async scheduleNotification(
+    notification: NotificationCreateFormData,
+    scheduledAt: Date,
+    userId?: string,
+  ): Promise<NotificationCreateResponse> {
+    try {
+      // Validate scheduledAt is in the future
+      if (scheduledAt <= new Date()) {
+        throw new BadRequestException('A data de agendamento deve estar no futuro.');
+      }
+
+      return await this.createNotification(
+        {
+          ...notification,
+          scheduledAt,
+        },
+        undefined,
+        userId,
+      );
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error('Erro ao agendar notificação:', error);
+      throw new InternalServerErrorException('Erro ao agendar notificação. Tente novamente.');
+    }
+  }
+
+  /**
+   * Delete old notifications
+   * @deprecated Use trackingService directly
+   */
+  async deleteOldNotifications(beforeDate: Date): Promise<number> {
+    return this.trackingService.deleteOldNotifications(beforeDate);
+  }
+
+  /**
+   * Find due reminders
+   * @deprecated Use trackingService directly
+   */
+  async findDueReminders(): Promise<any[]> {
+    return this.trackingService.findDueReminders();
+  }
+
+  /**
+   * Clear a reminder
+   * @deprecated Use trackingService directly
+   */
+  async clearReminder(reminderId: string): Promise<void> {
+    return this.trackingService.clearReminder(reminderId);
+  }
+
+  /**
+   * Find failed deliveries that can be retried
+   * @deprecated Use trackingService directly
+   */
+  async findFailedDeliveries(options: { maxRetries: number }): Promise<any[]> {
+    return this.trackingService.findFailedDeliveries(options);
+  }
+
+  /**
+   * Get notification statistics for a user
+   * @deprecated Use trackingService directly
+   */
+  async getUserNotificationStats(userId: string): Promise<any> {
+    return this.trackingService.getUserNotificationStats(userId);
+  }
+
+  // =====================
+  // Convenience Aliases for Common Operations
+  // =====================
+
+  /**
+   * Alias for getNotificationsByUser - Get all notifications for a specific user
+   */
+  async getUserNotifications(
+    userId: string,
+    params: NotificationGetManyFormData = {},
+  ): Promise<NotificationGetManyResponse> {
+    return this.getNotificationsByUser(userId, params);
+  }
+
+  /**
+   * Alias for getUnseenCount - Get count of unread notifications for a user
+   */
+  async getUnreadCount(userId: string): Promise<number> {
+    return this.getUnseenCount(userId);
   }
 }

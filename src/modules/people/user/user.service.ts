@@ -1829,7 +1829,9 @@ export class UserService {
         },
       });
 
-      this.logger.log(`Found ${usersEndingExp1.length} users with Experience Period 1 ended (pending transition)`);
+      this.logger.log(
+        `Found ${usersEndingExp1.length} users with Experience Period 1 ended (pending transition)`,
+      );
 
       // Transition users from exp1 to exp2
       for (const user of usersEndingExp1) {
@@ -1891,7 +1893,9 @@ export class UserService {
         },
       });
 
-      this.logger.log(`Found ${usersEndingExp2.length} users with Experience Period 2 ended (pending transition)`);
+      this.logger.log(
+        `Found ${usersEndingExp2.length} users with Experience Period 2 ended (pending transition)`,
+      );
 
       // Transition users from exp2 to effected
       for (const user of usersEndingExp2) {

@@ -96,9 +96,7 @@ export class PersistentDiscountService {
     for (const discount of previousPayroll.discounts) {
       // Check if discount has expired
       if (discount.expirationDate && discount.expirationDate < currentDate) {
-        this.logger.log(
-          `Skipping expired persistent discount: ${discount.reference}`,
-        );
+        this.logger.log(`Skipping expired persistent discount: ${discount.reference}`);
         continue;
       }
 
@@ -249,10 +247,7 @@ export class PersistentDiscountService {
         },
         isPersistent: true,
         isActive: true,
-        OR: [
-          { expirationDate: null },
-          { expirationDate: { gt: new Date() } },
-        ],
+        OR: [{ expirationDate: null }, { expirationDate: { gt: new Date() } }],
       },
       orderBy: {
         discountType: 'asc',
@@ -271,17 +266,19 @@ export class PersistentDiscountService {
     employeeId: string;
     currentYear: number;
     currentMonth: number;
-  }): Promise<Array<{
-    id: string;
-    discountType: PayrollDiscountType;
-    value: number | null;
-    percentage: number | null;
-    reference: string;
-    isPersistent: boolean;
-    isActive: boolean;
-    expirationDate?: Date | null;
-    baseValue?: number | null;
-  }>> {
+  }): Promise<
+    Array<{
+      id: string;
+      discountType: PayrollDiscountType;
+      value: number | null;
+      percentage: number | null;
+      reference: string;
+      isPersistent: boolean;
+      isActive: boolean;
+      expirationDate?: Date | null;
+      baseValue?: number | null;
+    }>
+  > {
     const { employeeId, currentYear, currentMonth } = params;
 
     this.logger.log(
@@ -338,9 +335,7 @@ export class PersistentDiscountService {
     for (const discount of previousPayroll.discounts) {
       // Check if discount has expired
       if (discount.expirationDate && discount.expirationDate < currentDate) {
-        this.logger.log(
-          `Skipping expired persistent discount: ${discount.reference}`,
-        );
+        this.logger.log(`Skipping expired persistent discount: ${discount.reference}`);
         continue;
       }
 
@@ -367,9 +362,7 @@ export class PersistentDiscountService {
       });
     }
 
-    this.logger.log(
-      `Found ${liveDiscounts.length} persistent discounts for live payroll`,
-    );
+    this.logger.log(`Found ${liveDiscounts.length} persistent discounts for live payroll`);
 
     return liveDiscounts;
   }

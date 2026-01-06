@@ -792,14 +792,10 @@ export interface PaintFormulaUpdateResponse extends BaseUpdateResponse<PaintForm
 export interface PaintFormulaDeleteResponse extends BaseDeleteResponse {}
 
 // PaintFormulaComponent responses
-export interface PaintFormulaComponentGetUniqueResponse
-  extends BaseGetUniqueResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentGetManyResponse
-  extends BaseGetManyResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentCreateResponse
-  extends BaseCreateResponse<PaintFormulaComponent> {}
-export interface PaintFormulaComponentUpdateResponse
-  extends BaseUpdateResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentGetUniqueResponse extends BaseGetUniqueResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentGetManyResponse extends BaseGetManyResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentCreateResponse extends BaseCreateResponse<PaintFormulaComponent> {}
+export interface PaintFormulaComponentUpdateResponse extends BaseUpdateResponse<PaintFormulaComponent> {}
 export interface PaintFormulaComponentDeleteResponse extends BaseDeleteResponse {}
 
 // PaintProduction responses
@@ -815,45 +811,71 @@ export interface PaintProductionDeleteResponse extends BaseDeleteResponse {}
 
 // PaintType batch operations
 export interface PaintTypeBatchCreateResponse<T> extends BaseBatchResponse<PaintType, T> {}
-export interface PaintTypeBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintType, T & { id: string }> {}
-export interface PaintTypeBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintTypeBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintType,
+  T & { id: string }
+> {}
+export interface PaintTypeBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // Paint batch operations
 export interface PaintBatchCreateResponse<T> extends BaseBatchResponse<Paint, T> {}
 export interface PaintBatchUpdateResponse<T> extends BaseBatchResponse<Paint, T & { id: string }> {}
-export interface PaintBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PaintGround batch operations
 export interface PaintGroundBatchCreateResponse<T> extends BaseBatchResponse<PaintGround, T> {}
-export interface PaintGroundBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintGround, T & { id: string }> {}
-export interface PaintGroundBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintGroundBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintGround,
+  T & { id: string }
+> {}
+export interface PaintGroundBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PaintFormula batch operations
 export interface PaintFormulaBatchCreateResponse<T> extends BaseBatchResponse<PaintFormula, T> {}
-export interface PaintFormulaBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintFormula, T & { id: string }> {}
-export interface PaintFormulaBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintFormulaBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintFormula,
+  T & { id: string }
+> {}
+export interface PaintFormulaBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PaintFormulaComponent batch operations
-export interface PaintFormulaComponentBatchCreateResponse<T>
-  extends BaseBatchResponse<PaintFormulaComponent, T> {}
-export interface PaintFormulaComponentBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintFormulaComponent, T & { id: string }> {}
-export interface PaintFormulaComponentBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintFormulaComponentBatchCreateResponse<T> extends BaseBatchResponse<
+  PaintFormulaComponent,
+  T
+> {}
+export interface PaintFormulaComponentBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintFormulaComponent,
+  T & { id: string }
+> {}
+export interface PaintFormulaComponentBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // PaintProduction batch operations
-export interface PaintProductionBatchCreateResponse<T>
-  extends BaseBatchResponse<PaintProduction, T> {}
-export interface PaintProductionBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintProduction, T & { id: string }> {}
-export interface PaintProductionBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintProductionBatchCreateResponse<T> extends BaseBatchResponse<
+  PaintProduction,
+  T
+> {}
+export interface PaintProductionBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintProduction,
+  T & { id: string }
+> {}
+export interface PaintProductionBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // Dashboard types have been moved to packages/types/src/dashboard.ts

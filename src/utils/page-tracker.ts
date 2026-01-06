@@ -42,7 +42,9 @@ export function trackPageAccess(path: string, title: string, icon?: string): voi
     localStorage.setItem(PAGE_ACCESS_KEY, JSON.stringify(pageAccesses));
   } catch (error) {
     // Fail silently if localStorage is not available
-    console.error('Failed to track page access:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to track page access:', error);
+    }
   }
 }
 
@@ -61,7 +63,9 @@ export function getMostAccessedPages(limit: number = 6): PageAccess[] {
       })
       .slice(0, limit);
   } catch (error) {
-    console.error('Failed to get most accessed pages:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to get most accessed pages:', error);
+    }
     return [];
   }
 }
@@ -70,7 +74,9 @@ export function clearPageAccessHistory(): void {
   try {
     localStorage.removeItem(PAGE_ACCESS_KEY);
   } catch (error) {
-    console.error('Failed to clear page access history:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to clear page access history:', error);
+    }
   }
 }
 
@@ -98,7 +104,9 @@ export function getPageAccessStats(): {
       mostVisited,
     };
   } catch (error) {
-    console.error('Failed to get page access stats:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to get page access stats:', error);
+    }
     return { totalPages: 0, totalAccesses: 0, mostVisited: null };
   }
 }

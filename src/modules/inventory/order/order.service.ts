@@ -4,7 +4,9 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 
 import {
@@ -64,6 +66,7 @@ import {
 import { OrderScheduleService } from './order-schedule.service';
 import { FileService } from '@modules/common/file/file.service';
 import { promises as fs } from 'fs';
+import { OrderCreatedEvent, OrderStatusChangedEvent, OrderItemReceivedEvent, OrderCancelledEvent } from './order.events';
 
 @Injectable()
 export class OrderService {
@@ -77,6 +80,7 @@ export class OrderService {
     private readonly itemService: ItemService,
     private readonly orderScheduleService: OrderScheduleService,
     private readonly fileService: FileService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -361,6 +365,19 @@ export class OrderService {
 
         return newOrder;
       });
+
+      // Emit order created event
+      try {
+        // Get the user who created the order
+        const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
+
+        if (user) {
+          this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, user));
+        }
+      } catch (error) {
+        this.logger.error('Error emitting order created event:', error);
+        // Don't fail the order creation if event emission fails
+      }
 
       return { success: true, message: 'Pedido criado com sucesso.', data: order };
     } catch (error) {
@@ -922,6 +939,43 @@ export class OrderService {
       // Handle file uploads after transaction
       if (files) {
         await this.processOrderFileUploads(updatedOrder.id, files, userId);
+      }
+
+      // Emit order status changed event
+      try {
+        if (
+          actualUpdateData.status &&
+          (actualUpdateData.status as ORDER_STATUS) !== (existingOrder.status as ORDER_STATUS)
+        ) {
+          const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
+
+          if (user) {
+            this.eventEmitter.emit(
+              'order.status.changed',
+              new OrderStatusChangedEvent(
+                updatedOrder,
+                existingOrder.status as ORDER_STATUS,
+                actualUpdateData.status as ORDER_STATUS,
+                user,
+              ),
+            );
+
+            // Emit order cancelled event if status changed to CANCELLED
+            if (actualUpdateData.status === ORDER_STATUS.CANCELLED) {
+              this.eventEmitter.emit(
+                'order.cancelled',
+                new OrderCancelledEvent(
+                  updatedOrder,
+                  user,
+                  actualUpdateData.notes || 'Pedido cancelado',
+                ),
+              );
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting order status changed event:', error);
+        // Don't fail the order update if event emission fails
       }
 
       return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
@@ -1847,6 +1901,30 @@ export class OrderService {
 
         return updatedItem;
       });
+
+      // Emit order item received event if receivedQuantity increased
+      try {
+        if (
+          data.receivedQuantity !== undefined &&
+          data.receivedQuantity > (existingItem.receivedQuantity || 0)
+        ) {
+          // Get the order for the event
+          const order = await this.prisma.order.findUnique({
+            where: { id: existingItem.orderId },
+          });
+
+          if (order) {
+            const quantityIncrease = data.receivedQuantity - (existingItem.receivedQuantity || 0);
+            this.eventEmitter.emit(
+              'order.item.received',
+              new OrderItemReceivedEvent(order, updatedItem, quantityIncrease),
+            );
+          }
+        }
+      } catch (error) {
+        this.logger.error('Error emitting order item received event:', error);
+        // Don't fail the update if event emission fails
+      }
 
       return {
         success: true,

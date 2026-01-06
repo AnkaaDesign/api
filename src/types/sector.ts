@@ -92,10 +92,14 @@ export interface SectorDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface SectorBatchCreateResponse<T> extends BaseBatchResponse<Sector, T> {}
-export interface SectorBatchUpdateResponse<T>
-  extends BaseBatchResponse<Sector, T & { id: string }> {}
-export interface SectorBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface SectorBatchUpdateResponse<T> extends BaseBatchResponse<
+  Sector,
+  T & { id: string }
+> {}
+export interface SectorBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // =====================
 // Form Data Types

@@ -208,18 +208,8 @@ export class PpeDeliveryService {
               break;
           }
 
-          // Only log a warning if sizes don't match, don't prevent creation
-          if (userSize) {
-            console.log(
-              `User ${userInfo.name} has size ${userSize} configured for ${item.ppeType}`,
-            );
-          } else {
-            console.log(
-              `User ${userInfo.name} doesn't have size configured for ${item.ppeType}, proceeding anyway`,
-            );
-          }
+          // Size validation is optional - we just log a warning if sizes don't match
         } else {
-          console.log(`User doesn't have size information, proceeding with PPE delivery creation`);
         }
 
         // Check if PPE size matches user size via measures (optional - log only)
@@ -229,9 +219,11 @@ export class PpeDeliveryService {
         const itemSize = sizeMatch?.unit || (sizeMatch?.value ? String(sizeMatch.value) : null);
 
         if (itemSize && userSize && itemSize !== userSize) {
-          console.log(
-            `Warning: PPE size (${itemSize}) doesn't match user size (${userSize}) for ${userInfo.name}. Proceeding with delivery anyway.`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `Warning: PPE size (${itemSize}) doesn't match user size (${userSize}) for ${userInfo.name}. Proceeding with delivery anyway.`,
+            );
+          }
         }
 
         // Store validated size for stock tracking (if available)
@@ -285,10 +277,12 @@ export class PpeDeliveryService {
         // Warn if stock will be low
         const remainingAfterDelivery = availableQuantity - (data.quantity || 0);
         if (item.reorderPoint && remainingAfterDelivery <= item.reorderPoint) {
-          console.warn(
-            `AVISO: Item "${item.name}" ficará com estoque baixo após a entrega. ` +
-              `Disponível após entrega: ${remainingAfterDelivery}, Ponto de reposição: ${item.reorderPoint}`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `AVISO: Item "${item.name}" ficará com estoque baixo após a entrega. ` +
+                `Disponível após entrega: ${remainingAfterDelivery}, Ponto de reposição: ${item.reorderPoint}`,
+            );
+          }
         }
       }
     }
@@ -370,10 +364,12 @@ export class PpeDeliveryService {
 
         // Warn if changing delivery date
         if (data.actualDeliveryDate.getTime() !== existingDelivery.actualDeliveryDate.getTime()) {
-          console.warn(
-            `AVISO: Alterando data de entrega de ${existingDelivery.actualDeliveryDate.toISOString()} ` +
-              `para ${data.actualDeliveryDate.toISOString()}`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `AVISO: Alterando data de entrega de ${existingDelivery.actualDeliveryDate.toISOString()} ` +
+                `para ${data.actualDeliveryDate.toISOString()}`,
+            );
+          }
         }
       }
     }
@@ -550,7 +546,7 @@ export class PpeDeliveryService {
     }
 
     // Get size and PPE type information
-    let sizeInfo = additionalInfo?.size;
+    const sizeInfo = additionalInfo?.size;
     let ppeType = additionalInfo?.ppeType;
 
     // If not provided, try to get from item's PPE fields
@@ -627,13 +623,14 @@ export class PpeDeliveryService {
       );
 
       if (!schedule) {
-        console.warn(`Schedule ${finishedDelivery.ppeScheduleId} not found for auto-creation`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`Schedule ${finishedDelivery.ppeScheduleId} not found for auto-creation`);
+        }
         return null;
       }
 
       // Only auto-create if schedule is still active
       if (!schedule.isActive) {
-        console.log(`Schedule ${schedule.id} is inactive, skipping auto-creation`);
         return null;
       }
 
@@ -706,10 +703,12 @@ export class PpeDeliveryService {
       return newDelivery;
     } catch (error) {
       // Log the error but don't fail the main transaction
-      console.error(
-        `Error auto-creating next PPE delivery for schedule ${finishedDelivery.ppeScheduleId}:`,
-        error,
-      );
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(
+          `Error auto-creating next PPE delivery for schedule ${finishedDelivery.ppeScheduleId}:`,
+          error,
+        );
+      }
 
       // Log the error in change log
       await this.changeLogService.logChange({
@@ -1253,14 +1252,16 @@ export class PpeDeliveryService {
       let nextDelivery: PpeDelivery | null = null;
       try {
         nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
-        if (nextDelivery) {
+        if (nextDelivery && process.env.NODE_ENV !== 'production') {
           console.log(
             `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
           );
         }
       } catch (error) {
         // Log but don't fail the main operation
-        console.error('Error in auto-creation during markAsDelivered:', error);
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error in auto-creation during markAsDelivered:', error);
+        }
       }
 
       // Track field changes for delivery completion
@@ -1388,15 +1389,17 @@ export class PpeDeliveryService {
       let nextDelivery: PpeDelivery | null = null;
       try {
         nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
-        if (nextDelivery) {
+        if (nextDelivery && process.env.NODE_ENV !== 'production') {
           console.log(
             `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
           );
-        } else {
+        } else if (!nextDelivery && process.env.NODE_ENV !== 'production') {
           console.warn(`No next delivery was created for completed delivery ${updatedDelivery.id}`);
         }
       } catch (error) {
-        console.error('Error in auto-creation during finishDeliveryWithAutoSchedule:', error);
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error in auto-creation during finishDeliveryWithAutoSchedule:', error);
+        }
         // For this method, we want to be more strict about auto-creation errors
         throw new BadRequestException(
           `Entrega marcada como concluída, mas houve erro na criação automática da próxima: ${error instanceof Error ? error.message : String(error)}`,
@@ -2082,14 +2085,16 @@ export class PpeDeliveryService {
               transaction,
               userId,
             );
-            if (nextDelivery) {
+            if (nextDelivery && process.env.NODE_ENV !== 'production') {
               console.log(
                 `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
               );
             }
           } catch (error) {
             // Log but don't fail the main operation
-            console.error('Error in auto-creation during batch mark as delivered:', error);
+            if (process.env.NODE_ENV !== 'production') {
+              console.error('Error in auto-creation during batch mark as delivered:', error);
+            }
           }
 
           // Log the change

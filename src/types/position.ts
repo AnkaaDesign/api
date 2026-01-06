@@ -100,5 +100,7 @@ export interface PositionDeleteResponse extends BaseDeleteResponse {}
 // Position batch operations
 export interface PositionBatchCreateResponse<T = any> extends BaseBatchResponse<Position, T> {}
 export interface PositionBatchUpdateResponse<T = any> extends BaseBatchResponse<Position, T> {}
-export interface PositionBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PositionBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

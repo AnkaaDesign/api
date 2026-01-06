@@ -72,7 +72,9 @@ export const generateVerificationCode = (): string => {
 
   // Additional safety check to ensure positive number
   if (code < 100000 || code > 999999) {
-    console.error('Verification code out of range:', code);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Verification code out of range:', code);
+    }
     return '100000'; // Fallback to a valid code
   }
 

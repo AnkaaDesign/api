@@ -191,19 +191,6 @@ export class BorrowService {
         if (returnedAt > maxFutureDate) {
           throw new BadRequestException('Data de devolução não pode ser mais de 1 dia no futuro');
         }
-
-        // Se está marcando como devolvido, log the action
-        if (!existingBorrow.returnedAt && data.returnedAt) {
-          // Está devolvendo - validações específicas de devolução
-          console.log(
-            `Devolução do empréstimo ${excludeId} - Item: ${item.name}, Usuário: ${user.name}`,
-          );
-        } else if (existingBorrow.returnedAt && !data.returnedAt) {
-          // Está desfazendo uma devolução - permitir a mudança
-          console.log(
-            `Desfazendo devolução do empréstimo ${excludeId} - Item: ${item.name}, Usuário: ${user.name}`,
-          );
-        }
       } else {
         // Se estiver criando com data de devolução, não faz sentido
         throw new BadRequestException('Não é possível criar um empréstimo já devolvido');
@@ -266,10 +253,12 @@ export class BorrowService {
       // Avisar se o estoque ficará baixo após o empréstimo
       const remainingAfterBorrow = availableQuantity - quantity;
       if (item.reorderPoint && remainingAfterBorrow <= item.reorderPoint) {
-        console.warn(
-          `AVISO: Item "${item.name}" ficará com estoque baixo após o empréstimo. ` +
-            `Disponível após empréstimo: ${remainingAfterBorrow}, Ponto de reposição: ${item.reorderPoint}`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `AVISO: Item "${item.name}" ficará com estoque baixo após o empréstimo. ` +
+              `Disponível após empréstimo: ${remainingAfterBorrow}, Ponto de reposição: ${item.reorderPoint}`,
+          );
+        }
       }
     }
 

@@ -80,18 +80,24 @@ async function getGitCommits(repoPath: string, limit: number = 10): Promise<any[
 
     return commits.map(commit => ({ ...commit, branch }));
   } catch (error) {
-    console.error(`Error getting commits from ${repoPath}:`, error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(`Error getting commits from ${repoPath}:`, error);
+    }
     return [];
   }
 }
 
 async function main() {
-  console.log('🌱 Seeding deployment system...\n');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('🌱 Seeding deployment system...\n');
+  }
 
   let totalCommits = 0;
 
   for (const config of repositoryConfigs) {
-    console.log(`📦 Processing repository: ${config.name}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`📦 Processing repository: ${config.name}`);
+    }
 
     // Create or update repository
     const repository = await prisma.repository.upsert({
@@ -109,7 +115,9 @@ async function main() {
       },
     });
 
-    console.log(`  ✅ Repository created/updated: ${repository.id}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`  ✅ Repository created/updated: ${repository.id}`);
+    }
 
     // Create corresponding app
     const appTypeMap: Record<string, 'API' | 'WEB' | 'MOBILE'> = {
@@ -138,11 +146,15 @@ async function main() {
       },
     });
 
-    console.log(`  ✅ App created/updated: ${app.name}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`  ✅ App created/updated: ${app.name}`);
+    }
 
     // Get and store commits
     const commits = await getGitCommits(config.localPath, 5);
-    console.log(`  📝 Found ${commits.length} commits`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`  📝 Found ${commits.length} commits`);
+    }
 
     for (const commitData of commits) {
       try {
@@ -179,18 +191,24 @@ async function main() {
         });
         totalCommits++;
       } catch (error) {
-        console.error(`    ❌ Error storing commit ${commitData.shortHash}:`, error);
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(`    ❌ Error storing commit ${commitData.shortHash}:`, error);
+        }
       }
     }
 
-    console.log(`  ✅ Stored ${commits.length} commits\n`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`  ✅ Stored ${commits.length} commits\n`);
+    }
   }
 
-  console.log(`\n✨ Seeding completed!`);
-  console.log(`\nSummary:`);
-  console.log(`  - ${repositoryConfigs.length} repositories`);
-  console.log(`  - ${repositoryConfigs.length} apps`);
-  console.log(`  - ${totalCommits} total Git commits stored\n`);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`\n✨ Seeding completed!`);
+    console.log(`\nSummary:`);
+    console.log(`  - ${repositoryConfigs.length} repositories`);
+    console.log(`  - ${repositoryConfigs.length} apps`);
+    console.log(`  - ${totalCommits} total Git commits stored\n`);
+  }
 }
 
 main()

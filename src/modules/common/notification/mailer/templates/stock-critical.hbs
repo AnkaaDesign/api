@@ -1,0 +1,217 @@
+<h1>Alerta Crítico de Estoque <span class="badge badge-danger" style="background-color: #dc3545;">CRÍTICO</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p style="color: #dc3545; font-weight: 600; font-size: 16px;">
+    ATENÇÃO: Este é um alerta crítico! O estoque de um ou mais produtos está em nível crítico ou esgotado.
+</p>
+
+{{#if singleProduct}}
+    <div class="info-box danger">
+        <h3 style="font-size: 18px; margin-bottom: 15px; color: #721c24;">Produto com Estoque Crítico</h3>
+        <div class="info-row">
+            <span class="info-label">Produto:</span>
+            <span class="info-value"><strong>{{product.name}}</strong></span>
+        </div>
+        {{#if product.sku}}
+            <div class="info-row">
+                <span class="info-label">SKU:</span>
+                <span class="info-value">{{product.sku}}</span>
+            </div>
+        {{/if}}
+        {{#if product.category}}
+            <div class="info-row">
+                <span class="info-label">Categoria:</span>
+                <span class="info-value">{{product.category}}</span>
+            </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Quantidade Atual:</span>
+            <span class="info-value" style="color: #dc3545; font-weight: 700; font-size: 22px;">
+                {{product.currentStock}}
+                {{#if (eq product.currentStock 0)}}
+                    <span style="background-color: #dc3545; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">ESGOTADO</span>
+                {{/if}}
+            </span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Estoque Mínimo:</span>
+            <span class="info-value">{{product.minimumStock}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Estoque Crítico:</span>
+            <span class="info-value">{{product.criticalStock}}</span>
+        </div>
+        {{#if product.location}}
+            <div class="info-row">
+                <span class="info-label">Localização:</span>
+                <span class="info-value">{{product.location}}</span>
+            </div>
+        {{/if}}
+    </div>
+
+    {{#if product.pendingOrders}}
+        <div class="info-box warning">
+            <h3 style="font-size: 16px; margin-bottom: 10px; color: #856404;">Pedidos Pendentes</h3>
+            <div class="info-row">
+                <span class="info-label">Pedidos Aguardando:</span>
+                <span class="info-value"><strong>{{product.pendingOrders}}</strong></span>
+            </div>
+            {{#if product.pendingQuantity}}
+                <div class="info-row">
+                    <span class="info-label">Quantidade Total:</span>
+                    <span class="info-value">{{product.pendingQuantity}} unidades</span>
+                </div>
+            {{/if}}
+            <p style="margin: 10px 0 0 0; color: #856404; font-weight: 600;">
+                IMPORTANTE: Existem pedidos que não poderão ser atendidos com o estoque atual!
+            </p>
+        </div>
+    {{/if}}
+
+    {{#if product.salesImpact}}
+        <div class="info-box danger">
+            <h3 style="font-size: 16px; margin-bottom: 10px; color: #721c24;">Impacto nas Vendas</h3>
+            {{#if product.salesImpact.avgDailySales}}
+                <div class="info-row">
+                    <span class="info-label">Vendas Médias Diárias:</span>
+                    <span class="info-value">{{product.salesImpact.avgDailySales}} unidades/dia</span>
+                </div>
+            {{/if}}
+            {{#if product.salesImpact.daysUntilStockOut}}
+                <div class="info-row">
+                    <span class="info-label">Dias até Esgotamento:</span>
+                    <span class="info-value" style="color: #dc3545; font-weight: 700;">
+                        {{product.salesImpact.daysUntilStockOut}} dia(s)
+                    </span>
+                </div>
+            {{/if}}
+            {{#if product.salesImpact.potentialLoss}}
+                <div class="info-row">
+                    <span class="info-label">Perda Potencial:</span>
+                    <span class="info-value" style="color: #dc3545; font-weight: 700;">{{product.salesImpact.potentialLoss}}</span>
+                </div>
+            {{/if}}
+        </div>
+    {{/if}}
+
+    {{#if product.supplier}}
+        <h2>Informações do Fornecedor - AÇÃO URGENTE:</h2>
+        <div class="info-box">
+            {{#if product.supplier.name}}
+                <div class="info-row">
+                    <span class="info-label">Fornecedor:</span>
+                    <span class="info-value"><strong>{{product.supplier.name}}</strong></span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.contact}}
+                <div class="info-row">
+                    <span class="info-label">Contato:</span>
+                    <span class="info-value"><strong>{{product.supplier.contact}}</strong></span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.email}}
+                <div class="info-row">
+                    <span class="info-label">E-mail:</span>
+                    <span class="info-value"><a href="mailto:{{product.supplier.email}}" style="color: #007bff; font-weight: 600;">{{product.supplier.email}}</a></span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.phone}}
+                <div class="info-row">
+                    <span class="info-label">Telefone:</span>
+                    <span class="info-value"><strong>{{product.supplier.phone}}</strong></span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.leadTime}}
+                <div class="info-row">
+                    <span class="info-label">Prazo de Entrega:</span>
+                    <span class="info-value" style="color: #dc3545; font-weight: 600;">{{product.supplier.leadTime}}</span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.minimumOrder}}
+                <div class="info-row">
+                    <span class="info-label">Pedido Mínimo:</span>
+                    <span class="info-value">{{product.supplier.minimumOrder}} unidades</span>
+                </div>
+            {{/if}}
+        </div>
+    {{/if}}
+{{else}}
+    <div class="info-box danger">
+        <h3 style="font-size: 18px; margin-bottom: 10px; color: #721c24;">
+            {{productCount}} produto(s) em situação crítica
+        </h3>
+        <p style="margin: 0; color: #721c24; font-weight: 600;">
+            Múltiplos produtos estão em nível crítico de estoque. Ação imediata é necessária!
+        </p>
+    </div>
+
+    <h2>Produtos em Situação Crítica:</h2>
+    <div style="background-color: #fff5f5; padding: 15px; border-radius: 4px; margin: 15px 0; border: 2px solid #dc3545;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 2px solid #dc3545;">
+                    <th style="text-align: left; padding: 10px; font-size: 14px; color: #721c24;">Produto</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px; color: #721c24;">Estoque</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px; color: #721c24;">Status</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px; color: #721c24;">Pedidos Pendentes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each products}}
+                    <tr style="border-bottom: 1px solid #f8d7da;">
+                        <td style="padding: 10px; font-size: 14px;">
+                            <strong>{{this.name}}</strong>
+                            {{#if this.sku}}<br><span style="font-size: 12px; color: #721c24;">SKU: {{this.sku}}</span>{{/if}}
+                        </td>
+                        <td style="text-align: center; padding: 10px; font-size: 16px; font-weight: 700; color: #dc3545;">
+                            {{this.currentStock}}
+                        </td>
+                        <td style="text-align: center; padding: 10px; font-size: 13px;">
+                            {{#if (eq this.currentStock 0)}}
+                                <span style="background-color: #dc3545; color: white; padding: 4px 8px; border-radius: 4px; font-weight: 600;">ESGOTADO</span>
+                            {{else}}
+                                <span style="background-color: #ffc107; color: #1a1a1a; padding: 4px 8px; border-radius: 4px; font-weight: 600;">CRÍTICO</span>
+                            {{/if}}
+                        </td>
+                        <td style="text-align: center; padding: 10px; font-size: 14px; color: #721c24; font-weight: 600;">
+                            {{#if this.pendingOrders}}{{this.pendingOrders}}{{else}}0{{/if}}
+                        </td>
+                    </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+{{/if}}
+
+<h2 style="color: #dc3545;">Ações Imediatas Necessárias:</h2>
+<ul style="margin: 10px 0; padding-left: 20px; color: #555555;">
+    <li style="margin: 8px 0; font-weight: 600;">
+        <span style="color: #dc3545;">URGENTE:</span> Entrar em contato com fornecedores IMEDIATAMENTE
+    </li>
+    <li style="margin: 8px 0; font-weight: 600;">
+        Verificar possibilidade de fornecedores alternativos ou entrega expressa
+    </li>
+    <li style="margin: 8px 0; font-weight: 600;">
+        Revisar e priorizar pedidos pendentes
+    </li>
+    <li style="margin: 8px 0; font-weight: 600;">
+        Considerar substituições ou produtos alternativos para clientes
+    </li>
+    <li style="margin: 8px 0; font-weight: 600;">
+        Notificar equipe de vendas sobre limitações de estoque
+    </li>
+    <li style="margin: 8px 0; font-weight: 600;">
+        Atualizar sistema com previsão de reabastecimento
+    </li>
+</ul>
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-danger">Ação Urgente - Gerenciar Estoque</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #721c24; font-weight: 600; background-color: #fff5f5; padding: 15px; border-radius: 4px; border-left: 4px solid #dc3545;">
+    ALERTA CRÍTICO gerado em {{alertDate}}. Este é um aviso de máxima prioridade que requer ação imediata para evitar impactos significativos no negócio. A inação pode resultar em perda de vendas, insatisfação de clientes e danos à reputação.
+</p>

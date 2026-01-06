@@ -348,10 +348,7 @@ export class PersonalService {
    * @param query - Query parameters for filtering/pagination
    * @returns User's saved bonuses
    */
-  async getMyBonuses(
-    userId: string,
-    query: BonusGetManyFormData,
-  ): Promise<BonusGetManyResponse> {
+  async getMyBonuses(userId: string, query: BonusGetManyFormData): Promise<BonusGetManyResponse> {
     // Merge user filter with query - user can only see their own bonuses
     const userFilteredQuery = {
       ...query,

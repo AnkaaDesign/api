@@ -785,8 +785,8 @@ export class VacationService {
         where: { id: userId },
         select: {
           managedSector: {
-            select: { id: true }
-          }
+            select: { id: true },
+          },
         },
       });
       return user ? { managedSectorId: user.managedSector?.id || null } : null;

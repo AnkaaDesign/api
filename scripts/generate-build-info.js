@@ -26,7 +26,9 @@ function generateBuildInfo() {
   const outputPath = path.join(__dirname, '..', 'src', 'build-info.json');
   fs.writeFileSync(outputPath, JSON.stringify(buildInfo, null, 2));
 
-  console.log('Build info generated:', buildInfo);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Build info generated:', buildInfo);
+  }
 }
 
 generateBuildInfo();

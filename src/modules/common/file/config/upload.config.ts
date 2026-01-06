@@ -173,26 +173,17 @@ export const storageConfig = diskStorage({
       // Use a temporary staging directory before moving to files storage
       const tempDir = path.join(UPLOAD_CONFIG.uploadDir, 'temp');
 
-      console.log('🗂️ File upload staging destination:', {
-        tempDir: tempDir,
-        originalFilename: file.originalname,
-        filesRoot: UPLOAD_CONFIG.filesRoot,
-      });
-
       // Ensure the temporary directory exists
       if (!fs.existsSync(tempDir)) {
-        console.log('📁 Creating temp staging directory:', tempDir);
         fs.mkdirSync(tempDir, { recursive: true });
-      } else {
-        console.log('✅ Temp staging directory exists:', tempDir);
       }
 
-      console.log('✅ Using temp staging path:', tempDir);
       callback(null, tempDir);
     } catch (error) {
-      console.error('❌ Error creating temp staging directory:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Error creating temp staging directory:', error);
+      }
       // Fallback to base upload directory
-      console.log('🔄 Falling back to base directory:', UPLOAD_CONFIG.uploadDir);
       callback(null, UPLOAD_CONFIG.uploadDir);
     }
   },

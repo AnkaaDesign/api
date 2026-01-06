@@ -9,7 +9,7 @@ import type {
   BaseDeleteResponse,
   BaseBatchResponse,
 } from './common';
-import type { ORDER_BY_DIRECTION } from '@constants';
+import type { ORDER_BY_DIRECTION, SERVICE_ORDER_TYPE } from '@constants';
 
 // =====================
 // Main Entity Interface
@@ -17,6 +17,7 @@ import type { ORDER_BY_DIRECTION } from '@constants';
 
 export interface Service extends BaseEntity {
   description: string;
+  type: SERVICE_ORDER_TYPE;
 }
 
 // =====================
@@ -34,6 +35,7 @@ export interface ServiceIncludes {
 export interface ServiceOrderBy {
   id?: ORDER_BY_DIRECTION;
   description?: ORDER_BY_DIRECTION;
+  type?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
 }
@@ -53,7 +55,11 @@ export interface ServiceDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ServiceBatchCreateResponse<T> extends BaseBatchResponse<Service, T> {}
-export interface ServiceBatchUpdateResponse<T>
-  extends BaseBatchResponse<Service, T & { id: string }> {}
-export interface ServiceBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ServiceBatchUpdateResponse<T> extends BaseBatchResponse<
+  Service,
+  T & { id: string }
+> {}
+export interface ServiceBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

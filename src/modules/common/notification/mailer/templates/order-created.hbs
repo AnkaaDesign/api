@@ -1,0 +1,130 @@
+<h1>Novo Pedido Criado <span class="badge badge-new">NOVO</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>Um novo pedido foi criado no sistema e requer sua atenção.</p>
+
+<div class="info-box">
+    <div class="info-row">
+        <span class="info-label">Número do Pedido:</span>
+        <span class="info-value"><strong>{{order.orderNumber}}</strong></span>
+    </div>
+    {{#if order.customer}}
+        <div class="info-row">
+            <span class="info-label">Cliente:</span>
+            <span class="info-value">{{order.customer}}</span>
+        </div>
+    {{/if}}
+    {{#if order.customerEmail}}
+        <div class="info-row">
+            <span class="info-label">E-mail:</span>
+            <span class="info-value">{{order.customerEmail}}</span>
+        </div>
+    {{/if}}
+    {{#if order.customerPhone}}
+        <div class="info-row">
+            <span class="info-label">Telefone:</span>
+            <span class="info-value">{{order.customerPhone}}</span>
+        </div>
+    {{/if}}
+    <div class="info-row">
+        <span class="info-label">Data do Pedido:</span>
+        <span class="info-value">{{order.createdAt}}</span>
+    </div>
+    {{#if order.status}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{order.status}}</span>
+        </div>
+    {{/if}}
+</div>
+
+<h2>Itens do Pedido:</h2>
+
+{{#if order.items}}
+    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 4px; margin: 15px 0;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 2px solid #dee2e6;">
+                    <th style="text-align: left; padding: 10px; font-size: 14px;">Produto</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px;">Qtd</th>
+                    <th style="text-align: right; padding: 10px; font-size: 14px;">Preço Unit.</th>
+                    <th style="text-align: right; padding: 10px; font-size: 14px;">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each order.items}}
+                    <tr style="border-bottom: 1px solid #e0e0e0;">
+                        <td style="padding: 10px; font-size: 14px;">
+                            <strong>{{this.name}}</strong>
+                            {{#if this.sku}}<br><span style="font-size: 12px; color: #6c757d;">SKU: {{this.sku}}</span>{{/if}}
+                        </td>
+                        <td style="text-align: center; padding: 10px; font-size: 14px;">{{this.quantity}}</td>
+                        <td style="text-align: right; padding: 10px; font-size: 14px;">{{this.unitPrice}}</td>
+                        <td style="text-align: right; padding: 10px; font-size: 14px; font-weight: 600;">{{this.subtotal}}</td>
+                    </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+{{/if}}
+
+<div class="info-box">
+    <h3 style="font-size: 16px; margin-bottom: 10px;">Resumo Financeiro:</h3>
+    {{#if order.subtotal}}
+        <div class="info-row">
+            <span class="info-label">Subtotal:</span>
+            <span class="info-value">{{order.subtotal}}</span>
+        </div>
+    {{/if}}
+    {{#if order.discount}}
+        <div class="info-row">
+            <span class="info-label">Desconto:</span>
+            <span class="info-value" style="color: #28a745;">-{{order.discount}}</span>
+        </div>
+    {{/if}}
+    {{#if order.shipping}}
+        <div class="info-row">
+            <span class="info-label">Frete:</span>
+            <span class="info-value">{{order.shipping}}</span>
+        </div>
+    {{/if}}
+    {{#if order.tax}}
+        <div class="info-row">
+            <span class="info-label">Impostos:</span>
+            <span class="info-value">{{order.tax}}</span>
+        </div>
+    {{/if}}
+    <div class="info-row" style="margin-top: 10px; padding-top: 10px; border-top: 2px solid #dee2e6;">
+        <span class="info-label" style="font-size: 18px;">Total:</span>
+        <span class="info-value" style="font-size: 18px; font-weight: 700; color: #007bff;">{{order.total}}</span>
+    </div>
+</div>
+
+{{#if order.shippingAddress}}
+    <h2>Endereço de Entrega:</h2>
+    <div class="info-box">
+        <p style="margin: 0; white-space: pre-line;">{{order.shippingAddress}}</p>
+    </div>
+{{/if}}
+
+{{#if order.paymentMethod}}
+    <p><strong>Método de Pagamento:</strong> {{order.paymentMethod}}</p>
+{{/if}}
+
+{{#if order.notes}}
+    <h2>Observações:</h2>
+    <div class="info-box">
+        <p style="margin: 0;">{{order.notes}}</p>
+    </div>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-primary">Ver Pedido Completo</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Este pedido foi criado em {{order.createdAt}}. Clique no botão acima para visualizar todos os detalhes e processar o pedido.
+</p>
