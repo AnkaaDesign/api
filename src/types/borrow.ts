@@ -78,7 +78,11 @@ export interface BorrowDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface BorrowBatchCreateResponse<T> extends BaseBatchResponse<Borrow, T> {}
-export interface BorrowBatchUpdateResponse<T>
-  extends BaseBatchResponse<Borrow, T & { id: string }> {}
-export interface BorrowBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface BorrowBatchUpdateResponse<T> extends BaseBatchResponse<
+  Borrow,
+  T & { id: string }
+> {}
+export interface BorrowBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

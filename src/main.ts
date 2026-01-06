@@ -10,6 +10,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { UserContextInterceptor } from './modules/common/interceptors';
 import { GlobalExceptionFilter } from './common/filters';
 import { securityConfig } from './common/config/security.config';
@@ -25,23 +26,80 @@ import {
 } from './common/middleware/upload.middleware';
 import { env } from './common/config/env.validation';
 import { secretsManager } from './common/config/secrets.manager';
+import { ServerOptions } from 'socket.io';
 
 // Global error handlers to prevent crashes
 process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  console.error('Stack trace:', reason?.stack);
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error('Stack trace:', reason?.stack);
+  }
   // Log the error but don't exit the process immediately
   // Let PM2 handle the restart if needed
 });
 
 process.on('uncaughtException', (error: Error) => {
-  console.error('Uncaught Exception thrown:', error);
-  console.error('Stack trace:', error.stack);
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('Uncaught Exception thrown:', error);
+    console.error('Stack trace:', error.stack);
+  }
   // Give the process time to log before exiting
   setTimeout(() => {
     process.exit(1);
   }, 1000);
 });
+
+/**
+ * Custom Socket.io adapter with enhanced CORS and security configuration
+ * Configures Socket.io server with:
+ * - CORS support for frontend origins
+ * - WebSocket and polling transports
+ * - Connection timeouts and ping intervals
+ * - Path configuration for Socket.io endpoint
+ */
+class SocketIoAdapter extends IoAdapter {
+  createIOServer(port: number, options?: ServerOptions): any {
+    // Get allowed origins from environment or security config
+    const allowedOrigins = securityConfig.cors.origin;
+
+    // Socket.io server configuration
+    const serverOptions: ServerOptions = {
+      ...options,
+      // CORS configuration for WebSocket connections
+      cors: {
+        origin: allowedOrigins,
+        methods: ['GET', 'POST'],
+        credentials: true,
+        allowedHeaders: ['Content-Type', 'Authorization'],
+      },
+      // Transport protocols (WebSocket preferred, polling fallback)
+      transports: ['websocket', 'polling'],
+      // Socket.io endpoint path
+      path: '/socket.io',
+      // Connection settings
+      pingTimeout: 60000, // 60 seconds
+      pingInterval: 25000, // 25 seconds
+      upgradeTimeout: 10000, // 10 seconds
+      maxHttpBufferSize: 1e6, // 1MB
+      // Allow HTTP long-polling fallback
+      allowEIO3: true,
+      // Cookie configuration
+      cookie: false, // Use JWT in handshake instead of cookies
+    };
+
+    const server = super.createIOServer(port, serverOptions);
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Socket.io server configured:');
+      console.log('  - Path: /socket.io');
+      console.log('  - Transports: websocket, polling');
+      console.log('  - CORS Origins:', allowedOrigins);
+      console.log('  - Credentials: true');
+    }
+
+    return server;
+  }
+}
 
 async function bootstrap() {
   try {
@@ -49,6 +107,9 @@ async function bootstrap() {
     secretsManager.validateSecrets();
 
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+    // Configure Socket.io adapter for WebSocket support
+    app.useWebSocketAdapter(new SocketIoAdapter(app));
 
     // Configure query string parser to handle bracket notation from axios
     app.set('query parser', (str: string) => {
@@ -168,10 +229,26 @@ async function bootstrap() {
       process.send('ready');
     }
 
-    console.log(`Application is running on port ${port}`);
+    if (process.env.NODE_ENV !== 'production') {
+      const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+      const host = process.env.API_URL || `http://localhost:${port}`;
+
+      console.log(`Application is running on port ${port}`);
+      console.log(`HTTP API: ${host}`);
+      console.log(`WebSocket Endpoints:`);
+      console.log(`  - Notifications: ${host}/socket.io?namespace=/notifications`);
+      console.log(`  - Base URL: ${host}/socket.io`);
+      console.log(`\nWebSocket Authentication:`);
+      console.log(`  - Method: JWT token in handshake`);
+      console.log(`  - Query param: ?token=<JWT_TOKEN>`);
+      console.log(`  - Auth header: Authorization: Bearer <JWT_TOKEN>`);
+      console.log(`  - Auth object: { auth: { token: <JWT_TOKEN> } }`);
+    }
   } catch (error: any) {
-    console.error('Failed to start application:', error);
-    console.error('Stack trace:', error.stack);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Failed to start application:', error);
+      console.error('Stack trace:', error.stack);
+    }
     // Exit with error code so PM2 can restart
     process.exit(1);
   }
@@ -179,7 +256,9 @@ async function bootstrap() {
 
 // Start the application with error handling
 bootstrap().catch(error => {
-  console.error('Bootstrap failed:', error);
-  console.error('Stack trace:', error.stack);
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('Bootstrap failed:', error);
+    console.error('Stack trace:', error.stack);
+  }
   process.exit(1);
 });

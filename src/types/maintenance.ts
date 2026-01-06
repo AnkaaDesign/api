@@ -790,14 +790,10 @@ export interface MaintenanceUpdateResponse extends BaseUpdateResponse<Maintenanc
 export interface MaintenanceDeleteResponse extends BaseDeleteResponse {}
 
 // MaintenanceSchedule responses
-export interface MaintenanceScheduleGetUniqueResponse
-  extends BaseGetUniqueResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleGetManyResponse
-  extends BaseGetManyResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleCreateResponse
-  extends BaseCreateResponse<MaintenanceSchedule> {}
-export interface MaintenanceScheduleUpdateResponse
-  extends BaseUpdateResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleGetUniqueResponse extends BaseGetUniqueResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleGetManyResponse extends BaseGetManyResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleCreateResponse extends BaseCreateResponse<MaintenanceSchedule> {}
+export interface MaintenanceScheduleUpdateResponse extends BaseUpdateResponse<MaintenanceSchedule> {}
 export interface MaintenanceScheduleDeleteResponse extends BaseDeleteResponse {}
 
 // MaintenanceItem responses
@@ -813,23 +809,39 @@ export interface MaintenanceItemDeleteResponse extends BaseDeleteResponse {}
 
 // Maintenance batch operations
 export interface MaintenanceBatchCreateResponse<T> extends BaseBatchResponse<Maintenance, T> {}
-export interface MaintenanceBatchUpdateResponse<T>
-  extends BaseBatchResponse<Maintenance, T & { id: string }> {}
-export interface MaintenanceBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceBatchUpdateResponse<T> extends BaseBatchResponse<
+  Maintenance,
+  T & { id: string }
+> {}
+export interface MaintenanceBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // MaintenanceSchedule batch operations
-export interface MaintenanceScheduleBatchCreateResponse<T>
-  extends BaseBatchResponse<MaintenanceSchedule, T> {}
-export interface MaintenanceScheduleBatchUpdateResponse<T>
-  extends BaseBatchResponse<MaintenanceSchedule, T & { id: string }> {}
-export interface MaintenanceScheduleBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceScheduleBatchCreateResponse<T> extends BaseBatchResponse<
+  MaintenanceSchedule,
+  T
+> {}
+export interface MaintenanceScheduleBatchUpdateResponse<T> extends BaseBatchResponse<
+  MaintenanceSchedule,
+  T & { id: string }
+> {}
+export interface MaintenanceScheduleBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // MaintenanceItem batch operations
-export interface MaintenanceItemBatchCreateResponse<T>
-  extends BaseBatchResponse<MaintenanceItem, T> {}
-export interface MaintenanceItemBatchUpdateResponse<T>
-  extends BaseBatchResponse<MaintenanceItem, T & { id: string }> {}
-export interface MaintenanceItemBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface MaintenanceItemBatchCreateResponse<T> extends BaseBatchResponse<
+  MaintenanceItem,
+  T
+> {}
+export interface MaintenanceItemBatchUpdateResponse<T> extends BaseBatchResponse<
+  MaintenanceItem,
+  T & { id: string }
+> {}
+export interface MaintenanceItemBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

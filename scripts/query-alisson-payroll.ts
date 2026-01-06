@@ -21,12 +21,14 @@ async function main() {
     });
 
     if (!user) {
-      console.log('User Alisson not found');
+      console.error('User Alisson not found');
       return;
     }
 
-    console.log('=== USER DETAILS ===');
-    console.log(JSON.stringify(user, null, 2));
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('=== USER DETAILS ===');
+      console.log(JSON.stringify(user, null, 2));
+    }
 
     // Get payroll data with discounts
     const payrolls = await prisma.payroll.findMany({
@@ -56,27 +58,33 @@ async function main() {
       ],
     });
 
-    console.log('\n=== PAYROLL DATA ===');
-    console.log(JSON.stringify(payrolls, null, 2));
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n=== PAYROLL DATA ===');
+      console.log(JSON.stringify(payrolls, null, 2));
+    }
 
     // Specifically get October 2025 payroll
     const octoberPayroll = payrolls.find(p => p.year === 2025 && p.month === 10);
 
     if (octoberPayroll) {
-      console.log('\n=== OCTOBER 2025 PAYROLL (DETAILED) ===');
-      console.log(JSON.stringify(octoberPayroll, null, 2));
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('\n=== OCTOBER 2025 PAYROLL (DETAILED) ===');
+        console.log(JSON.stringify(octoberPayroll, null, 2));
 
-      console.log('\n=== OCTOBER 2025 PAYROLL DISCOUNTS ===');
-      if (octoberPayroll.discounts && octoberPayroll.discounts.length > 0) {
-        octoberPayroll.discounts.forEach((discount, index) => {
-          console.log(`\nDiscount ${index + 1}:`);
-          console.log(JSON.stringify(discount, null, 2));
-        });
-      } else {
-        console.log('No discounts found for October 2025');
+        console.log('\n=== OCTOBER 2025 PAYROLL DISCOUNTS ===');
+        if (octoberPayroll.discounts && octoberPayroll.discounts.length > 0) {
+          octoberPayroll.discounts.forEach((discount, index) => {
+            console.log(`\nDiscount ${index + 1}:`);
+            console.log(JSON.stringify(discount, null, 2));
+          });
+        } else {
+          console.log('No discounts found for October 2025');
+        }
       }
     } else {
-      console.log('\n=== OCTOBER 2025 PAYROLL NOT FOUND ===');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('\n=== OCTOBER 2025 PAYROLL NOT FOUND ===');
+      }
     }
 
   } catch (error) {

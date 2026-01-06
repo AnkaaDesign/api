@@ -4,7 +4,9 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileService } from '@modules/common/file/file.service';
 import type {
@@ -52,6 +54,9 @@ import {
   getTaskStatusLabel,
   getTaskStatusOrder,
 } from '../../../utils';
+import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
+import { TaskFieldTrackerService } from './task-field-tracker.service';
+import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
 
 /**
  * Task Service
@@ -69,6 +74,9 @@ export class TaskService {
     private readonly tasksRepository: TaskRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly fieldTracker: TaskFieldTrackerService,
+    private readonly taskNotificationService: TaskNotificationService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   /**
@@ -87,6 +95,22 @@ export class TaskService {
     },
   ): Promise<TaskCreateResponse> {
     try {
+      // Check if this is a bulk create from serial number range
+      const serialNumberFrom = (data as any).serialNumberFrom;
+      const serialNumberTo = (data as any).serialNumberTo;
+
+      if (serialNumberFrom !== undefined && serialNumberTo !== undefined) {
+        // Bulk create multiple tasks with sequential serial numbers
+        return this.createTasksFromSerialRange(
+          data,
+          serialNumberFrom,
+          serialNumberTo,
+          include,
+          userId,
+          files,
+        );
+      }
+
       // Create task within transaction with file uploads
       const task = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validate task data
@@ -128,7 +152,9 @@ export class TaskService {
         // Create truck with layouts ONLY if layouts are provided
         // Note: Basic truck creation (plate, chassisNumber, spot) is handled by the repository
         const truckData = (data as any).truck;
-        const hasLayouts = truckData && (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
+        const hasLayouts =
+          truckData &&
+          (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
         if (hasLayouts) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
@@ -366,6 +392,23 @@ export class TaskService {
         return newTask!;
       });
 
+      // Emit task created event
+      if (userId) {
+        try {
+          const createdByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+          });
+          if (createdByUser) {
+            this.eventEmitter.emit(
+              'task.created',
+              new TaskCreatedEvent(task as Task, createdByUser as any),
+            );
+          }
+        } catch (error) {
+          this.logger.error('Error emitting task created event:', error);
+        }
+      }
+
       return {
         success: true,
         message: 'Tarefa criada com sucesso.',
@@ -404,6 +447,65 @@ export class TaskService {
   }
 
   /**
+   * Create multiple tasks from a serial number range
+   * Example: serialNumberFrom=1, serialNumberTo=5 creates tasks with serial numbers 1, 2, 3, 4, 5
+   */
+  private async createTasksFromSerialRange(
+    data: TaskCreateFormData,
+    serialNumberFrom: number,
+    serialNumberTo: number,
+    include?: TaskInclude,
+    userId?: string,
+    files?: {
+      budgets?: Express.Multer.File[];
+      invoices?: Express.Multer.File[];
+      receipts?: Express.Multer.File[];
+      artworks?: Express.Multer.File[];
+      cutFiles?: Express.Multer.File[];
+    },
+  ): Promise<TaskCreateResponse> {
+    // Calculate number of tasks to create
+    const taskCount = serialNumberTo - serialNumberFrom + 1;
+
+    if (taskCount > 100) {
+      throw new BadRequestException(
+        `O intervalo não pode exceder 100 tarefas (tentando criar ${taskCount} tarefas de ${serialNumberFrom} a ${serialNumberTo})`,
+      );
+    }
+
+    this.logger.log(
+      `Creating ${taskCount} tasks with serial numbers from ${serialNumberFrom} to ${serialNumberTo}`,
+    );
+
+    // Create task data for each serial number
+    const tasks: TaskCreateFormData[] = [];
+    for (let serialNum = serialNumberFrom; serialNum <= serialNumberTo; serialNum++) {
+      const taskData = { ...data };
+      // Remove the range fields and set the actual serial number
+      delete (taskData as any).serialNumberFrom;
+      delete (taskData as any).serialNumberTo;
+      taskData.serialNumber = String(serialNum);
+      tasks.push(taskData);
+    }
+
+    // Use the existing batchCreate logic
+    const batchResult = await this.batchCreate({ tasks }, include, userId);
+
+    // Return all created tasks in the response
+    if (batchResult.success && batchResult.data.success.length > 0) {
+      return {
+        success: true,
+        message: `${taskCount} tarefas criadas com sucesso com números de série de ${serialNumberFrom} a ${serialNumberTo}`,
+        data: batchResult.data.success as any, // Array of tasks when creating from range
+      };
+    } else {
+      throw new InternalServerErrorException(
+        `Falha ao criar tarefas em lote: ${batchResult.data.failed.length} falharam`,
+      );
+    }
+  }
+
+  /**
    * Batch create tasks
    */
   async batchCreate(
@@ -413,50 +515,58 @@ export class TaskService {
   ): Promise<TaskBatchCreateResponse<TaskCreateFormData>> {
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Validate all tasks before creating
-        const validationErrors: Array<{ index: number; error: string }> = [];
+        // Process each task individually - "best effort" approach
+        const successfulTasks: Task[] = [];
+        const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
         for (const [index, task] of data.tasks.entries()) {
           try {
+            // Validate task
             await this.validateTask(task, undefined, tx);
+
+            // Create the task
+            const createdTask = await this.tasksRepository.createWithTransaction(tx, task, {
+              include,
+            });
+
+            // Log successful task creation
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.TASK,
+              entityId: createdTask.id,
+              action: CHANGE_ACTION.CREATE,
+              entity: extractEssentialFields(
+                createdTask,
+                getEssentialFields(ENTITY_TYPE.TASK) as (keyof Task)[],
+              ),
+              reason: 'Tarefa criada em operação de lote',
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.BATCH_CREATE,
+              transaction: tx,
+            });
+
+            successfulTasks.push(createdTask);
           } catch (error) {
-            if (error instanceof BadRequestException || error instanceof NotFoundException) {
-              validationErrors.push({ index, error: error.message });
-            }
+            // Collect validation/creation errors but continue processing
+            const errorMessage =
+              error instanceof BadRequestException || error instanceof NotFoundException
+                ? error.message
+                : 'Erro desconhecido ao criar tarefa';
+
+            failedTasks.push({
+              index,
+              error: errorMessage,
+              data: task,
+            });
           }
         }
 
-        if (validationErrors.length > 0) {
-          const errors = validationErrors
-            .map(e => `Tarefa na posição ${e.index + 1}: ${e.error}`)
-            .join('; ');
-          throw new BadRequestException(errors);
-        }
-
-        // Batch create
-        const result = await this.tasksRepository.createManyWithTransaction(tx, data.tasks, {
-          include,
-        });
-
-        // Log successful task creations
-        for (const task of result.success) {
-          await logEntityChange({
-            changeLogService: this.changeLogService,
-            entityType: ENTITY_TYPE.TASK,
-            entityId: task.id,
-            action: CHANGE_ACTION.CREATE,
-            entity: extractEssentialFields(
-              task,
-              getEssentialFields(ENTITY_TYPE.TASK) as (keyof Task)[],
-            ),
-            reason: 'Tarefa criada em operação de lote',
-            userId: userId || '',
-            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_CREATE,
-            transaction: tx,
-          });
-        }
-
-        return result;
+        return {
+          success: successfulTasks,
+          failed: failedTasks,
+          totalCreated: successfulTasks.length,
+          totalFailed: failedTasks.length,
+        };
       });
 
       const successMessage =
@@ -583,7 +693,8 @@ export class TaskService {
               // Update existing truck basic fields
               const updateFields: any = {};
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
-              if (truckData.chassisNumber !== undefined) updateFields.chassisNumber = truckData.chassisNumber;
+              if (truckData.chassisNumber !== undefined)
+                updateFields.chassisNumber = truckData.chassisNumber;
               if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
               if (Object.keys(updateFields).length > 0) {
@@ -639,9 +750,21 @@ export class TaskService {
             };
 
             // Process each layout side
-            await processLayout(truckData.leftSideLayout, existingTruck?.leftSideLayoutId || null, 'leftSideLayoutId');
-            await processLayout(truckData.rightSideLayout, existingTruck?.rightSideLayoutId || null, 'rightSideLayoutId');
-            await processLayout(truckData.backSideLayout, existingTruck?.backSideLayoutId || null, 'backSideLayoutId');
+            await processLayout(
+              truckData.leftSideLayout,
+              existingTruck?.leftSideLayoutId || null,
+              'leftSideLayoutId',
+            );
+            await processLayout(
+              truckData.rightSideLayout,
+              existingTruck?.rightSideLayoutId || null,
+              'rightSideLayoutId',
+            );
+            await processLayout(
+              truckData.backSideLayout,
+              existingTruck?.backSideLayoutId || null,
+              'backSideLayoutId',
+            );
 
             // Handle layout photo uploads
             if (files) {
@@ -649,12 +772,20 @@ export class TaskService {
               const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
 
               for (const key of layoutPhotoKeys) {
-                const side = key.replace('layoutPhotos.', '') as 'leftSide' | 'rightSide' | 'backSide';
-                const photoFile = Array.isArray((files as any)[key]) ? (files as any)[key][0] : (files as any)[key];
+                const side = key.replace('layoutPhotos.', '') as
+                  | 'leftSide'
+                  | 'rightSide'
+                  | 'backSide';
+                const photoFile = Array.isArray((files as any)[key])
+                  ? (files as any)[key][0]
+                  : (files as any)[key];
 
                 if (photoFile) {
                   const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
-                    tx, photoFile, 'layoutPhotos', userId,
+                    tx,
+                    photoFile,
+                    'layoutPhotos',
+                    userId,
                     { entityId: id, entityType: 'LAYOUT', customerName },
                   );
 
@@ -665,11 +796,17 @@ export class TaskService {
                   } as const;
 
                   const layoutId = await tx.truck
-                    .findUnique({ where: { id: truckId }, select: { [layoutFieldMap[side]]: true } })
+                    .findUnique({
+                      where: { id: truckId },
+                      select: { [layoutFieldMap[side]]: true },
+                    })
                     .then(t => t?.[layoutFieldMap[side]]);
 
                   if (layoutId) {
-                    await tx.layout.update({ where: { id: layoutId }, data: { photoId: uploadedPhoto.id } });
+                    await tx.layout.update({
+                      where: { id: layoutId },
+                      data: { photoId: uploadedPhoto.id },
+                    });
                   }
                 }
               }
@@ -1106,6 +1243,159 @@ export class TaskService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
         });
+
+        // Emit field update events for important fields
+        if (userId) {
+          try {
+            const updatedByUser = await tx.user.findUnique({
+              where: { id: userId },
+            });
+            if (updatedByUser) {
+              // Check for status change
+              if (existingTask.status !== updatedTask.status) {
+                this.eventEmitter.emit(
+                  'task.status.changed',
+                  new TaskStatusChangedEvent(
+                    updatedTask as Task,
+                    existingTask.status,
+                    updatedTask.status,
+                    updatedByUser as any,
+                  ),
+                );
+              }
+
+              // Emit events for other important field changes
+              const importantFields = ['term', 'forecastDate', 'sectorId', 'priority', 'details'];
+
+              for (const field of importantFields) {
+                if (
+                  hasValueChanged(
+                    existingTask[field as keyof typeof existingTask],
+                    updatedTask[field as keyof typeof updatedTask],
+                  )
+                ) {
+                  this.eventEmitter.emit(
+                    'task.field.updated',
+                    new TaskFieldUpdatedEvent(
+                      updatedTask as Task,
+                      field,
+                      existingTask[field as keyof typeof existingTask],
+                      updatedTask[field as keyof typeof updatedTask],
+                      updatedByUser as any,
+                    ),
+                  );
+                }
+              }
+            }
+
+            // Track field changes with the field tracker service
+            try {
+              const fieldChanges = await this.fieldTracker.trackChanges(
+                id,
+                existingTask as Task,
+                updatedTask as Task,
+                userId,
+              );
+
+              if (fieldChanges.length > 0) {
+                // Store field changes in database
+                for (const change of fieldChanges) {
+                  const isFileArray = [
+                    'artworks',
+                    'budgets',
+                    'invoices',
+                    'receipts',
+                    'reimbursements',
+                    'invoiceReimbursements',
+                  ].includes(change.field);
+                  let filesAdded = 0;
+                  let filesRemoved = 0;
+                  let metadata: any = null;
+
+                  if (isFileArray) {
+                    const fileChange = this.fieldTracker.analyzeFileArrayChange(
+                      change.oldValue || [],
+                      change.newValue || [],
+                    );
+                    filesAdded = fileChange.added;
+                    filesRemoved = fileChange.removed;
+                    metadata = {
+                      addedFiles: fileChange.addedFiles?.map(f => ({
+                        id: f.id,
+                        filename: f.filename,
+                      })),
+                      removedFiles: fileChange.removedFiles?.map(f => ({
+                        id: f.id,
+                        filename: f.filename,
+                      })),
+                    };
+                  }
+
+                  await tx.taskFieldChangeLog.create({
+                    data: {
+                      taskId: id,
+                      field: change.field,
+                      oldValue: change.oldValue,
+                      newValue: change.newValue,
+                      changedBy: userId,
+                      changedAt: change.changedAt,
+                      isFileArray,
+                      filesAdded,
+                      filesRemoved,
+                      metadata,
+                    },
+                  });
+                }
+
+                // Emit field change events
+                await this.fieldTracker.emitFieldChangeEvents(
+                  updatedTask as Task,
+                  fieldChanges,
+                  existingTask as Task,
+                );
+
+                // Track changes using TaskNotificationService for granular field-level notifications
+                try {
+                  const taskChanges = this.taskNotificationService.trackTaskChanges(
+                    existingTask as Task,
+                    updatedTask as Task,
+                  );
+
+                  if (taskChanges.length > 0) {
+                    this.logger.log(
+                      `Detected ${taskChanges.length} field changes for notification tracking`,
+                    );
+
+                    // Get target users for notifications: sector manager + admins
+                    const targetUsers = await this.getTargetUsersForNotification(
+                      updatedTask,
+                      tx,
+                    );
+
+                    // Create notifications for each target user
+                    for (const targetUserId of targetUsers) {
+                      // Skip notifying the user who made the change
+                      if (targetUserId === userId) continue;
+
+                      await this.taskNotificationService.createFieldChangeNotifications(
+                        updatedTask as Task,
+                        taskChanges,
+                        targetUserId,
+                        userId,
+                      );
+                    }
+                  }
+                } catch (notificationError) {
+                  this.logger.error('Error creating task field notifications:', notificationError);
+                }
+              }
+            } catch (error) {
+              this.logger.error('Error tracking field changes:', error);
+            }
+          } catch (error) {
+            this.logger.error('Error emitting task update events:', error);
+          }
+        }
 
         // Track services array changes
         if (data.services !== undefined) {
@@ -1885,9 +2175,7 @@ export class TaskService {
           const truckData = (updateData as any)?.truck;
           if (
             truckData &&
-            (truckData.leftSideLayout ||
-              truckData.rightSideLayout ||
-              truckData.backSideLayout)
+            (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)
           ) {
             this.logger.log(`[batchUpdate] Processing truck layouts for task ${task.id}`);
 
@@ -1938,7 +2226,9 @@ export class TaskService {
 
               // Delete existing layout if present
               if (existingLayoutId) {
-                this.logger.log(`[batchUpdate] Deleting existing ${sideName} layout: ${existingLayoutId}`);
+                this.logger.log(
+                  `[batchUpdate] Deleting existing ${sideName} layout: ${existingLayoutId}`,
+                );
                 await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
                 await tx.layout.delete({ where: { id: existingLayoutId } });
                 await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
@@ -1953,14 +2243,12 @@ export class TaskService {
                     photo: { connect: { id: layoutData.photoId } },
                   }),
                   layoutSections: {
-                    create: layoutData.layoutSections.map(
-                      (section: any, index: number) => ({
-                        width: section.width,
-                        isDoor: section.isDoor,
-                        doorHeight: section.doorHeight,
-                        position: section.position ?? index,
-                      }),
-                    ),
+                    create: layoutData.layoutSections.map((section: any, index: number) => ({
+                      width: section.width,
+                      isDoor: section.isDoor,
+                      doorHeight: section.doorHeight,
+                      position: section.position ?? index,
+                    })),
                   },
                 },
               });
@@ -1973,7 +2261,12 @@ export class TaskService {
 
             // Process each side using the consolidated format
             await processLayout(truckData.leftSideLayout, leftLayoutId, 'leftSideLayoutId', 'left');
-            await processLayout(truckData.rightSideLayout, rightLayoutId, 'rightSideLayoutId', 'right');
+            await processLayout(
+              truckData.rightSideLayout,
+              rightLayoutId,
+              'rightSideLayoutId',
+              'right',
+            );
             await processLayout(truckData.backSideLayout, backLayoutId, 'backSideLayoutId', 'back');
 
             this.logger.log(`[batchUpdate] Finished processing layouts for task ${task.id}`);
@@ -2788,9 +3081,18 @@ export class TaskService {
 
       // 5b. Special handling for file relationship fields (many-to-many with File)
       // These are the File[] relations on Task that need Prisma's { set: [...] } syntax
-      const fileRelationFields = ['artworks', 'budgets', 'invoices', 'invoiceReimbursements', 'receipts', 'reimbursements'];
+      const fileRelationFields = [
+        'artworks',
+        'budgets',
+        'invoices',
+        'invoiceReimbursements',
+        'receipts',
+        'reimbursements',
+      ];
       if (fileRelationFields.includes(fieldToRevert)) {
-        this.logger.log(`[Rollback] Starting ${fieldToRevert} rollback for task ${changeLog.entityId}`);
+        this.logger.log(
+          `[Rollback] Starting ${fieldToRevert} rollback for task ${changeLog.entityId}`,
+        );
         this.logger.log(`[Rollback] oldValue type: ${typeof oldValue}`);
 
         // Parse oldValue if it's a JSON string
@@ -2809,13 +3111,17 @@ export class TaskService {
         // oldValue can be: array of file objects [{id, filename, ...}], array of IDs, or null/empty
         let fileIds: string[] = [];
         if (parsedOldValue && Array.isArray(parsedOldValue)) {
-          fileIds = parsedOldValue.map((item: any) => {
-            // Handle both full file objects and plain IDs
-            return typeof item === 'string' ? item : item.id;
-          }).filter((id: string) => id); // Filter out any null/undefined
+          fileIds = parsedOldValue
+            .map((item: any) => {
+              // Handle both full file objects and plain IDs
+              return typeof item === 'string' ? item : item.id;
+            })
+            .filter((id: string) => id); // Filter out any null/undefined
         }
 
-        this.logger.log(`[Rollback] Setting ${fieldToRevert} to ${fileIds.length} files: ${fileIds.join(', ')}`);
+        this.logger.log(
+          `[Rollback] Setting ${fieldToRevert} to ${fileIds.length} files: ${fileIds.join(', ')}`,
+        );
 
         // Update the task using Prisma's relationship set syntax
         await tx.task.update({
@@ -3779,5 +4085,47 @@ export class TaskService {
       total: taskIds.length,
       errors,
     };
+  }
+
+  /**
+   * Get target users for task notifications
+   * Returns: assigned user (sector manager) + admin users
+   */
+  private async getTargetUsersForNotification(
+    task: any,
+    tx?: PrismaTransaction,
+  ): Promise<string[]> {
+    const userIds = new Set<string>();
+    const prismaClient = tx || this.prisma;
+
+    // Get sector manager (assigned user)
+    if (task.sectorId) {
+      const sector = await prismaClient.sector.findUnique({
+        where: { id: task.sectorId },
+        select: { managerId: true },
+      });
+
+      if (sector?.managerId) {
+        userIds.add(sector.managerId);
+      }
+    }
+
+    // Get admin users (users with admin positions)
+    const admins = await prismaClient.user.findMany({
+      where: {
+        isActive: true,
+        position: {
+          isNot: null,
+          name: {
+            in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    admins.forEach(admin => userIds.add(admin.id));
+
+    return Array.from(userIds);
   }
 }

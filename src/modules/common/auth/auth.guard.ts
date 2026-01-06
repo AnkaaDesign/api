@@ -116,7 +116,9 @@ export class AuthGuard implements CanActivate {
           }
 
           // Filter out TEAM_LEADER from required privileges for regular check
-          const regularPrivileges = requiredPrivileges.filter(p => p !== SECTOR_PRIVILEGES.TEAM_LEADER);
+          const regularPrivileges = requiredPrivileges.filter(
+            p => p !== SECTOR_PRIVILEGES.TEAM_LEADER,
+          );
 
           // If there are regular privileges to check
           if (regularPrivileges.length > 0) {

@@ -130,7 +130,7 @@ export class OrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
   )
@@ -154,7 +154,7 @@ export class OrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -249,7 +249,7 @@ export class OrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -290,33 +290,6 @@ export class OrderController {
       reimbursementInvoices?: Express.Multer.File[];
     },
   ): Promise<OrderUpdateResponse> {
-    console.log('═══════════════════════════════════════════════');
-    console.log('[ORDER UPDATE CONTROLLER] Received update request');
-    console.log('[ORDER UPDATE CONTROLLER] Order ID:', id);
-    console.log('[ORDER UPDATE CONTROLLER] Data keys:', Object.keys(data));
-    console.log('[ORDER UPDATE CONTROLLER] Files received:', files ? 'YES' : 'NO');
-
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[ORDER UPDATE CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({
-              name: f.originalname,
-              size: f.size,
-              mimetype: f.mimetype,
-              path: f.path,
-            })),
-          );
-        } else {
-          console.log(`[ORDER UPDATE CONTROLLER] ${key}: empty or undefined`);
-        }
-      });
-    } else {
-      console.log('[ORDER UPDATE CONTROLLER] Files parameter is undefined');
-    }
-    console.log('═══════════════════════════════════════════════');
-
     return this.orderService.update(id, data, query.include, userId, files);
   }
 
@@ -395,7 +368,7 @@ export class OrderItemController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -500,7 +473,7 @@ export class OrderItemController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -554,7 +527,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -633,7 +606,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -678,7 +651,7 @@ export class OrderScheduleController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,

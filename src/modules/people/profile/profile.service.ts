@@ -27,11 +27,8 @@ export class ProfileService {
         sector: true,
         managedSector: true,
         ppeSize: true,
-        preference: {
-          include: {
-            notifications: true,
-          },
-        },
+        preference: true,
+        notificationPreferences: true,
       },
     });
 

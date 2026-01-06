@@ -163,7 +163,8 @@ export abstract class DashboardRepository {
     inProduction: number;
     completed: number;
     cancelled: number;
-    onHold: number;
+    preparation: number;
+    pending: number;
     averageCompletionHours: number;
   }>;
   abstract getServiceOrderStatistics(where?: any): Promise<{

@@ -1,0 +1,140 @@
+<h1>Pedido Atualizado <span class="badge badge-updated">ATUALIZADO</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>O pedido <strong>{{order.orderNumber}}</strong> foi atualizado no sistema.</p>
+
+<div class="info-box">
+    <div class="info-row">
+        <span class="info-label">Número do Pedido:</span>
+        <span class="info-value"><strong>{{order.orderNumber}}</strong></span>
+    </div>
+    {{#if order.customer}}
+        <div class="info-row">
+            <span class="info-label">Cliente:</span>
+            <span class="info-value">{{order.customer}}</span>
+        </div>
+    {{/if}}
+    {{#if updatedBy}}
+        <div class="info-row">
+            <span class="info-label">Atualizado por:</span>
+            <span class="info-value">{{updatedBy}}</span>
+        </div>
+    {{/if}}
+    <div class="info-row">
+        <span class="info-label">Data da atualização:</span>
+        <span class="info-value">{{updatedAt}}</span>
+    </div>
+</div>
+
+<h2>Alterações Realizadas:</h2>
+
+<div class="change-list">
+    {{#each changes}}
+        <div class="change-item">
+            <div class="change-field">{{this.field}}:</div>
+            <div>
+                {{#if this.oldValue}}
+                    <span class="change-old">{{this.oldValue}}</span>
+                    →
+                    <span class="change-new">{{this.newValue}}</span>
+                {{else}}
+                    <span class="change-new">{{this.newValue}}</span>
+                {{/if}}
+            </div>
+        </div>
+    {{else}}
+        <p style="color: #6c757d; font-style: italic;">Nenhuma alteração específica registrada.</p>
+    {{/each}}
+</div>
+
+{{#if statusChanged}}
+    <div class="info-box {{#if (eq order.currentStatus 'cancelled')}}danger{{else if (eq order.currentStatus 'completed')}}success{{else}}{{/if}}">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">
+            {{#if (eq order.currentStatus 'cancelled')}}
+                Pedido Cancelado
+            {{else if (eq order.currentStatus 'completed')}}
+                Pedido Concluído
+            {{else if (eq order.currentStatus 'processing')}}
+                Pedido em Processamento
+            {{else if (eq order.currentStatus 'shipped')}}
+                Pedido Enviado
+            {{else}}
+                Status do Pedido
+            {{/if}}
+        </h3>
+        <div class="info-row">
+            <span class="info-label">Status Atual:</span>
+            <span class="info-value"><strong>{{order.currentStatus}}</strong></span>
+        </div>
+        {{#if statusMessage}}
+            <p style="margin: 10px 0 0 0;">{{statusMessage}}</p>
+        {{/if}}
+    </div>
+{{/if}}
+
+<div class="info-box">
+    <h3 style="font-size: 16px; margin-bottom: 10px;">Resumo do Pedido:</h3>
+    {{#if order.totalItems}}
+        <div class="info-row">
+            <span class="info-label">Total de Itens:</span>
+            <span class="info-value">{{order.totalItems}}</span>
+        </div>
+    {{/if}}
+    {{#if order.total}}
+        <div class="info-row">
+            <span class="info-label">Valor Total:</span>
+            <span class="info-value"><strong>{{order.total}}</strong></span>
+        </div>
+    {{/if}}
+    {{#if order.currentStatus}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{order.currentStatus}}</span>
+        </div>
+    {{/if}}
+    {{#if order.paymentStatus}}
+        <div class="info-row">
+            <span class="info-label">Pagamento:</span>
+            <span class="info-value">{{order.paymentStatus}}</span>
+        </div>
+    {{/if}}
+</div>
+
+{{#if order.trackingNumber}}
+    <div class="info-box success">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">Informações de Rastreamento:</h3>
+        <div class="info-row">
+            <span class="info-label">Código de Rastreio:</span>
+            <span class="info-value"><strong>{{order.trackingNumber}}</strong></span>
+        </div>
+        {{#if order.carrier}}
+            <div class="info-row">
+                <span class="info-label">Transportadora:</span>
+                <span class="info-value">{{order.carrier}}</span>
+            </div>
+        {{/if}}
+        {{#if order.trackingUrl}}
+            <div style="margin-top: 10px;">
+                <a href="{{order.trackingUrl}}" style="color: #007bff; text-decoration: underline;">Rastrear pedido</a>
+            </div>
+        {{/if}}
+    </div>
+{{/if}}
+
+{{#if updateNotes}}
+    <h2>Observações da Atualização:</h2>
+    <div class="info-box">
+        <p style="margin: 0;">{{updateNotes}}</p>
+    </div>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-primary">Ver Pedido Atualizado</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Mantenha-se informado sobre o status do seu pedido. Clique no botão acima para visualizar todos os detalhes e o histórico completo.
+</p>

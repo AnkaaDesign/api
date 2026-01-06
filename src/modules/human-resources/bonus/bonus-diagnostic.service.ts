@@ -224,26 +224,28 @@ export class BonusDiagnosticService {
    * Run comprehensive diagnostic for Junior IV case
    */
   runJuniorIVDiagnostic(): void {
-    console.log('=== Junior IV Bonus Diagnostic ===\n');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('=== Junior IV Bonus Diagnostic ===\n');
 
-    const result = this.diagnoseBonusCalculation(
-      'Junior Iv', // As shown in screenshot
-      1, // Performance level 1
-      4.17647059, // B1 value
-      78.6, // Actual system value
-      265.42, // Expected Excel value
-    );
+      const result = this.diagnoseBonusCalculation(
+        'Junior Iv', // As shown in screenshot
+        1, // Performance level 1
+        4.17647059, // B1 value
+        78.6, // Actual system value
+        265.42, // Expected Excel value
+      );
 
-    console.log('Diagnosis:');
-    result.diagnosis.forEach(line => console.log(line));
+      console.log('Diagnosis:');
+      result.diagnosis.forEach(line => console.log(line));
 
-    console.log('\nCalculations:');
-    console.log(JSON.stringify(result.calculations, null, 2));
+      console.log('\nCalculations:');
+      console.log(JSON.stringify(result.calculations, null, 2));
 
-    console.log('\n📋 Action Items:');
-    console.log('1. Verify position detection is working correctly');
-    console.log('2. Check if B1 is being calculated correctly (71 tasks / 17 users)');
-    console.log('3. Verify no unexpected discounts are being applied');
-    console.log('4. Check if the correct formula is being used in production');
+      console.log('\n📋 Action Items:');
+      console.log('1. Verify position detection is working correctly');
+      console.log('2. Check if B1 is being calculated correctly (71 tasks / 17 users)');
+      console.log('3. Verify no unexpected discounts are being applied');
+      console.log('4. Check if the correct formula is being used in production');
+    }
   }
 }

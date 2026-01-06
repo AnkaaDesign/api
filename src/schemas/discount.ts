@@ -328,9 +328,7 @@ export const discountGetManySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(10),
   include: discountIncludeSchema.optional(),
   where: discountWhereSchema.optional(),
-  orderBy: discountOrderBySchema
-    .optional()
-    .default({ discountType: 'asc', createdAt: 'desc' }),
+  orderBy: discountOrderBySchema.optional().default({ discountType: 'asc', createdAt: 'desc' }),
   searchingFor: z.string().optional(),
 
   // Specific discount filters

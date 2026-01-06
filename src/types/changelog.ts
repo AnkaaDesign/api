@@ -82,7 +82,11 @@ export interface ChangeLogDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ChangeLogBatchCreateResponse<T> extends BaseBatchResponse<ChangeLog, T> {}
-export interface ChangeLogBatchUpdateResponse<T>
-  extends BaseBatchResponse<ChangeLog, T & { id: string }> {}
-export interface ChangeLogBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ChangeLogBatchUpdateResponse<T> extends BaseBatchResponse<
+  ChangeLog,
+  T & { id: string }
+> {}
+export interface ChangeLogBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

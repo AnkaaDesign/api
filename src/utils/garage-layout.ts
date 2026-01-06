@@ -62,11 +62,11 @@ function groupTrucksByLane(
   const laneMap = new Map<LaneId, TruckForLayout[]>();
 
   // Initialize empty arrays for each lane
-  (['A', 'B', 'C'] as LaneId[]).forEach((laneId) => {
+  (['F1', 'F2', 'F3'] as LaneId[]).forEach(laneId => {
     laneMap.set(laneId, []);
   });
 
-  trucks.forEach((truck) => {
+  trucks.forEach(truck => {
     if (!truck.spot) return;
 
     const parsed = parseSpot(truck.spot);
@@ -100,10 +100,7 @@ function sortTrucksBySpotNumber(trucks: TruckForLayout[]): TruckForLayout[] {
  * - Otherwise, distribute trucks with justify-between spacing
  * - Minimum spacing between trucks is 2m
  */
-export function calculateLaneLayout(
-  lane: Lane,
-  trucks: TruckForLayout[],
-): LaneWithTrucks {
+export function calculateLaneLayout(lane: Lane, trucks: TruckForLayout[]): LaneWithTrucks {
   const sortedTrucks = sortTrucksBySpotNumber(trucks);
   const positionedTrucks: PositionedTruck[] = [];
 
@@ -163,7 +160,7 @@ export function calculateGarageLayout(
   garageId: GarageId,
   trucks: TruckForLayout[],
 ): GarageWithTrucks {
-  const garage = GARAGES.find((g) => g.id === garageId);
+  const garage = GARAGES.find(g => g.id === garageId);
   if (!garage) {
     throw new Error(`Garage ${garageId} not found`);
   }
@@ -171,7 +168,7 @@ export function calculateGarageLayout(
   const trucksByLane = groupTrucksByLane(trucks, garageId);
   const lanesWithTrucks: LaneWithTrucks[] = [];
 
-  garage.lanes.forEach((lane) => {
+  garage.lanes.forEach(lane => {
     const laneTrucks = trucksByLane.get(lane.id) || [];
     lanesWithTrucks.push(calculateLaneLayout(lane, laneTrucks));
   });
@@ -199,9 +196,7 @@ export interface PatioLayout {
  * Creates a dynamic grid based on the number of trucks
  */
 export function calculatePatioLayout(trucks: TruckForLayout[]): PatioLayout {
-  const patioTrucks = trucks.filter(
-    (t) => !t.spot || t.spot === TRUCK_SPOT.PATIO,
-  );
+  const patioTrucks = trucks.filter(t => !t.spot || t.spot === TRUCK_SPOT.PATIO);
 
   if (patioTrucks.length === 0) {
     return {
@@ -215,17 +210,13 @@ export function calculatePatioLayout(trucks: TruckForLayout[]): PatioLayout {
 
   // Calculate optimal grid layout
   // Assume standard truck length of 12m and width of 2.8m with 2m spacing
-  const avgTruckLength =
-    patioTrucks.reduce((sum, t) => sum + t.length, 0) / patioTrucks.length;
+  const avgTruckLength = patioTrucks.reduce((sum, t) => sum + t.length, 0) / patioTrucks.length;
   const truckWidth = GARAGE_CONFIG.TRUCK_WIDTH_TOP_VIEW;
   const spacing = GARAGE_CONFIG.TRUCK_MIN_SPACING;
 
   // Calculate columns to fit in a reasonable width (similar to garage width)
   const targetWidth = GARAGE_CONFIG.GARAGE_WIDTH;
-  const columns = Math.max(
-    1,
-    Math.floor(targetWidth / (truckWidth + spacing)),
-  );
+  const columns = Math.max(1, Math.floor(targetWidth / (truckWidth + spacing)));
   const rows = Math.ceil(patioTrucks.length / columns);
 
   // Position trucks in grid
@@ -264,7 +255,7 @@ export function canTruckFitInLane(
   existingTrucks: TruckForLayout[],
   excludeTruckId?: string,
 ): boolean {
-  const trucksInLane = existingTrucks.filter((t) => t.id !== excludeTruckId);
+  const trucksInLane = existingTrucks.filter(t => t.id !== excludeTruckId);
 
   if (trucksInLane.length >= GARAGE_CONFIG.MAX_TRUCKS_PER_LANE) {
     return false;
@@ -286,15 +277,13 @@ export function getNextAvailableSpot(
   laneId: LaneId,
   existingTrucks: TruckForLayout[],
 ): TRUCK_SPOT | null {
-  const trucksInLane = existingTrucks.filter((t) => {
+  const trucksInLane = existingTrucks.filter(t => {
     if (!t.spot) return false;
     const parsed = parseSpot(t.spot);
     return parsed.garage === garageId && parsed.lane === laneId;
   });
 
-  const occupiedSpots = new Set(
-    trucksInLane.map((t) => parseSpot(t.spot!).spotNumber),
-  );
+  const occupiedSpots = new Set(trucksInLane.map(t => parseSpot(t.spot!).spotNumber));
 
   for (let spotNum = 1; spotNum <= GARAGE_CONFIG.MAX_TRUCKS_PER_LANE; spotNum++) {
     if (!occupiedSpots.has(spotNum as 1 | 2 | 3)) {

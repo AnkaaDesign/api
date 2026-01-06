@@ -25,7 +25,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     ]);
 
     if (skipThrottle) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         const request = context.switchToHttp().getRequest();
         const handler = context.getHandler();
         const classRef = context.getClass();
@@ -39,7 +39,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     }
     // CRITICAL: Check if rate limiting is completely disabled via environment variable
     if (process.env.DISABLE_RATE_LIMITING === 'true') {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] RATE LIMITING COMPLETELY DISABLED via DISABLE_RATE_LIMITING=true`,
         );
@@ -53,7 +53,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const classRef = context.getClass();
     const controllerName = classRef.name;
 
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV !== 'production') {
       console.log(
         `[CustomThrottlerGuard] canActivate - Controller: ${controllerName}, Endpoint: ${endpoint}, User: ${request.user?.sub || request.user?.id}`,
       );
@@ -66,7 +66,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     ]);
 
     if (skipDefault) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Skipping all throttling for ${controllerName}.${endpoint} due to @NoRateLimit()`,
         );
@@ -92,7 +92,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     });
 
     if (hasAnySkip) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Some throttlers skipped for ${controllerName}.${endpoint} due to @NoRateLimit()`,
         );
@@ -102,7 +102,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
     // SECOND: Global rate limiting disable switch
     if (process.env.DISABLE_RATE_LIMITING === 'true') {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] RATE LIMITING GLOBALLY DISABLED for ${controllerName}.${endpoint}`,
         );
@@ -113,7 +113,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     // THIRD: Completely bypass rate limiting for file operations in development
     const isFileOp = this.isFileOperation(controllerName, endpoint);
     if (process.env.NODE_ENV === 'development' && isFileOp) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] BYPASSING ALL RATE LIMITING for file operation: ${controllerName}.${endpoint}`,
         );
@@ -137,7 +137,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const controllerName = context.getClass().name;
     const isFileOperation = this.isFileOperation(controllerName, endpoint);
 
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV !== 'production') {
       console.log(
         `[CustomThrottlerGuard] handleRequest - Controller: ${controllerName}, Throttler: ${throttlerName}, Endpoint: ${endpoint}`,
         {
@@ -158,7 +158,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     );
 
     if (skipThisThrottler) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Skipping throttler ${throttlerName} for ${controllerName}.${endpoint} due to @NoRateLimit()`,
         );
@@ -168,7 +168,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
     // SECOND: Completely bypass rate limiting for ALL file operations
     if (isFileOperation) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] BYPASSING ALL RATE LIMITING for file operation: ${controllerName}.${endpoint}`,
         );
@@ -181,7 +181,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const isVerificationThrottler = throttlerName.includes('verification');
 
     if (isVerificationThrottler && !isVerificationEndpoint) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Skipping verification throttler ${throttlerName} for non-verification endpoint ${endpoint}`,
         );
@@ -195,7 +195,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
       !isVerificationThrottler &&
       !['short', 'default'].includes(throttlerName)
     ) {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Skipping non-verification throttler ${throttlerName} for verification endpoint ${endpoint}`,
         );
@@ -205,7 +205,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
 
     // For the getCurrentUser endpoint, only allow 'long' throttler from ReadRateLimit
     if (endpoint === 'getCurrentUser' && throttlerName !== 'long') {
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Skipping throttler ${throttlerName} for getCurrentUser endpoint (only 'long' allowed)`,
         );
@@ -233,7 +233,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
         throttlerName,
       );
 
-      if (process.env.NODE_ENV === 'development') {
+      if (process.env.NODE_ENV !== 'production') {
         console.log(
           `[CustomThrottlerGuard] Storage increment result - Key: ${key}, Hits: ${totalHits}/${limit}, Throttler: ${throttlerName}`,
         );
@@ -264,7 +264,9 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
         throw error;
       }
       // If Redis is down, allow the request but log the error
-      console.error('Erro no rate limiting:', error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('Erro no rate limiting:', error);
+      }
       return true;
     }
   }
@@ -330,7 +332,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     const endpoint = context.getHandler().name;
 
     // Debug logging to identify throttler issues
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV !== 'production') {
       console.log(
         `[CustomThrottlerGuard] Throttler applied: ${throttlerName}, Endpoint: ${endpoint}`,
         {
@@ -385,7 +387,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
         return 'Limite de requisições excedido. Por favor, tente novamente mais tarde.';
 
       default:
-        if (process.env.NODE_ENV === 'development') {
+        if (process.env.NODE_ENV !== 'production') {
           console.warn(
             `[CustomThrottlerGuard] Unknown throttler: ${throttlerName} for endpoint: ${endpoint}`,
           );

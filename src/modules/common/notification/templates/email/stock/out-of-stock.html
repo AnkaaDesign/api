@@ -1,0 +1,140 @@
+<div class="alert-box">
+    <p><strong>Alerta Crítico: Item Sem Estoque!</strong></p>
+</div>
+
+<p>O item <strong>{{itemName}}</strong> está sem estoque disponível.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes do Item</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Item:</span>
+            <span class="info-value"><strong>{{itemName}}</strong></span>
+        </div>
+        {{#if itemCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{itemCode}}</span>
+        </div>
+        {{/if}}
+        {{#if category}}
+        <div class="info-row">
+            <span class="info-label">Categoria:</span>
+            <span class="info-value">{{category}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Quantidade Atual:</span>
+            <span class="info-value"><strong style="color: #dc3545;">{{currentQuantity}}</strong></span>
+        </div>
+        {{#if lastStockDate}}
+        <div class="info-row">
+            <span class="info-label">Última Entrada:</span>
+            <span class="info-value">{{lastStockDate}}</span>
+        </div>
+        {{/if}}
+        {{#if location}}
+        <div class="info-row">
+            <span class="info-label">Localização:</span>
+            <span class="info-value">{{location}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if impactedTasks}}
+<div class="warning-box">
+    <p><strong>Tarefas Impactadas:</strong></p>
+    <p>Existem <strong>{{impactedTasks}}</strong> tarefa(s) que podem ser afetadas pela falta deste item.</p>
+    {{#if tasksList}}
+    <ul style="margin-top: 10px;">
+        {{#each tasksList}}
+        <li>{{this.name}} - Prazo: {{this.deadline}}</li>
+        {{/each}}
+    </ul>
+    {{/if}}
+</div>
+{{/if}}
+
+{{#if pendingDemand}}
+<div class="alert-box">
+    <p><strong>Demanda Pendente:</strong></p>
+    <div class="info-row">
+        <span class="info-label">Quantidade Solicitada:</span>
+        <span class="info-value"><strong>{{pendingDemand}}</strong></span>
+    </div>
+    {{#if backorderCount}}
+    <div class="info-row">
+        <span class="info-label">Pedidos em Espera:</span>
+        <span class="info-value">{{backorderCount}}</span>
+    </div>
+    {{/if}}
+</div>
+{{/if}}
+
+<p><strong>Ações Urgentes Necessárias:</strong></p>
+<ul>
+    <li><strong style="color: #dc3545;">Criar pedido de compra imediatamente</strong></li>
+    <li>Verificar fornecedores com estoque disponível para entrega expressa</li>
+    <li>Notificar as partes interessadas sobre a falta de estoque</li>
+    <li>Avaliar opções de itens substitutos, se aplicável</li>
+    {{#if suggestedOrderQuantity}}
+    <li>Quantidade sugerida para pedido urgente: <strong>{{suggestedOrderQuantity}}</strong></li>
+    {{/if}}
+</ul>
+
+{{#if preferredSuppliers}}
+<p><strong>Fornecedores Disponíveis:</strong></p>
+<table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+    <thead>
+        <tr style="background-color: #f8f9fa;">
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Fornecedor</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Estoque</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Prazo</th>
+            <th style="padding: 10px; text-align: right; border-bottom: 2px solid #dee2e6;">Preço</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#each preferredSuppliers}}
+        <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{this.name}}</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">
+                {{#if this.hasStock}}
+                <span style="color: #28a745;">Disponível</span>
+                {{else}}
+                <span style="color: #dc3545;">Indisponível</span>
+                {{/if}}
+            </td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">{{this.leadTime}}</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #dee2e6;">{{this.price}}</td>
+        </tr>
+        {{/each}}
+    </tbody>
+</table>
+{{/if}}
+
+{{#if alternativeItems}}
+<p><strong>Itens Alternativos:</strong></p>
+<ul>
+    {{#each alternativeItems}}
+    <li>{{this.name}} (Código: {{this.code}}) - Estoque: {{this.stock}}</li>
+    {{/each}}
+</ul>
+{{/if}}
+
+{{#if pendingOrders}}
+<div class="info-box" style="margin-top: 20px; background-color: #e7f3ff; border-left-color: #2196F3;">
+    <div class="info-box-title">Pedidos em Andamento</div>
+    <div class="info-box-content">
+        <p>Existem {{pendingOrders}} pedido(s) em andamento para este item.</p>
+        {{#if expectedArrival}}
+        <div class="info-row">
+            <span class="info-label">Próxima Chegada Prevista:</span>
+            <span class="info-value"><strong>{{expectedArrival}}</strong></span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+{{/if}}
+
+<p class="text-muted text-small"><strong>Este é um alerta crítico.</strong> A falta deste item pode impactar operações. Ação imediata é necessária.</p>

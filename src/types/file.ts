@@ -184,5 +184,7 @@ export interface FileMultipleUploadResponse extends BaseCreateResponse<File[]> {
 
 export interface FileBatchCreateResponse<T> extends BaseBatchResponse<File, T> {}
 export interface FileBatchUpdateResponse<T> extends BaseBatchResponse<File, T & { id: string }> {}
-export interface FileBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface FileBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

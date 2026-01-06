@@ -75,7 +75,11 @@ export interface VacationDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface VacationBatchCreateResponse<T> extends BaseBatchResponse<Vacation, T> {}
-export interface VacationBatchUpdateResponse<T>
-  extends BaseBatchResponse<Vacation, T & { id: string }> {}
-export interface VacationBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface VacationBatchUpdateResponse<T> extends BaseBatchResponse<
+  Vacation,
+  T & { id: string }
+> {}
+export interface VacationBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

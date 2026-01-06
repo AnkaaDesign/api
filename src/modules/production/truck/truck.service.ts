@@ -112,16 +112,13 @@ export class TruckService {
     });
 
     // Calculate truck lengths from layout sections
-    const trucksWithLengths = trucksInGarage.map((truck) => {
+    const trucksWithLengths = trucksInGarage.map(truck => {
       // Use left or right side layout to calculate length
       const layout = truck.leftSideLayout || truck.rightSideLayout;
       let length = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
 
       if (layout?.layoutSections) {
-        const sectionsSum = layout.layoutSections.reduce(
-          (sum, s) => sum + s.width,
-          0,
-        );
+        const sectionsSum = layout.layoutSections.reduce((sum, s) => sum + s.width, 0);
         // Add cabin if < 10m (same logic as calculateTruckGarageLength)
         length =
           sectionsSum < GARAGE_CONFIG.CABIN_THRESHOLD
@@ -146,17 +143,17 @@ export class TruckService {
     // Calculate availability for each lane
     const maxSpotsInTaskForm = 2; // Task form only uses V1 and V2
 
-    return lanes.map((laneId) => {
-      const trucksInLane = trucksWithLengths.filter((t) => t.lane === laneId);
+    return lanes.map(laneId => {
+      const trucksInLane = trucksWithLengths.filter(t => t.lane === laneId);
       const occupiedSpots = trucksInLane
-        .map((t) => t.spotNumber)
+        .map(t => t.spotNumber)
         .filter((s): s is SpotNumber => s !== null)
         .sort((a, b) => a - b);
 
       // Build spot occupants list with task names
       const spotOccupants: SpotOccupant[] = trucksInLane
-        .filter((t) => t.spotNumber !== null)
-        .map((t) => ({
+        .filter(t => t.spotNumber !== null)
+        .map(t => ({
           spotNumber: t.spotNumber!,
           truckId: t.id,
           taskName: t.taskName,
@@ -164,10 +161,7 @@ export class TruckService {
         }));
 
       // Calculate total occupied length
-      const totalOccupiedLength = trucksInLane.reduce(
-        (sum, t) => sum + t.length,
-        0,
-      );
+      const totalOccupiedLength = trucksInLane.reduce((sum, t) => sum + t.length, 0);
 
       // Calculate required spacing (1m between trucks, small margin)
       const requiredSpacing =
@@ -175,13 +169,10 @@ export class TruckService {
         GARAGE_CONFIG.TRUCK_MIN_SPACING * 0.2; // Small margin at ends
 
       // Available space = lane length - occupied - spacing
-      const availableSpace = Math.max(
-        0,
-        config.laneLength - totalOccupiedLength - requiredSpacing,
-      );
+      const availableSpace = Math.max(0, config.laneLength - totalOccupiedLength - requiredSpacing);
 
       // Count only V1/V2 occupancy for task form (max 2 spots)
-      const spotsOccupiedInV1V2 = occupiedSpots.filter((s) => s <= 2).length;
+      const spotsOccupiedInV1V2 = occupiedSpots.filter(s => s <= 2).length;
 
       // Check if truck can fit (needs space + minimum spacing)
       // Only consider V1/V2 spots for canFit (task form uses max 2 spots per lane)
@@ -225,7 +216,7 @@ export class TruckService {
 
     // Use transaction to update all trucks atomically
     await this.prisma.$transaction(
-      updates.map((update) =>
+      updates.map(update =>
         this.prisma.truck.update({
           where: { id: update.truckId },
           data: { spot: update.spot },
@@ -246,16 +237,12 @@ export class TruckService {
     const garages: GarageId[] = ['B1', 'B2', 'B3'];
 
     const results = await Promise.all(
-      garages.map(async (garageId) => {
-        const lanes = await this.getLaneAvailability(
-          garageId,
-          truckLength,
-          excludeTruckId,
-        );
+      garages.map(async garageId => {
+        const lanes = await this.getLaneAvailability(garageId, truckLength, excludeTruckId);
 
         const totalSpots = 9; // 3 lanes x 3 spots
         const occupiedSpots = lanes.reduce((sum, l) => sum + l.currentTrucks, 0);
-        const canFit = lanes.some((l) => l.canFit);
+        const canFit = lanes.some(l => l.canFit);
 
         return {
           garageId,

@@ -291,5 +291,7 @@ export interface UserMergeResponse extends BaseMergeResponse<User> {}
 
 export interface UserBatchCreateResponse<T> extends BaseBatchResponse<User, T> {}
 export interface UserBatchUpdateResponse<T> extends BaseBatchResponse<User, T & { id: string }> {}
-export interface UserBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface UserBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

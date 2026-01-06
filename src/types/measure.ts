@@ -56,11 +56,13 @@ export interface MeasureDeleteResponse extends BaseDeleteResponse {}
 // Batch Operation Response Types
 // =====================
 
-export interface MeasureBatchCreateResponse
-  extends BaseCreateResponse<BatchOperationResult<Measure>> {}
+export interface MeasureBatchCreateResponse extends BaseCreateResponse<
+  BatchOperationResult<Measure>
+> {}
 
-export interface MeasureBatchUpdateResponse
-  extends BaseUpdateResponse<BatchOperationResult<Measure>> {}
+export interface MeasureBatchUpdateResponse extends BaseUpdateResponse<
+  BatchOperationResult<Measure>
+> {}
 
 export interface MeasureBatchDeleteResponse extends BaseDeleteResponse {
   data?: BatchOperationResult<string>;
@@ -80,14 +82,13 @@ export interface UnitConversionResult {
 
 export interface UnitConversionResponse extends BaseCreateResponse<UnitConversionResult> {}
 
-export interface BulkConversionResponse
-  extends BaseCreateResponse<{
-    conversions: UnitConversionResult[];
-    totalConversions: number;
-    successful: number;
-    failed: number;
-    errors?: string[];
-  }> {}
+export interface BulkConversionResponse extends BaseCreateResponse<{
+  conversions: UnitConversionResult[];
+  totalConversions: number;
+  successful: number;
+  failed: number;
+  errors?: string[];
+}> {}
 
 // =====================
 // Measure Categories (for grouping units)

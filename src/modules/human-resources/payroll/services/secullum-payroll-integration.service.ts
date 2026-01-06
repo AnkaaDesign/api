@@ -77,9 +77,7 @@ export class SecullumPayrollIntegrationService {
   }): Promise<SecullumPayrollData> {
     const { employeeId, cpf, pis, payrollNumber, year, month } = params;
 
-    this.logger.log(
-      `Fetching Secullum payroll data for employee ${employeeId} - ${year}/${month}`,
-    );
+    this.logger.log(`Fetching Secullum payroll data for employee ${employeeId} - ${year}/${month}`);
     this.logger.log(
       `  Mapping criteria - CPF: ${cpf || 'N/A'}, PIS: ${pis || 'N/A'}, Payroll: ${payrollNumber || 'N/A'}`,
     );
@@ -170,9 +168,10 @@ export class SecullumPayrollIntegrationService {
     // Helper function to find column index by name
     const findColumnIndex = (searchTerms: string[]): number => {
       return columns.findIndex(col =>
-        searchTerms.some(term =>
-          col.Nome?.toLowerCase().includes(term.toLowerCase()) ||
-          col.NomeExibicao?.toLowerCase().includes(term.toLowerCase()),
+        searchTerms.some(
+          term =>
+            col.Nome?.toLowerCase().includes(term.toLowerCase()) ||
+            col.NomeExibicao?.toLowerCase().includes(term.toLowerCase()),
         ),
       );
     };
@@ -197,8 +196,19 @@ export class SecullumPayrollIntegrationService {
     // Find column indexes
     // Note: Secullum column names are case-insensitive matched
     // Add exact column names from Secullum API first, then fallback terms
-    const normalHoursIdx = findColumnIndex(['normais', 'horas trabalhadas', 'horas normais', 'trabalho normal']);
-    const nightHoursIdx = findColumnIndex(['not.', 'noturnas', 'horas noturnas', 'adicional noturno', 'noturno']);
+    const normalHoursIdx = findColumnIndex([
+      'normais',
+      'horas trabalhadas',
+      'horas normais',
+      'trabalho normal',
+    ]);
+    const nightHoursIdx = findColumnIndex([
+      'not.',
+      'noturnas',
+      'horas noturnas',
+      'adicional noturno',
+      'noturno',
+    ]);
     const overtime50Idx = findColumnIndex(['ex50%', '50%', 'extra 50', 'he 50']);
     const overtime100Idx = findColumnIndex(['ex100%', '100%', 'extra 100', 'he 100']);
     const absenceIdx = findColumnIndex(['faltas', 'ausências', 'horas falta']);

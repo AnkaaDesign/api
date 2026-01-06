@@ -759,14 +759,7 @@ export class PaintService {
         });
 
         // Enhanced field tracking - include all paint fields
-        const fieldsToTrack = [
-          'name',
-          'hex',
-          'finish',
-          'brand',
-          'manufacturer',
-          'paintTypeId',
-        ];
+        const fieldsToTrack = ['name', 'hex', 'finish', 'brand', 'manufacturer', 'paintTypeId'];
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
@@ -1076,14 +1069,7 @@ export class PaintService {
         });
 
         // Registrar atualizações bem-sucedidas
-        const fieldsToTrack = [
-          'name',
-          'hex',
-          'finish',
-          'brand',
-          'manufacturer',
-          'paintTypeId',
-        ];
+        const fieldsToTrack = ['name', 'hex', 'finish', 'brand', 'manufacturer', 'paintTypeId'];
 
         // Get existing paints for comparison with relationships
         const paintIds = updates.map(u => u.id);
@@ -1595,14 +1581,7 @@ export class PaintService {
   private detectPaintConflicts(targetPaint: any, sourcePaints: any[]): Record<string, any> {
     const conflicts: Record<string, any> = {};
 
-    const fieldsToCheck = [
-      'name',
-      'hex',
-      'finish',
-      'manufacturer',
-      'paintTypeId',
-      'paintBrandId',
-    ];
+    const fieldsToCheck = ['name', 'hex', 'finish', 'manufacturer', 'paintTypeId', 'paintBrandId'];
 
     for (const field of fieldsToCheck) {
       const values = new Set(

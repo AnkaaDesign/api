@@ -57,6 +57,7 @@ import { SystemThrottlerModule } from './modules/system/throttler/throttler.modu
 import { RepositoryModule } from './modules/system/repository/repository.module';
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
+import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -72,7 +73,9 @@ import { AppsModule } from './modules/system/app/app.module';
         // Retry strategy to prevent crashes on connection errors
         retryStrategy: (times: number) => {
           const delay = Math.min(times * 500, 2000);
-          console.log(`Redis connection attempt ${times}, retrying in ${delay}ms`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`Redis connection attempt ${times}, retrying in ${delay}ms`);
+          }
           return delay;
         },
         // Prevent unhandled error events from crashing the app
@@ -126,6 +129,7 @@ import { AppsModule } from './modules/system/app/app.module';
     RepositoryModule,
     GitCommitModule,
     AppsModule,
+    WhatsAppModule,
   ],
   controllers: [AppController],
   providers: [AppService],

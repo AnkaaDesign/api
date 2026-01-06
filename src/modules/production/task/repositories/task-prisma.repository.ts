@@ -32,6 +32,7 @@ import {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
+  invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
   budget: { include: { items: true } }, // Budget with items (description/amount)
   budgets: {
     select: {
@@ -119,7 +120,16 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       paintBrand: true,
     },
   },
-  services: {
+  serviceOrders: {
+    include: {
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
     orderBy: { createdAt: 'desc' },
   },
   truck: true,
@@ -172,6 +182,8 @@ export class TaskPrismaRepository
     const task: Task = {
       ...databaseEntity,
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
+      // Alias serviceOrders to services for backward compatibility
+      services: databaseEntity.serviceOrders || databaseEntity.services,
     };
 
     // Transform generalPainting.colorPreview path to URL
@@ -205,10 +217,13 @@ export class TaskPrismaRepository
       term,
       startedAt,
       finishedAt,
+      forecastDate,
       paintId,
       customerId,
+      invoiceToId,
       sectorId,
       commission,
+      negotiatingWith,
       // Extended properties - File arrays
       budgetIds,
       invoiceIds,
@@ -217,7 +232,7 @@ export class TaskPrismaRepository
       reimbursementInvoiceIds,
       fileIds,
       paintIds,
-      services,
+      serviceOrders,
       observation,
       truck,
       cut,
@@ -228,8 +243,8 @@ export class TaskPrismaRepository
     // Build create input with proper null handling
     const taskData: Prisma.TaskCreateInput = {
       name,
-      status: mapTaskStatusToPrisma(status || TASK_STATUS.PENDING),
-      statusOrder: getTaskStatusOrder(status || TASK_STATUS.PENDING),
+      status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
+      statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
       commission: (commission as any) || 'NO_COMMISSION', // Default to NO_COMMISSION if not provided
     };
 
@@ -240,9 +255,12 @@ export class TaskPrismaRepository
     if (term !== undefined) taskData.term = term;
     if (startedAt !== undefined) taskData.startedAt = startedAt;
     if (finishedAt !== undefined) taskData.finishedAt = finishedAt;
+    if (forecastDate !== undefined) taskData.forecastDate = forecastDate;
+    if (negotiatingWith !== undefined) taskData.negotiatingWith = negotiatingWith;
 
     // Handle relations with proper null checks
     if (customerId) taskData.customer = { connect: { id: customerId } };
+    if (invoiceToId) taskData.invoiceTo = { connect: { id: invoiceToId } };
     if (paintId) taskData.generalPainting = { connect: { id: paintId } };
     if (sectorId) taskData.sector = { connect: { id: sectorId } };
 
@@ -284,14 +302,16 @@ export class TaskPrismaRepository
     }
 
     // Handle services creation
-    if (services && services.length > 0) {
-      taskData.services = {
-        create: services.map(service => ({
+    if (serviceOrders && serviceOrders.length > 0) {
+      taskData.serviceOrders = {
+        create: serviceOrders.map(service => ({
           status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
           statusOrder:
             service.statusOrder ||
             getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
+          type: service.type || 'PRODUCTION',
           description: service.description,
+          assignedToId: service.assignedToId || null,
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
         })),
@@ -332,30 +352,20 @@ export class TaskPrismaRepository
     };
     const cutRecords: CutRecord[] = [];
 
-    // DEBUG: Log what we're receiving
-    console.log('🔍 CREATE TASK - Cut fields received:', {
-      hasCut: !!cut,
-      hasCuts: !!cuts,
-      cutsIsArray: Array.isArray(cuts),
-      cutsLength: Array.isArray(cuts) ? cuts.length : 'N/A',
-      cutData: cut,
-      cutsData: cuts,
-    });
-
     // Handle multiple cuts field (preferred way)
     if (cuts && Array.isArray(cuts)) {
-      console.log('✅ Processing cuts array (preferred method)');
       for (const cutItem of cuts) {
         // Skip cuts without fileId (file must be uploaded first)
         if (!cutItem.fileId) {
-          console.warn(
-            '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+            );
+          }
           continue;
         }
         // If quantity is specified, create multiple records
         const quantity = (cutItem as any).quantity || 1;
-        console.log(`  → Creating ${quantity} cut(s) of type ${cutItem.type}`);
         for (let i = 0; i < quantity; i++) {
           cutRecords.push({
             fileId: cutItem.fileId,
@@ -371,14 +381,16 @@ export class TaskPrismaRepository
     }
     // Handle single cut field ONLY if cuts array is not present (deprecated - kept for backward compatibility)
     else if (cut) {
-      console.log('⚠️  Processing single cut field (deprecated method)');
       // Skip cut without fileId (file must be uploaded first)
       if (!cut.fileId) {
-        console.warn('⚠️  Skipping cut without fileId - file must be uploaded before creating cut');
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+          );
+        }
       } else {
         // Extract quantity and create multiple cut records
         const quantity = (cut as any).quantity || 1;
-        console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
 
         for (let i = 0; i < quantity; i++) {
           cutRecords.push({
@@ -393,8 +405,6 @@ export class TaskPrismaRepository
         }
       }
     }
-
-    console.log(`📊 Total cut records to create: ${cutRecords.length}`);
 
     // Add cuts to task data if any were created
     if (cutRecords.length > 0) {
@@ -411,7 +421,6 @@ export class TaskPrismaRepository
       Array.isArray(budget.items) &&
       budget.items.length > 0
     ) {
-      console.log('✅ Processing budget object:', budget.items.length, 'items');
       // Calculate total from items
       const total = budget.items.reduce(
         (sum: number, item: any) => sum + Number(item.amount || 0),
@@ -433,16 +442,9 @@ export class TaskPrismaRepository
 
     // Handle airbrushings creation (array of airbrushing items)
     const airbrushings = (extendedData as any).airbrushings;
-    console.log('[TaskRepository] ========== AIRBRUSHINGS DEBUG ==========');
-    console.log('[TaskRepository] airbrushings from formData:', airbrushings);
-    console.log('[TaskRepository] airbrushings is array?', Array.isArray(airbrushings));
-    console.log('[TaskRepository] airbrushings length:', airbrushings?.length);
     if (airbrushings && Array.isArray(airbrushings) && airbrushings.length > 0) {
-      console.log('✅ Processing airbrushings array:', airbrushings.length, 'items');
-      console.log('[TaskRepository] Airbrushing items:', JSON.stringify(airbrushings, null, 2));
       taskData.airbrushings = {
         create: airbrushings.map((item: any, index: number) => {
-          console.log(`[TaskRepository] Creating airbrushing ${index}:`, item);
           const airbrushingData = {
             status: item.status || 'PENDING',
             price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
@@ -462,16 +464,9 @@ export class TaskPrismaRepository
                 ? { connect: item.artworkIds.map((id: string) => ({ id })) }
                 : undefined,
           };
-          console.log(`[TaskRepository] Final airbrushing data:`, airbrushingData);
           return airbrushingData;
         }),
       };
-      console.log(
-        '[TaskRepository] taskData.airbrushings:',
-        JSON.stringify(taskData.airbrushings, null, 2),
-      );
-    } else {
-      console.log('❌ No airbrushings to process');
     }
 
     return taskData;
@@ -495,10 +490,13 @@ export class TaskPrismaRepository
       term,
       startedAt,
       finishedAt,
+      forecastDate,
       paintId,
       customerId,
+      invoiceToId,
       sectorId,
       commission,
+      negotiatingWith,
       // Extended properties - File arrays
       budgetIds,
       invoiceIds,
@@ -511,7 +509,7 @@ export class TaskPrismaRepository
       budgetId,
       nfeId,
       receiptId,
-      services,
+      serviceOrders,
       observation,
       truck,
       cut,
@@ -529,6 +527,8 @@ export class TaskPrismaRepository
     if (term !== undefined) updateData.term = term;
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
+    if (forecastDate !== undefined) updateData.forecastDate = forecastDate;
+    if (negotiatingWith !== undefined) updateData.negotiatingWith = negotiatingWith;
     if (commission !== undefined) updateData.commission = commission as any;
 
     // Handle enums
@@ -540,6 +540,9 @@ export class TaskPrismaRepository
     // Handle optional relations with proper null handling
     if (customerId !== undefined) {
       updateData.customer = customerId ? { connect: { id: customerId } } : { disconnect: true };
+    }
+    if (invoiceToId !== undefined) {
+      updateData.invoiceTo = invoiceToId ? { connect: { id: invoiceToId } } : { disconnect: true };
     }
     if (paintId !== undefined) {
       updateData.generalPainting = paintId ? { connect: { id: paintId } } : { disconnect: true };
@@ -606,15 +609,18 @@ export class TaskPrismaRepository
     }
 
     // Handle services update - replace all existing services
-    if (services !== undefined) {
-      updateData.services = {
+    if (serviceOrders !== undefined) {
+      console.log('[TaskRepo] Creating service orders:', JSON.stringify(serviceOrders, null, 2));
+      updateData.serviceOrders = {
         deleteMany: {}, // Delete all existing services
-        create: services.map(service => ({
+        create: serviceOrders.map(service => ({
           status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
           statusOrder:
             service.statusOrder ||
             getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
+          type: service.type || 'PRODUCTION',
           description: service.description,
+          assignedToId: service.assignedToId || null,
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
         })),
@@ -677,30 +683,20 @@ export class TaskPrismaRepository
     if (shouldUpdateCuts) {
       const cutRecords: any[] = [];
 
-      // DEBUG: Log what we're receiving
-      console.log('🔍 UPDATE TASK - Cut fields received:', {
-        hasCut: cut !== undefined,
-        hasCuts: cuts !== undefined,
-        cutsIsArray: Array.isArray(cuts),
-        cutsLength: Array.isArray(cuts) ? cuts.length : 'N/A',
-        cutData: cut,
-        cutsData: cuts,
-      });
-
       // Handle multiple cuts field (preferred way)
       if (cuts !== undefined && cuts !== null && Array.isArray(cuts)) {
-        console.log('✅ Processing cuts array (preferred method)');
         for (const cutItem of cuts) {
           // Skip cuts without fileId (file must be uploaded first)
           if (!cutItem.fileId) {
-            console.warn(
-              '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
-            );
+            if (process.env.NODE_ENV !== 'production') {
+              console.warn(
+                '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+              );
+            }
             continue;
           }
           // If quantity is specified, create multiple records
           const quantity = (cutItem as any).quantity || 1;
-          console.log(`  → Creating ${quantity} cut(s) of type ${cutItem.type}`);
           for (let i = 0; i < quantity; i++) {
             cutRecords.push({
               fileId: cutItem.fileId,
@@ -716,16 +712,16 @@ export class TaskPrismaRepository
       }
       // Handle single cut field ONLY if cuts array is not present (deprecated - kept for backward compatibility)
       else if (cut !== undefined && cut !== null) {
-        console.log('⚠️  Processing single cut field (deprecated method)');
         // Skip cut without fileId (file must be uploaded first)
         if (!cut.fileId) {
-          console.warn(
-            '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              '⚠️  Skipping cut without fileId - file must be uploaded before creating cut',
+            );
+          }
         } else {
           // Extract quantity and create multiple cut records
           const quantity = (cut as any).quantity || 1;
-          console.log(`  → Creating ${quantity} cut(s) of type ${cut.type}`);
 
           for (let i = 0; i < quantity; i++) {
             cutRecords.push({
@@ -740,8 +736,6 @@ export class TaskPrismaRepository
           }
         }
       }
-
-      console.log(`📊 Total cut records to create: ${cutRecords.length}`);
 
       // Update cuts - replace all existing cuts with new ones
       // If both cut and cuts are null/empty, delete all cuts
@@ -763,7 +757,6 @@ export class TaskPrismaRepository
     // Handle budget update (object with items and expiresIn) - upsert budget
     if (budget !== undefined) {
       if (budget === null) {
-        console.log('🗑️ Deleting budget');
         updateData.budget = { delete: true };
       } else if (
         typeof budget === 'object' &&
@@ -771,7 +764,6 @@ export class TaskPrismaRepository
         Array.isArray(budget.items) &&
         budget.items.length > 0
       ) {
-        console.log('✅ Updating budget object:', budget.items.length, 'items');
         // Calculate total from items
         const total = budget.items.reduce(
           (sum: number, item: any) => sum + Number(item.amount || 0),
@@ -807,25 +799,14 @@ export class TaskPrismaRepository
 
     // Handle airbrushings update (array of airbrushing items) - replace all existing airbrushings
     const airbrushings = (extendedData as any).airbrushings;
-    console.log('[TaskRepository.UPDATE] ========== AIRBRUSHINGS DEBUG ==========');
-    console.log('[TaskRepository.UPDATE] airbrushings from formData:', airbrushings);
-    console.log('[TaskRepository.UPDATE] airbrushings is array?', Array.isArray(airbrushings));
-    console.log('[TaskRepository.UPDATE] airbrushings length:', airbrushings?.length);
 
     if (airbrushings !== undefined) {
       if (airbrushings === null || (Array.isArray(airbrushings) && airbrushings.length === 0)) {
-        console.log('🗑️ Deleting all airbrushings');
         updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
-        console.log('✅ Updating airbrushings array:', airbrushings.length, 'items');
-        console.log(
-          '[TaskRepository.UPDATE] Airbrushing items:',
-          JSON.stringify(airbrushings, null, 2),
-        );
         updateData.airbrushings = {
           deleteMany: {}, // Delete all existing airbrushings
           create: airbrushings.map((item: any, index: number) => {
-            console.log(`[TaskRepository.UPDATE] Creating airbrushing ${index}:`, item);
             const airbrushingData = {
               status: item.status || 'PENDING',
               price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
@@ -845,14 +826,9 @@ export class TaskPrismaRepository
                   ? { connect: item.artworkIds.map((id: string) => ({ id })) }
                   : undefined,
             };
-            console.log(`[TaskRepository.UPDATE] Final airbrushing data:`, airbrushingData);
             return airbrushingData;
           }),
         };
-        console.log(
-          '[TaskRepository.UPDATE] updateData.airbrushings:',
-          JSON.stringify(updateData.airbrushings, null, 2),
-        );
       }
     }
 

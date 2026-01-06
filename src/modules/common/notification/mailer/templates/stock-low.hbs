@@ -1,0 +1,131 @@
+<h1>Alerta de Estoque Baixo <span class="badge badge-updated">ATENÇÃO</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>Este é um alerta de que o estoque de um ou mais produtos está baixo e requer sua atenção.</p>
+
+{{#if singleProduct}}
+    <div class="info-box warning">
+        <h3 style="font-size: 16px; margin-bottom: 15px; color: #856404;">Produto com Estoque Baixo</h3>
+        <div class="info-row">
+            <span class="info-label">Produto:</span>
+            <span class="info-value"><strong>{{product.name}}</strong></span>
+        </div>
+        {{#if product.sku}}
+            <div class="info-row">
+                <span class="info-label">SKU:</span>
+                <span class="info-value">{{product.sku}}</span>
+            </div>
+        {{/if}}
+        {{#if product.category}}
+            <div class="info-row">
+                <span class="info-label">Categoria:</span>
+                <span class="info-value">{{product.category}}</span>
+            </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Quantidade Atual:</span>
+            <span class="info-value" style="color: #dc3545; font-weight: 700; font-size: 18px;">{{product.currentStock}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Estoque Mínimo:</span>
+            <span class="info-value">{{product.minimumStock}}</span>
+        </div>
+        {{#if product.recommendedStock}}
+            <div class="info-row">
+                <span class="info-label">Estoque Recomendado:</span>
+                <span class="info-value">{{product.recommendedStock}}</span>
+            </div>
+        {{/if}}
+        {{#if product.location}}
+            <div class="info-row">
+                <span class="info-label">Localização:</span>
+                <span class="info-value">{{product.location}}</span>
+            </div>
+        {{/if}}
+    </div>
+
+    {{#if product.supplier}}
+        <h2>Informações do Fornecedor:</h2>
+        <div class="info-box">
+            {{#if product.supplier.name}}
+                <div class="info-row">
+                    <span class="info-label">Fornecedor:</span>
+                    <span class="info-value">{{product.supplier.name}}</span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.contact}}
+                <div class="info-row">
+                    <span class="info-label">Contato:</span>
+                    <span class="info-value">{{product.supplier.contact}}</span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.email}}
+                <div class="info-row">
+                    <span class="info-label">E-mail:</span>
+                    <span class="info-value"><a href="mailto:{{product.supplier.email}}" style="color: #007bff;">{{product.supplier.email}}</a></span>
+                </div>
+            {{/if}}
+            {{#if product.supplier.leadTime}}
+                <div class="info-row">
+                    <span class="info-label">Prazo de Entrega:</span>
+                    <span class="info-value">{{product.supplier.leadTime}}</span>
+                </div>
+            {{/if}}
+        </div>
+    {{/if}}
+{{else}}
+    <div class="info-box warning">
+        <h3 style="font-size: 16px; margin-bottom: 10px; color: #856404;">
+            {{productCount}} produto(s) com estoque baixo
+        </h3>
+        <p style="margin: 0; color: #856404;">
+            Vários produtos estão abaixo do nível mínimo de estoque estabelecido.
+        </p>
+    </div>
+
+    <h2>Produtos Afetados:</h2>
+    <div style="background-color: #fffbf0; padding: 15px; border-radius: 4px; margin: 15px 0; border: 1px solid #ffc107;">
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="border-bottom: 2px solid #ffc107;">
+                    <th style="text-align: left; padding: 10px; font-size: 14px;">Produto</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px;">Estoque Atual</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px;">Mínimo</th>
+                    <th style="text-align: center; padding: 10px; font-size: 14px;">Diferença</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{#each products}}
+                    <tr style="border-bottom: 1px solid #ffe69c;">
+                        <td style="padding: 10px; font-size: 14px;">
+                            <strong>{{this.name}}</strong>
+                            {{#if this.sku}}<br><span style="font-size: 12px; color: #856404;">SKU: {{this.sku}}</span>{{/if}}
+                        </td>
+                        <td style="text-align: center; padding: 10px; font-size: 14px; font-weight: 700; color: #dc3545;">{{this.currentStock}}</td>
+                        <td style="text-align: center; padding: 10px; font-size: 14px;">{{this.minimumStock}}</td>
+                        <td style="text-align: center; padding: 10px; font-size: 14px; color: #dc3545;">-{{this.difference}}</td>
+                    </tr>
+                {{/each}}
+            </tbody>
+        </table>
+    </div>
+{{/if}}
+
+<h2>Ações Recomendadas:</h2>
+<ul style="margin: 10px 0; padding-left: 20px; color: #555555;">
+    <li style="margin: 8px 0;">Revisar o estoque atual e confirmar as quantidades</li>
+    <li style="margin: 8px 0;">Entrar em contato com fornecedores para novos pedidos</li>
+    <li style="margin: 8px 0;">Verificar pedidos em andamento</li>
+    <li style="margin: 8px 0;">Considerar ajustar os níveis mínimos de estoque se necessário</li>
+</ul>
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-warning">Gerenciar Estoque</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Este alerta foi gerado em {{alertDate}}. É importante tomar ação rapidamente para evitar ruptura de estoque e possíveis perdas de vendas.
+</p>

@@ -21,8 +21,8 @@ model Activity {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
   item        Item              @relation("ACTIVITY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
-  order       Order?            @relation("ACTIVITY_ORDER", fields: [orderId], references: [id])
-  orderItem   OrderItem?        @relation("ACTIVITY_ORDER_ITEM", fields: [orderItemId], references: [id])
+  order       Order?            @relation("ACTIVITY_ORDER", fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem   OrderItem?        @relation("ACTIVITY_ORDER_ITEM", fields: [orderItemId], references: [id], onDelete: Cascade)
   user        User?             @relation("ACTIVITY_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([itemId])
@@ -86,30 +86,31 @@ model ChangeLog {
   triggeredBy   ChangeLogTriggeredByType?
   triggeredById String?
   createdAt     DateTime                  @default(now())
-  user          User?                     @relation("CHANGELOG_USER", fields: [userId], references: [id])
+  user          User?                     @relation("CHANGELOG_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([userId])
 }
 
 model Bonus {
-  id               String          @id @default(uuid())
-  userId           String
-  baseBonus         Decimal        @default(0) @db.Decimal(10, 2)
-  netBonus          Decimal        @default(0) @db.Decimal(10, 2)
-  weightedTasks     Decimal        @default(0) @db.Decimal(10, 2)
-  averageTaskPerUser Decimal       @default(0) @db.Decimal(10, 2)
-  year             Int
-  month            Int
-  performanceLevel Int
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  payrollId        String?         @unique
-  payroll          Payroll?        @relation(fields: [payrollId], references: [id])
-  user             User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
-  bonusDiscounts   BonusDiscount[]
-  users            User[]          @relation("BonusPeriodUsers")
-  tasks            Task[]          @relation("BonusTasks")
+  id                 String          @id @default(uuid())
+  userId             String
+  baseBonus          Decimal         @default(0) @db.Decimal(10, 2)
+  netBonus           Decimal         @default(0) @db.Decimal(10, 2)
+  weightedTasks      Decimal         @default(0) @db.Decimal(10, 2)
+  averageTaskPerUser Decimal         @default(0) @db.Decimal(10, 2)
+  year               Int
+  month              Int
+  performanceLevel   Int
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  payrollId          String?         @unique
+  payroll            Payroll?        @relation(fields: [payrollId], references: [id])
+  user               User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
+  bonusDiscounts     BonusDiscount[]
+  users              User[]          @relation("BonusPeriodUsers")
+  tasks              Task[]          @relation("BonusTasks")
 
   @@unique([userId, year, month])
   @@index([userId])
@@ -120,39 +121,39 @@ model Bonus {
 }
 
 model Payroll {
-  id                     String            @id @default(uuid())
-  baseRemuneration       Decimal           @db.Decimal(10, 2)
-  year                   Int
-  month                  Int
-  userId                 String
-  positionId             String?
-  workingDaysInMonth     Int?
-  workedDaysInMonth      Int?
-  absenceHours           Decimal           @default(0) @db.Decimal(10, 2)
+  id                      String            @id @default(uuid())
+  baseRemuneration        Decimal           @db.Decimal(10, 2)
+  year                    Int
+  month                   Int
+  userId                  String
+  positionId              String?
+  workingDaysInMonth      Int?
+  workedDaysInMonth       Int?
+  absenceHours            Decimal           @default(0) @db.Decimal(10, 2)
   // Earnings breakdown
-  overtime50Hours        Decimal?          @db.Decimal(10, 2)
-  overtime50Amount       Decimal?          @db.Decimal(10, 2)
-  overtime100Hours       Decimal?          @db.Decimal(10, 2)
-  overtime100Amount      Decimal?          @db.Decimal(10, 2)
-  nightHours             Decimal?          @db.Decimal(10, 2)
-  nightDifferentialAmount Decimal?         @db.Decimal(10, 2)
-  dsrAmount              Decimal?          @db.Decimal(10, 2)
-  dsrDays                Int?
+  overtime50Hours         Decimal?          @db.Decimal(10, 2)
+  overtime50Amount        Decimal?          @db.Decimal(10, 2)
+  overtime100Hours        Decimal?          @db.Decimal(10, 2)
+  overtime100Amount       Decimal?          @db.Decimal(10, 2)
+  nightHours              Decimal?          @db.Decimal(10, 2)
+  nightDifferentialAmount Decimal?          @db.Decimal(10, 2)
+  dsrAmount               Decimal?          @db.Decimal(10, 2)
+  dsrDays                 Int?
   // Totals
-  grossSalary            Decimal?          @db.Decimal(10, 2)
-  inssBase               Decimal?          @db.Decimal(10, 2)
-  inssAmount             Decimal?          @db.Decimal(10, 2)
-  irrfBase               Decimal?          @db.Decimal(10, 2)
-  irrfAmount             Decimal?          @db.Decimal(10, 2)
-  fgtsAmount             Decimal?          @db.Decimal(10, 2)
-  netSalary              Decimal?          @db.Decimal(10, 2)
-  totalDiscounts         Decimal?          @db.Decimal(10, 2)
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  bonus                  Bonus?
-  position               Position?         @relation(fields: [positionId], references: [id])
-  user                   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  discounts              PayrollDiscount[]
+  grossSalary             Decimal?          @db.Decimal(10, 2)
+  inssBase                Decimal?          @db.Decimal(10, 2)
+  inssAmount              Decimal?          @db.Decimal(10, 2)
+  irrfBase                Decimal?          @db.Decimal(10, 2)
+  irrfAmount              Decimal?          @db.Decimal(10, 2)
+  fgtsAmount              Decimal?          @db.Decimal(10, 2)
+  netSalary               Decimal?          @db.Decimal(10, 2)
+  totalDiscounts          Decimal?          @db.Decimal(10, 2)
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  bonus                   Bonus?
+  position                Position?         @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  discounts               PayrollDiscount[]
 
   @@unique([userId, year, month])
   @@index([userId])
@@ -177,22 +178,22 @@ model BonusDiscount {
 }
 
 model PayrollDiscount {
-  id             String                @id @default(uuid())
-  percentage     Decimal?              @db.Decimal(5, 2)
-  value          Decimal?              @db.Decimal(10, 2)
+  id             String              @id @default(uuid())
+  percentage     Decimal?            @db.Decimal(5, 2)
+  value          Decimal?            @db.Decimal(10, 2)
   reference      String
-  discountType   PayrollDiscountType   @default(CUSTOM)
-  isPersistent   Boolean               @default(false)
-  isActive       Boolean               @default(true)
+  discountType   PayrollDiscountType @default(CUSTOM)
+  isPersistent   Boolean             @default(false)
+  isActive       Boolean             @default(true)
   taxYear        Int?
   taxTableId     String?
-  taxTable       TaxTable?             @relation(fields: [taxTableId], references: [id], onDelete: SetNull)
+  taxTable       TaxTable?           @relation(fields: [taxTableId], references: [id], onDelete: SetNull)
   expirationDate DateTime?
-  baseValue      Decimal?              @db.Decimal(10, 2)
+  baseValue      Decimal?            @db.Decimal(10, 2)
   payrollId      String
-  payroll        Payroll               @relation(fields: [payrollId], references: [id], onDelete: Cascade)
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
+  payroll        Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([payrollId])
   @@index([discountType])
@@ -202,20 +203,20 @@ model PayrollDiscount {
 }
 
 model TaxTable {
-  id                String                @id @default(uuid())
+  id                String               @id @default(uuid())
   taxType           TaxType
   year              Int
   effectiveFrom     DateTime
   effectiveTo       DateTime?
-  calculationMethod TaxCalculationMethod  @default(PROGRESSIVE)
-  description       String?               @db.Text
+  calculationMethod TaxCalculationMethod @default(PROGRESSIVE)
+  description       String?              @db.Text
   legalReference    String?
-  isActive          Boolean               @default(true)
+  isActive          Boolean              @default(true)
   settings          Json?
   brackets          TaxBracket[]
   discounts         PayrollDiscount[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
 
   @@unique([taxType, year, isActive])
   @@index([taxType, year])
@@ -224,17 +225,17 @@ model TaxTable {
 }
 
 model TaxBracket {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   taxTableId   String
-  taxTable     TaxTable  @relation(fields: [taxTableId], references: [id], onDelete: Cascade)
+  taxTable     TaxTable @relation(fields: [taxTableId], references: [id], onDelete: Cascade)
   bracketOrder Int
-  minValue     Decimal   @db.Decimal(10, 2)
-  maxValue     Decimal?  @db.Decimal(10, 2)
-  rate         Decimal   @db.Decimal(5, 2)
-  deduction    Decimal?  @db.Decimal(10, 2)
+  minValue     Decimal  @db.Decimal(10, 2)
+  maxValue     Decimal? @db.Decimal(10, 2)
+  rate         Decimal  @db.Decimal(5, 2)
+  deduction    Decimal? @db.Decimal(10, 2)
   description  String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([taxTableId, bracketOrder])
   @@index([taxTableId])
@@ -276,9 +277,10 @@ model Customer {
   economicActivityId String?
   registrationStatus RegistrationStatus?
   streetType         StreetType?
-  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
-  logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
-  tasks              Task[]
+  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id], onDelete: SetNull)
+  logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id], onDelete: SetNull)
+  tasks              Task[]              @relation("TaskCustomer")
+  invoiceTasks       Task[]              @relation("TaskInvoiceTo")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -317,43 +319,44 @@ model PpeDelivery {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   item               Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
-  ppeSchedule        PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id])
-  reviewedByUser     User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
-  user               User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id])
+  ppeSchedule        PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
+  reviewedByUser     User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  user               User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([itemId])
   @@index([ppeScheduleId])
   @@index([scheduledDate])
   @@index([status, statusOrder])
+  @@index([reviewedBy])
 }
 
 model PpeDeliverySchedule {
-  id                 String                 @id @default(uuid())
-  assignmentType     AssignmentType         @default(ALL)
-  excludedUserIds    String[]               @default([])
-  includedUserIds    String[]               @default([])
-  frequency          ScheduleFrequency
-  frequencyCount     Int                    @default(1)
-  isActive           Boolean                @default(true)
-  ppeItems           Json
-  specificDate       DateTime?
-  dayOfMonth         Int?
-  dayOfWeek          DayOfWeek?
-  month              Month?
-  customMonths       Month[]
-  weeklyConfigId     String?                @unique
-  monthlyConfigId    String?                @unique
-  yearlyConfigId     String?                @unique
-  nextRun            DateTime?
-  lastRun            DateTime?
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
-  autoOrders         Order[]                @relation("PPE_AUTO_ORDER")
-  deliveries         PpeDelivery[]          @relation("PPE_DELIVERY_SCHEDULE")
-  monthlyConfig      MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
-  weeklyConfig       WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
-  yearlyConfig       YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
+  id              String                 @id @default(uuid())
+  assignmentType  AssignmentType         @default(ALL)
+  excludedUserIds String[]               @default([])
+  includedUserIds String[]               @default([])
+  frequency       ScheduleFrequency
+  frequencyCount  Int                    @default(1)
+  isActive        Boolean                @default(true)
+  ppeItems        Json
+  specificDate    DateTime?
+  dayOfMonth      Int?
+  dayOfWeek       DayOfWeek?
+  month           Month?
+  customMonths    Month[]
+  weeklyConfigId  String?                @unique
+  monthlyConfigId String?                @unique
+  yearlyConfigId  String?                @unique
+  nextRun         DateTime?
+  lastRun         DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  autoOrders      Order[]                @relation("PPE_AUTO_ORDER")
+  deliveries      PpeDelivery[]          @relation("PPE_DELIVERY_SCHEDULE")
+  monthlyConfig   MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
+  weeklyConfig    WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
+  yearlyConfig    YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
 
   @@index([nextRun])
   @@index([isActive])
@@ -627,7 +630,7 @@ model ExternalWithdrawalItem {
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   externalWithdrawal   ExternalWithdrawal @relation(fields: [externalWithdrawalId], references: [id], onDelete: Cascade)
-  item                 Item               @relation(fields: [itemId], references: [id])
+  item                 Item               @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([externalWithdrawalId])
   @@index([itemId])
@@ -665,7 +668,7 @@ model MaintenanceItem {
   quantity      Float       @default(1)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
-  item          Item        @relation("MAINTENANCE_ITEM_NEEDED", fields: [itemId], references: [id])
+  item          Item        @relation("MAINTENANCE_ITEM_NEEDED", fields: [itemId], references: [id], onDelete: Cascade)
   maintenance   Maintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
 
   @@index([maintenanceId])
@@ -819,7 +822,7 @@ model Paint {
   code             String?
   paintBrandId     String?
   colorOrder       Int                @default(0)
-  colorPreview     String?            // Paint preview image URL (WebP)
+  colorPreview     String? // Paint preview image URL (WebP)
   paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
   paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
   formulas         PaintFormula[]
@@ -958,26 +961,35 @@ model Sector {
 }
 
 model Service {
-  id          String   @id @default(uuid())
-  description String   @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id          String           @id @default(uuid())
+  description String
+  type        ServiceOrderType @default(PRODUCTION)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([description, type])
+  @@index([type])
 }
 
 model ServiceOrder {
-  id          String             @id @default(uuid())
-  status      ServiceOrderStatus @default(PENDING)
-  statusOrder Int                @default(1)
-  description String
-  taskId      String
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  task        Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  id           String             @id @default(uuid())
+  status       ServiceOrderStatus @default(PENDING)
+  statusOrder  Int                @default(1)
+  description  String
+  type         ServiceOrderType   @default(PRODUCTION)
+  assignedToId String?
+  taskId       String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  assignedTo   User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
+  task         Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([statusOrder])
+  @@index([type])
+  @@index([assignedToId])
 }
 
 model Budget {
@@ -1006,9 +1018,9 @@ model BudgetItem {
 }
 
 model Supplier {
-  id                String          @id @default(uuid())
-  fantasyName       String          @unique
-  cnpj              String?         @unique
+  id                String      @id @default(uuid())
+  fantasyName       String      @unique
+  cnpj              String?     @unique
   corporateName     String?
   email             String?
   address           String?
@@ -1021,14 +1033,14 @@ model Supplier {
   site              String?
   phones            String[]
   logoId            String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
   streetType        StreetType?
-  tags              String[]        @default([])
-  items             Item[]          @relation("ITEM_SUPPLIER")
-  orders            Order[]         @relation("ORDER_SUPPLIER")
+  tags              String[]    @default([])
+  items             Item[]      @relation("ITEM_SUPPLIER")
+  orders            Order[]     @relation("ORDER_SUPPLIER")
   orderRules        OrderRule[]
-  logo              File?           @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
+  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id], onDelete: SetNull)
 
   @@index([fantasyName])
   @@index([cnpj])
@@ -1037,52 +1049,81 @@ model Supplier {
 }
 
 model Task {
-  id                    String           @id @default(uuid())
-  name                  String
-  status                TaskStatus       @default(PENDING)
-  statusOrder           Int              @default(1)
-  serialNumber          String?          @unique
+  id                    String               @id @default(uuid())
+  name                  String?
+  status                TaskStatus           @default(PREPARATION)
+  statusOrder           Int                  @default(1)
+  serialNumber          String?              @unique
   details               String?
   entryDate             DateTime?
   term                  DateTime?
   startedAt             DateTime?
   finishedAt            DateTime?
+  forecastDate          DateTime? // Forecast date when truck will be available from customer
   paintId               String?
   customerId            String?
+  invoiceToId           String? // Customer to invoice (can be different from customerId)
   sectorId              String?
   commission            CommissionStatus
+  negotiatingWith       Json? // Contact person negotiating the task: { name: string, phone: string }
   createdById           String?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
-  airbrushings          Airbrushing[]    @relation("AIRBRUSHING")
-  budget                Budget?          @relation("BUDGET_TASK")
-  cuts                  Cut[]            @relation("CUT_TASK")
-  observation           Observation?     @relation("OBSERVATION_TO_TASK")
-  services              ServiceOrder[]   @relation("SERVICE_ORDER_TASK")
-  bonusDiscount         BonusDiscount?   @relation(fields: [bonusDiscountId], references: [id])
-  createdBy             User?            @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
-  customer              Customer?        @relation(fields: [customerId], references: [id])
-  generalPainting       Paint?           @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  sector                Sector?          @relation(fields: [sectorId], references: [id])
+  airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
+  budget                Budget?              @relation("BUDGET_TASK")
+  cuts                  Cut[]                @relation("CUT_TASK")
+  observation           Observation?         @relation("OBSERVATION_TO_TASK")
+  serviceOrders         ServiceOrder[]       @relation("SERVICE_ORDER_TASK")
+  bonusDiscount         BonusDiscount?       @relation(fields: [bonusDiscountId], references: [id])
+  createdBy             User?                @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
+  customer              Customer?            @relation("TaskCustomer", fields: [customerId], references: [id])
+  invoiceTo             Customer?            @relation("TaskInvoiceTo", fields: [invoiceToId], references: [id])
+  generalPainting       Paint?               @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  sector                Sector?              @relation(fields: [sectorId], references: [id])
   truck                 Truck?
-  bonuses               Bonus[]          @relation("BonusTasks")
-  relatedTasks          Task[]           @relation("RelatedTasks")
-  relatedTo             Task[]           @relation("RelatedTasks")
-  budgets               File[]           @relation("TASK_BUDGETS")
-  artworks              File[]           @relation("TASK_FILES")
-  invoices              File[]           @relation("TASK_INVOICES")
-  invoiceReimbursements File[]           @relation("TASK_INVOICE_REIMBURSEMENTS")
-  logoPaints            Paint[]          @relation("TASK_LOGO_PAINT")
-  receipts              File[]           @relation("TASK_RECEIPTS")
-  reimbursements        File[]           @relation("TASK_REIMBURSEMENTS")
+  bonuses               Bonus[]              @relation("BonusTasks")
+  relatedTasks          Task[]               @relation("RelatedTasks")
+  relatedTo             Task[]               @relation("RelatedTasks")
+  budgets               File[]               @relation("TASK_BUDGETS")
+  artworks              File[]               @relation("TASK_FILES")
+  invoices              File[]               @relation("TASK_INVOICES")
+  invoiceReimbursements File[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
+  logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")
+  receipts              File[]               @relation("TASK_RECEIPTS")
+  reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
+  fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
 
   @@index([status, sectorId])
   @@index([statusOrder])
   @@index([term])
+  @@index([forecastDate])
   @@index([createdAt])
   @@index([customerId])
+  @@index([invoiceToId])
   @@index([createdById])
+}
+
+model TaskFieldChangeLog {
+  id           String   @id @default(uuid())
+  taskId       String
+  field        String // Field name (e.g., 'status', 'term', 'artworks')
+  oldValue     Json? // Previous value
+  newValue     Json? // New value
+  changedBy    String // User ID who made the change
+  changedAt    DateTime @default(now())
+  isFileArray  Boolean  @default(false) // Whether this is a file array field
+  filesAdded   Int      @default(0) // Number of files added (for file arrays)
+  filesRemoved Int      @default(0) // Number of files removed (for file arrays)
+  metadata     Json? // Additional context (e.g., file details)
+  task         Task     @relation("TASK_FIELD_CHANGE_LOGS", fields: [taskId], references: [id], onDelete: Cascade)
+  user         User     @relation("TASK_FIELD_CHANGE_USER", fields: [changedBy], references: [id])
+
+  @@index([taskId])
+  @@index([field])
+  @@index([changedAt])
+  @@index([changedBy])
+  @@index([taskId, field])
 }
 
 model Cut {
@@ -1149,7 +1190,7 @@ model LayoutSection {
   layoutId   String
   width      Float
   isDoor     Boolean  @default(false)
-  doorHeight Float?   // Height of the door from bottom of layout to top of door opening (in meters)
+  doorHeight Float? // Height of the door from bottom of layout to top of door opening (in meters)
   position   Int
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -1180,73 +1221,77 @@ model SecullumToken {
 }
 
 model User {
-  id                    String             @id @default(uuid())
-  email                 String?            @unique
-  payrollNumber         Int?
-  name                  String
-  status                UserStatus         @default(EXPERIENCE_PERIOD_1)
-  statusOrder           Int                @default(1)
-  phone                 String?            @unique
-  password              String?
-  positionId            String?
-  preferenceId          String?            @unique
-  pis                   String?            @unique
-  cpf                   String?            @unique
-  address               String?
-  addressNumber         String?
-  addressComplement     String?
-  neighborhood          String?
-  city                  String?
-  state                 String?
-  zipCode               String?
-  site                  String?
-  birth                 DateTime?
-  verified              Boolean            @default(false)
-  admissional           DateTime?
-  sectorId              String?
-  requirePasswordChange Boolean            @default(false)
-  lastLoginAt           DateTime?
-  verificationCode      String?
-  verificationExpiresAt DateTime?
-  verificationType      VerificationType?
-  sessionToken          String?            @unique
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  performanceLevel      Int                @default(0)
-  effectedAt            DateTime?
-  exp1StartAt           DateTime?
-  exp1EndAt             DateTime?
-  exp2StartAt           DateTime?
-  exp2EndAt             DateTime?
-  dismissedAt           DateTime?
-  avatarId              String?
-  isActive              Boolean            @default(true)
-  unionMember           Boolean            @default(false)
-  unionAuthorizationDate DateTime?
-  dependentsCount       Int                @default(0)
-  hasSimplifiedDeduction Boolean           @default(true)
-  activities            Activity[]         @relation("ACTIVITY_USER")
-  bonuses               Bonus[]            @relation("UserBonus")
-  borrows               Borrow[]           @relation("USER_BORROW")
-  changeLogs            ChangeLog[]        @relation("CHANGELOG_USER")
-  notifications         Notification[]     @relation("NOTIFICATION_CREATED_BY")
-  payrolls              Payroll[]
-  ppeDeliveriesReviewed PpeDelivery[]      @relation("PPE_DELIVERY_REVIEWED_BY")
-  ppeDeliveries         PpeDelivery[]      @relation("PPE_DELIVERY_USER")
-  ppeSize               PpeSize?           @relation("USER_PPE_SIZE")
-  preference            Preferences?       @relation("USER_PREFERENCES")
-  seenNotification      SeenNotification[]
-  createdTasks          Task[]             @relation("TASK_CREATED_BY")
-  avatar                File?              @relation("USER_AVATAR", fields: [avatarId], references: [id])
-  managedSector         Sector?            @relation("SECTOR_MANAGER")
-  position              Position?          @relation("USER_POSITION", fields: [positionId], references: [id])
-  sector                Sector?            @relation(fields: [sectorId], references: [id])
-  vacations             Vacation[]
-  warningsCollaborator  Warning[]          @relation("COLLABORATOR_WARNING")
-  warningsSupervisor    Warning[]          @relation("SUPERVISOR_WARNING")
-  deployments           Deployment[]       @relation("DEPLOYMENT_USER")
-  bonusesInPeriod       Bonus[]            @relation("BonusPeriodUsers")
-  warningsWitness       Warning[]          @relation("WITNESS_WARNING")
+  id                      String                       @id @default(uuid())
+  email                   String?                      @unique
+  payrollNumber           Int?
+  name                    String
+  status                  UserStatus                   @default(EXPERIENCE_PERIOD_1)
+  statusOrder             Int                          @default(1)
+  phone                   String?                      @unique
+  password                String?
+  positionId              String?
+  preferenceId            String?                      @unique
+  pis                     String?                      @unique
+  cpf                     String?                      @unique
+  address                 String?
+  addressNumber           String?
+  addressComplement       String?
+  neighborhood            String?
+  city                    String?
+  state                   String?
+  zipCode                 String?
+  site                    String?
+  birth                   DateTime?
+  verified                Boolean                      @default(false)
+  admissional             DateTime?
+  sectorId                String?
+  requirePasswordChange   Boolean                      @default(false)
+  lastLoginAt             DateTime?
+  verificationCode        String?
+  verificationExpiresAt   DateTime?
+  verificationType        VerificationType?
+  sessionToken            String?                      @unique
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  performanceLevel        Int                          @default(0)
+  effectedAt              DateTime?
+  exp1StartAt             DateTime?
+  exp1EndAt               DateTime?
+  exp2StartAt             DateTime?
+  exp2EndAt               DateTime?
+  dismissedAt             DateTime?
+  avatarId                String?
+  isActive                Boolean                      @default(true)
+  unionMember             Boolean                      @default(false)
+  unionAuthorizationDate  DateTime?
+  dependentsCount         Int                          @default(0)
+  hasSimplifiedDeduction  Boolean                      @default(true)
+  activities              Activity[]                   @relation("ACTIVITY_USER")
+  bonuses                 Bonus[]                      @relation("UserBonus")
+  borrows                 Borrow[]                     @relation("USER_BORROW")
+  changeLogs              ChangeLog[]                  @relation("CHANGELOG_USER")
+  taskFieldChangeLogs     TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
+  notifications           Notification[]               @relation("NOTIFICATION_CREATED_BY")
+  payrolls                Payroll[]
+  ppeDeliveriesReviewed   PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
+  ppeDeliveries           PpeDelivery[]                @relation("PPE_DELIVERY_USER")
+  ppeSize                 PpeSize?                     @relation("USER_PPE_SIZE")
+  preference              Preferences?                 @relation("USER_PREFERENCES")
+  seenNotification        SeenNotification[]
+  createdTasks            Task[]                       @relation("TASK_CREATED_BY")
+  avatar                  File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
+  managedSector           Sector?                      @relation("SECTOR_MANAGER")
+  position                Position?                    @relation("USER_POSITION", fields: [positionId], references: [id])
+  sector                  Sector?                      @relation(fields: [sectorId], references: [id])
+  vacations               Vacation[]
+  warningsCollaborator    Warning[]                    @relation("COLLABORATOR_WARNING")
+  warningsSupervisor      Warning[]                    @relation("SUPERVISOR_WARNING")
+  deployments             Deployment[]                 @relation("DEPLOYMENT_USER")
+  bonusesInPeriod         Bonus[]                      @relation("BonusPeriodUsers")
+  warningsWitness         Warning[]                    @relation("WITNESS_WARNING")
+  assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
+  notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
+  deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1288,43 +1333,53 @@ model Vacation {
 }
 
 model Preferences {
-  id            String                   @id @default(uuid())
-  userId        String                   @unique
-  colorSchema   ColorSchema              @default(LIGHT)
-  favorites     String[]                 @default([])
-  createdAt     DateTime                 @default(now())
-  updatedAt     DateTime                 @updatedAt
-  user          User                     @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
-  notifications NotificationPreference[] @relation("NotificationPreferenceToPreferences")
+  id          String      @id @default(uuid())
+  userId      String      @unique
+  colorSchema ColorSchema @default(LIGHT)
+  favorites   String[]    @default([])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation("USER_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model NotificationPreference {
   id               String                 @id @default(uuid())
-  notificationType String
+  notificationType NotificationType
   enabled          Boolean
   channels         NotificationChannel[]
   importance       NotificationImportance
+  fieldName        String?
+  isMandatory      Boolean                @default(false)
   createdAt        DateTime               @default(now())
   updatedAt        DateTime               @updatedAt
-  preferences      Preferences[]          @relation("NotificationPreferenceToPreferences")
 }
 
 model Notification {
-  id          String                  @id @default(uuid())
-  userId      String?
-  title       String
-  body        String
-  type        NotificationType
-  channel     NotificationChannel[]
-  importance  NotificationImportance  @default(NORMAL)
-  actionType  NotificationActionType?
-  actionUrl   String?
-  scheduledAt DateTime?
-  sentAt      DateTime?
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-  user        User?                   @relation("NOTIFICATION_CREATED_BY", fields: [userId], references: [id])
-  seenBy      SeenNotification[]
+  id                String                  @id @default(uuid())
+  userId            String?
+  title             String
+  body              String
+  type              NotificationType
+  channel           NotificationChannel[]
+  importance        NotificationImportance  @default(NORMAL)
+  actionType        NotificationActionType?
+  actionUrl         String?
+  scheduledAt       DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  deliveredChannels NotificationChannel[]
+  failedChannels    NotificationChannel[]
+  retryCount        Int                     @default(0)
+  metadata          Json?
+  relatedEntityType String?
+  relatedEntityId   String?
+  targetSectors     SectorPrivileges[]
+  isMandatory       Boolean                 @default(false)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  user              User?                   @relation("NOTIFICATION_CREATED_BY", fields: [userId], references: [id])
+  seenBy            SeenNotification[]
+  deliveries        NotificationDelivery[]
 
   @@index([userId])
   @@index([scheduledAt])
@@ -1335,12 +1390,64 @@ model SeenNotification {
   userId         String
   notificationId String
   seenAt         DateTime     @default(now())
+  remindAt       DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, notificationId])
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  platform  Platform
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("USER_DEVICE_TOKENS", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([platform])
+}
+
+model UserNotificationPreference {
+  id               String                @id @default(uuid())
+  userId           String
+  notificationType NotificationType
+  eventType        String?
+  enabled          Boolean               @default(true)
+  channels         NotificationChannel[]
+  isMandatory      Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  user User @relation("USER_NOTIFICATION_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, notificationType, eventType])
+  @@index([userId])
+}
+
+model NotificationDelivery {
+  id             String              @id @default(uuid())
+  notificationId String
+  channel        NotificationChannel
+  status         DeliveryStatus      @default(PENDING)
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  failedAt       DateTime?
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId])
+  @@index([status])
 }
 
 model ThumbnailJob {
@@ -1533,7 +1640,6 @@ enum PpeType {
   MASK
   GLOVES
   RAIN_BOOTS
-  OUTROS
   OTHERS
 }
 
@@ -1641,6 +1747,7 @@ enum PpeDeliveryStatus {
   APPROVED
   DELIVERED
   REPROVED
+  CANCELLED
 }
 
 enum ActivityReason {
@@ -1677,13 +1784,18 @@ enum MaintenanceScheduleStatus {
 }
 
 enum TaskStatus {
-  PENDING
+  PREPARATION
+  WAITING_PRODUCTION
   IN_PRODUCTION
   COMPLETED
   CANCELLED
-  ON_HOLD
-  INVOICED
-  SETTLED
+}
+
+enum ServiceOrderType {
+  PRODUCTION
+  FINANCIAL
+  NEGOTIATION
+  ARTWORK
 }
 
 enum ServiceOrderStatus {
@@ -1742,6 +1854,7 @@ enum BorrowStatus {
   ACTIVE
   RETURNED
   LOST
+  OVERDUE
 }
 
 enum ExternalWithdrawalType {
@@ -1784,8 +1897,6 @@ enum PaintFinish {
   SATIN
 }
 
-
-
 enum TruckManufacturer {
   SCANIA
   VOLVO
@@ -1822,6 +1933,16 @@ enum NotificationType {
   WARNING
   STOCK
   GENERAL
+  TASK_STATUS
+  TASK_DEADLINE
+  TASK_ASSIGNMENT
+  TASK_FIELD_UPDATE
+  ORDER_CREATED
+  ORDER_STATUS
+  ORDER_OVERDUE
+  STOCK_LOW
+  STOCK_OUT
+  STOCK_REORDER
 }
 
 enum NotificationImportance {
@@ -1836,6 +1957,23 @@ enum NotificationChannel {
   SMS
   PUSH
   IN_APP
+  WHATSAPP
+  DESKTOP_PUSH
+  MOBILE_PUSH
+}
+
+enum Platform {
+  IOS
+  ANDROID
+  WEB
+}
+
+enum DeliveryStatus {
+  PENDING
+  PROCESSING
+  DELIVERED
+  FAILED
+  RETRYING
 }
 
 enum ColorSchema {
@@ -1861,6 +1999,17 @@ enum MeasureUnit {
   CENTIMETER
   METER
   INCHES
+  INCH_1_8
+  INCH_1_4
+  INCH_3_8
+  INCH_1_2
+  INCH_5_8
+  INCH_3_4
+  INCH_7_8
+  INCH_1
+  INCH_1_1_4
+  INCH_1_1_2
+  INCH_2
   THREAD_MM
   THREAD_TPI
   WATT
@@ -2254,24 +2403,24 @@ enum PayrollDiscountType {
   IRRF
   FGTS
   // Absence-related deductions
-  ABSENCE              // DIAS FALTAS - Full day absences
-  PARTIAL_ABSENCE      // HORAS FALTAS PARCIAL - Partial hour absences
-  DSR_ABSENCE          // DIAS FALTAS DSR - DSR deduction for absences
-  LATE_ARRIVAL         // Atrasos - Late arrivals
-  SICK_LEAVE           // DIAS AFAST. P/DOENCA - Sick leave (may be paid)
+  ABSENCE // DIAS FALTAS - Full day absences
+  PARTIAL_ABSENCE // HORAS FALTAS PARCIAL - Partial hour absences
+  DSR_ABSENCE // DIAS FALTAS DSR - DSR deduction for absences
+  LATE_ARRIVAL // Atrasos - Late arrivals
+  SICK_LEAVE // DIAS AFAST. P/DOENCA - Sick leave (may be paid)
   // Legal/Court-ordered deductions
-  UNION                // CONTRIBUICAO NEGOCIAL - Union contribution
-  ALIMONY              // PENSAO ALIMENTICIA - Child support/alimony
-  GARNISHMENT          // Court-ordered garnishments
+  UNION // CONTRIBUICAO NEGOCIAL - Union contribution
+  ALIMONY // PENSAO ALIMENTICIA - Child support/alimony
+  GARNISHMENT // Court-ordered garnishments
   // Benefits deductions
   HEALTH_INSURANCE
   DENTAL_INSURANCE
   MEAL_VOUCHER
   TRANSPORT_VOUCHER
   // Financial deductions
-  LOAN                 // DESC. EMP. CRED. TRAB - Employee loans
-  ADVANCE              // DESC.ADIANT.SALARIAL - Salary advances
-  AUTHORIZED_DISCOUNT  // DESCONTOS AUTORIZADOS - Other authorized discounts
+  LOAN // DESC. EMP. CRED. TRAB - Employee loans
+  ADVANCE // DESC.ADIANT.SALARIAL - Salary advances
+  AUTHORIZED_DISCOUNT // DESCONTOS AUTORIZADOS - Other authorized discounts
   // Generic
   CUSTOM
 }

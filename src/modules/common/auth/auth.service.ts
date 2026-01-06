@@ -86,7 +86,9 @@ export class AuthService {
       throw new NotFoundException('Email ou número não cadastrado.');
     }
 
-    const user = await this.usersRepository.findById(foundUser.id, { include: { sector: true, managedSector: true } });
+    const user = await this.usersRepository.findById(foundUser.id, {
+      include: { sector: true, managedSector: true },
+    });
 
     if (!user) {
       throw new NotFoundException('Usuário não encontrado.');

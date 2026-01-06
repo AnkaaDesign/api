@@ -33,7 +33,7 @@ export const truckIncludeSchema: z.ZodSchema = z.lazy(() =>
                 createdBy: z.boolean().optional(),
                 artworks: z.boolean().optional(),
                 logoPaints: z.boolean().optional(),
-                services: z.boolean().optional(),
+                serviceOrders: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -173,12 +173,6 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 // =====================
 
 const truckTransform = (data: any): any => {
-  console.log('[TruckTransform] Input data:', {
-    searchingFor: data.searchingFor,
-    hasWhere: !!data.where,
-    whereKeys: data.where ? Object.keys(data.where) : [],
-  });
-
   // Normalize orderBy to Prisma format
   if (data.orderBy) {
     data.orderBy = normalizeOrderBy(data.orderBy);
@@ -195,7 +189,6 @@ const truckTransform = (data: any): any => {
   // Enhanced search filter - search across multiple fields and relations
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
-    console.log('[TruckTransform] Processing search term:', searchTerm);
     andConditions.push({
       OR: [
         // Direct truck fields
@@ -237,7 +230,7 @@ const truckTransform = (data: any): any => {
   if (data.garageNumber && typeof data.garageNumber === 'string') {
     const prefix = `B${data.garageNumber}_`;
     const garageSpots = Object.values(TRUCK_SPOT).filter(
-      (spot) => spot.startsWith(prefix) && spot !== 'PATIO',
+      spot => spot.startsWith(prefix) && spot !== 'PATIO',
     );
     if (garageSpots.length > 0) {
       andConditions.push({ spot: { in: garageSpots } });
@@ -320,7 +313,6 @@ const truckTransform = (data: any): any => {
 
   // Merge with existing where conditions
   if (andConditions.length > 0) {
-    console.log('[TruckTransform] andConditions count:', andConditions.length);
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
         data.where.AND = [...data.where.AND, ...andConditions];
@@ -331,12 +323,6 @@ const truckTransform = (data: any): any => {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
   }
-
-  console.log('[TruckTransform] Final output:', {
-    hasWhere: !!data.where,
-    whereKeys: data.where ? Object.keys(data.where) : [],
-    searchingFor: data.searchingFor,
-  });
 
   return data;
 };

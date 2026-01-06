@@ -145,7 +145,11 @@ export interface PaintBrandDeleteResponse extends BaseDeleteResponse {}
 
 // PaintBrand batch operations
 export interface PaintBrandBatchCreateResponse<T> extends BaseBatchResponse<PaintBrand, T> {}
-export interface PaintBrandBatchUpdateResponse<T>
-  extends BaseBatchResponse<PaintBrand, T & { id: string }> {}
-export interface PaintBrandBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface PaintBrandBatchUpdateResponse<T> extends BaseBatchResponse<
+  PaintBrand,
+  T & { id: string }
+> {}
+export interface PaintBrandBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

@@ -160,5 +160,7 @@ export interface CutBatchUpdateData {
 
 export interface CutBatchCreateResponse<T> extends BaseBatchResponse<Cut, T> {}
 export interface CutBatchUpdateResponse<T> extends BaseBatchResponse<Cut, T & { id: string }> {}
-export interface CutBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface CutBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

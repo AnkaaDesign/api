@@ -67,7 +67,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -86,7 +86,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -113,17 +113,6 @@ export class AirbrushingController {
       artworks?: Express.Multer.File[];
     },
   ): Promise<AirbrushingCreateResponse> {
-    console.log('[AIRBRUSHING CONTROLLER] CREATE - Files received:', files ? 'YES' : 'NO');
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
-          );
-        }
-      });
-    }
     return this.airbrushingService.create(data, query.include, userId, files);
   }
 
@@ -136,7 +125,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -158,7 +147,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -179,7 +168,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -201,7 +190,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -221,7 +210,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -248,17 +237,6 @@ export class AirbrushingController {
       artworks?: Express.Multer.File[];
     },
   ): Promise<AirbrushingUpdateResponse> {
-    console.log('[AIRBRUSHING CONTROLLER] UPDATE - Files received:', files ? 'YES' : 'NO');
-    if (files) {
-      Object.entries(files).forEach(([key, fileArray]) => {
-        if (fileArray && fileArray.length > 0) {
-          console.log(
-            `[AIRBRUSHING CONTROLLER] ${key} (${fileArray.length} files):`,
-            fileArray.map(f => ({ name: f.originalname, size: f.size, mimetype: f.mimetype })),
-          );
-        }
-      });
-    }
     return this.airbrushingService.update(id, data, query.include, userId, files);
   }
 
@@ -270,7 +248,7 @@ export class AirbrushingController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-    
+
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,

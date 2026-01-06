@@ -480,7 +480,8 @@ export interface ProductionDashboardData {
     tasksInProduction: DashboardMetric;
     tasksCompleted: DashboardMetric;
     tasksCancelled: DashboardMetric;
-    tasksOnHold: DashboardMetric;
+    tasksInPreparation: DashboardMetric;
+    tasksPending: DashboardMetric;
     averageCompletionTime: DashboardMetric; // in hours
   };
   serviceOrders: {

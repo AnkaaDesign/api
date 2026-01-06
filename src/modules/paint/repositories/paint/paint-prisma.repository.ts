@@ -266,33 +266,77 @@ export class PaintPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.PaintInclude {
+    // Light include for list views - avoids recursive component fetching
     return {
       paintType: true,
+      paintBrand: true,
+      _count: {
+        select: {
+          formulas: true,
+          generalPaintings: true,
+          logoTasks: true,
+          paintGrounds: true,
+        },
+      },
+    };
+  }
+
+  /**
+   * Heavy include for detail views - includes all nested relations
+   * Use this when you need full formula and component details
+   */
+  protected getHeavyInclude(): Prisma.PaintInclude {
+    return {
+      paintType: true,
+      paintBrand: true,
       formulas: {
         orderBy: { createdAt: 'desc' },
+        take: 10, // Limit to most recent formulas
         include: {
           components: {
+            take: 20, // Limit components per formula
             include: {
-              item: true,
+              item: {
+                select: {
+                  id: true,
+                  name: true,
+                  quantity: true,
+                },
+              },
             },
           },
         },
       },
       paintGrounds: {
+        take: 10,
         include: {
-          groundPaint: true,
+          groundPaint: {
+            select: {
+              id: true,
+              name: true,
+              hex: true,
+            },
+          },
         },
       },
       groundPaintFor: {
+        take: 10,
         include: {
-          paint: true,
+          paint: {
+            select: {
+              id: true,
+              name: true,
+              hex: true,
+            },
+          },
         },
       },
       _count: {
         select: {
+          formulas: true,
           generalPaintings: true,
           logoTasks: true,
-          formulas: true,
+          paintGrounds: true,
         },
       },
     };

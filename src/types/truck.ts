@@ -193,5 +193,7 @@ export interface TruckDeleteResponse extends BaseDeleteResponse {}
 
 export interface TruckBatchCreateResponse<T> extends BaseBatchResponse<Truck, T> {}
 export interface TruckBatchUpdateResponse<T> extends BaseBatchResponse<Truck, T & { id: string }> {}
-export interface TruckBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface TruckBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

@@ -11,7 +11,12 @@ import {
   moneySchema,
 } from './common';
 import type { Task } from '@types';
-import { TASK_STATUS, SERVICE_ORDER_STATUS, COMMISSION_STATUS } from '@constants';
+import {
+  TASK_STATUS,
+  SERVICE_ORDER_STATUS,
+  SERVICE_ORDER_TYPE,
+  COMMISSION_STATUS,
+} from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { budgetCreateNestedSchema } from './budget';
@@ -274,13 +279,14 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      services: z
+      serviceOrders: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
                 task: z.boolean().optional(),
+                assignedTo: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -408,6 +414,7 @@ export const taskOrderBySchema = z
       term: orderByDirectionSchema.optional(),
       startedAt: orderByDirectionSchema.optional(),
       finishedAt: orderByDirectionSchema.optional(),
+      forecastDate: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
     }),
@@ -422,6 +429,7 @@ export const taskOrderBySchema = z
         term: orderByDirectionSchema.optional(),
         startedAt: orderByDirectionSchema.optional(),
         finishedAt: orderByDirectionSchema.optional(),
+        forecastDate: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       }),
@@ -528,7 +536,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
-      services: z
+      serviceOrders: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -568,13 +576,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
 // =====================
 
 const taskTransform = (data: any): any => {
-  console.log('[TaskTransform] Input data:', {
-    searchingFor: data.searchingFor,
-    hasWhere: !!data.where,
-    whereKeys: data.where ? Object.keys(data.where) : [],
-    status: data.status,
-  });
-
   // Normalize orderBy to Prisma format
   if (data.orderBy) {
     data.orderBy = normalizeOrderBy(data.orderBy);
@@ -591,7 +592,6 @@ const taskTransform = (data: any): any => {
   // Enhanced search filter - search across multiple fields and relations
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     const searchTerm = data.searchingFor.trim();
-    console.log('[TaskTransform] Processing search term:', searchTerm);
     andConditions.push({
       OR: [
         // Direct task fields
@@ -606,8 +606,8 @@ const taskTransform = (data: any): any => {
         { sector: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { createdBy: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { observation: { description: { contains: searchTerm, mode: 'insensitive' } } },
-        // ServiceOrder only has description field, no name field
-        { services: { some: { description: { contains: searchTerm, mode: 'insensitive' } } } },
+        // ProductionServiceOrder only has description field, no name field
+        { serviceOrders: { some: { description: { contains: searchTerm, mode: 'insensitive' } } } },
         // Paint relations - search by paint name
         { generalPainting: { name: { contains: searchTerm, mode: 'insensitive' } } },
         { generalPainting: { code: { contains: searchTerm, mode: 'insensitive' } } },
@@ -692,10 +692,10 @@ const taskTransform = (data: any): any => {
   }
 
   if (data.hasServices === true) {
-    andConditions.push({ services: { some: {} } });
+    andConditions.push({ serviceOrders: { some: {} } });
     delete data.hasServices;
   } else if (data.hasServices === false) {
-    andConditions.push({ services: { none: {} } });
+    andConditions.push({ serviceOrders: { none: {} } });
     delete data.hasServices;
   }
 
@@ -808,10 +808,10 @@ const taskTransform = (data: any): any => {
   }
 
   if (data.isPending === true) {
-    andConditions.push({ status: TASK_STATUS.PENDING });
+    andConditions.push({ status: TASK_STATUS.WAITING_PRODUCTION });
     delete data.isPending;
   } else if (data.isPending === false) {
-    andConditions.push({ status: { not: TASK_STATUS.PENDING } });
+    andConditions.push({ status: { not: TASK_STATUS.WAITING_PRODUCTION } });
     delete data.isPending;
   }
 
@@ -824,10 +824,10 @@ const taskTransform = (data: any): any => {
   }
 
   if (data.isOnHold === true) {
-    andConditions.push({ status: TASK_STATUS.ON_HOLD });
+    andConditions.push({ status: TASK_STATUS.PREPARATION });
     delete data.isOnHold;
   } else if (data.isOnHold === false) {
-    andConditions.push({ status: { not: TASK_STATUS.ON_HOLD } });
+    andConditions.push({ status: { not: TASK_STATUS.PREPARATION } });
     delete data.isOnHold;
   }
 
@@ -989,6 +989,33 @@ const taskTransform = (data: any): any => {
     delete data.finishedDateRange;
   }
 
+  if (data.forecastDateRange && typeof data.forecastDateRange === 'object') {
+    const condition: any = {};
+    // Handle both Date objects and ISO strings (from HTTP query params)
+    if (data.forecastDateRange.from) {
+      const fromDate =
+        data.forecastDateRange.from instanceof Date
+          ? data.forecastDateRange.from
+          : new Date(data.forecastDateRange.from);
+      // Set to start of day (00:00:00)
+      fromDate.setHours(0, 0, 0, 0);
+      condition.gte = fromDate;
+    }
+    if (data.forecastDateRange.to) {
+      const toDate =
+        data.forecastDateRange.to instanceof Date
+          ? data.forecastDateRange.to
+          : new Date(data.forecastDateRange.to);
+      // Set to end of day (23:59:59.999)
+      toDate.setHours(23, 59, 59, 999);
+      condition.lte = toDate;
+    }
+    if (Object.keys(condition).length > 0) {
+      andConditions.push({ forecastDate: condition });
+    }
+    delete data.forecastDateRange;
+  }
+
   if (data.createdAtRange && typeof data.createdAtRange === 'object') {
     const condition: any = {};
     // Handle both Date objects and ISO strings (from HTTP query params)
@@ -1056,7 +1083,6 @@ const taskTransform = (data: any): any => {
 
   // Merge with existing where conditions
   if (andConditions.length > 0) {
-    console.log('[TaskTransform] andConditions count:', andConditions.length);
     if (data.where) {
       if (data.where.AND && Array.isArray(data.where.AND)) {
         data.where.AND = [...data.where.AND, ...andConditions];
@@ -1067,13 +1093,6 @@ const taskTransform = (data: any): any => {
       data.where = andConditions.length === 1 ? andConditions[0] : { AND: andConditions };
     }
   }
-
-  console.log('[TaskTransform] Final output:', {
-    hasWhere: !!data.where,
-    whereKeys: data.where ? Object.keys(data.where) : [],
-    whereStringified: data.where ? JSON.stringify(data.where).substring(0, 200) : 'undefined',
-    searchingFor: data.searchingFor,
-  });
 
   return data;
 };
@@ -1222,6 +1241,24 @@ export const taskGetManySchema = z
         },
       )
       .optional(),
+    forecastDateRange: z
+      .object({
+        from: z.coerce.date().optional(),
+        to: z.coerce.date().optional(),
+      })
+      .refine(
+        data => {
+          if (data.from && data.to) {
+            return data.to >= data.from;
+          }
+          return true;
+        },
+        {
+          message: 'Data final deve ser posterior ou igual à data inicial',
+          path: ['to'],
+        },
+      )
+      .optional(),
     createdAtRange: z
       .object({
         from: z.coerce.date().optional(),
@@ -1312,18 +1349,25 @@ const taskObservationCreateSchema = z.object({
   fileIds: z.array(z.string().min(1, 'ID do arquivo inválido')).optional(),
 });
 
-// ServiceOrder schema without taskId (will be auto-linked)
-const taskServiceOrderCreateSchema = z.object({
+// ProductionServiceOrder schema without taskId (will be auto-linked)
+const taskProductionServiceOrderCreateSchema = z.object({
   status: z
     .enum(Object.values(SERVICE_ORDER_STATUS) as [string, ...string[]], {
       errorMap: () => ({ message: 'status inválido' }),
     })
     .default(SERVICE_ORDER_STATUS.PENDING),
   statusOrder: z.number().int().min(1).max(4).default(1).optional(),
+  type: z
+    .enum(Object.values(SERVICE_ORDER_TYPE) as [string, ...string[]], {
+      errorMap: () => ({ message: 'tipo inválido' }),
+    })
+    .default(SERVICE_ORDER_TYPE.PRODUCTION)
+    .optional(),
   description: z
     .string()
     .min(3, { message: 'Mínimo de 3 caracteres' })
     .max(400, { message: 'Máximo de 40 caracteres atingido' }),
+  assignedToId: z.string().uuid('ID do colaborador inválido').nullable().optional(),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
@@ -1356,20 +1400,23 @@ const taskTruckSchema = z
       .string()
       .nullable()
       .optional()
-      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
+      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Placa deve conter apenas letras maiúsculas, números e hífens',
       }),
     chassisNumber: z
       .string()
       .nullable()
       .optional()
-      .refine((val) => {
-        if (!val) return true;
-        const cleaned = val.replace(/\s/g, '').toUpperCase();
-        return /^[A-Z0-9]{17}$/.test(cleaned);
-      }, {
-        message: 'Número do chassi deve ter exatamente 17 caracteres alfanuméricos',
-      }),
+      .refine(
+        val => {
+          if (!val) return true;
+          const cleaned = val.replace(/\s/g, '').toUpperCase();
+          return /^[A-Z0-9]{17}$/.test(cleaned);
+        },
+        {
+          message: 'Número do chassi deve ter exatamente 17 caracteres alfanuméricos',
+        },
+      ),
     spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
     // Layout data - embedded in truck for single payload
     leftSideLayout: layoutSideSchema,
@@ -1387,12 +1434,12 @@ const taskTruckSchema = z
 export const taskCreateSchema = z
   .object({
     // Basic fields
-    name: createNameSchema(3, 200, 'nome da tarefa'),
+    name: createNameSchema(3, 200, 'nome da tarefa').nullable().optional(),
     status: z
       .enum(Object.values(TASK_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'status inválido' }),
       })
-      .default(TASK_STATUS.PENDING),
+      .default(TASK_STATUS.PREPARATION),
     serialNumber: z
       .string()
       .optional()
@@ -1401,19 +1448,42 @@ export const taskCreateSchema = z
       .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
+    serialNumberFrom: z
+      .number({
+        invalid_type_error: 'Número de série inicial deve ser um número',
+      })
+      .int('Número de série inicial deve ser um número inteiro')
+      .positive('Número de série inicial deve ser positivo')
+      .optional(),
+    serialNumberTo: z
+      .number({
+        invalid_type_error: 'Número de série final deve ser um número',
+      })
+      .int('Número de série final deve ser um número inteiro')
+      .positive('Número de série final deve ser positivo')
+      .optional(),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
+    forecastDate: nullableDate.optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
+    invoiceToId: z.string().uuid('Cliente para faturamento inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
       .default(COMMISSION_STATUS.FULL_COMMISSION),
+    negotiatingWith: z
+      .object({
+        name: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+      })
+      .nullable()
+      .optional(),
 
     // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
     budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
@@ -1428,7 +1498,7 @@ export const taskCreateSchema = z
     nfeId: z.string().uuid('NFe inválida').nullable().optional(),
     receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
-    services: z.array(taskServiceOrderCreateSchema).optional(),
+    serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
@@ -1436,6 +1506,24 @@ export const taskCreateSchema = z
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
   })
   .superRefine((data, ctx) => {
+    // Require at least one of: customer, serialNumber, serialNumberFrom/To, plate, or name
+    const hasCustomer = !!data.customerId;
+    const hasSerialNumber = !!data.serialNumber;
+    const hasSerialNumberRange =
+      (data.serialNumberFrom !== undefined && data.serialNumberFrom !== null) ||
+      (data.serialNumberTo !== undefined && data.serialNumberTo !== null);
+    const hasPlate = !!data.truck?.plate;
+    const hasName = !!data.name;
+
+    if (!hasCustomer && !hasSerialNumber && !hasSerialNumberRange && !hasPlate && !hasName) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Pelo menos um dos seguintes campos deve ser preenchido: Cliente, Número de série, Placa ou Nome',
+        path: ['name'],
+      });
+    }
+
     if (data.entryDate && data.term && data.term <= data.entryDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -1476,6 +1564,49 @@ export const taskCreateSchema = z
         path: ['finishedAt'],
       });
     }
+
+    // Validate serial number range fields
+    const hasSerialNumberFrom = data.serialNumberFrom !== undefined;
+    const hasSerialNumberTo = data.serialNumberTo !== undefined;
+
+    // Both must be provided together or both omitted
+    if (hasSerialNumberFrom && !hasSerialNumberTo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Ambos os campos de intervalo devem ser preenchidos',
+        path: ['serialNumberTo'],
+      });
+    }
+
+    if (!hasSerialNumberFrom && hasSerialNumberTo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Ambos os campos de intervalo devem ser preenchidos',
+        path: ['serialNumberFrom'],
+      });
+    }
+
+    // Both fields are provided - perform additional validations
+    if (hasSerialNumberFrom && hasSerialNumberTo) {
+      // serialNumberTo must be >= serialNumberFrom
+      if (data.serialNumberTo! < data.serialNumberFrom!) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'O número final deve ser maior ou igual ao inicial',
+          path: ['serialNumberTo'],
+        });
+      }
+
+      // Validate range does not exceed 100 tasks
+      const taskCount = data.serialNumberTo! - data.serialNumberFrom! + 1;
+      if (taskCount > 100) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `O intervalo não pode exceder 100 tarefas (tentando criar ${taskCount} tarefas)`,
+          path: ['serialNumberTo'],
+        });
+      }
+    }
   })
   .transform(data => {
     // Map artworkIds to fileIds for backend compatibility
@@ -1484,6 +1615,11 @@ export const taskCreateSchema = z
       transformed.fileIds = transformed.artworkIds;
       delete transformed.artworkIds;
     }
+    // Map services to serviceOrders for backward compatibility
+    if (transformed.services) {
+      transformed.serviceOrders = transformed.services;
+      delete transformed.services;
+    }
     return transformed;
   });
 
@@ -1491,7 +1627,7 @@ export const taskCreateSchema = z
 export const taskUpdateSchema = z
   .object({
     // Basic fields
-    name: createNameSchema(3, 200, 'nome da tarefa').optional(),
+    name: createNameSchema(3, 200, 'nome da tarefa').nullable().optional(),
     status: z
       .enum(Object.values(TASK_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'status inválido' }),
@@ -1510,13 +1646,22 @@ export const taskUpdateSchema = z
     term: nullableDate.optional(),
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
+    forecastDate: nullableDate.optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
+    invoiceToId: z.string().uuid('Cliente para faturamento inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
+      .optional(),
+    negotiatingWith: z
+      .object({
+        name: z.string().nullable().optional(),
+        phone: z.string().nullable().optional(),
+      })
+      .nullable()
       .optional(),
 
     // Relations - File arrays
@@ -1528,7 +1673,7 @@ export const taskUpdateSchema = z
     artworkIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
     paintIds: z.array(z.string().uuid('Tinta inválida')).optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
-    services: z.array(taskServiceOrderCreateSchema).optional(),
+    serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
@@ -1583,6 +1728,11 @@ export const taskUpdateSchema = z
     if (transformed.artworkIds) {
       transformed.fileIds = transformed.artworkIds;
       delete transformed.artworkIds;
+    }
+    // Map services to serviceOrders for backward compatibility
+    if (transformed.services) {
+      transformed.serviceOrders = transformed.services;
+      delete transformed.services;
     }
     return transformed;
   });
@@ -1683,6 +1833,8 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   artworkIds: task.artworks?.map(artwork => artwork.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,
+  // Service orders mapping (supports both new serviceOrders and legacy services fields)
+  serviceOrders: task.serviceOrders || task.services,
   // Complex relations need to be handled separately
 }));
 

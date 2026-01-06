@@ -72,7 +72,7 @@ export class CustomerController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    
+
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findMany(
@@ -83,7 +83,7 @@ export class CustomerController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('logo', multerConfig))
   async create(
@@ -97,7 +97,7 @@ export class CustomerController {
   }
 
   @Post('quick')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async quickCreate(
     @Body(new ZodValidationPipe(customerQuickCreateSchema)) data: CustomerQuickCreateFormData,
@@ -109,7 +109,7 @@ export class CustomerController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(customerBatchCreateSchema)) data: CustomerBatchCreateFormData,
@@ -120,7 +120,7 @@ export class CustomerController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(customerBatchUpdateSchema)) data: CustomerBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(customerBatchQuerySchema)) query: CustomerBatchQueryFormData,
@@ -130,7 +130,7 @@ export class CustomerController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(customerBatchDeleteSchema)) data: CustomerBatchDeleteFormData,
@@ -140,7 +140,7 @@ export class CustomerController {
   }
 
   @Post('merge')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async merge(
     @Body(new ZodValidationPipe(customerMergeSchema)) data: CustomerMergeFormData,
@@ -158,7 +158,7 @@ export class CustomerController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-    
+
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findById(
@@ -170,7 +170,7 @@ export class CustomerController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(FileInterceptor('logo', multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -184,7 +184,7 @@ export class CustomerController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL,  SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,

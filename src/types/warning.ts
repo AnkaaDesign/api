@@ -101,7 +101,11 @@ export interface WarningDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface WarningBatchCreateResponse<T> extends BaseBatchResponse<Warning, T> {}
-export interface WarningBatchUpdateResponse<T>
-  extends BaseBatchResponse<Warning, T & { id: string }> {}
-export interface WarningBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface WarningBatchUpdateResponse<T> extends BaseBatchResponse<
+  Warning,
+  T & { id: string }
+> {}
+export interface WarningBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

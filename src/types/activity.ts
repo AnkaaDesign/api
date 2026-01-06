@@ -102,7 +102,11 @@ export interface ActivityDeleteResponse extends BaseDeleteResponse {}
 // =====================
 
 export interface ActivityBatchCreateResponse<T> extends BaseBatchResponse<Activity, T> {}
-export interface ActivityBatchUpdateResponse<T>
-  extends BaseBatchResponse<Activity, T & { id: string }> {}
-export interface ActivityBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface ActivityBatchUpdateResponse<T> extends BaseBatchResponse<
+  Activity,
+  T & { id: string }
+> {}
+export interface ActivityBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

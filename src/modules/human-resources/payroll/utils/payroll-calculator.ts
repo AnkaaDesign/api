@@ -244,8 +244,9 @@ export class PayrollCalculatorService {
     }
 
     // 2. Apply discounts in the order received (sorted by createdAt from DB)
-    const filteredDiscounts = discounts
-      .filter(discount => discount.percentage !== null || discount.value !== null);
+    const filteredDiscounts = discounts.filter(
+      discount => discount.percentage !== null || discount.value !== null,
+    );
 
     for (let i = 0; i < filteredDiscounts.length; i++) {
       const discount = filteredDiscounts[i];

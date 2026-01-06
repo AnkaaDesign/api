@@ -1,0 +1,63 @@
+<p>Uma nova tarefa foi atribuída a você!</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes da Tarefa</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Nome da Tarefa:</span>
+            <span class="info-value"><strong>{{taskName}}</strong></span>
+        </div>
+        {{#if taskCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{taskCode}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{taskStatus}}</span>
+        </div>
+        {{#if sectorName}}
+        <div class="info-row">
+            <span class="info-label">Setor:</span>
+            <span class="info-value">{{sectorName}}</span>
+        </div>
+        {{/if}}
+        {{#if priority}}
+        <div class="info-row">
+            <span class="info-label">Prioridade:</span>
+            <span class="info-value">{{priority}}</span>
+        </div>
+        {{/if}}
+        {{#if deadline}}
+        <div class="info-row">
+            <span class="info-label">Prazo:</span>
+            <span class="info-value"><strong>{{deadline}}</strong></span>
+        </div>
+        {{/if}}
+        {{#if estimatedHours}}
+        <div class="info-row">
+            <span class="info-label">Horas Estimadas:</span>
+            <span class="info-value">{{estimatedHours}}h</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if description}}
+<p><strong>Descrição da Tarefa:</strong></p>
+<p>{{description}}</p>
+{{/if}}
+
+{{#if requirements}}
+<p><strong>Requisitos:</strong></p>
+<ul>
+    {{#each requirements}}
+    <li>{{this}}</li>
+    {{/each}}
+</ul>
+{{/if}}
+
+{{#if assignedBy}}
+<p class="text-muted text-small">Atribuída por: {{assignedBy}}</p>
+{{/if}}

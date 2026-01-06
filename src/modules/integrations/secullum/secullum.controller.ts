@@ -88,9 +88,7 @@ export class SecullumController {
       );
 
       // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-      this.logger.log(
-        `Attempting to match user by CPF, PIS, and Payroll Number`,
-      );
+      this.logger.log(`Attempting to match user by CPF, PIS, and Payroll Number`);
 
       const secullumEmployee = await this.secullumService.findSecullumEmployee({
         cpf: user.cpf || undefined,
@@ -182,12 +180,7 @@ export class SecullumController {
    */
   @Get('calculations')
   @ReadRateLimit()
-  @Roles(
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    
-  )
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   @HttpCode(HttpStatus.OK)
   async getCalculations(
     @UserId() userId: string,
@@ -221,9 +214,7 @@ export class SecullumController {
       );
 
       // Find Secullum employee using CPF/PIS/PayrollNumber lookup
-      this.logger.log(
-        `Attempting to match user by CPF, PIS, and Payroll Number`,
-      );
+      this.logger.log(`Attempting to match user by CPF, PIS, and Payroll Number`);
 
       const secullumEmployee = await this.secullumService.findSecullumEmployee({
         cpf: user.cpf || undefined,
@@ -463,9 +454,7 @@ export class SecullumController {
   @ReadRateLimit()
   @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async checkUserMapping(
-    @UserId() userId: string,
-  ): Promise<any> {
+  async checkUserMapping(@UserId() userId: string): Promise<any> {
     this.logger.log(`User ${userId} checking user mappings with Secullum`);
 
     try {

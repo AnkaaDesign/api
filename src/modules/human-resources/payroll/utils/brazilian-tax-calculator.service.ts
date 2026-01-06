@@ -1,12 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import {
-  PayrollDiscountType,
-  TaxType,
-  Prisma,
-  TaxTable,
-  TaxBracket,
-} from '@prisma/client';
+import { PayrollDiscountType, TaxType, Prisma, TaxTable, TaxBracket } from '@prisma/client';
 
 /**
  * ============================================================================
@@ -137,16 +131,18 @@ export class BrazilianTaxCalculatorService {
    * - Bracket 3 (2.793,89 - 3.000,00): 206,12 × 12% = R$ 24,73
    * Total: R$ 253,41 (8,45% effective rate)
    */
-  async calculateINSS(
-    grossSalary: number,
-    year: number = 2025,
-  ): Promise<TaxCalculationResult> {
+  async calculateINSS(grossSalary: number, year: number = 2025): Promise<TaxCalculationResult> {
     try {
       // Get active INSS tax table for the year
       const taxTable = await this.getActiveTaxTable(TaxType.INSS, year);
 
       // Use fallback brackets if database table not found
-      let brackets: Array<{ bracketOrder: number; minValue: number; maxValue: number | null; rate: number }>;
+      let brackets: Array<{
+        bracketOrder: number;
+        minValue: number;
+        maxValue: number | null;
+        rate: number;
+      }>;
 
       if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
         brackets = taxTable.brackets.map(b => ({
@@ -258,7 +254,13 @@ export class BrazilianTaxCalculatorService {
       const taxTable = await this.getActiveTaxTable(TaxType.IRRF, year);
 
       // Use fallback brackets and settings if database table not found
-      let brackets: Array<{ bracketOrder: number; minValue: number; maxValue: number | null; rate: number; deduction: number }>;
+      let brackets: Array<{
+        bracketOrder: number;
+        minValue: number;
+        maxValue: number | null;
+        rate: number;
+        deduction: number;
+      }>;
       let settings: { deducaoPorDependente: number; descontoSimplificado: number };
 
       if (taxTable && taxTable.brackets && taxTable.brackets.length > 0) {
@@ -480,7 +482,13 @@ export class BrazilianTaxCalculatorService {
     sundaysInMonth: number;
     holidaysInMonth: number;
   }): TaxCalculationResult {
-    const { monthlySalary, workingDaysInMonth, unjustifiedAbsenceDays, sundaysInMonth, holidaysInMonth } = params;
+    const {
+      monthlySalary,
+      workingDaysInMonth,
+      unjustifiedAbsenceDays,
+      sundaysInMonth,
+      holidaysInMonth,
+    } = params;
 
     if (unjustifiedAbsenceDays === 0 || workingDaysInMonth === 0) {
       return {
@@ -601,7 +609,10 @@ export class BrazilianTaxCalculatorService {
    * ========================================================================
    * Counts Mon-Sat (Saturdays are working days in Brazil unless holiday)
    */
-  getWorkingDaysInMonth(year: number, month: number): {
+  getWorkingDaysInMonth(
+    year: number,
+    month: number,
+  ): {
     workingDays: number;
     sundays: number;
     saturdays: number;

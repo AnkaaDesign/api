@@ -13,8 +13,10 @@ import { AtomicStockUpdateService } from '../services/atomic-stock-update.servic
 import { StockErrorHandlerService } from '../services/stock-error-handler.service';
 import { ConsumptionAnalyticsService } from './consumption-analytics.service';
 
+import { ItemModule } from '../item/item.module';
+
 @Module({
-  imports: [PrismaModule, ChangeLogModule],
+  imports: [PrismaModule, ChangeLogModule, ItemModule],
   controllers: [ActivityController],
   providers: [
     ActivityService,
