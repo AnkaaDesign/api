@@ -257,8 +257,17 @@ export class NotificationService {
         return created;
       });
 
-      // Note: WebSocket delivery is handled by NotificationDispatchService for IN_APP channel
-      // This avoids duplicate sends and keeps all channel delivery logic in one place
+      // Dispatch notification to all channels (EMAIL, PUSH, WHATSAPP, etc.)
+      // IN_APP is handled via WebSocket in the dispatch service
+      try {
+        await this.dispatchService.dispatchNotification(notification.id);
+      } catch (dispatchError) {
+        // Log dispatch error but don't fail the notification creation
+        // The notification was created successfully, dispatch can be retried
+        this.logger.warn(
+          `Failed to dispatch notification ${notification.id}, will retry later: ${dispatchError.message}`,
+        );
+      }
 
       return {
         success: true,
@@ -784,8 +793,29 @@ export class NotificationService {
 
   async markAllAsRead(userId: string): Promise<{ count: number }> {
     try {
+      this.logger.log(`markAllAsRead called for userId: ${userId}`);
+
       const count = await this.prisma.$transaction(async tx => {
-        // Get all unread notifications
+        // First, let's count total notifications for this user
+        const totalNotifications = await (tx as any).notification.count({
+          where: { userId },
+        });
+        this.logger.log(`Total notifications for user ${userId}: ${totalNotifications}`);
+
+        // Count notifications already seen by this user
+        const seenCount = await (tx as any).notification.count({
+          where: {
+            userId,
+            seenBy: {
+              some: {
+                userId,
+              },
+            },
+          },
+        });
+        this.logger.log(`Already seen notifications for user ${userId}: ${seenCount}`);
+
+        // Get all unread notifications (no pagination - we need ALL of them)
         const unreadNotifications = await this.notificationRepository.findManyWithTransaction(tx, {
           where: {
             userId: userId!,
@@ -795,7 +825,10 @@ export class NotificationService {
               },
             },
           },
+          take: 1000, // Fetch up to 1000 notifications at once
         });
+
+        this.logger.log(`Found ${unreadNotifications.data.length} unread notifications for user ${userId}`);
 
         // Mark all as read
         let markedCount = 0;

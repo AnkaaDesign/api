@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../mailer/services/email.service';
 import { SmsService } from '../sms/sms.service';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
+import { PushService } from '../push/push.service';
 import { NOTIFICATION_CHANNEL } from '../../../constants';
 
 /**
@@ -54,6 +55,7 @@ export class NotificationQueueProcessor {
     private readonly emailService: EmailService,
     private readonly smsService: SmsService,
     private readonly whatsappNotificationService: WhatsAppNotificationService,
+    private readonly pushService: PushService,
   ) {}
 
   /**
@@ -88,8 +90,8 @@ export class NotificationQueueProcessor {
 
       // Prepare email data
       const emailData = {
-        companyName: process.env.COMPANY_NAME || 'Ankaa',
-        supportEmail: process.env.SUPPORT_EMAIL || 'support@ankaa.com',
+        companyName: process.env.COMPANY_NAME || 'Ankaa Design',
+        supportEmail: process.env.SUPPORT_EMAIL || 'suporte@ankaadesign.com.br',
         supportPhone: process.env.SUPPORT_PHONE || '',
         supportUrl: process.env.SUPPORT_URL || '',
         userName: metadata?.userName,
@@ -249,7 +251,7 @@ export class NotificationQueueProcessor {
   }
 
   /**
-   * Process push notification
+   * Process push notification via Firebase Cloud Messaging
    */
   @Process({
     name: 'send-push',
@@ -259,26 +261,61 @@ export class NotificationQueueProcessor {
     job: Job<NotificationJobData>,
   ): Promise<NotificationDeliveryResult> {
     const startTime = Date.now();
-    const { notificationId, recipientDeviceToken, title, body, actionUrl, metadata } = job.data;
+    const { notificationId, recipientDeviceToken, userId, title, body, actionUrl, metadata } = job.data;
 
-    this.logger.log(`Processing push notification ${notificationId}`);
+    this.logger.log(`Processing push notification ${notificationId} for user ${userId}`);
 
     try {
-      if (!recipientDeviceToken) {
-        throw new Error('Recipient device token is required for push notifications');
+      await job.progress(20);
+
+      // Build full action URL if it's a relative path
+      const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
+      let fullActionUrl = actionUrl;
+      if (actionUrl && !actionUrl.startsWith('http')) {
+        fullActionUrl = `${baseUrl}${actionUrl}`;
       }
 
-      await job.progress(30);
+      // Prepare data payload for the push notification
+      const dataPayload = {
+        notificationId,
+        actionUrl: fullActionUrl || '',
+        type: metadata?.type || 'notification',
+        ...metadata,
+      };
 
-      // TODO: Implement push notification service integration
-      // For now, we'll simulate the push notification
-      this.logger.warn(
-        `Push notification not yet implemented. Would send to device: ${recipientDeviceToken}`,
-      );
+      await job.progress(40);
+
+      let result;
+
+      // If we have a specific device token, send to that device
+      if (recipientDeviceToken) {
+        this.logger.log(`Sending push to device token: ${recipientDeviceToken.substring(0, 10)}...`);
+        result = await this.pushService.sendPushNotification(
+          recipientDeviceToken,
+          title,
+          body,
+          dataPayload,
+        );
+      }
+      // Otherwise, send to all devices for the user
+      else if (userId) {
+        this.logger.log(`Sending push to all devices for user: ${userId}`);
+        const multicastResult = await this.pushService.sendToUser(userId, title, body, dataPayload);
+        result = {
+          success: multicastResult.success > 0,
+          error: multicastResult.failure > 0 ? `${multicastResult.failure} devices failed` : undefined,
+        };
+      } else {
+        throw new Error('Either recipientDeviceToken or userId is required for push notifications');
+      }
 
       await job.progress(80);
 
       const processingTime = Date.now() - startTime;
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to send push notification');
+      }
 
       // Update notification delivery status
       await this.updateDeliveryStatus(notificationId, NOTIFICATION_CHANNEL.PUSH, true);
@@ -294,6 +331,7 @@ export class NotificationQueueProcessor {
         channel: NOTIFICATION_CHANNEL.PUSH,
         success: true,
         deliveredAt: new Date(),
+        messageId: result.messageId,
         processingTime,
       };
     } catch (error: any) {
@@ -602,90 +640,135 @@ export class NotificationQueueProcessor {
   }
 
   /**
-   * Generate HTML email template
+   * Generate HTML email template - matches company branding (green gradient)
    */
   private generateEmailHtml(title: string, body: string, actionUrl?: string, data?: any): string {
+    const companyName = data?.companyName || process.env.COMPANY_NAME || 'Ankaa Design';
+    const supportEmail = data?.supportEmail || process.env.SUPPORT_EMAIL || '';
+    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
+
+    // Build full action URL if it's a relative path
+    let fullActionUrl = actionUrl;
+    if (actionUrl && !actionUrl.startsWith('http')) {
+      fullActionUrl = `${baseUrl}${actionUrl}`;
+    }
+
     return `
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>${title} - ${companyName}</title>
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      line-height: 1.6;
-      color: #333;
-      background-color: #f4f4f4;
+    * {
       margin: 0;
       padding: 0;
+      box-sizing: border-box;
     }
-    .container {
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background-color: #f5f5f5;
+    }
+    .email-wrapper {
       max-width: 600px;
-      margin: 20px auto;
-      background: #ffffff;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin: 0 auto;
+      background-color: #ffffff;
     }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #ffffff;
-      padding: 30px;
+    .email-header {
+      background: linear-gradient(135deg, #16802B 0%, #1a9933 100%);
+      color: white;
+      padding: 30px 20px;
       text-align: center;
     }
-    .header h1 {
+    .email-header h1 {
       margin: 0;
-      font-size: 24px;
+      font-size: 28px;
+      font-weight: 600;
     }
-    .content {
-      padding: 30px;
+    .email-body {
+      padding: 40px 30px;
+      background-color: #ffffff;
     }
-    .content h2 {
-      color: #333;
-      margin-top: 0;
+    .email-body h2 {
+      color: #16802B;
+      margin: 0 0 20px 0;
+      font-size: 22px;
     }
-    .content p {
-      margin: 15px 0;
+    .email-body p {
+      margin: 0 0 15px 0;
+      color: #555;
+      line-height: 1.8;
+    }
+    .button-center {
+      text-align: center;
+      margin: 25px 0;
     }
     .button {
       display: inline-block;
-      padding: 12px 30px;
-      margin: 20px 0;
-      background: #667eea;
+      padding: 14px 32px;
+      background: #16802B;
       color: #ffffff !important;
       text-decoration: none;
-      border-radius: 5px;
+      border-radius: 6px;
       font-weight: 600;
+      font-size: 16px;
     }
-    .button:hover {
-      background: #5568d3;
+    .divider {
+      height: 1px;
+      background: linear-gradient(to right, transparent, #dee2e6, transparent);
+      margin: 30px 0;
     }
-    .footer {
-      background: #f8f9fa;
-      padding: 20px;
+    .email-footer {
+      background-color: #f8f9fa;
+      padding: 30px 20px;
       text-align: center;
-      font-size: 12px;
-      color: #6c757d;
       border-top: 1px solid #e9ecef;
+    }
+    .email-footer p {
+      margin: 5px 0;
+      font-size: 13px;
+      color: #6c757d;
+    }
+    .email-footer a {
+      color: #16802B;
+      text-decoration: none;
+    }
+    @media only screen and (max-width: 600px) {
+      .email-body {
+        padding: 30px 20px;
+      }
+      .email-header h1 {
+        font-size: 24px;
+      }
+      .button {
+        padding: 12px 24px;
+        font-size: 14px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>${data?.companyName || 'Ankaa'}</h1>
+  <div class="email-wrapper">
+    <div class="email-header">
+      <h1>${companyName}</h1>
     </div>
-    <div class="content">
+    <div class="email-body">
       <h2>${title}</h2>
       <p>${body.replace(/\n/g, '<br>')}</p>
-      ${actionUrl ? `<a href="${actionUrl}" class="button">Ver detalhes</a>` : ''}
+      ${fullActionUrl ? `
+      <div class="button-center">
+        <a href="${fullActionUrl}" class="button">Ver detalhes</a>
+      </div>
+      ` : ''}
     </div>
-    <div class="footer">
-      <p>Esta é uma notificação automática. Por favor, não responda a este e-mail.</p>
-      ${data?.supportEmail ? `<p>Dúvidas? Entre em contato: <a href="mailto:${data.supportEmail}">${data.supportEmail}</a></p>` : ''}
-      <p>&copy; ${new Date().getFullYear()} ${data?.companyName || 'Ankaa'}. Todos os direitos reservados.</p>
+    <div class="email-footer">
+      <p>Esta é uma notificação automática.</p>
+      ${supportEmail ? `<p>Dúvidas? Entre em contato: <a href="mailto:${supportEmail}">${supportEmail}</a></p>` : ''}
+      <p>&copy; ${new Date().getFullYear()} ${companyName}. Todos os direitos reservados.</p>
     </div>
   </div>
 </body>

@@ -106,19 +106,8 @@ export class NotificationPreferenceService {
       eventType || null,
     );
 
-    if (!existingPreference) {
-      this.logger.warn('Notification preference not found', {
-        userId,
-        type,
-        eventType,
-      });
-      throw new NotFoundException(
-        `Notification preference not found for type ${type} and event ${eventType}`,
-      );
-    }
-
-    // Check if preference is mandatory
-    if (existingPreference.isMandatory && validatedChannels.length === 0) {
+    // Check if preference is mandatory (if it exists)
+    if (existingPreference?.isMandatory && validatedChannels.length === 0) {
       this.logger.warn('User attempted to disable mandatory notification', {
         userId,
         type,
@@ -130,28 +119,57 @@ export class NotificationPreferenceService {
       );
     }
 
-    // Update the preference
+    // Upsert the preference (create if not exists, update if exists)
     try {
-      const updated = await this.preferenceRepository.updatePreference(
-        userId,
-        notificationType as NotificationType,
-        eventType || null,
-        validatedChannels as NotificationChannel[],
-        validatedChannels.length > 0, // enabled if channels exist
-      );
+      let result: UserNotificationPreference;
 
-      this.logger.log('User notification preference updated successfully', {
-        userId,
-        type,
-        eventType,
-        oldChannels: existingPreference.channels,
-        newChannels: validatedChannels,
-        enabled: validatedChannels.length > 0,
-      });
+      if (existingPreference) {
+        // Update existing preference
+        result = await this.preferenceRepository.updatePreference(
+          userId,
+          notificationType as NotificationType,
+          eventType || null,
+          validatedChannels as NotificationChannel[],
+          validatedChannels.length > 0, // enabled if channels exist
+        );
 
-      return updated;
+        this.logger.log('User notification preference updated successfully', {
+          userId,
+          type,
+          eventType,
+          oldChannels: existingPreference.channels,
+          newChannels: validatedChannels,
+          enabled: validatedChannels.length > 0,
+        });
+      } else {
+        // Create new preference
+        this.logger.log('Creating new notification preference', {
+          userId,
+          type,
+          eventType,
+          channels: validatedChannels,
+        });
+
+        result = await this.preferenceRepository.createPreference(
+          userId,
+          notificationType as NotificationType,
+          eventType || null,
+          validatedChannels as NotificationChannel[],
+          false, // New preferences created by user are not mandatory
+        );
+
+        this.logger.log('User notification preference created successfully', {
+          userId,
+          type,
+          eventType,
+          channels: validatedChannels,
+          enabled: validatedChannels.length > 0,
+        });
+      }
+
+      return result;
     } catch (error) {
-      this.logger.error('Failed to update notification preference', {
+      this.logger.error('Failed to update/create notification preference', {
         error: error.message,
         userId,
         type,

@@ -252,6 +252,54 @@ export class NotificationQueueService {
   }
 
   /**
+   * Add push notification job to the queue for a specific user
+   * This sends push notifications to ALL registered devices for the user
+   */
+  async addPushJobForUser(
+    notificationId: string,
+    userId: string,
+    title: string,
+    body: string,
+    options?: {
+      actionUrl?: string;
+      metadata?: Record<string, any>;
+      priority?: 'low' | 'normal' | 'high' | 'critical';
+      delay?: number;
+      scheduledFor?: Date;
+    },
+  ): Promise<Job<NotificationJobData>> {
+    try {
+      const jobData: NotificationJobData = {
+        notificationId,
+        channel: NOTIFICATION_CHANNEL.PUSH,
+        userId, // Send to user's devices, not a specific token
+        title,
+        body,
+        actionUrl: options?.actionUrl,
+        metadata: options?.metadata,
+        priority: options?.priority || 'normal',
+        scheduledFor: options?.scheduledFor,
+      };
+
+      const jobOptions = this.getJobOptions(options?.priority || 'normal', options?.delay);
+
+      this.logger.log(`Adding push job for notification ${notificationId} to user ${userId}`);
+
+      const job = await this.notificationQueue.add('send-push', jobData, {
+        ...jobOptions,
+        jobId: `push-user-${notificationId}-${Date.now()}`,
+      });
+
+      return job;
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to add push job for notification ${notificationId}: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
    * Add in-app notification job to the queue
    */
   async addInAppJob(
@@ -347,7 +395,23 @@ export class NotificationQueueService {
             break;
 
           case NOTIFICATION_CHANNEL.PUSH:
-            if (data.recipientDeviceToken) {
+          case NOTIFICATION_CHANNEL.MOBILE_PUSH:
+          case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
+            // Prefer sending to user's devices if userId is available
+            if (data.userId) {
+              job = await this.addPushJobForUser(
+                notificationId,
+                data.userId,
+                data.title,
+                data.body,
+                {
+                  actionUrl: data.actionUrl,
+                  metadata: data.metadata,
+                  priority: data.priority,
+                },
+              );
+            } else if (data.recipientDeviceToken) {
+              // Fall back to specific device token if no userId
               job = await this.addPushJob(
                 notificationId,
                 data.recipientDeviceToken,
@@ -970,11 +1034,10 @@ export class NotificationQueueService {
       case NOTIFICATION_CHANNEL.PUSH:
       case NOTIFICATION_CHANNEL.MOBILE_PUSH:
       case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
-        // For push notifications, we need device tokens from user preferences or metadata
-        // For now, we'll use a placeholder approach
-        return await this.addPushJob(
+        // For push notifications, we send to all user's registered devices
+        return await this.addPushJobForUser(
           job.notificationId,
-          user.id, // Using userId as placeholder for device token
+          user.id,
           notification.title,
           notification.body,
           {

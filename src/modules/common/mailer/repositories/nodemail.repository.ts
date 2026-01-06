@@ -80,7 +80,7 @@ export class NodemailRepository implements MailerRepository {
       },
       from: {
         email: process.env.SMTP_FROM_EMAIL || process.env.EMAIL_USER || 'noreply@example.com',
-        name: process.env.SMTP_FROM_NAME || 'Ankaa System',
+        name: process.env.SMTP_FROM_NAME || 'Ankaa Design',
       },
     };
 

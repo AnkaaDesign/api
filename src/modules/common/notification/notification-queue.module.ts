@@ -11,6 +11,7 @@ import { NotificationQueueHealthController } from './notification-queue-health.c
 import { PrismaModule } from '../prisma/prisma.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { SmsModule } from '../sms/sms.module';
+import { PushModule } from '../push/push.module';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
@@ -21,6 +22,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     PrismaModule,
     MailerModule,
     SmsModule,
+    PushModule,
     WhatsAppModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'default-secret',
