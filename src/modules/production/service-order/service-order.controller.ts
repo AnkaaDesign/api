@@ -111,7 +111,13 @@ export class ServiceOrderController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+  )
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body(new ZodValidationPipe(serviceOrderCreateSchema)) data: ServiceOrderCreateFormData,
@@ -123,7 +129,13 @@ export class ServiceOrderController {
 
   // Batch Operations
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
+  )
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(serviceOrderBatchCreateSchema))
@@ -168,6 +180,8 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
   )
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -208,10 +222,12 @@ export class ServiceOrderController {
 
   @Put(':id')
   @Roles(
-    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.LEADER,
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,
