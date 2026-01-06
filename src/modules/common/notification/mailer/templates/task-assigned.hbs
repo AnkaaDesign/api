@@ -1,0 +1,84 @@
+<h1>Tarefa Atribuída a Você <span class="badge badge-new">ATRIBUÍDA</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>Uma tarefa foi atribuída a você e requer sua atenção.</p>
+
+<div class="info-box">
+    <div class="info-row">
+        <span class="info-label">Título:</span>
+        <span class="info-value"><strong>{{task.title}}</strong></span>
+    </div>
+    {{#if task.description}}
+        <div class="info-row">
+            <span class="info-label">Descrição:</span>
+            <span class="info-value">{{task.description}}</span>
+        </div>
+    {{/if}}
+    {{#if task.priority}}
+        <div class="info-row">
+            <span class="info-label">Prioridade:</span>
+            <span class="info-value">
+                {{#if (eq task.priority "high")}}
+                    <span style="color: #dc3545; font-weight: 600;">ALTA</span>
+                {{else if (eq task.priority "medium")}}
+                    <span style="color: #ffc107; font-weight: 600;">MÉDIA</span>
+                {{else}}
+                    <span style="color: #28a745; font-weight: 600;">BAIXA</span>
+                {{/if}}
+            </span>
+        </div>
+    {{/if}}
+    {{#if task.status}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{task.status}}</span>
+        </div>
+    {{/if}}
+    {{#if task.dueDate}}
+        <div class="info-row">
+            <span class="info-label">Data de Vencimento:</span>
+            <span class="info-value"><strong>{{task.dueDate}}</strong></span>
+        </div>
+    {{/if}}
+    {{#if assignedBy}}
+        <div class="info-row">
+            <span class="info-label">Atribuído por:</span>
+            <span class="info-value">{{assignedBy}}</span>
+        </div>
+    {{/if}}
+</div>
+
+{{#if task.estimatedTime}}
+    <p><strong>Tempo Estimado:</strong> {{task.estimatedTime}}</p>
+{{/if}}
+
+{{#if task.attachments}}
+    <h2>Anexos:</h2>
+    <ul style="margin: 10px 0; padding-left: 20px;">
+        {{#each task.attachments}}
+            <li style="margin: 5px 0;"><a href="{{this.url}}" style="color: #007bff;">{{this.name}}</a></li>
+        {{/each}}
+    </ul>
+{{/if}}
+
+{{#if message}}
+    <div class="info-box">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">Mensagem do Atribuidor:</h3>
+        <p style="margin: 0;">{{message}}</p>
+    </div>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-primary">Ver Tarefa e Começar</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    {{#if task.dueDate}}
+        Esta tarefa foi atribuída a você em {{assignedAt}}. Lembre-se de que o prazo de vencimento é {{task.dueDate}}.
+    {{else}}
+        Esta tarefa foi atribuída a você em {{assignedAt}}. Acesse o sistema para visualizar todos os detalhes e começar a trabalhar.
+    {{/if}}
+</p>

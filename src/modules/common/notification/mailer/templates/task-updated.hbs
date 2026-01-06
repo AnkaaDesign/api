@@ -1,0 +1,87 @@
+<h1>Tarefa Atualizada <span class="badge badge-updated">ATUALIZADA</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>A tarefa <strong>{{task.title}}</strong> foi atualizada.</p>
+
+<div class="info-box">
+    <div class="info-row">
+        <span class="info-label">Tarefa:</span>
+        <span class="info-value"><strong>{{task.title}}</strong></span>
+    </div>
+    {{#if task.id}}
+        <div class="info-row">
+            <span class="info-label">ID:</span>
+            <span class="info-value">{{task.id}}</span>
+        </div>
+    {{/if}}
+    {{#if updatedBy}}
+        <div class="info-row">
+            <span class="info-label">Atualizado por:</span>
+            <span class="info-value">{{updatedBy}}</span>
+        </div>
+    {{/if}}
+    <div class="info-row">
+        <span class="info-label">Data da atualização:</span>
+        <span class="info-value">{{updatedAt}}</span>
+    </div>
+</div>
+
+<h2>Alterações Realizadas:</h2>
+
+<div class="change-list">
+    {{#each changes}}
+        <div class="change-item">
+            <div class="change-field">{{this.field}}:</div>
+            <div>
+                {{#if this.oldValue}}
+                    <span class="change-old">{{this.oldValue}}</span>
+                    →
+                    <span class="change-new">{{this.newValue}}</span>
+                {{else}}
+                    <span class="change-new">{{this.newValue}}</span>
+                {{/if}}
+            </div>
+        </div>
+    {{else}}
+        <p style="color: #6c757d; font-style: italic;">Nenhuma alteração específica registrada.</p>
+    {{/each}}
+</div>
+
+{{#if task.currentStatus}}
+    <div class="info-box">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">Status Atual da Tarefa:</h3>
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{task.currentStatus}}</span>
+        </div>
+        {{#if task.assignedTo}}
+            <div class="info-row">
+                <span class="info-label">Atribuído a:</span>
+                <span class="info-value">{{task.assignedTo}}</span>
+            </div>
+        {{/if}}
+        {{#if task.priority}}
+            <div class="info-row">
+                <span class="info-label">Prioridade:</span>
+                <span class="info-value">{{task.priority}}</span>
+            </div>
+        {{/if}}
+        {{#if task.dueDate}}
+            <div class="info-row">
+                <span class="info-label">Vencimento:</span>
+                <span class="info-value">{{task.dueDate}}</span>
+            </div>
+        {{/if}}
+    </div>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-primary">Ver Tarefa Atualizada</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Mantenha-se atualizado sobre o progresso desta tarefa. Clique no botão acima para visualizar todos os detalhes.
+</p>

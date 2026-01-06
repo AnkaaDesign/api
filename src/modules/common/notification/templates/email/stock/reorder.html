@@ -1,0 +1,169 @@
+<p>É necessário realizar um pedido de reposição para o item <strong>{{itemName}}</strong>.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Informações do Item</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Item:</span>
+            <span class="info-value"><strong>{{itemName}}</strong></span>
+        </div>
+        {{#if itemCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{itemCode}}</span>
+        </div>
+        {{/if}}
+        {{#if category}}
+        <div class="info-row">
+            <span class="info-label">Categoria:</span>
+            <span class="info-value">{{category}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Estoque Atual:</span>
+            <span class="info-value">{{currentQuantity}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Ponto de Reposição:</span>
+            <span class="info-value">{{reorderPoint}}</span>
+        </div>
+        {{#if recommendedQuantity}}
+        <div class="info-row">
+            <span class="info-label">Quantidade Recomendada:</span>
+            <span class="info-value"><strong style="color: #667eea;">{{recommendedQuantity}}</strong></span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if calculationDetails}}
+<div class="info-box" style="margin-top: 20px; background-color: #e7f3ff; border-left-color: #2196F3;">
+    <div class="info-box-title">Cálculo da Quantidade Recomendada</div>
+    <div class="info-box-content">
+        {{#if calculationDetails.averageConsumption}}
+        <div class="info-row">
+            <span class="info-label">Consumo Médio Mensal:</span>
+            <span class="info-value">{{calculationDetails.averageConsumption}}</span>
+        </div>
+        {{/if}}
+        {{#if calculationDetails.leadTime}}
+        <div class="info-row">
+            <span class="info-label">Prazo de Entrega:</span>
+            <span class="info-value">{{calculationDetails.leadTime}}</span>
+        </div>
+        {{/if}}
+        {{#if calculationDetails.safetyStock}}
+        <div class="info-row">
+            <span class="info-label">Estoque de Segurança:</span>
+            <span class="info-value">{{calculationDetails.safetyStock}}</span>
+        </div>
+        {{/if}}
+        {{#if calculationDetails.maxStock}}
+        <div class="info-row">
+            <span class="info-label">Estoque Máximo:</span>
+            <span class="info-value">{{calculationDetails.maxStock}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+{{/if}}
+
+{{#if preferredSupplier}}
+<div class="success-box">
+    <p><strong>Fornecedor Recomendado:</strong></p>
+    <div class="info-row">
+        <span class="info-label">Nome:</span>
+        <span class="info-value"><strong>{{preferredSupplier.name}}</strong></span>
+    </div>
+    {{#if preferredSupplier.price}}
+    <div class="info-row">
+        <span class="info-label">Preço Unitário:</span>
+        <span class="info-value">{{preferredSupplier.price}}</span>
+    </div>
+    {{/if}}
+    {{#if preferredSupplier.leadTime}}
+    <div class="info-row">
+        <span class="info-label">Prazo de Entrega:</span>
+        <span class="info-value">{{preferredSupplier.leadTime}}</span>
+    </div>
+    {{/if}}
+    {{#if preferredSupplier.minOrder}}
+    <div class="info-row">
+        <span class="info-label">Pedido Mínimo:</span>
+        <span class="info-value">{{preferredSupplier.minOrder}}</span>
+    </div>
+    {{/if}}
+    {{#if preferredSupplier.reliability}}
+    <div class="info-row">
+        <span class="info-label">Confiabilidade:</span>
+        <span class="info-value">{{preferredSupplier.reliability}}</span>
+    </div>
+    {{/if}}
+</div>
+{{/if}}
+
+{{#if estimatedCost}}
+<div class="info-box" style="margin-top: 20px;">
+    <div class="info-box-title">Estimativa de Custo</div>
+    <div class="info-box-content">
+        {{#if estimatedCost.unitPrice}}
+        <div class="info-row">
+            <span class="info-label">Preço Unitário:</span>
+            <span class="info-value">{{estimatedCost.unitPrice}}</span>
+        </div>
+        {{/if}}
+        {{#if estimatedCost.totalCost}}
+        <div class="info-row">
+            <span class="info-label">Custo Total Estimado:</span>
+            <span class="info-value"><strong>{{estimatedCost.totalCost}}</strong></span>
+        </div>
+        {{/if}}
+        {{#if estimatedCost.shipping}}
+        <div class="info-row">
+            <span class="info-label">Frete Estimado:</span>
+            <span class="info-value">{{estimatedCost.shipping}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+{{/if}}
+
+{{#if alternativeSuppliers}}
+<p><strong>Fornecedores Alternativos:</strong></p>
+<table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+    <thead>
+        <tr style="background-color: #f8f9fa;">
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Fornecedor</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Prazo</th>
+            <th style="padding: 10px; text-align: right; border-bottom: 2px solid #dee2e6;">Preço</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Avaliação</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#each alternativeSuppliers}}
+        <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{this.name}}</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">{{this.leadTime}}</td>
+            <td style="padding: 10px; text-align: right; border-bottom: 1px solid #dee2e6;">{{this.price}}</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">{{this.rating}}</td>
+        </tr>
+        {{/each}}
+    </tbody>
+</table>
+{{/if}}
+
+<p><strong>Próximos Passos:</strong></p>
+<ul>
+    <li>Revisar a quantidade recomendada e ajustar se necessário</li>
+    <li>Selecionar o fornecedor mais adequado</li>
+    <li>Criar o pedido de compra no sistema</li>
+    <li>Confirmar prazo de entrega com o fornecedor</li>
+    {{#if requiresApproval}}
+    <li><strong>Este pedido requer aprovação gerencial</strong></li>
+    {{/if}}
+</ul>
+
+{{#if notes}}
+<p><strong>Observações:</strong></p>
+<p>{{notes}}</p>
+{{/if}}

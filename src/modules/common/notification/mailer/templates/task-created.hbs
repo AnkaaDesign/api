@@ -1,0 +1,66 @@
+<h1>Nova Tarefa Criada <span class="badge badge-new">NOVA</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>Uma nova tarefa foi criada no sistema e requer sua atenção.</p>
+
+<div class="info-box">
+    <div class="info-row">
+        <span class="info-label">Título:</span>
+        <span class="info-value"><strong>{{task.title}}</strong></span>
+    </div>
+    {{#if task.description}}
+        <div class="info-row">
+            <span class="info-label">Descrição:</span>
+            <span class="info-value">{{task.description}}</span>
+        </div>
+    {{/if}}
+    {{#if task.priority}}
+        <div class="info-row">
+            <span class="info-label">Prioridade:</span>
+            <span class="info-value">{{task.priority}}</span>
+        </div>
+    {{/if}}
+    {{#if task.status}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{task.status}}</span>
+        </div>
+    {{/if}}
+    {{#if task.dueDate}}
+        <div class="info-row">
+            <span class="info-label">Data de Vencimento:</span>
+            <span class="info-value">{{task.dueDate}}</span>
+        </div>
+    {{/if}}
+    {{#if task.createdBy}}
+        <div class="info-row">
+            <span class="info-label">Criado por:</span>
+            <span class="info-value">{{task.createdBy}}</span>
+        </div>
+    {{/if}}
+    {{#if task.assignedTo}}
+        <div class="info-row">
+            <span class="info-label">Atribuído a:</span>
+            <span class="info-value">{{task.assignedTo}}</span>
+        </div>
+    {{/if}}
+</div>
+
+{{#if task.tags}}
+    <p><strong>Tags:</strong> {{task.tags}}</p>
+{{/if}}
+
+{{#if task.category}}
+    <p><strong>Categoria:</strong> {{task.category}}</p>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-primary">Ver Detalhes da Tarefa</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Esta tarefa foi criada em {{createdAt}}. Clique no botão acima para visualizar todos os detalhes e começar a trabalhar nela.
+</p>

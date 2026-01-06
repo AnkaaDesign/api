@@ -63,8 +63,10 @@ export interface ConsumptionItemSimple {
 /**
  * Consumption item (comparison mode)
  */
-export interface ConsumptionItemComparison
-  extends Omit<ConsumptionItemSimple, 'totalQuantity' | 'totalValue' | 'movementCount'> {
+export interface ConsumptionItemComparison extends Omit<
+  ConsumptionItemSimple,
+  'totalQuantity' | 'totalValue' | 'movementCount'
+> {
   // Total across all entities
   totalQuantity: number;
   totalValue: number;

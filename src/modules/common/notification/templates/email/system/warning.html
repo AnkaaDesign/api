@@ -1,0 +1,120 @@
+<div class="warning-box">
+    <p><strong>{{#if warningTitle}}{{warningTitle}}{{else}}Aviso Importante{{/if}}</strong></p>
+</div>
+
+{{#if message}}
+<p>{{message}}</p>
+{{/if}}
+
+{{#if severity}}
+<div class="info-box" style="{{#if (eq severity 'high')}}background-color: #f8d7da; border-left-color: #dc3545;{{else if (eq severity 'medium')}}background-color: #fff3cd; border-left-color: #ffc107;{{else}}background-color: #e7f3ff; border-left-color: #2196F3;{{/if}}">
+    <div class="info-box-title">Nível de Severidade</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Severidade:</span>
+            <span class="info-value"><strong>
+                {{#if (eq severity 'high')}}Alta - Ação Imediata Necessária
+                {{else if (eq severity 'medium')}}Média - Ação Recomendada
+                {{else}}Baixa - Informativo
+                {{/if}}
+            </strong></span>
+        </div>
+    </div>
+</div>
+{{/if}}
+
+{{#if details}}
+<div class="info-box">
+    <div class="info-box-title">Detalhes do Aviso</div>
+    <div class="info-box-content">
+        {{#each details}}
+        <div class="info-row">
+            <span class="info-label">{{this.label}}:</span>
+            <span class="info-value">{{this.value}}</span>
+        </div>
+        {{/each}}
+    </div>
+</div>
+{{/if}}
+
+{{#if description}}
+<p><strong>Descrição:</strong></p>
+<p>{{description}}</p>
+{{/if}}
+
+{{#if impact}}
+<div class="warning-box">
+    <p><strong>Impacto Potencial:</strong></p>
+    <p>{{impact}}</p>
+</div>
+{{/if}}
+
+{{#if recommendations}}
+<p><strong>Recomendações:</strong></p>
+<ul>
+    {{#each recommendations}}
+    <li>{{this}}</li>
+    {{/each}}
+</ul>
+{{/if}}
+
+{{#if requiredActions}}
+<p><strong>Ações Necessárias:</strong></p>
+<ol>
+    {{#each requiredActions}}
+    <li>{{this}}</li>
+    {{/each}}
+</ol>
+{{/if}}
+
+{{#if deadline}}
+<div class="alert-box">
+    <p><strong>Prazo para Ação:</strong> {{deadline}}</p>
+</div>
+{{/if}}
+
+{{#if contactInfo}}
+<div class="info-box" style="margin-top: 20px;">
+    <div class="info-box-title">Em Caso de Dúvidas</div>
+    <div class="info-box-content">
+        {{#if contactInfo.department}}
+        <div class="info-row">
+            <span class="info-label">Departamento:</span>
+            <span class="info-value">{{contactInfo.department}}</span>
+        </div>
+        {{/if}}
+        {{#if contactInfo.person}}
+        <div class="info-row">
+            <span class="info-label">Contato:</span>
+            <span class="info-value">{{contactInfo.person}}</span>
+        </div>
+        {{/if}}
+        {{#if contactInfo.email}}
+        <div class="info-row">
+            <span class="info-label">Email:</span>
+            <span class="info-value"><a href="mailto:{{contactInfo.email}}" style="color: #667eea;">{{contactInfo.email}}</a></span>
+        </div>
+        {{/if}}
+        {{#if contactInfo.phone}}
+        <div class="info-row">
+            <span class="info-label">Telefone:</span>
+            <span class="info-value">{{contactInfo.phone}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+{{/if}}
+
+{{#if relatedLinks}}
+<p><strong>Links Relacionados:</strong></p>
+<ul>
+    {{#each relatedLinks}}
+    <li><a href="{{this.url}}" style="color: #667eea; text-decoration: underline;">{{this.text}}</a></li>
+    {{/each}}
+</ul>
+{{/if}}
+
+{{#if additionalInfo}}
+<div class="divider"></div>
+<p class="text-muted text-small">{{additionalInfo}}</p>
+{{/if}}

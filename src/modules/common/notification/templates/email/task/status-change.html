@@ -1,0 +1,52 @@
+<p>A tarefa <strong>{{taskName}}</strong> teve seu status alterado.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes da Tarefa</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Nome da Tarefa:</span>
+            <span class="info-value">{{taskName}}</span>
+        </div>
+        {{#if taskCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{taskCode}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Status Anterior:</span>
+            <span class="info-value">{{oldStatus}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Novo Status:</span>
+            <span class="info-value"><strong>{{newStatus}}</strong></span>
+        </div>
+        {{#if sectorName}}
+        <div class="info-row">
+            <span class="info-label">Setor:</span>
+            <span class="info-value">{{sectorName}}</span>
+        </div>
+        {{/if}}
+        {{#if assignedTo}}
+        <div class="info-row">
+            <span class="info-label">Responsável:</span>
+            <span class="info-value">{{assignedTo}}</span>
+        </div>
+        {{/if}}
+        {{#if deadline}}
+        <div class="info-row">
+            <span class="info-label">Prazo:</span>
+            <span class="info-value">{{deadline}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if description}}
+<p><strong>Descrição:</strong></p>
+<p>{{description}}</p>
+{{/if}}
+
+{{#if changedBy}}
+<p class="text-muted text-small">Alteração realizada por: {{changedBy}}</p>
+{{/if}}

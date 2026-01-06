@@ -1,0 +1,62 @@
+<div class="warning-box">
+    <p><strong>Atenção!</strong> O prazo da sua tarefa está se aproximando.</p>
+</div>
+
+<p>A tarefa <strong>{{taskName}}</strong> está próxima do prazo de entrega.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes da Tarefa</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Nome da Tarefa:</span>
+            <span class="info-value"><strong>{{taskName}}</strong></span>
+        </div>
+        {{#if taskCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{taskCode}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Status Atual:</span>
+            <span class="info-value">{{taskStatus}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Prazo:</span>
+            <span class="info-value"><strong style="color: #ffc107;">{{deadline}}</strong></span>
+        </div>
+        {{#if daysRemaining}}
+        <div class="info-row">
+            <span class="info-label">Tempo Restante:</span>
+            <span class="info-value"><strong>{{daysRemaining}}</strong></span>
+        </div>
+        {{/if}}
+        {{#if sectorName}}
+        <div class="info-row">
+            <span class="info-label">Setor:</span>
+            <span class="info-value">{{sectorName}}</span>
+        </div>
+        {{/if}}
+        {{#if priority}}
+        <div class="info-row">
+            <span class="info-label">Prioridade:</span>
+            <span class="info-value">{{priority}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if completionPercentage}}
+<p><strong>Progresso:</strong> {{completionPercentage}}% concluído</p>
+{{/if}}
+
+<p>Por favor, verifique o status da tarefa e tome as ações necessárias para garantir sua conclusão no prazo.</p>
+
+{{#if pendingItems}}
+<p><strong>Itens Pendentes:</strong></p>
+<ul>
+    {{#each pendingItems}}
+    <li>{{this}}</li>
+    {{/each}}
+</ul>
+{{/if}}

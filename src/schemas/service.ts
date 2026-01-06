@@ -12,6 +12,7 @@ import {
   createSearchTransform,
 } from './common';
 import type { Service } from '@types';
+import { SERVICE_ORDER_TYPE } from '../constants/enums';
 
 // =====================
 // Include Schema
@@ -35,6 +36,7 @@ export const serviceOrderBySchema = z
       .object({
         id: orderByDirectionSchema.optional(),
         description: orderByDirectionSchema.optional(),
+        type: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -44,6 +46,7 @@ export const serviceOrderBySchema = z
         .object({
           id: orderByDirectionSchema.optional(),
           description: orderByDirectionSchema.optional(),
+          type: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -67,6 +70,7 @@ export const serviceWhereSchema: z.ZodSchema = z.lazy(() =>
       // Fields
       id: createStringWhereSchema().optional(),
       description: createStringWhereSchema().optional(),
+      type: createStringWhereSchema().optional(),
       createdAt: createDateWhereSchema().optional(),
       updatedAt: createDateWhereSchema().optional(),
     })
@@ -84,6 +88,10 @@ const serviceFilters = {
   // Array filters
   serviceIds: z.array(z.string()).optional(),
   descriptions: z.array(z.string()).optional(),
+  types: z.array(z.nativeEnum(SERVICE_ORDER_TYPE)).optional(),
+
+  // Single filters
+  type: z.nativeEnum(SERVICE_ORDER_TYPE).optional(),
 
   // Date filters
   createdAt: z
@@ -136,6 +144,17 @@ const serviceTransform = (data: any) => {
     delete data.descriptions;
   }
 
+  if (data.types && Array.isArray(data.types) && data.types.length > 0) {
+    andConditions.push({ type: { in: data.types } });
+    delete data.types;
+  }
+
+  // Single filters
+  if (data.type) {
+    andConditions.push({ type: data.type });
+    delete data.type;
+  }
+
   // Date filters
   if (data.createdAt) {
     andConditions.push({ createdAt: data.createdAt });
@@ -183,11 +202,13 @@ const toFormData = <T>(data: T) => data;
 export const serviceCreateSchema = z
   .object({
     description: createDescriptionSchema(1, 500),
+    type: z.nativeEnum(SERVICE_ORDER_TYPE).default(SERVICE_ORDER_TYPE.PRODUCTION),
   })
   .transform(toFormData);
 export const serviceUpdateSchema = z
   .object({
     description: createDescriptionSchema(1, 500).optional(),
+    type: z.nativeEnum(SERVICE_ORDER_TYPE).optional(),
   })
   .transform(toFormData);
 
@@ -253,5 +274,6 @@ export type ServiceWhere = z.infer<typeof serviceWhereSchema>;
 export const mapServiceToFormData = createMapToFormDataHelper<Service, ServiceUpdateFormData>(
   service => ({
     description: service.description,
+    type: service.type,
   }),
 );

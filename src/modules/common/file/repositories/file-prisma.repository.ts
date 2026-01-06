@@ -65,7 +65,64 @@ export class FilePrismaRepository
   }
 
   protected mapIncludeToDatabaseInclude(include?: FileInclude): Prisma.FileInclude | undefined {
-    return include as Prisma.FileInclude;
+    if (!include) return undefined;
+
+    const mappedInclude: any = {};
+
+    // Map valid File relations with explicit field validation
+    if (include.tasksArtworks !== undefined) {
+      mappedInclude.tasksArtworks = include.tasksArtworks;
+    }
+    if (include.customerLogo !== undefined) {
+      mappedInclude.customerLogo = include.customerLogo;
+    }
+    if (include.supplierLogo !== undefined) {
+      mappedInclude.supplierLogo = include.supplierLogo;
+    }
+    if (include.userAvatar !== undefined) {
+      mappedInclude.userAvatar = include.userAvatar;
+    }
+    if (include.observations !== undefined) {
+      mappedInclude.observations = include.observations;
+    }
+    if (include.warning !== undefined) {
+      mappedInclude.warning = include.warning;
+    }
+    if (include.taskCuts !== undefined) {
+      mappedInclude.taskCuts = include.taskCuts;
+    }
+    if (include.layoutPhotos !== undefined) {
+      mappedInclude.layoutPhotos = include.layoutPhotos;
+    }
+    if (include.orderBudgets !== undefined) {
+      mappedInclude.orderBudgets = include.orderBudgets;
+    }
+    if (include.orderInvoices !== undefined) {
+      mappedInclude.orderInvoices = include.orderInvoices;
+    }
+    if (include.orderReceipts !== undefined) {
+      mappedInclude.orderReceipts = include.orderReceipts;
+    }
+    if (include.orderReimbursements !== undefined) {
+      mappedInclude.orderReimbursements = include.orderReimbursements;
+    }
+    if (include.taskBudgets !== undefined) {
+      mappedInclude.taskBudgets = include.taskBudgets;
+    }
+    if (include.taskInvoices !== undefined) {
+      mappedInclude.taskInvoices = include.taskInvoices;
+    }
+    if (include.taskReceipts !== undefined) {
+      mappedInclude.taskReceipts = include.taskReceipts;
+    }
+    if (include.taskReimbursements !== undefined) {
+      mappedInclude.taskReimbursements = include.taskReimbursements;
+    }
+    if (include._count !== undefined) {
+      mappedInclude._count = include._count;
+    }
+
+    return Object.keys(mappedInclude).length > 0 ? mappedInclude : undefined;
   }
 
   protected mapOrderByToDatabaseOrderBy(

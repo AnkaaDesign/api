@@ -1,0 +1,22 @@
+<p>Esta é uma mensagem automática do sistema {{companyName}}.</p>
+<p>Por favor, não responda este email.</p>
+
+{{#if supportUrl}}
+<p>Precisa de ajuda? <a href="{{supportUrl}}">Entre em contato conosco</a></p>
+{{/if}}
+
+<div style="margin-top: 15px;">
+  {{#if supportEmail}}
+  <p>Email: <a href="mailto:{{supportEmail}}">{{supportEmail}}</a></p>
+  {{/if}}
+
+  {{#if supportPhone}}
+  <p>Telefone: {{supportPhone}}</p>
+  {{/if}}
+</div>
+
+<div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #dee2e6;">
+  <p style="font-size: 12px; color: #adb5bd;">
+    &copy; {{year}} {{companyName}}. Todos os direitos reservados.
+  </p>
+</div>

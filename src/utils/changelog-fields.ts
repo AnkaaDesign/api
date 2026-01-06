@@ -917,9 +917,9 @@ export function formatFieldValue(
     typeof value === 'string'
   ) {
     const taskStatusLabels: Record<string, string> = {
-      PENDING: 'Pendente',
+      PREPARATION: 'Em Preparação',
+      WAITING_PRODUCTION: 'Aguardando Produção',
       IN_PRODUCTION: 'Em Produção',
-      ON_HOLD: 'Pausado',
       COMPLETED: 'Concluído',
       CANCELLED: 'Cancelado',
     };

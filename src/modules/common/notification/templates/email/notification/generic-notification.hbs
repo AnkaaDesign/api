@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{subject}}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px 8px 0 0;">
+                            {{#if companyLogo}}
+                            <img src="{{companyLogo}}" alt="{{companyName}}" style="max-width: 150px; height: auto; margin-bottom: 20px;">
+                            {{/if}}
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                {{#if title}}{{title}}{{else}}Notificação{{/if}}
+                            </h1>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            {{#if userName}}
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Olá {{userName}},
+                            </p>
+                            {{/if}}
+
+                            {{#if message}}
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                {{message}}
+                            </p>
+                            {{/if}}
+
+                            {{#if body}}
+                            <div style="background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                                <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #333333;">
+                                    {{{body}}}
+                                </p>
+                            </div>
+                            {{/if}}
+
+                            {{#if details}}
+                            <div style="margin: 20px 0;">
+                                <h3 style="margin: 0 0 15px; font-size: 18px; color: #333333;">Detalhes:</h3>
+                                <table role="presentation" style="width: 100%;">
+                                    {{#each details}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666; width: 40%;">
+                                            <strong>{{this.label}}:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333; width: 60%;">
+                                            {{this.value}}
+                                        </td>
+                                    </tr>
+                                    {{/each}}
+                                </table>
+                            </div>
+                            {{/if}}
+
+                            {{#if importance}}
+                            <div style="padding: 15px; margin: 20px 0; border-radius: 4px;
+                                {{#eq importance 'URGENT'}}background-color: #f8d7da; border-left: 4px solid #dc3545;{{/eq}}
+                                {{#eq importance 'HIGH'}}background-color: #fff3cd; border-left: 4px solid #ffc107;{{/eq}}
+                                {{#eq importance 'MEDIUM'}}background-color: #d1ecf1; border-left: 4px solid #17a2b8;{{/eq}}
+                                {{#eq importance 'LOW'}}background-color: #d4edda; border-left: 4px solid #28a745;{{/eq}}">
+                                <p style="margin: 0; font-size: 14px; font-weight: 600;
+                                    {{#eq importance 'URGENT'}}color: #721c24;{{/eq}}
+                                    {{#eq importance 'HIGH'}}color: #856404;{{/eq}}
+                                    {{#eq importance 'MEDIUM'}}color: #0c5460;{{/eq}}
+                                    {{#eq importance 'LOW'}}color: #155724;{{/eq}}">
+                                    Prioridade: {{importance}}
+                                </p>
+                            </div>
+                            {{/if}}
+
+                            {{#if actionText}}
+                            <p style="margin: 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+                                {{actionText}}
+                            </p>
+                            {{/if}}
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 20px 40px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 10px; font-size: 12px; color: #999999;">
+                                {{companyName}} &copy; {{currentYear}}. Todos os direitos reservados.
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #999999;">
+                                Para suporte, entre em contato: <a href="mailto:{{supportEmail}}" style="color: #667eea; text-decoration: none;">{{supportEmail}}</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

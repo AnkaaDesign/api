@@ -1,0 +1,16 @@
+<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 30px; text-align: center;">
+    <div style="max-width: 200px; margin: 0 auto;">
+        {{#if companyLogo}}
+            <img src="{{companyLogo}}" alt="{{companyName}}" style="max-width: 100%; height: auto; display: block;">
+        {{else}}
+            <h1 style="color: #ffffff; font-size: 28px; margin: 0; font-weight: 700; letter-spacing: 1px;">
+                {{#if companyName}}{{companyName}}{{else}}Sistema{{/if}}
+            </h1>
+        {{/if}}
+    </div>
+    {{#if notificationType}}
+        <p style="color: rgba(255, 255, 255, 0.9); margin-top: 15px; font-size: 14px; font-weight: 500;">
+            {{notificationType}}
+        </p>
+    {{/if}}
+</div>

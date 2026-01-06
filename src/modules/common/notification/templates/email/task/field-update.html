@@ -1,0 +1,79 @@
+<p>A tarefa <strong>{{taskName}}</strong> foi atualizada.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes da Atualização</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Tarefa:</span>
+            <span class="info-value"><strong>{{taskName}}</strong></span>
+        </div>
+        {{#if taskCode}}
+        <div class="info-row">
+            <span class="info-label">Código:</span>
+            <span class="info-value">{{taskCode}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Campo Alterado:</span>
+            <span class="info-value">{{fieldName}}</span>
+        </div>
+        {{#if oldValue}}
+        <div class="info-row">
+            <span class="info-label">Valor Anterior:</span>
+            <span class="info-value">{{oldValue}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Novo Valor:</span>
+            <span class="info-value"><strong>{{newValue}}</strong></span>
+        </div>
+    </div>
+</div>
+
+{{#if multipleChanges}}
+<p><strong>Outras Alterações:</strong></p>
+<ul>
+    {{#each changes}}
+    <li><strong>{{this.field}}:</strong> {{this.oldValue}} → {{this.newValue}}</li>
+    {{/each}}
+</ul>
+{{/if}}
+
+<div class="info-box" style="margin-top: 20px; background-color: #f8f9fa;">
+    <div class="info-box-title">Status Atual da Tarefa</div>
+    <div class="info-box-content">
+        {{#if taskStatus}}
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">{{taskStatus}}</span>
+        </div>
+        {{/if}}
+        {{#if sectorName}}
+        <div class="info-row">
+            <span class="info-label">Setor:</span>
+            <span class="info-value">{{sectorName}}</span>
+        </div>
+        {{/if}}
+        {{#if assignedTo}}
+        <div class="info-row">
+            <span class="info-label">Responsável:</span>
+            <span class="info-value">{{assignedTo}}</span>
+        </div>
+        {{/if}}
+        {{#if deadline}}
+        <div class="info-row">
+            <span class="info-label">Prazo:</span>
+            <span class="info-value">{{deadline}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if updateReason}}
+<p><strong>Motivo da Atualização:</strong></p>
+<p>{{updateReason}}</p>
+{{/if}}
+
+{{#if changedBy}}
+<p class="text-muted text-small">Atualização realizada por: {{changedBy}} em {{updateDate}}</p>
+{{/if}}

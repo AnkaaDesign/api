@@ -75,12 +75,7 @@ export class DiscountPrismaRepository extends DiscountRepository {
 
   async findMany(options: any): Promise<any> {
     try {
-      const {
-        where,
-        orderBy = [{ createdAt: 'asc' }],
-        skip = 0,
-        take = 20,
-      } = options || {};
+      const { where, orderBy = [{ createdAt: 'asc' }], skip = 0, take = 20 } = options || {};
 
       const [total, data] = await Promise.all([
         this.prisma.payrollDiscount.count({ where }),

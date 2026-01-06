@@ -3,7 +3,9 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function clearDatabase() {
-  console.log('🗑️  Starting database cleanup...\n');
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('🗑️  Starting database cleanup...\n');
+  }
 
   try {
     // Delete data in the correct order to respect foreign key constraints
@@ -84,21 +86,31 @@ async function clearDatabase() {
       try {
         // Use raw query to delete all records
         const result = await prisma.$executeRawUnsafe(`DELETE FROM "${table}"`);
-        console.log(`✅ Cleared ${table} (${result} records deleted)`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`✅ Cleared ${table} (${result} records deleted)`);
+        }
       } catch (error: any) {
         // Some tables might not exist or might already be empty
         if (error.code === 'P2010') {
-          console.log(`⏭️  Skipped ${table} (table doesn't exist)`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`⏭️  Skipped ${table} (table doesn't exist)`);
+          }
         } else if (error.message.includes('does not exist')) {
-          console.log(`⏭️  Skipped ${table} (table doesn't exist)`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`⏭️  Skipped ${table} (table doesn't exist)`);
+          }
         } else {
-          console.log(`⚠️  Warning clearing ${table}: ${error.message}`);
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(`⚠️  Warning clearing ${table}: ${error.message}`);
+          }
         }
       }
     }
 
     // Reset sequences (PostgreSQL specific)
-    console.log('\n🔄 Resetting sequences...');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n🔄 Resetting sequences...');
+    }
     try {
       const sequences = await prisma.$queryRaw`
         SELECT sequence_name
@@ -108,18 +120,26 @@ async function clearDatabase() {
 
       for (const seq of sequences) {
         await prisma.$executeRawUnsafe(`ALTER SEQUENCE "${seq.sequence_name}" RESTART WITH 1`);
-        console.log(`  ✅ Reset sequence: ${seq.sequence_name}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`  ✅ Reset sequence: ${seq.sequence_name}`);
+        }
       }
     } catch (error) {
-      console.log('  ⚠️  Could not reset sequences (this is okay)');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('  ⚠️  Could not reset sequences (this is okay)');
+      }
     }
 
-    console.log('\n✨ Database cleared successfully!');
-    console.log('\n📝 You can now run the seed script:');
-    console.log('   npm run seed');
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('\n✨ Database cleared successfully!');
+      console.log('\n📝 You can now run the seed script:');
+      console.log('   npm run seed');
+    }
 
   } catch (error) {
-    console.error('❌ Error clearing database:', error);
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('❌ Error clearing database:', error);
+    }
     process.exit(1);
   } finally {
     await prisma.$disconnect();

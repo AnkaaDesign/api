@@ -1,0 +1,92 @@
+<h1>Tarefa Concluída <span class="badge badge-completed">CONCLUÍDA</span></h1>
+
+<p>Olá {{recipientName}},</p>
+
+<p>Ótimas notícias! A tarefa <strong>{{task.title}}</strong> foi marcada como concluída.</p>
+
+<div class="info-box success">
+    <div class="info-row">
+        <span class="info-label">Tarefa:</span>
+        <span class="info-value"><strong>{{task.title}}</strong></span>
+    </div>
+    {{#if task.description}}
+        <div class="info-row">
+            <span class="info-label">Descrição:</span>
+            <span class="info-value">{{task.description}}</span>
+        </div>
+    {{/if}}
+    {{#if completedBy}}
+        <div class="info-row">
+            <span class="info-label">Concluído por:</span>
+            <span class="info-value">{{completedBy}}</span>
+        </div>
+    {{/if}}
+    <div class="info-row">
+        <span class="info-label">Data de Conclusão:</span>
+        <span class="info-value">{{completedAt}}</span>
+    </div>
+    {{#if task.createdAt}}
+        <div class="info-row">
+            <span class="info-label">Criado em:</span>
+            <span class="info-value">{{task.createdAt}}</span>
+        </div>
+    {{/if}}
+</div>
+
+{{#if task.dueDate}}
+    <div class="info-box">
+        <h3 style="font-size: 16px; margin-bottom: 10px;">Prazo vs. Conclusão:</h3>
+        <div class="info-row">
+            <span class="info-label">Prazo:</span>
+            <span class="info-value">{{task.dueDate}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Status:</span>
+            <span class="info-value">
+                {{#if isOverdue}}
+                    <span style="color: #dc3545; font-weight: 600;">Concluída com atraso</span>
+                {{else}}
+                    <span style="color: #28a745; font-weight: 600;">Concluída no prazo</span>
+                {{/if}}
+            </span>
+        </div>
+    </div>
+{{/if}}
+
+{{#if completionNotes}}
+    <h2>Observações da Conclusão:</h2>
+    <div class="info-box">
+        <p style="margin: 0;">{{completionNotes}}</p>
+    </div>
+{{/if}}
+
+{{#if task.metrics}}
+    <h2>Métricas da Tarefa:</h2>
+    <div class="change-list">
+        {{#if task.metrics.timeSpent}}
+            <div class="change-item">
+                <span class="change-field">Tempo gasto:</span> {{task.metrics.timeSpent}}
+            </div>
+        {{/if}}
+        {{#if task.metrics.complexity}}
+            <div class="change-item">
+                <span class="change-field">Complexidade:</span> {{task.metrics.complexity}}
+            </div>
+        {{/if}}
+        {{#if task.metrics.quality}}
+            <div class="change-item">
+                <span class="change-field">Qualidade:</span> {{task.metrics.quality}}
+            </div>
+        {{/if}}
+    </div>
+{{/if}}
+
+<div class="button-container">
+    <a href="{{deepLink}}" class="btn btn-success">Ver Tarefa Concluída</a>
+</div>
+
+<div class="divider"></div>
+
+<p style="font-size: 14px; color: #6c757d;">
+    Parabéns pela conclusão desta tarefa! Você pode revisar os detalhes completos e o histórico da tarefa clicando no botão acima.
+</p>

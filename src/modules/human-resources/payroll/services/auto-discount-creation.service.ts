@@ -43,17 +43,13 @@ export class AutoDiscountCreationService {
    * Creates all automatic discounts based on the complete payroll calculation.
    * Returns array of created discount IDs.
    */
-  async createAutoDiscountsForPayroll(
-    params: CreateAutoDiscountsParams,
-  ): Promise<string[]> {
+  async createAutoDiscountsForPayroll(params: CreateAutoDiscountsParams): Promise<string[]> {
     const { payrollId, employeeId, year, month, calculation, transaction } = params;
 
     // Use transaction if provided, otherwise use regular prisma client
     const prisma = transaction || this.prisma;
 
-    this.logger.log(
-      `Creating auto-discounts for payroll ${payrollId} - ${year}/${month}`,
-    );
+    this.logger.log(`Creating auto-discounts for payroll ${payrollId} - ${year}/${month}`);
 
     const createdDiscountIds: string[] = [];
 
@@ -154,9 +150,7 @@ export class AutoDiscountCreationService {
       createdDiscountIds.push(lateDiscount.id);
     }
 
-    this.logger.log(
-      `Created ${createdDiscountIds.length} auto-discounts for payroll ${payrollId}`,
-    );
+    this.logger.log(`Created ${createdDiscountIds.length} auto-discounts for payroll ${payrollId}`);
 
     return createdDiscountIds;
   }
@@ -166,16 +160,19 @@ export class AutoDiscountCreationService {
    * CREATE INSS DISCOUNT
    * ========================================================================
    */
-  private async createINSSDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    base: number;
-    rate: number;
-    grossSalary: number;
-  }) {
+  private async createINSSDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      base: number;
+      rate: number;
+      grossSalary: number;
+    },
+  ) {
     const { payrollId, year, amount, base } = params;
 
     // Get INSS tax table for the year
@@ -208,17 +205,20 @@ export class AutoDiscountCreationService {
    * CREATE IRRF DISCOUNT
    * ========================================================================
    */
-  private async createIRRFDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    base: number;
-    rate: number;
-    grossSalary: number;
-    inssAmount: number;
-  }) {
+  private async createIRRFDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      base: number;
+      rate: number;
+      grossSalary: number;
+      inssAmount: number;
+    },
+  ) {
     const { payrollId, year, amount, base } = params;
 
     // Get IRRF tax table for the year
@@ -251,15 +251,18 @@ export class AutoDiscountCreationService {
    * CREATE FGTS DISCOUNT (Employer contribution - tracked)
    * ========================================================================
    */
-  private async createFGTSDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    rate: number;
-    grossSalary: number;
-  }) {
+  private async createFGTSDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      rate: number;
+      grossSalary: number;
+    },
+  ) {
     const { payrollId, year, amount, rate, grossSalary } = params;
 
     return prisma.payrollDiscount.create({
@@ -282,14 +285,17 @@ export class AutoDiscountCreationService {
    * CREATE UNION DISCOUNT
    * ========================================================================
    */
-  private async createUnionDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    baseSalary: number;
-  }) {
+  private async createUnionDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      baseSalary: number;
+    },
+  ) {
     const { payrollId, year, amount, baseSalary } = params;
 
     return prisma.payrollDiscount.create({
@@ -312,15 +318,18 @@ export class AutoDiscountCreationService {
    * CREATE ABSENCE DISCOUNT
    * ========================================================================
    */
-  private async createAbsenceDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    absenceHours: number;
-    absenceDays: number;
-  }) {
+  private async createAbsenceDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      absenceHours: number;
+      absenceDays: number;
+    },
+  ) {
     const { payrollId, amount, absenceHours } = params;
 
     return prisma.payrollDiscount.create({
@@ -342,14 +351,17 @@ export class AutoDiscountCreationService {
    * CREATE LATE ARRIVAL DISCOUNT
    * ========================================================================
    */
-  private async createLateArrivalDiscount(prisma: any, params: {
-    payrollId: string;
-    employeeId: string;
-    year: number;
-    month: number;
-    amount: number;
-    lateMinutes: number;
-  }) {
+  private async createLateArrivalDiscount(
+    prisma: any,
+    params: {
+      payrollId: string;
+      employeeId: string;
+      year: number;
+      month: number;
+      amount: number;
+      lateMinutes: number;
+    },
+  ) {
     const { payrollId, amount, lateMinutes } = params;
 
     return prisma.payrollDiscount.create({
@@ -395,9 +407,7 @@ export class AutoDiscountCreationService {
       },
     });
 
-    this.logger.log(
-      `Deleted ${result.count} auto-generated discounts for payroll ${payrollId}`,
-    );
+    this.logger.log(`Deleted ${result.count} auto-generated discounts for payroll ${payrollId}`);
 
     return result.count;
   }
@@ -411,23 +421,23 @@ export class AutoDiscountCreationService {
    */
   async generateAutoDiscountObjectsForLivePayroll(
     params: Omit<CreateAutoDiscountsParams, 'payrollId' | 'transaction'>,
-  ): Promise<Array<{
-    id: string;
-    discountType: PayrollDiscountType;
-    value: number | null;
-    percentage: number | null;
-    reference: string;
-    isPersistent: boolean;
-    isActive: boolean;
-    taxYear?: number;
-    taxTableId?: string | null;
-    baseValue?: number | null;
-  }>> {
+  ): Promise<
+    Array<{
+      id: string;
+      discountType: PayrollDiscountType;
+      value: number | null;
+      percentage: number | null;
+      reference: string;
+      isPersistent: boolean;
+      isActive: boolean;
+      taxYear?: number;
+      taxTableId?: string | null;
+      baseValue?: number | null;
+    }>
+  > {
     const { employeeId, year, month, calculation } = params;
 
-    this.logger.log(
-      `Generating auto-discount objects for live payroll - ${year}/${month}`,
-    );
+    this.logger.log(`Generating auto-discount objects for live payroll - ${year}/${month}`);
 
     const discountObjects: Array<{
       id: string;
@@ -455,9 +465,12 @@ export class AutoDiscountCreationService {
       });
 
       // Calculate effective rate for display (same as seed script)
-      const inssEffectiveRate = calculation.taxDeductions.inssBase > 0
-        ? roundCurrency((calculation.taxDeductions.inssAmount / calculation.taxDeductions.inssBase) * 100)
-        : null;
+      const inssEffectiveRate =
+        calculation.taxDeductions.inssBase > 0
+          ? roundCurrency(
+              (calculation.taxDeductions.inssAmount / calculation.taxDeductions.inssBase) * 100,
+            )
+          : null;
 
       discountObjects.push({
         id: `live-inss-${employeeId}-${year}-${month}`,
@@ -486,9 +499,12 @@ export class AutoDiscountCreationService {
       });
 
       // Calculate effective rate for display (same as seed script)
-      const irrfEffectiveRate = calculation.taxDeductions.irrfBase > 0
-        ? roundCurrency((calculation.taxDeductions.irrfAmount / calculation.taxDeductions.irrfBase) * 100)
-        : null;
+      const irrfEffectiveRate =
+        calculation.taxDeductions.irrfBase > 0
+          ? roundCurrency(
+              (calculation.taxDeductions.irrfAmount / calculation.taxDeductions.irrfBase) * 100,
+            )
+          : null;
 
       discountObjects.push({
         id: `live-irrf-${employeeId}-${year}-${month}`,
@@ -560,9 +576,7 @@ export class AutoDiscountCreationService {
       });
     }
 
-    this.logger.log(
-      `Generated ${discountObjects.length} auto-discount objects for live payroll`,
-    );
+    this.logger.log(`Generated ${discountObjects.length} auto-discount objects for live payroll`);
 
     return discountObjects;
   }

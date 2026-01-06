@@ -177,14 +177,6 @@ export class UserController {
     @UserId() userId: string,
     @UploadedFile() avatar?: Express.Multer.File,
   ): Promise<UserUpdateResponse> {
-    console.log('[UserController.update] Avatar file received:', {
-      hasAvatar: !!avatar,
-      fileName: avatar?.originalname,
-      fileSize: avatar?.size,
-      mimetype: avatar?.mimetype,
-      fieldname: avatar?.fieldname,
-      userId: id,
-    });
     return this.userService.update(id, data, query.include, userId, avatar);
   }
 

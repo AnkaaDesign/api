@@ -46,16 +46,12 @@ const positionRemunerations: PositionRemuneration[] = [
 ];
 
 async function updatePositionRemunerations() {
-  console.log('🔄 Starting Position Remuneration Updates...\n');
-
   let updated = 0;
   let notFound = 0;
   let errors = 0;
 
   for (const posRem of positionRemunerations) {
     try {
-      console.log(`📊 Processing: ${posRem.positionName}`);
-
       // Find position by name (case-insensitive)
       const position = await prisma.position.findFirst({
         where: {
@@ -74,7 +70,6 @@ async function updatePositionRemunerations() {
       });
 
       if (!position) {
-        console.log(`  ⚠️  Position not found: ${posRem.positionName}`);
         notFound++;
         continue;
       }
@@ -82,7 +77,6 @@ async function updatePositionRemunerations() {
       const currentRemuneration = position.remunerations[0]?.value || 0;
 
       if (currentRemuneration === posRem.currentValue) {
-        console.log(`  ✓ Already up to date: R$ ${posRem.currentValue.toFixed(2)}`);
         continue;
       }
 
@@ -106,26 +100,15 @@ async function updatePositionRemunerations() {
         },
       });
 
-      console.log(`  ✅ Updated: R$ ${currentRemuneration.toFixed(2)} → R$ ${posRem.currentValue.toFixed(2)}`);
-      console.log(`     Source: ${posRem.source}\n`);
       updated++;
     } catch (error) {
-      console.error(`  ❌ Error updating ${posRem.positionName}:`, error);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error(`  ❌ Error updating ${posRem.positionName}:`, error);
+      }
       errors++;
     }
   }
 
-  console.log('\n' + '='.repeat(70));
-  console.log('📈 Position Remuneration Update Summary:');
-  console.log('='.repeat(70));
-  console.log(`✅ Successfully Updated: ${updated}`);
-  console.log(`⚠️  Positions Not Found: ${notFound}`);
-  console.log(`❌ Errors: ${errors}`);
-  console.log(`📊 Total Processed: ${positionRemunerations.length}`);
-  console.log('='.repeat(70) + '\n');
-
-  // Show current state
-  console.log('📋 Current Position Remunerations in Database:\n');
   const allPositions = await prisma.position.findMany({
     include: {
       remunerations: {
@@ -135,18 +118,15 @@ async function updatePositionRemunerations() {
     },
     orderBy: { name: 'asc' },
   });
-
-  for (const pos of allPositions) {
-    const currentRem = pos.remunerations[0]?.value || 0;
-    console.log(`  ${pos.name.padEnd(40)} R$ ${currentRem.toFixed(2)}`);
-  }
 }
 
 // Execute if running directly
 if (require.main === module) {
   updatePositionRemunerations()
     .catch(e => {
-      console.error('❌ Error updating position remunerations:', e);
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('❌ Error updating position remunerations:', e);
+      }
       process.exit(1);
     })
     .finally(async () => {

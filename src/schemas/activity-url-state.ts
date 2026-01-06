@@ -401,7 +401,7 @@ export function serializeActivityFormToUrlParams(
 
   // Check URL length and warn if too long
   const urlString = params.toString();
-  if (urlString.length > MAX_URL_LENGTH) {
+  if (urlString.length > MAX_URL_LENGTH && process.env.NODE_ENV !== 'production') {
     console.warn(
       `Activity form URL state is ${urlString.length} characters, which may cause issues. Consider reducing selected items.`,
     );
@@ -459,7 +459,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       state.userAssignments = JSON.parse(atob(userAssignments));
     } catch {
-      console.warn('Failed to parse user assignments from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse user assignments from URL');
+      }
     }
   }
 
@@ -478,7 +480,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       state.selectedIds = decompressUuidArray(selectedIds);
     } catch {
-      console.warn('Failed to parse selected IDs from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse selected IDs from URL');
+      }
     }
   }
 
@@ -487,7 +491,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       state.selectedItems = JSON.parse(atob(selectedItems));
     } catch {
-      console.warn('Failed to parse selected items from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse selected items from URL');
+      }
     }
   }
 
@@ -510,7 +516,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       state.quantityAssignments = JSON.parse(atob(quantityAssignments));
     } catch {
-      console.warn('Failed to parse quantity assignments from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse quantity assignments from URL');
+      }
     }
   }
 
@@ -569,7 +577,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       filters.categoryIds = decompressUuidArray(categoryIds);
     } catch {
-      console.warn('Failed to parse category IDs from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse category IDs from URL');
+      }
     }
   }
 
@@ -578,7 +588,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       filters.brandIds = decompressUuidArray(brandIds);
     } catch {
-      console.warn('Failed to parse brand IDs from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse brand IDs from URL');
+      }
     }
   }
 
@@ -587,7 +599,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       filters.supplierIds = decompressUuidArray(supplierIds);
     } catch {
-      console.warn('Failed to parse supplier IDs from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse supplier IDs from URL');
+      }
     }
   }
 
@@ -621,7 +635,9 @@ export function deserializeUrlParamsToActivityForm(
     try {
       filters.ppeTypes = JSON.parse(ppeTypes);
     } catch {
-      console.warn('Failed to parse PPE types from URL');
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn('Failed to parse PPE types from URL');
+      }
     }
   }
 

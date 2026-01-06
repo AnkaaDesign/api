@@ -129,12 +129,16 @@ export class PpeDeliveryScheduleService {
     });
 
     if (!user) {
-      console.warn(`User ${userId} not found during PPE item matching`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`User ${userId} not found during PPE item matching`);
+      }
       return [];
     }
 
     if (!user.ppeSize) {
-      console.warn(`User ${userId} does not have PPE size configuration`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`User ${userId} does not have PPE size configuration`);
+      }
       return [];
     }
 
@@ -166,7 +170,9 @@ export class PpeDeliveryScheduleService {
       }
 
       if (!userSize) {
-        console.warn(`User ${userId} does not have size configured for PPE type ${ppeType}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`User ${userId} does not have size configured for PPE type ${ppeType}`);
+        }
         continue;
       }
 
@@ -174,7 +180,9 @@ export class PpeDeliveryScheduleService {
       const numericSize = ppeSizeToNumeric(userSize);
 
       if (!numericSize) {
-        console.warn(`Invalid PPE size format: ${userSize} for user ${userId}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`Invalid PPE size format: ${userSize} for user ${userId}`);
+        }
         continue;
       }
 
@@ -207,9 +215,11 @@ export class PpeDeliveryScheduleService {
           quantity: requestedQuantity, // Use quantity specified in schedule
         });
       } else {
-        console.warn(
-          `No matching items found for user ${userId} with PPE type ${ppeType} and size ${userSize}`,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(
+            `No matching items found for user ${userId} with PPE type ${ppeType} and size ${userSize}`,
+          );
+        }
       }
     }
 
@@ -239,7 +249,11 @@ export class PpeDeliveryScheduleService {
     }
 
     if (deliveriesToCreate.length === 0) {
-      console.warn(`No deliveries to create for schedule ${schedule.id} - no matching items found`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(
+          `No deliveries to create for schedule ${schedule.id} - no matching items found`,
+        );
+      }
       return;
     }
 
@@ -278,10 +292,12 @@ export class PpeDeliveryScheduleService {
           transaction: transaction,
         });
       } catch (error) {
-        console.error(
-          `Failed to create PPE delivery for user ${delivery.userId}, item ${delivery.itemId}:`,
-          error,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(
+            `Failed to create PPE delivery for user ${delivery.userId}, item ${delivery.itemId}:`,
+            error,
+          );
+        }
 
         // Log the error but continue with other deliveries
         await this.changeLogService.logChange({
@@ -447,15 +463,19 @@ export class PpeDeliveryScheduleService {
             transaction: transaction,
           });
         } else {
-          console.warn(
-            `No users found for assignment type ${data.assignmentType} in schedule ${ppeDeliverySchedule.id}`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `No users found for assignment type ${data.assignmentType} in schedule ${ppeDeliverySchedule.id}`,
+            );
+          }
         }
       } catch (error) {
-        console.error(
-          `Error creating automatic deliveries for schedule ${ppeDeliverySchedule.id}:`,
-          error,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.error(
+            `Error creating automatic deliveries for schedule ${ppeDeliverySchedule.id}:`,
+            error,
+          );
+        }
 
         // Log the error but don't fail the schedule creation
         await this.changeLogService.logChange({
@@ -1171,7 +1191,9 @@ export class PpeDeliveryScheduleService {
           } catch (error) {
             const errorMsg = `Erro ao criar entrega para usuário ${match.userId}, item ${match.itemId}: ${error instanceof Error ? error.message : String(error)}`;
             errors.push(errorMsg);
-            console.error(errorMsg);
+            if (process.env.NODE_ENV !== 'production') {
+              console.error(errorMsg);
+            }
           }
         }
       }

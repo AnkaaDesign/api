@@ -2,14 +2,7 @@
 // Controller for user-specific personal bonus endpoints
 // Uses the /bonuses route prefix for personal (non-admin) bonus access
 
-import {
-  Controller,
-  Get,
-  Param,
-  Query,
-  UseGuards,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Logger } from '@nestjs/common';
 import { PersonalService } from './personal.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
@@ -24,7 +17,7 @@ import { bonusGetManySchema } from '../../../schemas';
 // All roles that can access personal bonus data
 const ALL_ROLES = [
   SECTOR_PRIVILEGES.PRODUCTION,
-  
+
   SECTOR_PRIVILEGES.WAREHOUSE,
   SECTOR_PRIVILEGES.MAINTENANCE,
   SECTOR_PRIVILEGES.DESIGNER,
@@ -141,7 +134,9 @@ export class PersonalBonusController {
       }
     }
 
-    this.logger.log(`[My Live Bonus] Calculating for user: ${userId}, period: ${targetMonth}/${targetYear}`);
+    this.logger.log(
+      `[My Live Bonus] Calculating for user: ${userId}, period: ${targetMonth}/${targetYear}`,
+    );
 
     return this.personalService.getMyLiveBonus(userId, targetYear, targetMonth);
   }

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novo Pedido Recebido</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 8px 8px 0 0;">
+                            {{#if companyLogo}}
+                            <img src="{{companyLogo}}" alt="{{companyName}}" style="max-width: 150px; height: auto; margin-bottom: 20px;">
+                            {{/if}}
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Novo Pedido Recebido
+                            </h1>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Olá {{userName}},
+                            </p>
+
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Um novo pedido foi criado e requer sua atenção.
+                            </p>
+
+                            <!-- Order Details Card -->
+                            <div style="background-color: #f8f9fa; border-left: 4px solid #4facfe; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                                <h2 style="margin: 0 0 15px; font-size: 20px; color: #333333;">
+                                    Pedido #{{orderNumber}}
+                                </h2>
+
+                                <table role="presentation" style="width: 100%; margin-top: 15px;">
+                                    {{#if customerName}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Cliente:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{customerName}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    {{#if orderDate}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Data do Pedido:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{formatDateTime orderDate}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    {{#if deliveryDate}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Data de Entrega:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{formatDate deliveryDate}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    {{#if totalAmount}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Valor Total:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333; font-weight: 600;">
+                                            R$ {{totalAmount}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Status:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            <span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background-color: #d1ecf1; color: #0c5460;">
+                                                {{orderStatus}}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+
+                            <!-- Items List -->
+                            {{#if items}}
+                            <div style="margin: 20px 0;">
+                                <h3 style="margin: 0 0 15px; font-size: 18px; color: #333333;">Itens do Pedido:</h3>
+
+                                <table role="presentation" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: #f8f9fa;">
+                                            <th style="padding: 12px; text-align: left; font-size: 12px; color: #666666; font-weight: 600; border-bottom: 2px solid #e0e0e0;">
+                                                Item
+                                            </th>
+                                            <th style="padding: 12px; text-align: center; font-size: 12px; color: #666666; font-weight: 600; border-bottom: 2px solid #e0e0e0;">
+                                                Qtd
+                                            </th>
+                                            <th style="padding: 12px; text-align: right; font-size: 12px; color: #666666; font-weight: 600; border-bottom: 2px solid #e0e0e0;">
+                                                Valor
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{#each items}}
+                                        <tr>
+                                            <td style="padding: 12px; font-size: 14px; color: #333333; border-bottom: 1px solid #e0e0e0;">
+                                                {{this.name}}
+                                            </td>
+                                            <td style="padding: 12px; text-align: center; font-size: 14px; color: #333333; border-bottom: 1px solid #e0e0e0;">
+                                                {{this.quantity}}
+                                            </td>
+                                            <td style="padding: 12px; text-align: right; font-size: 14px; color: #333333; border-bottom: 1px solid #e0e0e0;">
+                                                R$ {{this.price}}
+                                            </td>
+                                        </tr>
+                                        {{/each}}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {{/if}}
+
+                            {{#if notes}}
+                            <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                                <p style="margin: 0; font-size: 14px; color: #856404;">
+                                    <strong>Observações:</strong> {{notes}}
+                                </p>
+                            </div>
+                            {{/if}}
+
+                            <p style="margin: 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Clique no botão abaixo para visualizar os detalhes completos do pedido e processá-lo.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 20px 40px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 10px; font-size: 12px; color: #999999;">
+                                {{companyName}} &copy; {{currentYear}}. Todos os direitos reservados.
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #999999;">
+                                Para suporte, entre em contato: <a href="mailto:{{supportEmail}}" style="color: #4facfe; text-decoration: none;">{{supportEmail}}</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

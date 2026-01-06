@@ -1151,9 +1151,13 @@ export class DashboardService {
         label: 'Canceladas',
         value: stats.cancelled,
       },
-      tasksOnHold: {
-        label: 'Em Pausa',
-        value: stats.onHold,
+      tasksInPreparation: {
+        label: 'Em Preparação',
+        value: stats.preparation,
+      },
+      tasksPending: {
+        label: 'Aguardando',
+        value: stats.pending,
       },
       averageCompletionTime: {
         label: 'Tempo Médio de Conclusão',

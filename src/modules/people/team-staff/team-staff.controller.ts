@@ -4,13 +4,7 @@
 // SECURITY: managedSectorId is ALWAYS fetched from database via Sector.managerId, NEVER from client/JWT
 // NOTE: Authorization is handled by TeamStaffService.validateTeamLeader() which checks Sector.managerId
 
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Logger } from '@nestjs/common';
 import { TeamStaffService } from './team-staff.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
@@ -116,7 +110,9 @@ export class TeamStaffController {
     message?: string;
     data?: any;
   }> {
-    this.logger.log(`[Team Calculations] Leader ${authenticatedUserId} requesting calculations for team member ${targetUserId}`);
+    this.logger.log(
+      `[Team Calculations] Leader ${authenticatedUserId} requesting calculations for team member ${targetUserId}`,
+    );
     return this.teamStaffService.getTeamMemberCalculations(authenticatedUserId!, {
       targetUserId,
       startDate,

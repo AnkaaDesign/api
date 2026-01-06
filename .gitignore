@@ -56,3 +56,10 @@ Thumbs.db
 
 # Build info
 .build-info.json
+# WhatsApp session data
+.wwebjs_auth/
+
+# Firebase credentials
+firebase-service-account.json
+**/firebase-service-account*.json
+config/firebase*.json

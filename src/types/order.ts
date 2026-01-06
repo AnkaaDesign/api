@@ -512,26 +512,40 @@ export interface OrderRuleDeleteResponse extends BaseDeleteResponse {}
 // Order batch operations
 export interface OrderBatchCreateResponse<T> extends BaseBatchResponse<Order, T> {}
 export interface OrderBatchUpdateResponse<T> extends BaseBatchResponse<Order, T & { id: string }> {}
-export interface OrderBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // OrderItem batch operations
 export interface OrderItemBatchCreateResponse<T> extends BaseBatchResponse<OrderItem, T> {}
-export interface OrderItemBatchUpdateResponse<T>
-  extends BaseBatchResponse<OrderItem, T & { id: string }> {}
-export interface OrderItemBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderItemBatchUpdateResponse<T> extends BaseBatchResponse<
+  OrderItem,
+  T & { id: string }
+> {}
+export interface OrderItemBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // OrderSchedule batch operations
 export interface OrderScheduleBatchCreateResponse<T> extends BaseBatchResponse<OrderSchedule, T> {}
-export interface OrderScheduleBatchUpdateResponse<T>
-  extends BaseBatchResponse<OrderSchedule, T & { id: string }> {}
-export interface OrderScheduleBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderScheduleBatchUpdateResponse<T> extends BaseBatchResponse<
+  OrderSchedule,
+  T & { id: string }
+> {}
+export interface OrderScheduleBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}
 
 // OrderRule batch operations
 export interface OrderRuleBatchCreateResponse<T> extends BaseBatchResponse<OrderRule, T> {}
-export interface OrderRuleBatchUpdateResponse<T>
-  extends BaseBatchResponse<OrderRule, T & { id: string }> {}
-export interface OrderRuleBatchDeleteResponse
-  extends BaseBatchResponse<{ id: string; deleted: boolean }, { id: string }> {}
+export interface OrderRuleBatchUpdateResponse<T> extends BaseBatchResponse<
+  OrderRule,
+  T & { id: string }
+> {}
+export interface OrderRuleBatchDeleteResponse extends BaseBatchResponse<
+  { id: string; deleted: boolean },
+  { id: string }
+> {}

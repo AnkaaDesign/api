@@ -1,0 +1,103 @@
+<div class="alert-box">
+    <p><strong>Atenção: Pedido Atrasado!</strong></p>
+</div>
+
+<p>O pedido <strong>{{orderNumber}}</strong> está com atraso na entrega.</p>
+
+<div class="info-box">
+    <div class="info-box-title">Detalhes do Pedido</div>
+    <div class="info-box-content">
+        <div class="info-row">
+            <span class="info-label">Número do Pedido:</span>
+            <span class="info-value"><strong>{{orderNumber}}</strong></span>
+        </div>
+        {{#if supplierName}}
+        <div class="info-row">
+            <span class="info-label">Fornecedor:</span>
+            <span class="info-value">{{supplierName}}</span>
+        </div>
+        {{/if}}
+        <div class="info-row">
+            <span class="info-label">Status Atual:</span>
+            <span class="info-value">{{status}}</span>
+        </div>
+        <div class="info-row">
+            <span class="info-label">Data de Entrega Esperada:</span>
+            <span class="info-value"><strong style="color: #dc3545;">{{expectedDelivery}}</strong></span>
+        </div>
+        {{#if daysOverdue}}
+        <div class="info-row">
+            <span class="info-label">Dias de Atraso:</span>
+            <span class="info-value"><strong style="color: #dc3545;">{{daysOverdue}}</strong></span>
+        </div>
+        {{/if}}
+        {{#if orderDate}}
+        <div class="info-row">
+            <span class="info-label">Data do Pedido:</span>
+            <span class="info-value">{{orderDate}}</span>
+        </div>
+        {{/if}}
+    </div>
+</div>
+
+{{#if contactInfo}}
+<div class="warning-box">
+    <p><strong>Informações de Contato do Fornecedor:</strong></p>
+    {{#if contactInfo.phone}}
+    <p>Telefone: <strong>{{contactInfo.phone}}</strong></p>
+    {{/if}}
+    {{#if contactInfo.email}}
+    <p>Email: <strong>{{contactInfo.email}}</strong></p>
+    {{/if}}
+    {{#if contactInfo.contactPerson}}
+    <p>Contato: {{contactInfo.contactPerson}}</p>
+    {{/if}}
+</div>
+{{/if}}
+
+<p><strong>Ações Recomendadas:</strong></p>
+<ul>
+    <li>Entrar em contato com o fornecedor para obter informações sobre o atraso</li>
+    <li>Verificar se há necessidade de tomar ações alternativas</li>
+    <li>Atualizar as partes interessadas sobre o status do pedido</li>
+    {{#if alternativeActions}}
+    {{#each alternativeActions}}
+    <li>{{this}}</li>
+    {{/each}}
+    {{/if}}
+</ul>
+
+{{#if items}}
+<p><strong>Itens Aguardando Entrega:</strong></p>
+<table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+    <thead>
+        <tr style="background-color: #f8f9fa;">
+            <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Item</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Quantidade</th>
+            <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Criticidade</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#each items}}
+        <tr>
+            <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{this.name}}</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">{{this.quantity}}</td>
+            <td style="padding: 10px; text-align: center; border-bottom: 1px solid #dee2e6;">
+                {{#if this.critical}}
+                <span style="color: #dc3545; font-weight: bold;">Alta</span>
+                {{else}}
+                Normal
+                {{/if}}
+            </td>
+        </tr>
+        {{/each}}
+    </tbody>
+</table>
+{{/if}}
+
+{{#if impactAnalysis}}
+<p><strong>Análise de Impacto:</strong></p>
+<p>{{impactAnalysis}}</p>
+{{/if}}
+
+<p class="text-muted text-small">Este é um alerta automático. Por favor, tome as ações necessárias o mais breve possível.</p>

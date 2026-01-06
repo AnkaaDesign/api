@@ -3,6 +3,8 @@ import { OrderService } from './order.service';
 import { OrderItemService } from './order-item.service';
 import { OrderScheduleService } from './order-schedule.service';
 import { OrderAnalyticsService } from './order-analytics.service';
+import { OrderListener } from './order.listener';
+import { OrderNotificationScheduler } from './order-notification.scheduler';
 import { OrderController, OrderItemController, OrderScheduleController } from './order.controller';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { OrderRepository } from './repositories/order/order.repository';
@@ -15,15 +17,27 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ItemModule } from '../item/item.module';
 import { ActivityModule } from '../activity/activity.module';
 import { FileModule } from '@modules/common/file/file.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
+import { EventEmitterModule } from '@modules/common/event-emitter/event-emitter.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FileModule],
+  imports: [
+    PrismaModule,
+    ChangeLogModule,
+    ItemModule,
+    ActivityModule,
+    FileModule,
+    NotificationModule,
+    EventEmitterModule,
+  ],
   controllers: [OrderController, OrderItemController, OrderScheduleController],
   providers: [
     OrderService,
     OrderItemService,
     OrderScheduleService,
     OrderAnalyticsService,
+    OrderListener,
+    OrderNotificationScheduler,
     {
       provide: OrderRepository,
       useClass: OrderPrismaRepository,

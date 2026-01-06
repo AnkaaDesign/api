@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nova Tarefa Criada</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background-color: #f4f4f4;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f4f4;">
+        <tr>
+            <td align="center" style="padding: 40px 0;">
+                <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="padding: 40px 40px 20px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px 8px 0 0;">
+                            {{#if companyLogo}}
+                            <img src="{{companyLogo}}" alt="{{companyName}}" style="max-width: 150px; height: auto; margin-bottom: 20px;">
+                            {{/if}}
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Nova Tarefa Criada
+                            </h1>
+                        </td>
+                    </tr>
+
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px;">
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Olá {{userName}},
+                            </p>
+
+                            <p style="margin: 0 0 20px; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Uma nova tarefa foi criada e atribuída a você:
+                            </p>
+
+                            <!-- Task Details Card -->
+                            <div style="background-color: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 4px;">
+                                <h2 style="margin: 0 0 15px; font-size: 20px; color: #333333;">
+                                    {{taskTitle}}
+                                </h2>
+
+                                {{#if taskDescription}}
+                                <p style="margin: 0 0 15px; font-size: 14px; line-height: 1.5; color: #666666;">
+                                    {{taskDescription}}
+                                </p>
+                                {{/if}}
+
+                                <table role="presentation" style="width: 100%; margin-top: 15px;">
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Prioridade:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            <span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;
+                                                {{#eq priority 'URGENT'}}background-color: #fee; color: #c00;{{/eq}}
+                                                {{#eq priority 'HIGH'}}background-color: #fff3cd; color: #856404;{{/eq}}
+                                                {{#eq priority 'MEDIUM'}}background-color: #d1ecf1; color: #0c5460;{{/eq}}
+                                                {{#eq priority 'LOW'}}background-color: #d4edda; color: #155724;{{/eq}}">
+                                                {{priority}}
+                                            </span>
+                                        </td>
+                                    </tr>
+
+                                    {{#if dueDate}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Prazo:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{formatDate dueDate}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    {{#if assignedBy}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Atribuída por:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{assignedBy}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+
+                                    {{#if project}}
+                                    <tr>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #666666;">
+                                            <strong>Projeto:</strong>
+                                        </td>
+                                        <td style="padding: 8px 0; font-size: 14px; color: #333333;">
+                                            {{project}}
+                                        </td>
+                                    </tr>
+                                    {{/if}}
+                                </table>
+                            </div>
+
+                            <p style="margin: 20px 0; font-size: 16px; line-height: 1.6; color: #333333;">
+                                Clique no botão abaixo para visualizar os detalhes completos e começar a trabalhar nesta tarefa.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 20px 40px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 10px; font-size: 12px; color: #999999;">
+                                {{companyName}} &copy; {{currentYear}}. Todos os direitos reservados.
+                            </p>
+                            <p style="margin: 0; font-size: 12px; color: #999999;">
+                                Para suporte, entre em contato: <a href="mailto:{{supportEmail}}" style="color: #667eea; text-decoration: none;">{{supportEmail}}</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

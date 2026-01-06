@@ -8,33 +8,35 @@ import { TRUCK_SPOT } from './enums';
 // =====================
 
 // Individual garage configurations with real measurements
+// All garages standardized to 20m × 35m for consistency with minimal waste
+// Lane lengths are preserved to maintain truck positioning accuracy
 export const GARAGE_CONFIGS = {
   B1: {
-    width: 20, // meters
-    length: 30, // meters
-    paddingTop: 2.2, // meters - back margin from top
-    paddingBottom: 3.2, // meters - front margin from bottom
-    laneLength: 24.6, // meters (30 - 2.2 - 3.2)
+    width: 20, // meters (standardized)
+    length: 35, // meters (standardized from 30m)
+    paddingTop: 3, // meters - back margin from top
+    paddingBottom: 7.4, // meters - front margin from bottom (adjusted)
+    laneLength: 24.6, // meters (preserved: 35 - 3 - 7.4)
     laneWidth: 3, // meters
     laneSpacing: 2.75, // meters between lanes (calculated: (20 - 3*3) / 4 = 2.75)
     lanePaddingX: 2.75, // meters from left edge to first lane
   },
   B2: {
-    width: 18.5, // meters
-    length: 30.5, // meters
-    paddingTop: 3.5, // meters - back margin from top
-    paddingBottom: 2.5, // meters - front margin from bottom
-    laneLength: 24.5, // meters (30.5 - 3.5 - 2.5)
+    width: 20, // meters (standardized from 18.5m)
+    length: 35, // meters (standardized from 30.5m)
+    paddingTop: 3, // meters - back margin from top
+    paddingBottom: 7.5, // meters - front margin from bottom (adjusted)
+    laneLength: 24.5, // meters (preserved: 35 - 3 - 7.5)
     laneWidth: 3, // meters
-    laneSpacing: 2.375, // meters between lanes (calculated: (18.5 - 3*3) / 4 = 2.375)
-    lanePaddingX: 2.375, // meters from left edge to first lane
+    laneSpacing: 2.75, // meters between lanes (standardized: (20 - 3*3) / 4 = 2.75)
+    lanePaddingX: 2.75, // meters from left edge to first lane (standardized)
   },
   B3: {
-    width: 20, // meters
-    length: 40, // meters
+    width: 20, // meters (standardized)
+    length: 35, // meters (standardized from 40m)
     paddingTop: 3, // meters - back margin from top
-    paddingBottom: 7, // meters - front margin from bottom
-    laneLength: 30, // meters (40 - 3 - 7)
+    paddingBottom: 2, // meters - front margin from bottom (reduced from 7m)
+    laneLength: 30, // meters (preserved: 35 - 3 - 2)
     laneWidth: 3, // meters
     laneSpacing: 2.75, // meters between lanes (calculated: (20 - 3*3) / 4 = 2.75)
     lanePaddingX: 2.75, // meters from left edge to first lane
@@ -91,15 +93,14 @@ export interface Garage {
 }
 
 // Type for individual garage configuration
-type GarageConfig = typeof GARAGE_CONFIGS[GarageId];
+type GarageConfig = (typeof GARAGE_CONFIGS)[GarageId];
 
 // Calculate lane positions based on garage-specific spacing
 const calculateLaneXPosition = (laneIndex: number, garageConfig: GarageConfig): number => {
   // First lane starts at lanePaddingX from left edge
   // Each subsequent lane is laneWidth + laneSpacing apart
   return (
-    garageConfig.lanePaddingX +
-    laneIndex * (garageConfig.laneWidth + garageConfig.laneSpacing)
+    garageConfig.lanePaddingX + laneIndex * (garageConfig.laneWidth + garageConfig.laneSpacing)
   );
 };
 
@@ -208,7 +209,7 @@ export function buildSpot(garage: GarageId, lane: LaneId, spotNumber: SpotNumber
 export function getGarageSpots(garage: GarageId): TRUCK_SPOT[] {
   const prefix = `${garage}_`;
   return Object.values(TRUCK_SPOT).filter(
-    (spot) => spot.startsWith(prefix) && spot !== TRUCK_SPOT.PATIO,
+    spot => spot.startsWith(prefix) && spot !== TRUCK_SPOT.PATIO,
   );
 }
 
@@ -217,14 +218,14 @@ export function getGarageSpots(garage: GarageId): TRUCK_SPOT[] {
  */
 export function getLaneSpots(garage: GarageId, lane: LaneId): TRUCK_SPOT[] {
   const prefix = `${garage}_${lane}`;
-  return Object.values(TRUCK_SPOT).filter((spot) => spot.startsWith(prefix));
+  return Object.values(TRUCK_SPOT).filter(spot => spot.startsWith(prefix));
 }
 
 /**
  * Get the garage configuration by ID
  */
 export function getGarage(garageId: GarageId): Garage | undefined {
-  return GARAGES.find((g) => g.id === garageId);
+  return GARAGES.find(g => g.id === garageId);
 }
 
 /**
@@ -232,7 +233,7 @@ export function getGarage(garageId: GarageId): Garage | undefined {
  */
 export function getLane(garageId: GarageId, laneId: LaneId): Lane | undefined {
   const garage = getGarage(garageId);
-  return garage?.lanes.find((l) => l.id === laneId);
+  return garage?.lanes.find(l => l.id === laneId);
 }
 
 // =====================
@@ -257,9 +258,7 @@ export function calculateTruckGarageLength(layoutSectionsWidthSum: number): numb
 /**
  * Calculate the sum of layout sections widths from layout sections
  */
-export function calculateLayoutSectionsSum(
-  layoutSections: { width: number }[],
-): number {
+export function calculateLayoutSectionsSum(layoutSections: { width: number }[]): number {
   return layoutSections.reduce((sum, section) => sum + section.width, 0);
 }
 
