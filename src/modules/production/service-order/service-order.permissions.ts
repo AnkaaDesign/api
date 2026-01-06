@@ -5,26 +5,28 @@ import type { ServiceOrder } from '@types';
 /**
  * Permission rules for Service Orders:
  *
+ * GENERAL RULES:
+ * - ADMIN can always update ANY service order
+ * - Only ADMIN can set status to CANCELLED
+ * - If assigned (assignedToId is set): Only the assigned user OR ADMIN can update
+ *
+ * WHEN NOT ASSIGNED (by service order type):
+ *
  * PRODUCTION Service Orders:
- * - Only LEADER and ADMIN can update status
- * - LEADER cannot set status to CANCELLED
- * - If assigned: Only ADMIN + assigned user can update
- * - Only ADMIN can set to CANCELLED
+ * - LEADER can update
+ * - LOGISTIC can update
+ * - ADMIN can update
  *
  * FINANCIAL Service Orders:
- * - Only FINANCIAL and ADMIN can update status
- * - Only ADMIN can set to CANCELLED
- * - If assigned: Only ADMIN + assigned user can update
+ * - FINANCIAL can update
+ * - ADMIN can update
  *
  * NEGOTIATION Service Orders:
- * - Only PRODUCTION and ADMIN can update status
- * - Only ADMIN can set to CANCELLED
- * - If assigned: Only ADMIN + assigned user can update
+ * - ONLY ADMIN can update (no other role)
  *
  * ARTWORK Service Orders:
- * - Only DESIGNER and ADMIN can update status
- * - Only ADMIN can set to CANCELLED
- * - If assigned: Only ADMIN + assigned user can update
+ * - DESIGNER can update
+ * - ADMIN can update
  */
 
 export interface ServiceOrderUpdatePermissionCheck {
@@ -63,20 +65,24 @@ export function checkServiceOrderUpdatePermission(
     };
   }
 
-  // Check permissions based on service order type
+  // Check permissions based on service order type (when NOT assigned)
   switch (serviceOrder.type) {
     case SERVICE_ORDER_TYPE.PRODUCTION:
-      // LEADER can update (but not cancel, already checked above)
-      if (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION) {
+      // LEADER and LOGISTIC can update PRODUCTION service orders
+      if (
+        userPrivilege === SECTOR_PRIVILEGES.LEADER ||
+        userPrivilege === SECTOR_PRIVILEGES.LOGISTIC
+      ) {
         return { canUpdate: true };
       }
       return {
         canUpdate: false,
         reason:
-          'Apenas líderes de produção ou administradores podem atualizar ordens de serviço de produção',
+          'Apenas líderes de setor, logística ou administradores podem atualizar ordens de serviço de produção',
       };
 
     case SERVICE_ORDER_TYPE.FINANCIAL:
+      // FINANCIAL can update FINANCIAL service orders
       if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
         return { canUpdate: true };
       }
@@ -87,16 +93,15 @@ export function checkServiceOrderUpdatePermission(
       };
 
     case SERVICE_ORDER_TYPE.NEGOTIATION:
-      if (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION) {
-        return { canUpdate: true };
-      }
+      // ONLY ADMIN can update NEGOTIATION service orders (already handled above)
       return {
         canUpdate: false,
         reason:
-          'Apenas usuários de produção ou administradores podem atualizar ordens de serviço de negociação',
+          'Apenas administradores podem atualizar ordens de serviço de negociação',
       };
 
     case SERVICE_ORDER_TYPE.ARTWORK:
+      // DESIGNER can update ARTWORK service orders
       if (userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
         return { canUpdate: true };
       }
