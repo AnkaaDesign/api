@@ -530,6 +530,430 @@ export function generatePasswordResetCodeTemplate(data: PasswordResetCodeTemplat
   `;
 }
 
+// =====================
+// Notification Template
+// =====================
+
+interface NotificationEmailTemplateData extends BaseTemplateData {
+  notificationType: 'TASK' | 'ORDER' | 'STOCK' | 'USER' | 'SYSTEM' | 'VACATION' | 'GENERAL';
+  eventType: string;
+  importance: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
+  title: string;
+  message: string;
+  actionUrl?: string;
+  actionText?: string;
+  metadata?: Record<string, string>;
+  timestamp: string;
+}
+
+const notificationTypeConfig: Record<string, { icon: string; color: string; label: string }> = {
+  TASK: { icon: '📋', color: '#3b82f6', label: 'Tarefa' },
+  ORDER: { icon: '🛒', color: '#8b5cf6', label: 'Pedido' },
+  STOCK: { icon: '📦', color: '#f59e0b', label: 'Estoque' },
+  USER: { icon: '👤', color: '#10b981', label: 'Usuário' },
+  SYSTEM: { icon: '⚙️', color: '#6b7280', label: 'Sistema' },
+  VACATION: { icon: '🏖️', color: '#06b6d4', label: 'Férias' },
+  GENERAL: { icon: '🔔', color: '#16802B', label: 'Geral' },
+};
+
+const importanceConfig: Record<string, { color: string; bgColor: string; label: string }> = {
+  URGENT: { color: '#dc2626', bgColor: '#fef2f2', label: 'URGENTE' },
+  HIGH: { color: '#ea580c', bgColor: '#fff7ed', label: 'ALTA PRIORIDADE' },
+  NORMAL: { color: '#16802B', bgColor: '#f0fdf4', label: 'NORMAL' },
+  LOW: { color: '#6b7280', bgColor: '#f9fafb', label: 'BAIXA PRIORIDADE' },
+};
+
+export function generateNotificationEmailTemplate(data: NotificationEmailTemplateData): string {
+  const typeConfig = notificationTypeConfig[data.notificationType] || notificationTypeConfig.GENERAL;
+  const importConfig = importanceConfig[data.importance] || importanceConfig.NORMAL;
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${data.title} - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      <div class="header" style="background: ${typeConfig.color};">
+        <h1>${typeConfig.icon} ${typeConfig.label}</h1>
+        <p>${data.eventType}</p>
+      </div>
+
+      <div class="content">
+        ${data.importance !== 'NORMAL' ? `
+        <div style="background: ${importConfig.bgColor}; border-left: 4px solid ${importConfig.color}; padding: 12px 15px; margin-bottom: 20px; border-radius: 4px;">
+          <strong style="color: ${importConfig.color};">${importConfig.label}</strong>
+        </div>
+        ` : ''}
+
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <h3 style="margin: 0 0 10px 0; color: #333;">${data.title}</h3>
+          <p style="margin: 0; color: #555; line-height: 1.6; white-space: pre-wrap;">${data.message}</p>
+        </div>
+
+        ${data.metadata && Object.keys(data.metadata).length > 0 ? `
+        <div style="margin: 20px 0;">
+          <strong style="color: #333;">Detalhes:</strong>
+          <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+            ${Object.entries(data.metadata).map(([key, value]) => `
+              <tr>
+                <td style="padding: 8px 12px; background: #f9fafb; border: 1px solid #e5e7eb; font-weight: 500; width: 40%;">${key}</td>
+                <td style="padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb;">${value}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+        ` : ''}
+
+        ${data.actionUrl ? `
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.actionUrl}" class="button" style="background: ${typeConfig.color};">${data.actionText || 'Ver Detalhes'}</a>
+        </div>
+        ` : ''}
+
+        <p style="font-size: 13px; color: #6c757d; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e9ecef;">
+          Recebido em: ${data.timestamp}
+        </p>
+      </div>
+
+      <div class="footer">
+        <p>Esta é uma notificação automática do sistema ${data.companyName}.</p>
+        <p>Para alterar suas preferências de notificação, acesse as configurações do seu perfil.</p>
+        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
+        <p>📧 ${data.supportEmail}${data.supportPhone ? ` | 📱 ${data.supportPhone}` : ''}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// =====================
+// Task Notification Template
+// =====================
+
+interface TaskNotificationTemplateData extends BaseTemplateData {
+  eventType: 'status' | 'assignment' | 'deadline' | 'comment' | 'artwork' | 'completion' | 'priority';
+  taskTitle: string;
+  taskDescription?: string;
+  previousValue?: string;
+  newValue?: string;
+  dueDate?: string;
+  assignedBy?: string;
+  assignedTo?: string;
+  commentAuthor?: string;
+  commentText?: string;
+  taskUrl: string;
+}
+
+const taskEventLabels: Record<string, { title: string; description: string }> = {
+  status: { title: 'Status Alterado', description: 'O status da tarefa foi atualizado' },
+  assignment: { title: 'Tarefa Atribuída', description: 'Uma tarefa foi atribuída a você' },
+  deadline: { title: 'Prazo Próximo', description: 'O prazo da tarefa está se aproximando' },
+  comment: { title: 'Novo Comentário', description: 'Alguém comentou na tarefa' },
+  artwork: { title: 'Arte Atualizada', description: 'Os arquivos de arte foram modificados' },
+  completion: { title: 'Tarefa Concluída', description: 'A tarefa foi concluída' },
+  priority: { title: 'Prioridade Alterada', description: 'A prioridade da tarefa foi alterada' },
+};
+
+export function generateTaskNotificationTemplate(data: TaskNotificationTemplateData): string {
+  const eventConfig = taskEventLabels[data.eventType] || { title: 'Atualização de Tarefa', description: 'A tarefa foi atualizada' };
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${eventConfig.title} - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      <div class="header" style="background: #3b82f6;">
+        <h1>📋 ${eventConfig.title}</h1>
+        <p>${eventConfig.description}</p>
+      </div>
+
+      <div class="content">
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <div style="background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; padding: 15px; margin: 20px 0;">
+          <h3 style="margin: 0 0 5px 0; color: #1e40af;">${data.taskTitle}</h3>
+          ${data.taskDescription ? `<p style="margin: 0; color: #3b82f6; font-size: 14px;">${data.taskDescription}</p>` : ''}
+        </div>
+
+        ${data.eventType === 'status' && data.previousValue && data.newValue ? `
+        <div style="margin: 20px 0;">
+          <p><strong>Mudança de Status:</strong></p>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+            <span style="background: #f3f4f6; padding: 8px 12px; border-radius: 4px; text-decoration: line-through; color: #6b7280;">${data.previousValue}</span>
+            <span style="color: #9ca3af;">→</span>
+            <span style="background: #dbeafe; padding: 8px 12px; border-radius: 4px; color: #1e40af; font-weight: 500;">${data.newValue}</span>
+          </div>
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'assignment' && data.assignedBy ? `
+        <p><strong>Atribuído por:</strong> ${data.assignedBy}</p>
+        ` : ''}
+
+        ${data.eventType === 'deadline' && data.dueDate ? `
+        <div class="alert">
+          <strong>⏰ Prazo:</strong> ${data.dueDate}
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'comment' && data.commentAuthor && data.commentText ? `
+        <div style="background: #f9fafb; border-radius: 8px; padding: 15px; margin: 20px 0;">
+          <p style="margin: 0 0 10px 0; font-weight: 500;">${data.commentAuthor} comentou:</p>
+          <p style="margin: 0; color: #374151; font-style: italic;">"${data.commentText}"</p>
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'priority' && data.previousValue && data.newValue ? `
+        <div style="margin: 20px 0;">
+          <p><strong>Mudança de Prioridade:</strong></p>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+            <span style="background: #f3f4f6; padding: 8px 12px; border-radius: 4px; color: #6b7280;">${data.previousValue}</span>
+            <span style="color: #9ca3af;">→</span>
+            <span style="background: #fef3c7; padding: 8px 12px; border-radius: 4px; color: #92400e; font-weight: 500;">${data.newValue}</span>
+          </div>
+        </div>
+        ` : ''}
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.taskUrl}" class="button" style="background: #3b82f6;">Ver Tarefa</a>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>Esta é uma notificação automática do sistema ${data.companyName}.</p>
+        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
+        <p>📧 ${data.supportEmail}${data.supportPhone ? ` | 📱 ${data.supportPhone}` : ''}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// =====================
+// Order Notification Template
+// =====================
+
+interface OrderNotificationTemplateData extends BaseTemplateData {
+  eventType: 'created' | 'status' | 'fulfilled' | 'cancelled' | 'overdue';
+  orderNumber: string;
+  orderDescription?: string;
+  customerName?: string;
+  previousStatus?: string;
+  newStatus?: string;
+  dueDate?: string;
+  cancellationReason?: string;
+  orderUrl: string;
+  items?: Array<{ name: string; quantity: number }>;
+}
+
+const orderEventLabels: Record<string, { title: string; description: string; color: string }> = {
+  created: { title: 'Novo Pedido', description: 'Um novo pedido foi criado', color: '#16802B' },
+  status: { title: 'Status Atualizado', description: 'O status do pedido foi alterado', color: '#3b82f6' },
+  fulfilled: { title: 'Pedido Finalizado', description: 'O pedido foi concluído com sucesso', color: '#10b981' },
+  cancelled: { title: 'Pedido Cancelado', description: 'O pedido foi cancelado', color: '#ef4444' },
+  overdue: { title: 'Pedido Atrasado', description: 'O pedido está atrasado', color: '#f59e0b' },
+};
+
+export function generateOrderNotificationTemplate(data: OrderNotificationTemplateData): string {
+  const eventConfig = orderEventLabels[data.eventType] || orderEventLabels.status;
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${eventConfig.title} - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      <div class="header" style="background: ${eventConfig.color};">
+        <h1>🛒 ${eventConfig.title}</h1>
+        <p>${eventConfig.description}</p>
+      </div>
+
+      <div class="content">
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <div style="background: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin: 0; color: #333;">Pedido #${data.orderNumber}</h3>
+            ${data.customerName ? `<span style="color: #6b7280; font-size: 14px;">Cliente: ${data.customerName}</span>` : ''}
+          </div>
+          ${data.orderDescription ? `<p style="margin: 0; color: #555;">${data.orderDescription}</p>` : ''}
+        </div>
+
+        ${data.eventType === 'status' && data.previousStatus && data.newStatus ? `
+        <div style="margin: 20px 0;">
+          <p><strong>Mudança de Status:</strong></p>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+            <span style="background: #f3f4f6; padding: 8px 12px; border-radius: 4px; color: #6b7280;">${data.previousStatus}</span>
+            <span style="color: #9ca3af;">→</span>
+            <span style="background: #dbeafe; padding: 8px 12px; border-radius: 4px; color: #1e40af; font-weight: 500;">${data.newStatus}</span>
+          </div>
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'overdue' && data.dueDate ? `
+        <div class="warning">
+          <strong>⚠️ Atenção:</strong> Este pedido deveria ter sido entregue em ${data.dueDate}
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'cancelled' && data.cancellationReason ? `
+        <div class="alert">
+          <strong>Motivo do cancelamento:</strong> ${data.cancellationReason}
+        </div>
+        ` : ''}
+
+        ${data.eventType === 'fulfilled' ? `
+        <div class="success">
+          <strong>✅ Pedido finalizado com sucesso!</strong>
+        </div>
+        ` : ''}
+
+        ${data.items && data.items.length > 0 ? `
+        <div style="margin: 20px 0;">
+          <strong>Itens do Pedido:</strong>
+          <table style="width: 100%; margin-top: 10px; border-collapse: collapse;">
+            <thead>
+              <tr style="background: #f3f4f6;">
+                <th style="padding: 10px; text-align: left; border: 1px solid #e5e7eb;">Item</th>
+                <th style="padding: 10px; text-align: center; border: 1px solid #e5e7eb; width: 100px;">Qtd</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.items.map(item => `
+                <tr>
+                  <td style="padding: 10px; border: 1px solid #e5e7eb;">${item.name}</td>
+                  <td style="padding: 10px; text-align: center; border: 1px solid #e5e7eb;">${item.quantity}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.orderUrl}" class="button" style="background: ${eventConfig.color};">Ver Pedido</a>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>Esta é uma notificação automática do sistema ${data.companyName}.</p>
+        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
+        <p>📧 ${data.supportEmail}${data.supportPhone ? ` | 📱 ${data.supportPhone}` : ''}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// =====================
+// Stock Notification Template
+// =====================
+
+interface StockNotificationTemplateData extends BaseTemplateData {
+  eventType: 'low' | 'out' | 'restock';
+  itemName: string;
+  itemCode?: string;
+  currentQuantity: number;
+  minimumQuantity?: number;
+  suggestedReorderQuantity?: number;
+  itemUrl: string;
+}
+
+const stockEventLabels: Record<string, { title: string; description: string; color: string; icon: string }> = {
+  low: { title: 'Estoque Baixo', description: 'Um item está abaixo do nível mínimo', color: '#f59e0b', icon: '⚠️' },
+  out: { title: 'Estoque Esgotado', description: 'Um item está sem estoque', color: '#ef4444', icon: '🚨' },
+  restock: { title: 'Reabastecimento Necessário', description: 'É necessário reabastecer o estoque', color: '#3b82f6', icon: '📦' },
+};
+
+export function generateStockNotificationTemplate(data: StockNotificationTemplateData): string {
+  const eventConfig = stockEventLabels[data.eventType] || stockEventLabels.low;
+
+  return `
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${eventConfig.title} - ${data.companyName}</title>
+      <style>${baseEmailStyle}</style>
+    </head>
+    <body>
+      <div class="header" style="background: ${eventConfig.color};">
+        <h1>${eventConfig.icon} ${eventConfig.title}</h1>
+        <p>${eventConfig.description}</p>
+      </div>
+
+      <div class="content">
+        <h2>Olá${data.userName ? `, ${data.userName}` : ''}!</h2>
+
+        <div style="background: ${data.eventType === 'out' ? '#fef2f2' : '#fffbeb'}; border-left: 4px solid ${eventConfig.color}; border-radius: 4px; padding: 15px; margin: 20px 0;">
+          <h3 style="margin: 0 0 5px 0; color: ${data.eventType === 'out' ? '#991b1b' : '#92400e'};">${data.itemName}</h3>
+          ${data.itemCode ? `<p style="margin: 0; color: #6b7280; font-size: 14px;">Código: ${data.itemCode}</p>` : ''}
+        </div>
+
+        <div style="margin: 20px 0;">
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; font-weight: 500;">Quantidade Atual</td>
+              <td style="padding: 12px; background: #fff; border: 1px solid #e5e7eb; text-align: right;">
+                <span style="font-size: 18px; font-weight: bold; color: ${data.currentQuantity === 0 ? '#ef4444' : '#f59e0b'};">
+                  ${data.currentQuantity}
+                </span>
+              </td>
+            </tr>
+            ${data.minimumQuantity !== undefined ? `
+            <tr>
+              <td style="padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; font-weight: 500;">Quantidade Mínima</td>
+              <td style="padding: 12px; background: #fff; border: 1px solid #e5e7eb; text-align: right;">${data.minimumQuantity}</td>
+            </tr>
+            ` : ''}
+            ${data.suggestedReorderQuantity ? `
+            <tr>
+              <td style="padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; font-weight: 500;">Sugestão de Reposição</td>
+              <td style="padding: 12px; background: #fff; border: 1px solid #e5e7eb; text-align: right;">
+                <span style="color: #16802B; font-weight: 500;">${data.suggestedReorderQuantity} unidades</span>
+              </td>
+            </tr>
+            ` : ''}
+          </table>
+        </div>
+
+        ${data.eventType === 'out' ? `
+        <div class="warning">
+          <strong>🚨 Atenção:</strong> Este item está completamente esgotado. Providencie o reabastecimento o mais rápido possível.
+        </div>
+        ` : ''}
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${data.itemUrl}" class="button" style="background: ${eventConfig.color};">Ver Item</a>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>Esta é uma notificação automática do sistema ${data.companyName}.</p>
+        <p>Precisa de ajuda? <a href="${data.supportUrl}">Entre em contato conosco</a></p>
+        <p>📧 ${data.supportEmail}${data.supportPhone ? ` | 📱 ${data.supportPhone}` : ''}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 export function generateWelcomeEmailTemplate(data: WelcomeTemplateData): string {
   return `
     <!DOCTYPE html>

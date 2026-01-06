@@ -4111,13 +4111,15 @@ export class TaskService {
     }
 
     // Get admin users (users with admin positions)
+    // Note: 'position' is an optional relation, so we use 'is' to filter on its fields
     const admins = await prismaClient.user.findMany({
       where: {
         isActive: true,
         position: {
-          isNot: null,
-          name: {
-            in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
+          is: {
+            name: {
+              in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
+            },
           },
         },
       },

@@ -31,6 +31,16 @@ export class UpdatePreferenceDto {
   channels: string[];
 }
 
+export class BatchUpdatePreferenceDto {
+  type: string;
+  eventType: string;
+  channels: string[];
+}
+
+export class BatchUpdatePreferencesDto {
+  preferences: BatchUpdatePreferenceDto[];
+}
+
 export class ResetPreferencesDto {
   confirm: boolean;
 }
@@ -44,6 +54,8 @@ export class NotificationPreferenceController {
   // =====================
   // User Notification Preference Endpoints
   // =====================
+  // IMPORTANT: Route order matters in NestJS!
+  // Specific routes (batch, reset) MUST come BEFORE wildcard routes (:type)
 
   /**
    * GET /users/:userId/notification-preferences
@@ -81,9 +93,136 @@ export class NotificationPreferenceController {
   }
 
   /**
+   * PUT /users/:userId/notification-preferences/batch
+   * Batch update notification preferences for a user
+   * NOTE: This route MUST be defined BEFORE the :type route to prevent "batch" being matched as a type
+   */
+  @Put(':userId/notification-preferences/batch')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Batch update notification preferences',
+    description: 'Update multiple notification preferences at once',
+  })
+  @ApiParam({ name: 'userId', description: 'User UUID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        preferences: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', description: 'Notification type (e.g., TASK, ORDER)' },
+              eventType: { type: 'string', description: 'Event type (e.g., status, created)' },
+              channels: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+      required: ['preferences'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Preferences updated successfully',
+  })
+  async batchUpdatePreferences(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: any, // Use any to bypass DTO validation - handle object-with-numeric-keys format
+    @UserId() requestingUserId: string,
+  ): Promise<{ success: boolean; message: string; data: { updated: number } }> {
+    // Handle both array and object-with-numeric-keys formats (browser serialization issue)
+    // When axios/browsers serialize arrays, they sometimes convert them to objects like {"0": ..., "1": ...}
+    let preferences: any[];
+    const rawPreferences = body?.preferences;
+
+    if (Array.isArray(rawPreferences)) {
+      preferences = rawPreferences;
+    } else if (rawPreferences && typeof rawPreferences === 'object') {
+      // Convert object with numeric keys to array
+      preferences = Object.values(rawPreferences);
+    } else {
+      throw new BadRequestException('preferences must be provided');
+    }
+
+    try {
+      const isAdmin = false; // TODO: Implement admin check
+      let updatedCount = 0;
+
+      for (const pref of preferences) {
+        if (!pref.type || !pref.eventType) {
+          continue; // Skip invalid entries
+        }
+
+        // Handle channels that may also be an object with numeric keys
+        let channels: string[];
+        if (Array.isArray(pref.channels)) {
+          channels = pref.channels;
+        } else if (pref.channels && typeof pref.channels === 'object') {
+          channels = Object.values(pref.channels);
+        } else {
+          continue; // Skip if no valid channels
+        }
+
+        await this.preferenceService.updatePreference(
+          userId,
+          pref.type,
+          pref.eventType,
+          channels,
+          requestingUserId,
+          isAdmin,
+        );
+        updatedCount++;
+      }
+
+      return {
+        success: true,
+        message: `${updatedCount} notification preferences updated successfully`,
+        data: { updated: updatedCount },
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * POST /users/:userId/notification-preferences/reset
+   * Reset notification preferences to defaults
+   * NOTE: This route MUST be defined BEFORE the :type route to prevent "reset" being matched as a type
+   */
+  @Post(':userId/notification-preferences/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetPreferences(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: ResetPreferencesDto,
+    @UserId() requestingUserId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    // Validate confirmation
+    if (!body.confirm) {
+      throw new BadRequestException('You must confirm the reset by setting confirm: true');
+    }
+
+    try {
+      // Determine if requesting user is admin (you may need to implement this)
+      const isAdmin = false; // TODO: Implement admin check
+
+      await this.preferenceService.resetToDefaults(userId, requestingUserId, isAdmin);
+
+      return {
+        success: true,
+        message: 'Notification preferences reset to defaults successfully',
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
    * PUT /users/:userId/notification-preferences/:type
    * Update a notification preference for a user
    * Event type is passed as query parameter or in body
+   * NOTE: This wildcard route MUST be defined AFTER specific routes (batch, reset)
    */
   @Put(':userId/notification-preferences/:type')
   @HttpCode(HttpStatus.OK)
@@ -124,8 +263,13 @@ export class NotificationPreferenceController {
     @Body() body: UpdatePreferenceDto & { eventType?: string },
     @UserId() requestingUserId: string,
   ): Promise<UserNotificationPreferenceUpdateResponse> {
-    // Validate request body
-    if (!body.channels || !Array.isArray(body.channels)) {
+    // Handle channels that may be an object with numeric keys (browser serialization issue)
+    let channels: string[];
+    if (Array.isArray(body.channels)) {
+      channels = body.channels;
+    } else if (body.channels && typeof body.channels === 'object') {
+      channels = Object.values(body.channels);
+    } else {
       throw new BadRequestException('channels must be provided as an array');
     }
 
@@ -141,7 +285,7 @@ export class NotificationPreferenceController {
         userId,
         type,
         body.eventType,
-        body.channels,
+        channels,
         requestingUserId,
         isAdmin,
       );
@@ -150,37 +294,6 @@ export class NotificationPreferenceController {
         success: true,
         data: updatedPreference,
         message: 'Notification preference updated successfully',
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  /**
-   * POST /users/:userId/notification-preferences/reset
-   * Reset notification preferences to defaults
-   */
-  @Post(':userId/notification-preferences/reset')
-  @HttpCode(HttpStatus.OK)
-  async resetPreferences(
-    @Param('userId', ParseUUIDPipe) userId: string,
-    @Body() body: ResetPreferencesDto,
-    @UserId() requestingUserId: string,
-  ): Promise<{ success: boolean; message: string }> {
-    // Validate confirmation
-    if (!body.confirm) {
-      throw new BadRequestException('You must confirm the reset by setting confirm: true');
-    }
-
-    try {
-      // Determine if requesting user is admin (you may need to implement this)
-      const isAdmin = false; // TODO: Implement admin check
-
-      await this.preferenceService.resetToDefaults(userId, requestingUserId, isAdmin);
-
-      return {
-        success: true,
-        message: 'Notification preferences reset to defaults successfully',
       };
     } catch (error) {
       throw error;

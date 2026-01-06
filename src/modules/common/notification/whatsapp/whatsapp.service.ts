@@ -200,6 +200,7 @@ export class WhatsAppNotificationService {
   /**
    * Format notification as WhatsApp message
    * Creates a well-formatted message suitable for WhatsApp
+   * Optimized for mobile viewing with clickable links
    *
    * @param notification - The notification to format
    * @param user - The recipient user
@@ -209,11 +210,7 @@ export class WhatsAppNotificationService {
     // Build the message with proper formatting
     const lines: string[] = [];
 
-    // Add greeting
-    lines.push(`*Hello, ${user.name}!*`);
-    lines.push('');
-
-    // Add title with emphasis
+    // Add title with emphasis (no greeting - straight to the point)
     if (notification.title) {
       lines.push(`*${notification.title}*`);
       lines.push('');
@@ -222,10 +219,9 @@ export class WhatsAppNotificationService {
     // Add message body
     if (notification.body) {
       lines.push(notification.body);
-      lines.push('');
     }
 
-    // Add metadata if available
+    // Add metadata if available (optional fields)
     if (notification.metadata) {
       try {
         const metadata =
@@ -235,34 +231,39 @@ export class WhatsAppNotificationService {
 
         // Add custom fields from metadata
         if (metadata.description) {
-          lines.push(`_${metadata.description}_`);
           lines.push('');
+          lines.push(`_${metadata.description}_`);
         }
 
         if (metadata.dueDate) {
-          lines.push(`*Due Date:* ${new Date(metadata.dueDate).toLocaleDateString()}`);
           lines.push('');
+          lines.push(`*Prazo:* ${new Date(metadata.dueDate).toLocaleDateString('pt-BR')}`);
         }
 
         if (metadata.priority) {
           const priorityEmoji = this.getPriorityEmoji(metadata.priority);
-          lines.push(`*Priority:* ${priorityEmoji} ${metadata.priority}`);
-          lines.push('');
+          lines.push(`*Prioridade:* ${priorityEmoji} ${metadata.priority}`);
         }
       } catch (error) {
         this.logger.warn(`Failed to parse notification metadata: ${error.message}`);
       }
     }
 
-    // Add action URL if available
+    // Add action URL as a clickable link (full URL for mobile deep linking)
     if (notification.actionUrl) {
-      lines.push(`*View Details:* ${notification.actionUrl}`);
+      const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://app.ankaa.com.br';
+      let fullUrl = notification.actionUrl;
+
+      // Build full URL if it's a relative path
+      if (!notification.actionUrl.startsWith('http')) {
+        fullUrl = `${baseUrl}${notification.actionUrl}`;
+      }
+
       lines.push('');
+      lines.push(`🔗 ${fullUrl}`);
     }
 
-    // Add footer
-    lines.push('---');
-    lines.push('_This is an automated notification. Please do not reply to this message._');
+    // No footer - clean and simple message
 
     return lines.join('\n');
   }
