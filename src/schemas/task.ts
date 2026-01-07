@@ -21,6 +21,14 @@ import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { budgetCreateNestedSchema } from './budget';
 
+// Helper to filter out empty strings from UUID arrays before validation
+// This handles cases where FormData sends [''] for empty arrays
+const uuidArraySchema = (errorMessage: string) =>
+  z.preprocess(
+    val => (Array.isArray(val) ? val.filter(v => v !== '' && v !== null && v !== undefined) : val),
+    z.array(z.string().uuid(errorMessage)).optional(),
+  );
+
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
@@ -613,10 +621,9 @@ const taskTransform = (data: any): any => {
         { generalPainting: { code: { contains: searchTerm, mode: 'insensitive' } } },
         { logoPaints: { some: { name: { contains: searchTerm, mode: 'insensitive' } } } },
         { logoPaints: { some: { code: { contains: searchTerm, mode: 'insensitive' } } } },
-        // Truck search - plate, chassisNumber, serialNumber
+        // Truck search - plate, chassisNumber
         { truck: { plate: { contains: searchTerm, mode: 'insensitive' } } },
         { truck: { chassisNumber: { contains: searchTerm, mode: 'insensitive' } } },
-        { truck: { serialNumber: { contains: searchTerm, mode: 'insensitive' } } },
       ],
     });
     delete data.searchingFor;
@@ -1486,13 +1493,14 @@ export const taskCreateSchema = z
       .optional(),
 
     // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
-    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
-    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
-    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
-    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
-    artworkIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
-    paintIds: z.array(z.string().uuid('Tinta inválida')).optional(),
+    // Using uuidArraySchema to filter empty strings from FormData before validation
+    budgetIds: uuidArraySchema('Orçamento inválido'),
+    invoiceIds: uuidArraySchema('NFe inválida'),
+    receiptIds: uuidArraySchema('Recibo inválido'),
+    reimbursementIds: uuidArraySchema('Reimbursement inválido'),
+    reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
+    artworkIds: uuidArraySchema('Arquivo inválido'),
+    paintIds: uuidArraySchema('Tinta inválida'),
     // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
     budgetId: z.string().uuid('Orçamento inválido').nullable().optional(),
     nfeId: z.string().uuid('NFe inválida').nullable().optional(),
@@ -1665,13 +1673,14 @@ export const taskUpdateSchema = z
       .optional(),
 
     // Relations - File arrays
-    budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
-    invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
-    receiptIds: z.array(z.string().uuid('Recibo inválido')).optional(),
-    reimbursementIds: z.array(z.string().uuid('Reimbursement inválido')).optional(),
-    reimbursementInvoiceIds: z.array(z.string().uuid('NFe de reimbursement inválida')).optional(),
-    artworkIds: z.array(z.string().uuid('Arquivo inválido')).optional(),
-    paintIds: z.array(z.string().uuid('Tinta inválida')).optional(),
+    // Using uuidArraySchema to filter empty strings from FormData before validation
+    budgetIds: uuidArraySchema('Orçamento inválido'),
+    invoiceIds: uuidArraySchema('NFe inválida'),
+    receiptIds: uuidArraySchema('Recibo inválido'),
+    reimbursementIds: uuidArraySchema('Reimbursement inválido'),
+    reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
+    artworkIds: uuidArraySchema('Arquivo inválido'),
+    paintIds: uuidArraySchema('Tinta inválida'),
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
