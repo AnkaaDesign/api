@@ -908,15 +908,16 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id            String          @id @default(uuid())
-  name          String          @unique
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  bonifiable    Boolean         @default(true)
-  hierarchy     Int?
-  remunerations MonetaryValue[]
-  payrolls      Payroll[]
-  users         User[]          @relation("USER_POSITION")
+  id             String          @id @default(uuid())
+  name           String          @unique
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  bonifiable     Boolean         @default(true)
+  hierarchy      Int?
+  remunerations  MonetaryValue[]
+  payrolls       Payroll[]
+  users          User[]          @relation("USER_POSITION")
+  messageTargets MessageTarget[] @relation("MESSAGE_TARGET_POSITION")
 
   @@index([name])
   @@index([hierarchy])
@@ -947,15 +948,16 @@ model Warning {
 }
 
 model Sector {
-  id         String           @id @default(uuid())
-  name       String
-  privileges SectorPrivileges @default(BASIC)
-  managerId  String?          @unique
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
-  tasks      Task[]
-  manager    User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
-  users      User[]
+  id             String           @id @default(uuid())
+  name           String
+  privileges     SectorPrivileges @default(BASIC)
+  managerId      String?          @unique
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  tasks          Task[]
+  manager        User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
+  users          User[]
+  messageTargets MessageTarget[]  @relation("MESSAGE_TARGET_SECTOR")
 
   @@index([managerId])
 }
@@ -1292,6 +1294,9 @@ model User {
   assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
   notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
   deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
+  createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")
+  messageTargets          MessageTarget[]              @relation("MESSAGE_TARGET_USER")
+  messageViews            MessageView[]                @relation("MESSAGE_VIEW_USER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2530,4 +2535,121 @@ enum StreetType {
   COMPLEX
   RESIDENTIAL
   OTHER
+}
+
+// ============================================================================
+// ANNOUNCEMENT/MESSAGE SYSTEM MODELS
+// ============================================================================
+
+model Message {
+  id              String              @id @default(uuid())
+  title           String
+  content         Json                // Rich content blocks (headings, paragraphs, images, buttons, etc.)
+  priority        MessagePriority     @default(NORMAL)
+  priorityOrder   Int                 @default(2)
+  status          MessageStatus       @default(DRAFT)
+  statusOrder     Int                 @default(1)
+  startDate       DateTime?           // When message becomes active
+  endDate         DateTime?           // When message expires
+  createdById     String
+  targetingType   MessageTargetType   @default(ALL_USERS)
+  metadata        Json?               // Additional metadata (colors, icons, etc.)
+  actionType      MessageActionType?  // Optional action button type
+  actionUrl       String?             // Optional action button URL
+  isDismissible   Boolean             @default(true)
+  requiresView    Boolean             @default(false) // Whether view tracking is required
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  publishedAt     DateTime?           // When message was published
+  archivedAt      DateTime?           // When message was archived
+
+  createdBy       User                @relation("MESSAGE_CREATED_BY", fields: [createdById], references: [id])
+  targets         MessageTarget[]     @relation("MESSAGE_TARGETS")
+  views           MessageView[]       @relation("MESSAGE_VIEWS")
+
+  @@index([status, statusOrder])
+  @@index([priority, priorityOrder])
+  @@index([createdById])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([targetingType])
+  @@index([publishedAt])
+  @@index([createdAt])
+}
+
+model MessageTarget {
+  id              String              @id @default(uuid())
+  messageId       String
+  targetType      MessageTargetType
+  userId          String?             // Specific user
+  sectorId        String?             // Sector/department
+  positionId      String?             // Position/role
+  sectorPrivilege SectorPrivileges?   // Sector privilege level
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  message         Message             @relation("MESSAGE_TARGETS", fields: [messageId], references: [id], onDelete: Cascade)
+  user            User?               @relation("MESSAGE_TARGET_USER", fields: [userId], references: [id], onDelete: Cascade)
+  sector          Sector?             @relation("MESSAGE_TARGET_SECTOR", fields: [sectorId], references: [id], onDelete: Cascade)
+  position        Position?           @relation("MESSAGE_TARGET_POSITION", fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([targetType])
+  @@index([userId])
+  @@index([sectorId])
+  @@index([positionId])
+  @@index([sectorPrivilege])
+}
+
+model MessageView {
+  id              String    @id @default(uuid())
+  messageId       String
+  userId          String
+  viewedAt        DateTime  @default(now())
+  deviceType      Platform? // Platform from where message was viewed
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  message         Message   @relation("MESSAGE_VIEWS", fields: [messageId], references: [id], onDelete: Cascade)
+  user            User      @relation("MESSAGE_VIEW_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([messageId])
+  @@index([userId])
+  @@index([viewedAt])
+}
+
+// ============================================================================
+// ENUMS FOR MESSAGE SYSTEM
+// ============================================================================
+
+enum MessageStatus {
+  DRAFT           // Message being created
+  SCHEDULED       // Message scheduled for future
+  ACTIVE          // Message currently active
+  EXPIRED         // Message past end date
+  ARCHIVED        // Message manually archived
+}
+
+enum MessagePriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum MessageTargetType {
+  ALL_USERS       // All users in the system
+  SPECIFIC_USERS  // Specific user IDs
+  SECTOR          // All users in a sector
+  POSITION        // All users with a position
+  PRIVILEGE       // All users with specific privilege level
+}
+
+enum MessageActionType {
+  NAVIGATE        // Navigate to URL
+  DOWNLOAD        // Download file
+  EXTERNAL_LINK   // Open external link
+  ACKNOWLEDGE     // Require acknowledgment
+  CUSTOM          // Custom action
 }

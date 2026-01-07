@@ -58,6 +58,7 @@ import { RepositoryModule } from './modules/system/repository/repository.module'
 import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
+import { MessageModule } from './modules/system/message/message.module';
 
 @Module({
   imports: [
@@ -130,6 +131,7 @@ import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
     GitCommitModule,
     AppsModule,
     WhatsAppModule,
+    MessageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

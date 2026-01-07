@@ -55,11 +55,16 @@ export class PushService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    this.logger.log('========================================');
+    this.logger.log('[PUSH] Initializing Firebase Admin SDK...');
+
     try {
       // Check if Firebase is already initialized
       if (admin.apps.length > 0) {
         this.firebaseApp = admin.apps[0];
-        this.logger.log('Firebase Admin SDK already initialized');
+        this.logger.log('[PUSH] ✅ Firebase Admin SDK already initialized');
+        this.logger.log('[PUSH] Existing app name:', admin.apps[0].name);
+        this.logger.log('========================================');
         return;
       }
 
@@ -68,13 +73,24 @@ export class PushService implements OnModuleInit {
       const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
       const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
+      this.logger.log('[PUSH] Checking Firebase environment variables...');
+      this.logger.log(`[PUSH] FIREBASE_PROJECT_ID: ${projectId ? '✅ Set' : '❌ Missing'}`);
+      this.logger.log(`[PUSH] FIREBASE_PRIVATE_KEY: ${privateKey ? '✅ Set (length: ' + privateKey.length + ')' : '❌ Missing'}`);
+      this.logger.log(`[PUSH] FIREBASE_CLIENT_EMAIL: ${clientEmail ? '✅ Set (' + clientEmail + ')' : '❌ Missing'}`);
+
       if (!projectId || !privateKey || !clientEmail) {
-        this.logger.warn(
-          'Firebase credentials not configured. Push notifications will be disabled.',
-        );
+        this.logger.warn('========================================');
+        this.logger.warn('[PUSH] ⚠️ Firebase credentials not configured!');
+        this.logger.warn('[PUSH] Push notifications will be DISABLED');
+        this.logger.warn('[PUSH] Please set the following environment variables:');
+        this.logger.warn('[PUSH]   - FIREBASE_PROJECT_ID');
+        this.logger.warn('[PUSH]   - FIREBASE_PRIVATE_KEY');
+        this.logger.warn('[PUSH]   - FIREBASE_CLIENT_EMAIL');
+        this.logger.warn('========================================');
         return;
       }
 
+      this.logger.log('[PUSH] Initializing Firebase with credentials...');
       this.firebaseApp = admin.initializeApp({
         credential: admin.credential.cert({
           projectId,
@@ -83,9 +99,20 @@ export class PushService implements OnModuleInit {
         }),
       });
 
-      this.logger.log('Firebase Admin SDK initialized successfully');
+      this.logger.log('[PUSH] ✅ Firebase Admin SDK initialized successfully');
+      this.logger.log('[PUSH] Project ID:', projectId);
+      this.logger.log('[PUSH] Service Account:', clientEmail);
+      this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('Failed to initialize Firebase Admin SDK', error);
+      this.logger.error('========================================');
+      this.logger.error('[PUSH] ❌ Failed to initialize Firebase Admin SDK');
+      this.logger.error('[PUSH] Error:', error.message);
+      this.logger.error('[PUSH] Stack:', error.stack);
+      this.logger.error('[PUSH] This usually means:');
+      this.logger.error('[PUSH]   1. Invalid Firebase credentials in .env');
+      this.logger.error('[PUSH]   2. Service account lacks necessary permissions');
+      this.logger.error('[PUSH]   3. Private key format is incorrect (check \\n escape sequences)');
+      this.logger.error('========================================');
     }
   }
 
@@ -378,7 +405,27 @@ export class PushService implements OnModuleInit {
     token: string,
     platform: 'IOS' | 'ANDROID' | 'WEB',
   ): Promise<boolean> {
+    this.logger.log('========================================');
+    this.logger.log('[PUSH] Registering device token');
+    this.logger.log(`[PUSH] User ID: ${userId}`);
+    this.logger.log(`[PUSH] Platform: ${platform}`);
+    this.logger.log(`[PUSH] Token: ${token.substring(0, 30)}...`);
+    this.logger.log(`[PUSH] Token length: ${token.length}`);
+
     try {
+      // Check if token already exists
+      const existingToken = await this.prisma.deviceToken.findUnique({
+        where: { token },
+      });
+
+      if (existingToken) {
+        this.logger.log(`[PUSH] Token already exists for user: ${existingToken.userId}`);
+        this.logger.log(`[PUSH] Current status: ${existingToken.isActive ? 'Active' : 'Inactive'}`);
+        this.logger.log(`[PUSH] Updating token...`);
+      } else {
+        this.logger.log(`[PUSH] New token - creating database entry...`);
+      }
+
       await this.prisma.deviceToken.upsert({
         where: { token },
         create: {
@@ -395,10 +442,21 @@ export class PushService implements OnModuleInit {
         },
       });
 
-      this.logger.log(`Device token registered for user: ${userId}`);
+      // Get total active tokens for this user
+      const userTokenCount = await this.prisma.deviceToken.count({
+        where: { userId, isActive: true },
+      });
+
+      this.logger.log(`[PUSH] ✅ Device token registered successfully`);
+      this.logger.log(`[PUSH] User now has ${userTokenCount} active device(s)`);
+      this.logger.log('========================================');
       return true;
     } catch (error) {
-      this.logger.error(`Failed to register device token: ${error.message}`, error.stack);
+      this.logger.error('========================================');
+      this.logger.error(`[PUSH] ❌ Failed to register device token`);
+      this.logger.error(`[PUSH] Error: ${error.message}`);
+      this.logger.error(`[PUSH] Stack: ${error.stack}`);
+      this.logger.error('========================================');
       return false;
     }
   }
@@ -451,14 +509,44 @@ export class PushService implements OnModuleInit {
     body: string,
     data?: any,
   ): Promise<MulticastNotificationResult> {
+    this.logger.log('========================================');
+    this.logger.log('[PUSH] Sending notification to user');
+    this.logger.log(`[PUSH] User ID: ${userId}`);
+    this.logger.log(`[PUSH] Title: ${title}`);
+    this.logger.log(`[PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`);
+    this.logger.log(`[PUSH] Data:`, JSON.stringify(data, null, 2));
+
     const tokens = await this.getUserTokens(userId);
 
+    this.logger.log(`[PUSH] Found ${tokens.length} active device token(s) for user`);
+
     if (tokens.length === 0) {
-      this.logger.warn(`No active tokens found for user: ${userId}`);
+      this.logger.warn('[PUSH] ⚠️ No active tokens found - notification cannot be delivered');
+      this.logger.warn('[PUSH] Possible reasons:');
+      this.logger.warn('[PUSH]   1. User has not enabled push notifications');
+      this.logger.warn('[PUSH]   2. User device token was deactivated (invalid token)');
+      this.logger.warn('[PUSH]   3. User has not logged in on a mobile device');
+      this.logger.warn('========================================');
       return { success: 0, failure: 0 };
     }
 
-    return this.sendMulticastNotification(tokens, title, body, data);
+    tokens.forEach((token, idx) => {
+      this.logger.log(`[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}...`);
+    });
+
+    this.logger.log('[PUSH] Dispatching to multicast notification service...');
+    const result = await this.sendMulticastNotification(tokens, title, body, data);
+
+    this.logger.log('[PUSH] ========================================');
+    this.logger.log('[PUSH] Multicast result:');
+    this.logger.log(`[PUSH]   ✅ Success: ${result.success}`);
+    this.logger.log(`[PUSH]   ❌ Failure: ${result.failure}`);
+    if (result.failedTokens && result.failedTokens.length > 0) {
+      this.logger.warn(`[PUSH]   🗑️  Deactivated ${result.failedTokens.length} invalid token(s)`);
+    }
+    this.logger.log('========================================');
+
+    return result;
   }
 
   /**
