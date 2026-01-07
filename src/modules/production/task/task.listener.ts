@@ -56,16 +56,34 @@ export class TaskListener {
     private readonly preferenceService: NotificationPreferenceService,
     private readonly prisma: PrismaService,
   ) {
+    this.logger.log('========================================');
+    this.logger.log('[TASK LISTENER] Initializing Task Event Listener');
+    this.logger.log('[TASK LISTENER] Registering event handlers...');
+
     // Register event listeners
     this.eventEmitter.on('task.created', this.handleTaskCreated.bind(this));
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.created');
+
     this.eventEmitter.on('task.status.changed', this.handleTaskStatusChanged.bind(this));
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.status.changed');
+
     this.eventEmitter.on('task.field.updated', this.handleTaskFieldUpdated.bind(this));
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.field.updated');
+
     this.eventEmitter.on('task.field.changed', this.handleTaskFieldChanged.bind(this));
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.field.changed');
+
     this.eventEmitter.on(
       'task.deadline.approaching',
       this.handleTaskDeadlineApproaching.bind(this),
     );
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.deadline.approaching');
+
     this.eventEmitter.on('task.overdue', this.handleTaskOverdue.bind(this));
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.overdue');
+
+    this.logger.log('[TASK LISTENER] All event handlers registered successfully');
+    this.logger.log('========================================');
   }
 
   /**
@@ -73,13 +91,30 @@ export class TaskListener {
    * Notify: sector manager + admin users
    */
   private async handleTaskCreated(event: TaskCreatedEvent): Promise<void> {
-    try {
-      this.logger.log(`Task created: ${event.task.id} by ${event.createdBy.name}`);
+    this.logger.log('========================================');
+    this.logger.log('[TASK EVENT] Task created event received');
+    this.logger.log(`[TASK EVENT] Task ID: ${event.task.id}`);
+    this.logger.log(`[TASK EVENT] Task Name: ${event.task.name}`);
+    this.logger.log(`[TASK EVENT] Serial Number: ${event.task.serialNumber || 'N/A'}`);
+    this.logger.log(`[TASK EVENT] Created By: ${event.createdBy.name} (${event.createdBy.id})`);
+    this.logger.log('========================================');
 
+    try {
+      this.logger.log('[TASK EVENT] Step 1: Fetching target users for task creation...');
       const targetUsers = await this.getTargetUsersForTaskCreated(event.task);
+      this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
+      targetUsers.forEach((userId, idx) => {
+        this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
+      });
 
       // Create notifications for all target users
+      let notificationsCreated = 0;
+      let notificationsSkipped = 0;
+
       for (const userId of targetUsers) {
+        this.logger.log('----------------------------------------');
+        this.logger.log(`[TASK EVENT] Processing user: ${userId}`);
+
         // Use 'created' to match user preference event type
         const channels = await this.getEnabledChannelsForUser(
           userId,
@@ -87,8 +122,15 @@ export class TaskListener {
           'created',
         );
 
-        if (channels.length === 0) continue;
+        this.logger.log(`[TASK EVENT] Enabled channels for user: [${channels.join(', ')}]`);
 
+        if (channels.length === 0) {
+          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for user ${userId} - skipping`);
+          notificationsSkipped++;
+          continue;
+        }
+
+        this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -99,11 +141,21 @@ export class TaskListener {
           actionUrl: this.getTaskUrl(event.task),
           channel: channels,
         });
+        this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
+        notificationsCreated++;
       }
 
-      this.logger.log(`Created ${targetUsers.length} notifications for task creation`);
+      this.logger.log('========================================');
+      this.logger.log('[TASK EVENT] Task creation notification summary:');
+      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
+      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
+      this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('Error handling task created event:', error);
+      this.logger.error('========================================');
+      this.logger.error('[TASK EVENT] ❌ Error handling task created event');
+      this.logger.error('[TASK EVENT] Error:', error.message);
+      this.logger.error('[TASK EVENT] Stack:', error.stack);
+      this.logger.error('========================================');
     }
   }
 
@@ -112,18 +164,35 @@ export class TaskListener {
    * Notify: assigned users + sector manager + admin users
    */
   private async handleTaskStatusChanged(event: TaskStatusChangedEvent): Promise<void> {
-    try {
-      this.logger.log(
-        `Task status changed: ${event.task.id} from ${event.oldStatus} to ${event.newStatus}`,
-      );
+    this.logger.log('========================================');
+    this.logger.log('[TASK EVENT] Task status changed event received');
+    this.logger.log(`[TASK EVENT] Task ID: ${event.task.id}`);
+    this.logger.log(`[TASK EVENT] Task Name: ${event.task.name}`);
+    this.logger.log(`[TASK EVENT] Old Status: ${event.oldStatus}`);
+    this.logger.log(`[TASK EVENT] New Status: ${event.newStatus}`);
+    this.logger.log(`[TASK EVENT] Changed By: ${event.changedBy.name} (${event.changedBy.id})`);
+    this.logger.log('========================================');
 
+    try {
+      this.logger.log('[TASK EVENT] Step 1: Fetching target users...');
       const targetUsers = await this.getTargetUsersForField(event.task, 'status');
+      this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
+      targetUsers.forEach((userId, idx) => {
+        this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
+      });
 
       const oldStatusLabel = TASK_STATUS_LABELS[event.oldStatus];
       const newStatusLabel = TASK_STATUS_LABELS[event.newStatus];
+      this.logger.log(`[TASK EVENT] Status labels: "${oldStatusLabel}" → "${newStatusLabel}"`);
 
       // Create notifications for all target users
+      let notificationsCreated = 0;
+      let notificationsSkipped = 0;
+
       for (const userId of targetUsers) {
+        this.logger.log('----------------------------------------');
+        this.logger.log(`[TASK EVENT] Processing user: ${userId}`);
+
         // Use 'status' to match user preference event type
         const channels = await this.getEnabledChannelsForUser(
           userId,
@@ -131,8 +200,15 @@ export class TaskListener {
           'status',
         );
 
-        if (channels.length === 0) continue;
+        this.logger.log(`[TASK EVENT] Enabled channels for user: [${channels.join(', ')}]`);
 
+        if (channels.length === 0) {
+          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for user ${userId} - skipping`);
+          notificationsSkipped++;
+          continue;
+        }
+
+        this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -143,11 +219,21 @@ export class TaskListener {
           actionUrl: this.getTaskUrl(event.task),
           channel: channels,
         });
+        this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
+        notificationsCreated++;
       }
 
-      this.logger.log(`Created ${targetUsers.length} notifications for status change`);
+      this.logger.log('========================================');
+      this.logger.log('[TASK EVENT] Task status change notification summary:');
+      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
+      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
+      this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('Error handling task status changed event:', error);
+      this.logger.error('========================================');
+      this.logger.error('[TASK EVENT] ❌ Error handling task status changed event');
+      this.logger.error('[TASK EVENT] Error:', error.message);
+      this.logger.error('[TASK EVENT] Stack:', error.stack);
+      this.logger.error('========================================');
     }
   }
 
