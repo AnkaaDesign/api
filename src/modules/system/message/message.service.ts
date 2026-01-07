@@ -15,32 +15,13 @@ import {
   MESSAGE_PRIORITY,
 } from './dto';
 
-interface MessageView {
-  id: string;
-  messageId: string;
-  userId: string;
-  viewedAt: Date;
-  createdAt: Date;
-}
+import type { Message, MessageView, MessageTarget, MessageStatus, MessageTargetType } from '@prisma/client';
 
-interface Message {
-  id: string;
-  title: string;
-  contentBlocks: any;
-  targetType: string;
-  targetUserIds: string[] | null;
-  targetRoles: string[] | null;
-  priority: string;
-  isActive: boolean;
-  startsAt: Date | null;
-  endsAt: Date | null;
-  actionUrl: string | null;
-  actionText: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  createdById: string;
+// Extended message type with relations
+type MessageWithRelations = Message & {
   views?: MessageView[];
-}
+  targets?: MessageTarget[];
+};
 
 @Injectable()
 export class MessageService {
@@ -91,7 +72,7 @@ export class MessageService {
   /**
    * Check if user is allowed to view a message based on targeting
    */
-  private async canUserViewMessage(message: Message, userId: string, userRole: string): Promise<boolean> {
+  private async canUserViewMessage(message: MessageWithRelations, userId: string, userRole: string): Promise<boolean> {
     // Check if message is active
     if (message.status !== 'ACTIVE') {
       return false;
@@ -106,16 +87,78 @@ export class MessageService {
       return false;
     }
 
-    // Check targeting
+    // Check targeting based on targetingType
     switch (message.targetingType) {
-      case MESSAGE_TARGET_TYPE.ALL_USERS:
+      case 'ALL_USERS':
         return true;
 
-      case MESSAGE_TARGET_TYPE.SPECIFIC_USERS:
-        return message.targetUserIds?.includes(userId) || false;
+      case 'SPECIFIC_USERS':
+        // Check if user is in the targets
+        if (message.targets) {
+          return message.targets.some(t => t.userId === userId);
+        }
+        // Fallback: query targets
+        const userTarget = await this.prisma.messageTarget.findFirst({
+          where: {
+            messageId: message.id,
+            userId: userId,
+          },
+        });
+        return !!userTarget;
 
-      case MESSAGE_TARGET_TYPE.SPECIFIC_ROLES:
-        return message.targetRoles?.includes(userRole) || false;
+      case 'SECTOR':
+        // Check if user's sector matches
+        const user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { sectorId: true },
+        });
+        if (!user?.sectorId) return false;
+        if (message.targets) {
+          return message.targets.some(t => t.sectorId === user.sectorId);
+        }
+        const sectorTarget = await this.prisma.messageTarget.findFirst({
+          where: {
+            messageId: message.id,
+            sectorId: user.sectorId,
+          },
+        });
+        return !!sectorTarget;
+
+      case 'POSITION':
+        // Check if user's position matches
+        const userWithPosition = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { positionId: true },
+        });
+        if (!userWithPosition?.positionId) return false;
+        if (message.targets) {
+          return message.targets.some(t => t.positionId === userWithPosition.positionId);
+        }
+        const positionTarget = await this.prisma.messageTarget.findFirst({
+          where: {
+            messageId: message.id,
+            positionId: userWithPosition.positionId,
+          },
+        });
+        return !!positionTarget;
+
+      case 'PRIVILEGE':
+        // Check if user's sector privilege matches
+        const userWithSector = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: { sector: true },
+        });
+        if (!userWithSector?.sector?.privileges) return false;
+        if (message.targets) {
+          return message.targets.some(t => t.sectorPrivilege === userWithSector.sector?.privileges);
+        }
+        const privilegeTarget = await this.prisma.messageTarget.findFirst({
+          where: {
+            messageId: message.id,
+            sectorPrivilege: userWithSector.sector.privileges,
+          },
+        });
+        return !!privilegeTarget;
 
       default:
         return false;
@@ -252,15 +295,19 @@ export class MessageService {
    */
   async findOne(id: string): Promise<Message> {
     try {
-      const message = await this.prisma.$queryRaw<Message[]>`
-        SELECT * FROM "Message" WHERE id = ${id}::uuid
-      `;
+      const message = await this.prisma.message.findUnique({
+        where: { id },
+        include: {
+          targets: true,
+          views: true,
+        },
+      });
 
-      if (!message || message.length === 0) {
+      if (!message) {
         throw new NotFoundException(`Message with ID ${id} not found`);
       }
 
-      return message[0];
+      return message;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -412,28 +459,51 @@ export class MessageService {
     try {
       this.logger.log(`[getUnviewedForUser] Called with userId=${userId}, userRole=${userRole}`);
 
-      const allMessages = await this.prisma.$queryRaw<Message[]>`
-        SELECT m.* FROM "Message" m
-        WHERE m."status" = 'ACTIVE'
-        AND m."publishedAt" IS NOT NULL
-        AND (m."startDate" IS NULL OR m."startDate" <= NOW())
-        AND (m."endDate" IS NULL OR m."endDate" >= NOW())
-        AND NOT EXISTS (
-          SELECT 1 FROM "MessageView" mv
-          WHERE mv."messageId" = m.id AND mv."userId"::text = ${userId}
-        )
-        ORDER BY m."priorityOrder" DESC, m."createdAt" DESC
-      `;
+      const now = new Date();
 
-      this.logger.log(`[getUnviewedForUser] SQL query returned ${allMessages.length} messages`);
+      // Find all active messages that the user hasn't viewed
+      const allMessages = await this.prisma.message.findMany({
+        where: {
+          status: 'ACTIVE',
+          publishedAt: { not: null },
+          OR: [
+            { startDate: null },
+            { startDate: { lte: now } },
+          ],
+          AND: [
+            {
+              OR: [
+                { endDate: null },
+                { endDate: { gte: now } },
+              ],
+            },
+          ],
+          views: {
+            none: {
+              userId: userId,
+            },
+          },
+        },
+        include: {
+          targets: true,
+        },
+        orderBy: [
+          { priorityOrder: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
+
+      this.logger.log(`[getUnviewedForUser] Query returned ${allMessages.length} messages`);
 
       // Filter by targeting rules
-      const filteredMessages = [];
+      const filteredMessages: Message[] = [];
       for (const message of allMessages) {
         const canView = await this.canUserViewMessage(message, userId, userRole);
         this.logger.log(`[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}, targetingType=${message.targetingType}`);
         if (canView) {
-          filteredMessages.push(message);
+          // Remove targets from response to avoid circular reference
+          const { targets, ...messageWithoutTargets } = message;
+          filteredMessages.push(messageWithoutTargets as Message);
         }
       }
 
@@ -452,8 +522,16 @@ export class MessageService {
     this.logger.log(`Marking message ${messageId} as viewed by user ${userId}`);
 
     try {
-      // Get message and verify user can view it
-      const message = await this.findOne(messageId);
+      // Get message with targets and verify user can view it
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        include: { targets: true },
+      });
+
+      if (!message) {
+        throw new NotFoundException(`Message with ID ${messageId} not found`);
+      }
+
       const canView = await this.canUserViewMessage(message, userId, userRole);
 
       if (!canView) {
@@ -461,25 +539,31 @@ export class MessageService {
       }
 
       // Check if already viewed
-      const existingView = await this.prisma.$queryRaw<MessageView[]>`
-        SELECT * FROM "MessageView"
-        WHERE "messageId"::text = ${messageId} AND "userId"::text = ${userId}
-      `;
+      const existingView = await this.prisma.messageView.findUnique({
+        where: {
+          userId_messageId: {
+            userId: userId,
+            messageId: messageId,
+          },
+        },
+      });
 
-      if (existingView && existingView.length > 0) {
+      if (existingView) {
         this.logger.log(`Message ${messageId} already viewed by user ${userId}`);
-        return existingView[0];
+        return existingView;
       }
 
       // Create view record
-      const view = await this.prisma.$queryRaw<MessageView[]>`
-        INSERT INTO "MessageView" (id, "messageId", "userId", "viewedAt", "createdAt")
-        VALUES (gen_random_uuid(), CAST(${messageId} AS uuid), CAST(${userId} AS uuid), NOW(), NOW())
-        RETURNING *
-      `;
+      const view = await this.prisma.messageView.create({
+        data: {
+          messageId: messageId,
+          userId: userId,
+          viewedAt: new Date(),
+        },
+      });
 
       this.logger.log(`Message ${messageId} marked as viewed by user ${userId}`);
-      return view[0];
+      return view;
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;
@@ -498,41 +582,74 @@ export class MessageService {
     targetedUsers: number;
   }> {
     try {
-      await this.findOne(messageId);
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        include: {
+          targets: true,
+          views: true,
+        },
+      });
 
-      const stats = await this.prisma.$queryRaw<
-        { total_views: number; unique_viewers: number }[]
-      >`
-        SELECT
-          COUNT(*)::int as total_views,
-          COUNT(DISTINCT "userId")::int as unique_viewers
-        FROM "MessageView"
-        WHERE "messageId"::text = ${messageId}
-      `;
+      if (!message) {
+        throw new NotFoundException(`Message with ID ${messageId} not found`);
+      }
 
-      const message = await this.findOne(messageId);
+      const totalViews = message.views?.length || 0;
+      const uniqueViewers = new Set(message.views?.map(v => v.userId)).size;
+
       let targetedUsers = 0;
 
-      if (message.targetType === MESSAGE_TARGET_TYPE.SPECIFIC_USERS) {
-        targetedUsers = message.targetUserIds?.length || 0;
-      } else if (message.targetType === MESSAGE_TARGET_TYPE.SPECIFIC_ROLES) {
-        // Count users with target roles
-        const roleConditions = message.targetRoles?.map(role => `role = '${role}'`).join(' OR ');
-        const userCount = await this.prisma.$queryRawUnsafe<{ count: number }[]>(
-          `SELECT COUNT(*)::int as count FROM "User" WHERE ${roleConditions || 'false'}`
-        );
-        targetedUsers = userCount[0]?.count || 0;
-      } else {
-        // ALL_USERS
-        const userCount = await this.prisma.$queryRaw<{ count: number }[]>`
-          SELECT COUNT(*)::int as count FROM "User"
-        `;
-        targetedUsers = userCount[0]?.count || 0;
+      switch (message.targetingType) {
+        case 'ALL_USERS':
+          targetedUsers = await this.prisma.user.count({ where: { isActive: true } });
+          break;
+
+        case 'SPECIFIC_USERS':
+          targetedUsers = message.targets?.filter(t => t.userId).length || 0;
+          break;
+
+        case 'SECTOR':
+          const sectorIds = message.targets?.map(t => t.sectorId).filter(Boolean) as string[];
+          if (sectorIds.length > 0) {
+            targetedUsers = await this.prisma.user.count({
+              where: {
+                isActive: true,
+                sectorId: { in: sectorIds },
+              },
+            });
+          }
+          break;
+
+        case 'POSITION':
+          const positionIds = message.targets?.map(t => t.positionId).filter(Boolean) as string[];
+          if (positionIds.length > 0) {
+            targetedUsers = await this.prisma.user.count({
+              where: {
+                isActive: true,
+                positionId: { in: positionIds },
+              },
+            });
+          }
+          break;
+
+        case 'PRIVILEGE':
+          const privileges = message.targets?.map(t => t.sectorPrivilege).filter(Boolean);
+          if (privileges && privileges.length > 0) {
+            targetedUsers = await this.prisma.user.count({
+              where: {
+                isActive: true,
+                sector: {
+                  privileges: { in: privileges },
+                },
+              },
+            });
+          }
+          break;
       }
 
       return {
-        totalViews: stats[0]?.total_views || 0,
-        uniqueViewers: stats[0]?.unique_viewers || 0,
+        totalViews,
+        uniqueViewers,
         targetedUsers,
       };
     } catch (error) {

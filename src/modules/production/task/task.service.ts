@@ -569,6 +569,28 @@ export class TaskService {
         };
       });
 
+      // Emit task.created events for all successfully created tasks (outside transaction)
+      if (userId && result.success.length > 0) {
+        try {
+          const createdByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+          });
+          if (createdByUser) {
+            for (const task of result.success) {
+              this.eventEmitter.emit(
+                'task.created',
+                new TaskCreatedEvent(task as Task, createdByUser as any),
+              );
+            }
+            this.logger.log(
+              `Emitted ${result.success.length} task.created events for batch creation`,
+            );
+          }
+        } catch (error) {
+          this.logger.error('Error emitting task.created events for batch creation:', error);
+        }
+      }
+
       const successMessage =
         result.totalCreated === 1
           ? '1 tarefa criada com sucesso'
