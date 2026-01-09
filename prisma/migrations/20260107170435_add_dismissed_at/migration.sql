@@ -1,0 +1,3 @@
+-- Migration already applied via db push
+-- This file is created for migration tracking purposes
+-- No additional SQL changes required

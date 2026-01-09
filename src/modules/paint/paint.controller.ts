@@ -232,6 +232,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintGetManySchema))

@@ -402,6 +402,7 @@ model File {
   taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
+  taskBaseFiles                           Task[]               @relation("TASK_BASE_FILES")
 
   @@index([filename])
   @@index([originalName])
@@ -908,16 +909,15 @@ model PaintFormulaComponent {
 }
 
 model Position {
-  id             String          @id @default(uuid())
-  name           String          @unique
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  bonifiable     Boolean         @default(true)
-  hierarchy      Int?
-  remunerations  MonetaryValue[]
-  payrolls       Payroll[]
-  users          User[]          @relation("USER_POSITION")
-  messageTargets MessageTarget[] @relation("MESSAGE_TARGET_POSITION")
+  id            String          @id @default(uuid())
+  name          String          @unique
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  bonifiable    Boolean         @default(true)
+  hierarchy     Int?
+  remunerations MonetaryValue[]
+  payrolls      Payroll[]
+  users         User[]          @relation("USER_POSITION")
 
   @@index([name])
   @@index([hierarchy])
@@ -948,16 +948,15 @@ model Warning {
 }
 
 model Sector {
-  id             String           @id @default(uuid())
-  name           String
-  privileges     SectorPrivileges @default(BASIC)
-  managerId      String?          @unique
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  tasks          Task[]
-  manager        User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
-  users          User[]
-  messageTargets MessageTarget[]  @relation("MESSAGE_TARGET_SECTOR")
+  id         String           @id @default(uuid())
+  name       String
+  privileges SectorPrivileges @default(BASIC)
+  managerId  String?          @unique
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  tasks      Task[]
+  manager    User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
+  users      User[]
 
   @@index([managerId])
 }
@@ -981,17 +980,20 @@ model ServiceOrder {
   type         ServiceOrderType   @default(PRODUCTION)
   assignedToId String?
   taskId       String
+  createdById  String
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   startedAt    DateTime?
   finishedAt   DateTime?
   assignedTo   User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
   task         Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy    User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
 
   @@index([taskId])
   @@index([statusOrder])
   @@index([type])
   @@index([assignedToId])
+  @@index([createdById])
 }
 
 model Budget {
@@ -1052,7 +1054,7 @@ model Supplier {
 
 model Task {
   id                    String               @id @default(uuid())
-  name                  String?
+  name                  String?              @default("Tarefa Sem Nome")
   status                TaskStatus           @default(PREPARATION)
   statusOrder           Int                  @default(1)
   serialNumber          String?              @unique
@@ -1066,7 +1068,7 @@ model Task {
   customerId            String?
   invoiceToId           String? // Customer to invoice (can be different from customerId)
   sectorId              String?
-  commission            CommissionStatus
+  commission            CommissionStatus?
   negotiatingWith       Json? // Contact person negotiating the task: { name: string, phone: string }
   createdById           String?
   createdAt             DateTime             @default(now())
@@ -1094,6 +1096,7 @@ model Task {
   logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")
   receipts              File[]               @relation("TASK_RECEIPTS")
   reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
+  baseFiles             File[]               @relation("TASK_BASE_FILES")
   fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
 
   @@index([status, sectorId])
@@ -1155,20 +1158,22 @@ model Cut {
 }
 
 model Truck {
-  id                String      @id @default(uuid())
-  plate             String?     @unique
+  id                String         @id @default(uuid())
+  plate             String?        @unique
   chassisNumber     String?
+  category          TruckCategory? // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
+  implementType     ImplementType? // Type of body/implement (corrugated, insulated, curtain-side, tank, flatbed)
   spot              TRUCK_SPOT? // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
-  taskId            String      @unique
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  backSideLayoutId  String?     @unique
-  leftSideLayoutId  String?     @unique
-  rightSideLayoutId String?     @unique
-  backSideLayout    Layout?     @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
-  leftSideLayout    Layout?     @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
-  rightSideLayout   Layout?     @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
-  task              Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId            String         @unique
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  backSideLayoutId  String?        @unique
+  leftSideLayoutId  String?        @unique
+  rightSideLayoutId String?        @unique
+  backSideLayout    Layout?        @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
+  leftSideLayout    Layout?        @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
+  rightSideLayout   Layout?        @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
+  task              Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([spot])
   @@index([plate])
@@ -1292,6 +1297,7 @@ model User {
   bonusesInPeriod         Bonus[]                      @relation("BonusPeriodUsers")
   warningsWitness         Warning[]                    @relation("WITNESS_WARNING")
   assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
+  createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
   notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
   deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
   createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")
@@ -1420,15 +1426,16 @@ model DeviceToken {
 }
 
 model UserNotificationPreference {
-  id               String                @id @default(uuid())
-  userId           String
-  notificationType NotificationType
-  eventType        String?
-  enabled          Boolean               @default(true)
-  channels         NotificationChannel[]
-  isMandatory      Boolean               @default(false)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  id                String                @id @default(uuid())
+  userId            String
+  notificationType  NotificationType
+  eventType         String?
+  enabled           Boolean               @default(true)
+  channels          NotificationChannel[]
+  isMandatory       Boolean               @default(false)
+  mandatoryChannels NotificationChannel[] @default([])
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   user User @relation("USER_NOTIFICATION_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1806,6 +1813,7 @@ enum ServiceOrderType {
 enum ServiceOrderStatus {
   PENDING
   IN_PROGRESS
+  WAITING_APPROVE
   COMPLETED
   CANCELLED
 }
@@ -1933,6 +1941,7 @@ enum NotificationType {
   SYSTEM
   TASK
   ORDER
+  SERVICE_ORDER
   PPE
   VACATION
   WARNING
@@ -2056,15 +2065,16 @@ enum MeasureType {
 enum SectorPrivileges {
   BASIC
   PRODUCTION
-  LEADER
   MAINTENANCE
   WAREHOUSE
+  PLOTTING
   ADMIN
   HUMAN_RESOURCES
   EXTERNAL
   DESIGNER
   FINANCIAL
   LOGISTIC
+  COMMERCIAL
 }
 
 enum ScheduleFrequency {
@@ -2157,6 +2167,26 @@ enum TRUCK_SPOT {
   B3_F3_V3
   // Patio (outside, not in a garage)
   PATIO
+}
+
+// Truck categories/types
+enum TruckCategory {
+  MINI // Mini truck (small urban delivery)
+  VUC // VUC - Veículo Urbano de Carga (Urban Cargo Vehicle)
+  THREE_QUARTER // 3/4 truck (light commercial)
+  RIGID // Toco - Rigid truck with single rear axle
+  TRUCK // Standard truck
+  SEMI_TRAILER // Carreta - Semi-trailer truck
+  B_DOUBLE // Bitrem - B-Double (truck with double trailer)
+}
+
+// Truck body/implement types
+enum ImplementType {
+  CORRUGATED // Corrugado - Corrugated body
+  INSULATED // Isoplastic - Insulated/refrigerated body
+  CURTAIN_SIDE // Sider - Curtain-side body
+  TANK // Tanque - Tank truck
+  FLATBED // Carroceria - Open flatbed/stake body
 }
 
 enum OrderTriggerType {
@@ -2267,73 +2297,73 @@ enum ChangeLogEntityType {
   ABSENCE
   ACTIVITY
   AIRBRUSHING
+  BONUS
   BORROW
   CALCULATION
-  CALCULATION_DETAIL
   CALCULATION_DECOMPOSITION
+  CALCULATION_DETAIL
   CATEGORY
   COLLECTION
+  COMMISSION
   CUSTOMER
   CUT
   CUT_ITEM
   CUT_PLAN
   CUT_REQUEST
   DELIVERY
-  PPE_DELIVERY
-  PPE_DELIVERY_ITEM
-  PPE_REQUEST
-  PPE_DELIVERY_SCHEDULE
-  PPE_SIZE
+  DEPLOYMENT
+  DISCOUNT
   ECONOMIC_ACTIVITY
+  EXPENSE
   EXTERNAL_WITHDRAWAL
   EXTERNAL_WITHDRAWAL_ITEM
   FILE
+  HOLIDAY
   ITEM
   ITEM_BRAND
   ITEM_CATEGORY
+  LAYOUT
   MAINTENANCE
+  MAINTENANCE_ITEM
   MAINTENANCE_SCHEDULE
   NOTIFICATION
+  NOTIFICATION_PREFERENCE
+  OBSERVATION
   ORDER
   ORDER_ITEM
   ORDER_RULE
   ORDER_SCHEDULE
   PAINT
-  PAINT_TYPE
-  SERVICE
-  PAINT_GROUND
   PAINT_FORMULA
   PAINT_FORMULA_COMPONENT
+  PAINT_GROUND
   PAINT_PRODUCTION
+  PAINT_TYPE
+  PARKING_SPOT
+  PAYROLL
   PIECE
   POSITION
+  PPE_CONFIG
+  PPE_DELIVERY
+  PPE_DELIVERY_ITEM
+  PPE_DELIVERY_SCHEDULE
+  PPE_REQUEST
+  PPE_SIZE
+  PRICE
   PRODUCTION
   PURCHASE
-  WARNING
   SECTOR
+  SEEN_NOTIFICATION
+  SERVICE
   SERVICE_ORDER
   SUPPLIER
   TASK
+  TIME_CLOCK_ENTRY
   TRUCK
-  LAYOUT
   USER
   VACATION
-  DEPLOYMENT
-  OBSERVATION
-  BONUS
-  COMMISSION
-  DISCOUNT
-  MAINTENANCE_ITEM
-  PARKING_SPOT
-  PAYROLL
-  TIME_CLOCK_ENTRY
-  PPE_CONFIG
-  PRICE
-  HOLIDAY
-  SEEN_NOTIFICATION
-  NOTIFICATION_PREFERENCE
   VERIFICATION
-  EXPENSE
+  WARNING
 }
 
 enum ChangeLogAction {
@@ -2542,81 +2572,67 @@ enum StreetType {
 // ============================================================================
 
 model Message {
-  id              String              @id @default(uuid())
-  title           String
-  content         Json                // Rich content blocks (headings, paragraphs, images, buttons, etc.)
-  priority        MessagePriority     @default(NORMAL)
-  priorityOrder   Int                 @default(2)
-  status          MessageStatus       @default(DRAFT)
-  statusOrder     Int                 @default(1)
-  startDate       DateTime?           // When message becomes active
-  endDate         DateTime?           // When message expires
-  createdById     String
-  targetingType   MessageTargetType   @default(ALL_USERS)
-  metadata        Json?               // Additional metadata (colors, icons, etc.)
-  actionType      MessageActionType?  // Optional action button type
-  actionUrl       String?             // Optional action button URL
-  isDismissible   Boolean             @default(true)
-  requiresView    Boolean             @default(false) // Whether view tracking is required
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  publishedAt     DateTime?           // When message was published
-  archivedAt      DateTime?           // When message was archived
+  id            String        @id @default(uuid())
+  title         String
+  content       Json // Rich content blocks (headings, paragraphs, images, buttons, etc.)
+  status        MessageStatus @default(DRAFT)
+  statusOrder   Int           @default(1)
+  startDate     DateTime? // When message becomes active
+  endDate       DateTime? // When message expires
+  createdById   String
+  metadata      Json? // Additional metadata (colors, icons, etc.)
+  isDismissible Boolean       @default(true)
+  requiresView  Boolean       @default(false) // Whether view tracking is required
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  publishedAt   DateTime? // When message was published
+  archivedAt    DateTime? // When message was archived
 
-  createdBy       User                @relation("MESSAGE_CREATED_BY", fields: [createdById], references: [id])
-  targets         MessageTarget[]     @relation("MESSAGE_TARGETS")
-  views           MessageView[]       @relation("MESSAGE_VIEWS")
+  createdBy User            @relation("MESSAGE_CREATED_BY", fields: [createdById], references: [id])
+  targets   MessageTarget[] @relation("MESSAGE_TARGETS")
+  views     MessageView[]   @relation("MESSAGE_VIEWS")
 
   @@index([status, statusOrder])
-  @@index([priority, priorityOrder])
   @@index([createdById])
   @@index([startDate])
   @@index([endDate])
-  @@index([targetingType])
   @@index([publishedAt])
   @@index([createdAt])
 }
 
 model MessageTarget {
-  id              String              @id @default(uuid())
-  messageId       String
-  targetType      MessageTargetType
-  userId          String?             // Specific user
-  sectorId        String?             // Sector/department
-  positionId      String?             // Position/role
-  sectorPrivilege SectorPrivileges?   // Sector privilege level
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String // User who should see this message
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  message         Message             @relation("MESSAGE_TARGETS", fields: [messageId], references: [id], onDelete: Cascade)
-  user            User?               @relation("MESSAGE_TARGET_USER", fields: [userId], references: [id], onDelete: Cascade)
-  sector          Sector?             @relation("MESSAGE_TARGET_SECTOR", fields: [sectorId], references: [id], onDelete: Cascade)
-  position        Position?           @relation("MESSAGE_TARGET_POSITION", fields: [positionId], references: [id], onDelete: Cascade)
+  message Message @relation("MESSAGE_TARGETS", fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation("MESSAGE_TARGET_USER", fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([messageId, userId]) // Prevent duplicate targets
   @@index([messageId])
-  @@index([targetType])
   @@index([userId])
-  @@index([sectorId])
-  @@index([positionId])
-  @@index([sectorPrivilege])
 }
 
 model MessageView {
-  id              String    @id @default(uuid())
-  messageId       String
-  userId          String
-  viewedAt        DateTime  @default(now())
-  deviceType      Platform? // Platform from where message was viewed
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  messageId   String
+  userId      String
+  viewedAt    DateTime  @default(now()) // When message was first displayed
+  dismissedAt DateTime? // When user clicked "don't show again" (null = not dismissed)
+  deviceType  Platform? // Platform from where message was viewed
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  message         Message   @relation("MESSAGE_VIEWS", fields: [messageId], references: [id], onDelete: Cascade)
-  user            User      @relation("MESSAGE_VIEW_USER", fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation("MESSAGE_VIEWS", fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation("MESSAGE_VIEW_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, messageId])
   @@index([messageId])
   @@index([userId])
   @@index([viewedAt])
+  @@index([dismissedAt])
 }
 
 // ============================================================================
@@ -2624,32 +2640,9 @@ model MessageView {
 // ============================================================================
 
 enum MessageStatus {
-  DRAFT           // Message being created
-  SCHEDULED       // Message scheduled for future
-  ACTIVE          // Message currently active
-  EXPIRED         // Message past end date
-  ARCHIVED        // Message manually archived
-}
-
-enum MessagePriority {
-  LOW
-  NORMAL
-  HIGH
-  URGENT
-}
-
-enum MessageTargetType {
-  ALL_USERS       // All users in the system
-  SPECIFIC_USERS  // Specific user IDs
-  SECTOR          // All users in a sector
-  POSITION        // All users with a position
-  PRIVILEGE       // All users with specific privilege level
-}
-
-enum MessageActionType {
-  NAVIGATE        // Navigate to URL
-  DOWNLOAD        // Download file
-  EXTERNAL_LINK   // Open external link
-  ACKNOWLEDGE     // Require acknowledgment
-  CUSTOM          // Custom action
+  DRAFT // Message being created
+  SCHEDULED // Message scheduled for future
+  ACTIVE // Message currently active
+  EXPIRED // Message past end date
+  ARCHIVED // Message manually archived
 }

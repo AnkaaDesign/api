@@ -904,7 +904,7 @@ export class NotificationService {
 
       // Fetch updated notification
       const notification = await this.notificationRepository.findById(notificationId, {
-        include: { user: true, deliveries: true },
+        include: { user: true },
       });
 
       return {

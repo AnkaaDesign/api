@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
 import {
   GARAGE_CONFIGS,
@@ -10,6 +11,9 @@ import {
   type LaneId,
   type SpotNumber,
 } from '../../../constants/garage';
+import { trackAndLogFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
+import { ENTITY_TYPE, CHANGE_TRIGGERED_BY } from '@constants';
+import type { PrismaTransaction } from '@modules/common/base/base.repository';
 
 export interface SpotOccupant {
   spotNumber: SpotNumber;
@@ -38,7 +42,10 @@ export interface GarageAvailability {
 
 @Injectable()
 export class TruckService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly changeLogService: ChangeLogService,
+  ) {}
 
   async findAll(query?: any) {
     return this.prisma.truck.findMany({
@@ -53,7 +60,13 @@ export class TruckService {
     });
   }
 
-  async update(id: string, data: TruckUpdateFormData, query?: any) {
+  async update(
+    id: string,
+    data: TruckUpdateFormData,
+    query?: any,
+    userId?: string,
+    userPrivilege?: string,
+  ) {
     // Check if truck exists
     const existing = await this.prisma.truck.findUnique({
       where: { id },
@@ -63,15 +76,35 @@ export class TruckService {
       throw new NotFoundException(`Caminhao com id ${id} nao encontrado`);
     }
 
-    return this.prisma.truck.update({
-      where: { id },
-      data: {
-        ...(data.spot !== undefined && { spot: data.spot }),
-        ...(data.plate !== undefined && { plate: data.plate }),
-        ...(data.chassisNumber !== undefined && { chassisNumber: data.chassisNumber }),
-        ...(data.serialNumber !== undefined && { serialNumber: data.serialNumber }),
-      },
-      include: query?.include,
+    // Use transaction to update and log changes
+    return this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Update truck
+      const updated = await tx.truck.update({
+        where: { id },
+        data: {
+          ...(data.spot !== undefined && { spot: data.spot }),
+          ...(data.plate !== undefined && { plate: data.plate }),
+          ...(data.chassisNumber !== undefined && { chassisNumber: data.chassisNumber }),
+          ...(data.category !== undefined && { category: data.category }),
+          ...(data.implementType !== undefined && { implementType: data.implementType }),
+        },
+        include: query?.include,
+      });
+
+      // Log changes
+      await trackAndLogFieldChanges({
+        changeLogService: this.changeLogService,
+        entityType: ENTITY_TYPE.TRUCK,
+        entityId: id,
+        oldEntity: existing,
+        newEntity: updated,
+        fieldsToTrack: ['plate', 'chassisNumber', 'category', 'implementType', 'spot'],
+        userId: userId || '',
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        transaction: tx,
+      });
+
+      return updated;
     });
   }
 
@@ -115,18 +148,19 @@ export class TruckService {
     const trucksWithLengths = trucksInGarage.map(truck => {
       // Use left or right side layout to calculate length
       const layout = truck.leftSideLayout || truck.rightSideLayout;
-      let length = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
+      let length: number = GARAGE_CONFIG.MIN_TRUCK_LENGTH; // Default minimum
 
       if (layout?.layoutSections) {
         const sectionsSum = layout.layoutSections.reduce((sum, s) => sum + s.width, 0);
         // Add cabin if < 10m (same logic as calculateTruckGarageLength)
-        length =
+        const calculatedLength =
           sectionsSum < GARAGE_CONFIG.CABIN_THRESHOLD
             ? sectionsSum + GARAGE_CONFIG.CABIN_LENGTH
             : sectionsSum;
+        length = calculatedLength;
       }
 
-      const parsed = parseSpot(truck.spot!);
+      const parsed = parseSpot(truck.spot! as any);
       // Get active task name if available
       const taskName = truck.task?.name || null;
 
@@ -209,20 +243,44 @@ export class TruckService {
    */
   async batchUpdateSpots(
     updates: Array<{ truckId: string; spot: string | null }>,
+    userId?: string,
   ): Promise<{ success: boolean; updated: number }> {
     if (updates.length === 0) {
       return { success: true, updated: 0 };
     }
 
-    // Use transaction to update all trucks atomically
-    await this.prisma.$transaction(
-      updates.map(update =>
-        this.prisma.truck.update({
+    // Use transaction to update all trucks atomically and log changes
+    await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      for (const update of updates) {
+        // Get existing truck
+        const existing = await tx.truck.findUnique({
           where: { id: update.truckId },
-          data: { spot: update.spot },
-        }),
-      ),
-    );
+        });
+
+        if (!existing) continue;
+
+        // Update truck
+        const updated = await tx.truck.update({
+          where: { id: update.truckId },
+          data: { spot: update.spot as any },
+        });
+
+        // Log change only if spot actually changed
+        if (existing.spot !== updated.spot) {
+          await trackAndLogFieldChanges({
+            changeLogService: this.changeLogService,
+            entityType: ENTITY_TYPE.TRUCK,
+            entityId: update.truckId,
+            oldEntity: existing,
+            newEntity: updated,
+            fieldsToTrack: ['spot'],
+            userId: userId || '',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            transaction: tx,
+          });
+        }
+      }
+    });
 
     return { success: true, updated: updates.length };
   }

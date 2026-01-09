@@ -63,11 +63,17 @@ export class MessageController {
     @Body() createMessageDto: CreateMessageDto,
     @UserId() userId: string,
   ) {
+    // Debug: Log what the controller receives AFTER ValidationPipe transformation
+    console.log('[MessageController.create] Received DTO:', JSON.stringify(createMessageDto, null, 2));
+    console.log('[MessageController.create] contentBlocks:', createMessageDto.contentBlocks);
+    console.log('[MessageController.create] First block type:', typeof createMessageDto.contentBlocks[0]);
+    console.log('[MessageController.create] First block:', createMessageDto.contentBlocks[0]);
+
     const message = await this.messageService.create(createMessageDto, userId);
     return {
       success: true,
       data: message,
-      message: 'Message created successfully',
+      message: 'Mensagem criada com sucesso',
     };
   }
 
@@ -99,7 +105,7 @@ export class MessageController {
         limit: result.limit,
         totalPages: Math.ceil(result.total / result.limit),
       },
-      message: 'Messages retrieved successfully',
+      message: 'Mensagens recuperadas com sucesso',
     };
   }
 
@@ -128,7 +134,7 @@ export class MessageController {
       meta: {
         count: messages.length,
       },
-      message: 'Unviewed messages retrieved successfully',
+      message: 'Mensagens não visualizadas recuperadas com sucesso',
     };
   }
 
@@ -163,7 +169,7 @@ export class MessageController {
     return {
       success: true,
       data: message,
-      message: 'Message retrieved successfully',
+      message: 'Mensagem recuperada com sucesso',
     };
   }
 
@@ -205,7 +211,7 @@ export class MessageController {
     return {
       success: true,
       data: message,
-      message: 'Message updated successfully',
+      message: 'Mensagem atualizada com sucesso',
     };
   }
 
@@ -240,7 +246,7 @@ export class MessageController {
     await this.messageService.remove(id);
     return {
       success: true,
-      message: 'Message deleted successfully',
+      message: 'Mensagem excluída com sucesso',
     };
   }
 
@@ -279,7 +285,45 @@ export class MessageController {
     return {
       success: true,
       data: view,
-      message: 'Message marked as viewed',
+      message: 'Mensagem marcada como visualizada',
+    };
+  }
+
+  /**
+   * Mark message as dismissed (don't show again)
+   */
+  @Post(':id/dismiss')
+  @ApiOperation({
+    summary: 'Dismiss message',
+    description: 'Mark a message as dismissed (don\'t show again) for the current user',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Message UUID',
+    type: 'string',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Message dismissed successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Message not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - user does not have permission to view this message',
+  })
+  async dismissMessage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+    @User() user: UserPayload,
+  ) {
+    const view = await this.messageService.dismissMessage(id, userId, user.role);
+    return {
+      success: true,
+      data: view,
+      message: 'Mensagem dispensada com sucesso',
     };
   }
 
@@ -314,7 +358,7 @@ export class MessageController {
     return {
       success: true,
       data: stats,
-      message: 'Statistics retrieved successfully',
+      message: 'Estatísticas recuperadas com sucesso',
     };
   }
 }

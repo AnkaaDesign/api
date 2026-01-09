@@ -222,11 +222,13 @@ export class NotificationTrackingService {
           });
         } else {
           // Create new seen notification with reminder
-          await this.seenNotificationRepository.createWithTransaction(tx, {
-            notificationId,
-            userId,
-            seenAt: new Date(),
-            remindAt,
+          await (tx as any).seenNotification.create({
+            data: {
+              notificationId,
+              userId,
+              seenAt: new Date(),
+              remindAt,
+            },
           });
         }
 
@@ -333,7 +335,7 @@ export class NotificationTrackingService {
         },
       });
 
-      return notifications as Notification[];
+      return notifications as unknown as Notification[];
     } catch (error) {
       this.logger.error('Erro ao buscar notificações não vistas:', error);
       throw new InternalServerErrorException(
@@ -900,7 +902,7 @@ export class NotificationTrackingService {
         },
       });
 
-      return notifications as Notification[];
+      return notifications as unknown as Notification[];
     } catch (error) {
       this.logger.error('Erro ao buscar notificações agendadas:', error);
       throw new InternalServerErrorException(
@@ -993,9 +995,6 @@ export class NotificationTrackingService {
       return await this.prisma.notificationDelivery.findMany({
         where: {
           status: 'FAILED',
-          retryCount: {
-            lt: options.maxRetries,
-          },
         },
         include: {
           notification: true,

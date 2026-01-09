@@ -1,28 +1,11 @@
 import { IsOptional, IsEnum, IsBoolean, IsDateString, IsInt, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { MESSAGE_TARGET_TYPE, MESSAGE_PRIORITY } from './create-message.dto';
 
 /**
  * DTO for filtering and querying messages
  */
 export class FilterMessageDto {
-  @ApiPropertyOptional({
-    description: 'Filter by target type',
-    enum: MESSAGE_TARGET_TYPE,
-  })
-  @IsOptional()
-  @IsEnum(MESSAGE_TARGET_TYPE)
-  targetType?: MESSAGE_TARGET_TYPE;
-
-  @ApiPropertyOptional({
-    description: 'Filter by priority',
-    enum: MESSAGE_PRIORITY,
-  })
-  @IsOptional()
-  @IsEnum(MESSAGE_PRIORITY)
-  priority?: MESSAGE_PRIORITY;
-
   @ApiPropertyOptional({
     description: 'Filter by active status',
     type: Boolean,
@@ -67,7 +50,7 @@ export class FilterMessageDto {
   @ApiPropertyOptional({
     description: 'Sort by field',
     default: 'createdAt',
-    enum: ['createdAt', 'updatedAt', 'priority', 'title'],
+    enum: ['createdAt', 'updatedAt', 'title'],
   })
   @IsOptional()
   sortBy?: string;

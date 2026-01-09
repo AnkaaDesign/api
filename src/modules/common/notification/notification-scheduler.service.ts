@@ -402,8 +402,7 @@ export class NotificationSchedulerService {
           },
         },
         include: {
-          client: true,
-          seller: true,
+          customer: true,
           sector: true,
         },
       });
@@ -430,8 +429,7 @@ export class NotificationSchedulerService {
           },
         },
         include: {
-          client: true,
-          seller: true,
+          customer: true,
           sector: true,
         },
       });
@@ -451,11 +449,11 @@ export class NotificationSchedulerService {
           AND: [
             {
               quantity: {
-                lte: this.prisma.item.fields.minQuantity,
+                lte: this.prisma.item.fields.reorderPoint,
               },
             },
             {
-              minQuantity: {
+              reorderPoint: {
                 not: null,
               },
             },

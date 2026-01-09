@@ -106,7 +106,11 @@ async function bootstrap() {
     // Validate secrets before starting the application
     secretsManager.validateSecrets();
 
-    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    // Create NestJS app with disabled automatic body parser
+    // We'll configure it manually with custom limits for large payloads (messages with images)
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+      bodyParser: false, // Disable automatic body parser
+    });
 
     // Configure Socket.io adapter for WebSocket support
     app.useWebSocketAdapter(new SocketIoAdapter(app));
@@ -152,10 +156,10 @@ async function bootstrap() {
       }
     });
 
-    // NestJS handles body parsing automatically for JSON and URL-encoded
-    // We don't need custom JSON parsing middleware
-    // Multer handles multipart/form-data
-    // The webhook route above handles its own raw body capture
+    // Manually configure body parser with 50MB limit for messages with base64 images
+    // This runs AFTER webhook handler so webhook can manually parse its body
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 
     // Security headers with Helmet
     // Temporarily disable some security features for debugging

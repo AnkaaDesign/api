@@ -8,32 +8,14 @@ import {
 // =====================
 // Template Interfaces
 // =====================
+// Types are imported from template.types.ts to avoid duplication
 
-export interface NotificationTemplate {
-  title: (data: any) => string;
-  body: (data: any) => string;
-  importance: NOTIFICATION_IMPORTANCE;
-  actionType: NOTIFICATION_ACTION_TYPE;
-  channels?: NOTIFICATION_CHANNEL[];
-}
-
-export interface WhatsAppTemplate {
-  (data: any): string;
-}
-
-export interface EmailTemplate {
-  subject: (data: any) => string;
-  body: (data: any) => string;
-  html?: (data: any) => string;
-}
-
-export interface RenderedNotification {
-  title: string;
-  body: string;
-  importance: NOTIFICATION_IMPORTANCE;
-  actionType: NOTIFICATION_ACTION_TYPE;
-  channels?: NOTIFICATION_CHANNEL[];
-}
+import type {
+  NotificationTemplate,
+  WhatsAppTemplate,
+  EmailTemplate,
+  RenderedNotification,
+} from './template.types';
 
 // =====================
 // Notification Templates

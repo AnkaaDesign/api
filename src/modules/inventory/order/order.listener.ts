@@ -69,43 +69,10 @@ export class OrderListener {
         },
         select: {
           id: true,
-          preference: {
-            select: {
-              notificationPreferences: {
-                where: {
-                  // Check if user has order notifications enabled
-                  // Since we're making order notifications optional, users can disable them
-                  enabled: true,
-                },
-                select: {
-                  notificationType: true,
-                  enabled: true,
-                },
-              },
-            },
-          },
         },
       });
 
-      // Filter users who have order notifications enabled or no preference set (default enabled)
-      const targetUserIds = users
-        .filter(user => {
-          // If user has no preferences, default to enabled
-          if (!user.preference || !user.preference.notificationPreferences) {
-            return true;
-          }
-
-          // If user has preferences but no order notification preference, default to enabled
-          const hasOrderNotificationPreference = user.preference.notificationPreferences.length > 0;
-          if (!hasOrderNotificationPreference) {
-            return true;
-          }
-
-          // User has explicitly set order notification preferences
-          // Only include if they have enabled order notifications
-          return user.preference.notificationPreferences.some(pref => pref.enabled);
-        })
-        .map(user => user.id);
+      const targetUserIds = users.map(user => user.id);
 
       return targetUserIds;
     } catch (error) {

@@ -8,7 +8,7 @@ import {
   createNameSchema,
 } from './common';
 import type { Truck } from '@types';
-import { TRUCK_SPOT } from '@constants';
+import { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
 
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
@@ -89,6 +89,8 @@ export const truckOrderBySchema = z
       id: orderByDirectionSchema.optional(),
       plate: orderByDirectionSchema.optional(),
       chassisNumber: orderByDirectionSchema.optional(),
+      category: orderByDirectionSchema.optional(),
+      implementType: orderByDirectionSchema.optional(),
       spot: orderByDirectionSchema.optional(),
       taskId: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
@@ -99,6 +101,8 @@ export const truckOrderBySchema = z
         id: orderByDirectionSchema.optional(),
         plate: orderByDirectionSchema.optional(),
         chassisNumber: orderByDirectionSchema.optional(),
+        category: orderByDirectionSchema.optional(),
+        implementType: orderByDirectionSchema.optional(),
         spot: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
@@ -114,6 +118,12 @@ export const truckOrderBySchema = z
 
 // Schema for TRUCK_SPOT enum values
 const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
+
+// Schema for TRUCK_CATEGORY enum values
+const truckCategorySchema = z.nativeEnum(TRUCK_CATEGORY);
+
+// Schema for IMPLEMENT_TYPE enum values
+const implementTypeSchema = z.nativeEnum(IMPLEMENT_TYPE);
 
 export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
   z
@@ -139,6 +149,30 @@ export const truckWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       chassisNumber: z
         .union([z.string(), z.object({ contains: z.string().optional() })])
+        .optional(),
+      category: z
+        .union([
+          truckCategorySchema,
+          z.object({
+            equals: truckCategorySchema.optional(),
+            not: truckCategorySchema.optional(),
+            in: z.array(truckCategorySchema).optional(),
+            notIn: z.array(truckCategorySchema).optional(),
+          }),
+        ])
+        .nullable()
+        .optional(),
+      implementType: z
+        .union([
+          implementTypeSchema,
+          z.object({
+            equals: implementTypeSchema.optional(),
+            not: implementTypeSchema.optional(),
+            in: z.array(implementTypeSchema).optional(),
+            notIn: z.array(implementTypeSchema).optional(),
+          }),
+        ])
+        .nullable()
         .optional(),
       spot: z
         .union([
@@ -224,6 +258,18 @@ const truckTransform = (data: any): any => {
   if (data.spots && Array.isArray(data.spots) && data.spots.length > 0) {
     andConditions.push({ spot: { in: data.spots } });
     delete data.spots;
+  }
+
+  // Filter by truck categories
+  if (data.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+    andConditions.push({ category: { in: data.categories } });
+    delete data.categories;
+  }
+
+  // Filter by implement types
+  if (data.implementTypes && Array.isArray(data.implementTypes) && data.implementTypes.length > 0) {
+    andConditions.push({ implementType: { in: data.implementTypes } });
+    delete data.implementTypes;
   }
 
   // Filter by garage (B1, B2, B3) - filter spots that start with the garage prefix
@@ -345,6 +391,9 @@ export const truckGetManySchema = z
     // Spot filters
     spots: z.array(truckSpotSchema).optional(),
     garageNumber: z.enum(['1', '2', '3']).optional(),
+    // Truck specification filters
+    categories: z.array(truckCategorySchema).optional(),
+    implementTypes: z.array(implementTypeSchema).optional(),
     // Entity ID filters
     taskIds: z.array(z.string()).optional(),
     // Date range filters
@@ -426,6 +475,11 @@ export const truckGetManySchema = z
   })
   .transform(truckTransform);
 
+// Brazilian license plate patterns (after hyphen removal by transform)
+// Old format: ABC1234 (3 letters + 4 numbers)
+// Mercosul format: ABC1D23 (3 letters + 1 number + 1 letter + 2 numbers)
+const brazilianPlateRegex = /^[A-Z]{3}[0-9]{4}$|^[A-Z]{3}[0-9][A-Z][0-9]{2}$/i;
+
 // =====================
 // CRUD Schemas
 // =====================
@@ -436,9 +490,9 @@ export const truckCreateSchema = z.object({
   plate: z
     .string()
     .max(8, 'Placa deve ter no máximo 8 caracteres')
-    .transform(val => val.toUpperCase())
-    .refine(val => /^[A-Z0-9-]+$/.test(val), {
-      message: 'A placa deve conter apenas letras maiúsculas, números e hífens',
+    .transform(val => val.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+    .refine(val => brazilianPlateRegex.test(val), {
+      message: 'Formato de placa inválido (ex: ABC1234 ou ABC1D23)',
     })
     .nullable()
     .optional()
@@ -448,6 +502,10 @@ export const truckCreateSchema = z.object({
     .nullable()
     .optional()
     .transform(val => (val === '' ? null : val)),
+
+  // Truck specifications
+  category: truckCategorySchema.nullable().optional(),
+  implementType: implementTypeSchema.nullable().optional(),
 
   // Parking spot
   spot: truckSpotSchema.nullable().optional(),
@@ -465,9 +523,9 @@ export const truckUpdateSchema = z.object({
   plate: z
     .string()
     .max(8, 'Placa deve ter no máximo 8 caracteres')
-    .transform(val => val.toUpperCase())
-    .refine(val => /^[A-Z0-9-]+$/.test(val), {
-      message: 'A placa deve conter apenas letras maiúsculas, números e hífens',
+    .transform(val => val.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+    .refine(val => brazilianPlateRegex.test(val), {
+      message: 'Formato de placa inválido (ex: ABC1234 ou ABC1D23)',
     })
     .nullable()
     .optional()
@@ -477,6 +535,10 @@ export const truckUpdateSchema = z.object({
     .nullable()
     .optional()
     .transform(val => (val === '' ? null : val)),
+
+  // Truck specifications
+  category: truckCategorySchema.nullable().optional(),
+  implementType: implementTypeSchema.nullable().optional(),
 
   // Parking spot
   spot: truckSpotSchema.nullable().optional(),
@@ -553,6 +615,8 @@ export type TruckWhere = z.infer<typeof truckWhereSchema>;
 export const mapTruckToFormData = createMapToFormDataHelper<Truck, TruckUpdateFormData>(truck => ({
   plate: truck.plate,
   chassisNumber: truck.chassisNumber,
+  category: truck.category,
+  implementType: truck.implementType,
   spot: truck.spot,
   taskId: truck.taskId,
   leftSideLayoutId: truck.leftSideLayoutId,

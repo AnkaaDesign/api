@@ -250,13 +250,35 @@ export class WhatsAppNotificationService {
     }
 
     // Add action URL as a clickable link (full URL for mobile deep linking)
-    if (notification.actionUrl) {
+    // Prefer universal link or mobile URL for WhatsApp (opens in mobile app)
+    let actionUrlToUse = notification.actionUrl;
+
+    if (notification.metadata) {
+      try {
+        const metadata =
+          typeof notification.metadata === 'string'
+            ? JSON.parse(notification.metadata)
+            : notification.metadata;
+
+        // Prefer universal link (HTTPS URL that opens mobile app) for WhatsApp
+        // Falls back to mobile deep link, then to web URL
+        if (metadata.universalLink) {
+          actionUrlToUse = metadata.universalLink;
+        } else if (metadata.mobileUrl) {
+          actionUrlToUse = metadata.mobileUrl;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to extract mobile URL from metadata: ${error.message}`);
+      }
+    }
+
+    if (actionUrlToUse) {
       const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://app.ankaa.com.br';
-      let fullUrl = notification.actionUrl;
+      let fullUrl = actionUrlToUse;
 
       // Build full URL if it's a relative path
-      if (!notification.actionUrl.startsWith('http')) {
-        fullUrl = `${baseUrl}${notification.actionUrl}`;
+      if (!actionUrlToUse.startsWith('http') && !actionUrlToUse.includes('://')) {
+        fullUrl = `${baseUrl}${actionUrlToUse}`;
       }
 
       lines.push('');

@@ -130,7 +130,7 @@ export class NotificationGateway
       client.data.userEmail = user.email;
       client.data.userName = user.name;
       client.data.sectorId = user.sectorId;
-      client.data.userRole = user.role;
+      client.data.userRole = user.sector?.privileges;
 
       // Track user-socket mapping
       if (!this.userSockets.has(userId)) {
@@ -153,7 +153,7 @@ export class NotificationGateway
       }
 
       // Join user to admin room if they have admin privileges
-      if (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN') {
+      if (user.sector?.privileges === 'ADMIN') {
         await client.join('admin');
         this.logger.log(`User ${user.name} (${userId}) joined admin room`);
       }
@@ -163,7 +163,7 @@ export class NotificationGateway
         userId,
         userName: user.name,
         sectorId: user.sectorId,
-        role: user.role,
+        role: user.sector?.privileges,
         totalUserConnections: this.userSockets.get(userId)!.size,
         transport: client.conn.transport.name,
         timestamp: new Date(),
@@ -590,7 +590,7 @@ export class NotificationGateway
    * @param userId - User ID
    * @returns Unread count
    */
-  private async getUnreadCount(userId: string): Promise<number> {
+  async getUnreadCount(userId: string): Promise<number> {
     try {
       const result = await this.notificationRepository.findMany({
         where: {

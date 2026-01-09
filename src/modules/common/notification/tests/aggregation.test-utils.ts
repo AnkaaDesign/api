@@ -23,7 +23,7 @@ export function createMockNotification(overrides: Partial<Notification> = {}): N
     body: overrides.body || 'This is a test notification',
     type: overrides.type || NOTIFICATION_TYPE.TASK,
     channel: overrides.channel || [NOTIFICATION_CHANNEL.IN_APP],
-    importance: overrides.importance || NOTIFICATION_IMPORTANCE.MEDIUM,
+    importance: overrides.importance || NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: overrides.actionType || null,
     actionUrl: overrides.actionUrl || '/test',
     scheduledAt: overrides.scheduledAt || null,
@@ -80,7 +80,7 @@ export function createStockNotificationBatch(userId: string, count: number): Not
         title: `Estoque baixo: ${itemName}`,
         body: `${itemName} está com estoque baixo (${quantity} unidades)`,
         type: NOTIFICATION_TYPE.STOCK,
-        importance: quantity === 0 ? NOTIFICATION_IMPORTANCE.HIGH : NOTIFICATION_IMPORTANCE.MEDIUM,
+        importance: quantity === 0 ? NOTIFICATION_IMPORTANCE.HIGH : NOTIFICATION_IMPORTANCE.NORMAL,
         actionUrl: `/inventory/items/${itemId}`,
       }),
     );
@@ -104,7 +104,7 @@ export function createOrderNotificationBatch(userId: string, count: number): Not
         title: `Pedido #${orderId} atualizado`,
         body: 'O status do seu pedido foi atualizado',
         type: NOTIFICATION_TYPE.ORDER,
-        importance: NOTIFICATION_IMPORTANCE.MEDIUM,
+        importance: NOTIFICATION_IMPORTANCE.NORMAL,
         actionUrl: `/orders/${orderId}`,
       }),
     );
@@ -139,7 +139,7 @@ export function createMockAggregationGroup(
       type,
       metadata: { index: i },
       timestamp: now - (notificationCount - i) * 1000,
-      importance: NOTIFICATION_IMPORTANCE.MEDIUM,
+      importance: NOTIFICATION_IMPORTANCE.NORMAL,
       channels: [NOTIFICATION_CHANNEL.IN_APP],
     });
   }

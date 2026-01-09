@@ -131,7 +131,7 @@ export class TeamStaffService {
     return {
       success: true,
       message: 'Team users loaded successfully',
-      data: result,
+      data: result as any,
       meta: {
         page,
         totalPages,

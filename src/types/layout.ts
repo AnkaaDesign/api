@@ -2,7 +2,7 @@
 
 import type { BaseEntity, ORDER_BY_DIRECTION } from './common';
 import type { File } from './file';
-import type { Truck } from './garage';
+import type { Truck } from './truck';
 import type { LayoutSection } from './layoutSection';
 
 // =====================

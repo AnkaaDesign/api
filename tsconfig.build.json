@@ -13,5 +13,15 @@
     "noImplicitAny": false
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "test", "**/*.spec.ts", "**/*.test.ts", "**/*.e2e-spec.ts"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.e2e-spec.ts",
+    "**/*.test-utils.ts",
+    "**/*.example.tsx",
+    "**/*.example.ts"
+  ]
 }

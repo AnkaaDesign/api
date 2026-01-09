@@ -122,7 +122,7 @@ export class EmailService {
   /**
    * Generic method to send any email with retry logic
    */
-  private async sendEmailWithRetry(
+  async sendEmailWithRetry(
     to: string,
     subject: string,
     html: string,

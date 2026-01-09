@@ -63,40 +63,10 @@ export class ItemListener {
         },
         select: {
           id: true,
-          preferences: {
-            select: {
-              notificationPreferences: {
-                where: {
-                  notificationType: NOTIFICATION_TYPE.STOCK,
-                },
-                select: {
-                  enabled: true,
-                },
-              },
-            },
-          },
         },
       });
 
-      // Filter users who have stock notifications enabled or no preference set (default enabled)
-      const targetUserIds = users
-        .filter(user => {
-          // If user has no preferences, default to enabled
-          if (!user.preferences || !user.preferences.notificationPreferences) {
-            return true;
-          }
-
-          // If user has preferences but no stock notification preference, default to enabled
-          const stockPreferences = user.preferences.notificationPreferences;
-          if (stockPreferences.length === 0) {
-            return true;
-          }
-
-          // User has explicitly set stock notification preferences
-          // Only include if they have enabled stock notifications
-          return stockPreferences.some(pref => pref.enabled);
-        })
-        .map(user => user.id);
+      const targetUserIds = users.map(user => user.id);
 
       return targetUserIds;
     } catch (error) {

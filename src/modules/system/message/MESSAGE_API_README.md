@@ -407,7 +407,7 @@ const message = await messageService.create({
     }
   ],
   targetType: MESSAGE_TARGET_TYPE.SPECIFIC_ROLES,
-  targetRoles: ['PRODUCTION', 'LEADER'],
+  targetRoles: ['PRODUCTION'],
   priority: MESSAGE_PRIORITY.NORMAL,
   isActive: true
 }, adminUserId);
