@@ -52,7 +52,7 @@ export abstract class NotificationPreferenceRepository {
       type: NotificationType;
       eventType: string | null;
       channels: NotificationChannel[];
-      isMandatory: boolean;
+      mandatoryChannels: NotificationChannel[];
     }>,
   ): Promise<UserNotificationPreference[]>;
 

@@ -338,7 +338,7 @@ export class UserService {
         where: {
           createdById: existingId,
           status: {
-            in: ['PENDING', 'IN_PRODUCTION', 'ON_HOLD'],
+            in: ['PREPARATION', 'WAITING_PRODUCTION', 'IN_PRODUCTION'],
           },
         },
       });

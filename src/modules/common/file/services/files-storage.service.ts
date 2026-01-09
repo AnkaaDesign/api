@@ -21,6 +21,7 @@ export interface FilesFolderMapping {
   taskReimbursements: string;
   taskNfeReimbursements: string;
   cutFiles: string;
+  taskBaseFiles: string;
 
   // Entity-specific folders - Orders
   orderBudgets: string;
@@ -108,6 +109,7 @@ export class FilesStorageService {
     taskReimbursements: 'Reembolsos/Tarefas',
     taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
     cutFiles: 'Plotter',
+    taskBaseFiles: 'Projetos/Base',
 
     // Order folders
     orderBudgets: 'Orcamentos/Pedidos',

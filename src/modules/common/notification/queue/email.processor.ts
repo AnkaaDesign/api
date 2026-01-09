@@ -112,6 +112,10 @@ export class EmailProcessor {
 
       // Step 4: Prepare email data
       await job.progress(40);
+      // Extract web URL from metadata for email delivery
+      // Emails should always use web URLs (not mobile deep links)
+      const emailActionUrl = metadata?.webUrl || actionUrl;
+
       const emailData = {
         companyName: process.env.COMPANY_NAME || 'Ankaa',
         supportEmail: process.env.SUPPORT_EMAIL || 'support@ankaa.com',
@@ -120,7 +124,7 @@ export class EmailProcessor {
         userName: metadata?.userName,
         title,
         body,
-        actionUrl,
+        actionUrl: emailActionUrl,
         ...metadata,
         ...templateData,
       };
@@ -135,7 +139,7 @@ export class EmailProcessor {
         result = await this.emailService.sendEmailWithRetry(
           recipientEmail,
           title,
-          this.generateEmailHtml(title, body, actionUrl, emailData),
+          this.generateEmailHtml(title, body, emailActionUrl, emailData),
           'NOTIFICATION',
         );
       } else {
@@ -143,7 +147,7 @@ export class EmailProcessor {
         result = await this.emailService.sendEmailWithRetry(
           recipientEmail,
           title,
-          this.generateEmailHtml(title, body, actionUrl, emailData),
+          this.generateEmailHtml(title, body, emailActionUrl, emailData),
           'NOTIFICATION',
         );
       }

@@ -212,14 +212,14 @@ export class NotificationAnalyticsService {
         const channelKey = this.mapChannelToKey(delivery.channel);
         if (!channelKey || !stats[channelKey]) continue;
 
-        const statusKey = delivery.status.toLowerCase() as 'sent' | 'delivered' | 'failed';
+        const statusKey = delivery.status.toLowerCase();
 
         // Map status to appropriate field
         if (statusKey === 'delivered') {
-          stats[channelKey].delivered = delivery._count;
+          (stats[channelKey] as any).delivered = delivery._count;
           stats[channelKey].sent += delivery._count;
         } else if (statusKey === 'failed') {
-          stats[channelKey].failed = delivery._count;
+          (stats[channelKey] as any).failed = delivery._count;
           stats[channelKey].sent += delivery._count;
         } else if (statusKey === 'pending' || statusKey === 'processing') {
           stats[channelKey].sent += delivery._count;
@@ -429,7 +429,9 @@ export class NotificationAnalyticsService {
     dateRange: DateRange,
     interval: 'hour' | 'day' = 'day',
   ): Promise<TimeSeriesPoint[]> {
-    return this.getTimeSeriesData(dateRange, interval);
+    const data = await this.getTimeSeriesData(dateRange, interval);
+    // The data already has time and count properties, so it satisfies TimeSeriesPoint interface
+    return data as TimeSeriesPoint[];
   }
 
   /**
@@ -446,6 +448,7 @@ export class NotificationAnalyticsService {
   ): Promise<
     Array<{
       time: Date;
+      count: number;
       total: number;
       delivered: number;
       failed: number;
@@ -500,6 +503,7 @@ export class NotificationAnalyticsService {
 
         return {
           time: row.time,
+          count: total,
           total,
           delivered,
           failed,

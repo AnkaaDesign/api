@@ -52,7 +52,7 @@ export function getTaskStatusLabel(status: TASK_STATUS): string {
 export function getTaskStatusColor(status: TASK_STATUS): string {
   const colors: Record<TASK_STATUS, string> = {
     [TASK_STATUS.PREPARATION]: 'preparation',
-    [TASK_STATUS.PENDING]: 'pending',
+    [TASK_STATUS.WAITING_PRODUCTION]: 'pending',
     [TASK_STATUS.IN_PRODUCTION]: 'inProgress',
     [TASK_STATUS.COMPLETED]: 'completed',
     [TASK_STATUS.CANCELLED]: 'cancelled',
@@ -68,7 +68,7 @@ export function getTaskStatusVariant(
 ): 'default' | 'secondary' | 'destructive' | 'outline' {
   const variants: Record<TASK_STATUS, 'default' | 'secondary' | 'destructive' | 'outline'> = {
     [TASK_STATUS.PREPARATION]: 'outline',
-    [TASK_STATUS.PENDING]: 'outline',
+    [TASK_STATUS.WAITING_PRODUCTION]: 'outline',
     [TASK_STATUS.IN_PRODUCTION]: 'default',
     [TASK_STATUS.COMPLETED]: 'secondary',
     [TASK_STATUS.CANCELLED]: 'destructive',

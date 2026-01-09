@@ -113,11 +113,9 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
     // THIRD: Completely bypass rate limiting for file operations in development
     const isFileOp = this.isFileOperation(controllerName, endpoint);
     if (process.env.NODE_ENV === 'development' && isFileOp) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(
-          `[CustomThrottlerGuard] BYPASSING ALL RATE LIMITING for file operation: ${controllerName}.${endpoint}`,
-        );
-      }
+      console.log(
+        `[CustomThrottlerGuard] BYPASSING ALL RATE LIMITING for file operation: ${controllerName}.${endpoint}`,
+      );
       return true;
     }
 

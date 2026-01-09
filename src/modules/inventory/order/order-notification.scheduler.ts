@@ -4,6 +4,7 @@ import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ORDER_STATUS } from '../../../constants/enums';
 import { OrderOverdueEvent } from './order.events';
+import { Order } from '../../../types';
 
 /**
  * OrderNotificationScheduler handles scheduled tasks for order notifications
@@ -71,7 +72,7 @@ export class OrderNotificationScheduler {
             );
 
             try {
-              this.eventEmitter.emit('order.overdue', new OrderOverdueEvent(order, daysOverdue));
+              this.eventEmitter.emit('order.overdue', new OrderOverdueEvent(order as unknown as Order, daysOverdue));
             } catch (error) {
               this.logger.error(`Error emitting overdue event for order ${order.id}:`, error);
             }
@@ -129,7 +130,7 @@ export class OrderNotificationScheduler {
       for (const order of upcomingOrders) {
         try {
           // Emit with -1 days to indicate it's due tomorrow
-          this.eventEmitter.emit('order.overdue', new OrderOverdueEvent(order, -1));
+          this.eventEmitter.emit('order.overdue', new OrderOverdueEvent(order as unknown as Order, -1));
         } catch (error) {
           this.logger.error(`Error emitting upcoming event for order ${order.id}:`, error);
         }

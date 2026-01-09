@@ -244,6 +244,33 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      baseFiles: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                tasksArtworks: z.boolean().optional(),
+                customerLogo: z.boolean().optional(),
+                taskBudget: z.boolean().optional(),
+                taskNfe: z.boolean().optional(),
+                supplierLogo: z.boolean().optional(),
+                orderNfe: z.boolean().optional(),
+                orderBudget: z.boolean().optional(),
+                orderReceipt: z.boolean().optional(),
+                observations: z.boolean().optional(),
+                reprimand: z.boolean().optional(),
+                airbrushingReceipts: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
+                vacation: z.boolean().optional(),
+                externalWithdrawalBudget: z.boolean().optional(),
+                externalWithdrawalNfe: z.boolean().optional(),
+                externalWithdrawalReceipt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
       logoPaints: z
         .union([
           z.boolean(),
@@ -706,6 +733,43 @@ const taskTransform = (data: any): any => {
     delete data.hasServices;
   }
 
+  // For financial users: show tasks with ANY incomplete service orders (all types)
+  if (data.hasIncompleteServiceOrders === true) {
+    andConditions.push({
+      OR: [
+        { serviceOrders: { none: {} } }, // No service orders
+        {
+          serviceOrders: {
+            some: {
+              status: { in: ['PENDING', 'IN_PROGRESS'] },
+            },
+          },
+        },
+      ],
+    });
+    delete data.hasIncompleteServiceOrders;
+  }
+
+  // For admin users: show tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
+  if (data.hasIncompleteNonFinancialServiceOrders === true) {
+    andConditions.push({
+      OR: [
+        { serviceOrders: { none: {} } }, // No service orders
+        {
+          serviceOrders: {
+            some: {
+              AND: [
+                { type: { in: ['NEGOTIATION', 'PRODUCTION', 'ARTWORK'] } },
+                { status: { in: ['PENDING', 'IN_PROGRESS'] } },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    delete data.hasIncompleteNonFinancialServiceOrders;
+  }
+
   if (data.hasAirbrushing === true) {
     andConditions.push({ airbrushing: { some: {} } });
     delete data.hasAirbrushing;
@@ -1126,6 +1190,8 @@ export const taskGetManySchema = z
     hasArtworks: z.boolean().optional(),
     hasPaints: z.boolean().optional(),
     hasServices: z.boolean().optional(),
+    hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
+    hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
     hasAirbrushing: z.boolean().optional(),
     hasBudget: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
@@ -1483,7 +1549,8 @@ export const taskCreateSchema = z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
-      .default(COMMISSION_STATUS.FULL_COMMISSION),
+      .nullable()
+      .optional(),
     negotiatingWith: z
       .object({
         name: z.string().nullable().optional(),
@@ -1500,6 +1567,7 @@ export const taskCreateSchema = z
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
+    baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
     budgetId: z.string().uuid('Orçamento inválido').nullable().optional(),
@@ -1617,13 +1685,8 @@ export const taskCreateSchema = z
     }
   })
   .transform(data => {
-    // Map artworkIds to fileIds for backend compatibility
-    const transformed: any = { ...data };
-    if (transformed.artworkIds) {
-      transformed.fileIds = transformed.artworkIds;
-      delete transformed.artworkIds;
-    }
     // Map services to serviceOrders for backward compatibility
+    const transformed: any = { ...data };
     if (transformed.services) {
       transformed.serviceOrders = transformed.services;
       delete transformed.services;
@@ -1663,6 +1726,7 @@ export const taskUpdateSchema = z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status de comissão inválido' }),
       })
+      .nullable()
       .optional(),
     negotiatingWith: z
       .object({
@@ -1680,6 +1744,7 @@ export const taskUpdateSchema = z
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
+    baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
@@ -1732,13 +1797,8 @@ export const taskUpdateSchema = z
     }
   })
   .transform(data => {
-    // Map artworkIds to fileIds for backend compatibility
-    const transformed: any = { ...data };
-    if (transformed.artworkIds) {
-      transformed.fileIds = transformed.artworkIds;
-      delete transformed.artworkIds;
-    }
     // Map services to serviceOrders for backward compatibility
+    const transformed: any = { ...data };
     if (transformed.services) {
       transformed.serviceOrders = transformed.services;
       delete transformed.services;
@@ -1840,6 +1900,7 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
     reimbursementInvoice => reimbursementInvoice.id,
   ),
   artworkIds: task.artworks?.map(artwork => artwork.id),
+  baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,
   // Service orders mapping (supports both new serviceOrders and legacy services fields)

@@ -116,7 +116,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.PRODUCTION,
   )
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -134,7 +134,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
+    SECTOR_PRIVILEGES.PRODUCTION,
   )
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
@@ -181,7 +181,6 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
   )
   async changeStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -227,7 +226,6 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.LEADER,
   )
   async update(
     @Param('id', ParseUUIDPipe) id: string,

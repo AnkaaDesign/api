@@ -72,7 +72,7 @@ export class CustomerController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findMany(
@@ -83,7 +83,7 @@ export class CustomerController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('logo', multerConfig))
   async create(

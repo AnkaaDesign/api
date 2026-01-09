@@ -20,11 +20,10 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
     skip?: number;
     take?: number;
   }): Promise<NotificationPreference[]> {
-    const { where, include, orderBy, skip, take } = params;
+    const { where, orderBy, skip, take } = params;
 
     return this.prisma.notificationPreference.findMany({
       where,
-      include: include as any,
       orderBy: orderBy as any,
       skip,
       take,
@@ -37,7 +36,6 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
   ): Promise<NotificationPreference | null> {
     return this.prisma.notificationPreference.findUnique({
       where: { id },
-      include: include as any,
     }) as Promise<NotificationPreference | null>;
   }
 
@@ -47,7 +45,6 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
   ): Promise<NotificationPreference> {
     return this.prisma.notificationPreference.create({
       data,
-      include: include as any,
     }) as Promise<NotificationPreference>;
   }
 
@@ -59,7 +56,6 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
     return this.prisma.notificationPreference.update({
       where: { id },
       data,
-      include: include as any,
     }) as Promise<NotificationPreference>;
   }
 
@@ -79,11 +75,8 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
   ): Promise<NotificationPreference[]> {
     return this.prisma.notificationPreference.findMany({
       where: {
-        preferences: {
-          some: { id: preferencesId },
-        },
+        notificationType: { not: undefined },
       },
-      include: include as any,
     }) as Promise<NotificationPreference[]>;
   }
 
@@ -92,8 +85,7 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
     include?: NotificationPreferenceIncludes,
   ): Promise<NotificationPreference[]> {
     return this.prisma.notificationPreference.findMany({
-      where: { notificationType },
-      include: include as any,
+      where: { notificationType: notificationType as any },
     }) as Promise<NotificationPreference[]>;
   }
 
@@ -106,10 +98,7 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
     // First, try to find existing preference
     const existing = await this.prisma.notificationPreference.findFirst({
       where: {
-        notificationType,
-        preferences: {
-          some: { id: preferencesId },
-        },
+        notificationType: notificationType as any,
       },
     });
 
@@ -117,24 +106,12 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
       // Update existing
       return this.prisma.notificationPreference.update({
         where: { id: existing.id },
-        data: {
-          ...data,
-          preferences: {
-            connect: { id: preferencesId },
-          },
-        },
-        include: include as any,
+        data,
       }) as Promise<NotificationPreference>;
     } else {
       // Create new
       return this.prisma.notificationPreference.create({
-        data: {
-          ...data,
-          preferences: {
-            connect: { id: preferencesId },
-          },
-        },
-        include: include as any,
+        data,
       }) as Promise<NotificationPreference>;
     }
   }
@@ -172,7 +149,6 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
   ): Promise<NotificationPreference> {
     return tx.notificationPreference.create({
       data,
-      include: include as any,
     }) as Promise<NotificationPreference>;
   }
 
@@ -185,7 +161,6 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
     return tx.notificationPreference.update({
       where: { id },
       data,
-      include: include as any,
     }) as Promise<NotificationPreference>;
   }
 

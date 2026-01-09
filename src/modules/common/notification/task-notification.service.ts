@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
-import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL } from '../../../constants';
+import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL, TASK_STATUS } from '../../../constants';
 import type { Task } from '../../../types';
 
 /**
@@ -102,6 +102,7 @@ export class TaskNotificationService {
     {
       taskId: string;
       taskTitle: string;
+      taskStatus: string;
       changes: TaskFieldChange[];
       userId: string;
       firstChangeAt: Date;
@@ -113,6 +114,31 @@ export class TaskNotificationService {
     private readonly preferenceService: NotificationPreferenceService,
     private readonly notificationService: NotificationService,
   ) {}
+
+  /**
+   * Get the correct URL for a task based on its status
+   * - PREPARATION → /producao/agenda/detalhes/{id}
+   * - WAITING_PRODUCTION or IN_PRODUCTION → /producao/cronograma/detalhes/{id}
+   * - COMPLETED or CANCELLED → /producao/historico/detalhes/{id}
+   */
+  private getTaskUrl(taskOrId: Task | string, status?: string): string {
+    const taskId = typeof taskOrId === 'string' ? taskOrId : taskOrId.id;
+    const taskStatus = status || (typeof taskOrId === 'object' ? taskOrId.status : undefined);
+
+    switch (taskStatus) {
+      case TASK_STATUS.PREPARATION:
+        return `/producao/agenda/detalhes/${taskId}`;
+      case TASK_STATUS.WAITING_PRODUCTION:
+      case TASK_STATUS.IN_PRODUCTION:
+        return `/producao/cronograma/detalhes/${taskId}`;
+      case TASK_STATUS.COMPLETED:
+      case TASK_STATUS.CANCELLED:
+        return `/producao/historico/detalhes/${taskId}`;
+      default:
+        // Default to agenda for unknown status
+        return `/producao/agenda/detalhes/${taskId}`;
+    }
+  }
 
   /**
    * Track changes between old and new task states
@@ -211,13 +237,13 @@ export class TaskNotificationService {
         const notification = await this.notificationService.createNotification({
           type: NOTIFICATION_TYPE.TASK,
           title: `Alteração em tarefa: ${task.name}`,
-          message,
+          body: message,
           importance: this.determineFieldImportance(change.field),
           userId,
-          entityType: 'Task',
-          entityId: task.id,
-          actionUrl: `/tasks/${task.id}`,
+          actionUrl: this.getTaskUrl(task),
           metadata: {
+            entityType: 'Task',
+            entityId: task.id,
             field: change.field,
             fieldLabel: change.fieldLabel,
             oldValue: change.formattedOldValue,
@@ -358,6 +384,7 @@ export class TaskNotificationService {
       this.pendingAggregations.set(aggregationKey, {
         taskId: task.id,
         taskTitle: task.name,
+        taskStatus: task.status,
         changes: filteredChanges,
         userId,
         firstChangeAt: new Date(),
@@ -420,13 +447,13 @@ export class TaskNotificationService {
       const notification = await this.notificationService.createNotification({
         type: NOTIFICATION_TYPE.TASK,
         title,
-        message,
+        body: message,
         importance: NOTIFICATION_IMPORTANCE.NORMAL,
         userId: aggregation.userId,
-        entityType: 'Task',
-        entityId: aggregation.taskId,
-        actionUrl: `/tasks/${aggregation.taskId}`,
+        actionUrl: this.getTaskUrl(aggregation.taskId, aggregation.taskStatus),
         metadata: {
+          entityType: 'Task',
+          entityId: aggregation.taskId,
           aggregated: true,
           changeCount,
           changes: changeDetails,

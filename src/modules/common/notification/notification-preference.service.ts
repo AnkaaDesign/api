@@ -14,7 +14,7 @@ export interface DefaultNotificationPreference {
   type: NOTIFICATION_TYPE;
   eventType: string | null;
   channels: NOTIFICATION_CHANNEL[];
-  mandatory: boolean;
+  mandatoryChannels: NOTIFICATION_CHANNEL[]; // Channels that cannot be disabled by user
 }
 
 export interface ChannelPreferences {
@@ -106,17 +106,24 @@ export class NotificationPreferenceService {
       eventType || null,
     );
 
-    // Check if preference is mandatory (if it exists)
-    if (existingPreference?.isMandatory && validatedChannels.length === 0) {
-      this.logger.warn('User attempted to disable mandatory notification', {
-        userId,
-        type,
-        eventType,
-        isMandatory: true,
-      });
-      throw new BadRequestException(
-        'Cannot disable mandatory notification preferences. You must have at least one channel enabled.',
+    // Check if user is trying to disable mandatory channels
+    if (existingPreference?.mandatoryChannels && existingPreference.mandatoryChannels.length > 0) {
+      const missingMandatoryChannels = existingPreference.mandatoryChannels.filter(
+        (mandatoryChannel) => !validatedChannels.includes(mandatoryChannel as string),
       );
+
+      if (missingMandatoryChannels.length > 0) {
+        this.logger.warn('User attempted to disable mandatory channels', {
+          userId,
+          type,
+          eventType,
+          mandatoryChannels: existingPreference.mandatoryChannels,
+          missingChannels: missingMandatoryChannels,
+        });
+        throw new BadRequestException(
+          `Cannot disable mandatory channels: ${missingMandatoryChannels.join(', ')}. These channels are required for this notification type.`,
+        );
+      }
     }
 
     // Upsert the preference (create if not exists, update if exists)
@@ -245,7 +252,7 @@ export class NotificationPreferenceService {
         type: this.mapToNotificationType(def.type),
         eventType: def.eventType,
         channels: def.channels.map(ch => this.mapToNotificationChannel(ch)),
-        isMandatory: def.mandatory,
+        mandatoryChannels: def.mandatoryChannels.map(ch => this.mapToNotificationChannel(ch)),
       }));
 
       await this.preferenceRepository.batchCreatePreferences(preferences);
@@ -258,7 +265,7 @@ export class NotificationPreferenceService {
   }
 
   /**
-   * Validate preferences - ensure task notifications cannot be disabled
+   * Validate preferences - ensure mandatory channels cannot be disabled
    */
   async validatePreferences(
     userId: string,
@@ -269,33 +276,6 @@ export class NotificationPreferenceService {
     const errors: string[] = [];
     const notificationType = this.validateNotificationType(type);
 
-    // Check if this is a task notification (mandatory)
-    if (notificationType === NOTIFICATION_TYPE.TASK) {
-      if (channels.length === 0) {
-        errors.push('Task notifications are mandatory and cannot be completely disabled.');
-      }
-
-      // Ensure at least one channel is enabled for mandatory task notifications
-      const taskMandatoryEvents = [
-        'status',
-        'deadline',
-        'assignment',
-        'artwork',
-        'priority',
-        'description',
-        'customer',
-        'sector',
-        'comment',
-        'completion',
-      ];
-
-      if (eventType && taskMandatoryEvents.includes(eventType) && channels.length === 0) {
-        errors.push(
-          `Task notification for '${eventType}' is mandatory and requires at least one channel.`,
-        );
-      }
-    }
-
     // Validate channels exist
     try {
       this.validateChannels(channels);
@@ -305,7 +285,7 @@ export class NotificationPreferenceService {
       }
     }
 
-    // Check if preference exists
+    // Check if preference exists and has mandatory channels
     try {
       const existingPreference = await this.preferenceRepository.getPreference(
         userId,
@@ -313,8 +293,16 @@ export class NotificationPreferenceService {
         eventType || null,
       );
 
-      if (existingPreference?.isMandatory && channels.length === 0) {
-        errors.push('This notification preference is mandatory and cannot be disabled.');
+      if (existingPreference?.mandatoryChannels && existingPreference.mandatoryChannels.length > 0) {
+        const missingMandatoryChannels = existingPreference.mandatoryChannels.filter(
+          (mandatoryChannel) => !channels.includes(mandatoryChannel as string),
+        );
+
+        if (missingMandatoryChannels.length > 0) {
+          errors.push(
+            `Cannot disable mandatory channels: ${missingMandatoryChannels.join(', ')}. These channels are required for this notification type.`,
+          );
+        }
       }
     } catch (error) {
       this.logger.warn(`Could not find existing preference for validation: ${error.message}`);
@@ -458,108 +446,265 @@ export class NotificationPreferenceService {
    */
   getDefaultPreferences(): DefaultNotificationPreference[] {
     return [
-      // MANDATORY - Task updates (all fields)
+      // ============================================
+      // TASK NOTIFICATIONS
+      // ============================================
+
+      // Nova Tarefa (New Task) - MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'created',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Mudança de Status (Status Change)
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'status',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
         ],
-        mandatory: true,
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
+
+      // Conclusão (Task Completed)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'completion',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+      },
+
+      // Tarefa Atrasada (Task Overdue)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'overdue',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Prazo Alterado (Deadline Changed) - MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'term',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Prazo Próximo (Deadline Approaching)
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'deadline',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
         ],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'assignment',
-        channels: [
+        mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
         ],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'artwork',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'priority',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'description',
-        channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'customer',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'sector',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'comment',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-        mandatory: true,
-      },
-      {
-        type: NOTIFICATION_TYPE.TASK,
-        eventType: 'completion',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: true,
       },
 
-      // OPTIONAL - Orders
+      // Detalhes Alterados (Details Changed)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'details',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Número de Série (Serial Number Changed)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'serialNumber',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Data Prevista (Forecast Date)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'forecastDate',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Setor Alterado (Sector Changed)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'sectorId',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+      },
+
+      // Atualização de Arte (Artwork Updated)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'artworks',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+      },
+
+      // Negociando Com (Negotiating With)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'negotiatingWith',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Pintura Geral (General Painting)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'paintId',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Observação (Observation)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'observation',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // Comissão (Commission)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'commission',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        mandatoryChannels: [],
+      },
+
+      // ============================================
+      // SERVICE ORDER NOTIFICATIONS
+      // MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
+      // ============================================
+
+      // Service Order Completed
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'completed',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Artwork Waiting Approval
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'artwork-waiting-approval',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Service Order Assigned
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'assigned',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // ============================================
+      // ORDER NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'created',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'fulfilled',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'cancelled',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
@@ -569,41 +714,47 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - Stock
+      // ============================================
+      // STOCK NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.STOCK,
         eventType: 'low',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.STOCK,
         eventType: 'out',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.STOCK,
         eventType: 'restock',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - PPE (Personal Protective Equipment)
+      // ============================================
+      // PPE NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'delivery',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'expiration',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.PPE,
@@ -613,10 +764,13 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - Vacation
+      // ============================================
+      // VACATION NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.VACATION,
         eventType: 'approved',
@@ -625,7 +779,7 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.VACATION,
@@ -635,16 +789,19 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.VACATION,
         eventType: 'expiring',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - Warnings
+      // ============================================
+      // WARNING NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.WARNING,
         eventType: 'issued',
@@ -653,7 +810,7 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.WARNING,
@@ -663,35 +820,41 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - System
+      // ============================================
+      // SYSTEM NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.SYSTEM,
         eventType: 'maintenance',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.SYSTEM,
         eventType: 'update',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatory: false,
+        mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.SYSTEM,
         eventType: 'announcement',
         channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        mandatory: false,
+        mandatoryChannels: [],
       },
 
-      // OPTIONAL - General
+      // ============================================
+      // GENERAL NOTIFICATIONS (OPTIONAL)
+      // ============================================
+
       {
         type: NOTIFICATION_TYPE.GENERAL,
         eventType: null,
         channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatory: false,
+        mandatoryChannels: [],
       },
     ];
   }

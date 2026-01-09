@@ -18,18 +18,26 @@ export class CacheService implements OnModuleDestroy {
   /**
    * Get value from cache
    */
-  async get(key: string): Promise<string | null> {
-    return this.redis.get(key);
+  async get<T = string>(key: string): Promise<T | null> {
+    const value = await this.redis.get(key);
+    if (!value) return null;
+
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return value as unknown as T;
+    }
   }
 
   /**
    * Set value in cache with optional TTL in seconds
    */
-  async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
+  async set<T = string>(key: string, value: T, ttlSeconds?: number): Promise<void> {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     if (ttlSeconds) {
-      await this.redis.setex(key, ttlSeconds, value);
+      await this.redis.setex(key, ttlSeconds, serialized);
     } else {
-      await this.redis.set(key, value);
+      await this.redis.set(key, serialized);
     }
   }
 

@@ -21,7 +21,7 @@ import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
 import type { Budget, BudgetIncludes } from './budget';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
-import type { Truck, TruckIncludes } from './garage';
+import type { Truck, TruckIncludes } from './truck';
 
 // =====================
 // Task Interface
@@ -31,7 +31,7 @@ export interface Task extends BaseEntity {
   name: string;
   status: TASK_STATUS;
   statusOrder: number;
-  commission: COMMISSION_STATUS;
+  commission: COMMISSION_STATUS | null;
   serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;
@@ -49,6 +49,7 @@ export interface Task extends BaseEntity {
   receiptIds?: string[];
   reimbursementIds?: string[];
   reimbursementInvoiceIds?: string[];
+  baseFileIds?: string[];
   createdById: string | null;
   priority?: string | null;
   price?: number | null; // Calculated from budget total
@@ -62,6 +63,7 @@ export interface Task extends BaseEntity {
   receipts?: File[];
   reimbursements?: File[];
   invoiceReimbursements?: File[];
+  baseFiles?: File[]; // Files used as base for artwork design
   observation?: Observation;
   generalPainting?: Paint;
   createdBy?: User;
@@ -113,6 +115,11 @@ export interface TaskIncludes {
         include?: FileIncludes;
       };
   invoiceReimbursements?:
+    | boolean
+    | {
+        include?: FileIncludes;
+      };
+  baseFiles?:
     | boolean
     | {
         include?: FileIncludes;

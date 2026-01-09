@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { assertCanUpdateServiceOrder } from './service-order.permissions';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
@@ -50,6 +51,7 @@ export class ServiceOrderService {
     private readonly prisma: PrismaService,
     private readonly serviceOrderRepository: ServiceOrderRepository,
     private readonly changeLogService: ChangeLogService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
@@ -84,8 +86,13 @@ export class ServiceOrderService {
       }
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Create the service order
-        const created = await this.serviceOrderRepository.createWithTransaction(tx, data, {
+        // Create the service order with createdById
+        const createData = {
+          ...data,
+          createdById: userId || '',
+        };
+
+        const created = await this.serviceOrderRepository.createWithTransaction(tx, createData, {
           include,
         });
 
@@ -104,6 +111,21 @@ export class ServiceOrderService {
 
         return created;
       });
+
+      // Emit events after successful creation
+      this.eventEmitter.emit('service-order.created', {
+        serviceOrder,
+        userId,
+      });
+
+      // If service order is assigned, emit assignment event
+      if (serviceOrder.assignedToId) {
+        this.eventEmitter.emit('service-order.assigned', {
+          serviceOrder,
+          userId,
+          assignedToId: serviceOrder.assignedToId,
+        });
+      }
 
       return {
         success: true,
@@ -202,6 +224,49 @@ export class ServiceOrderService {
 
         return updated;
       });
+
+      // Emit events after successful update
+      // Check if status changed
+      if (serviceOrderExists.status !== serviceOrder.status) {
+        this.eventEmitter.emit('service-order.status.changed', {
+          serviceOrder,
+          oldStatus: serviceOrderExists.status,
+          newStatus: serviceOrder.status,
+          userId,
+        });
+
+        // If status changed to COMPLETED
+        if (serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED) {
+          this.eventEmitter.emit('service-order.completed', {
+            serviceOrder,
+            userId,
+          });
+        }
+
+        // If status changed to WAITING_APPROVE and type is ARTWORK
+        if (
+          serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+          serviceOrder.type === 'ARTWORK'
+        ) {
+          this.eventEmitter.emit('service-order.artwork-waiting-approval', {
+            serviceOrder,
+            userId,
+          });
+        }
+      }
+
+      // Check if assignedToId changed
+      if (serviceOrderExists.assignedToId !== serviceOrder.assignedToId) {
+        // If assigned to someone new (or reassigned)
+        if (serviceOrder.assignedToId) {
+          this.eventEmitter.emit('service-order.assigned', {
+            serviceOrder,
+            userId,
+            assignedToId: serviceOrder.assignedToId,
+            previousAssignedToId: serviceOrderExists.assignedToId,
+          });
+        }
+      }
 
       return {
         success: true,

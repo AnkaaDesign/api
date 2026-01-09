@@ -12,6 +12,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   Order,
   OrderItem,
+  User,
   OrderGetManyResponse,
   OrderGetUniqueResponse,
   OrderCreateResponse,
@@ -372,7 +373,7 @@ export class OrderService {
         const user = userId ? await this.prisma.user.findUnique({ where: { id: userId } }) : null;
 
         if (user) {
-          this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, user));
+          this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, user as User));
         }
       } catch (error) {
         this.logger.error('Error emitting order created event:', error);
@@ -614,9 +615,13 @@ export class OrderService {
     },
   ): Promise<OrderUpdateResponse> {
     try {
+      // Declare variables outside transaction so they're accessible after
+      let existingOrder: any;
+      let actualUpdateData: any;
+
       const updatedOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing order
-        const existingOrder = await this.orderRepository.findByIdWithTransaction(tx, id, {
+        existingOrder = await this.orderRepository.findByIdWithTransaction(tx, id, {
           include: {
             items: true,
             supplier: true,
@@ -631,7 +636,7 @@ export class OrderService {
 
         // Handle special case: CREATED → RECEIVED should go through FULFILLED first
         const currentStatus = existingOrder.status as ORDER_STATUS;
-        let actualUpdateData = { ...data };
+        actualUpdateData = { ...data };
 
         if (currentStatus === ORDER_STATUS.CREATED && data.status === ORDER_STATUS.RECEIVED) {
           // First, update to FULFILLED status with fulfilled dates
@@ -776,7 +781,7 @@ export class OrderService {
 
           // Update existing items
           for (const item of itemsToUpdate) {
-            const existingItem = existingItemsMap.get(item.itemId);
+            const existingItem = existingItemsMap.get(item.itemId) as any;
             if (existingItem) {
               // Track changes for changelog
               const hasOrderedQuantityChange =
@@ -956,7 +961,7 @@ export class OrderService {
                 updatedOrder,
                 existingOrder.status as ORDER_STATUS,
                 actualUpdateData.status as ORDER_STATUS,
-                user,
+                user as User,
               ),
             );
 
@@ -966,7 +971,7 @@ export class OrderService {
                 'order.cancelled',
                 new OrderCancelledEvent(
                   updatedOrder,
-                  user,
+                  user as User,
                   actualUpdateData.notes || 'Pedido cancelado',
                 ),
               );
@@ -1733,9 +1738,12 @@ export class OrderService {
     userId?: string,
   ): Promise<OrderItemUpdateResponse> {
     try {
+      // Declare variable outside transaction so it's accessible after
+      let existingItem: any;
+
       const updatedItem = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing order item
-        const existingItem = await tx.orderItem.findUnique({
+        existingItem = await tx.orderItem.findUnique({
           where: { id },
           include: {
             order: true,
@@ -1917,7 +1925,7 @@ export class OrderService {
             const quantityIncrease = data.receivedQuantity - (existingItem.receivedQuantity || 0);
             this.eventEmitter.emit(
               'order.item.received',
-              new OrderItemReceivedEvent(order, updatedItem, quantityIncrease),
+              new OrderItemReceivedEvent(order as Order, updatedItem, quantityIncrease),
             );
           }
         }

@@ -55,5 +55,13 @@
     }
   },
   "include": ["src/**/*", "test/**/*"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test-utils.ts",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/*.example.tsx",
+    "**/*.example.ts"
+  ]
 }

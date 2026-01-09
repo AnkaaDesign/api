@@ -592,10 +592,12 @@ export class NotificationAdminController {
         const channelKey = this.mapChannelToKey(delivery.channel);
         if (channelKey && deliveryRate[channelKey]) {
           deliveryRate[channelKey].sent++;
-          if (delivery.status === 'DELIVERED') {
-            deliveryRate[channelKey].delivered++;
-          } else if (delivery.status === 'FAILED') {
-            deliveryRate[channelKey].failed++;
+          if (channelKey !== 'inApp') {
+            if (delivery.status === 'DELIVERED') {
+              (deliveryRate[channelKey] as any).delivered++;
+            } else if (delivery.status === 'FAILED') {
+              (deliveryRate[channelKey] as any).failed++;
+            }
           }
         }
       });

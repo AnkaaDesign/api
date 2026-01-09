@@ -92,6 +92,7 @@ export class TaskService {
       receipts?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
+      baseFiles?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -314,6 +315,26 @@ export class TaskService {
               artworkIds.push(artworkRecord.id);
             }
             fileUpdates.artworks = { connect: artworkIds.map(id => ({ id })) };
+          }
+
+          // Base files (files used as base for artwork design)
+          if (files.baseFiles && files.baseFiles.length > 0) {
+            const baseFileIds: string[] = [];
+            for (const baseFile of files.baseFiles) {
+              const baseFileRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                baseFile,
+                'taskBaseFiles',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              baseFileIds.push(baseFileRecord.id);
+            }
+            fileUpdates.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
           }
 
           // Airbrushing files - process files for each airbrushing
@@ -644,6 +665,7 @@ export class TaskService {
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
+      baseFiles?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -656,6 +678,7 @@ export class TaskService {
             customer: true, // Always include customer for file path organization
             artworks: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
+            truck: true, // Include for truck field changelog tracking
           },
         });
 
@@ -666,6 +689,11 @@ export class TaskService {
         // Field-level access control for FINANCIAL sector
         if (userPrivilege === 'FINANCIAL') {
           this.validateFinancialSectorAccess(data);
+        }
+
+        // Field-level access control for COMMERCIAL sector
+        if (userPrivilege === 'COMMERCIAL') {
+          this.validateCommercialSectorAccess(data);
         }
 
         // Validate task data
@@ -981,6 +1009,7 @@ export class TaskService {
             customer: true, // Always include customer for file path organization
             artworks: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
+            truck: true, // Include for truck field changelog tracking
           },
         });
 
@@ -1139,6 +1168,48 @@ export class TaskService {
             );
           }
 
+          // Base files (files used as base for artwork design)
+          // Process if new files are being uploaded OR if baseFileIds is explicitly provided (for deletions)
+          if ((files.baseFiles && files.baseFiles.length > 0) || data.baseFileIds !== undefined) {
+            // Start with the baseFileIds provided in the form data (files that should be kept)
+            // If not provided, default to empty array (will only have the new uploads)
+            const baseFileIds: string[] = data.baseFileIds ? [...data.baseFileIds] : [];
+            this.logger.log(
+              `[Task Update] Processing baseFiles - Received ${data.baseFileIds?.length || 0} existing IDs: [${data.baseFileIds?.join(', ') || 'none'}]`,
+            );
+
+            // Upload new files and add their IDs
+            if (files.baseFiles && files.baseFiles.length > 0) {
+              this.logger.log(`[Task Update] Uploading ${files.baseFiles.length} new base files`);
+              for (const baseFile of files.baseFiles) {
+                const baseFileRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  baseFile,
+                  'taskBaseFiles',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                this.logger.log(
+                  `[Task Update] Created new base file with ID: ${baseFileRecord.id}`,
+                );
+                baseFileIds.push(baseFileRecord.id);
+              }
+            }
+
+            // Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+            this.logger.log(
+              `[Task Update] Final baseFileIds array (${baseFileIds.length} total): [${baseFileIds.join(', ')}]`,
+            );
+            fileUpdates.baseFiles = { set: baseFileIds.map(id => ({ id })) };
+            this.logger.log(
+              `[Task Update] Setting baseFiles to ${baseFileIds.length} files (${data.baseFileIds?.length || 0} existing + ${files.baseFiles?.length || 0} new)`,
+            );
+          }
+
           // Logo paints (paintIds) - no file upload, just relation management
           if (data.paintIds !== undefined) {
             fileUpdates.logoPaints = { set: data.paintIds.map(id => ({ id })) };
@@ -1228,6 +1299,7 @@ export class TaskService {
                 ...include,
                 artworks: true, // Include for changelog tracking
                 observation: { include: { files: true } }, // Include for changelog tracking
+                truck: true, // Include for truck field changelog tracking
               },
             })) as any;
           }
@@ -1275,6 +1347,35 @@ export class TaskService {
             if (updatedByUser) {
               // Check for status change
               if (existingTask.status !== updatedTask.status) {
+                // Ensure task has a name before emitting event
+                // If name is null/undefined, reload the task to get it
+                if (!updatedTask.name) {
+                  this.logger.warn(
+                    `[Task Update] Task ${id} has null/undefined name, reloading task data...`,
+                  );
+                  const taskWithName = await tx.task.findUnique({
+                    where: { id },
+                    select: {
+                      id: true,
+                      name: true,
+                      serialNumber: true,
+                      status: true,
+                    },
+                  });
+                  if (taskWithName && taskWithName.name) {
+                    updatedTask.name = taskWithName.name;
+                    this.logger.log(`[Task Update] Task name reloaded: "${taskWithName.name}"`);
+                  } else {
+                    // If still no name, use a default
+                    updatedTask.name = updatedTask.serialNumber
+                      ? `Tarefa ${updatedTask.serialNumber}`
+                      : 'Tarefa sem nome';
+                    this.logger.warn(
+                      `[Task Update] Task ${id} has no name in database, using default: "${updatedTask.name}"`,
+                    );
+                  }
+                }
+
                 this.eventEmitter.emit(
                   'task.status.changed',
                   new TaskStatusChangedEvent(
@@ -1485,6 +1586,43 @@ export class TaskService {
               field: 'artworks',
               oldValue: oldArtworks.length > 0 ? oldArtworks : null,
               newValue: newArtworks.length > 0 ? newArtworks : null,
+              reason: changeDescription.join(', '),
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+          }
+        }
+
+        // Track baseFiles array changes
+        if (data.baseFileIds !== undefined) {
+          const oldBaseFiles = existingTask.baseFiles || [];
+          const newBaseFiles = updatedTask?.baseFiles || [];
+
+          const oldBaseFileIds = oldBaseFiles.map((f: any) => f.id);
+          const newBaseFileIds = newBaseFiles.map((f: any) => f.id);
+
+          const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(f.id));
+          const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(f.id));
+
+          // Log baseFiles changes with proper before/after values
+          if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
+            const changeDescription = [];
+            if (addedBaseFiles.length > 0) {
+              changeDescription.push(`${addedBaseFiles.length} arquivo(s) base adicionado(s)`);
+            }
+            if (removedBaseFiles.length > 0) {
+              changeDescription.push(`${removedBaseFiles.length} arquivo(s) base removido(s)`);
+            }
+
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'baseFiles',
+              oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
+              newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
               reason: changeDescription.join(', '),
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
@@ -2304,6 +2442,7 @@ export class TaskService {
           const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
             include: {
               artworks: true,
+              baseFiles: true,
               budgets: true,
               invoices: true,
               receipts: true,
@@ -2337,6 +2476,34 @@ export class TaskService {
                   oldValue: oldArtworks.length > 0 ? oldArtworks : null,
                   newValue: newArtworks.length > 0 ? newArtworks : null,
                   reason: `Artes atualizadas em operação de lote`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                  triggeredById: task.id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+
+            // Track baseFiles changes
+            if (updateData.baseFileIds !== undefined) {
+              const oldBaseFiles = existingTask.baseFiles || [];
+              const newBaseFiles = updatedTask.baseFiles || [];
+
+              const oldBaseFileIds = oldBaseFiles.map((f: any) => f.id);
+              const newBaseFileIds = newBaseFiles.map((f: any) => f.id);
+
+              const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(f.id));
+              const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(f.id));
+
+              if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'baseFiles',
+                  oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
+                  newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
+                  reason: `Arquivos base atualizados em operação de lote`,
                   triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                   triggeredById: task.id,
                   userId: userId || '',
@@ -2801,6 +2968,32 @@ export class TaskService {
       throw new BadRequestException(
         `Setor Financeiro não tem permissão para atualizar os seguintes campos: ${disallowedFields.join(', ')}. ` +
           `Campos permitidos: orçamento, cliente, número de série, chassi, documentos.`,
+      );
+    }
+  }
+
+  /**
+   * Validate field-level access for COMMERCIAL sector
+   * Commercial can access: agenda, cronograma, history, customer, garages, observation, airbrushing, paint basic catalogue
+   * Commercial can create and update tasks
+   * Commercial CANNOT edit: layout (truck layouts), financial (budgets, invoices, receipts, NFEs), cut plan (cuts)
+   */
+  private validateCommercialSectorAccess(data: TaskUpdateFormData): void {
+    const disallowedFields = [
+      'truck', // Cannot edit truck/layouts
+      'budgetIds', // Cannot edit financial documents
+      'nfeIds', // Cannot edit financial documents
+      'receiptIds', // Cannot edit financial documents
+      'cuts', // Cannot edit cut plans
+    ];
+
+    const attemptedFields = Object.keys(data);
+    const blockedFields = attemptedFields.filter(field => disallowedFields.includes(field));
+
+    if (blockedFields.length > 0) {
+      throw new BadRequestException(
+        `Setor Comercial não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
+          `Campos bloqueados: layout (caminhão), financeiro (orçamentos, NFEs, recibos), plano de corte.`,
       );
     }
   }

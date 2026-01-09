@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationService } from '@modules/common/notification/notification.service';
 import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
+import { DeepLinkService } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   TaskCreatedEvent,
@@ -54,6 +55,7 @@ export class TaskListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly notificationService: NotificationService,
     private readonly preferenceService: NotificationPreferenceService,
+    private readonly deepLinkService: DeepLinkService,
     private readonly prisma: PrismaService,
   ) {
     this.logger.log('========================================');
@@ -131,6 +133,7 @@ export class TaskListener {
         }
 
         this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -138,7 +141,8 @@ export class TaskListener {
           title: 'Nova tarefa criada',
           body: `Tarefa "${event.task.name}" foi criada por ${event.createdBy.name}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
         this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
@@ -209,6 +213,7 @@ export class TaskListener {
         }
 
         this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -216,7 +221,8 @@ export class TaskListener {
           title: 'Status da tarefa alterado',
           body: `Tarefa "${event.task.name}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
         this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
@@ -286,6 +292,7 @@ export class TaskListener {
           changedBy: event.updatedBy.name,
         });
 
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -293,7 +300,8 @@ export class TaskListener {
           title: `Tarefa atualizada: ${config.label}`,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
       }
@@ -383,6 +391,7 @@ export class TaskListener {
 
         const body = this.interpolateMessage(messageConfig.inApp, messageVars);
 
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -390,7 +399,8 @@ export class TaskListener {
           title: `Tarefa atualizada: ${config.label}`,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
       }
@@ -441,6 +451,7 @@ export class TaskListener {
 
         if (channels.length === 0) continue;
 
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -448,7 +459,8 @@ export class TaskListener {
           title: 'Prazo da tarefa se aproximando',
           body: `Tarefa "${event.task.name}" tem prazo em ${event.daysRemaining} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
       }
@@ -481,6 +493,7 @@ export class TaskListener {
 
         if (channels.length === 0) continue;
 
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
@@ -488,7 +501,8 @@ export class TaskListener {
           title: 'Tarefa atrasada',
           body: `Tarefa "${event.task.name}" está atrasada há ${event.daysOverdue} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: this.getTaskUrl(event.task),
+          actionUrl,
+          metadata,
           channel: channels,
         });
       }
@@ -510,7 +524,7 @@ export class TaskListener {
   private async getTargetUsersForTaskCreated(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
       SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.LEADER,
+      SECTOR_PRIVILEGES.PRODUCTION,
     ]);
   }
 
@@ -536,7 +550,6 @@ export class TaskListener {
   private async getTargetUsersForDeadline(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
       SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.LEADER,
       SECTOR_PRIVILEGES.PRODUCTION,
     ]);
   }
@@ -548,7 +561,6 @@ export class TaskListener {
   private async getTargetUsersForOverdue(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
       SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.LEADER,
       SECTOR_PRIVILEGES.PRODUCTION,
       SECTOR_PRIVILEGES.FINANCIAL,
     ]);
@@ -823,5 +835,36 @@ export class TaskListener {
         // Default to agenda for unknown status
         return `/producao/agenda/detalhes/${taskId}`;
     }
+  }
+
+  /**
+   * Get task notification metadata including web and mobile deep links
+   * Returns actionUrl (web) and metadata with all link types for channel-specific routing
+   *
+   * Channel routing:
+   * - IN_APP, EMAIL, DESKTOP_PUSH → Use webUrl (status-specific routes)
+   * - WHATSAPP, MOBILE_PUSH → Use mobileUrl or universalLink
+   *
+   * @param task - Task object with id
+   * @returns Object with actionUrl and metadata containing all link types
+   */
+  private getTaskNotificationMetadata(task: any): { actionUrl: string; metadata: any } {
+    // Get status-specific web URL for backward compatibility
+    const webUrl = this.getTaskUrl(task);
+
+    // Generate deep links for mobile and universal linking
+    const deepLinks = this.deepLinkService.generateTaskLinks(task.id);
+
+    // Return actionUrl (web) and comprehensive metadata
+    return {
+      actionUrl: webUrl,
+      metadata: {
+        webUrl,                        // Status-specific web route
+        mobileUrl: deepLinks.mobile,   // Mobile app deep link (custom scheme)
+        universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
+        taskId: task.id,               // For reference
+        taskStatus: task.status,       // For reference
+      },
+    };
   }
 }

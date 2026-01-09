@@ -11,10 +11,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { UserId } from '@modules/common/auth/decorators/user-id.decorator';
+import { User } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { TruckService } from './truck.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
 import type { GarageId } from '../../../constants/garage';
+import type { UserPayload } from '@types';
 
 @Controller('trucks')
 export class TruckController {
@@ -25,6 +28,7 @@ export class TruckController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findAll(@Query() query: any) {
@@ -46,6 +50,7 @@ export class TruckController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getAllGaragesAvailability(
@@ -74,6 +79,7 @@ export class TruckController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getLaneAvailability(
@@ -112,12 +118,13 @@ export class TruckController {
   )
   async batchUpdateSpots(
     @Body() body: { updates: Array<{ truckId: string; spot: string | null }> },
+    @UserId() userId: string,
   ) {
     if (!body.updates || !Array.isArray(body.updates)) {
       throw new BadRequestException('updates deve ser um array');
     }
 
-    const result = await this.truckService.batchUpdateSpots(body.updates);
+    const result = await this.truckService.batchUpdateSpots(body.updates, userId);
     return {
       success: true,
       message: `${result.updated} caminhoes atualizados com sucesso`,
@@ -159,8 +166,16 @@ export class TruckController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() data: TruckUpdateFormData,
     @Query() query: any,
+    @UserId() userId: string,
+    @User() user: UserPayload,
   ) {
-    const truck = await this.truckService.update(id, data, query);
+    const truck = await this.truckService.update(
+      id,
+      data,
+      query,
+      userId,
+      user?.role as SECTOR_PRIVILEGES,
+    );
     return {
       success: true,
       message: 'Caminhao atualizado com sucesso',

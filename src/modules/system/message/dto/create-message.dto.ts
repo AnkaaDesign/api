@@ -2,10 +2,8 @@ import {
   IsString,
   IsOptional,
   IsArray,
-  IsEnum,
   IsUUID,
   IsDateString,
-  ValidateNested,
   IsBoolean,
   MaxLength,
   MinLength,
@@ -14,63 +12,46 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /**
- * Message targeting options
- */
-export enum MESSAGE_TARGET_TYPE {
-  ALL_USERS = 'ALL_USERS',
-  SPECIFIC_USERS = 'SPECIFIC_USERS',
-  SPECIFIC_ROLES = 'SPECIFIC_ROLES',
-}
-
-/**
- * Message priority levels
- */
-export enum MESSAGE_PRIORITY {
-  LOW = 'LOW',
-  NORMAL = 'NORMAL',
-  HIGH = 'HIGH',
-  URGENT = 'URGENT',
-}
-
-/**
  * Content block types for rich message content
+ * These are the supported types, but the actual blocks are stored as flexible JSON
  */
 export enum CONTENT_BLOCK_TYPE {
   TEXT = 'TEXT',
   HEADING = 'HEADING',
+  HEADING1 = 'heading1',
+  HEADING2 = 'heading2',
+  HEADING3 = 'heading3',
+  PARAGRAPH = 'paragraph',
   LIST = 'LIST',
   IMAGE = 'IMAGE',
   LINK = 'LINK',
+  BUTTON = 'button',
+  DIVIDER = 'divider',
+  QUOTE = 'quote',
   CALLOUT = 'CALLOUT',
 }
 
 /**
  * DTO for content blocks
+ * Using flexible validation to support rich content blocks from the frontend
  */
 export class ContentBlockDto {
   @ApiProperty({
-    description: 'Type of content block',
-    enum: CONTENT_BLOCK_TYPE,
-    example: CONTENT_BLOCK_TYPE.TEXT,
-  })
-  @IsEnum(CONTENT_BLOCK_TYPE)
-  type: CONTENT_BLOCK_TYPE;
-
-  @ApiProperty({
-    description: 'Content of the block',
-    example: 'This is an important announcement',
+    description: 'Unique identifier for the block',
+    example: 'block-123',
   })
   @IsString()
-  @MinLength(1)
-  @MaxLength(5000)
-  content: string;
+  id: string;
 
-  @ApiPropertyOptional({
-    description: 'Optional metadata for the block (e.g., image URL, link href)',
-    example: { url: 'https://example.com/image.jpg' },
+  @ApiProperty({
+    description: 'Type of content block',
+    example: 'paragraph',
   })
-  @IsOptional()
-  metadata?: Record<string, any>;
+  @IsString()
+  type: string;
+
+  // Allow any additional properties for flexibility
+  [key: string]: any;
 }
 
 /**
@@ -91,57 +72,32 @@ export class CreateMessageDto {
     type: [ContentBlockDto],
     example: [
       {
-        type: CONTENT_BLOCK_TYPE.HEADING,
+        id: 'block-1',
+        type: 'heading1',
         content: 'Important Notice',
       },
       {
-        type: CONTENT_BLOCK_TYPE.TEXT,
+        id: 'block-2',
+        type: 'paragraph',
         content: 'The system will be under maintenance on Saturday.',
       },
     ],
   })
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ContentBlockDto)
-  contentBlocks: ContentBlockDto[];
-
-  @ApiProperty({
-    description: 'Target type for the message',
-    enum: MESSAGE_TARGET_TYPE,
-    example: MESSAGE_TARGET_TYPE.ALL_USERS,
-  })
-  @IsEnum(MESSAGE_TARGET_TYPE)
-  targetType: MESSAGE_TARGET_TYPE;
+  @Type(() => Object) // Keep objects as-is, don't transform nested structures
+  // We validate blocks manually in the service layer for flexibility
+  contentBlocks: any[];
 
   @ApiPropertyOptional({
-    description: 'Specific user IDs to target (required if targetType is SPECIFIC_USERS)',
+    description: 'Array of target user IDs. Empty array = all users. Frontend should resolve sectors/positions to user IDs before sending.',
     type: [String],
-    example: ['550e8400-e29b-41d4-a716-446655440000'],
+    example: ['550e8400-e29b-41d4-a716-446655440000', '660e8400-e29b-41d4-a716-446655440001'],
+    default: [],
   })
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
-  targetUserIds?: string[];
-
-  @ApiPropertyOptional({
-    description: 'Specific roles to target (required if targetType is SPECIFIC_ROLES)',
-    type: [String],
-    example: ['ADMIN', 'PRODUCTION'],
-  })
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  targetRoles?: string[];
-
-  @ApiPropertyOptional({
-    description: 'Message priority level',
-    enum: MESSAGE_PRIORITY,
-    default: MESSAGE_PRIORITY.NORMAL,
-    example: MESSAGE_PRIORITY.HIGH,
-  })
-  @IsOptional()
-  @IsEnum(MESSAGE_PRIORITY)
-  priority?: MESSAGE_PRIORITY;
+  targets?: string[];
 
   @ApiPropertyOptional({
     description: 'Whether this message is active and visible',
@@ -167,21 +123,4 @@ export class CreateMessageDto {
   @IsDateString()
   endsAt?: string;
 
-  @ApiPropertyOptional({
-    description: 'Optional action URL when message is clicked',
-    example: '/estoque/produtos',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  actionUrl?: string;
-
-  @ApiPropertyOptional({
-    description: 'Optional action button text',
-    example: 'View Details',
-  })
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  actionText?: string;
 }

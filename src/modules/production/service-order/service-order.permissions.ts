@@ -25,8 +25,9 @@ import type { ServiceOrder } from '@types';
  * - ONLY ADMIN can update (no other role)
  *
  * ARTWORK Service Orders:
- * - DESIGNER can update
- * - ADMIN can update
+ * - DESIGNER can update (but can only set status to WAITING_APPROVE, not COMPLETED)
+ * - ADMIN can update (can set to COMPLETED)
+ * - Workflow: Designer → WAITING_APPROVE → Admin → COMPLETED
  */
 
 export interface ServiceOrderUpdatePermissionCheck {
@@ -68,9 +69,9 @@ export function checkServiceOrderUpdatePermission(
   // Check permissions based on service order type (when NOT assigned)
   switch (serviceOrder.type) {
     case SERVICE_ORDER_TYPE.PRODUCTION:
-      // LEADER and LOGISTIC can update PRODUCTION service orders
+      // PRODUCTION and LOGISTIC can update PRODUCTION service orders
       if (
-        userPrivilege === SECTOR_PRIVILEGES.LEADER ||
+        userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
         userPrivilege === SECTOR_PRIVILEGES.LOGISTIC
       ) {
         return { canUpdate: true };
@@ -103,6 +104,14 @@ export function checkServiceOrderUpdatePermission(
     case SERVICE_ORDER_TYPE.ARTWORK:
       // DESIGNER can update ARTWORK service orders
       if (userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
+        // DESIGNER can only set status to WAITING_APPROVE, not COMPLETED
+        if (newStatus === SERVICE_ORDER_STATUS.COMPLETED) {
+          return {
+            canUpdate: false,
+            reason:
+              'Designers não podem marcar ordens de serviço de arte como concluídas. Use "Aguardando Aprovação" para enviar para aprovação do administrador.',
+          };
+        }
         return { canUpdate: true };
       }
       return {

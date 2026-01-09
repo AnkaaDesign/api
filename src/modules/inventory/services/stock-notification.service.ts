@@ -8,7 +8,7 @@ import {
   NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
   STOCK_LEVEL,
-  USER_ROLE,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import { StockCalculationResult } from './atomic-stock-calculator.service';
 import { PrismaTransaction } from '../activity/repositories/activity.repository';
@@ -258,7 +258,6 @@ export class StockNotificationService {
       include: {
         brand: { select: { name: true } },
         category: { select: { name: true } },
-        warehouse: { select: { name: true } },
       },
     });
   }
@@ -387,7 +386,7 @@ export class StockNotificationService {
           {
             sector: {
               privileges: {
-                hasSome: [USER_ROLE.ADMIN, USER_ROLE.WAREHOUSE],
+                in: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE],
               },
             },
           },
