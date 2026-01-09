@@ -172,6 +172,61 @@ export const UNIT_CONVERSION_FACTORS: Record<
     factor: 25.4,
     category: MEASURE_CATEGORIES.LENGTH,
   }, // 1 inch = 25.4 mm
+  [MEASURE_UNIT.INCH_1_8]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 3.175,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1/8 inch = 3.175 mm
+  [MEASURE_UNIT.INCH_1_4]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 6.35,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1/4 inch = 6.35 mm
+  [MEASURE_UNIT.INCH_3_8]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 9.525,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 3/8 inch = 9.525 mm
+  [MEASURE_UNIT.INCH_1_2]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 12.7,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1/2 inch = 12.7 mm
+  [MEASURE_UNIT.INCH_5_8]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 15.875,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 5/8 inch = 15.875 mm
+  [MEASURE_UNIT.INCH_3_4]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 19.05,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 3/4 inch = 19.05 mm
+  [MEASURE_UNIT.INCH_7_8]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 22.225,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 7/8 inch = 22.225 mm
+  [MEASURE_UNIT.INCH_1]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 25.4,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1 inch = 25.4 mm
+  [MEASURE_UNIT.INCH_1_1_2]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 38.1,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1.5 inches = 38.1 mm
+  [MEASURE_UNIT.INCH_1_1_4]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 31.75,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 1.25 inches = 31.75 mm
+  [MEASURE_UNIT.INCH_2]: {
+    baseUnit: MEASURE_UNIT.MILLIMETER,
+    factor: 50.8,
+    category: MEASURE_CATEGORIES.LENGTH,
+  }, // 2 inches = 50.8 mm
 
   // Area units (base: SQUARE_CENTIMETER)
   [MEASURE_UNIT.SQUARE_CENTIMETER]: {

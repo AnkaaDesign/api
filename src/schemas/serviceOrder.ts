@@ -41,6 +41,7 @@ export const serviceOrderIncludeSchema = z
       ])
       .optional(),
     assignedTo: z.boolean().optional(),
+    createdBy: z.boolean().optional(),
   })
   .partial();
 
@@ -528,6 +529,7 @@ export const serviceOrderCreateSchema = z.object({
     .min(3, { message: 'Minímo de 3 caracteres' })
     .max(400, { message: 'Maxímo de 400 caracteres atingido' }),
   taskId: z.string().uuid('Tarefa inválida'),
+  createdById: z.string().uuid('ID do criador inválido'),
   assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),

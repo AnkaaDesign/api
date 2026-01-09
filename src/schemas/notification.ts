@@ -768,6 +768,7 @@ export const notificationCreateSchema = z
     actionUrl: z.string().url('URL de ação inválida').nullable().optional(),
     scheduledAt: nullableDate.optional(),
     sentAt: nullableDate.optional(),
+    metadata: z.record(z.any()).nullable().optional(),
   })
   .transform(toFormData);
 

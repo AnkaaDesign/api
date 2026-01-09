@@ -133,7 +133,7 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
       type: NotificationType;
       eventType: string | null;
       channels: NotificationChannel[];
-      isMandatory: boolean;
+      mandatoryChannels: NotificationChannel[];
     }>,
   ): Promise<UserNotificationPreference[]> {
     try {
@@ -145,7 +145,7 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
               notificationType: pref.type,
               eventType: pref.eventType,
               channels: pref.channels,
-              isMandatory: pref.isMandatory,
+              mandatoryChannels: pref.mandatoryChannels,
               enabled: true,
             },
             include: { user: true },

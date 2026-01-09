@@ -12,7 +12,7 @@ import type {
 } from './common';
 import type { Task, TaskIncludes, TaskOrderBy, TaskWhere } from './task';
 import type { Layout, LayoutIncludes, LayoutOrderBy, LayoutWhere } from './layout';
-import type { TRUCK_SPOT } from '@constants';
+import type { TRUCK_SPOT, TRUCK_CATEGORY, IMPLEMENT_TYPE } from '@constants';
 
 // =====================
 // Main Entity Interface
@@ -21,6 +21,8 @@ import type { TRUCK_SPOT } from '@constants';
 export interface Truck extends BaseEntity {
   plate: string | null;
   chassisNumber: string | null;
+  category: TRUCK_CATEGORY | null; // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
+  implementType: IMPLEMENT_TYPE | null; // Type of body/implement (corrugated, insulated, curtain-side, tank, flatbed)
   spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
   taskId: string;
   backSideLayoutId: string | null;
@@ -69,6 +71,8 @@ export interface TruckOrderBy {
   id?: ORDER_BY_DIRECTION;
   plate?: ORDER_BY_DIRECTION;
   chassisNumber?: ORDER_BY_DIRECTION;
+  category?: ORDER_BY_DIRECTION;
+  implementType?: ORDER_BY_DIRECTION;
   spot?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
   backSideLayoutId?: ORDER_BY_DIRECTION;
@@ -141,6 +145,24 @@ export interface TruckWhere {
         not?: TRUCK_SPOT;
         in?: TRUCK_SPOT[];
         notIn?: TRUCK_SPOT[];
+      }
+    | null;
+  category?:
+    | TRUCK_CATEGORY
+    | {
+        equals?: TRUCK_CATEGORY;
+        not?: TRUCK_CATEGORY;
+        in?: TRUCK_CATEGORY[];
+        notIn?: TRUCK_CATEGORY[];
+      }
+    | null;
+  implementType?:
+    | IMPLEMENT_TYPE
+    | {
+        equals?: IMPLEMENT_TYPE;
+        not?: IMPLEMENT_TYPE;
+        in?: IMPLEMENT_TYPE[];
+        notIn?: IMPLEMENT_TYPE[];
       }
     | null;
 

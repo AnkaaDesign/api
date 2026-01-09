@@ -10,7 +10,7 @@ import {
   NotificationPreferenceCreateFormData,
   NotificationPreferenceUpdateFormData,
 } from '../../../schemas';
-import { Prisma } from '@prisma/client';
+import { Prisma, NotificationType } from '@prisma/client';
 import {
   DEFAULT_NOTIFICATION_SETTINGS,
   ALERT_TYPE,
@@ -93,7 +93,7 @@ export class NotificationPreferenceService {
       }
 
       const createData: Prisma.NotificationPreferenceCreateInput = {
-        notificationType: data.notificationType,
+        notificationType: data.notificationType as NotificationType,
         enabled: data.enabled,
         channels: data.channels,
         importance: data.importance,
@@ -170,7 +170,7 @@ export class NotificationPreferenceService {
       }
 
       const updateData: Prisma.NotificationPreferenceUpdateInput = {
-        ...(data.notificationType !== undefined && { notificationType: data.notificationType }),
+        ...(data.notificationType !== undefined && { notificationType: data.notificationType as NotificationType }),
         ...(data.enabled !== undefined && { enabled: data.enabled }),
         ...(data.channels !== undefined && { channels: data.channels }),
         ...(data.importance !== undefined && { importance: data.importance }),
@@ -248,13 +248,10 @@ export class NotificationPreferenceService {
 
       for (const [alertType, settings] of Object.entries(DEFAULT_NOTIFICATION_SETTINGS)) {
         const createData: Prisma.NotificationPreferenceCreateInput = {
-          notificationType: alertType,
+          notificationType: alertType as NotificationType,
           enabled: true,
           channels: settings.channels as NOTIFICATION_CHANNEL[],
           importance: settings.importance as NOTIFICATION_IMPORTANCE,
-          preferences: {
-            connect: { id: preferencesId },
-          },
         };
 
         const preference = await this.notificationPreferenceRepository.createWithTransaction(
@@ -314,7 +311,7 @@ export class NotificationPreferenceService {
 
     for (const update of updates) {
       const createData: Prisma.NotificationPreferenceCreateInput = {
-        notificationType: update.notificationType,
+        notificationType: update.notificationType as NotificationType,
         enabled: update.enabled ?? true,
         channels: update.channels ?? [],
         importance: update.importance ?? NOTIFICATION_IMPORTANCE.NORMAL,
@@ -355,7 +352,7 @@ export class NotificationPreferenceService {
       }
 
       const createData: Prisma.NotificationPreferenceCreateManyInput[] = data.map(item => ({
-        notificationType: item.notificationType,
+        notificationType: item.notificationType as NotificationType,
         enabled: item.enabled,
         channels: item.channels,
         importance: item.importance,
@@ -370,7 +367,7 @@ export class NotificationPreferenceService {
       const createdPreferences = await tx.notificationPreference.findMany({
         where: {
           notificationType: {
-            in: data.map(item => item.notificationType),
+            in: data.map(item => item.notificationType as NotificationType),
           },
         },
         orderBy: {

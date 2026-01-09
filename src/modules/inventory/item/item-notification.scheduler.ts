@@ -165,33 +165,10 @@ export class ItemNotificationScheduler {
         },
         select: {
           id: true,
-          preferences: {
-            select: {
-              notificationPreferences: {
-                where: {
-                  notificationType: NOTIFICATION_TYPE.STOCK,
-                },
-                select: {
-                  enabled: true,
-                },
-              },
-            },
-          },
         },
       });
 
-      const targetUserIds = users
-        .filter(user => {
-          if (!user.preferences || !user.preferences.notificationPreferences) {
-            return true;
-          }
-          const stockPreferences = user.preferences.notificationPreferences;
-          if (stockPreferences.length === 0) {
-            return true;
-          }
-          return stockPreferences.some(pref => pref.enabled);
-        })
-        .map(user => user.id);
+      const targetUserIds = users.map(user => user.id);
 
       return targetUserIds;
     } catch (error) {

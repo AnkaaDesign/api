@@ -6,7 +6,7 @@ export interface NotificationDelivery {
   id: string;
   notificationId: string;
   channel: NOTIFICATION_CHANNEL;
-  status: 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
+  status: 'PENDING' | 'PROCESSING' | 'DELIVERED' | 'FAILED' | 'RETRYING';
   sentAt: Date | null;
   deliveredAt: Date | null;
   failedAt: Date | null;
@@ -19,7 +19,7 @@ export interface NotificationDelivery {
 export interface CreateDeliveryData {
   notificationId: string;
   channel: NOTIFICATION_CHANNEL;
-  status?: 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
+  status?: 'PENDING' | 'PROCESSING' | 'DELIVERED' | 'FAILED' | 'RETRYING';
   sentAt?: Date;
   deliveredAt?: Date;
   failedAt?: Date;
@@ -28,7 +28,7 @@ export interface CreateDeliveryData {
 }
 
 export interface UpdateDeliveryData {
-  status?: 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED';
+  status?: 'PENDING' | 'PROCESSING' | 'DELIVERED' | 'FAILED' | 'RETRYING';
   sentAt?: Date;
   deliveredAt?: Date;
   failedAt?: Date;
@@ -108,7 +108,7 @@ export class NotificationDeliveryRepository {
     return this.prisma.notificationDelivery.update({
       where: { id },
       data: {
-        status: 'SENT',
+        status: 'PROCESSING',
         sentAt: new Date(),
       },
     }) as Promise<NotificationDelivery>;

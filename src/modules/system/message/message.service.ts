@@ -11,11 +11,9 @@ import {
   CreateMessageDto,
   UpdateMessageDto,
   FilterMessageDto,
-  MESSAGE_TARGET_TYPE,
-  MESSAGE_PRIORITY,
 } from './dto';
 
-import type { Message, MessageView, MessageTarget, MessageStatus, MessageTargetType } from '@prisma/client';
+import type { Message, MessageView, MessageTarget, MessageStatus } from '@prisma/client';
 
 // Extended message type with relations
 type MessageWithRelations = Message & {
@@ -31,35 +29,79 @@ export class MessageService {
 
   /**
    * Validate message content blocks
+   * Handles both array and object formats (object with numeric keys gets converted to array)
    */
-  private validateContentBlocks(contentBlocks: any[]): void {
-    if (!contentBlocks || !Array.isArray(contentBlocks) || contentBlocks.length === 0) {
+  private validateContentBlocks(contentBlocks: any[] | any): void {
+    // Convert object with numeric keys to array if needed
+    // This handles cases where body parser converts arrays to objects
+    let blocksArray: any[];
+
+    if (!contentBlocks) {
       throw new BadRequestException('At least one content block is required');
     }
 
-    for (const block of contentBlocks) {
-      if (!block.type || !block.content) {
-        throw new BadRequestException('Each content block must have type and content');
+    if (Array.isArray(contentBlocks)) {
+      blocksArray = contentBlocks;
+    } else if (typeof contentBlocks === 'object') {
+      // Check if it's an object with numeric keys (array-like)
+      const keys = Object.keys(contentBlocks);
+      const isArrayLike = keys.every(key => /^\d+$/.test(key));
+
+      if (isArrayLike && keys.length > 0) {
+        // Convert to array, sorting by numeric key
+        blocksArray = keys
+          .sort((a, b) => parseInt(a) - parseInt(b))
+          .map(key => contentBlocks[key]);
+      } else {
+        throw new BadRequestException('Content blocks must be an array');
+      }
+    } else {
+      throw new BadRequestException('Content blocks must be an array');
+    }
+
+    if (blocksArray.length === 0) {
+      throw new BadRequestException('At least one content block is required');
+    }
+
+    for (const block of blocksArray) {
+      if (!block.id || !block.type) {
+        throw new BadRequestException('Each content block must have id and type');
+      }
+      // Note: Different block types have different structures
+      // - Text blocks (paragraph, heading, quote, callout): have 'content' field (array or string)
+      // - Image blocks: have 'url' field
+      // - Button blocks: have 'text' and 'url' fields
+      // - Divider blocks: no additional data needed
+      // - List blocks: have 'items' array
+      // We validate that required data exists based on type
+      if (['paragraph', 'heading1', 'heading2', 'heading3', 'quote', 'callout'].includes(block.type)) {
+        // Content can be either array (rich text) or string (plain text) - both are valid
+        if (!block.content) {
+          throw new BadRequestException(`Block type ${block.type} requires a content field`);
+        }
+      } else if (block.type === 'image') {
+        if (!block.url || typeof block.url !== 'string') {
+          throw new BadRequestException('Image blocks require a url field');
+        }
+      } else if (block.type === 'button') {
+        if (!block.text || !block.url) {
+          throw new BadRequestException('Button blocks require text and url fields');
+        }
+      } else if (block.type === 'list') {
+        if (!block.items || !Array.isArray(block.items)) {
+          throw new BadRequestException('List blocks require an items array');
+        }
+      } else if (!['divider', 'quote'].includes(block.type)) {
+        // For unknown types, just log a warning but don't fail
+        this.logger.warn(`Unknown block type: ${block.type}`);
       }
     }
   }
 
   /**
-   * Validate targeting logic
+   * Validate scheduling dates
    */
-  private validateTargeting(data: CreateMessageDto | UpdateMessageDto): void {
-    if (data.targetType === MESSAGE_TARGET_TYPE.SPECIFIC_USERS) {
-      if (!data.targetUserIds || data.targetUserIds.length === 0) {
-        throw new BadRequestException('targetUserIds is required when targetType is SPECIFIC_USERS');
-      }
-    }
-
-    if (data.targetType === MESSAGE_TARGET_TYPE.SPECIFIC_ROLES) {
-      if (!data.targetRoles || data.targetRoles.length === 0) {
-        throw new BadRequestException('targetRoles is required when targetType is SPECIFIC_ROLES');
-      }
-    }
-
+  private validateScheduling(data: CreateMessageDto | UpdateMessageDto): void {
     if (data.startsAt && data.endsAt) {
       const start = new Date(data.startsAt);
       const end = new Date(data.endsAt);
@@ -71,6 +113,7 @@ export class MessageService {
 
   /**
    * Check if user is allowed to view a message based on targeting
+   * SIMPLIFIED: Now just checks if message is active and if user is in targets
    */
   private async canUserViewMessage(message: MessageWithRelations, userId: string, userRole: string): Promise<boolean> {
     // Check if message is active
@@ -87,82 +130,29 @@ export class MessageService {
       return false;
     }
 
-    // Check targeting based on targetingType
-    switch (message.targetingType) {
-      case 'ALL_USERS':
-        return true;
+    // Check targeting:
+    // - No targets = ALL_USERS (everyone can see)
+    // - Has targets = SPECIFIC_USERS (only those in targets can see)
 
-      case 'SPECIFIC_USERS':
-        // Check if user is in the targets
-        if (message.targets) {
-          return message.targets.some(t => t.userId === userId);
-        }
-        // Fallback: query targets
-        const userTarget = await this.prisma.messageTarget.findFirst({
-          where: {
-            messageId: message.id,
-            userId: userId,
-          },
-        });
-        return !!userTarget;
-
-      case 'SECTOR':
-        // Check if user's sector matches
-        const user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { sectorId: true },
-        });
-        if (!user?.sectorId) return false;
-        if (message.targets) {
-          return message.targets.some(t => t.sectorId === user.sectorId);
-        }
-        const sectorTarget = await this.prisma.messageTarget.findFirst({
-          where: {
-            messageId: message.id,
-            sectorId: user.sectorId,
-          },
-        });
-        return !!sectorTarget;
-
-      case 'POSITION':
-        // Check if user's position matches
-        const userWithPosition = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { positionId: true },
-        });
-        if (!userWithPosition?.positionId) return false;
-        if (message.targets) {
-          return message.targets.some(t => t.positionId === userWithPosition.positionId);
-        }
-        const positionTarget = await this.prisma.messageTarget.findFirst({
-          where: {
-            messageId: message.id,
-            positionId: userWithPosition.positionId,
-          },
-        });
-        return !!positionTarget;
-
-      case 'PRIVILEGE':
-        // Check if user's sector privilege matches
-        const userWithSector = await this.prisma.user.findUnique({
-          where: { id: userId },
-          include: { sector: true },
-        });
-        if (!userWithSector?.sector?.privileges) return false;
-        if (message.targets) {
-          return message.targets.some(t => t.sectorPrivilege === userWithSector.sector?.privileges);
-        }
-        const privilegeTarget = await this.prisma.messageTarget.findFirst({
-          where: {
-            messageId: message.id,
-            sectorPrivilege: userWithSector.sector.privileges,
-          },
-        });
-        return !!privilegeTarget;
-
-      default:
-        return false;
+    // If no targets, message is for ALL_USERS
+    if (!message.targets || message.targets.length === 0) {
+      return true;
     }
+
+    // Check if user is in the targets
+    if (message.targets) {
+      return message.targets.some(t => t.userId === userId);
+    }
+
+    // Fallback: query targets
+    const userTarget = await this.prisma.messageTarget.findFirst({
+      where: {
+        messageId: message.id,
+        userId: userId,
+      },
+    });
+
+    return !!userTarget;
   }
 
   /**
@@ -172,48 +162,83 @@ export class MessageService {
     this.logger.log(`Creating message: ${data.title}`);
 
     try {
+      // Log the raw incoming data for debugging
+      this.logger.log(`[create] RAW data received:`, JSON.stringify(data, null, 2));
+      this.logger.log(`[create] contentBlocks type: ${typeof data.contentBlocks}, isArray: ${Array.isArray(data.contentBlocks)}`);
+
+      if (Array.isArray(data.contentBlocks) && data.contentBlocks.length > 0) {
+        this.logger.log(`[create] First block:`, JSON.stringify(data.contentBlocks[0]));
+        this.logger.log(`[create] All blocks:`, JSON.stringify(data.contentBlocks));
+      }
+
       this.validateContentBlocks(data.contentBlocks);
-      this.validateTargeting(data);
+      this.validateScheduling(data);
 
-      const message = await this.prisma.$queryRaw<Message[]>`
-        INSERT INTO "Message" (
-          id,
-          title,
-          "contentBlocks",
-          "targetType",
-          "targetUserIds",
-          "targetRoles",
-          priority,
-          "isActive",
-          "startsAt",
-          "endsAt",
-          "actionUrl",
-          "actionText",
-          "createdAt",
-          "updatedAt",
-          "createdById"
-        ) VALUES (
-          gen_random_uuid(),
-          ${data.title},
-          ${JSON.stringify(data.contentBlocks)}::jsonb,
-          ${data.targetType},
-          ${data.targetUserIds ? `{${data.targetUserIds.join(',')}}` : null}::text[],
-          ${data.targetRoles ? `{${data.targetRoles.join(',')}}` : null}::text[],
-          ${data.priority || MESSAGE_PRIORITY.NORMAL},
-          ${data.isActive !== undefined ? data.isActive : true},
-          ${data.startsAt ? new Date(data.startsAt) : null},
-          ${data.endsAt ? new Date(data.endsAt) : null},
-          ${data.actionUrl || null},
-          ${data.actionText || null},
-          NOW(),
-          NOW(),
-          ${createdById}::uuid
-        )
-        RETURNING *
-      `;
+      // Normalize contentBlocks to array if it's an object with numeric keys
+      let contentBlocks: any[];
 
-      this.logger.log(`Message created successfully: ${message[0].id}`);
-      return message[0];
+      if (Array.isArray(data.contentBlocks)) {
+        contentBlocks = data.contentBlocks;
+        this.logger.log(`[create] Using contentBlocks as-is (array), length: ${contentBlocks.length}`);
+      } else if (typeof data.contentBlocks === 'object') {
+        const keys = Object.keys(data.contentBlocks);
+        const isArrayLike = keys.every(key => /^\d+$/.test(key));
+        if (isArrayLike) {
+          contentBlocks = keys
+            .sort((a, b) => parseInt(a) - parseInt(b))
+            .map(key => (data.contentBlocks as any)[key]);
+          this.logger.log(`[create] Converted object to array, length: ${contentBlocks.length}`);
+        } else {
+          contentBlocks = data.contentBlocks as any[];
+          this.logger.log(`[create] Using as-is (object treated as array)`);
+        }
+      } else {
+        contentBlocks = data.contentBlocks as any[];
+        this.logger.log(`[create] Using as-is (unknown type)`);
+      }
+
+      // Verify contentBlocks are not empty arrays
+      const hasEmptyBlocks = contentBlocks.some(block =>
+        Array.isArray(block) || (typeof block === 'object' && Object.keys(block).length === 0)
+      );
+      if (hasEmptyBlocks) {
+        this.logger.error(`[create] WARNING: Content blocks contain empty arrays or objects!`);
+        this.logger.error(`[create] Blocks: ${JSON.stringify(contentBlocks)}`);
+      }
+
+      // Get target user IDs (already resolved on frontend)
+      // Empty array = all users
+      const targetUserIds = data.targets || [];
+
+      // Create message using Prisma (matches schema)
+      // Store content as object with blocks array (frontend expects content.blocks)
+      const message = await this.prisma.message.create({
+        data: {
+          title: data.title,
+          content: { blocks: contentBlocks }, // Wrap blocks in object for frontend compatibility
+          status: data.isActive ? 'ACTIVE' : 'DRAFT',
+          startDate: data.startsAt ? new Date(data.startsAt) : null,
+          endDate: data.endsAt ? new Date(data.endsAt) : null,
+          createdById,
+          // Set publishedAt timestamp when creating ACTIVE messages
+          // This is required for messages to appear in getUnviewedForUser query
+          publishedAt: data.isActive ? new Date() : null,
+        },
+      });
+
+      // Create target records for specific users
+      // Empty targets = ALL_USERS (everyone can see)
+      if (targetUserIds.length > 0) {
+        await this.prisma.messageTarget.createMany({
+          data: targetUserIds.map(userId => ({
+            messageId: message.id,
+            userId,
+          })),
+        });
+      }
+
+      this.logger.log(`Message created successfully: ${message.id}`);
+      return message;
     } catch (error) {
       this.logger.error('Error creating message:', error);
       if (error instanceof BadRequestException) {
@@ -234,49 +259,41 @@ export class MessageService {
       const sortBy = filters.sortBy || 'createdAt';
       const sortOrder = filters.sortOrder || 'desc';
 
-      let whereConditions: string[] = [];
-      let params: any[] = [];
-      let paramIndex = 1;
-
-      if (filters.targetType !== undefined) {
-        whereConditions.push(`"targetType" = $${paramIndex++}`);
-        params.push(filters.targetType);
-      }
-
-      if (filters.priority !== undefined) {
-        whereConditions.push(`priority = $${paramIndex++}`);
-        params.push(filters.priority);
-      }
+      // Build where conditions using Prisma
+      const where: any = {};
 
       if (filters.isActive !== undefined) {
-        whereConditions.push(`"isActive" = $${paramIndex++}`);
-        params.push(filters.isActive);
+        where.status = filters.isActive ? 'ACTIVE' : 'DRAFT';
       }
 
       if (filters.visibleAt) {
         const visibleDate = new Date(filters.visibleAt);
-        whereConditions.push(
-          `("startsAt" IS NULL OR "startsAt" <= $${paramIndex}) AND ("endsAt" IS NULL OR "endsAt" >= $${paramIndex})`
-        );
-        params.push(visibleDate);
-        paramIndex++;
+        where.AND = [
+          {
+            OR: [
+              { startDate: null },
+              { startDate: { lte: visibleDate } },
+            ],
+          },
+          {
+            OR: [
+              { endDate: null },
+              { endDate: { gte: visibleDate } },
+            ],
+          },
+        ];
       }
 
-      const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+      // Count total
+      const total = await this.prisma.message.count({ where });
 
-      // Count query
-      const countQuery = `SELECT COUNT(*)::int as count FROM "Message" ${whereClause}`;
-      const countResult = await this.prisma.$queryRawUnsafe<{ count: number }[]>(countQuery, ...params);
-      const total = countResult[0]?.count || 0;
-
-      // Data query
-      const dataQuery = `
-        SELECT * FROM "Message"
-        ${whereClause}
-        ORDER BY "${sortBy}" ${sortOrder.toUpperCase()}
-        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-      `;
-      const data = await this.prisma.$queryRawUnsafe<Message[]>(dataQuery, ...params, limit, offset);
+      // Fetch data
+      const data = await this.prisma.message.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip: offset,
+        take: limit,
+      });
 
       return {
         data,
@@ -325,94 +342,92 @@ export class MessageService {
 
     try {
       // Check if message exists
-      await this.findOne(id);
+      const existingMessage = await this.findOne(id);
 
       if (data.contentBlocks) {
         this.validateContentBlocks(data.contentBlocks);
       }
 
-      if (data.targetType || data.targetUserIds || data.targetRoles) {
-        this.validateTargeting(data as CreateMessageDto);
+      if (data.startsAt || data.endsAt) {
+        this.validateScheduling(data);
       }
 
-      const updateFields: string[] = [];
-      const params: any[] = [];
-      let paramIndex = 1;
+      // Normalize contentBlocks to array if needed
+      let contentBlocks: any[] | undefined;
+      if (data.contentBlocks) {
+        if (Array.isArray(data.contentBlocks)) {
+          contentBlocks = data.contentBlocks;
+        } else if (typeof data.contentBlocks === 'object') {
+          const keys = Object.keys(data.contentBlocks);
+          const isArrayLike = keys.every(key => /^\d+$/.test(key));
+          if (isArrayLike) {
+            contentBlocks = keys
+              .sort((a, b) => parseInt(a) - parseInt(b))
+              .map(key => (data.contentBlocks as any)[key]);
+          }
+        }
+      }
+
+      // Build update data object
+      const updateData: any = {};
 
       if (data.title !== undefined) {
-        updateFields.push(`title = $${paramIndex++}`);
-        params.push(data.title);
+        updateData.title = data.title;
       }
 
-      if (data.contentBlocks !== undefined) {
-        updateFields.push(`"contentBlocks" = $${paramIndex++}::jsonb`);
-        params.push(JSON.stringify(data.contentBlocks));
-      }
-
-      if (data.targetType !== undefined) {
-        updateFields.push(`"targetType" = $${paramIndex++}`);
-        params.push(data.targetType);
-      }
-
-      if (data.targetUserIds !== undefined) {
-        updateFields.push(`"targetUserIds" = $${paramIndex++}::text[]`);
-        params.push(data.targetUserIds ? `{${data.targetUserIds.join(',')}}` : null);
-      }
-
-      if (data.targetRoles !== undefined) {
-        updateFields.push(`"targetRoles" = $${paramIndex++}::text[]`);
-        params.push(data.targetRoles ? `{${data.targetRoles.join(',')}}` : null);
-      }
-
-      if (data.priority !== undefined) {
-        updateFields.push(`priority = $${paramIndex++}`);
-        params.push(data.priority);
+      if (contentBlocks !== undefined) {
+        updateData.content = { blocks: contentBlocks }; // Wrap blocks in object for frontend compatibility
       }
 
       if (data.isActive !== undefined) {
-        updateFields.push(`"isActive" = $${paramIndex++}`);
-        params.push(data.isActive);
+        updateData.status = data.isActive ? 'ACTIVE' : 'DRAFT';
+
+        // Set publishedAt when activating a message for the first time
+        if (data.isActive && !existingMessage.publishedAt) {
+          updateData.publishedAt = new Date();
+        }
+        // Clear publishedAt when setting to draft
+        if (!data.isActive && existingMessage.publishedAt) {
+          updateData.publishedAt = null;
+        }
       }
 
       if (data.startsAt !== undefined) {
-        updateFields.push(`"startsAt" = $${paramIndex++}`);
-        params.push(data.startsAt ? new Date(data.startsAt) : null);
+        updateData.startDate = data.startsAt ? new Date(data.startsAt) : null;
       }
 
       if (data.endsAt !== undefined) {
-        updateFields.push(`"endsAt" = $${paramIndex++}`);
-        params.push(data.endsAt ? new Date(data.endsAt) : null);
+        updateData.endDate = data.endsAt ? new Date(data.endsAt) : null;
       }
 
-      if (data.actionUrl !== undefined) {
-        updateFields.push(`"actionUrl" = $${paramIndex++}`);
-        params.push(data.actionUrl);
+      // Update message using Prisma
+      const message = await this.prisma.message.update({
+        where: { id },
+        data: updateData,
+      });
+
+      // Update targets if provided (frontend already resolved to user IDs)
+      if (data.targets !== undefined) {
+        const targetUserIds = data.targets || [];
+
+        // Delete existing targets
+        await this.prisma.messageTarget.deleteMany({
+          where: { messageId: id },
+        });
+
+        // Create new targets (empty = ALL_USERS)
+        if (targetUserIds.length > 0) {
+          await this.prisma.messageTarget.createMany({
+            data: targetUserIds.map(userId => ({
+              messageId: id,
+              userId,
+            })),
+          });
+        }
       }
-
-      if (data.actionText !== undefined) {
-        updateFields.push(`"actionText" = $${paramIndex++}`);
-        params.push(data.actionText);
-      }
-
-      updateFields.push(`"updatedAt" = NOW()`);
-
-      if (updateFields.length === 1) {
-        // Only updatedAt field, nothing to update
-        return this.findOne(id);
-      }
-
-      const query = `
-        UPDATE "Message"
-        SET ${updateFields.join(', ')}
-        WHERE id = $${paramIndex}::uuid
-        RETURNING *
-      `;
-      params.push(id);
-
-      const result = await this.prisma.$queryRawUnsafe<Message[]>(query, ...params);
 
       this.logger.log(`Message updated successfully: ${id}`);
-      return result[0];
+      return message;
     } catch (error) {
       this.logger.error('Error updating message:', error);
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
@@ -461,7 +476,8 @@ export class MessageService {
 
       const now = new Date();
 
-      // Find all active messages that the user hasn't viewed
+      // Find all active messages that the user hasn't viewed or dismissed
+      // Exclude ANY message that has been viewed (even if not dismissed) to prevent repeated showing
       const allMessages = await this.prisma.message.findMany({
         where: {
           status: 'ACTIVE',
@@ -478,6 +494,8 @@ export class MessageService {
               ],
             },
           ],
+          // Exclude messages that have been viewed OR dismissed by this user
+          // This prevents the modal from showing the same message repeatedly
           views: {
             none: {
               userId: userId,
@@ -488,7 +506,6 @@ export class MessageService {
           targets: true,
         },
         orderBy: [
-          { priorityOrder: 'desc' },
           { createdAt: 'desc' },
         ],
       });
@@ -499,10 +516,26 @@ export class MessageService {
       const filteredMessages: Message[] = [];
       for (const message of allMessages) {
         const canView = await this.canUserViewMessage(message, userId, userRole);
-        this.logger.log(`[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}, targetingType=${message.targetingType}`);
+        this.logger.log(`[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}`);
         if (canView) {
-          // Remove targets from response to avoid circular reference
-          const { targets, ...messageWithoutTargets } = message;
+          // Create a clean message object without targets
+          const messageWithoutTargets = {
+            id: message.id,
+            title: message.title,
+            content: message.content,
+            status: message.status,
+            statusOrder: message.statusOrder,
+            startDate: message.startDate,
+            endDate: message.endDate,
+            createdById: message.createdById,
+            metadata: message.metadata,
+            isDismissible: message.isDismissible,
+            requiresView: message.requiresView,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+            publishedAt: message.publishedAt,
+            archivedAt: message.archivedAt,
+          };
           filteredMessages.push(messageWithoutTargets as Message);
         }
       }
@@ -574,12 +607,78 @@ export class MessageService {
   }
 
   /**
+   * Mark message as dismissed (don't show again)
+   */
+  async dismissMessage(messageId: string, userId: string, userRole: string): Promise<MessageView> {
+    this.logger.log(`Dismissing message ${messageId} for user ${userId}`);
+
+    try {
+      // Get message with targets and verify user can view it
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        include: { targets: true },
+      });
+
+      if (!message) {
+        throw new NotFoundException(`Message with ID ${messageId} not found`);
+      }
+
+      const canView = await this.canUserViewMessage(message, userId, userRole);
+
+      if (!canView) {
+        throw new ForbiddenException('You do not have permission to view this message');
+      }
+
+      // Check if already viewed
+      const existingView = await this.prisma.messageView.findUnique({
+        where: {
+          userId_messageId: {
+            userId: userId,
+            messageId: messageId,
+          },
+        },
+      });
+
+      if (existingView) {
+        // Update existing view to mark as dismissed
+        const updatedView = await this.prisma.messageView.update({
+          where: { id: existingView.id },
+          data: { dismissedAt: new Date() },
+        });
+
+        this.logger.log(`Message ${messageId} dismissed by user ${userId}`);
+        return updatedView;
+      }
+
+      // Create view record with dismissal
+      const view = await this.prisma.messageView.create({
+        data: {
+          messageId: messageId,
+          userId: userId,
+          viewedAt: new Date(),
+          dismissedAt: new Date(),
+        },
+      });
+
+      this.logger.log(`Message ${messageId} dismissed by user ${userId}`);
+      return view;
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      this.logger.error('Error dismissing message:', error);
+      throw new InternalServerErrorException('Failed to dismiss message');
+    }
+  }
+
+  /**
    * Get message statistics (admin only)
    */
   async getStats(messageId: string): Promise<{
     totalViews: number;
     uniqueViewers: number;
     targetedUsers: number;
+    totalDismissals: number;
   }> {
     try {
       const message = await this.prisma.message.findUnique({
@@ -599,58 +698,23 @@ export class MessageService {
 
       let targetedUsers = 0;
 
-      switch (message.targetingType) {
-        case 'ALL_USERS':
-          targetedUsers = await this.prisma.user.count({ where: { isActive: true } });
-          break;
-
-        case 'SPECIFIC_USERS':
-          targetedUsers = message.targets?.filter(t => t.userId).length || 0;
-          break;
-
-        case 'SECTOR':
-          const sectorIds = message.targets?.map(t => t.sectorId).filter(Boolean) as string[];
-          if (sectorIds.length > 0) {
-            targetedUsers = await this.prisma.user.count({
-              where: {
-                isActive: true,
-                sectorId: { in: sectorIds },
-              },
-            });
-          }
-          break;
-
-        case 'POSITION':
-          const positionIds = message.targets?.map(t => t.positionId).filter(Boolean) as string[];
-          if (positionIds.length > 0) {
-            targetedUsers = await this.prisma.user.count({
-              where: {
-                isActive: true,
-                positionId: { in: positionIds },
-              },
-            });
-          }
-          break;
-
-        case 'PRIVILEGE':
-          const privileges = message.targets?.map(t => t.sectorPrivilege).filter(Boolean);
-          if (privileges && privileges.length > 0) {
-            targetedUsers = await this.prisma.user.count({
-              where: {
-                isActive: true,
-                sector: {
-                  privileges: { in: privileges },
-                },
-              },
-            });
-          }
-          break;
+      // Simplified: no targets = ALL_USERS, has targets = count of targets
+      if (!message.targets || message.targets.length === 0) {
+        // ALL_USERS
+        targetedUsers = await this.prisma.user.count({ where: { isActive: true } });
+      } else {
+        // SPECIFIC_USERS (count unique user IDs in targets)
+        targetedUsers = message.targets.length;
       }
+
+      // Count dismissals (messages marked as "don't show again")
+      const totalDismissals = message.views?.filter(v => v.dismissedAt !== null).length || 0;
 
       return {
         totalViews,
         uniqueViewers,
         targetedUsers,
+        totalDismissals,
       };
     } catch (error) {
       if (error instanceof NotFoundException) {

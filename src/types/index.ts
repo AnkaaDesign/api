@@ -38,6 +38,7 @@ export * from './serviceOrder';
 export * from './summary';
 export * from './supplier';
 export * from './task';
+export * from './truck';
 export * from './user';
 export * from './vacation';
 export * from './verification';

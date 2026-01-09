@@ -58,7 +58,9 @@ export class ServiceOrderPrismaRepository
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
       description: databaseEntity.description,
+      type: databaseEntity.type,
       taskId: databaseEntity.taskId,
+      assignedToId: databaseEntity.assignedToId,
       startedAt: databaseEntity.startedAt,
       finishedAt: databaseEntity.finishedAt,
       createdAt: databaseEntity.createdAt,
@@ -71,7 +73,7 @@ export class ServiceOrderPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ServiceOrderCreateFormData,
   ): Prisma.ServiceOrderCreateInput {
-    const { taskId, status, ...rest } = formData;
+    const { taskId, status, type, ...rest } = formData;
 
     // Validate required fields
     if (!formData.description) {
@@ -86,6 +88,7 @@ export class ServiceOrderPrismaRepository
       description: formData.description || '', // Ensure description is provided
       status: mapServiceOrderStatusToPrisma(status || SERVICE_ORDER_STATUS.PENDING),
       statusOrder: getServiceOrderStatusOrder(status || SERVICE_ORDER_STATUS.PENDING),
+      ...(type !== undefined && { type: type as any }),
       task: {
         connect: { id: taskId },
       },
@@ -97,10 +100,11 @@ export class ServiceOrderPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: ServiceOrderUpdateFormData,
   ): Prisma.ServiceOrderUpdateInput {
-    const { taskId, status, ...rest } = formData;
+    const { taskId, status, type, ...rest } = formData;
 
     const updateInput: Prisma.ServiceOrderUpdateInput = {
       ...rest,
+      ...(type !== undefined && { type: type as any }),
     };
 
     if (status) {

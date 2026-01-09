@@ -41,9 +41,13 @@ export interface TaskFieldChangedEvent {
 
 /**
  * Fields that should be tracked for changes
+ * NOTE: 'status' field is excluded because it has its own dedicated
+ * event handler (task.status.changed) in task.service.ts that provides
+ * richer context and better notification formatting. Including it here
+ * would cause duplicate notifications.
  */
 const TRACKED_FIELDS = [
-  'status',
+  // 'status', // EXCLUDED - Has dedicated task.status.changed event handler
   'term',
   'forecastDate',
   'sectorId',
@@ -62,6 +66,16 @@ const TRACKED_FIELDS = [
   'invoiceToId',
   'paintId',
   'serialNumber',
+  // Truck fields (will be tracked when truck is updated as part of task)
+  'truck.plate',
+  'truck.chassisNumber',
+  'truck.category',
+  'truck.implementType',
+  'truck.spot',
+  // Truck layout references (tracks when layouts are assigned/changed)
+  'truck.leftSideLayoutId',
+  'truck.rightSideLayoutId',
+  'truck.backSideLayoutId',
 ] as const;
 
 /**
@@ -109,8 +123,18 @@ export class TaskFieldTrackerService {
     this.logger.debug(`Tracking changes for task ${taskId} by user ${userId}`);
 
     for (const field of TRACKED_FIELDS) {
-      const oldValue = (oldTask as any)[field];
-      const newValue = (newTask as any)[field];
+      // Handle nested fields (e.g., 'truck.plate')
+      let oldValue: any;
+      let newValue: any;
+
+      if (field.includes('.')) {
+        const [parent, child] = field.split('.');
+        oldValue = (oldTask as any)[parent]?.[child];
+        newValue = (newTask as any)[parent]?.[child];
+      } else {
+        oldValue = (oldTask as any)[field];
+        newValue = (newTask as any)[field];
+      }
 
       if (this.hasChanged(oldValue, newValue, field)) {
         changes.push({
@@ -260,31 +284,48 @@ export class TaskFieldTrackerService {
    */
   private hasObjectChanged(oldObj: any, newObj: any): boolean {
     try {
-      // Get all keys from both objects
-      const oldKeys = Object.keys(oldObj || {}).sort();
-      const newKeys = Object.keys(newObj || {}).sort();
+      // Both null/undefined = no change
+      if (!oldObj && !newObj) return false;
 
-      // Different number of keys = changed
-      if (oldKeys.length !== newKeys.length) {
-        return true;
-      }
+      // One null and other not = changed
+      if ((!oldObj && newObj) || (oldObj && !newObj)) return true;
 
-      // Check if all keys are the same
-      if (!oldKeys.every((key, index) => key === newKeys[index])) {
-        return true;
-      }
+      // For JSON fields (like negotiatingWith), use stable JSON comparison
+      // to avoid false positives from object instance differences
+      const sortedOldJson = JSON.stringify(oldObj, Object.keys(oldObj || {}).sort());
+      const sortedNewJson = JSON.stringify(newObj, Object.keys(newObj || {}).sort());
 
-      // Compare values for each key
-      for (const key of oldKeys) {
-        if (this.hasChanged(oldObj[key], newObj[key])) {
+      return sortedOldJson !== sortedNewJson;
+    } catch (error) {
+      this.logger.warn('Failed to compare objects with JSON stringify, comparing values directly');
+
+      try {
+        // Fallback: compare key by key
+        const oldKeys = Object.keys(oldObj || {}).sort();
+        const newKeys = Object.keys(newObj || {}).sort();
+
+        // Different number of keys = changed
+        if (oldKeys.length !== newKeys.length) {
           return true;
         }
-      }
 
-      return false;
-    } catch (error) {
-      this.logger.warn('Failed to compare objects, falling back to JSON comparison');
-      return JSON.stringify(oldObj) !== JSON.stringify(newObj);
+        // Check if all keys are the same
+        if (!oldKeys.every((key, index) => key === newKeys[index])) {
+          return true;
+        }
+
+        // Compare values for each key using strict equality
+        for (const key of oldKeys) {
+          if (oldObj[key] !== newObj[key]) {
+            return true;
+          }
+        }
+
+        return false;
+      } catch (fallbackError) {
+        this.logger.error('Both JSON and direct comparison failed, assuming changed');
+        return true; // If all else fails, assume changed
+      }
     }
   }
 

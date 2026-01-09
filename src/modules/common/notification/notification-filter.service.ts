@@ -99,16 +99,17 @@ export class NotificationFilterService {
    */
   private readonly SECTOR_PRIVILEGES_LEVELS: Record<SECTOR_PRIVILEGES, number> = {
     [SECTOR_PRIVILEGES.BASIC]: 1,
-    [SECTOR_PRIVILEGES.PRODUCTION]: 2,
-    [SECTOR_PRIVILEGES.MAINTENANCE]: 3,
-    [SECTOR_PRIVILEGES.WAREHOUSE]: 4,
-    [SECTOR_PRIVILEGES.DESIGNER]: 5,
-    [SECTOR_PRIVILEGES.LOGISTIC]: 5,
+    [SECTOR_PRIVILEGES.PRODUCTION]: 6,
+    [SECTOR_PRIVILEGES.MAINTENANCE]: 4,
+    [SECTOR_PRIVILEGES.WAREHOUSE]: 5,
+    [SECTOR_PRIVILEGES.PLOTTING]: 7,
+    [SECTOR_PRIVILEGES.DESIGNER]: 3,
+    [SECTOR_PRIVILEGES.LOGISTIC]: 6,
     [SECTOR_PRIVILEGES.FINANCIAL]: 6,
-    [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 7,
+    [SECTOR_PRIVILEGES.COMMERCIAL]: 7,
+    [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 9,
     [SECTOR_PRIVILEGES.ADMIN]: 10,
     [SECTOR_PRIVILEGES.EXTERNAL]: 0, // External users have no privilege level
-    [SECTOR_PRIVILEGES.LEADER]: 8, // Leaders have elevated privileges
   };
 
   /**
@@ -320,9 +321,10 @@ export class NotificationFilterService {
     }
 
     // Step 2: If notification is mandatory, skip preference check
-    if (notification.isMandatory) {
-      return true;
-    }
+    // NOTE: isMandatory property doesn't exist in Notification model
+    // if (notification.isMandatory) {
+    //   return true;
+    // }
 
     // Step 3: Check user preferences (if enabled)
     if (checkPreferences && this.preferenceService) {
@@ -601,7 +603,7 @@ export class NotificationFilterService {
         },
       });
 
-      return users;
+      return users as User[];
     } catch (error) {
       this.logger.error(`Error fetching users for sectors: ${error.message}`);
       return [];
@@ -625,7 +627,7 @@ export class NotificationFilterService {
         },
       });
 
-      return users;
+      return users as User[];
     } catch (error) {
       this.logger.error(`Error fetching all active users: ${error.message}`);
       return [];
@@ -709,7 +711,7 @@ export class NotificationFilterService {
         },
       });
 
-      return users;
+      return users as User[];
     } catch (error) {
       this.logger.error(`Error fetching users for task notification: ${error.message}`);
       return [];
@@ -816,7 +818,7 @@ export class NotificationFilterService {
         });
 
         if (specificUser && !sectorUsers.find(u => u.id === specificUser.id)) {
-          sectorUsers.push(specificUser);
+          sectorUsers.push(specificUser as User);
         }
       } catch (error) {
         this.logger.error(`Error fetching specific user for PPE notification: ${error.message}`);
@@ -854,7 +856,7 @@ export class NotificationFilterService {
         });
 
         if (specificUser && !sectorUsers.find(u => u.id === specificUser.id)) {
-          sectorUsers.push(specificUser);
+          sectorUsers.push(specificUser as User);
         }
       } catch (error) {
         this.logger.error(
@@ -894,7 +896,7 @@ export class NotificationFilterService {
         });
 
         if (specificUser && !sectorUsers.find(u => u.id === specificUser.id)) {
-          sectorUsers.push(specificUser);
+          sectorUsers.push(specificUser as User);
         }
       } catch (error) {
         this.logger.error(

@@ -117,17 +117,31 @@ export class PushProcessor {
 
       // Step 4: Prepare push notification data
       await job.progress(40);
+      // Extract mobile URL from metadata for push notifications
+      // Push notifications should use universal links or mobile URLs (opens in mobile app)
+      let pushActionUrl = actionUrl;
+
+      if (metadata) {
+        // Prefer universal link (HTTPS URL that opens mobile app) for push notifications
+        // Falls back to mobile deep link, then to web URL
+        if (metadata.universalLink) {
+          pushActionUrl = metadata.universalLink;
+        } else if (metadata.mobileUrl) {
+          pushActionUrl = metadata.mobileUrl;
+        }
+      }
+
       const pushData = {
         title,
         body,
         data: {
           notificationId,
-          actionUrl,
+          actionUrl: pushActionUrl,
           ...data,
           ...metadata,
         },
         imageUrl,
-        actionUrl,
+        actionUrl: pushActionUrl,
       };
 
       // Step 5: Send push notification using PushService

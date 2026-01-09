@@ -11,8 +11,9 @@ import { Request } from 'express';
 import { ROLES_KEY } from './decorators/roles.decorator';
 import { IS_PUBLIC_KEY } from './decorators/public.decorator';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
-import { USER_STATUS, SECTOR_PRIVILEGES } from '../../../constants';
+import { USER_STATUS, SECTOR_PRIVILEGES, TEAM_LEADER } from '../../../constants';
 import { canAccessAnyPrivilege } from '../../../utils/privilege';
+import { isTeamLeader } from '../../../utils/user';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -95,15 +96,15 @@ export class AuthGuard implements CanActivate {
 
       // Check role-based access
       if (roles?.length) {
-        const requiredPrivileges = roles as SECTOR_PRIVILEGES[];
+        const requiredPrivileges = roles as Array<SECTOR_PRIVILEGES | typeof TEAM_LEADER>;
         const userPrivilege = payload.role as SECTOR_PRIVILEGES;
 
         // Check if TEAM_LEADER is one of the required privileges
-        const teamLeaderRequired = requiredPrivileges.includes(SECTOR_PRIVILEGES.TEAM_LEADER);
-        const isTeamLeader = Boolean(user.managedSector);
+        const teamLeaderRequired = requiredPrivileges.includes(TEAM_LEADER);
+        const userIsTeamLeader = isTeamLeader(user);
 
         // If TEAM_LEADER is required and user is a team leader, allow access
-        if (teamLeaderRequired && isTeamLeader) {
+        if (teamLeaderRequired && userIsTeamLeader) {
           // Team leader access granted
         } else {
           // Check regular privilege-based access
@@ -117,8 +118,8 @@ export class AuthGuard implements CanActivate {
 
           // Filter out TEAM_LEADER from required privileges for regular check
           const regularPrivileges = requiredPrivileges.filter(
-            p => p !== SECTOR_PRIVILEGES.TEAM_LEADER,
-          );
+            p => p !== TEAM_LEADER,
+          ) as SECTOR_PRIVILEGES[];
 
           // If there are regular privileges to check
           if (regularPrivileges.length > 0) {
@@ -126,7 +127,7 @@ export class AuthGuard implements CanActivate {
               // If team leader was also an option but user is not a team leader
               if (teamLeaderRequired) {
                 console.warn(
-                  `Access denied for user ${payload.sub}. Required roles: ${roles.join(', ')}, User role: ${payload.role}, Is team leader: ${isTeamLeader}`,
+                  `Access denied for user ${payload.sub}. Required roles: ${roles.join(', ')}, User role: ${payload.role}, Is team leader: ${userIsTeamLeader}`,
                 );
                 throw new ForbiddenException(
                   `Acesso negado. Privilégios insuficientes. Necessário: ${roles.join(' ou ')}, Atual: ${payload.role}`,
@@ -139,10 +140,10 @@ export class AuthGuard implements CanActivate {
                 `Acesso negado. Privilégios insuficientes. Necessário: ${roles.join(' ou ')}, Atual: ${payload.role}`,
               );
             }
-          } else if (teamLeaderRequired && !isTeamLeader) {
+          } else if (teamLeaderRequired && !userIsTeamLeader) {
             // Only TEAM_LEADER was required but user is not a team leader
             console.warn(
-              `Access denied for user ${payload.sub}. Required: TEAM_LEADER, Is team leader: ${isTeamLeader}`,
+              `Access denied for user ${payload.sub}. Required: TEAM_LEADER, Is team leader: ${userIsTeamLeader}`,
             );
             throw new ForbiddenException(
               'Acesso negado. Apenas líderes de equipe podem acessar este recurso.',

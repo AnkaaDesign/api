@@ -35,7 +35,7 @@ export class TaskServiceExample {
         body: `Status alterado de ${oldStatus} para ${newStatus}`,
         type: NOTIFICATION_TYPE.TASK,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        importance: NOTIFICATION_IMPORTANCE.MEDIUM,
+        importance: NOTIFICATION_IMPORTANCE.NORMAL,
         actionUrl: `/tasks/${taskId}`,
         actionType: 'VIEW_TASK',
       });
@@ -101,7 +101,7 @@ export class StockMonitoringExample {
         type: NOTIFICATION_TYPE.STOCK,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         importance:
-          item.quantity === 0 ? NOTIFICATION_IMPORTANCE.HIGH : NOTIFICATION_IMPORTANCE.MEDIUM,
+          item.quantity === 0 ? NOTIFICATION_IMPORTANCE.HIGH : NOTIFICATION_IMPORTANCE.NORMAL,
         actionUrl: `/inventory/items/${item.id}`,
       });
 
@@ -234,7 +234,7 @@ export class NotificationEventListenerExample {
           body: 'O status do seu pedido foi atualizado',
           type: NOTIFICATION_TYPE.ORDER,
           channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-          importance: NOTIFICATION_IMPORTANCE.MEDIUM,
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
           actionUrl: `/orders/${event.orderId}`,
         }),
       ),
@@ -323,7 +323,10 @@ export class AggregationTestingHelpers {
  */
 @Injectable()
 export class CustomAggregationExample {
-  constructor(private readonly aggregationService: NotificationAggregationService) {}
+  constructor(
+    private readonly notificationService: NotificationService,
+    private readonly aggregationService: NotificationAggregationService,
+  ) {}
 
   async createHighPriorityNotification(userId: string, data: any) {
     // High priority notifications should NEVER be aggregated

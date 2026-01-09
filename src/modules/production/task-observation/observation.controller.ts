@@ -68,7 +68,7 @@ export class ObservationController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -80,7 +80,7 @@ export class ObservationController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
   async create(

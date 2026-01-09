@@ -35,16 +35,24 @@ export enum ORDER_STATUS {
 export enum SECTOR_PRIVILEGES {
   BASIC = 'BASIC',
   PRODUCTION = 'PRODUCTION',
-  LEADER = 'LEADER',
   MAINTENANCE = 'MAINTENANCE',
   WAREHOUSE = 'WAREHOUSE',
+  PLOTTING = 'PLOTTING',
   ADMIN = 'ADMIN',
   HUMAN_RESOURCES = 'HUMAN_RESOURCES',
   EXTERNAL = 'EXTERNAL',
   DESIGNER = 'DESIGNER',
   FINANCIAL = 'FINANCIAL',
   LOGISTIC = 'LOGISTIC',
+  COMMERCIAL = 'COMMERCIAL',
 }
+
+/**
+ * TEAM_LEADER is a virtual privilege - not stored in database
+ * Determined by: user.sector.privilege === PRODUCTION && user.id === user.sector.managerId
+ * Use isTeamLeader() helper function from utils/user.ts to check this status
+ */
+export const TEAM_LEADER = 'TEAM_LEADER' as const;
 
 export enum USER_STATUS {
   EXPERIENCE_PERIOD_1 = 'EXPERIENCE_PERIOD_1',
@@ -79,6 +87,7 @@ export enum TASK_STATUS {
 export enum SERVICE_ORDER_STATUS {
   PENDING = 'PENDING',
   IN_PROGRESS = 'IN_PROGRESS',
+  WAITING_APPROVE = 'WAITING_APPROVE',
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
 }
@@ -154,6 +163,7 @@ export enum BORROW_STATUS {
   ACTIVE = 'ACTIVE',
   RETURNED = 'RETURNED',
   LOST = 'LOST',
+  OVERDUE = 'OVERDUE',
 }
 
 export enum EXTERNAL_WITHDRAWAL_TYPE {
@@ -581,6 +591,17 @@ export enum MEASURE_UNIT {
   CENTIMETER = 'CENTIMETER',
   METER = 'METER',
   INCHES = 'INCHES',
+  INCH_1_8 = 'INCH_1_8',
+  INCH_1_4 = 'INCH_1_4',
+  INCH_3_8 = 'INCH_3_8',
+  INCH_1_2 = 'INCH_1_2',
+  INCH_5_8 = 'INCH_5_8',
+  INCH_3_4 = 'INCH_3_4',
+  INCH_7_8 = 'INCH_7_8',
+  INCH_1 = 'INCH_1',
+  INCH_1_1_4 = 'INCH_1_1_4',
+  INCH_1_1_2 = 'INCH_1_1_2',
+  INCH_2 = 'INCH_2',
 
   // Thread pitch units
   THREAD_MM = 'THREAD_MM',
@@ -747,6 +768,32 @@ export enum TRUCK_MANUFACTURER {
   VOLKSWAGEN = 'VOLKSWAGEN',
   IVECO = 'IVECO',
   MERCEDES_BENZ = 'MERCEDES_BENZ',
+}
+
+/**
+ * Truck categories/types
+ * Categories define the size and configuration of the truck
+ */
+export enum TRUCK_CATEGORY {
+  MINI = 'MINI', // Mini truck (small urban delivery)
+  VUC = 'VUC', // VUC - Veículo Urbano de Carga (Urban Cargo Vehicle)
+  THREE_QUARTER = 'THREE_QUARTER', // 3/4 truck (light commercial)
+  RIGID = 'RIGID', // Toco - Rigid truck with single rear axle
+  TRUCK = 'TRUCK', // Standard truck
+  SEMI_TRAILER = 'SEMI_TRAILER', // Carreta - Semi-trailer truck
+  B_DOUBLE = 'B_DOUBLE', // Bitrem - B-Double (truck with double trailer)
+}
+
+/**
+ * Truck body/implement types
+ * Defines the type of body or implement mounted on the truck
+ */
+export enum IMPLEMENT_TYPE {
+  CORRUGATED = 'CORRUGATED', // Corrugado - Corrugated body
+  INSULATED = 'INSULATED', // Isoplastic - Insulated/refrigerated body
+  CURTAIN_SIDE = 'CURTAIN_SIDE', // Sider - Curtain-side body
+  TANK = 'TANK', // Tanque - Tank truck
+  FLATBED = 'FLATBED', // Carroceria - Open flatbed/stake body
 }
 
 // =====================
@@ -974,6 +1021,7 @@ export enum NOTIFICATION_TYPE {
   SYSTEM = 'SYSTEM',
   TASK = 'TASK',
   ORDER = 'ORDER',
+  SERVICE_ORDER = 'SERVICE_ORDER',
   PPE = 'PPE',
   VACATION = 'VACATION',
   WARNING = 'WARNING',
@@ -1027,7 +1075,6 @@ export enum PPE_TYPE {
   MASK = 'MASK',
   GLOVES = 'GLOVES',
   RAIN_BOOTS = 'RAIN_BOOTS',
-  OUTROS = 'OUTROS',
   OTHERS = 'OTHERS',
 }
 

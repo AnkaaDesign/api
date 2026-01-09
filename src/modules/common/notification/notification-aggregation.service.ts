@@ -746,10 +746,10 @@ export class NotificationAggregationService {
    */
   private determineGroupImportance(notifications: PendingNotification[]): NOTIFICATION_IMPORTANCE {
     const hasHigh = notifications.some(n => n.importance === NOTIFICATION_IMPORTANCE.HIGH);
-    const hasMedium = notifications.some(n => n.importance === NOTIFICATION_IMPORTANCE.MEDIUM);
+    const hasNormal = notifications.some(n => n.importance === NOTIFICATION_IMPORTANCE.NORMAL);
 
     if (hasHigh) return NOTIFICATION_IMPORTANCE.HIGH;
-    if (hasMedium) return NOTIFICATION_IMPORTANCE.MEDIUM;
+    if (hasNormal) return NOTIFICATION_IMPORTANCE.NORMAL;
     return NOTIFICATION_IMPORTANCE.LOW;
   }
 

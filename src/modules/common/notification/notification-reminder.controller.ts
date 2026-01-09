@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
-import { CurrentUser } from '@common/decorators/current-user.decorator';
+import { CurrentUser, UserId } from '@common/decorators/current-user.decorator';
 import { NotificationReminderSchedulerService } from './notification-reminder-scheduler.service';
 import {
   ScheduleReminderDto,
@@ -81,7 +81,7 @@ export class NotificationReminderController {
   @ApiResponse({ status: 404, description: 'Notification or user not found' })
   async scheduleReminder(
     @Body() dto: ScheduleReminderDto,
-    @CurrentUser('id') userId: string,
+    @UserId() userId: string,
   ): Promise<ReminderWithDataResponseDto> {
     return await this.reminderSchedulerService.scheduleReminder(
       dto.notificationId,
@@ -107,7 +107,7 @@ export class NotificationReminderController {
   @ApiResponse({ status: 404, description: 'No active reminder found' })
   async cancelReminder(
     @Body() dto: CancelReminderDto,
-    @CurrentUser('id') userId: string,
+    @UserId() userId: string,
   ): Promise<ReminderSuccessResponseDto> {
     await this.reminderSchedulerService.cancelReminder(dto.notificationId, userId);
     return {
@@ -132,7 +132,7 @@ export class NotificationReminderController {
   @ApiResponse({ status: 404, description: 'No active reminder found' })
   async rescheduleReminder(
     @Body() dto: RescheduleReminderDto,
-    @CurrentUser('id') userId: string,
+    @UserId() userId: string,
   ): Promise<ReminderWithDataResponseDto> {
     return await this.reminderSchedulerService.rescheduleReminder(
       dto.notificationId,
@@ -154,7 +154,7 @@ export class NotificationReminderController {
     description: 'Reminders retrieved successfully',
     type: [ReminderWithDataResponseDto],
   })
-  async getMyReminders(@CurrentUser('id') userId: string): Promise<ReminderWithDataResponseDto[]> {
+  async getMyReminders(@UserId() userId: string): Promise<ReminderWithDataResponseDto[]> {
     return await this.reminderSchedulerService.getUserReminders(userId);
   }
 
@@ -172,7 +172,7 @@ export class NotificationReminderController {
     description: 'All reminders cancelled successfully',
     type: ReminderSuccessResponseDto,
   })
-  async cancelMyReminders(@CurrentUser('id') userId: string): Promise<ReminderSuccessResponseDto> {
+  async cancelMyReminders(@UserId() userId: string): Promise<ReminderSuccessResponseDto> {
     const count = await this.reminderSchedulerService.cancelUserReminders(userId);
     return {
       success: true,

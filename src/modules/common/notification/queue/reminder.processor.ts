@@ -136,11 +136,9 @@ export class ReminderProcessor {
             type: 'REMINDER' as any,
             title,
             body,
-            message: body,
             actionUrl: actionUrl || null,
             metadata: metadata as any,
             importance: this.mapPriorityToImportance(priority),
-            read: false,
           },
         });
         effectiveNotificationId = notification.id;
@@ -413,7 +411,8 @@ export class ReminderProcessor {
     priority?: string,
   ): Promise<void> {
     // Import queue module dynamically to avoid circular dependencies
-    const { Queue } = await import('bull');
+    const Bull = await import('bull');
+    const Queue = Bull.default;
 
     // Get the appropriate queue based on channel
     let queueName: string;
@@ -552,18 +551,19 @@ export class ReminderProcessor {
    */
   private mapPriorityToImportance(
     priority: string,
-  ): 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | 'CRITICAL' {
+  ): 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' {
     switch (priority) {
       case 'critical':
-        return 'CRITICAL';
+      case 'urgent':
+        return 'URGENT';
       case 'high':
         return 'HIGH';
       case 'normal':
-        return 'MEDIUM';
+        return 'NORMAL';
       case 'low':
         return 'LOW';
       default:
-        return 'MEDIUM';
+        return 'NORMAL';
     }
   }
 

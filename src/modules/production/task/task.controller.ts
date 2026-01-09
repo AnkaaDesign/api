@@ -95,7 +95,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findMany(
@@ -106,7 +106,7 @@ export class TaskController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -398,7 +398,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInPreparationTasks(
@@ -436,7 +436,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInProductionTasks(
@@ -447,7 +447,7 @@ export class TaskController {
     return this.tasksService.findMany({
       ...query,
       where: {
-        OR: [{ status: TASK_STATUS.PENDING }, { status: TASK_STATUS.IN_PRODUCTION }],
+        OR: [{ status: TASK_STATUS.WAITING_PRODUCTION }, { status: TASK_STATUS.IN_PRODUCTION }],
         truck: {
           OR: [
             { leftSideLayoutId: { not: null } },
@@ -512,7 +512,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async findById(
@@ -530,7 +530,7 @@ export class TaskController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(

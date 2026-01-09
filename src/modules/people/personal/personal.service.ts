@@ -304,7 +304,7 @@ export class PersonalService {
         `No Secullum employee found for user ${user.name} (CPF: ${user.cpf}, PIS: ${user.pis}, Folha: ${user.payrollNumber})`,
       );
       throw new BadRequestException(
-        `No Secullum employee found matching your registration. Please contact HR to verify your CPF, PIS, or Payroll Number.`,
+        `Você não está cadastrado no ponto eletrônico com o mesmo CPF, PIS ou Número da Folha. Entre em contato com o RH para verificar seus dados.`,
       );
     }
 

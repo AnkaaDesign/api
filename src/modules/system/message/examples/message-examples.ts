@@ -7,8 +7,6 @@
 
 import { MessageService } from '../message.service';
 import {
-  MESSAGE_TARGET_TYPE,
-  MESSAGE_PRIORITY,
   CONTENT_BLOCK_TYPE,
   CreateMessageDto,
 } from '../dto';
@@ -50,24 +48,23 @@ export const createMaintenanceAnnouncement = async (
         },
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.ALL_USERS,
-    priority: MESSAGE_PRIORITY.HIGH,
+    targets: [], // Empty array = all users
     isActive: true,
     startsAt: '2026-01-06T00:00:00Z',
     endsAt: '2026-01-12T00:00:00Z',
-    actionUrl: '/help/maintenance',
-    actionText: 'Learn More',
   };
 
   return await messageService.create(dto, adminUserId);
 };
 
 /**
- * Example 2: Create a role-specific announcement for production team
+ * Example 2: Create a sector-specific announcement for production team
+ * NOTE: Frontend should resolve sectorIds to user IDs before calling this
  */
 export const createProductionTeamUpdate = async (
   messageService: MessageService,
   adminUserId: string,
+  productionTeamUserIds: string[], // Pre-resolved user IDs from production sector
 ) => {
   const dto: CreateMessageDto = {
     title: 'New Production Schedule Available',
@@ -87,12 +84,8 @@ export const createProductionTeamUpdate = async (
         metadata: { variant: 'info' },
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.SPECIFIC_ROLES,
-    targetRoles: ['PRODUCTION', 'LEADER'],
-    priority: MESSAGE_PRIORITY.NORMAL,
+    targets: productionTeamUserIds, // User IDs from production sector
     isActive: true,
-    actionUrl: '/producao/cronograma',
-    actionText: 'View Schedule',
   };
 
   return await messageService.create(dto, adminUserId);
@@ -128,12 +121,8 @@ export const createUrgentUserNotification = async (
         content: '- Review pending items\n- Approve or reject each item\n- Add comments if necessary',
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.SPECIFIC_USERS,
-    targetUserIds: targetUserIds,
-    priority: MESSAGE_PRIORITY.URGENT,
+    targets: targetUserIds, // Specific user IDs
     isActive: true,
-    actionUrl: '/administracao/aprovacoes',
-    actionText: 'View Pending Approvals',
   };
 
   return await messageService.create(dto, adminUserId);
@@ -189,13 +178,10 @@ export const createFeatureAnnouncement = async (
         },
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.ALL_USERS,
-    priority: MESSAGE_PRIORITY.NORMAL,
+    targets: [], // Empty array = all users
     isActive: true,
     startsAt: '2026-01-06T00:00:00Z',
     endsAt: '2026-01-20T00:00:00Z',
-    actionUrl: '/estatisticas',
-    actionText: 'Try It Now',
   };
 
   return await messageService.create(dto, adminUserId);
@@ -203,10 +189,12 @@ export const createFeatureAnnouncement = async (
 
 /**
  * Example 5: Create a policy update for admin and HR roles
+ * NOTE: Frontend should resolve positionIds to user IDs before calling this
  */
 export const createPolicyUpdate = async (
   messageService: MessageService,
   adminUserId: string,
+  adminAndHRUserIds: string[], // Pre-resolved user IDs from admin/HR positions
 ) => {
   const dto: CreateMessageDto = {
     title: 'Updated Leave Policy',
@@ -236,13 +224,9 @@ export const createPolicyUpdate = async (
         metadata: { variant: 'info' },
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.SPECIFIC_ROLES,
-    targetRoles: ['ADMIN', 'HUMAN_RESOURCES'],
-    priority: MESSAGE_PRIORITY.HIGH,
+    targets: adminAndHRUserIds, // User IDs from admin/HR positions
     isActive: true,
     startsAt: '2026-01-06T00:00:00Z',
-    actionUrl: '/recursos-humanos/politicas',
-    actionText: 'View Full Policy',
   };
 
   return await messageService.create(dto, adminUserId);
@@ -278,8 +262,7 @@ export const createInfoMessage = async (
         metadata: { variant: 'info' },
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.ALL_USERS,
-    priority: MESSAGE_PRIORITY.LOW,
+    targets: [], // Empty array = all users
     isActive: true,
     startsAt: '2026-01-06T00:00:00Z',
   };
@@ -380,8 +363,7 @@ export const createWeeklyAnnouncement = async (
           '- Monday: Team meeting at 10 AM\n- Wednesday: New employee orientation\n- Friday: End of month reports due',
       },
     ],
-    targetType: MESSAGE_TARGET_TYPE.ALL_USERS,
-    priority: MESSAGE_PRIORITY.NORMAL,
+    targets: [], // Empty array = all users
     isActive: true,
     startsAt: now.toISOString(),
     endsAt: oneWeekLater.toISOString(),
@@ -397,7 +379,6 @@ export const getHighPriorityActiveMessages = async (
   messageService: MessageService,
 ) => {
   const result = await messageService.findAll({
-    priority: MESSAGE_PRIORITY.HIGH,
     isActive: true,
     page: 1,
     limit: 10,
@@ -405,6 +386,6 @@ export const getHighPriorityActiveMessages = async (
     sortOrder: 'desc',
   });
 
-  console.log(`Found ${result.total} high-priority active messages`);
+  console.log(`Found ${result.total} active messages`);
   return result;
 };

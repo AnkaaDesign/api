@@ -3,6 +3,8 @@ import {
   MEASURE_UNIT_LABELS,
   CHANGE_LOG_ACTION,
   CHANGE_TRIGGERED_BY,
+  TRUCK_CATEGORY_LABELS,
+  IMPLEMENT_TYPE_LABELS,
 } from '@constants';
 import { formatDateTime } from './date';
 import { formatCurrency } from './number';
@@ -180,10 +182,13 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     details: 'Detalhes',
     entryDate: 'Data de Entrada',
     term: 'Prazo',
+    forecastDate: 'Data de Previsão',
     commission: 'Comissão',
     price: 'Preço',
     statusOrder: 'Ordem do Status',
     customerId: 'Cliente',
+    invoiceToId: 'Faturar Para',
+    negotiatingWith: 'Negociando com',
     sectorId: 'Setor',
     createdById: 'Criado por',
     budgetId: 'Orçamento',
@@ -195,12 +200,14 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     // Relationship fields
     sector: 'Setor',
     customer: 'Cliente',
+    invoiceTo: 'Faturar Para',
     budget: 'Orçamento',
     nfe: 'Nota Fiscal',
     receipt: 'Recibo',
     paint: 'Tinta',
     observation: 'Observação',
     createdBy: 'Criado por',
+    truck: 'Caminhão',
     artworks: 'Artes',
     logoPaints: 'Tintas do Logo',
     paints: 'Tintas do Logo',
@@ -215,7 +222,12 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'customer.fantasyName': 'Nome Fantasia do Cliente',
     'customer.corporateName': 'Razão Social do Cliente',
     'customer.cnpj': 'CNPJ do Cliente',
+    'invoiceTo.fantasyName': 'Nome Fantasia (Faturar Para)',
     'sector.name': 'Nome do Setor',
+    'truck.plate': 'Placa do Caminhão',
+    'truck.chassisNumber': 'Chassi do Caminhão',
+    'truck.category': 'Categoria do Caminhão',
+    'truck.implementType': 'Tipo de Implemento',
     'createdBy.name': 'Nome do Criador',
     'budget.filename': 'Nome do Orçamento',
     'nfe.filename': 'Nome da NFe',
@@ -924,6 +936,24 @@ export function formatFieldValue(
       CANCELLED: 'Cancelado',
     };
     return taskStatusLabels[value] || value;
+  }
+
+  // Handle truck category
+  if (
+    (field === 'truck.category' || field === 'category') &&
+    entityType === CHANGE_LOG_ENTITY_TYPE.TASK &&
+    typeof value === 'string'
+  ) {
+    return TRUCK_CATEGORY_LABELS[value as keyof typeof TRUCK_CATEGORY_LABELS] || value;
+  }
+
+  // Handle truck implement type
+  if (
+    (field === 'truck.implementType' || field === 'implementType') &&
+    entityType === CHANGE_LOG_ENTITY_TYPE.TASK &&
+    typeof value === 'string'
+  ) {
+    return IMPLEMENT_TYPE_LABELS[value as keyof typeof IMPLEMENT_TYPE_LABELS] || value;
   }
 
   // Handle maintenance status

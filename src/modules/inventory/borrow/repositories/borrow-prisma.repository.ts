@@ -75,8 +75,8 @@ export class BorrowPrismaRepository
     }
 
     // Determine status and statusOrder - new borrows default to ACTIVE
-    const status = formData.status || BORROW_STATUS.ACTIVE;
-    const statusOrder = BORROW_STATUS_ORDER[status] ?? BORROW_STATUS_ORDER[BORROW_STATUS.ACTIVE];
+    const status = BORROW_STATUS.ACTIVE;
+    const statusOrder = BORROW_STATUS_ORDER[BORROW_STATUS.ACTIVE];
 
     const createInput: Prisma.BorrowCreateInput = {
       ...rest,
