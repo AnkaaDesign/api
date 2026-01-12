@@ -985,7 +985,7 @@ model ServiceOrder {
   updatedAt    DateTime           @updatedAt
   startedAt    DateTime?
   finishedAt   DateTime?
-  assignedTo   User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
+  assignedTo   User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
   task         Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
   createdBy    User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
 
@@ -1019,6 +1019,34 @@ model BudgetItem {
   budget      Budget   @relation("BUDGET_ITEMS", fields: [budgetId], references: [id], onDelete: Cascade)
 
   @@index([budgetId])
+}
+
+model TaskPricing {
+  id        String            @id @default(uuid())
+  total     Decimal           @db.Decimal(10, 2)
+  expiresAt DateTime
+  status    TaskPricingStatus @default(DRAFT)
+  taskId    String            @unique
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  task      Task              @relation("TASK_PRICING", fields: [taskId], references: [id], onDelete: Cascade)
+  items     TaskPricingItem[] @relation("PRICING_ITEMS")
+
+  @@index([taskId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model TaskPricingItem {
+  id          String      @id @default(uuid())
+  description String      @db.Text
+  amount      Decimal     @db.Decimal(10, 2)
+  pricingId   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  pricing     TaskPricing @relation("PRICING_ITEMS", fields: [pricingId], references: [id], onDelete: Cascade)
+
+  @@index([pricingId])
 }
 
 model Supplier {
@@ -1076,6 +1104,7 @@ model Task {
   bonusDiscountId       String?
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
   budget                Budget?              @relation("BUDGET_TASK")
+  pricing               TaskPricing?         @relation("TASK_PRICING")
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
   serviceOrders         ServiceOrder[]       @relation("SERVICE_ORDER_TASK")
@@ -2432,6 +2461,13 @@ enum CommissionStatus {
   NO_COMMISSION
   FULL_COMMISSION
   SUSPENDED_COMMISSION
+}
+
+enum TaskPricingStatus {
+  DRAFT
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 enum PayrollDiscountType {

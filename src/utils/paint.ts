@@ -166,14 +166,6 @@ export const hasValidFormula = (paint: Paint): boolean => {
 // Use PaintType.name for the label
 
 /**
- * Get human-readable label for paint brand entity
- * @deprecated Use paint.paintBrand.name directly from the entity relation
- */
-export function getPaintBrandLabel(paintBrand: { name: string } | null | undefined): string {
-  return paintBrand?.name || 'N/A';
-}
-
-/**
  * Get human-readable label for paint finish
  */
 export function getPaintFinishLabel(finish: PAINT_FINISH): string {
@@ -453,12 +445,6 @@ export const calculateFormulaComponentWeight = (
     }
   }, 0);
 };
-
-/**
- * Legacy function - use calculateFormulaComponentWeight for weight-based calculations
- * @deprecated Use calculateFormulaComponentWeight instead
- */
-export const calculateFormulaComponentTotalWeight = calculateFormulaComponentWeight;
 
 /**
  * Calculates component ratios within a formula

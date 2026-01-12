@@ -174,12 +174,6 @@ export function getStockLevelPriority(level: STOCK_LEVEL): number {
 }
 
 /**
- * Alias for determineStockLevel for backwards compatibility
- * @deprecated Use determineStockLevel instead
- */
-export const getStockLevel = determineStockLevel;
-
-/**
  * Gets a descriptive message for the stock level
  * @param level The stock level
  * @param quantity The current quantity

@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { PushService } from './push.service';
 import { PushController } from './push.controller';
+import { ExpoPushService } from './expo-push.service';
 import { DeepLinkService } from '../notification/deep-link.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
@@ -20,6 +21,7 @@ import { FirebaseConfigService } from '../notification/push/firebase-config.serv
   ],
   providers: [
     FirebaseConfigService,
+    ExpoPushService,
     PushService,
     DeepLinkService,
     {
@@ -28,6 +30,6 @@ import { FirebaseConfigService } from '../notification/push/firebase-config.serv
     },
   ],
   controllers: [PushController],
-  exports: [PushService, FirebaseConfigService],
+  exports: [PushService, ExpoPushService, FirebaseConfigService],
 })
 export class PushModule {}

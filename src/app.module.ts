@@ -37,6 +37,7 @@ import { SectorModule } from './modules/people/sector/sector.module';
 import { ServiceOrderModule } from './modules/production/service-order/service-order.module';
 import { SupplierModule } from './modules/inventory/supplier/supplier.module';
 import { TaskModule } from './modules/production/task/task.module';
+import { TaskPricingModule } from './modules/production/task-pricing/task-pricing.module';
 import { ObservationModule } from './modules/production/task-observation/observation.module';
 import { LayoutModule } from './modules/production/layout/layout.module';
 import { TruckModule } from './modules/production/truck/truck.module';
@@ -113,6 +114,7 @@ import { MessageModule } from './modules/system/message/message.module';
     ServiceOrderModule,
     SupplierModule,
     TaskModule,
+    TaskPricingModule,
     LayoutModule,
     TruckModule,
     UserModule,

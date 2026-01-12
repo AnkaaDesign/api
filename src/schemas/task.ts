@@ -20,6 +20,7 @@ import {
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
 import { budgetCreateNestedSchema } from './budget';
+import { taskPricingCreateNestedSchema } from './task-pricing';
 
 // Helper to filter out empty strings from UUID arrays before validation
 // This handles cases where FormData sends [''] for empty arrays
@@ -334,6 +335,19 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
             include: z
               .object({
                 task: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+      pricing: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                task: z.boolean().optional(),
+                items: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -1683,15 +1697,6 @@ export const taskCreateSchema = z
         });
       }
     }
-  })
-  .transform(data => {
-    // Map services to serviceOrders for backward compatibility
-    const transformed: any = { ...data };
-    if (transformed.services) {
-      transformed.serviceOrders = transformed.services;
-      delete transformed.services;
-    }
-    return transformed;
   });
 
 // Base task update schema with all relations
@@ -1749,6 +1754,7 @@ export const taskUpdateSchema = z
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     budget: budgetCreateNestedSchema.nullable().optional(),
+    pricing: taskPricingCreateNestedSchema.nullable().optional(), // ONE-TO-ONE relation with Pricing entity
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
@@ -1795,15 +1801,6 @@ export const taskUpdateSchema = z
         path: ['finishedAt'],
       });
     }
-  })
-  .transform(data => {
-    // Map services to serviceOrders for backward compatibility
-    const transformed: any = { ...data };
-    if (transformed.services) {
-      transformed.serviceOrders = transformed.services;
-      delete transformed.services;
-    }
-    return transformed;
   });
 
 // =====================

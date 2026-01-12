@@ -4,6 +4,12 @@ import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode-terminal';
 import * as QRCode from 'qrcode';
 import { CacheService } from '../cache/cache.service';
+import { promises as fs } from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as path from 'path';
+
+const execAsync = promisify(exec);
 
 /**
  * Connection status enum
@@ -43,10 +49,163 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   /**
+   * Setup handlers for graceful shutdown (removed to prevent blocking)
+   * Cleanup is now handled only by NestJS's lifecycle hooks (onModuleDestroy)
+   */
+
+  /**
+   * Kill orphaned Chrome/Chromium processes
+   */
+  private async killOrphanedChromeProcesses(): Promise<void> {
+    try {
+      this.logger.log('Checking for orphaned Chrome processes...');
+
+      // Use timeout to prevent hanging
+      const { stdout } = await Promise.race([
+        execAsync(
+          'ps aux | grep -E "chrome|chromium" | grep -E "wwebjs|puppeteer" | grep -v grep | awk \'{print $2}\' || true',
+          { timeout: 3000 }
+        ),
+        new Promise<{ stdout: string; stderr: string }>((_, reject) =>
+          setTimeout(() => reject(new Error('Process check timeout')), 3000)
+        ),
+      ]);
+
+      const pids = stdout.trim().split('\n').filter(pid => pid && pid.trim());
+
+      if (pids.length > 0) {
+        this.logger.warn(`Found ${pids.length} orphaned Chrome process(es), killing...`);
+        for (const pid of pids) {
+          try {
+            await Promise.race([
+              execAsync(`kill -9 ${pid}`),
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Kill timeout')), 1000)
+              ),
+            ]);
+            this.logger.log(`Killed orphaned Chrome process: ${pid}`);
+          } catch (error) {
+            // Process might already be dead, ignore
+          }
+        }
+      } else {
+        this.logger.log('No orphaned Chrome processes found');
+      }
+    } catch (error) {
+      // Non-critical error, just log it
+      this.logger.warn(`Failed to check for orphaned Chrome processes: ${error.message}`);
+    }
+  }
+
+  /**
+   * Clean up lock files and stale session data
+   */
+  private async cleanupSessionLockFiles(): Promise<void> {
+    try {
+      const sessionPath = process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth';
+      this.logger.log(`Cleaning up lock files in: ${sessionPath}`);
+
+      // Check if session directory exists
+      try {
+        await fs.access(sessionPath);
+      } catch {
+        this.logger.log('Session directory does not exist, skipping cleanup');
+        return;
+      }
+
+      // Remove SingletonLock files
+      const lockPatterns = ['SingletonLock', 'SingletonSocket', 'SingletonCookie'];
+
+      for (const pattern of lockPatterns) {
+        try {
+          const files = await this.findFilesRecursive(sessionPath, pattern);
+          for (const file of files) {
+            await fs.unlink(file);
+            this.logger.log(`Removed lock file: ${file}`);
+          }
+        } catch (error) {
+          // Non-critical, continue
+        }
+      }
+
+      this.logger.log('Session lock file cleanup completed');
+    } catch (error) {
+      this.logger.warn(`Failed to cleanup lock files: ${error.message}`);
+    }
+  }
+
+  /**
+   * Recursively find files matching a pattern
+   */
+  private async findFilesRecursive(dir: string, pattern: string): Promise<string[]> {
+    const results: string[] = [];
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          const nestedResults = await this.findFilesRecursive(fullPath, pattern);
+          results.push(...nestedResults);
+        } else if (entry.name.includes(pattern)) {
+          results.push(fullPath);
+        }
+      }
+    } catch (error) {
+      // Directory might not exist or be accessible, ignore
+    }
+
+    return results;
+  }
+
+  /**
+   * Perform cleanup before initialization
+   */
+  private async performPreInitializationCleanup(): Promise<void> {
+    try {
+      this.logger.log('Performing pre-initialization cleanup...');
+
+      // Add overall timeout to prevent hanging
+      await Promise.race([
+        (async () => {
+          // Kill orphaned Chrome processes
+          await this.killOrphanedChromeProcesses();
+
+          // Clean up lock files
+          await this.cleanupSessionLockFiles();
+
+          // Small delay to ensure processes are fully terminated
+          await new Promise(resolve => setTimeout(resolve, 500));
+        })(),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Cleanup timeout after 10 seconds')), 10000)
+        ),
+      ]);
+
+      this.logger.log('Pre-initialization cleanup completed');
+    } catch (error) {
+      this.logger.warn(`Cleanup failed or timed out: ${error.message}. Continuing with initialization...`);
+      // Don't block initialization if cleanup fails
+    }
+  }
+
+  /**
    * Initialize WhatsApp client on module initialization
    */
   async onModuleInit() {
+    // Check if WhatsApp is disabled via environment variable
+    if (process.env.DISABLE_WHATSAPP === 'true') {
+      this.logger.log('WhatsApp is disabled via DISABLE_WHATSAPP environment variable');
+      return;
+    }
+
     this.logger.log('Initializing WhatsApp module...');
+
+    // Perform cleanup before initialization
+    await this.performPreInitializationCleanup();
+
     await this.initializeClient();
   }
 
@@ -85,6 +244,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         authStrategy: new LocalAuth({
           dataPath: process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth',
         }),
+        // Use webVersionCache to avoid compatibility issues with Chrome versions
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        },
         puppeteer: {
           headless: true,
           args: [
@@ -94,8 +258,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
+            '--single-process',
             '--disable-gpu',
+            '--disable-extensions',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
           ],
+          timeout: 60000,
         },
       });
 
@@ -108,9 +278,25 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Failed to initialize WhatsApp client: ${error.message}`, error.stack);
       this.isInitializing = false;
+
+      // Ensure client is destroyed on failure to prevent stale state
+      try {
+        if (this.client) {
+          await this.client.destroy();
+          this.client = null;
+        }
+      } catch (destroyError) {
+        this.logger.error(`Failed to destroy client after initialization error: ${destroyError.message}`);
+      }
+
+      // Perform cleanup after failure
+      await this.performPreInitializationCleanup();
+
       await this.updateConnectionStatus(WhatsAppConnectionStatus.DISCONNECTED);
       this.handleReconnection();
-      throw error;
+
+      // Don't throw error to prevent API from crashing
+      // The reconnection logic will handle retries
     }
   }
 
@@ -623,20 +809,21 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (this.client) {
       try {
         this.logger.log('Destroying WhatsApp client instance...');
-        await this.client.destroy();
-        this.client = null;
-        this.isClientReady = false;
-        this.isInitializing = false;
-        this.currentQRCode = null;
-        this.qrCodeGeneratedAt = null;
 
-        // Clear cache
-        await this.cacheService.del(this.CACHE_KEY_QR);
+        // Try to gracefully destroy the client
+        await Promise.race([
+          this.client.destroy(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Client destroy timeout')), 5000)
+          ),
+        ]);
 
         this.logger.log('WhatsApp client destroyed successfully');
       } catch (error) {
         this.logger.error(`Error destroying client: ${error.message}`);
         // Force cleanup even if destroy fails
+      } finally {
+        // Always reset state
         this.client = null;
         this.isClientReady = false;
         this.isInitializing = false;
@@ -645,6 +832,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         // Clear cache
         await this.cacheService.del(this.CACHE_KEY_QR).catch(() => {});
+
+        // Kill any remaining Chrome processes
+        await this.killOrphanedChromeProcesses();
+
+        this.logger.log('WhatsApp client cleanup completed');
       }
     }
   }

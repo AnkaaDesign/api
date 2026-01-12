@@ -678,6 +678,38 @@ export class NotificationPreferenceService {
         ],
       },
 
+      // Service Order Created
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'created',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
+      // Service Order Status Changed
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'status.changed',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+      },
+
       // ============================================
       // ORDER NOTIFICATIONS (OPTIONAL)
       // ============================================

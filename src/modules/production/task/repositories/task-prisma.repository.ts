@@ -34,6 +34,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
   budget: { include: { items: true } }, // Budget with items (description/amount)
+  pricing: { include: { items: true } }, // Task pricing with status and items
   budgets: {
     select: {
       id: true,
@@ -256,7 +257,18 @@ export class TaskPrismaRepository
     if (startedAt !== undefined) taskData.startedAt = startedAt;
     if (finishedAt !== undefined) taskData.finishedAt = finishedAt;
     if (forecastDate !== undefined) taskData.forecastDate = forecastDate;
-    if (negotiatingWith !== undefined) taskData.negotiatingWith = negotiatingWith;
+
+    // Only set negotiatingWith if it has meaningful values (not empty object)
+    if (negotiatingWith !== undefined) {
+      const hasValues = negotiatingWith &&
+                       typeof negotiatingWith === 'object' &&
+                       Object.keys(negotiatingWith).length > 0 &&
+                       Object.values(negotiatingWith).some(v => v !== null && v !== undefined);
+
+      if (hasValues || negotiatingWith === null) {
+        taskData.negotiatingWith = negotiatingWith;
+      }
+    }
 
     // Handle relations with proper null checks
     if (customerId) taskData.customer = { connect: { id: customerId } };
@@ -440,6 +452,35 @@ export class TaskPrismaRepository
       };
     }
 
+    // Handle pricing creation (object with items, expiresAt, and status)
+    const pricing = (extendedData as any).pricing;
+    if (
+      pricing &&
+      typeof pricing === 'object' &&
+      pricing.items &&
+      Array.isArray(pricing.items) &&
+      pricing.items.length > 0
+    ) {
+      // Calculate total from items
+      const total = pricing.items.reduce(
+        (sum: number, item: any) => sum + Number(item.amount || 0),
+        0,
+      );
+      taskData.pricing = {
+        create: {
+          total,
+          expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
+          status: pricing.status || 'DRAFT',
+          items: {
+            create: pricing.items.map((item: any) => ({
+              description: item.description,
+              amount: Number(item.amount || 0),
+            })),
+          },
+        },
+      };
+    }
+
     // Handle airbrushings creation (array of airbrushing items)
     const airbrushings = (extendedData as any).airbrushings;
     if (airbrushings && Array.isArray(airbrushings) && airbrushings.length > 0) {
@@ -474,6 +515,7 @@ export class TaskPrismaRepository
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: TaskUpdateFormData,
+    userId?: string,
   ): Prisma.TaskUpdateInput {
     // Cast to extended type to access all properties
     const extendedData = formData as TaskUpdateFormData;
@@ -528,7 +570,23 @@ export class TaskPrismaRepository
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
     if (forecastDate !== undefined) updateData.forecastDate = forecastDate;
-    if (negotiatingWith !== undefined) updateData.negotiatingWith = negotiatingWith;
+
+    // Only update negotiatingWith if it's not undefined and not an empty object
+    // This prevents false positive change detection when frontend sends {}
+    if (negotiatingWith !== undefined) {
+      // Check if it's an empty object or has meaningful values
+      const hasValues = negotiatingWith &&
+                       typeof negotiatingWith === 'object' &&
+                       Object.keys(negotiatingWith).length > 0 &&
+                       Object.values(negotiatingWith).some(v => v !== null && v !== undefined);
+
+      // Only set if it has values or is explicitly null (to clear the field)
+      if (hasValues || negotiatingWith === null) {
+        updateData.negotiatingWith = negotiatingWith;
+      }
+      // If it's an empty object {}, don't include it in update - prevents false positives
+    }
+
     if (commission !== undefined) updateData.commission = commission as any;
 
     // Handle enums
@@ -613,17 +671,27 @@ export class TaskPrismaRepository
       console.log('[TaskRepo] Creating service orders:', JSON.stringify(serviceOrders, null, 2));
       updateData.serviceOrders = {
         deleteMany: {}, // Delete all existing services
-        create: serviceOrders.map(service => ({
-          status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
-          statusOrder:
-            service.statusOrder ||
-            getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
-          type: service.type || 'PRODUCTION',
-          description: service.description,
-          assignedToId: service.assignedToId || null,
-          startedAt: service.startedAt || null,
-          finishedAt: service.finishedAt || null,
-        })),
+        create: serviceOrders.map(service => {
+          const serviceData: any = {
+            status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
+            statusOrder:
+              service.statusOrder ||
+              getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
+            type: service.type || 'PRODUCTION',
+            description: service.description,
+            startedAt: service.startedAt || null,
+            finishedAt: service.finishedAt || null,
+            // Set createdBy to the user performing the update
+            createdBy: userId ? { connect: { id: userId } } : undefined,
+          };
+
+          // Handle assignedTo relation - use connect if assignedToId is provided
+          if (service.assignedToId) {
+            serviceData.assignedTo = { connect: { id: service.assignedToId } };
+          }
+
+          return serviceData;
+        }),
       };
     }
 
@@ -796,6 +864,76 @@ export class TaskPrismaRepository
         };
       }
     }
+
+    // Handle pricing update (object with items, expiresAt, and status) - upsert pricing
+    const pricing = (extendedData as any).pricing;
+    console.log('[TaskRepo] ========================================');
+    console.log('[TaskRepo] PRICING UPDATE DEBUG');
+    console.log('[TaskRepo] pricing !== undefined:', pricing !== undefined);
+    console.log('[TaskRepo] pricing value:', JSON.stringify(pricing, null, 2));
+    console.log('[TaskRepo] typeof pricing:', typeof pricing);
+    console.log('[TaskRepo] pricing.items:', pricing?.items);
+    console.log('[TaskRepo] Array.isArray(pricing.items):', Array.isArray(pricing?.items));
+    console.log('[TaskRepo] pricing.items.length:', pricing?.items?.length);
+    console.log('[TaskRepo] ========================================');
+
+    if (pricing !== undefined) {
+      console.log('[TaskRepo] ✅ Pricing is defined');
+      if (pricing === null) {
+        console.log('[TaskRepo] 🗑️  Pricing is null - deleting');
+        updateData.pricing = { delete: true };
+      } else if (
+        typeof pricing === 'object' &&
+        pricing.items &&
+        Array.isArray(pricing.items) &&
+        pricing.items.length > 0
+      ) {
+        console.log('[TaskRepo] ✅ Pricing has items - upserting');
+        // Calculate total from items
+        const total = pricing.items.reduce(
+          (sum: number, item: any) => sum + Number(item.amount || 0),
+          0,
+        );
+        updateData.pricing = {
+          upsert: {
+            create: {
+              total,
+              expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
+              status: pricing.status || 'DRAFT',
+              items: {
+                create: pricing.items.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount || 0),
+                })),
+              },
+            },
+            update: {
+              total,
+              expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
+              status: pricing.status || 'DRAFT',
+              items: {
+                deleteMany: {}, // Delete all existing items
+                create: pricing.items.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount || 0),
+                })),
+              },
+            },
+          },
+        };
+        console.log('[TaskRepo] ✅ Pricing updateData set');
+      } else {
+        console.log('[TaskRepo] ❌ Pricing conditions NOT met:');
+        console.log('[TaskRepo]    - typeof pricing === "object":', typeof pricing === 'object');
+        console.log('[TaskRepo]    - pricing.items exists:', !!pricing.items);
+        console.log('[TaskRepo]    - Array.isArray(pricing.items):', Array.isArray(pricing?.items));
+        console.log('[TaskRepo]    - pricing.items.length > 0:', (pricing?.items?.length || 0) > 0);
+      }
+    } else {
+      console.log('[TaskRepo] ❌ Pricing is undefined - not updating');
+    }
+    console.log('[TaskRepo] Final updateData.pricing:', updateData.pricing ? 'SET' : 'NOT SET');
+    console.log('[TaskRepo] ========================================');
 
     // Handle airbrushings update (array of airbrushing items) - replace all existing airbrushings
     const airbrushings = (extendedData as any).airbrushings;
@@ -1065,9 +1203,10 @@ export class TaskPrismaRepository
     id: string,
     data: TaskUpdateFormData,
     options?: UpdateOptions<TaskInclude>,
+    userId?: string,
   ): Promise<Task> {
     try {
-      const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
+      const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data, userId);
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 

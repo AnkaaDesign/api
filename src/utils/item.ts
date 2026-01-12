@@ -113,14 +113,6 @@ export function needsReorder(item: Item): boolean {
 }
 
 /**
- * Format stock display
- * @deprecated Use formatItemQuantity instead
- */
-export function formatStockDisplay(item: Item): string {
-  return formatItemQuantity(item);
-}
-
-/**
  * Check if quantity update is recent
  */
 export function isQuantityUpdateRecent(item: Item, thresholdHours: number = 24): boolean {
@@ -578,7 +570,6 @@ export const itemUtils = {
   isLowStock,
   isOutOfStock,
   needsReorder,
-  formatStockDisplay,
   isQuantityUpdateRecent,
   getDaysSinceUpdate,
   getLatestItemPrice,
