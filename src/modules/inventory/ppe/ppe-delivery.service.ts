@@ -1,6 +1,7 @@
 // ppe-delivery.service.ts
 
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import {
   PpeDeliveryRepository,
   PrismaTransaction,
@@ -50,6 +51,12 @@ import {
   trackFieldChanges,
   trackAndLogFieldChanges,
 } from '@modules/common/changelog/utils/changelog-helpers';
+import {
+  PpeRequestedEvent,
+  PpeApprovedEvent,
+  PpeRejectedEvent,
+  PpeDeliveredEvent,
+} from './ppe.events';
 
 @Injectable()
 export class PpeDeliveryService {
@@ -61,6 +68,7 @@ export class PpeDeliveryService {
     private readonly itemRepository: ItemRepository,
     private readonly ppeDeliveryScheduleRepository: PpeDeliveryScheduleRepository,
     private readonly activityService: ActivityService,
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
   private async validateEntity(
@@ -768,6 +776,32 @@ export class PpeDeliveryService {
         transaction: transaction,
       });
 
+      // Emit ppe.requested event for new pending deliveries
+      if (ppeDelivery.status === PPE_DELIVERY_STATUS.PENDING && userId) {
+        try {
+          // Get delivery with item and user info for the event
+          const deliveryWithRelations = await this.repository.findById(ppeDelivery.id, {
+            include: { item: true, user: true },
+          });
+
+          const requestedByUser = await this.userRepository.findById(userId);
+
+          if (deliveryWithRelations && deliveryWithRelations.item && requestedByUser) {
+            this.eventEmitter.emit(
+              'ppe.requested',
+              new PpeRequestedEvent(
+                deliveryWithRelations,
+                deliveryWithRelations.item as any,
+                requestedByUser as any,
+              ),
+            );
+          }
+        } catch (error) {
+          // Log error but don't fail the main operation
+          console.error('Error emitting ppe.requested event:', error);
+        }
+      }
+
       return {
         success: true,
         message: 'Entrega de PPE criada com sucesso.',
@@ -1276,6 +1310,23 @@ export class PpeDeliveryService {
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         transaction: transaction,
       });
+
+      // Emit ppe.delivered event
+      try {
+        if (updatedDelivery.item && updatedDelivery.user) {
+          this.eventEmitter.emit(
+            'ppe.delivered',
+            new PpeDeliveredEvent(
+              updatedDelivery,
+              updatedDelivery.item as any,
+              updatedDelivery.user as any,
+              reviewedByUser as any,
+            ),
+          );
+        }
+      } catch (error) {
+        console.error('Error emitting ppe.delivered event:', error);
+      }
 
       return {
         success: true,
@@ -1832,6 +1883,27 @@ export class PpeDeliveryService {
             transaction: transaction,
           });
 
+          // Emit ppe.approved event
+          try {
+            const deliveryWithRelations = await this.repository.findById(deliveryId, {
+              include: { item: true, user: true },
+            });
+
+            if (deliveryWithRelations && deliveryWithRelations.item && deliveryWithRelations.user) {
+              this.eventEmitter.emit(
+                'ppe.approved',
+                new PpeApprovedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            }
+          } catch (error) {
+            console.error('Error emitting ppe.approved event:', error);
+          }
+
           results.push({
             id: deliveryId,
             success: true,
@@ -1927,6 +1999,28 @@ export class PpeDeliveryService {
             userId: userId || null,
             transaction: transaction,
           });
+
+          // Emit ppe.rejected event
+          try {
+            const deliveryWithRelations = await this.repository.findById(deliveryId, {
+              include: { item: true, user: true },
+            });
+
+            if (deliveryWithRelations && deliveryWithRelations.item && deliveryWithRelations.user) {
+              this.eventEmitter.emit(
+                'ppe.rejected',
+                new PpeRejectedEvent(
+                  deliveryWithRelations,
+                  deliveryWithRelations.item as any,
+                  deliveryWithRelations.user as any,
+                  reviewedByUser as any,
+                  reason,
+                ),
+              );
+            }
+          } catch (error) {
+            console.error('Error emitting ppe.rejected event:', error);
+          }
 
           results.push({
             id: deliveryId,
@@ -2115,6 +2209,23 @@ export class PpeDeliveryService {
             userId: userId || null,
             transaction: transaction,
           });
+
+          // Emit ppe.delivered event
+          try {
+            if (updatedDelivery.item && updatedDelivery.user) {
+              this.eventEmitter.emit(
+                'ppe.delivered',
+                new PpeDeliveredEvent(
+                  updatedDelivery,
+                  updatedDelivery.item as any,
+                  updatedDelivery.user as any,
+                  reviewedByUser as any,
+                ),
+              );
+            }
+          } catch (error) {
+            console.error('Error emitting ppe.delivered event:', error);
+          }
 
           results.push({
             id: deliveryId,

@@ -22,7 +22,6 @@ import {
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
-import { budgetCreateNestedSchema } from './budget';
 import { taskPricingCreateNestedSchema } from './task-pricing';
 
 // Helper to filter out empty strings from UUID arrays before validation
@@ -331,18 +330,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      budget: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                task: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
       pricing: z
         .union([
           z.boolean(),
@@ -555,7 +542,6 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       sectorId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
-      budgetId: z.string().optional(),
       nfeId: z.string().optional(),
       receiptId: z.string().optional(),
       // Relations
@@ -793,14 +779,6 @@ const taskTransform = (data: any): any => {
   } else if (data.hasAirbrushing === false) {
     andConditions.push({ airbrushing: { none: {} } });
     delete data.hasAirbrushing;
-  }
-
-  if (data.hasBudget === true) {
-    andConditions.push({ budgetId: { not: null } });
-    delete data.hasBudget;
-  } else if (data.hasBudget === false) {
-    andConditions.push({ budgetId: null });
-    delete data.hasBudget;
   }
 
   if (data.hasNfe === true) {
@@ -1210,7 +1188,6 @@ export const taskGetManySchema = z
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
     hasAirbrushing: z.boolean().optional(),
-    hasBudget: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
     hasPaint: z.boolean().optional(), // Filter by whether task has a general painting/paint assigned
@@ -1517,6 +1494,7 @@ const taskTruckSchema = z
         },
       ),
     spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
+    // Note: Garage is now static config - garage info is encoded in the spot (B1_F1_V1 = Garage B1, Lane F1, Spot V1)
     // Truck specifications
     category: truckCategorySchema.nullable().optional(),
     implementType: implementTypeSchema.nullable().optional(),
@@ -1604,7 +1582,6 @@ export const taskCreateSchema = z
     receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    budget: budgetCreateNestedSchema.nullable().optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
@@ -1768,12 +1745,23 @@ export const taskUpdateSchema = z
     paintIds: uuidArraySchema('Tinta inválida'),
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    budget: budgetCreateNestedSchema.nullable().optional(),
     pricing: taskPricingCreateNestedSchema.nullable().optional(), // ONE-TO-ONE relation with Pricing entity
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
+
+    // Removal operation fields (for batch updates)
+    removeGeneralPainting: z.boolean().optional(),
+    removeLogoPaints: z.array(z.string().uuid()).optional(),
+    removeCutIds: z.array(z.string().uuid()).optional(),
+    removeBudgetIds: z.array(z.string().uuid()).optional(),
+    removeInvoiceIds: z.array(z.string().uuid()).optional(),
+    removeReceiptIds: z.array(z.string().uuid()).optional(),
+    removeAirbrushingIds: z.array(z.string().uuid()).optional(),
+    removeArtworkIds: z.array(z.string().uuid()).optional(),
+    removeReimbursementIds: z.array(z.string().uuid()).optional(),
+    removeReimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.entryDate && data.term && data.term <= data.entryDate) {

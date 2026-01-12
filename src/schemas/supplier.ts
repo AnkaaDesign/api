@@ -855,6 +855,7 @@ export const supplierCreateSchema = z.object({
     }
     return val;
   }, z.array(phoneSchema).default([]).optional()),
+  pix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
   tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
     if (typeof val === 'string') {
@@ -974,8 +975,10 @@ export const supplierUpdateSchema = z.object({
   zipCode: zipCodeUpdateSchema,
   site: z.preprocess(
     val => {
-      // Convert empty string to null
-      if (val === '' || val === undefined) return null;
+      // IMPORTANT: For update operations, undefined means "field not sent" - don't convert to null
+      // Only convert empty string to null (user explicitly cleared the field)
+      if (val === undefined) return undefined;
+      if (val === '') return null;
 
       // If it's a string, try to fix common URL issues
       if (typeof val === 'string') {
@@ -1052,6 +1055,7 @@ export const supplierUpdateSchema = z.object({
 
     return val;
   }, z.array(phoneSchema).optional()),
+  pix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
   tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
     if (typeof val === 'string') {
@@ -1150,6 +1154,7 @@ export const mapSupplierToFormData = createMapToFormDataHelper<Supplier, Supplie
     zipCode: supplier.zipCode,
     site: supplier.site,
     phones: supplier.phones,
+    pix: supplier.pix,
     tags: supplier.tags,
     logoId: supplier.logoId,
   }),

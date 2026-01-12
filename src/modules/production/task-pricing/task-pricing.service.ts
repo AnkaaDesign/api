@@ -27,7 +27,8 @@ import type {
   TaskPricing,
 } from '@types';
 import { TASK_PRICING_STATUS, CHANGE_LOG_ENTITY_TYPE, CHANGE_LOG_ACTION } from '@constants';
-import type { PrismaTransaction } from '@modules/common/prisma/prisma.service';
+import type { PrismaTransaction } from '@modules/common/base/base.repository';
+import { CHANGE_TRIGGERED_BY } from '@constants';
 
 /**
  * Service for managing TaskPricing entities
@@ -156,7 +157,10 @@ export class TaskPricingService {
             status: data.status || TASK_PRICING_STATUS.DRAFT,
             taskId: data.taskId,
             items: {
-              create: data.items,
+              create: data.items.map(item => ({
+                amount: item.amount || 0,
+                description: item.description || '',
+              })),
             },
           },
           include: { items: true, task: true },
@@ -168,6 +172,9 @@ export class TaskPricingService {
           entityId: newPricing.id,
           action: CHANGE_LOG_ACTION.CREATE as any,
           userId,
+          reason: 'Criação de orçamento',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredById: userId,
           transaction: tx,
         });
 
@@ -195,7 +202,7 @@ export class TaskPricingService {
     userId: string,
   ): Promise<TaskPricingUpdateResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id, { items: true });
+      const existing = await this.taskPricingRepository.findById(id, { include: { items: true } });
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -222,7 +229,10 @@ export class TaskPricingService {
             ...(data.items && {
               items: {
                 deleteMany: {},
-                create: data.items,
+                create: data.items.map(item => ({
+                  amount: item.amount || 0,
+                  description: item.description || '',
+                })),
               },
             }),
           },
@@ -235,6 +245,9 @@ export class TaskPricingService {
           entityId: id,
           action: CHANGE_LOG_ACTION.UPDATE as any,
           userId,
+          reason: 'Atualização de orçamento',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredById: userId,
           transaction: tx,
         });
 
@@ -278,6 +291,9 @@ export class TaskPricingService {
           entityId: id,
           action: CHANGE_LOG_ACTION.DELETE as any,
           userId,
+          reason: 'Exclusão de orçamento',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredById: userId,
           transaction: tx,
         });
       });

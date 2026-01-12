@@ -47,6 +47,9 @@ export interface TaskPricingIncludes {
   items?: boolean;
 }
 
+// Alias for backward compatibility
+export type TaskPricingInclude = TaskPricingIncludes;
+
 // =====================
 // OrderBy Types
 // =====================

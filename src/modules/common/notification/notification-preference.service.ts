@@ -109,7 +109,7 @@ export class NotificationPreferenceService {
     // Check if user is trying to disable mandatory channels
     if (existingPreference?.mandatoryChannels && existingPreference.mandatoryChannels.length > 0) {
       const missingMandatoryChannels = existingPreference.mandatoryChannels.filter(
-        (mandatoryChannel) => !validatedChannels.includes(mandatoryChannel as string),
+        (mandatoryChannel) => !validatedChannels.includes(mandatoryChannel),
       );
 
       if (missingMandatoryChannels.length > 0) {

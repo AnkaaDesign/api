@@ -16,7 +16,7 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { TruckService } from './truck.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
 import type { GarageId } from '../../../constants/garage';
-import type { UserPayload } from '@types';
+import type { UserPayload } from '@modules/common/auth/decorators/user.decorator';
 
 @Controller('trucks')
 export class TruckController {

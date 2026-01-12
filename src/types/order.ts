@@ -12,6 +12,7 @@ import type {
 } from './common';
 import {
   ORDER_STATUS,
+  PAYMENT_METHOD,
   SCHEDULE_FREQUENCY,
   WEEK_DAY,
   MONTH,
@@ -141,6 +142,9 @@ export interface Order extends BaseEntity {
   orderRuleId: string | null;
   ppeScheduleId: string | null;
   notes: string | null;
+  paymentMethod: PAYMENT_METHOD | null;
+  paymentPix: string | null;
+  paymentDueDays: number | null;
 
   // Relations (optional, populated based on query)
   budgets?: File[];

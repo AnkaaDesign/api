@@ -191,18 +191,18 @@ export function formatTaskSummary(task: Task): string {
 }
 
 /**
- * Calculate task price from budget items
+ * Calculate task price from pricing
  */
 export function calculateTaskPrice(task: Task): number {
-  if (!task.budget) return 0;
-  return task.budget.total || 0;
+  if (!task.pricing) return 0;
+  return Number(task.pricing.total) || 0;
 }
 
 /**
- * Format task price from budget total
+ * Format task price from pricing total
  */
 export function formatTaskPrice(task: Task): string {
-  if (!task.budget || !task.budget.total) return 'Sem valor';
+  if (!task.pricing || !task.pricing.total) return 'Sem valor';
   const totalValue = calculateTaskPrice(task);
   return numberUtils.formatCurrency(totalValue);
 }

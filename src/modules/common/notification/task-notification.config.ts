@@ -27,7 +27,7 @@ export enum TaskFieldCategory {
 }
 
 /**
- * Roles that can receive notifications for each category
+ * Default roles for each category (fallback when field doesn't have specific allowedRoles)
  */
 export const CATEGORY_ALLOWED_ROLES: Record<TaskFieldCategory, SECTOR_PRIVILEGES[]> = {
   [TaskFieldCategory.LIFECYCLE]: [
@@ -52,24 +52,122 @@ export const CATEGORY_ALLOWED_ROLES: Record<TaskFieldCategory, SECTOR_PRIVILEGES
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
   ],
   [TaskFieldCategory.FINANCIAL]: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
   ],
   [TaskFieldCategory.ARTWORK]: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.COMMERCIAL,
   ],
   [TaskFieldCategory.NEGOTIATION]: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
   ],
   [TaskFieldCategory.PRODUCTION]: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
+};
+
+/**
+ * Field-specific role overrides - takes precedence over category roles
+ * This allows granular control per notification event
+ */
+export const FIELD_ALLOWED_ROLES: Record<string, SECTOR_PRIVILEGES[]> = {
+  // LIFECYCLE events - created goes to preparation sectors, overdue to production sectors
+  created: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
+  overdue: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.FINANCIAL,
+  ],
+
+  // DATE events - granular control
+  deadline: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
+  forecastDate: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  ],
+  term: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  ],
+  finishedAt: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  ],
+
+  // ASSIGNMENT events
+  sector: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  ],
+
+  // ARTWORK events
+  artworks: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
+
+  // NEGOTIATION events
+  negotiatingWith: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  ],
+
+  // PRODUCTION events
+  paint: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  ],
+  logoPaints: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+  ],
+  observation: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
+
+  // FINANCIAL events - commission is visible to those who receive it
+  commission: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
   ],
 };
 
@@ -832,6 +930,45 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
     formatter: 'formatPaint',
   },
   {
+    field: 'logoPaints',
+    label: 'Pinturas do Logotipo',
+    category: TaskFieldCategory.PRODUCTION,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP],
+    enabled: true,
+    isFileArray: true,
+    messages: {
+      updated: {
+        inApp: 'Pinturas do logotipo atualizadas',
+        push: 'Pinturas do logo atualizadas',
+        email: {
+          subject: '🎨 Pinturas do logotipo - Tarefa #{serialNumber}',
+          body: 'As pinturas do logotipo da tarefa "{taskName}" foram atualizadas por {changedBy}.',
+        },
+        whatsapp: '🎨 Pinturas do logotipo da tarefa #{serialNumber} atualizadas.',
+      },
+      filesAdded: {
+        inApp: '{count} cor(es) de logotipo adicionada(s)',
+        push: 'Novas cores de logo',
+        email: {
+          subject: '🎨 Cores de logotipo adicionadas - Tarefa #{serialNumber}',
+          body: '{count} nova(s) cor(es) de logotipo adicionada(s) à tarefa "{taskName}" por {changedBy}.',
+        },
+        whatsapp: '🎨 {count} cor(es) de logotipo adicionada(s) à tarefa #{serialNumber}.',
+      },
+      filesRemoved: {
+        inApp: '{count} cor(es) de logotipo removida(s)',
+        push: 'Cores de logo removidas',
+        email: {
+          subject: 'Cores de logotipo removidas - Tarefa #{serialNumber}',
+          body: '{count} cor(es) de logotipo removida(s) da tarefa "{taskName}" por {changedBy}.',
+        },
+        whatsapp: '⚠️ {count} cor(es) de logotipo removida(s) da tarefa #{serialNumber}.',
+      },
+    },
+    formatter: 'formatPaints',
+  },
+  {
     field: 'observation',
     label: 'Observação',
     category: TaskFieldCategory.PRODUCTION,
@@ -880,8 +1017,15 @@ export function getFinancialFields(): string[] {
 
 /**
  * Get allowed roles for a specific field
+ * First checks field-specific overrides (FIELD_ALLOWED_ROLES), then falls back to category roles
  */
 export function getAllowedRolesForField(fieldName: string): SECTOR_PRIVILEGES[] {
+  // First check for field-specific override
+  if (FIELD_ALLOWED_ROLES[fieldName]) {
+    return FIELD_ALLOWED_ROLES[fieldName];
+  }
+
+  // Fallback to category-based roles
   const config = getFieldConfig(fieldName);
   if (!config) return [];
   return CATEGORY_ALLOWED_ROLES[config.category] || [];

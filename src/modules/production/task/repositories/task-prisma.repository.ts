@@ -33,7 +33,6 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
-  budget: { include: { items: true } }, // Budget with items (description/amount)
   pricing: { include: { items: true } }, // Task pricing with status and items
   budgets: {
     select: {
@@ -211,8 +210,6 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
-      chassisNumber,
-      plate,
       details,
       entryDate,
       term,
@@ -231,14 +228,13 @@ export class TaskPrismaRepository
       receiptIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      fileIds,
+      artworkIds, // was fileIds - using correct property name
       paintIds,
       serviceOrders,
       observation,
       truck,
       cut,
       cuts,
-      budget,
     } = extendedData;
 
     // Build create input with proper null handling
@@ -292,8 +288,8 @@ export class TaskPrismaRepository
     if (reimbursementInvoiceIds && reimbursementInvoiceIds.length > 0) {
       taskData.invoiceReimbursements = { connect: reimbursementInvoiceIds.map(id => ({ id })) };
     }
-    if (fileIds && fileIds.length > 0) {
-      taskData.artworks = { connect: fileIds.map(id => ({ id })) };
+    if (artworkIds && artworkIds.length > 0) {
+      taskData.artworks = { connect: artworkIds.map(id => ({ id })) };
     }
     if (paintIds && paintIds.length > 0) {
       taskData.logoPaints = { connect: paintIds.map(id => ({ id })) };
@@ -301,10 +297,11 @@ export class TaskPrismaRepository
 
     // Handle observation creation
     if (observation) {
-      const { fileIds: obsFileIds, ...obsData } = observation;
+      const { fileIds: obsFileIds, description: obsDescription, ...obsData } = observation;
       taskData.observation = {
         create: {
           ...obsData,
+          description: obsDescription || '', // Ensure description is always provided (required by Prisma)
           files:
             obsFileIds && obsFileIds.length > 0
               ? { connect: obsFileIds.map(id => ({ id })) }
@@ -314,18 +311,21 @@ export class TaskPrismaRepository
     }
 
     // Handle services creation
-    if (serviceOrders && serviceOrders.length > 0) {
+    // Note: createdBy must be connected for Prisma's required relation
+    const creatorId = (extendedData as any).createdById;
+    if (serviceOrders && serviceOrders.length > 0 && creatorId) {
       taskData.serviceOrders = {
         create: serviceOrders.map(service => ({
           status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
           statusOrder:
             service.statusOrder ||
             getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
-          type: service.type || 'PRODUCTION',
-          description: service.description,
+          type: (service.type || 'PRODUCTION') as any,
+          description: service.description || '',
           assignedToId: service.assignedToId || null,
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
+          createdBy: { connect: { id: (service as any).createdById || creatorId } },
         })),
       };
     }
@@ -334,30 +334,25 @@ export class TaskPrismaRepository
     if (truck) {
       const truckData: any = {};
 
-      // Add plate and chassisNumber if provided (from top-level or truck object)
-      if (plate !== undefined) truckData.plate = plate;
-      else if (truck.plate !== undefined) truckData.plate = truck.plate;
-
-      if (chassisNumber !== undefined) truckData.chassisNumber = chassisNumber;
-      else if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
+      // Add plate and chassisNumber from truck object
+      if (truck.plate !== undefined) truckData.plate = truck.plate;
+      if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
 
       // Add spot if provided
       if (truck.spot !== undefined) truckData.spot = truck.spot;
 
-      // Add category if provided (skip empty strings)
-      if (truck.category !== undefined && truck.category !== '' && truck.category !== null) {
+      // Add category if provided
+      if (truck.category !== undefined && truck.category !== null) {
         truckData.category = truck.category;
       }
 
-      // Add implementType if provided (skip empty strings)
-      if (truck.implementType !== undefined && truck.implementType !== '' && truck.implementType !== null) {
+      // Add implementType if provided
+      if (truck.implementType !== undefined && truck.implementType !== null) {
         truckData.implementType = truck.implementType;
       }
 
-      // Add garage connection if garageId is provided
-      if (truck.garageId) {
-        truckData.garage = { connect: { id: truck.garageId } };
-      }
+      // Note: Garage relation removed - garages are now static config
+      // Garage info is encoded in the spot enum (B1_F1_V1 = Garage B1, Lane F1, Spot V1)
 
       taskData.truck = { create: truckData };
     }
@@ -435,33 +430,6 @@ export class TaskPrismaRepository
       };
     }
 
-    // Handle budget creation (object with items and expiresIn)
-    if (
-      budget &&
-      typeof budget === 'object' &&
-      budget.items &&
-      Array.isArray(budget.items) &&
-      budget.items.length > 0
-    ) {
-      // Calculate total from items
-      const total = budget.items.reduce(
-        (sum: number, item: any) => sum + Number(item.amount || 0),
-        0,
-      );
-      taskData.budget = {
-        create: {
-          total,
-          expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
-          items: {
-            create: budget.items.map((item: any) => ({
-              description: item.description,
-              amount: Number(item.amount || 0),
-            })),
-          },
-        },
-      };
-    }
-
     // Handle pricing creation (object with items, expiresAt, and status)
     const pricing = (extendedData as any).pricing;
     if (
@@ -535,8 +503,6 @@ export class TaskPrismaRepository
       name,
       status,
       serialNumber,
-      chassisNumber,
-      plate,
       details,
       entryDate,
       term,
@@ -555,7 +521,7 @@ export class TaskPrismaRepository
       receiptIds,
       reimbursementIds,
       reimbursementInvoiceIds,
-      fileIds,
+      artworkIds, // was fileIds - using correct property name
       paintIds,
       // Single file IDs (convert to arrays for compatibility)
       budgetId,
@@ -566,7 +532,6 @@ export class TaskPrismaRepository
       truck,
       cut,
       cuts,
-      budget,
     } = extendedData as any;
 
     const updateData: Prisma.TaskUpdateInput = {};
@@ -645,8 +610,8 @@ export class TaskPrismaRepository
     if (reimbursementInvoiceIds !== undefined) {
       updateData.invoiceReimbursements = { set: reimbursementInvoiceIds.map(id => ({ id })) };
     }
-    if (fileIds !== undefined) {
-      updateData.artworks = { set: fileIds.map(id => ({ id })) };
+    if (artworkIds !== undefined) {
+      updateData.artworks = { set: artworkIds.map(id => ({ id })) };
     }
     if (paintIds !== undefined) {
       updateData.logoPaints = { set: paintIds.map(id => ({ id })) };
@@ -736,16 +701,6 @@ export class TaskPrismaRepository
         if (truck.implementType !== undefined && truck.implementType !== '') {
           truckCreateData.implementType = truck.implementType;
           truckUpdateData.implementType = truck.implementType;
-        }
-
-        // Legacy support: also check top-level plate and chassisNumber
-        if (plate !== undefined && truck.plate === undefined) {
-          truckCreateData.plate = plate;
-          truckUpdateData.plate = plate;
-        }
-        if (chassisNumber !== undefined && truck.chassisNumber === undefined) {
-          truckCreateData.chassisNumber = chassisNumber;
-          truckUpdateData.chassisNumber = chassisNumber;
         }
 
         // Note: Layout updates (leftSideLayout, rightSideLayout, backSideLayout) are handled
@@ -838,49 +793,6 @@ export class TaskPrismaRepository
       ) {
         // Delete all cuts if explicitly set to null or empty array
         updateData.cuts = { deleteMany: {} };
-      }
-    }
-
-    // Handle budget update (object with items and expiresIn) - upsert budget
-    if (budget !== undefined) {
-      if (budget === null) {
-        updateData.budget = { delete: true };
-      } else if (
-        typeof budget === 'object' &&
-        budget.items &&
-        Array.isArray(budget.items) &&
-        budget.items.length > 0
-      ) {
-        // Calculate total from items
-        const total = budget.items.reduce(
-          (sum: number, item: any) => sum + Number(item.amount || 0),
-          0,
-        );
-        updateData.budget = {
-          upsert: {
-            create: {
-              total,
-              expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
-              items: {
-                create: budget.items.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount || 0),
-                })),
-              },
-            },
-            update: {
-              total,
-              expiresIn: budget.expiresIn ? new Date(budget.expiresIn) : new Date(),
-              items: {
-                deleteMany: {}, // Delete all existing items
-                create: budget.items.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount || 0),
-                })),
-              },
-            },
-          },
-        };
       }
     }
 
