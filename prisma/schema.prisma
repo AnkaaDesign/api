@@ -726,6 +726,9 @@ model Order {
   orderRuleId           String?
   ppeScheduleId         String?
   notes                 String?
+  paymentMethod         PaymentMethod?
+  paymentPix            String?
+  paymentDueDays        Int?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   activities            Activity[]           @relation("ACTIVITY_ORDER")
@@ -996,31 +999,6 @@ model ServiceOrder {
   @@index([createdById])
 }
 
-model Budget {
-  id        String       @id @default(uuid())
-  total     Decimal      @db.Decimal(10, 2)
-  expiresIn DateTime
-  taskId    String       @unique
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  task      Task         @relation("BUDGET_TASK", fields: [taskId], references: [id], onDelete: Cascade)
-  items     BudgetItem[] @relation("BUDGET_ITEMS")
-
-  @@index([taskId])
-}
-
-model BudgetItem {
-  id          String   @id @default(uuid())
-  description String
-  amount      Decimal  @db.Decimal(10, 2)
-  budgetId    String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  budget      Budget   @relation("BUDGET_ITEMS", fields: [budgetId], references: [id], onDelete: Cascade)
-
-  @@index([budgetId])
-}
-
 model TaskPricing {
   id        String            @id @default(uuid())
   total     Decimal           @db.Decimal(10, 2)
@@ -1064,6 +1042,7 @@ model Supplier {
   zipCode           String?
   site              String?
   phones            String[]
+  pix               String?
   logoId            String?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -1103,7 +1082,6 @@ model Task {
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
-  budget                Budget?              @relation("BUDGET_TASK")
   pricing               TaskPricing?         @relation("TASK_PRICING")
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
@@ -1816,6 +1794,12 @@ enum OrderStatus {
   PARTIALLY_RECEIVED
   RECEIVED
   CANCELLED
+}
+
+enum PaymentMethod {
+  PIX
+  BANK_SLIP
+  CREDIT_CARD
 }
 
 enum MaintenanceScheduleStatus {

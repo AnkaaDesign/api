@@ -103,7 +103,8 @@ export class TaskListener {
 
     try {
       this.logger.log('[TASK EVENT] Step 1: Fetching target users for task creation...');
-      const targetUsers = await this.getTargetUsersForTaskCreated(event.task);
+      // Self-notification prevention: exclude the user who created the task
+      const targetUsers = await this.getTargetUsersForTaskCreated(event.task, event.createdBy.id);
       this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
       targetUsers.forEach((userId, idx) => {
         this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
@@ -182,7 +183,8 @@ export class TaskListener {
 
     try {
       this.logger.log('[TASK EVENT] Step 1: Fetching target users...');
-      const targetUsers = await this.getTargetUsersForField(event.task, 'status');
+      // Self-notification prevention: exclude the user who changed the status
+      const targetUsers = await this.getTargetUsersForField(event.task, 'status', event.changedBy.id);
       this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
       targetUsers.forEach((userId, idx) => {
         this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
@@ -273,7 +275,8 @@ export class TaskListener {
         return;
       }
 
-      const targetUsers = await this.getTargetUsersForField(event.task, event.fieldName);
+      // Self-notification prevention: exclude the user who updated the field
+      const targetUsers = await this.getTargetUsersForField(event.task, event.fieldName, event.updatedBy.id);
 
       // Format the values for display
       const oldValueFormatted = await this.formatFieldValue(event.fieldName, event.oldValue);
@@ -345,7 +348,8 @@ export class TaskListener {
         return;
       }
 
-      const targetUsers = await this.getTargetUsersForField(event.task, event.field);
+      // Self-notification prevention: exclude the user who changed the field
+      const targetUsers = await this.getTargetUsersForField(event.task, event.field, event.changedBy);
 
       // Get the user who made the change
       const changedByUser = await this.prisma.user.findUnique({
@@ -541,14 +545,16 @@ export class TaskListener {
    * Get target users for task creation
    * Returns: sector manager + users with ADMIN, DESIGNER, LOGISTIC, FINANCIAL privileges
    * Note: PRODUCTION users are notified separately when task status changes to WAITING_PRODUCTION
+   * @param task - The task object
+   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
    */
-  private async getTargetUsersForTaskCreated(task: any): Promise<string[]> {
+  private async getTargetUsersForTaskCreated(task: any, excludeUserId?: string): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
       SECTOR_PRIVILEGES.ADMIN,
       SECTOR_PRIVILEGES.DESIGNER,
       SECTOR_PRIVILEGES.LOGISTIC,
       SECTOR_PRIVILEGES.FINANCIAL,
-    ]);
+    ], excludeUserId);
   }
 
   /**
@@ -565,9 +571,10 @@ export class TaskListener {
 
     try {
       // Get only PRODUCTION users
+      // Self-notification prevention: exclude the user who changed the status
       const productionUsers = await this.getTargetUsersWithRoleFilter(task, [
         SECTOR_PRIVILEGES.PRODUCTION,
-      ]);
+      ], changedBy.id);
 
       this.logger.log(`[TASK EVENT] Found ${productionUsers.length} PRODUCTION user(s) to notify`);
 
@@ -623,8 +630,11 @@ export class TaskListener {
   /**
    * Get target users for a specific field change
    * Filters based on role restrictions from config
+   * @param task - The task object
+   * @param fieldName - The field name that changed
+   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
    */
-  private async getTargetUsersForField(task: any, fieldName: string): Promise<string[]> {
+  private async getTargetUsersForField(task: any, fieldName: string, excludeUserId?: string): Promise<string[]> {
     const allowedRoles = getAllowedRolesForField(fieldName);
 
     if (allowedRoles.length === 0) {
@@ -632,12 +642,13 @@ export class TaskListener {
       return [];
     }
 
-    return this.getTargetUsersWithRoleFilter(task, allowedRoles);
+    return this.getTargetUsersWithRoleFilter(task, allowedRoles, excludeUserId);
   }
 
   /**
    * Get target users for deadline approaching
    * Returns: assigned users + sector manager
+   * Note: Deadline notifications are system-generated, so no excludeUserId needed
    */
   private async getTargetUsersForDeadline(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
@@ -649,6 +660,7 @@ export class TaskListener {
   /**
    * Get target users for overdue task
    * Returns: assigned users + sector manager + admin users
+   * Note: Overdue notifications are system-generated, so no excludeUserId needed
    */
   private async getTargetUsersForOverdue(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
@@ -660,10 +672,14 @@ export class TaskListener {
 
   /**
    * Get target users filtered by role privileges
+   * @param task - The task object
+   * @param allowedRoles - Array of allowed sector privileges
+   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
    */
   private async getTargetUsersWithRoleFilter(
     task: any,
     allowedRoles: SECTOR_PRIVILEGES[],
+    excludeUserId?: string,
   ): Promise<string[]> {
     const userIds = new Set<string>();
 
@@ -706,6 +722,11 @@ export class TaskListener {
       users.forEach(user => userIds.add(user.id));
     } catch (error) {
       this.logger.error('Error getting target users with role filter:', error);
+    }
+
+    // Self-notification prevention: exclude the user who performed the action
+    if (excludeUserId) {
+      userIds.delete(excludeUserId);
     }
 
     return Array.from(userIds);

@@ -175,6 +175,7 @@ export interface UserNotificationPreference extends BaseEntity {
   enabled: boolean;
   channels: NOTIFICATION_CHANNEL[];
   isMandatory: boolean;
+  mandatoryChannels: NOTIFICATION_CHANNEL[];
 
   // Relations
   user?: User;

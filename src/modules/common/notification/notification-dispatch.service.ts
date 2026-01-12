@@ -303,9 +303,9 @@ export class NotificationDispatchService {
           break;
 
         case NOTIFICATION_CHANNEL.PUSH:
-          // Generic push - send to both mobile and desktop
+          // Generic push - sends to all registered devices (mobile + desktop)
+          // Note: sendToUser already handles all device tokens, no need to call both handlers
           await this.handleMobilePushChannel(notification, user, deliveryId);
-          await this.handleDesktopPushChannel(notification, user, deliveryId);
           break;
 
         default:

@@ -20,6 +20,7 @@ import {
   COMMISSION_STATUS,
   BORROW_STATUS,
   SERVICE_ORDER_STATUS,
+  SERVICE_ORDER_TYPE,
   ACTIVITY_REASON,
   ABC_CATEGORY,
   XYZ_CATEGORY,
@@ -4568,13 +4569,41 @@ async function migrateTasks() {
   const brands = await readCSV('brands.csv');
   console.log(`  📊 Found ${works.length} works in CSV`);
 
+  // Fetch an admin user to use as the default creator for service orders
+  // All service orders from the old system are PRODUCTION type and need a creator
+  const adminSector = await prisma.sector.findFirst({
+    where: { privileges: SECTOR_PRIVILEGES.ADMIN },
+  });
+
+  let defaultServiceOrderCreatorId: string | null = null;
+  if (adminSector) {
+    const adminUser = await prisma.user.findFirst({
+      where: { sectorId: adminSector.id },
+    });
+    if (adminUser) {
+      defaultServiceOrderCreatorId = adminUser.id;
+      console.log(`  👤 Using "${adminUser.name}" as default service order creator`);
+    }
+  }
+
+  // Fallback: if no admin user found, get any user
+  if (!defaultServiceOrderCreatorId) {
+    const anyUser = await prisma.user.findFirst();
+    if (anyUser) {
+      defaultServiceOrderCreatorId = anyUser.id;
+      console.log(`  👤 Using "${anyUser.name}" as fallback service order creator`);
+    } else {
+      console.log(`  ⚠️  No users found - service orders will fail to create without createdById`);
+    }
+  }
+
   // Create a map of brand ID to raw brand name
   const brandIdToName = new Map<string, string>();
   for (const brand of brands) {
     brandIdToName.set(brand._id, brand.name);
   }
 
-  // Create services map
+  // Create services map (description -> service ID, per type)
   const serviceMap = new Map<string, string>();
 
   let successCount = 0;
@@ -4653,8 +4682,9 @@ async function migrateTasks() {
       }
 
       // Determine status
-      let status = TASK_STATUS.PENDING;
-      let statusOrder = TASK_STATUS_ORDER[TASK_STATUS.PENDING];
+      // Default to PREPARATION for tasks that haven't started
+      let status = TASK_STATUS.PREPARATION;
+      let statusOrder = TASK_STATUS_ORDER[TASK_STATUS.PREPARATION];
       if (work.status === 'Finalizado') {
         status = TASK_STATUS.COMPLETED;
         statusOrder = TASK_STATUS_ORDER[TASK_STATUS.COMPLETED];
@@ -4792,14 +4822,14 @@ async function migrateTasks() {
             // Normal completed task = full commission
             commissionStatus = 'FULL_COMMISSION';
           }
-        } else if (status === 'IN_PRODUCTION') {
+        } else if (status === TASK_STATUS.IN_PRODUCTION) {
           // In-production tasks typically have full commission
           commissionStatus = 'FULL_COMMISSION';
-        } else if (status === 'PENDING') {
-          // Pending tasks don't have commission yet (will get it when started)
+        } else if (status === TASK_STATUS.PREPARATION) {
+          // Tasks in preparation don't have commission yet (will get it when started)
           commissionStatus = 'NO_COMMISSION';
         } else {
-          // Default case: no commission for undefined statuses
+          // Default case: no commission for undefined statuses (WAITING_PRODUCTION, CANCELLED, etc.)
           commissionStatus = 'NO_COMMISSION';
         }
       }
@@ -4923,25 +4953,32 @@ async function migrateTasks() {
       }
 
       // Create service orders
+      // All service orders from the old application are PRODUCTION type
       for (let i = 0; i < 8; i++) {
         const serviceName = work[`service_order[${i}].name`];
         const serviceDone = work[`service_order[${i}].done`];
 
-        if (serviceName && serviceName.trim() !== '') {
+        if (serviceName && serviceName.trim() !== '' && defaultServiceOrderCreatorId) {
           try {
-            // First, ensure the service exists
+            // First, ensure the service exists (with PRODUCTION type)
             let serviceId = serviceMap.get(serviceName);
             if (!serviceId) {
-              // Create or find the service
+              // Create or find the service - look for exact match with PRODUCTION type
               let service = await prisma.service.findFirst({
-                where: { description: serviceName },
+                where: {
+                  description: serviceName,
+                  type: SERVICE_ORDER_TYPE.PRODUCTION,
+                },
               });
 
               if (!service) {
                 service = await prisma.service.create({
-                  data: { description: serviceName },
+                  data: {
+                    description: serviceName,
+                    type: SERVICE_ORDER_TYPE.PRODUCTION,
+                  },
                 });
-                console.log(`    📝 Created new service: ${serviceName}`);
+                console.log(`    📝 Created new PRODUCTION service: ${serviceName}`);
               }
 
               serviceId = service!.id;
@@ -4950,11 +4987,13 @@ async function migrateTasks() {
               }
             }
 
-            // Create the service order
+            // Create the service order with PRODUCTION type and createdById
             await prisma.serviceOrder.create({
               data: {
                 taskId: task.id,
                 description: serviceName,
+                type: SERVICE_ORDER_TYPE.PRODUCTION,
+                createdById: defaultServiceOrderCreatorId,
                 status:
                   serviceDone === 'true' || serviceDone === true
                     ? SERVICE_ORDER_STATUS.COMPLETED

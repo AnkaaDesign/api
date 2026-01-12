@@ -2,6 +2,7 @@
 
 import {
   ORDER_STATUS,
+  PAYMENT_METHOD,
   USER_STATUS,
   ASSIGNMENT_TYPE,
   REGISTRATION_STATUS,
@@ -141,6 +142,12 @@ export const ORDER_STATUS_LABELS: Record<ORDER_STATUS, string> = {
   [ORDER_STATUS.PARTIALLY_RECEIVED]: 'Partially Received',
   [ORDER_STATUS.RECEIVED]: 'Received',
   [ORDER_STATUS.CANCELLED]: 'Cancelled',
+};
+
+export const PAYMENT_METHOD_LABELS: Record<PAYMENT_METHOD, string> = {
+  [PAYMENT_METHOD.PIX]: 'Pix',
+  [PAYMENT_METHOD.BANK_SLIP]: 'Boleto',
+  [PAYMENT_METHOD.CREDIT_CARD]: 'Cartão de Crédito',
 };
 
 export const USER_STATUS_LABELS: Record<USER_STATUS, string> = {
@@ -405,6 +412,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NOTIFICATION_TYPE, string> = {
   [NOTIFICATION_TYPE.WARNING]: 'Aviso',
   [NOTIFICATION_TYPE.STOCK]: 'Estoque',
   [NOTIFICATION_TYPE.GENERAL]: 'Geral',
+  [NOTIFICATION_TYPE.CUT]: 'Corte',
 };
 
 export const NOTIFICATION_ACTION_TYPE_LABELS: Record<NOTIFICATION_ACTION_TYPE, string> = {

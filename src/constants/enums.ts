@@ -32,6 +32,14 @@ export enum ORDER_STATUS {
   CANCELLED = 'CANCELLED',
 }
 
+export enum PAYMENT_METHOD {
+  PIX = 'PIX',
+  BANK_SLIP = 'BANK_SLIP',
+  CREDIT_CARD = 'CREDIT_CARD',
+}
+
+export const BANK_SLIP_DUE_DAYS_OPTIONS = [30, 60, 90, 120] as const;
+
 export enum SECTOR_PRIVILEGES {
   BASIC = 'BASIC',
   PRODUCTION = 'PRODUCTION',
@@ -1027,6 +1035,7 @@ export enum NOTIFICATION_TYPE {
   WARNING = 'WARNING',
   STOCK = 'STOCK',
   GENERAL = 'GENERAL',
+  CUT = 'CUT',
 }
 
 export enum NOTIFICATION_CHANNEL {

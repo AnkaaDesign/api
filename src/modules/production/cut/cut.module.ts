@@ -13,6 +13,9 @@ import { CutController } from './cut.controller';
 // Services
 import { CutService } from './cut.service';
 
+// Listeners
+import { CutListener } from './cut.listener';
+
 // Repositories
 import { CutRepository } from './repositories/cut/cut.repository';
 import { CutPrismaRepository } from './repositories/cut/cut-prisma.repository';
@@ -23,6 +26,8 @@ import { CutPrismaRepository } from './repositories/cut/cut-prisma.repository';
   providers: [
     // Services
     CutService,
+    // Listeners
+    CutListener,
     // Repositories
     {
       provide: CutRepository,

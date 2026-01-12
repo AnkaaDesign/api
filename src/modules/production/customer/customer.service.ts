@@ -319,6 +319,7 @@ export class CustomerService {
 
   /**
    * Quick create customer with minimal data
+   * Supports CNPJ-based creation with auto-filled data from Brasil API lookup
    */
   async quickCreate(
     data: CustomerQuickCreateFormData,
@@ -338,38 +339,76 @@ export class CustomerService {
           throw new BadRequestException('Nome fantasia já está em uso.');
         }
 
-        // Create the customer with minimal data
+        // Validate CNPJ uniqueness if provided
+        if (data.cnpj) {
+          if (!isValidCNPJ(data.cnpj)) {
+            throw new BadRequestException('CNPJ inválido.');
+          }
+          const existingCnpj = await this.customerRepository.findByCnpj(data.cnpj, tx);
+          if (existingCnpj) {
+            throw new BadRequestException('CNPJ já está cadastrado.');
+          }
+        }
+
+        // Validate email uniqueness if provided
+        if (data.email) {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(data.email)) {
+            throw new BadRequestException('Email inválido.');
+          }
+          const existingEmail = await this.customerRepository.findByEmail(data.email, tx);
+          if (existingEmail) {
+            throw new BadRequestException('Email já está cadastrado.');
+          }
+        }
+
+        // Validate phone numbers if provided
+        if (data.phones && Array.isArray(data.phones)) {
+          for (let i = 0; i < data.phones.length; i++) {
+            const phone = data.phones[i];
+            if (phone && !isValidPhone(phone)) {
+              throw new BadRequestException(`Telefone inválido na posição ${i + 1}.`);
+            }
+          }
+        }
+
+        // Create the customer with provided data (use null/defaults for missing fields)
         const newCustomer = await this.customerRepository.createWithTransaction(
           tx,
           {
             fantasyName: data.fantasyName,
-            cpf: null, // CPF is optional for quick create
-            cnpj: null,
-            corporateName: null,
-            email: null,
-            address: null,
-            addressNumber: null,
-            addressComplement: null,
-            neighborhood: null,
-            city: null,
-            state: null,
-            zipCode: null,
+            cpf: null, // CPF is not supported in quick create (CNPJ only)
+            cnpj: data.cnpj || null,
+            corporateName: data.corporateName || null,
+            email: data.email || null,
+            streetType: data.streetType || null,
+            address: data.address || null,
+            addressNumber: data.addressNumber || null,
+            addressComplement: data.addressComplement || null,
+            neighborhood: data.neighborhood || null,
+            city: data.city || null,
+            state: data.state || null,
+            zipCode: data.zipCode || null,
             site: null,
-            phones: [],
+            phones: data.phones || [],
             tags: [],
             logoId: null,
+            registrationStatus: data.registrationStatus || null,
           },
           { include },
         );
 
-        // Log the creation
+        // Log the creation with appropriate reason
+        const hasEnhancedData = data.cnpj || data.corporateName || data.email;
         await logEntityChange({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.CUSTOMER,
           entityId: newCustomer.id,
           action: CHANGE_ACTION.CREATE,
           entity: newCustomer,
-          reason: 'Novo cliente cadastrado (criação rápida)',
+          reason: hasEnhancedData
+            ? 'Novo cliente cadastrado (criação rápida com dados do CNPJ)'
+            : 'Novo cliente cadastrado (criação rápida)',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           userId: userId || null,
           transaction: tx,

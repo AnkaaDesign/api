@@ -18,7 +18,6 @@ import type { Observation, ObservationIncludes } from './observation';
 import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
 import type { User, UserIncludes, UserOrderBy } from './user';
 import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
-import type { Budget, BudgetIncludes } from './budget';
 import type { TaskPricing } from './task-pricing';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
@@ -53,7 +52,6 @@ export interface Task extends BaseEntity {
   baseFileIds?: string[];
   createdById: string | null;
   priority?: string | null;
-  price?: number | null; // Calculated from budget total
 
   // Relations
   sector?: Sector;
@@ -72,7 +70,6 @@ export interface Task extends BaseEntity {
   logoPaints?: Paint[];
   services?: ServiceOrder[]; // Alias for backward compatibility
   serviceOrders?: ServiceOrder[]; // Prisma field name
-  budget?: Budget;
   pricing?: TaskPricing; // Task pricing with status and items
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
@@ -155,11 +152,6 @@ export interface TaskIncludes {
     | boolean
     | {
         include?: ServiceOrderIncludes;
-      };
-  budget?:
-    | boolean
-    | {
-        include?: BudgetIncludes;
       };
   pricing?: boolean; // Task pricing with status and items
   airbrushings?:

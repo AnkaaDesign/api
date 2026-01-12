@@ -76,7 +76,7 @@ export class ExpoPushService {
 
     // Validate token
     if (!Expo.isExpoPushToken(token)) {
-      this.logger.error(`[EXPO PUSH] Invalid Expo push token: ${token.substring(0, 20)}...`);
+      this.logger.error(`[EXPO PUSH] Invalid Expo push token: ${String(token).substring(0, 20)}...`);
       return { success: false, error: 'Invalid Expo push token format' };
     }
 
@@ -171,7 +171,7 @@ export class ExpoPushService {
       if (invalidTokens.length > 0) {
         this.logger.warn(`[EXPO PUSH] ⚠️ Found ${invalidTokens.length} invalid Expo token(s)`);
         invalidTokens.forEach(token => {
-          this.logger.warn(`[EXPO PUSH] Invalid token: ${token.substring(0, 30)}...`);
+          this.logger.warn(`[EXPO PUSH] Invalid token: ${String(token).substring(0, 30)}...`);
         });
       }
 

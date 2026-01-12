@@ -6,12 +6,21 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
 import { FileService } from '@modules/common/file/file.service';
 import { CutRepository, PrismaTransaction } from './repositories/cut/cut.repository';
+import {
+  CutCreatedEvent,
+  CutStartedEvent,
+  CutCompletedEvent,
+  CutRequestCreatedEvent,
+  CutsAddedToTaskEvent,
+} from './cut.events';
 import {
   Cut,
   CutGetUniqueResponse,
@@ -57,6 +66,7 @@ export class CutService {
   private readonly logger = new Logger(CutService.name);
 
   constructor(
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
     private readonly cutRepository: CutRepository,
     private readonly changeLogService: ChangeLogService,
@@ -413,17 +423,74 @@ export class CutService {
           });
         }
 
-        // Return the first cut (or all cuts if multiple)
-        return quantity === 1 ? cuts[0] : cuts;
+        // Fetch task if taskId was provided (for event emission)
+        let task = null;
+        if (data.taskId) {
+          task = await tx.task.findUnique({
+            where: { id: data.taskId },
+            select: { id: true, name: true, sectorId: true, status: true },
+          });
+        }
+
+        // Return the cuts along with task info for event emission
+        return { cuts, task };
       });
 
       const message =
         quantity === 1 ? 'Corte criado com sucesso' : `${quantity} cortes criados com sucesso`;
 
+      // Emit events after transaction completes
+      if (userId) {
+        try {
+          const createdByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          });
+
+          if (createdByUser) {
+            const cuts = result.cuts;
+            const task = result.task;
+
+            // Emit CutCreatedEvent for each cut
+            for (const cut of cuts) {
+              // Check if this is a cut request (recut due to issues)
+              if (cut.origin === CUT_ORIGIN.REQUEST && cut.reason) {
+                // Fetch parent cut if exists
+                let parentCut = null;
+                if (cut.parentCutId) {
+                  parentCut = await this.prisma.cut.findUnique({
+                    where: { id: cut.parentCutId },
+                  });
+                }
+                this.eventEmitter.emit(
+                  'cut.request.created',
+                  new CutRequestCreatedEvent(cut, task, cut.reason, parentCut, createdByUser as any),
+                );
+              } else {
+                this.eventEmitter.emit(
+                  'cut.created',
+                  new CutCreatedEvent(cut, task, createdByUser as any),
+                );
+              }
+            }
+
+            // Emit CutsAddedToTaskEvent if cuts were added to a task
+            if (task && cuts.length > 0) {
+              this.eventEmitter.emit(
+                'cuts.added.to.task',
+                new CutsAddedToTaskEvent(task, cuts, createdByUser as any),
+              );
+            }
+          }
+        } catch (eventError) {
+          this.logger.warn('Failed to emit cut created events:', eventError);
+        }
+      }
+
       return {
         success: true,
         message,
-        data: result,
+        data: quantity === 1 ? result.cuts[0] : result.cuts,
       };
     } catch (error) {
       this.logger.error('Erro ao criar corte:', error);
@@ -446,6 +513,9 @@ export class CutService {
         if (!existing) {
           throw new NotFoundException('Corte não encontrado.');
         }
+
+        // Store old status for event emission
+        const oldStatus = existing.status;
 
         // Validate cut data
         await this.cutValidation(data, id, tx);
@@ -482,13 +552,52 @@ export class CutService {
           transaction: tx,
         });
 
-        return cut;
+        // Fetch task if cut has taskId (for event emission)
+        let task = null;
+        if (cut.taskId) {
+          task = await tx.task.findUnique({
+            where: { id: cut.taskId },
+            select: { id: true, name: true, sectorId: true, status: true },
+          });
+        }
+
+        return { cut, oldStatus, task };
       });
+
+      // Emit events after transaction completes
+      if (userId && result.oldStatus !== result.cut.status) {
+        try {
+          const changedByUser = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, email: true },
+          });
+
+          if (changedByUser) {
+            // Emit CutStartedEvent if status changed to CUTTING
+            if (result.cut.status === CUT_STATUS.CUTTING) {
+              this.eventEmitter.emit(
+                'cut.started',
+                new CutStartedEvent(result.cut, result.task, changedByUser as any),
+              );
+            }
+
+            // Emit CutCompletedEvent if status changed to COMPLETED
+            if (result.cut.status === CUT_STATUS.COMPLETED) {
+              this.eventEmitter.emit(
+                'cut.completed',
+                new CutCompletedEvent(result.cut, result.task, changedByUser as any),
+              );
+            }
+          }
+        } catch (eventError) {
+          this.logger.warn('Failed to emit cut status changed events:', eventError);
+        }
+      }
 
       return {
         success: true,
         message: 'Corte atualizado com sucesso',
-        data: result,
+        data: result.cut,
       };
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
