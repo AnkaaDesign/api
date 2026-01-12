@@ -1,7 +1,7 @@
 {
-  "buildTime": "2026-01-12T19:26:24.382Z",
+  "buildTime": "2026-01-12T20:21:08.787Z",
   "version": "0.0.1",
-  "commit": "47494ab15909704fbf7b5151926cd0d848e04f14",
+  "commit": "d3d9702e129610bb7a580002f5c5d497515c6bb1",
   "branch": "main",
-  "node": "v24.1.0"
+  "node": "v18.19.1"
 }

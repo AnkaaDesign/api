@@ -223,7 +223,7 @@ async function bootstrap() {
     app.use(handleMulterError);
     app.use(uploadCleanupMiddleware);
 
-    // No global prefix - API runs on subdomain (api.ankaa.live, test.api.ankaa.live)
+    // No global prefix - API runs on subdomain (api.ankaadesign.com.br, test.api.ankaadesign.com.br)
     // app.setGlobalPrefix('api'); // REMOVED: Using subdomain architecture
 
     const port = env.API_PORT ?? env.PORT ?? 3030;

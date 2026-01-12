@@ -9,7 +9,7 @@ import { join, extname, basename, dirname } from 'path';
 
 /**
  * Files storage folder mapping for different file types and contexts
- * Files are stored in /srv/files (production) and served by nginx via arquivos.ankaa.live
+ * Files are stored in /srv/files (production) and served by nginx via arquivos.ankaadesign.com.br
  * Local access is provided via Samba share
  */
 export interface FilesFolderMapping {
@@ -86,7 +86,7 @@ export enum FileTypeCategory {
 
 /**
  * Files storage service for file management
- * Production: FILES_ROOT=/srv/files served by nginx via arquivos.ankaa.live
+ * Production: FILES_ROOT=/srv/files served by nginx via arquivos.ankaadesign.com.br
  * Local access: Via Samba share at /srv/files
  */
 @Injectable()
@@ -505,10 +505,10 @@ export class FilesStorageService {
   }
 
   /**
-   * Get public URL for file access (served by nginx via arquivos.ankaa.live)
+   * Get public URL for file access (served by nginx via arquivos.ankaadesign.com.br)
    */
   getFileUrl(filePath: string): string {
-    const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+    const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
 
     const normalizedFilePath = filePath.replace(/^\.\//, '');
     const normalizedRoot = this.filesRoot.replace(/^\.\//, '');

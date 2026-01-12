@@ -161,7 +161,7 @@ deploy_web() {
     # Build application
     if [ "$SKIP_BUILD" = false ]; then
         echo -e "${YELLOW}Building application...${NC}"
-        VITE_API_URL=https://api.ankaa.live pnpm run build
+        VITE_API_URL=https://api.ankaadesign.com.br pnpm run build
     else
         echo -e "${YELLOW}Skipping build...${NC}"
     fi
@@ -221,7 +221,7 @@ if [ "$DEPLOY_API" = true ]; then
 fi
 echo ""
 echo -e "${GREEN}URLs:${NC}"
-echo "  - Web:     https://ankaa.live"
-echo "  - API:     https://api.ankaa.live"
-echo "  - Webhook: https://webhook.ankaa.live"
-echo "  - Arquivos: https://arquivos.ankaa.live"
+echo "  - Web:     https://ankaadesign.com.br"
+echo "  - API:     https://api.ankaadesign.com.br"
+echo "  - Webhook: https://webhook.ankaadesign.com.br"
+echo "  - Arquivos: https://arquivos.ankaadesign.com.br"
