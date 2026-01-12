@@ -16,6 +16,9 @@ import {
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
   COMMISSION_STATUS,
+  TRUCK_CATEGORY,
+  IMPLEMENT_TYPE,
+  TRUCK_SPOT,
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
@@ -1479,6 +1482,15 @@ const layoutSideSchema = z
   .nullable()
   .optional();
 
+// Truck category schema
+const truckCategorySchema = z.nativeEnum(TRUCK_CATEGORY);
+
+// Implement type schema
+const implementTypeSchema = z.nativeEnum(IMPLEMENT_TYPE);
+
+// Truck spot schema
+const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
+
 // Consolidated truck schema - ALL truck fields in one place
 const taskTruckSchema = z
   .object({
@@ -1505,6 +1517,9 @@ const taskTruckSchema = z
         },
       ),
     spot: z.string().nullable().optional(), // TRUCK_SPOT enum value or null
+    // Truck specifications
+    category: truckCategorySchema.nullable().optional(),
+    implementType: implementTypeSchema.nullable().optional(),
     // Layout data - embedded in truck for single payload
     leftSideLayout: layoutSideSchema,
     rightSideLayout: layoutSideSchema,
@@ -1908,11 +1923,6 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
 // =====================
 // Task Positioning Schemas
 // =====================
-
-import { TRUCK_SPOT } from '@constants';
-
-// Spot schema using the TRUCK_SPOT enum
-const truckSpotSchema = z.nativeEnum(TRUCK_SPOT);
 
 // Schema for updating a single truck spot
 export const taskPositionUpdateSchema = z.object({

@@ -256,6 +256,49 @@ export class NotificationFilterService {
       notificationType: NOTIFICATION_TYPE.SYSTEM,
       requiredSectors: [], // All users can see system notifications
     },
+
+    // SERVICE_ORDER notifications: Based on service order type and role
+    [NOTIFICATION_TYPE.SERVICE_ORDER]: {
+      notificationType: NOTIFICATION_TYPE.SERVICE_ORDER,
+      requiredSectors: [
+        SECTOR_PRIVILEGES.ADMIN,
+        SECTOR_PRIVILEGES.DESIGNER,
+        SECTOR_PRIVILEGES.PRODUCTION,
+        SECTOR_PRIVILEGES.FINANCIAL,
+        SECTOR_PRIVILEGES.LOGISTIC,
+      ],
+      customFilter: (user: User, notification: Notification) => {
+        const metadata = this.parseMetadata(notification);
+        const serviceOrder = metadata?.serviceOrder;
+
+        // Admin can see all service order notifications
+        if (user.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
+          return true;
+        }
+
+        // If the service order is assigned to this user, they should see it
+        if (serviceOrder?.assignedToId === user.id) {
+          return true;
+        }
+
+        // Check based on service order type
+        const serviceOrderType = serviceOrder?.type;
+        const userPrivilege = user.sector?.privileges;
+
+        if (serviceOrderType === 'ARTWORK' && userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
+          return true;
+        }
+        if (serviceOrderType === 'FINANCIAL' && userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+          return true;
+        }
+        if (serviceOrderType === 'PRODUCTION' &&
+            (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION || userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)) {
+          return true;
+        }
+
+        return false;
+      },
+    },
   };
 
   constructor(

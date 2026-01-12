@@ -168,6 +168,7 @@ export class TaskListener {
   /**
    * Handle task status change event
    * Notify: assigned users + sector manager + admin users
+   * Special case: When status changes to WAITING_PRODUCTION, notify PRODUCTION users with task creation message
    */
   private async handleTaskStatusChanged(event: TaskStatusChangedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -238,6 +239,13 @@ export class TaskListener {
       this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
       this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
       this.logger.log('========================================');
+
+      // Special case: When status changes TO WAITING_PRODUCTION, notify PRODUCTION users
+      // This acts as a "task created" notification for the production team
+      if (event.newStatus === TASK_STATUS.WAITING_PRODUCTION) {
+        this.logger.log('[TASK EVENT] Status changed to WAITING_PRODUCTION - notifying production users...');
+        await this.notifyProductionUsersTaskReady(event.task, event.changedBy);
+      }
     } catch (error) {
       this.logger.error('========================================');
       this.logger.error('[TASK EVENT] ❌ Error handling task status changed event');
@@ -531,13 +539,85 @@ export class TaskListener {
 
   /**
    * Get target users for task creation
-   * Returns: sector manager + admin users
+   * Returns: sector manager + users with ADMIN, DESIGNER, LOGISTIC, FINANCIAL privileges
+   * Note: PRODUCTION users are notified separately when task status changes to WAITING_PRODUCTION
    */
   private async getTargetUsersForTaskCreated(task: any): Promise<string[]> {
     return this.getTargetUsersWithRoleFilter(task, [
       SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.PRODUCTION,
+      SECTOR_PRIVILEGES.DESIGNER,
+      SECTOR_PRIVILEGES.LOGISTIC,
+      SECTOR_PRIVILEGES.FINANCIAL,
     ]);
+  }
+
+  /**
+   * Notify PRODUCTION users when a task becomes ready for production (WAITING_PRODUCTION status)
+   * This acts as a "task created" notification specifically for the production team
+   * Uses the 'created' event type for preference lookup so users can control it via notification preferences
+   */
+  private async notifyProductionUsersTaskReady(task: any, changedBy: any): Promise<void> {
+    this.logger.log('========================================');
+    this.logger.log('[TASK EVENT] Notifying PRODUCTION users - Task ready for production');
+    this.logger.log(`[TASK EVENT] Task ID: ${task.id}`);
+    this.logger.log(`[TASK EVENT] Task Name: ${task.name}`);
+    this.logger.log('========================================');
+
+    try {
+      // Get only PRODUCTION users
+      const productionUsers = await this.getTargetUsersWithRoleFilter(task, [
+        SECTOR_PRIVILEGES.PRODUCTION,
+      ]);
+
+      this.logger.log(`[TASK EVENT] Found ${productionUsers.length} PRODUCTION user(s) to notify`);
+
+      let notificationsCreated = 0;
+      let notificationsSkipped = 0;
+
+      for (const userId of productionUsers) {
+        this.logger.log(`[TASK EVENT] Processing PRODUCTION user: ${userId}`);
+
+        // Use 'created' event type so users can control this via their notification preferences
+        const channels = await this.getEnabledChannelsForUser(
+          userId,
+          NOTIFICATION_TYPE.TASK,
+          'created',
+        );
+
+        this.logger.log(`[TASK EVENT] Enabled channels for PRODUCTION user: [${channels.join(', ')}]`);
+
+        if (channels.length === 0) {
+          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for PRODUCTION user ${userId} - skipping`);
+          notificationsSkipped++;
+          continue;
+        }
+
+        const { actionUrl, metadata } = this.getTaskNotificationMetadata(task);
+        await this.notificationService.createNotification({
+          userId,
+          type: NOTIFICATION_TYPE.TASK,
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          title: 'Nova tarefa aguardando produção',
+          body: `Tarefa "${task.name}" está pronta para produção${task.serialNumber ? ` (${task.serialNumber})` : ''} - alterado por ${changedBy.name}`,
+          actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
+          actionUrl,
+          relatedEntityId: task.id,
+          relatedEntityType: 'TASK',
+          metadata,
+          channel: channels,
+        });
+        this.logger.log(`[TASK EVENT] ✅ Production notification created for user ${userId}`);
+        notificationsCreated++;
+      }
+
+      this.logger.log('========================================');
+      this.logger.log('[TASK EVENT] PRODUCTION notification summary:');
+      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
+      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error('[TASK EVENT] ❌ Error notifying PRODUCTION users:', error.message);
+    }
   }
 
   /**
