@@ -646,7 +646,7 @@ export class BackupService implements OnModuleInit {
     // Use subdomain webhook URL or fallback to configured URL
     const webhookUrl =
       this.configService.get<string>('BACKUP_PROGRESS_WEBHOOK_URL') ||
-      'https://webhook.ankaa.live/backup/progress';
+      'https://webhook.ankaadesign.com.br/backup/progress';
 
     try {
       // Create HMAC signature if secret is configured

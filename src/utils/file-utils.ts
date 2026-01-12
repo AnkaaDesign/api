@@ -546,7 +546,7 @@ export const getIconForMimeType = (
 // =====================
 
 /**
- * Convert a file path to a public URL (served by nginx via arquivos.ankaa.live)
+ * Convert a file path to a public URL (served by nginx via arquivos.ankaadesign.com.br)
  * This is a standalone utility that doesn't require DI
  */
 export const getFileUrl = (filePath: string): string => {
@@ -555,7 +555,7 @@ export const getFileUrl = (filePath: string): string => {
     return filePath;
   }
 
-  const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+  const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
   const filesRoot = process.env.FILES_ROOT || './uploads/files';
 
   // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
