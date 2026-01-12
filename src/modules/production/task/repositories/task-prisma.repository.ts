@@ -344,6 +344,16 @@ export class TaskPrismaRepository
       // Add spot if provided
       if (truck.spot !== undefined) truckData.spot = truck.spot;
 
+      // Add category if provided (skip empty strings)
+      if (truck.category !== undefined && truck.category !== '' && truck.category !== null) {
+        truckData.category = truck.category;
+      }
+
+      // Add implementType if provided (skip empty strings)
+      if (truck.implementType !== undefined && truck.implementType !== '' && truck.implementType !== null) {
+        truckData.implementType = truck.implementType;
+      }
+
       // Add garage connection if garageId is provided
       if (truck.garageId) {
         truckData.garage = { connect: { id: truck.garageId } };
@@ -717,6 +727,15 @@ export class TaskPrismaRepository
         if (truck.spot !== undefined) {
           truckCreateData.spot = truck.spot;
           truckUpdateData.spot = truck.spot;
+        }
+        // Truck specifications
+        if (truck.category !== undefined && truck.category !== '') {
+          truckCreateData.category = truck.category;
+          truckUpdateData.category = truck.category;
+        }
+        if (truck.implementType !== undefined && truck.implementType !== '') {
+          truckCreateData.implementType = truck.implementType;
+          truckUpdateData.implementType = truck.implementType;
         }
 
         // Legacy support: also check top-level plate and chassisNumber
