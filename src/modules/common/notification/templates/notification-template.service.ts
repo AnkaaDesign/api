@@ -310,6 +310,55 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   },
 
   // =====================
+  // Service Order Templates
+  // =====================
+
+  'service-order.created': {
+    title: data => `Nova Ordem de Serviço Criada`,
+    body: data =>
+      `Ordem de serviço "${data.serviceOrderDescription}" foi criada para a tarefa "${data.taskName}"${data.creatorName ? ` por ${data.creatorName}` : ''} (Tipo: ${data.serviceOrderType}).`,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+  },
+
+  'service-order.status.changed': {
+    title: data => `Ordem de Serviço Atualizada`,
+    body: data =>
+      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}"${data.changedByName ? ` por ${data.changedByName}` : ''}.`,
+    importance: NOTIFICATION_IMPORTANCE.HIGH,
+    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+  },
+
+  'service-order.completed': {
+    title: data => `Ordem de Serviço Concluída`,
+    body: data =>
+      `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" foi concluída${data.completedBy ? ` por ${data.completedBy}` : ''}.`,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+  },
+
+  'service-order.assigned': {
+    title: data => `Nova Ordem de Serviço Atribuída`,
+    body: data =>
+      `Você foi atribuído à ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" (Tipo: ${data.serviceOrderType}).`,
+    importance: NOTIFICATION_IMPORTANCE.HIGH,
+    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+  },
+
+  'service-order.artwork-waiting-approval': {
+    title: data => `Arte Aguardando Aprovação`,
+    body: data =>
+      `Ordem de serviço de arte "${data.serviceOrderDescription}" da tarefa "${data.taskName}" está aguardando aprovação.`,
+    importance: NOTIFICATION_IMPORTANCE.HIGH,
+    actionType: NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+  },
+
+  // =====================
   // Stock Templates
   // =====================
 

@@ -40,9 +40,9 @@ export const securityConfig = {
                 'http://localhost:*',
                 'ws://localhost:*',
                 'wss://localhost:*',
-                'http://192.168.0.13:*',
-                'ws://192.168.0.128:*',
-                'wss://192.168.0.128:*',
+                'http://192.168.0.*:*',
+                'ws://192.168.0.*:*',
+                'wss://192.168.0.*:*',
               ]
             : []),
           // Production API endpoints
@@ -225,26 +225,35 @@ export const securityConfig = {
             'http://staging.ankaa.live',
             ...(process.env.CLIENT_HOST ? [process.env.CLIENT_HOST] : []),
           ]
-        : [
-            'http://localhost:3000',
-            'http://localhost:3001',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:5175',
-            'http://localhost:5176',
-            'http://localhost:5177',
-            'https://ankaa.live',
-            'https://staging.ankaa.live',
-            'http://192.168.0.13:3000',
-            'http://192.168.0.13:5174',
-            'http://192.168.0.13:5175',
-            'http://192.168.0.13:5176',
-            'http://192.168.0.13:5177',
-            'http://192.168.0.13:8081',
-            'http://192.168.0.13:19000',
-            'http://192.168.0.13:19006',
-            ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : []),
-          ],
+        : (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+            // In development, allow localhost and any local network IP (192.168.0.*)
+            if (!origin) {
+              // Allow requests with no origin (mobile apps, Postman, etc.)
+              callback(null, true);
+              return;
+            }
+
+            // Define allowed patterns for development
+            const allowedPatterns = [
+              /^http:\/\/localhost:\d+$/,                           // localhost with any port
+              /^http:\/\/127\.0\.0\.1:\d+$/,                       // 127.0.0.1 with any port
+              /^http:\/\/192\.168\.0\.\d{1,3}:\d+$/,               // Local network IPs (192.168.0.*)
+              /^http:\/\/192\.168\.1\.\d{1,3}:\d+$/,               // Alternative local network (192.168.1.*)
+              /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,      // 10.x.x.x network
+              /^https:\/\/(www\.)?ankaa\.live$/,                   // Production domain
+              /^https:\/\/staging\.ankaa\.live$/,                  // Staging domain
+            ];
+
+            // Check if origin matches any allowed pattern
+            const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+
+            if (isAllowed) {
+              callback(null, true);
+            } else {
+              console.warn(`[CORS] Blocked origin: ${origin}`);
+              callback(new Error('Not allowed by CORS'));
+            }
+          },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',

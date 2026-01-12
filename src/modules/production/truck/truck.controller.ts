@@ -11,8 +11,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
-import { UserId } from '@modules/common/auth/decorators/user-id.decorator';
-import { User } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User } from '@modules/common/auth/decorators/user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { TruckService } from './truck.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
@@ -114,6 +113,7 @@ export class TruckController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async batchUpdateSpots(

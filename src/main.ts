@@ -67,7 +67,9 @@ class SocketIoAdapter extends IoAdapter {
       ...options,
       // CORS configuration for WebSocket connections
       cors: {
-        origin: allowedOrigins,
+        origin: typeof allowedOrigins === 'function'
+          ? (origin, callback) => allowedOrigins(origin, callback)
+          : allowedOrigins,
         methods: ['GET', 'POST'],
         credentials: true,
         allowedHeaders: ['Content-Type', 'Authorization'],

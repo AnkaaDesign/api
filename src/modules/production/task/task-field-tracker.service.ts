@@ -284,18 +284,51 @@ export class TaskFieldTrackerService {
    */
   private hasObjectChanged(oldObj: any, newObj: any): boolean {
     try {
-      // Both null/undefined = no change
-      if (!oldObj && !newObj) return false;
+      // Check if object has only null/undefined values (treat as empty)
+      const isEmptyObject = (obj: any): boolean => {
+        if (!obj || typeof obj !== 'object') return true;
+        const values = Object.values(obj);
+        // Empty object {} has no values, so every returns true - treat as empty
+        if (values.length === 0) return true;
+        return values.every(v => v === null || v === undefined);
+      };
 
-      // One null and other not = changed
-      if ((!oldObj && newObj) || (oldObj && !newObj)) return true;
+      const oldIsEmpty = !oldObj || isEmptyObject(oldObj);
+      const newIsEmpty = !newObj || isEmptyObject(newObj);
+
+      // Log for debugging negotiatingWith spam
+      if (oldObj !== null && newObj !== null) {
+        this.logger.debug(
+          `Object comparison - oldIsEmpty: ${oldIsEmpty}, newIsEmpty: ${newIsEmpty}, ` +
+          `old: ${JSON.stringify(oldObj)}, new: ${JSON.stringify(newObj)}`
+        );
+      }
+
+      // Both empty = no change
+      if (oldIsEmpty && newIsEmpty) {
+        this.logger.debug('Both objects empty - no change detected');
+        return false;
+      }
+
+      // One empty and other not = changed
+      if (oldIsEmpty !== newIsEmpty) {
+        this.logger.debug('One object empty, other not - change detected');
+        return true;
+      }
 
       // For JSON fields (like negotiatingWith), use stable JSON comparison
       // to avoid false positives from object instance differences
       const sortedOldJson = JSON.stringify(oldObj, Object.keys(oldObj || {}).sort());
       const sortedNewJson = JSON.stringify(newObj, Object.keys(newObj || {}).sort());
 
-      return sortedOldJson !== sortedNewJson;
+      const hasChanged = sortedOldJson !== sortedNewJson;
+      if (hasChanged) {
+        this.logger.debug(
+          `Object content changed - oldJson: ${sortedOldJson}, newJson: ${sortedNewJson}`
+        );
+      }
+
+      return hasChanged;
     } catch (error) {
       this.logger.warn('Failed to compare objects with JSON stringify, comparing values directly');
 

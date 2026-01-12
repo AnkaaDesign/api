@@ -53,6 +53,7 @@ export abstract class TaskRepository extends BaseStringRepository<
     id: string,
     data: TaskUpdateFormData,
     options?: any,
+    userId?: string,
   ): Promise<Task>;
   abstract updateManyWithTransaction(
     transaction: PrismaTransaction,

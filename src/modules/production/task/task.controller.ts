@@ -115,6 +115,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
+        { name: 'baseFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
@@ -181,6 +182,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
+        { name: 'baseFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
       ],
       multerConfig,
@@ -540,6 +542,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
+        { name: 'baseFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
@@ -585,11 +588,18 @@ export class TaskController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ArrayFixPipe(), new ZodValidationPipe(taskUpdateSchema))
     data: TaskUpdateFormData = {} as TaskUpdateFormData,
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
     @User() user: UserPayload,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ): Promise<TaskUpdateResponse> {
+    console.log('[TaskController] ========================================');
+    console.log('[TaskController] UPDATE REQUEST RECEIVED');
+    console.log('[TaskController] data keys:', Object.keys(data));
+    console.log('[TaskController] pricing in data:', 'pricing' in data);
+    console.log('[TaskController] data.pricing:', JSON.stringify(data.pricing, null, 2));
+    console.log('[TaskController] ========================================');
+
     return this.tasksService.update(
       id,
       data,

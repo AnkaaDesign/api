@@ -19,6 +19,7 @@ import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
 import type { User, UserIncludes, UserOrderBy } from './user';
 import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
 import type { Budget, BudgetIncludes } from './budget';
+import type { TaskPricing } from './task-pricing';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
 import type { Truck, TruckIncludes } from './truck';
@@ -72,6 +73,7 @@ export interface Task extends BaseEntity {
   services?: ServiceOrder[]; // Alias for backward compatibility
   serviceOrders?: ServiceOrder[]; // Prisma field name
   budget?: Budget;
+  pricing?: TaskPricing; // Task pricing with status and items
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;
@@ -159,6 +161,7 @@ export interface TaskIncludes {
     | {
         include?: BudgetIncludes;
       };
+  pricing?: boolean; // Task pricing with status and items
   airbrushings?:
     | boolean
     | {
