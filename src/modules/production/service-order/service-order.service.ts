@@ -456,6 +456,25 @@ export class ServiceOrderService {
         return batchResult;
       });
 
+      // Emit events for all successfully created service orders
+      // This must happen AFTER the transaction completes successfully
+      for (const serviceOrder of result.success) {
+        // Emit creation event
+        this.eventEmitter.emit('service-order.created', {
+          serviceOrder,
+          userId,
+        });
+
+        // If service order is assigned, emit assignment event
+        if (serviceOrder.assignedToId) {
+          this.eventEmitter.emit('service-order.assigned', {
+            serviceOrder,
+            userId,
+            assignedToId: serviceOrder.assignedToId,
+          });
+        }
+      }
+
       // Convert BatchCreateResult to BatchOperationResult
       const batchOperationResult = {
         success: result.success,

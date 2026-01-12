@@ -47,14 +47,6 @@ export function getTablerIcon(iconKey: string): string {
 }
 
 /**
- * Backward compatibility function - maps to getTablerIcon
- * @deprecated Use getTablerIcon instead
- */
-export function getIconoirIcon(iconKey: string): string {
-  return getTablerIcon(iconKey);
-}
-
-/**
  * Check if user has access to menu item based on privilege requirements
  * Uses exact matching for navigation (not hierarchical)
  */

@@ -142,6 +142,8 @@ export class TaskListener {
           body: `Tarefa "${event.task.name}" foi criada por ${event.createdBy.name}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });
@@ -222,6 +224,8 @@ export class TaskListener {
           body: `Tarefa "${event.task.name}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });
@@ -301,6 +305,8 @@ export class TaskListener {
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });
@@ -400,6 +406,8 @@ export class TaskListener {
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });
@@ -460,6 +468,8 @@ export class TaskListener {
           body: `Tarefa "${event.task.name}" tem prazo em ${event.daysRemaining} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });
@@ -502,6 +512,8 @@ export class TaskListener {
           body: `Tarefa "${event.task.name}" está atrasada há ${event.daysOverdue} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
+          relatedEntityId: event.task.id,
+          relatedEntityType: 'TASK',
           metadata,
           channel: channels,
         });

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import { DeepLinkService } from '@modules/common/notification/deep-link.service';
+import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   NOTIFICATION_TYPE,
@@ -12,7 +12,7 @@ import {
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
 } from '../../../constants/enums';
-import { SERVICE_ORDER_STATUS_LABELS } from '../../../constants/enum-labels';
+import { SERVICE_ORDER_STATUS_LABELS, SERVICE_ORDER_TYPE_LABELS } from '../../../constants/enum-labels';
 
 /**
  * Service Order Event Listener
@@ -35,21 +35,148 @@ export class ServiceOrderListener {
 
   /**
    * Handle service order creation event
-   * Currently just logs - notification is handled by assignment event if assigned
+   * Notify: relevant sector users + admin users (based on service order type)
+   * - ARTWORK → DESIGNER + ADMIN
+   * - FINANCIAL → FINANCIAL + ADMIN
+   * - NEGOTIATION → COMMERCIAL + ADMIN
+   * - PRODUCTION → PRODUCTION + ADMIN
+   * Channels: IN_APP, PUSH, WHATSAPP (mandatory)
    */
   @OnEvent('service-order.created')
   async handleServiceOrderCreated(payload: any): Promise<void> {
-    this.logger.log('========================================');
-    this.logger.log('[SERVICE ORDER EVENT] Service order created');
-    this.logger.log(`[SERVICE ORDER EVENT] ID: ${payload.serviceOrder.id}`);
-    this.logger.log(`[SERVICE ORDER EVENT] Type: ${payload.serviceOrder.type}`);
-    this.logger.log(`[SERVICE ORDER EVENT] Description: ${payload.serviceOrder.description}`);
-    this.logger.log('========================================');
+    try {
+      this.logger.log('========================================');
+      this.logger.log('[SERVICE ORDER EVENT] Service order created');
+      this.logger.log(`[SERVICE ORDER EVENT] ID: ${payload.serviceOrder.id}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Type: ${payload.serviceOrder.type}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Description: ${payload.serviceOrder.description}`);
+
+      const { serviceOrder } = payload;
+
+      // Get task information for context
+      const task = await this.prisma.task.findUnique({
+        where: { id: serviceOrder.taskId },
+        select: { name: true, serialNumber: true },
+      });
+
+      if (!task) {
+        this.logger.warn('[SERVICE ORDER EVENT] Task not found, skipping notification');
+        return;
+      }
+
+      const taskIdentifier = task.serialNumber || task.name || 'Task';
+
+      // Get service order with creator information
+      const serviceOrderWithCreator = await this.prisma.serviceOrder.findUnique({
+        where: { id: serviceOrder.id },
+        select: {
+          createdById: true,
+          createdBy: {
+            select: { name: true },
+          },
+        },
+      });
+
+      const creatorName = serviceOrderWithCreator?.createdBy?.name || 'Alguém';
+      const creatorId = serviceOrderWithCreator?.createdById;
+
+      // Create deep link to task (service orders are viewed within the task)
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
+
+      // Determine target privileges based on service order type
+      const targetPrivileges = this.getTargetPrivilegesForServiceOrderType(serviceOrder.type);
+
+      this.logger.log(`[SERVICE ORDER EVENT] Target privileges for type ${serviceOrder.type}: ${targetPrivileges.join(', ')}`);
+
+      // Get users with target privileges (including ADMIN which is always included)
+      const targetUsers = await this.prisma.user.findMany({
+        where: {
+          sector: {
+            privileges: {
+              in: targetPrivileges,
+            },
+          },
+          isActive: true,
+        },
+        select: { id: true, name: true },
+      });
+
+      this.logger.log(`[SERVICE ORDER EVENT] Found ${targetUsers.length} users to notify`);
+
+      // Filter out the creator from notifications
+      const usersToNotify = targetUsers.filter(user => user.id !== creatorId);
+
+      this.logger.log(`[SERVICE ORDER EVENT] Notifying ${usersToNotify.length} users (excluding creator)`);
+
+      // Get type label for display
+      const typeLabel = SERVICE_ORDER_TYPE_LABELS[serviceOrder.type] || serviceOrder.type;
+
+      // Create notification for each target user (except creator)
+      for (const user of usersToNotify) {
+        await this.notificationService.createNotification({
+          userId: user.id,
+          title: 'Nova Ordem de Serviço Criada',
+          body: `Ordem de serviço "${serviceOrder.description}" foi criada para a tarefa "${taskIdentifier}" por ${creatorName} (Tipo: ${typeLabel})`,
+          type: NOTIFICATION_TYPE.SERVICE_ORDER,
+          channel: [
+            NOTIFICATION_CHANNEL.IN_APP,
+            NOTIFICATION_CHANNEL.PUSH,
+            NOTIFICATION_CHANNEL.WHATSAPP,
+          ],
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+          actionUrl: deepLink,
+          relatedEntityType: 'SERVICE_ORDER',
+          relatedEntityId: serviceOrder.id,
+          isMandatory: true,
+          metadata: {
+            serviceOrderId: serviceOrder.id,
+            serviceOrderType: serviceOrder.type,
+            taskId: serviceOrder.taskId,
+            taskIdentifier,
+            createdBy: creatorName,
+          },
+        });
+      }
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Creation notifications sent to relevant users');
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating notifications:', error);
+    }
+  }
+
+  /**
+   * Get target privileges for a service order type
+   * Returns the sector privileges that should be notified for this service order type
+   */
+  private getTargetPrivilegesForServiceOrderType(type: SERVICE_ORDER_TYPE): SECTOR_PRIVILEGES[] {
+    switch (type) {
+      case SERVICE_ORDER_TYPE.ARTWORK:
+        return [SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN];
+
+      case SERVICE_ORDER_TYPE.FINANCIAL:
+        return [SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN];
+
+      case SERVICE_ORDER_TYPE.NEGOTIATION:
+        return [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
+
+      case SERVICE_ORDER_TYPE.PRODUCTION:
+        // Production includes LOGISTIC users as well
+        return [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.ADMIN];
+
+      default:
+        // Fallback to admin only for unknown types
+        return [SECTOR_PRIVILEGES.ADMIN];
+    }
   }
 
   /**
    * Handle service order assignment event
-   * Notify: assigned user
+   * Notify: assigned user + all admin users
    * Channels: IN_APP, PUSH, WHATSAPP (mandatory), EMAIL (optional)
    */
   @OnEvent('service-order.assigned')
@@ -70,10 +197,21 @@ export class ServiceOrderListener {
 
       const taskIdentifier = task?.serialNumber || task?.name || 'Task';
 
-      // Create deep link to service order
-      const deepLink = this.deepLinkService.createServiceOrderDeepLink(serviceOrder.id);
+      // Get assigned user info
+      const assignedUser = await this.prisma.user.findUnique({
+        where: { id: assignedToId },
+        select: { name: true },
+      });
 
-      // Create notification
+      const assignedUserName = assignedUser?.name || 'Usuário';
+
+      // Create deep link to task (service orders are viewed within the task)
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
+
+      // 1. Notify the assigned user
       await this.notificationService.createNotification({
         userId: assignedToId,
         title: 'Nova Ordem de Serviço Atribuída',
@@ -99,7 +237,57 @@ export class ServiceOrderListener {
         },
       });
 
-      this.logger.log('[SERVICE ORDER EVENT] ✅ Assignment notification created');
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Assignment notification sent to assigned user');
+
+      // 2. Notify all ADMIN users
+      const admins = await this.prisma.user.findMany({
+        where: {
+          sector: {
+            privileges: SECTOR_PRIVILEGES.ADMIN,
+          },
+          isActive: true,
+        },
+        select: { id: true },
+      });
+
+      this.logger.log(`[SERVICE ORDER EVENT] Found ${admins.length} admin users to notify about assignment`);
+
+      // Notify each admin (including if assigned user is admin, they'll get both notifications)
+      for (const admin of admins) {
+        // Skip if this admin is the assigned user (they already got the assignment notification)
+        if (admin.id === assignedToId) {
+          this.logger.log(`[SERVICE ORDER EVENT] Skipping admin ${admin.id} (same as assigned user)`);
+          continue;
+        }
+
+        await this.notificationService.createNotification({
+          userId: admin.id,
+          title: 'Ordem de Serviço Atribuída',
+          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi atribuída a ${assignedUserName}`,
+          type: NOTIFICATION_TYPE.SERVICE_ORDER,
+          channel: [
+            NOTIFICATION_CHANNEL.IN_APP,
+            NOTIFICATION_CHANNEL.PUSH,
+            NOTIFICATION_CHANNEL.WHATSAPP,
+          ],
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+          actionUrl: deepLink,
+          relatedEntityType: 'SERVICE_ORDER',
+          relatedEntityId: serviceOrder.id,
+          isMandatory: true,
+          metadata: {
+            serviceOrderId: serviceOrder.id,
+            serviceOrderType: serviceOrder.type,
+            taskId: serviceOrder.taskId,
+            taskIdentifier,
+            assignedTo: assignedUserName,
+            assignedToId,
+          },
+        });
+      }
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Assignment notifications sent to admins');
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating assignment notification:', error);
@@ -108,7 +296,7 @@ export class ServiceOrderListener {
 
   /**
    * Handle service order completion event
-   * Notify: task creator
+   * Notify: creator + all admin users
    * Channels: IN_APP, PUSH, WHATSAPP (mandatory), EMAIL (optional)
    */
   @OnEvent('service-order.completed')
@@ -147,14 +335,18 @@ export class ServiceOrderListener {
         return;
       }
 
+      const creatorId = serviceOrderWithCreator.createdById;
       const taskIdentifier = task.serialNumber || task.name || 'Task';
 
-      // Create deep link to service order
-      const deepLink = this.deepLinkService.createServiceOrderDeepLink(serviceOrder.id);
+      // Create deep link to task (service orders are viewed within the task)
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
 
-      // Create notification for service order creator (not task creator)
+      // 1. Notify the creator
       await this.notificationService.createNotification({
-        userId: serviceOrderWithCreator.createdById,
+        userId: creatorId,
         title: 'Ordem de Serviço Concluída',
         body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} foi concluída`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
@@ -179,7 +371,56 @@ export class ServiceOrderListener {
         },
       });
 
-      this.logger.log('[SERVICE ORDER EVENT] ✅ Completion notification created for service order creator');
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Completion notification sent to creator');
+
+      // 2. Notify all ADMIN users
+      const admins = await this.prisma.user.findMany({
+        where: {
+          sector: {
+            privileges: SECTOR_PRIVILEGES.ADMIN,
+          },
+          isActive: true,
+        },
+        select: { id: true },
+      });
+
+      this.logger.log(`[SERVICE ORDER EVENT] Found ${admins.length} admin users to notify about completion`);
+
+      // Notify each admin (excluding if admin is the creator - they already got the notification)
+      for (const admin of admins) {
+        // Skip if this admin is the creator (they already got the completion notification)
+        if (admin.id === creatorId) {
+          this.logger.log(`[SERVICE ORDER EVENT] Skipping admin ${admin.id} (same as creator)`);
+          continue;
+        }
+
+        await this.notificationService.createNotification({
+          userId: admin.id,
+          title: 'Ordem de Serviço Concluída',
+          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída`,
+          type: NOTIFICATION_TYPE.SERVICE_ORDER,
+          channel: [
+            NOTIFICATION_CHANNEL.IN_APP,
+            NOTIFICATION_CHANNEL.PUSH,
+            NOTIFICATION_CHANNEL.WHATSAPP,
+          ],
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+          actionUrl: deepLink,
+          relatedEntityType: 'SERVICE_ORDER',
+          relatedEntityId: serviceOrder.id,
+          isMandatory: true,
+          metadata: {
+            serviceOrderId: serviceOrder.id,
+            serviceOrderType: serviceOrder.type,
+            taskId: serviceOrder.taskId,
+            taskIdentifier,
+            status: SERVICE_ORDER_STATUS.COMPLETED,
+          },
+        });
+      }
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Completion notifications sent to admins');
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating completion notification:', error);
@@ -208,8 +449,11 @@ export class ServiceOrderListener {
 
       const taskIdentifier = task?.serialNumber || task?.name || 'Task';
 
-      // Create deep link to service order
-      const deepLink = this.deepLinkService.createServiceOrderDeepLink(serviceOrder.id);
+      // Create deep link to task (service orders are viewed within the task)
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
 
       // Get all admin users
       const admins = await this.prisma.user.findMany({
@@ -260,15 +504,118 @@ export class ServiceOrderListener {
   }
 
   /**
-   * Handle status change event (for logging purposes)
+   * Handle status change event
+   * Notify: relevant sector users + admin users (based on service order type)
+   * - ARTWORK → DESIGNER + ADMIN
+   * - FINANCIAL → FINANCIAL + ADMIN
+   * - NEGOTIATION → COMMERCIAL + ADMIN
+   * - PRODUCTION → PRODUCTION + ADMIN
+   * Channels: IN_APP, PUSH, WHATSAPP (mandatory)
    */
   @OnEvent('service-order.status.changed')
   async handleStatusChanged(payload: any): Promise<void> {
-    this.logger.log('========================================');
-    this.logger.log('[SERVICE ORDER EVENT] Status changed');
-    this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${payload.serviceOrder.id}`);
-    this.logger.log(`[SERVICE ORDER EVENT] Old Status: ${payload.oldStatus}`);
-    this.logger.log(`[SERVICE ORDER EVENT] New Status: ${payload.newStatus}`);
-    this.logger.log('========================================');
+    try {
+      this.logger.log('========================================');
+      this.logger.log('[SERVICE ORDER EVENT] Status changed');
+      this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${payload.serviceOrder.id}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Type: ${payload.serviceOrder.type}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Old Status: ${payload.oldStatus}`);
+      this.logger.log(`[SERVICE ORDER EVENT] New Status: ${payload.newStatus}`);
+
+      const { serviceOrder, oldStatus, newStatus, changedBy } = payload;
+
+      // Get task information for context
+      const task = await this.prisma.task.findUnique({
+        where: { id: serviceOrder.taskId },
+        select: { name: true, serialNumber: true },
+      });
+
+      if (!task) {
+        this.logger.warn('[SERVICE ORDER EVENT] Task not found, skipping notification');
+        return;
+      }
+
+      const taskIdentifier = task.serialNumber || task.name || 'Task';
+
+      // Get user who made the change
+      const changedByUser = changedBy?.id || null;
+      const changedByName = changedBy?.name || 'Alguém';
+
+      // Create deep link to task (service orders are viewed within the task)
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
+
+      // Determine target privileges based on service order type
+      const targetPrivileges = this.getTargetPrivilegesForServiceOrderType(serviceOrder.type);
+
+      this.logger.log(`[SERVICE ORDER EVENT] Target privileges for type ${serviceOrder.type}: ${targetPrivileges.join(', ')}`);
+
+      // Get users with target privileges (including ADMIN which is always included)
+      const targetUsers = await this.prisma.user.findMany({
+        where: {
+          sector: {
+            privileges: {
+              in: targetPrivileges,
+            },
+          },
+          isActive: true,
+        },
+        select: { id: true, name: true },
+      });
+
+      this.logger.log(`[SERVICE ORDER EVENT] Found ${targetUsers.length} users to notify`);
+
+      // Filter out the user who made the change
+      const usersToNotify = targetUsers.filter(user => user.id !== changedByUser);
+
+      this.logger.log(`[SERVICE ORDER EVENT] Notifying ${usersToNotify.length} users (excluding changer)`);
+
+      // Get status labels for display
+      const oldStatusLabel = SERVICE_ORDER_STATUS_LABELS[oldStatus] || oldStatus;
+      const newStatusLabel = SERVICE_ORDER_STATUS_LABELS[newStatus] || newStatus;
+
+      // Determine importance based on new status
+      let importance = NOTIFICATION_IMPORTANCE.NORMAL;
+      if (newStatus === SERVICE_ORDER_STATUS.COMPLETED || newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
+        importance = NOTIFICATION_IMPORTANCE.HIGH;
+      }
+
+      // Create notification for each target user (except the one who made the change)
+      for (const user of usersToNotify) {
+        await this.notificationService.createNotification({
+          userId: user.id,
+          title: 'Ordem de Serviço Atualizada',
+          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`,
+          type: NOTIFICATION_TYPE.SERVICE_ORDER,
+          channel: [
+            NOTIFICATION_CHANNEL.IN_APP,
+            NOTIFICATION_CHANNEL.PUSH,
+            NOTIFICATION_CHANNEL.WHATSAPP,
+          ],
+          importance,
+          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+          actionUrl: deepLink,
+          relatedEntityType: 'SERVICE_ORDER',
+          relatedEntityId: serviceOrder.id,
+          isMandatory: true,
+          metadata: {
+            serviceOrderId: serviceOrder.id,
+            serviceOrderType: serviceOrder.type,
+            taskId: serviceOrder.taskId,
+            taskIdentifier,
+            oldStatus,
+            newStatus,
+            changedBy: changedByName,
+          },
+        });
+      }
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Status change notifications sent to relevant users');
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating status change notifications:', error);
+    }
   }
 }

@@ -194,12 +194,29 @@ export class TaskService {
                   })),
                 },
               },
+              include: {
+                layoutSections: true,
+              },
             });
             await tx.truck.update({
               where: { id: truck.id },
               data: { [layoutField]: layout.id },
             });
-            this.logger.log(`[Task Create] ${sideName} layout created: ${layout.id}`);
+
+            // Create changelog for layout creation
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.LAYOUT,
+              entityId: layout.id,
+              action: CHANGE_ACTION.CREATE,
+              entity: layout,
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              reason: `Layout ${layoutField} criado`,
+              transaction: tx,
+            });
+
+            this.logger.log(`[Task Create] ${sideName} layout created: ${layout.id} with changelog`);
           };
 
           // Create layouts for each side using the new consolidated format
@@ -669,7 +686,7 @@ export class TaskService {
     },
   ): Promise<TaskUpdateResponse> {
     try {
-      const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
         const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
@@ -708,19 +725,91 @@ export class TaskService {
               this.logger.log(`[Task Update] Deleting truck for task ${id}`);
               // Layouts will be cascade deleted if configured, otherwise delete manually
               const truck = existingTask.truck;
+
+              // Delete layouts and create changelogs
               if (truck.leftSideLayoutId) {
+                const layoutToDelete = await tx.layout.findUnique({
+                  where: { id: truck.leftSideLayoutId },
+                  include: { layoutSections: true },
+                });
                 await tx.layoutSection.deleteMany({ where: { layoutId: truck.leftSideLayoutId } });
                 await tx.layout.delete({ where: { id: truck.leftSideLayoutId } });
+
+                if (layoutToDelete) {
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.LAYOUT,
+                    entityId: truck.leftSideLayoutId,
+                    action: CHANGE_ACTION.DELETE,
+                    entity: layoutToDelete,
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    reason: 'Layout leftSideLayoutId removido (caminhão deletado)',
+                    transaction: tx,
+                  });
+                }
               }
               if (truck.rightSideLayoutId) {
+                const layoutToDelete = await tx.layout.findUnique({
+                  where: { id: truck.rightSideLayoutId },
+                  include: { layoutSections: true },
+                });
                 await tx.layoutSection.deleteMany({ where: { layoutId: truck.rightSideLayoutId } });
                 await tx.layout.delete({ where: { id: truck.rightSideLayoutId } });
+
+                if (layoutToDelete) {
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.LAYOUT,
+                    entityId: truck.rightSideLayoutId,
+                    action: CHANGE_ACTION.DELETE,
+                    entity: layoutToDelete,
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    reason: 'Layout rightSideLayoutId removido (caminhão deletado)',
+                    transaction: tx,
+                  });
+                }
               }
               if (truck.backSideLayoutId) {
+                const layoutToDelete = await tx.layout.findUnique({
+                  where: { id: truck.backSideLayoutId },
+                  include: { layoutSections: true },
+                });
                 await tx.layoutSection.deleteMany({ where: { layoutId: truck.backSideLayoutId } });
                 await tx.layout.delete({ where: { id: truck.backSideLayoutId } });
+
+                if (layoutToDelete) {
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.LAYOUT,
+                    entityId: truck.backSideLayoutId,
+                    action: CHANGE_ACTION.DELETE,
+                    entity: layoutToDelete,
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    reason: 'Layout backSideLayoutId removido (caminhão deletado)',
+                    transaction: tx,
+                  });
+                }
               }
+
+              // Delete truck and create changelog
               await tx.truck.delete({ where: { id: truck.id } });
+
+              await logEntityChange({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.TRUCK,
+                entityId: truck.id,
+                action: CHANGE_ACTION.DELETE,
+                entity: truck,
+                userId: userId || '',
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                reason: 'Caminhão removido da tarefa',
+                transaction: tx,
+              });
+
+              this.logger.log(`[Task Update] Deleted truck ${truck.id} with changelog`);
             }
           } else {
             // Create or update truck
@@ -739,6 +828,21 @@ export class TaskService {
                 },
               });
               truckId = newTruck.id;
+
+              // Create changelog for truck creation
+              await logEntityChange({
+                changeLogService: this.changeLogService,
+                entityType: ENTITY_TYPE.TRUCK,
+                entityId: newTruck.id,
+                action: CHANGE_ACTION.CREATE,
+                entity: newTruck,
+                userId: userId || '',
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                reason: 'Caminhão criado via atualização de tarefa',
+                transaction: tx,
+              });
+
+              this.logger.log(`[Task Update] Created truck ${newTruck.id} with changelog`);
             } else {
               // Update existing truck basic fields
               const updateFields: any = {};
@@ -748,8 +852,31 @@ export class TaskService {
               if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
               if (Object.keys(updateFields).length > 0) {
-                await tx.truck.update({ where: { id: truckId }, data: updateFields });
+                const updatedTruck = await tx.truck.update({ where: { id: truckId }, data: updateFields });
                 this.logger.log(`[Task Update] Truck basic fields updated`);
+
+                // Create changelog for each changed field
+                for (const [field, newValue] of Object.entries(updateFields)) {
+                  const oldValue = (existingTruck as any)?.[field];
+                  if (oldValue !== newValue) {
+                    await logEntityChange({
+                      changeLogService: this.changeLogService,
+                      entityType: ENTITY_TYPE.TRUCK,
+                      entityId: truckId,
+                      action: CHANGE_ACTION.UPDATE,
+                      entity: updatedTruck,
+                      userId: userId || '',
+                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                      reason: `Campo ${field} atualizado`,
+                      field,
+                      oldValue,
+                      newValue,
+                      transaction: tx,
+                    });
+                  }
+                }
+
+                this.logger.log(`[Task Update] Truck field changes logged to changelog`);
               }
             }
 
@@ -765,16 +892,62 @@ export class TaskService {
                 // Delete existing layout
                 if (existingLayoutId) {
                   this.logger.log(`[Task Update] Deleting ${layoutField}`);
+
+                  // Get layout details before deletion for changelog
+                  const layoutToDelete = await tx.layout.findUnique({
+                    where: { id: existingLayoutId },
+                    include: { layoutSections: true },
+                  });
+
                   await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
                   await tx.layout.delete({ where: { id: existingLayoutId } });
                   await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
+
+                  // Create changelog for layout deletion
+                  if (layoutToDelete) {
+                    await logEntityChange({
+                      changeLogService: this.changeLogService,
+                      entityType: ENTITY_TYPE.LAYOUT,
+                      entityId: existingLayoutId,
+                      action: CHANGE_ACTION.DELETE,
+                      entity: layoutToDelete,
+                      userId: userId || '',
+                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                      reason: `Layout ${layoutField} removido`,
+                      transaction: tx,
+                    });
+                  }
+
+                  this.logger.log(`[Task Update] Deleted ${layoutField} with changelog`);
                 }
               } else {
                 // Create or update layout
+                let layoutToDelete = null;
                 if (existingLayoutId) {
+                  // Get layout details before deletion for changelog
+                  layoutToDelete = await tx.layout.findUnique({
+                    where: { id: existingLayoutId },
+                    include: { layoutSections: true },
+                  });
+
                   // Delete existing and recreate (simpler than complex update)
                   await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
                   await tx.layout.delete({ where: { id: existingLayoutId } });
+
+                  // Create changelog for layout deletion (as part of update)
+                  if (layoutToDelete) {
+                    await logEntityChange({
+                      changeLogService: this.changeLogService,
+                      entityType: ENTITY_TYPE.LAYOUT,
+                      entityId: existingLayoutId,
+                      action: CHANGE_ACTION.DELETE,
+                      entity: layoutToDelete,
+                      userId: userId || '',
+                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                      reason: `Layout ${layoutField} atualizado (removido antigo)`,
+                      transaction: tx,
+                    });
+                  }
                 }
 
                 const newLayout = await tx.layout.create({
@@ -790,12 +963,29 @@ export class TaskService {
                       })),
                     },
                   },
+                  include: {
+                    layoutSections: true,
+                  },
                 });
                 await tx.truck.update({
                   where: { id: truckId! },
                   data: { [layoutField]: newLayout.id },
                 });
-                this.logger.log(`[Task Update] ${layoutField} created: ${newLayout.id}`);
+
+                // Create changelog for new layout creation
+                await logEntityChange({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.LAYOUT,
+                  entityId: newLayout.id,
+                  action: CHANGE_ACTION.CREATE,
+                  entity: newLayout,
+                  userId: userId || '',
+                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                  reason: `Layout ${layoutField} ${layoutToDelete ? 'atualizado (novo criado)' : 'criado'}`,
+                  transaction: tx,
+                });
+
+                this.logger.log(`[Task Update] ${layoutField} created: ${newLayout.id} with changelog`);
               }
             };
 
@@ -995,11 +1185,20 @@ export class TaskService {
           );
         }
 
+        // Extract service orders from data to handle them explicitly
+        // This prevents Prisma from doing a silent nested create without events/changelogs
+        const serviceOrdersData = (data as any).serviceOrders;
+        let createdServiceOrders: any[] = [];
+
         // Ensure statusOrder is updated when status changes
         const updateData = {
           ...data,
           ...(data.status && { statusOrder: getTaskStatusOrder(data.status as TASK_STATUS) }),
         };
+
+        // Remove service orders from updateData to prevent Prisma nested create
+        // We'll handle them explicitly below
+        delete (updateData as any).serviceOrders;
 
         // Update the task - always include customer for file organization
         // Also include file relations for changelog tracking
@@ -1011,7 +1210,43 @@ export class TaskService {
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
           },
-        });
+        }, userId);
+
+        // Handle service orders explicitly if provided
+        if (serviceOrdersData && Array.isArray(serviceOrdersData) && serviceOrdersData.length > 0) {
+          this.logger.log(`[Task Update] Processing ${serviceOrdersData.length} service orders for task ${id}`);
+
+          for (const serviceOrderData of serviceOrdersData) {
+            // Create the service order
+            const createdServiceOrder = await tx.serviceOrder.create({
+              data: {
+                taskId: id,
+                type: serviceOrderData.type,
+                status: serviceOrderData.status || 'PENDING',
+                description: serviceOrderData.description || null,
+                assignedToId: serviceOrderData.assignedToId || null,
+                createdById: userId || '',
+              },
+            });
+
+            createdServiceOrders.push(createdServiceOrder);
+
+            // Create changelog for service order creation
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.SERVICE_ORDER,
+              entityId: createdServiceOrder.id,
+              action: CHANGE_ACTION.CREATE,
+              entity: createdServiceOrder,
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              reason: 'Ordem de serviço criada via atualização de tarefa',
+              transaction: tx,
+            });
+
+            this.logger.log(`[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`);
+          }
+        }
 
         // Process and save files WITHIN the transaction
         // This ensures files are only created if the task update succeeds
@@ -1819,8 +2054,38 @@ export class TaskService {
           }
         }
 
-        return updatedTask!;
+        return { updatedTask: updatedTask!, createdServiceOrders };
       });
+
+      // Destructure transaction result
+      const { updatedTask, createdServiceOrders } = transactionResult;
+
+      // Emit events for created service orders AFTER transaction commits
+      if (createdServiceOrders && createdServiceOrders.length > 0) {
+        this.logger.log(`[Task Update] Emitting events for ${createdServiceOrders.length} service orders`);
+
+        for (const serviceOrder of createdServiceOrders) {
+          this.logger.log(`[Task Update] Emitting service-order.created event for SO ${serviceOrder.id} (type: ${serviceOrder.type})`);
+
+          // Emit creation event
+          this.eventEmitter.emit('service-order.created', {
+            serviceOrder,
+            userId,
+          });
+
+          // If service order is assigned, emit assignment event
+          if (serviceOrder.assignedToId) {
+            this.logger.log(`[Task Update] Emitting service-order.assigned event for SO ${serviceOrder.id} to user ${serviceOrder.assignedToId}`);
+            this.eventEmitter.emit('service-order.assigned', {
+              serviceOrder,
+              userId,
+              assignedToId: serviceOrder.assignedToId,
+            });
+          }
+        }
+      } else {
+        this.logger.log(`[Task Update] No service orders to emit events for`);
+      }
 
       return {
         success: true,
@@ -3439,6 +3704,7 @@ export class TaskService {
             createdBy: true,
           },
         },
+        userId,
       );
 
       // 8. Log the rollback action

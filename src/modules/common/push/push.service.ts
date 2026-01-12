@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException } from '@nestjs/common';
 import * as admin from 'firebase-admin';
+import { Expo } from 'expo-server-sdk';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { DeepLinkService } from '../notification/deep-link.service';
+import { ExpoPushService } from './expo-push.service';
 import { Platform, DeviceToken } from '@prisma/client';
 
 export interface PushNotificationResult {
@@ -52,6 +54,7 @@ export class PushService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly deepLinkService: DeepLinkService,
+    private readonly expoPushService: ExpoPushService,
   ) {}
 
   onModuleInit() {
@@ -501,7 +504,14 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Send notification to all devices of a user
+   * Detect if a token is an Expo push token
+   */
+  private isExpoPushToken(token: string): boolean {
+    return Expo.isExpoPushToken(token);
+  }
+
+  /**
+   * Send notification to all devices of a user (HYBRID - supports both Expo and FCM tokens)
    */
   async sendToUser(
     userId: string,
@@ -510,7 +520,7 @@ export class PushService implements OnModuleInit {
     data?: any,
   ): Promise<MulticastNotificationResult> {
     this.logger.log('========================================');
-    this.logger.log('[PUSH] Sending notification to user');
+    this.logger.log('[PUSH] Sending notification to user (HYBRID MODE)');
     this.logger.log(`[PUSH] User ID: ${userId}`);
     this.logger.log(`[PUSH] Title: ${title}`);
     this.logger.log(`[PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`);
@@ -530,23 +540,81 @@ export class PushService implements OnModuleInit {
       return { success: 0, failure: 0 };
     }
 
+    // Separate Expo tokens from FCM tokens
+    const expoTokens: string[] = [];
+    const fcmTokens: string[] = [];
+
     tokens.forEach((token, idx) => {
-      this.logger.log(`[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}...`);
+      const isExpo = this.isExpoPushToken(token);
+      this.logger.log(`[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}... [${isExpo ? 'EXPO' : 'FCM'}]`);
+
+      if (isExpo) {
+        expoTokens.push(token);
+      } else {
+        fcmTokens.push(token);
+      }
     });
 
-    this.logger.log('[PUSH] Dispatching to multicast notification service...');
-    const result = await this.sendMulticastNotification(tokens, title, body, data);
+    this.logger.log(`[PUSH] Token breakdown:`);
+    this.logger.log(`[PUSH]   📱 Expo tokens: ${expoTokens.length}`);
+    this.logger.log(`[PUSH]   🔥 FCM tokens: ${fcmTokens.length}`);
+
+    let totalSuccess = 0;
+    let totalFailure = 0;
+    const allFailedTokens: string[] = [];
+
+    // Send to Expo tokens via Expo Push Service
+    if (expoTokens.length > 0) {
+      this.logger.log('[PUSH] ----------------------------------------');
+      this.logger.log('[PUSH] Sending to Expo tokens via Expo Push Service...');
+      const expoResult = await this.expoPushService.sendMulticastNotification(
+        expoTokens,
+        title,
+        body,
+        data,
+      );
+
+      totalSuccess += expoResult.success;
+      totalFailure += expoResult.failure;
+      allFailedTokens.push(...expoResult.failedTokens);
+
+      this.logger.log(`[PUSH] Expo result: ✅ ${expoResult.success} success, ❌ ${expoResult.failure} failure`);
+
+      // Deactivate failed Expo tokens
+      if (expoResult.failedTokens.length > 0) {
+        await this.deactivateTokens(expoResult.failedTokens);
+      }
+    }
+
+    // Send to FCM tokens via Firebase
+    if (fcmTokens.length > 0) {
+      this.logger.log('[PUSH] ----------------------------------------');
+      this.logger.log('[PUSH] Sending to FCM tokens via Firebase...');
+      const fcmResult = await this.sendMulticastNotification(fcmTokens, title, body, data);
+
+      totalSuccess += fcmResult.success;
+      totalFailure += fcmResult.failure;
+      if (fcmResult.failedTokens) {
+        allFailedTokens.push(...fcmResult.failedTokens);
+      }
+
+      this.logger.log(`[PUSH] FCM result: ✅ ${fcmResult.success} success, ❌ ${fcmResult.failure} failure`);
+    }
 
     this.logger.log('[PUSH] ========================================');
-    this.logger.log('[PUSH] Multicast result:');
-    this.logger.log(`[PUSH]   ✅ Success: ${result.success}`);
-    this.logger.log(`[PUSH]   ❌ Failure: ${result.failure}`);
-    if (result.failedTokens && result.failedTokens.length > 0) {
-      this.logger.warn(`[PUSH]   🗑️  Deactivated ${result.failedTokens.length} invalid token(s)`);
+    this.logger.log('[PUSH] FINAL HYBRID RESULT:');
+    this.logger.log(`[PUSH]   ✅ Total Success: ${totalSuccess}`);
+    this.logger.log(`[PUSH]   ❌ Total Failure: ${totalFailure}`);
+    if (allFailedTokens.length > 0) {
+      this.logger.warn(`[PUSH]   🗑️  Deactivated ${allFailedTokens.length} invalid token(s)`);
     }
     this.logger.log('========================================');
 
-    return result;
+    return {
+      success: totalSuccess,
+      failure: totalFailure,
+      failedTokens: allFailedTokens.length > 0 ? allFailedTokens : undefined,
+    };
   }
 
   /**
