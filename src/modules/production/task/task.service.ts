@@ -148,7 +148,9 @@ export class TaskService {
         }
 
         // Create the task first WITHOUT files
-        const newTask = await this.tasksRepository.createWithTransaction(tx, data, { include });
+        // Add createdById to data for service orders creation
+        const dataWithCreator = { ...data, createdById: userId } as typeof data;
+        const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, { include });
 
         // Create truck with layouts ONLY if layouts are provided
         // Note: Basic truck creation (plate, chassisNumber, spot) is handled by the repository
@@ -562,8 +564,9 @@ export class TaskService {
             // Validate task
             await this.validateTask(task, undefined, tx);
 
-            // Create the task
-            const createdTask = await this.tasksRepository.createWithTransaction(tx, task, {
+            // Create the task with createdById for service orders
+            const taskWithCreator = { ...task, createdById: userId } as typeof task;
+            const createdTask = await this.tasksRepository.createWithTransaction(tx, taskWithCreator, {
               include,
             });
 
@@ -1756,7 +1759,7 @@ export class TaskService {
         }
 
         // Track services array changes
-        if (data.services !== undefined) {
+        if (data.serviceOrders !== undefined) {
           const oldServices = existingTask.services || [];
           const newServices = updatedTask?.services || [];
 
@@ -2479,8 +2482,7 @@ export class TaskService {
               const mergedArtworkIds = [
                 ...new Set([...currentArtworkIds, ...uploadedFileIds.artworks]),
               ];
-              // The mapper expects 'fileIds' for artworks relation
-              update.data.fileIds = mergedArtworkIds;
+              update.data.artworkIds = mergedArtworkIds;
               this.logger.log(
                 `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (total: ${mergedArtworkIds.length})`,
               );
@@ -2493,7 +2495,7 @@ export class TaskService {
               const filteredArtworkIds = currentArtworkIds.filter(
                 id => !update.data.removeArtworkIds.includes(id),
               );
-              update.data.fileIds = filteredArtworkIds;
+              update.data.artworkIds = filteredArtworkIds;
               delete update.data.removeArtworkIds;
               this.logger.log(
                 `[batchUpdate] Removing ${update.data.removeArtworkIds.length} artworks from task ${update.id}`,
@@ -3351,11 +3353,12 @@ export class TaskService {
       }
     }
 
-    // Validate unique plate
-    if (data.plate) {
+    // Validate unique plate (plate is nested under truck object)
+    const plate = (data as any).truck?.plate;
+    if (plate) {
       const existing = await transaction.truck.findFirst({
         where: {
-          plate: data.plate,
+          plate: plate,
           ...(existingId && { taskId: { not: existingId } }),
         },
       });

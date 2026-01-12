@@ -27,6 +27,16 @@ interface NotificationMetadata {
     assignedUserIds?: string[];
     supervisorId?: string | null;
   };
+  cut?: {
+    id: string;
+    taskId?: string | null;
+    taskSectorId?: string | null;
+    type: 'VINYL' | 'STENCIL';
+    origin: 'PLAN' | 'REQUEST';
+    reason?: 'WRONG_APPLY' | 'LOST' | 'WRONG' | null;
+    status?: 'PENDING' | 'CUTTING' | 'COMPLETED';
+    createdById?: string | null;
+  };
   order?: {
     id: string;
     type?: string;
@@ -163,13 +173,12 @@ export class NotificationFilterService {
       },
     },
 
-    // ORDER notifications: Only ADMIN, WAREHOUSE, LOGISTIC
+    // ORDER notifications: Only ADMIN, WAREHOUSE (inventory management)
     [NOTIFICATION_TYPE.ORDER]: {
       notificationType: NOTIFICATION_TYPE.ORDER,
       requiredSectors: [
         SECTOR_PRIVILEGES.ADMIN,
         SECTOR_PRIVILEGES.WAREHOUSE,
-        SECTOR_PRIVILEGES.LOGISTIC,
       ],
     },
 
@@ -266,6 +275,7 @@ export class NotificationFilterService {
         SECTOR_PRIVILEGES.PRODUCTION,
         SECTOR_PRIVILEGES.FINANCIAL,
         SECTOR_PRIVILEGES.LOGISTIC,
+        SECTOR_PRIVILEGES.COMMERCIAL,
       ],
       customFilter: (user: User, notification: Notification) => {
         const metadata = this.parseMetadata(notification);
@@ -278,6 +288,11 @@ export class NotificationFilterService {
 
         // If the service order is assigned to this user, they should see it
         if (serviceOrder?.assignedToId === user.id) {
+          return true;
+        }
+
+        // If the user created the service order, they should see completion notifications
+        if (serviceOrder?.createdById === user.id) {
           return true;
         }
 
@@ -294,6 +309,47 @@ export class NotificationFilterService {
         if (serviceOrderType === 'PRODUCTION' &&
             (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION || userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)) {
           return true;
+        }
+        if (serviceOrderType === 'NEGOTIATION' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
+          return true;
+        }
+
+        return false;
+      },
+    },
+
+    // CUT notifications: PLOTTING for all cuts, PRODUCTION for task-related cuts in their sector
+    [NOTIFICATION_TYPE.CUT]: {
+      notificationType: NOTIFICATION_TYPE.CUT,
+      requiredSectors: [
+        SECTOR_PRIVILEGES.ADMIN,
+        SECTOR_PRIVILEGES.PLOTTING,
+        SECTOR_PRIVILEGES.PRODUCTION,
+      ],
+      customFilter: (user: User, notification: Notification) => {
+        const metadata = this.parseMetadata(notification);
+        const cut = metadata?.cut;
+
+        // Admin can see all cut notifications
+        if (user.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
+          return true;
+        }
+
+        // PLOTTING can see all cut notifications
+        if (user.sector?.privileges === SECTOR_PRIVILEGES.PLOTTING) {
+          return true;
+        }
+
+        // PRODUCTION can see cut notifications for tasks in their sector
+        // Only for status changes (started/finished), not all cut events
+        if (user.sector?.privileges === SECTOR_PRIVILEGES.PRODUCTION) {
+          // Only show cuts started (CUTTING) or finished (COMPLETED)
+          if (cut?.status === 'CUTTING' || cut?.status === 'COMPLETED') {
+            // Check if the cut's task is in user's sector
+            if (cut?.taskSectorId && user.sectorId === cut.taskSectorId) {
+              return true;
+            }
+          }
         }
 
         return false;

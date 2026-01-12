@@ -59,6 +59,7 @@ export interface FilesFolderMapping {
   plotterAdesivo: string;
   thumbnails: string;
   paintColor: string;
+  messageImages: string;
 
   // General folders
   general: string;
@@ -147,6 +148,7 @@ export class FilesStorageService {
     plotterAdesivo: 'Plotter',
     thumbnails: 'Thumbnails',
     paintColor: 'Tintas',
+    messageImages: 'Mensagens',
 
     // General folders
     general: 'Auxiliares',
@@ -621,6 +623,7 @@ export class FilesStorageService {
       ],
       cut: ['plotterEspovo', 'plotterAdesivo'],
       thumbnail: ['thumbnails'],
+      message: ['messageImages'],
     };
 
     return entityContextMap[entityType.toLowerCase()] || ['general'];

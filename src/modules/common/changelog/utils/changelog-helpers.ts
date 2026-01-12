@@ -101,6 +101,10 @@ export interface LogEntityChangeParams {
   userId: string | null;
   triggeredBy?: CHANGE_TRIGGERED_BY;
   transaction?: PrismaTransaction;
+  // Optional field-level change tracking
+  field?: string;
+  oldValue?: any;
+  newValue?: any;
 }
 
 /**

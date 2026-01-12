@@ -23,6 +23,7 @@ export interface Supplier extends BaseEntity {
   cnpj: string | null;
   corporateName: string | null;
   email: string | null;
+  streetType: string | null;
   address: string | null;
   addressNumber: string | null;
   addressComplement: string | null;
@@ -32,6 +33,7 @@ export interface Supplier extends BaseEntity {
   zipCode: string | null;
   site: string | null;
   phones: string[];
+  pix: string | null;
   tags: string[];
   logoId: string | null;
 

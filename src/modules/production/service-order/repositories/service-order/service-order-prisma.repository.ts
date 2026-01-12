@@ -73,7 +73,7 @@ export class ServiceOrderPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ServiceOrderCreateFormData,
   ): Prisma.ServiceOrderCreateInput {
-    const { taskId, status, type, ...rest } = formData;
+    const { taskId, status, type, createdById, ...rest } = formData as ServiceOrderCreateFormData & { createdById?: string };
 
     // Validate required fields
     if (!formData.description) {
@@ -81,6 +81,9 @@ export class ServiceOrderPrismaRepository
     }
     if (!taskId) {
       throw new Error('Task ID is required for creating a service order');
+    }
+    if (!createdById) {
+      throw new Error('CreatedById is required for creating a service order');
     }
 
     const createInput: Prisma.ServiceOrderCreateInput = {
@@ -91,6 +94,9 @@ export class ServiceOrderPrismaRepository
       ...(type !== undefined && { type: type as any }),
       task: {
         connect: { id: taskId },
+      },
+      createdBy: {
+        connect: { id: createdById },
       },
     };
 

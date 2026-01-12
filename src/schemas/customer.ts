@@ -752,9 +752,60 @@ export const customerCreateSchema = z
   );
 
 // Minimal schema for quick customer creation (e.g., from combobox)
+// Extended to support CNPJ-based creation with auto-filled data from Brasil API
 export const customerQuickCreateSchema = z
   .object({
     fantasyName: z.string().min(1, 'Nome fantasia é obrigatório'),
+    // Optional fields for CNPJ-based creation
+    cnpj: z
+      .string()
+      .nullable()
+      .optional()
+      .refine(val => !val || val === '' || isValidCNPJ(val), { message: 'CNPJ inválido' }),
+    corporateName: z.string().nullable().optional(),
+    email: emailSchema.nullable().optional(),
+    streetType: z
+      .enum([
+        'STREET',
+        'AVENUE',
+        'ALLEY',
+        'CROSSING',
+        'SQUARE',
+        'HIGHWAY',
+        'ROAD',
+        'WAY',
+        'PLAZA',
+        'LANE',
+        'DEADEND',
+        'SMALL_STREET',
+        'PATH',
+        'PASSAGE',
+        'GARDEN',
+        'BLOCK',
+        'LOT',
+        'SITE',
+        'PARK',
+        'FARM',
+        'RANCH',
+        'CONDOMINIUM',
+        'COMPLEX',
+        'RESIDENTIAL',
+        'OTHER',
+      ])
+      .nullable()
+      .optional(),
+    address: z.string().nullable().optional(),
+    addressNumber: z.string().nullable().optional(),
+    addressComplement: z.string().nullable().optional(),
+    neighborhood: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
+    state: z.string().length(2, 'Estado deve ter 2 caracteres').nullable().optional(),
+    zipCode: z.string().nullable().optional(),
+    phones: z.array(z.string()).default([]),
+    registrationStatus: z
+      .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
+      .nullable()
+      .optional(),
   })
   .transform(toFormData);
 

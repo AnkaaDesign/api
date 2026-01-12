@@ -146,6 +146,9 @@ export class OrderPrismaRepository
       forecast: orderData.forecast || null,
       notes: orderData.notes || null,
       orderRuleId: orderData.orderRuleId || null,
+      paymentMethod: (orderData.paymentMethod as any) || null,
+      paymentPix: orderData.paymentPix || null,
+      paymentDueDays: orderData.paymentDueDays || null,
     };
 
     // Handle optional relations using connect syntax
@@ -223,6 +226,9 @@ export class OrderPrismaRepository
     if (formData.forecast !== undefined) updateData.forecast = formData.forecast;
     if (formData.notes !== undefined) updateData.notes = formData.notes;
     if (formData.orderRuleId !== undefined) updateData.orderRuleId = formData.orderRuleId;
+    if (formData.paymentMethod !== undefined) updateData.paymentMethod = formData.paymentMethod as any;
+    if (formData.paymentPix !== undefined) updateData.paymentPix = formData.paymentPix;
+    if (formData.paymentDueDays !== undefined) updateData.paymentDueDays = formData.paymentDueDays;
 
     // Handle optional relations with connect/disconnect
     if (formData.supplierId !== undefined) {
@@ -499,6 +505,9 @@ export class OrderPrismaRepository
       orderRuleId: databaseOrder.orderRuleId,
       ppeScheduleId: databaseOrder.ppeScheduleId,
       notes: databaseOrder.notes,
+      paymentMethod: databaseOrder.paymentMethod as any,
+      paymentPix: databaseOrder.paymentPix as any,
+      paymentDueDays: databaseOrder.paymentDueDays as any,
       budgets: databaseOrder.budgets as any,
       invoices: databaseOrder.invoices as any,
       receipts: databaseOrder.receipts as any,

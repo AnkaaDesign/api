@@ -109,6 +109,7 @@ export class NotificationPrismaRepository
       [NOTIFICATION_TYPE.WARNING]: 7,
       [NOTIFICATION_TYPE.STOCK]: 8,
       [NOTIFICATION_TYPE.GENERAL]: 9,
+      [NOTIFICATION_TYPE.CUT]: 10,
     };
     return typeOrderMap[type] || 99;
   }

@@ -769,6 +769,10 @@ export const notificationCreateSchema = z
     scheduledAt: nullableDate.optional(),
     sentAt: nullableDate.optional(),
     metadata: z.record(z.any()).nullable().optional(),
+    relatedEntityId: z.string().uuid().nullable().optional(),
+    relatedEntityType: z.string().nullable().optional(),
+    isMandatory: z.boolean().optional(),
+    targetSectors: z.array(z.string()).optional(),
   })
   .transform(toFormData);
 
