@@ -5,7 +5,7 @@ import Redis from 'ioredis';
 
 /**
  * Dedicated Webhook Server for backup progress
- * Runs on webhook.ankaa.live subdomain
+ * Runs on webhook.ankaadesign.com.br subdomain
  * Receives progress updates and broadcasts to connected clients
  */
 
@@ -13,7 +13,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ['https://ankaa.live', 'https://app.ankaa.live'],
+    origin: ['https://ankaadesign.com.br', 'https://app.ankaadesign.com.br'],
     credentials: true,
   },
 });
@@ -143,7 +143,7 @@ const PORT = process.env.WEBHOOK_PORT || 3001;
 httpServer.listen(PORT, () => {
   if (process.env.NODE_ENV !== 'production') {
     console.log(`Webhook server running on port ${PORT}`);
-    console.log('Configure nginx to proxy webhook.ankaa.live to this port');
+    console.log('Configure nginx to proxy webhook.ankaadesign.com.br to this port');
   }
 });
 

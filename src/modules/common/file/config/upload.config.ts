@@ -14,7 +14,7 @@ export const UPLOAD_CONFIG = {
   uploadDir: process.env.UPLOAD_DIR || './uploads',
 
   // Files storage configuration
-  // Production: FILES_ROOT=/srv/files (served by nginx via arquivos.ankaa.live, accessible locally via Samba)
+  // Production: FILES_ROOT=/srv/files (served by nginx via arquivos.ankaadesign.com.br, accessible locally via Samba)
   // Development: FILES_ROOT=./uploads/files
   filesRoot: process.env.FILES_ROOT || './uploads/files',
 
@@ -213,11 +213,11 @@ export const multerConfig = {
 // Helper function to generate public URL for files
 export function generateFileUrl(filename: string, filePath: string): string {
   const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
-  const filesBaseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+  const filesBaseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
 
   // Check if file is in files storage structure
   if (filePath.includes(UPLOAD_CONFIG.filesRoot)) {
-    // Generate files storage URL (served by nginx via arquivos.ankaa.live)
+    // Generate files storage URL (served by nginx via arquivos.ankaadesign.com.br)
     const relativePath = filePath.replace(UPLOAD_CONFIG.filesRoot, '').replace(/\\/g, '/');
     const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;
     return `${filesBaseUrl}${cleanPath}`;

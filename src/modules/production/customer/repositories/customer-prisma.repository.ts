@@ -91,7 +91,7 @@ export class CustomerPrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: CustomerUpdateFormData,
   ): Prisma.CustomerUpdateInput {
-    const { logoId, ...rest } = formData;
+    const { logoId, economicActivityId, ...rest } = formData;
 
     const updateInput: Prisma.CustomerUpdateInput = {
       ...rest,
@@ -108,6 +108,12 @@ export class CustomerPrismaRepository
 
     if (logoId !== undefined) {
       updateInput.logo = logoId ? { connect: { id: logoId } } : { disconnect: true };
+    }
+
+    if (economicActivityId !== undefined) {
+      updateInput.economicActivity = economicActivityId
+        ? { connect: { id: economicActivityId } }
+        : { disconnect: true };
     }
 
     return updateInput;

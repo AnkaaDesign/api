@@ -30,7 +30,7 @@ This guide provides comprehensive instructions for setting up the Ankaa server i
                         │
         ┌───────────────┼───────────────┬───────────────┐
         │               │               │               │
-   ankaa.live     api.ankaa.live  webhook.ankaa.live  arquivos.ankaa.live
+   ankaadesign.com.br     api.ankaadesign.com.br  webhook.ankaadesign.com.br  arquivos.ankaadesign.com.br
    (Web SPA)       (API :3030)    (Webhook :3001)     (Samba Files)
         │               │               │               │
         │         ┌─────┴─────┐         │         ┌─────┴─────┐
@@ -50,11 +50,11 @@ This guide provides comprehensive instructions for setting up the Ankaa server i
 
 | Domain | Purpose | Port |
 |--------|---------|------|
-| `ankaa.live` | Web Application (React SPA) | 443 |
-| `api.ankaa.live` | API Server (NestJS) | 3030 |
-| `webhook.ankaa.live` | Webhook Server | 3001 |
-| `arquivos.ankaa.live` | File Storage (Arquivos) | 445/443 |
-| `ssh.ankaa.live` | SSH Access | 22 |
+| `ankaadesign.com.br` | Web Application (React SPA) | 443 |
+| `api.ankaadesign.com.br` | API Server (NestJS) | 3030 |
+| `webhook.ankaadesign.com.br` | Webhook Server | 3001 |
+| `arquivos.ankaadesign.com.br` | File Storage (Arquivos) | 445/443 |
+| `ssh.ankaadesign.com.br` | SSH Access | 22 |
 
 ---
 
@@ -81,10 +81,10 @@ sudo bash /home/kennedy/ankaa/api/server-setup/scripts/setup-server.sh
 sudo bash /home/kennedy/ankaa/api/server-setup/scripts/setup-ssl.sh
 
 # 4. Enable nginx sites
-sudo ln -s /etc/nginx/sites-available/ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/api.ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/webhook.ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/arquivos.ankaa.live.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/api.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/webhook.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/arquivos.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 
 # 5. Start services
@@ -164,12 +164,12 @@ sudo chmod -R 2775 /srv/files
 Configure the following A records pointing to your server's IP:
 
 ```
-ankaa.live          A    YOUR_SERVER_IP
-www.ankaa.live      A    YOUR_SERVER_IP
-api.ankaa.live      A    YOUR_SERVER_IP
-webhook.ankaa.live  A    YOUR_SERVER_IP
-arquivos.ankaa.live A    YOUR_SERVER_IP
-ssh.ankaa.live      A    YOUR_SERVER_IP
+ankaadesign.com.br          A    YOUR_SERVER_IP
+www.ankaadesign.com.br      A    YOUR_SERVER_IP
+api.ankaadesign.com.br      A    YOUR_SERVER_IP
+webhook.ankaadesign.com.br  A    YOUR_SERVER_IP
+arquivos.ankaadesign.com.br A    YOUR_SERVER_IP
+ssh.ankaadesign.com.br      A    YOUR_SERVER_IP
 ```
 
 ### SSL Certificates
@@ -181,11 +181,11 @@ sudo bash /home/kennedy/ankaa/api/server-setup/scripts/setup-ssl.sh
 # Or manually with certbot
 sudo certbot certonly --webroot \
     -w /var/www/certbot \
-    -d ankaa.live \
-    -d www.ankaa.live \
-    -d api.ankaa.live \
-    -d webhook.ankaa.live \
-    -d arquivos.ankaa.live
+    -d ankaadesign.com.br \
+    -d www.ankaadesign.com.br \
+    -d api.ankaadesign.com.br \
+    -d webhook.ankaadesign.com.br \
+    -d arquivos.ankaadesign.com.br
 ```
 
 ### Nginx Configuration
@@ -195,10 +195,10 @@ sudo certbot certonly --webroot \
 sudo cp /home/kennedy/ankaa/api/nginx/*.conf /etc/nginx/sites-available/
 
 # Enable sites
-sudo ln -s /etc/nginx/sites-available/ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/api.ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/webhook.ankaa.live.conf /etc/nginx/sites-enabled/
-sudo ln -s /etc/nginx/sites-available/arquivos.ankaa.live.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/api.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/webhook.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/arquivos.ankaadesign.com.br.conf /etc/nginx/sites-enabled/
 
 # Test and reload
 sudo nginx -t
@@ -272,7 +272,7 @@ File storage uses Samba for network file sharing and nginx for web access:
 - **Internal name**: `files`, `FilesStorage`
 - **User-facing name**: `Arquivos`
 - **Storage path**: `/srv/files`
-- **Web URL**: `https://arquivos.ankaa.live`
+- **Web URL**: `https://arquivos.ankaadesign.com.br`
 - **SMB URL**: `smb://SERVER_IP/Arquivos`
 
 ### Folder Structure
@@ -385,14 +385,14 @@ JWT_SECRET=your-super-secret-jwt-key-here
 JWT_EXPIRATION=7d
 
 # API URLs
-API_URL=https://api.ankaa.live
-API_BASE_URL=https://api.ankaa.live
-CLIENT_HOST=https://ankaa.live
-CORS_ORIGINS=https://ankaa.live
+API_URL=https://api.ankaadesign.com.br
+API_BASE_URL=https://api.ankaadesign.com.br
+CLIENT_HOST=https://ankaadesign.com.br
+CORS_ORIGINS=https://ankaadesign.com.br
 
 # Files Storage (Arquivos)
 FILES_ROOT=/srv/files
-FILES_BASE_URL=https://arquivos.ankaa.live
+FILES_BASE_URL=https://arquivos.ankaadesign.com.br
 USE_X_ACCEL_REDIRECT=true
 
 # Redis (optional but recommended)

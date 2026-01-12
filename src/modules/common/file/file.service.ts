@@ -73,7 +73,7 @@ export class FileService {
     let url: string;
 
     if (isStoredFile) {
-      // Generate URL for files in storage (served by nginx via arquivos.ankaa.live)
+      // Generate URL for files in storage (served by nginx via arquivos.ankaadesign.com.br)
       url = this.filesStorageService.getFileUrl(file.path);
     } else {
       // For local files (temp uploads, etc.), use the file serving endpoint

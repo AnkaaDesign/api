@@ -4,10 +4,10 @@
 # ============================================
 # This script sets up SSL certificates using Certbot
 # for all Ankaa domains:
-# - ankaa.live
-# - api.ankaa.live
-# - webhook.ankaa.live
-# - arquivos.ankaa.live
+# - ankaadesign.com.br
+# - api.ankaadesign.com.br
+# - webhook.ankaadesign.com.br
+# - arquivos.ankaadesign.com.br
 
 set -e
 
@@ -18,13 +18,13 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-EMAIL="admin@ankaa.live"  # Change this to your email
+EMAIL="admin@ankaadesign.com.br"  # Change this to your email
 DOMAINS=(
-    "ankaa.live"
-    "www.ankaa.live"
-    "api.ankaa.live"
-    "webhook.ankaa.live"
-    "arquivos.ankaa.live"
+    "ankaadesign.com.br"
+    "www.ankaadesign.com.br"
+    "api.ankaadesign.com.br"
+    "webhook.ankaadesign.com.br"
+    "arquivos.ankaadesign.com.br"
 )
 
 echo -e "${GREEN}========================================${NC}"
@@ -54,7 +54,7 @@ cat > /etc/nginx/sites-available/acme-challenge.conf << 'EOF'
 server {
     listen 80;
     listen [::]:80;
-    server_name ankaa.live www.ankaa.live api.ankaa.live webhook.ankaa.live arquivos.ankaa.live;
+    server_name ankaadesign.com.br www.ankaadesign.com.br api.ankaadesign.com.br webhook.ankaadesign.com.br arquivos.ankaadesign.com.br;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -99,7 +99,7 @@ certbot certonly \
     $DOMAIN_ARGS
 
 # Check if certificate was obtained
-if [ -f "/etc/letsencrypt/live/ankaa.live/fullchain.pem" ]; then
+if [ -f "/etc/letsencrypt/live/ankaadesign.com.br/fullchain.pem" ]; then
     echo -e "${GREEN}Certificate obtained successfully!${NC}"
 else
     echo -e "${RED}Failed to obtain certificate${NC}"
@@ -126,8 +126,8 @@ echo -e "${GREEN}  SSL Setup Complete${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${GREEN}Certificate files:${NC}"
-echo "  - Fullchain: /etc/letsencrypt/live/ankaa.live/fullchain.pem"
-echo "  - Private Key: /etc/letsencrypt/live/ankaa.live/privkey.pem"
+echo "  - Fullchain: /etc/letsencrypt/live/ankaadesign.com.br/fullchain.pem"
+echo "  - Private Key: /etc/letsencrypt/live/ankaadesign.com.br/privkey.pem"
 echo ""
 echo -e "${GREEN}Domains covered:${NC}"
 for domain in "${DOMAINS[@]}"; do

@@ -563,7 +563,7 @@ export class ServerService {
         let filesUrl: string | undefined;
         if (!isDirectory) {
           const relativePath = path.relative(filesRoot, itemPath);
-          const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+          const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
           filesUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
         }
 
@@ -686,7 +686,7 @@ export class ServerService {
       };
 
       // Generate files storage URL
-      const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.live';
+      const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
       const filesPath = `${baseUrl}/${encodeURIComponent(folderName)}`;
 
       return {
