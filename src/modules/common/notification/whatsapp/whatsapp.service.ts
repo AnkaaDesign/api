@@ -253,6 +253,7 @@ export class WhatsAppNotificationService {
     // Prefer universal link or mobile URL for WhatsApp (opens in mobile app)
     let actionUrlToUse = notification.actionUrl;
 
+    // First, try to extract from metadata (preferred source)
     if (notification.metadata) {
       try {
         const metadata =
@@ -269,6 +270,24 @@ export class WhatsAppNotificationService {
         }
       } catch (error) {
         this.logger.warn(`Failed to extract mobile URL from metadata: ${error.message}`);
+      }
+    }
+
+    // If actionUrl is still a JSON string (from generateNotificationActionUrl), parse it
+    // This handles cases where metadata doesn't have universalLink but actionUrl is the JSON object
+    if (actionUrlToUse && actionUrlToUse.startsWith('{')) {
+      try {
+        const parsedUrl = JSON.parse(actionUrlToUse);
+        // Prefer universal link for WhatsApp (works on both web and mobile)
+        if (parsedUrl.universalLink) {
+          actionUrlToUse = parsedUrl.universalLink;
+        } else if (parsedUrl.mobile) {
+          actionUrlToUse = parsedUrl.mobile;
+        } else if (parsedUrl.web) {
+          actionUrlToUse = parsedUrl.web;
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to parse actionUrl as JSON: ${error.message}`);
       }
     }
 

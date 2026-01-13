@@ -975,27 +975,38 @@ model Service {
 }
 
 model ServiceOrder {
-  id           String             @id @default(uuid())
-  status       ServiceOrderStatus @default(PENDING)
-  statusOrder  Int                @default(1)
-  description  String
-  type         ServiceOrderType   @default(PRODUCTION)
-  assignedToId String?
-  taskId       String
-  createdById  String
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  startedAt    DateTime?
-  finishedAt   DateTime?
-  assignedTo   User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
-  task         Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
-  createdBy    User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
+  id            String             @id @default(uuid())
+  status        ServiceOrderStatus @default(PENDING)
+  statusOrder   Int                @default(1)
+  description   String
+  type          ServiceOrderType   @default(PRODUCTION)
+  observation   String?            @db.Text
+  assignedToId  String?
+  taskId        String
+  createdById   String
+  startedById   String?
+  approvedById  String?
+  completedById String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  startedAt     DateTime?
+  approvedAt    DateTime?
+  finishedAt    DateTime?
+  assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
+  task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
+  startedBy     User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id], onDelete: SetNull)
+  approvedBy    User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id], onDelete: SetNull)
+  completedBy   User?              @relation("SERVICE_ORDER_COMPLETED_BY", fields: [completedById], references: [id], onDelete: SetNull)
 
   @@index([taskId])
   @@index([statusOrder])
   @@index([type])
   @@index([assignedToId])
   @@index([createdById])
+  @@index([startedById])
+  @@index([approvedById])
+  @@index([completedById])
 }
 
 model TaskPricing {
@@ -1304,6 +1315,9 @@ model User {
   warningsWitness         Warning[]                    @relation("WITNESS_WARNING")
   assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
   createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
+  startedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
+  approvedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
+  completedServiceOrders  ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
   notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
   deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
   createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")

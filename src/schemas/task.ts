@@ -1461,6 +1461,7 @@ const taskObservationCreateSchema = z.object({
 
 // ProductionServiceOrder schema without taskId (will be auto-linked)
 const taskProductionServiceOrderCreateSchema = z.object({
+  id: z.string().uuid().optional(), // For existing service orders (updates)
   status: z
     .enum(Object.values(SERVICE_ORDER_STATUS) as [string, ...string[]], {
       errorMap: () => ({ message: 'status inválido' }),
@@ -1478,6 +1479,7 @@ const taskProductionServiceOrderCreateSchema = z.object({
     .min(3, { message: 'Mínimo de 3 caracteres' })
     .max(400, { message: 'Máximo de 40 caracteres atingido' }),
   assignedToId: z.string().uuid('ID do colaborador inválido').nullable().optional(),
+  observation: z.string().nullable().optional(), // For rejection/approval notes
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
