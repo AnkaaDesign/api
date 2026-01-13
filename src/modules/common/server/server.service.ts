@@ -96,7 +96,7 @@ export interface SharedFolder {
   group: string;
   size: string;
   lastModified: Date;
-  filesPath?: string;
+  remotePath?: string;
   description?: string;
   type?: string;
 }
@@ -413,7 +413,7 @@ export class ServerService {
               ...filesInfo, // Add files storage specific metadata
               ...accessInfo, // Add access information
             } as SharedFolder & {
-              filesPath?: string;
+              remotePath?: string;
               description?: string;
               type?: string;
               accessible?: boolean;
@@ -453,7 +453,7 @@ export class ServerService {
       permissions: string;
       owner: string;
       group: string;
-      filesUrl?: string;
+      remoteUrl?: string;
       fileCount?: number;
       folderCount?: number;
     }>;
@@ -559,12 +559,12 @@ export class ServerService {
           totalFiles++;
         }
 
-        // Generate files storage URL for files
-        let filesUrl: string | undefined;
+        // Generate remote URL for files
+        let remoteUrl: string | undefined;
         if (!isDirectory) {
           const relativePath = path.relative(filesRoot, itemPath);
           const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
-          filesUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
+          remoteUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
         }
 
         files.push({
@@ -575,7 +575,7 @@ export class ServerService {
           permissions,
           owner,
           group,
-          filesUrl,
+          remoteUrl,
           fileCount,
           folderCount,
         });
@@ -657,7 +657,7 @@ export class ServerService {
     folderName: string,
     folderPath: string,
   ): Promise<{
-    filesPath?: string;
+    remotePath?: string;
     description?: string;
     type?: string;
   }> {
@@ -685,12 +685,12 @@ export class ServerService {
         type: 'other',
       };
 
-      // Generate files storage URL
+      // Generate remote URL
       const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
-      const filesPath = `${baseUrl}/${encodeURIComponent(folderName)}`;
+      const remotePath = `${baseUrl}/${encodeURIComponent(folderName)}`;
 
       return {
-        filesPath,
+        remotePath,
         description: info.description,
         type: info.type,
       };
