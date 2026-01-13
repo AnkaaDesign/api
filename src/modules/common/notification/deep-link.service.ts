@@ -65,37 +65,39 @@ export class DeepLinkService {
   private readonly universalLinkDomain: string;
 
   // Route mappings for each entity type
+  // Web routes match the actual web application routes
+  // Mobile routes use entity shortcuts that the mobile app's ENTITY_ALIAS_MAP can parse
   // These routes align with the notification type patterns:
-  // TASK_* → /tarefas/:id
-  // ORDER_* → /pedidos/:id
-  // STOCK_* → /estoque/produtos/:id
-  // FINANCIAL_* → /financeiro/:type/:id
-  // SERVICE_ORDER_* → /service-orders/:id
-  // USER_*, PROFILE_* → /perfil/:id
+  // TASK_* → /producao/agenda/detalhes/:id (web) | task/:id (mobile)
+  // ORDER_* → /estoque/pedidos/detalhes/:id (web) | order/:id (mobile)
+  // STOCK_*, ITEM_* → /estoque/produtos/detalhes/:id (web) | item/:id (mobile)
+  // FINANCIAL_* → /financeiro/transacoes/detalhes/:id (web) | financial/:id (mobile)
+  // SERVICE_ORDER_* → /producao/ordens-de-servico/detalhes/:id (web) | service-order/:id (mobile)
+  // USER_*, PROFILE_* → /administracao/usuarios/detalhes/:id (web) | user/:id (mobile)
   private readonly ROUTES: Record<DeepLinkEntity, RouteConfig> = {
     [DeepLinkEntity.Task]: {
-      web: '/tarefas/',
-      mobile: 'tarefas/',
+      web: '/producao/agenda/detalhes/',
+      mobile: 'task/',
     },
     [DeepLinkEntity.Order]: {
-      web: '/pedidos/',
-      mobile: 'pedidos/',
+      web: '/estoque/pedidos/detalhes/',
+      mobile: 'order/',
     },
     [DeepLinkEntity.Item]: {
-      web: '/estoque/produtos/',
-      mobile: 'estoque/produtos/',
+      web: '/estoque/produtos/detalhes/',
+      mobile: 'item/',
     },
     [DeepLinkEntity.ServiceOrder]: {
-      web: '/service-orders/',
-      mobile: 'service-orders/',
+      web: '/producao/ordens-de-servico/detalhes/',
+      mobile: 'service-order/',
     },
     [DeepLinkEntity.Financial]: {
-      web: '/financeiro/transacoes/',
-      mobile: 'financeiro/transacoes/',
+      web: '/financeiro/transacoes/detalhes/',
+      mobile: 'financial/',
     },
     [DeepLinkEntity.User]: {
-      web: '/perfil/',
-      mobile: 'perfil/',
+      web: '/administracao/usuarios/detalhes/',
+      mobile: 'user/',
     },
   };
 
