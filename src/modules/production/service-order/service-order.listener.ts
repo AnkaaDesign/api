@@ -306,7 +306,7 @@ export class ServiceOrderListener {
       this.logger.log('[SERVICE ORDER EVENT] Service order completed');
       this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${payload.serviceOrder.id}`);
 
-      const { serviceOrder } = payload;
+      const { serviceOrder, userId } = payload;
 
       // Get task information for display
       const task = await this.prisma.task.findUnique({
@@ -322,20 +322,33 @@ export class ServiceOrderListener {
         return;
       }
 
-      // Get service order with creator information
-      const serviceOrderWithCreator = await this.prisma.serviceOrder.findUnique({
+      // Get service order with creator and completedBy information
+      const serviceOrderWithRelations = await this.prisma.serviceOrder.findUnique({
         where: { id: serviceOrder.id },
         select: {
           createdById: true,
+          completedById: true,
+          completedBy: {
+            select: { name: true },
+          },
+          startedBy: {
+            select: { name: true },
+          },
+          approvedBy: {
+            select: { name: true },
+          },
         },
       });
 
-      if (!serviceOrderWithCreator || !serviceOrderWithCreator.createdById) {
+      if (!serviceOrderWithRelations || !serviceOrderWithRelations.createdById) {
         this.logger.warn('[SERVICE ORDER EVENT] Service order has no creator, skipping notification');
         return;
       }
 
-      const creatorId = serviceOrderWithCreator.createdById;
+      const creatorId = serviceOrderWithRelations.createdById;
+      const completedByName = serviceOrderWithRelations.completedBy?.name || 'Alguém';
+      const startedByName = serviceOrderWithRelations.startedBy?.name || null;
+      const approvedByName = serviceOrderWithRelations.approvedBy?.name || null;
       const taskIdentifier = task.serialNumber || task.name || 'Task';
 
       // Create deep link to task (service orders are viewed within the task)
@@ -348,7 +361,7 @@ export class ServiceOrderListener {
       await this.notificationService.createNotification({
         userId: creatorId,
         title: 'Ordem de Serviço Concluída',
-        body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} foi concluída`,
+        body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} foi concluída por ${completedByName}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -368,6 +381,9 @@ export class ServiceOrderListener {
           taskId: serviceOrder.taskId,
           taskIdentifier,
           status: SERVICE_ORDER_STATUS.COMPLETED,
+          completedBy: completedByName,
+          startedBy: startedByName,
+          approvedBy: approvedByName,
         },
       });
 
@@ -397,7 +413,7 @@ export class ServiceOrderListener {
         await this.notificationService.createNotification({
           userId: admin.id,
           title: 'Ordem de Serviço Concluída',
-          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída`,
+          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída por ${completedByName}`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
             NOTIFICATION_CHANNEL.IN_APP,
@@ -416,6 +432,9 @@ export class ServiceOrderListener {
             taskId: serviceOrder.taskId,
             taskIdentifier,
             status: SERVICE_ORDER_STATUS.COMPLETED,
+            completedBy: completedByName,
+            startedBy: startedByName,
+            approvedBy: approvedByName,
           },
         });
       }
@@ -522,7 +541,7 @@ export class ServiceOrderListener {
       this.logger.log(`[SERVICE ORDER EVENT] Old Status: ${payload.oldStatus}`);
       this.logger.log(`[SERVICE ORDER EVENT] New Status: ${payload.newStatus}`);
 
-      const { serviceOrder, oldStatus, newStatus, changedBy } = payload;
+      const { serviceOrder, oldStatus, newStatus, userId } = payload;
 
       // Get task information for context
       const task = await this.prisma.task.findUnique({
@@ -537,9 +556,26 @@ export class ServiceOrderListener {
 
       const taskIdentifier = task.serialNumber || task.name || 'Task';
 
+      // Get service order with all user relations for metadata
+      const serviceOrderWithUsers = await this.prisma.serviceOrder.findUnique({
+        where: { id: serviceOrder.id },
+        select: {
+          observation: true,
+          startedBy: { select: { name: true } },
+          approvedBy: { select: { name: true } },
+          completedBy: { select: { name: true } },
+        },
+      });
+
       // Get user who made the change
-      const changedByUser = changedBy?.id || null;
-      const changedByName = changedBy?.name || 'Alguém';
+      let changedByName = 'Alguém';
+      if (userId) {
+        const changedByUser = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        });
+        changedByName = changedByUser?.name || 'Alguém';
+      }
 
       // Create deep link to task (service orders are viewed within the task)
       const deepLink = this.deepLinkService.generateNotificationActionUrl(
@@ -568,7 +604,22 @@ export class ServiceOrderListener {
       this.logger.log(`[SERVICE ORDER EVENT] Found ${targetUsers.length} users to notify`);
 
       // Filter out the user who made the change
-      const usersToNotify = targetUsers.filter(user => user.id !== changedByUser);
+      let usersToNotify = targetUsers.filter(user => user.id !== userId);
+
+      // Also include the assigned user if they're not already in the list and not the changer
+      if (serviceOrder.assignedToId && serviceOrder.assignedToId !== userId) {
+        const assignedUserInList = usersToNotify.some(user => user.id === serviceOrder.assignedToId);
+        if (!assignedUserInList) {
+          const assignedUser = await this.prisma.user.findUnique({
+            where: { id: serviceOrder.assignedToId },
+            select: { id: true, name: true, isActive: true },
+          });
+          if (assignedUser && assignedUser.isActive) {
+            usersToNotify.push(assignedUser);
+            this.logger.log(`[SERVICE ORDER EVENT] Added assigned user ${assignedUser.name} to notification list`);
+          }
+        }
+      }
 
       this.logger.log(`[SERVICE ORDER EVENT] Notifying ${usersToNotify.length} users (excluding changer)`);
 
@@ -576,18 +627,49 @@ export class ServiceOrderListener {
       const oldStatusLabel = SERVICE_ORDER_STATUS_LABELS[oldStatus] || oldStatus;
       const newStatusLabel = SERVICE_ORDER_STATUS_LABELS[newStatus] || newStatus;
 
-      // Determine importance based on new status
+      // Determine importance and special handling based on status transition
       let importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      if (newStatus === SERVICE_ORDER_STATUS.COMPLETED || newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
+      let title = 'Ordem de Serviço Atualizada';
+      let body = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
+
+      // Handle rejection case (going back to IN_PROGRESS from WAITING_APPROVE or COMPLETED)
+      const isRejection = newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+        (oldStatus === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldStatus === SERVICE_ORDER_STATUS.COMPLETED);
+
+      if (isRejection && serviceOrderWithUsers?.observation) {
+        title = 'Ordem de Serviço Reprovada';
+        body = `Ordem de serviço "${serviceOrder.description}" foi reprovada por ${changedByName}. Motivo: ${serviceOrderWithUsers.observation}`;
         importance = NOTIFICATION_IMPORTANCE.HIGH;
+      } else if (newStatus === SERVICE_ORDER_STATUS.COMPLETED || newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
+        importance = NOTIFICATION_IMPORTANCE.HIGH;
+      }
+
+      // Build metadata with all user tracking info
+      const metadata: any = {
+        serviceOrderId: serviceOrder.id,
+        serviceOrderType: serviceOrder.type,
+        taskId: serviceOrder.taskId,
+        taskIdentifier,
+        oldStatus,
+        newStatus,
+        changedBy: changedByName,
+        startedBy: serviceOrderWithUsers?.startedBy?.name || null,
+        approvedBy: serviceOrderWithUsers?.approvedBy?.name || null,
+        completedBy: serviceOrderWithUsers?.completedBy?.name || null,
+      };
+
+      // Add observation if it's a rejection
+      if (isRejection && serviceOrderWithUsers?.observation) {
+        metadata.observation = serviceOrderWithUsers.observation;
+        metadata.isRejection = true;
       }
 
       // Create notification for each target user (except the one who made the change)
       for (const user of usersToNotify) {
         await this.notificationService.createNotification({
           userId: user.id,
-          title: 'Ordem de Serviço Atualizada',
-          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`,
+          title,
+          body,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
             NOTIFICATION_CHANNEL.IN_APP,
@@ -600,15 +682,7 @@ export class ServiceOrderListener {
           relatedEntityType: 'SERVICE_ORDER',
           relatedEntityId: serviceOrder.id,
           isMandatory: true,
-          metadata: {
-            serviceOrderId: serviceOrder.id,
-            serviceOrderType: serviceOrder.type,
-            taskId: serviceOrder.taskId,
-            taskIdentifier,
-            oldStatus,
-            newStatus,
-            changedBy: changedByName,
-          },
+          metadata,
         });
       }
 
@@ -616,6 +690,96 @@ export class ServiceOrderListener {
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating status change notifications:', error);
+    }
+  }
+
+  /**
+   * Handle service order updated by someone other than the assignee
+   * Notify: the assigned user when their service order is modified by another user
+   * Channels: IN_APP, PUSH, WHATSAPP
+   */
+  @OnEvent('service-order.assigned-user-updated')
+  async handleAssignedUserUpdate(payload: any): Promise<void> {
+    try {
+      this.logger.log('========================================');
+      this.logger.log('[SERVICE ORDER EVENT] Service order updated (assigned user notification)');
+      this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${payload.serviceOrder.id}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Assigned To: ${payload.assignedToId}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Updated By: ${payload.userId}`);
+
+      const { serviceOrder, oldServiceOrder, assignedToId, userId } = payload;
+
+      // Get task information for context
+      const task = await this.prisma.task.findUnique({
+        where: { id: serviceOrder.taskId },
+        select: { name: true, serialNumber: true },
+      });
+
+      if (!task) {
+        this.logger.warn('[SERVICE ORDER EVENT] Task not found, skipping notification');
+        return;
+      }
+
+      const taskIdentifier = task.serialNumber || task.name || 'Task';
+
+      // Get user who made the change
+      const changedByUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+      const changedByName = changedByUser?.name || 'Alguém';
+
+      // Build description of what changed
+      const changes: string[] = [];
+      if (oldServiceOrder.description !== serviceOrder.description) {
+        changes.push('descrição');
+      }
+      if (oldServiceOrder.observation !== serviceOrder.observation) {
+        changes.push('observação');
+      }
+      if (oldServiceOrder.type !== serviceOrder.type) {
+        changes.push('tipo');
+      }
+
+      const changesText = changes.length > 0 ? changes.join(', ') : 'campos';
+
+      // Create deep link to task
+      const deepLink = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Task,
+        serviceOrder.taskId,
+      );
+
+      // Notify the assigned user about the update
+      await this.notificationService.createNotification({
+        userId: assignedToId,
+        title: 'Ordem de Serviço Atualizada',
+        body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} teve ${changesText} alterado(s) por ${changedByName}`,
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        channel: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
+        importance: NOTIFICATION_IMPORTANCE.NORMAL,
+        actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+        actionUrl: deepLink,
+        relatedEntityType: 'SERVICE_ORDER',
+        relatedEntityId: serviceOrder.id,
+        isMandatory: false, // User can disable if they prefer
+        metadata: {
+          serviceOrderId: serviceOrder.id,
+          serviceOrderType: serviceOrder.type,
+          taskId: serviceOrder.taskId,
+          taskIdentifier,
+          changedBy: changedByName,
+          changedFields: changes,
+        },
+      });
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Update notification sent to assigned user');
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error('[SERVICE ORDER EVENT] ❌ Error creating assigned user update notification:', error);
     }
   }
 }

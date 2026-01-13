@@ -197,11 +197,54 @@ export class ServiceOrderService {
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
-        const updated = await this.serviceOrderRepository.updateWithTransaction(tx, id, data, {
+
+        // Build the update data with automatic user tracking based on status changes
+        const updateData: any = { ...data };
+
+        // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
+        if (data.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
+          if (!oldData.startedById) {
+            updateData.startedById = userId || null;
+            updateData.startedAt = new Date();
+          }
+        }
+
+        // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
+        // This happens when an ARTWORK service order is approved by admin
+        if (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+            data.status && data.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE) {
+          if (data.status === SERVICE_ORDER_STATUS.COMPLETED || data.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+            if (!oldData.approvedById) {
+              updateData.approvedById = userId || null;
+              updateData.approvedAt = new Date();
+            }
+          }
+        }
+
+        // Automatically set completedBy/finishedAt when status changes to COMPLETED
+        if (data.status === SERVICE_ORDER_STATUS.COMPLETED && oldData.status !== SERVICE_ORDER_STATUS.COMPLETED) {
+          if (!oldData.completedById) {
+            updateData.completedById = userId || null;
+            updateData.finishedAt = new Date();
+          }
+        }
+
+        // If going back to IN_PROGRESS (rejection scenario), clear approval data
+        if (data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+            (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldData.status === SERVICE_ORDER_STATUS.COMPLETED)) {
+          // The observation field should be set by the caller for rejection reasons
+          // Clear completion data if going back from completed
+          if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
+            updateData.completedById = null;
+            updateData.finishedAt = null;
+          }
+        }
+
+        const updated = await this.serviceOrderRepository.updateWithTransaction(tx, id, updateData, {
           include,
         });
 
-        // Track field-level changes
+        // Track field-level changes - include new fields
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
           entityType: ENTITY_TYPE.SERVICE_ORDER,
@@ -211,9 +254,14 @@ export class ServiceOrderService {
           fieldsToTrack: [
             'status',
             'description',
+            'observation',
             'taskId',
             'startedAt',
+            'startedById',
+            'approvedAt',
+            'approvedById',
             'finishedAt',
+            'completedById',
             'type',
             'assignedToId',
           ],
@@ -264,6 +312,29 @@ export class ServiceOrderService {
             userId,
             assignedToId: serviceOrder.assignedToId,
             previousAssignedToId: serviceOrderExists.assignedToId,
+          });
+        }
+      }
+
+      // Notify assigned user when their service order is updated by someone else
+      // Only notify if: service order is assigned, updater is not the assignee, and there were changes
+      if (
+        serviceOrder.assignedToId &&
+        serviceOrder.assignedToId !== userId &&
+        serviceOrderExists.status === serviceOrder.status // Status changes already send notifications
+      ) {
+        // Check if there were any actual changes (other than status which is already handled)
+        const hasOtherChanges =
+          serviceOrderExists.description !== serviceOrder.description ||
+          serviceOrderExists.observation !== serviceOrder.observation ||
+          serviceOrderExists.type !== serviceOrder.type;
+
+        if (hasOtherChanges) {
+          this.eventEmitter.emit('service-order.assigned-user-updated', {
+            serviceOrder,
+            oldServiceOrder: serviceOrderExists,
+            userId,
+            assignedToId: serviceOrder.assignedToId,
           });
         }
       }

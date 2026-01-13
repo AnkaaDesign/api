@@ -358,6 +358,15 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
   },
 
+  'service-order.assigned-user-updated': {
+    title: data => `Ordem de Serviço Atualizada`,
+    body: data =>
+      `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterado(s) por ${data.changedByName}.`,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+  },
+
   // =====================
   // Stock Templates
   // =====================
