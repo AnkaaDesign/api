@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "TEAMID.com.ankaadesign.management"
+        ],
+        "components": [
+          {
+            "/": "/*",
+            "comment": "Match all paths"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "TEAMID.com.ankaadesign.management"
+    ]
+  }
+}
