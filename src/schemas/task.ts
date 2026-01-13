@@ -773,6 +773,48 @@ const taskTransform = (data: any): any => {
     delete data.hasIncompleteNonFinancialServiceOrders;
   }
 
+  // Agenda display logic:
+  // 1. CANCELLED tasks are never shown
+  // 2. COMPLETED tasks are only hidden if they have all 4 service order types AND all SOs are completed
+  // 3. All other tasks are shown
+  if (data.shouldDisplayInAgenda === true) {
+    andConditions.push({
+      AND: [
+        // 1. Not cancelled
+        { status: { not: 'CANCELLED' } },
+        // 2. Either not completed, OR doesn't meet full completion criteria
+        {
+          OR: [
+            // Not completed (any active status)
+            { status: { not: 'COMPLETED' } },
+            // OR completed but has no service orders at all
+            { serviceOrders: { none: {} } },
+            // OR completed but missing at least one service order type
+            {
+              NOT: {
+                AND: [
+                  { serviceOrders: { some: { type: 'PRODUCTION' } } },
+                  { serviceOrders: { some: { type: 'FINANCIAL' } } },
+                  { serviceOrders: { some: { type: 'NEGOTIATION' } } },
+                  { serviceOrders: { some: { type: 'ARTWORK' } } },
+                ],
+              },
+            },
+            // OR has at least one incomplete service order (PENDING, IN_PROGRESS, or WAITING_APPROVE)
+            {
+              serviceOrders: {
+                some: {
+                  status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    delete data.shouldDisplayInAgenda;
+  }
+
   if (data.hasAirbrushing === true) {
     andConditions.push({ airbrushing: { some: {} } });
     delete data.hasAirbrushing;
@@ -1187,6 +1229,7 @@ export const taskGetManySchema = z
     hasServices: z.boolean().optional(),
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
+    shouldDisplayInAgenda: z.boolean().optional(), // Agenda display logic: excludes CANCELLED and fully completed tasks
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
