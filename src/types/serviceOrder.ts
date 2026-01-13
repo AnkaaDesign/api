@@ -19,16 +19,41 @@ import type { Task, TaskIncludes, TaskOrderBy } from './task';
 export interface ServiceOrder extends BaseEntity {
   status: SERVICE_ORDER_STATUS | null;
   type: SERVICE_ORDER_TYPE | null;
-  statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Finalizado, 4=Cancelado
+  statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Aguardando Aprovação, 4=Concluído, 5=Cancelado
   description: string;
+  observation: string | null;
   taskId: string;
   assignedToId: string | null;
+  startedById: string | null;
+  approvedById: string | null;
+  completedById: string | null;
   startedAt: Date | null;
+  approvedAt: Date | null;
   finishedAt: Date | null;
 
   // Relations
   task?: Task;
   assignedTo?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  startedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  approvedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  completedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  createdBy?: {
     id: string;
     name: string;
     email: string;
@@ -49,6 +74,10 @@ export interface ServiceOrderIncludes {
         include?: TaskIncludes;
       };
   assignedTo?: boolean;
+  createdBy?: boolean;
+  startedBy?: boolean;
+  approvedBy?: boolean;
+  completedBy?: boolean;
 }
 
 // =====================
@@ -61,9 +90,14 @@ export interface ServiceOrderOrderBy {
   type?: ORDER_BY_DIRECTION;
   statusOrder?: ORDER_BY_DIRECTION;
   description?: ORDER_BY_DIRECTION;
+  observation?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
   assignedToId?: ORDER_BY_DIRECTION;
+  startedById?: ORDER_BY_DIRECTION;
+  approvedById?: ORDER_BY_DIRECTION;
+  completedById?: ORDER_BY_DIRECTION;
   startedAt?: ORDER_BY_DIRECTION;
+  approvedAt?: ORDER_BY_DIRECTION;
   finishedAt?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;

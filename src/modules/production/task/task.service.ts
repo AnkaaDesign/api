@@ -1216,38 +1216,150 @@ export class TaskService {
         }, userId);
 
         // Handle service orders explicitly if provided
+        // FIX: Implement proper upsert logic - update existing service orders instead of always creating new ones
         if (serviceOrdersData && Array.isArray(serviceOrdersData) && serviceOrdersData.length > 0) {
           this.logger.log(`[Task Update] Processing ${serviceOrdersData.length} service orders for task ${id}`);
+          this.logger.log(`[Task Update] Service orders data (with observation): ${JSON.stringify(serviceOrdersData.map((so: any) => ({ id: so.id, description: so.description, type: so.type, observation: so.observation })))}`);
+
+          // Get all existing service orders for this task to handle duplicates
+          const existingServiceOrders = await tx.serviceOrder.findMany({
+            where: { taskId: id },
+          });
+          this.logger.log(`[Task Update] Found ${existingServiceOrders.length} existing service orders for task`);
 
           for (const serviceOrderData of serviceOrdersData) {
-            // Create the service order
-            const createdServiceOrder = await tx.serviceOrder.create({
-              data: {
-                taskId: id,
-                type: serviceOrderData.type,
-                status: serviceOrderData.status || 'PENDING',
-                description: serviceOrderData.description || null,
-                assignedToId: serviceOrderData.assignedToId || null,
-                createdById: userId || '',
-              },
-            });
+            // Check if this is an existing service order (has an ID) or a new one
+            if (serviceOrderData.id) {
+              // UPDATE existing service order - preserve existing data
+              this.logger.log(`[Task Update] Updating existing service order ${serviceOrderData.id}`);
 
-            createdServiceOrders.push(createdServiceOrder);
+              // Get the old service order data for changelog
+              const oldServiceOrder = await tx.serviceOrder.findUnique({
+                where: { id: serviceOrderData.id },
+              });
 
-            // Create changelog for service order creation
-            await logEntityChange({
-              changeLogService: this.changeLogService,
-              entityType: ENTITY_TYPE.SERVICE_ORDER,
-              entityId: createdServiceOrder.id,
-              action: CHANGE_ACTION.CREATE,
-              entity: createdServiceOrder,
-              userId: userId || '',
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              reason: 'Ordem de serviço criada via atualização de tarefa',
-              transaction: tx,
-            });
+              if (oldServiceOrder) {
+                // Only update fields that are explicitly provided
+                const updatePayload: any = {};
+                if (serviceOrderData.type !== undefined) updatePayload.type = serviceOrderData.type;
+                if (serviceOrderData.status !== undefined) updatePayload.status = serviceOrderData.status;
+                if (serviceOrderData.description !== undefined) updatePayload.description = serviceOrderData.description;
+                if (serviceOrderData.observation !== undefined) updatePayload.observation = serviceOrderData.observation;
+                if (serviceOrderData.assignedToId !== undefined) updatePayload.assignedToId = serviceOrderData.assignedToId;
 
-            this.logger.log(`[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`);
+                // Only update if there are actual changes
+                if (Object.keys(updatePayload).length > 0) {
+                  const updatedServiceOrder = await tx.serviceOrder.update({
+                    where: { id: serviceOrderData.id },
+                    data: updatePayload,
+                  });
+
+                  createdServiceOrders.push(updatedServiceOrder);
+
+                  // Create changelog for service order update with field tracking
+                  await trackAndLogFieldChanges({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.SERVICE_ORDER,
+                    entityId: serviceOrderData.id,
+                    oldEntity: oldServiceOrder,
+                    newEntity: updatedServiceOrder,
+                    fieldsToTrack: ['status', 'description', 'observation', 'type', 'assignedToId'],
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    transaction: tx,
+                  });
+
+                  this.logger.log(`[Task Update] Updated service order ${serviceOrderData.id} (${updatedServiceOrder.type})`);
+                } else {
+                  // No changes, just add existing service order to the result
+                  createdServiceOrders.push(oldServiceOrder);
+                  this.logger.log(`[Task Update] No changes for service order ${serviceOrderData.id}`);
+                }
+              } else {
+                this.logger.warn(`[Task Update] Service order ${serviceOrderData.id} not found, skipping update`);
+              }
+            } else {
+              // No ID provided - check if this service order already exists (prevent duplicates)
+              // Match by description AND type for this task
+              const existingMatch = existingServiceOrders.find(
+                (so) => so.description === serviceOrderData.description && so.type === serviceOrderData.type
+              );
+
+              if (existingMatch) {
+                // UPDATE existing service order (found by description+type match)
+                this.logger.log(`[Task Update] Found existing service order by description+type match: ${existingMatch.id}`);
+
+                const updatePayload: any = {};
+                if (serviceOrderData.status !== undefined && serviceOrderData.status !== existingMatch.status) {
+                  updatePayload.status = serviceOrderData.status;
+                }
+                if (serviceOrderData.observation !== undefined && serviceOrderData.observation !== existingMatch.observation) {
+                  updatePayload.observation = serviceOrderData.observation;
+                }
+                if (serviceOrderData.assignedToId !== undefined && serviceOrderData.assignedToId !== existingMatch.assignedToId) {
+                  updatePayload.assignedToId = serviceOrderData.assignedToId;
+                }
+
+                if (Object.keys(updatePayload).length > 0) {
+                  const updatedServiceOrder = await tx.serviceOrder.update({
+                    where: { id: existingMatch.id },
+                    data: updatePayload,
+                  });
+
+                  createdServiceOrders.push(updatedServiceOrder);
+
+                  // Create changelog for service order update
+                  await trackAndLogFieldChanges({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.SERVICE_ORDER,
+                    entityId: existingMatch.id,
+                    oldEntity: existingMatch,
+                    newEntity: updatedServiceOrder,
+                    fieldsToTrack: ['status', 'observation', 'assignedToId'],
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    transaction: tx,
+                  });
+
+                  this.logger.log(`[Task Update] Updated existing service order ${existingMatch.id} (matched by description+type)`);
+                } else {
+                  createdServiceOrders.push(existingMatch);
+                  this.logger.log(`[Task Update] No changes for existing service order ${existingMatch.id} (matched by description+type)`);
+                }
+              } else {
+                // CREATE new service order (no ID and no existing match)
+                this.logger.log(`[Task Update] Creating new service order: ${serviceOrderData.description} (${serviceOrderData.type})`);
+
+                const createdServiceOrder = await tx.serviceOrder.create({
+                  data: {
+                    taskId: id,
+                    type: serviceOrderData.type,
+                    status: serviceOrderData.status || 'PENDING',
+                    description: serviceOrderData.description || null,
+                    observation: serviceOrderData.observation || null,
+                    assignedToId: serviceOrderData.assignedToId || null,
+                    createdById: userId || '',
+                  },
+                });
+
+                createdServiceOrders.push(createdServiceOrder);
+
+                // Create changelog for service order creation
+                await logEntityChange({
+                  changeLogService: this.changeLogService,
+                  entityType: ENTITY_TYPE.SERVICE_ORDER,
+                  entityId: createdServiceOrder.id,
+                  action: CHANGE_ACTION.CREATE,
+                  entity: createdServiceOrder,
+                  userId: userId || '',
+                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                  reason: 'Ordem de serviço criada via atualização de tarefa',
+                  transaction: tx,
+                });
+
+                this.logger.log(`[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`);
+              }
+            }
           }
         }
 

@@ -131,6 +131,24 @@ export class PushProcessor {
         }
       }
 
+      // If actionUrl is still a JSON string (from generateNotificationActionUrl), parse it
+      // This handles cases where metadata doesn't have universalLink but actionUrl is the JSON object
+      if (pushActionUrl && pushActionUrl.startsWith('{')) {
+        try {
+          const parsedUrl = JSON.parse(pushActionUrl);
+          // Prefer universal link for push notifications (works on both web and mobile)
+          if (parsedUrl.universalLink) {
+            pushActionUrl = parsedUrl.universalLink;
+          } else if (parsedUrl.mobile) {
+            pushActionUrl = parsedUrl.mobile;
+          } else if (parsedUrl.web) {
+            pushActionUrl = parsedUrl.web;
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to parse actionUrl as JSON: ${error.message}`);
+        }
+      }
+
       const pushData = {
         title,
         body,

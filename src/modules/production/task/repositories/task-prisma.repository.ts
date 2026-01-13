@@ -641,12 +641,38 @@ export class TaskPrismaRepository
       }
     }
 
-    // Handle services update - replace all existing services
+    // Handle services update - use upsert logic instead of deleteMany + create
+    // FIX: Properly handle existing service orders to prevent duplication
     if (serviceOrders !== undefined) {
-      console.log('[TaskRepo] Creating service orders:', JSON.stringify(serviceOrders, null, 2));
-      updateData.serviceOrders = {
-        deleteMany: {}, // Delete all existing services
-        create: serviceOrders.map(service => {
+      console.log('[TaskRepo] Processing service orders with upsert logic:', JSON.stringify(serviceOrders, null, 2));
+
+      // Separate service orders into those with IDs (updates) and without IDs (creates)
+      const existingOrders = serviceOrders.filter((service: any) => service.id);
+      const newOrders = serviceOrders.filter((service: any) => !service.id);
+
+      // Build the update operations
+      const serviceOrdersUpdate: any = {};
+
+      // Update existing service orders
+      if (existingOrders.length > 0) {
+        serviceOrdersUpdate.updateMany = existingOrders.map((service: any) => ({
+          where: { id: service.id },
+          data: {
+            ...(service.status !== undefined && { status: mapServiceOrderStatusToPrisma(service.status) }),
+            ...(service.status !== undefined && { statusOrder: getServiceOrderStatusOrder(service.status) }),
+            ...(service.type !== undefined && { type: service.type }),
+            ...(service.description !== undefined && { description: service.description }),
+            ...(service.observation !== undefined && { observation: service.observation }),
+            ...(service.startedAt !== undefined && { startedAt: service.startedAt }),
+            ...(service.finishedAt !== undefined && { finishedAt: service.finishedAt }),
+            ...(service.assignedToId !== undefined && { assignedToId: service.assignedToId }),
+          },
+        }));
+      }
+
+      // Create new service orders only for items without an ID
+      if (newOrders.length > 0) {
+        serviceOrdersUpdate.create = newOrders.map((service: any) => {
           const serviceData: any = {
             status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
             statusOrder:
@@ -654,6 +680,7 @@ export class TaskPrismaRepository
               getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
             type: service.type || 'PRODUCTION',
             description: service.description,
+            observation: service.observation || null,
             startedAt: service.startedAt || null,
             finishedAt: service.finishedAt || null,
             // Set createdBy to the user performing the update
@@ -666,8 +693,12 @@ export class TaskPrismaRepository
           }
 
           return serviceData;
-        }),
-      };
+        });
+      }
+
+      if (Object.keys(serviceOrdersUpdate).length > 0) {
+        updateData.serviceOrders = serviceOrdersUpdate;
+      }
     }
 
     // Handle consolidated truck update (all fields including layouts)

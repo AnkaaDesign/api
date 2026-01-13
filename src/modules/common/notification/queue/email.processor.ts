@@ -114,7 +114,23 @@ export class EmailProcessor {
       await job.progress(40);
       // Extract web URL from metadata for email delivery
       // Emails should always use web URLs (not mobile deep links)
-      const emailActionUrl = metadata?.webUrl || actionUrl;
+      let emailActionUrl = metadata?.webUrl || actionUrl;
+
+      // If actionUrl is still a JSON string (from generateNotificationActionUrl), parse it
+      // This handles cases where metadata doesn't have webUrl but actionUrl is the JSON object
+      if (emailActionUrl && emailActionUrl.startsWith('{')) {
+        try {
+          const parsedUrl = JSON.parse(emailActionUrl);
+          // Prefer web URL for emails
+          if (parsedUrl.web) {
+            emailActionUrl = parsedUrl.web;
+          } else if (parsedUrl.universalLink) {
+            emailActionUrl = parsedUrl.universalLink;
+          }
+        } catch (error) {
+          this.logger.warn(`Failed to parse actionUrl as JSON: ${error.message}`);
+        }
+      }
 
       const emailData = {
         companyName: process.env.COMPANY_NAME || 'Ankaa',

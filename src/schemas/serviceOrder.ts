@@ -42,6 +42,9 @@ export const serviceOrderIncludeSchema = z
       .optional(),
     assignedTo: z.boolean().optional(),
     createdBy: z.boolean().optional(),
+    startedBy: z.boolean().optional(),
+    approvedBy: z.boolean().optional(),
+    completedBy: z.boolean().optional(),
   })
   .partial();
 
@@ -528,10 +531,19 @@ export const serviceOrderCreateSchema = z.object({
     .string()
     .min(3, { message: 'Minímo de 3 caracteres' })
     .max(400, { message: 'Maxímo de 400 caracteres atingido' }),
+  observation: z
+    .string()
+    .max(2000, { message: 'Maxímo de 2000 caracteres atingido' })
+    .nullable()
+    .optional(),
   taskId: z.string().uuid('Tarefa inválida'),
   createdById: z.string().uuid('ID do criador inválido'),
   assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
+  startedById: z.string().uuid('ID do usuário que iniciou inválido').nullable().optional(),
+  approvedById: z.string().uuid('ID do usuário que aprovou inválido').nullable().optional(),
+  completedById: z.string().uuid('ID do usuário que concluiu inválido').nullable().optional(),
   startedAt: nullableDate.optional(),
+  approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
 
@@ -551,9 +563,18 @@ export const serviceOrderUpdateSchema = z.object({
     .min(3, { message: 'Minímo de 3 caracteres' })
     .max(400, { message: 'Maxímo de 400 caracteres atingido' })
     .optional(),
+  observation: z
+    .string()
+    .max(2000, { message: 'Maxímo de 2000 caracteres atingido' })
+    .nullable()
+    .optional(),
   taskId: z.string().uuid('Tarefa inválida').optional(),
-  assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
+  assignedToId: z.string().uuid('ID do colaborador inválido').nullable().optional(),
+  startedById: z.string().uuid('ID do usuário que iniciou inválido').nullable().optional(),
+  approvedById: z.string().uuid('ID do usuário que aprovou inválido').nullable().optional(),
+  completedById: z.string().uuid('ID do usuário que concluiu inválido').nullable().optional(),
   startedAt: nullableDate.optional(),
+  approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
 });
 
@@ -636,8 +657,13 @@ export const mapServiceOrderToFormData = createMapToFormDataHelper<
   type: serviceOrder.type || undefined,
   statusOrder: serviceOrder.statusOrder,
   description: serviceOrder.description,
+  observation: serviceOrder.observation,
   taskId: serviceOrder.taskId,
   assignedToId: serviceOrder.assignedToId || undefined,
+  startedById: serviceOrder.startedById || undefined,
+  approvedById: serviceOrder.approvedById || undefined,
+  completedById: serviceOrder.completedById || undefined,
   startedAt: serviceOrder.startedAt,
+  approvedAt: serviceOrder.approvedAt,
   finishedAt: serviceOrder.finishedAt,
 }));
