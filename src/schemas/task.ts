@@ -1746,12 +1746,12 @@ export const taskUpdateSchema = z
       .optional(),
     serialNumber: z
       .string()
-      .regex(
-        /^[A-Z0-9-]+$/,
-        'Número de série deve conter apenas letras maiúsculas, números e hífens',
-      )
+      .optional()
       .nullable()
-      .optional(),
+      .transform((val) => (val === '' ? null : val))
+      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
+        message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
+      }),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
     entryDate: nullableDate.optional(),
     term: nullableDate.optional(),
