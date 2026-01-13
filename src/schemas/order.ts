@@ -1373,7 +1373,7 @@ export const orderCreateSchema = z
 export const orderUpdateSchema = z
   .object({
     description: z.string().min(1).max(500).optional(),
-    forecast: z.coerce.date({ invalid_type_error: 'Data de previsão inválida' }).optional(),
+    forecast: z.coerce.date({ invalid_type_error: 'Data de previsão inválida' }).nullable().optional(),
     status: z
       .enum(Object.values(ORDER_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status inválido' }),

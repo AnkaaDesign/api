@@ -60,6 +60,7 @@ import { GitCommitModule } from './modules/system/git-commit/git-commit.module';
 import { AppsModule } from './modules/system/app/app.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { MessageModule } from './modules/system/message/message.module';
+import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
 
 @Module({
   imports: [
@@ -134,6 +135,7 @@ import { MessageModule } from './modules/system/message/message.module';
     AppsModule,
     WhatsAppModule,
     MessageModule,
+    DeepLinkModule,
   ],
   controllers: [AppController],
   providers: [AppService],

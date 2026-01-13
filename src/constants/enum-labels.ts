@@ -128,6 +128,8 @@ import {
   STATISTICS_GROUP_BY,
   STATISTICS_METRIC,
   STATISTICS_PERIOD,
+  TASK_PRICING_STATUS,
+  RESCHEDULE_REASON,
 } from './enums';
 
 // =====================
@@ -1923,4 +1925,31 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
   [STATISTICS_PERIOD.THIS_MONTH]: 'Este Mês',
   [STATISTICS_PERIOD.THIS_QUARTER]: 'Este Trimestre',
   [STATISTICS_PERIOD.THIS_YEAR]: 'Este Ano',
+};
+
+// =====================
+// Task Pricing Labels
+// =====================
+
+export const TASK_PRICING_STATUS_LABELS: Record<TASK_PRICING_STATUS, string> = {
+  [TASK_PRICING_STATUS.DRAFT]: 'Rascunho',
+  [TASK_PRICING_STATUS.APPROVED]: 'Aprovado',
+  [TASK_PRICING_STATUS.REJECTED]: 'Rejeitado',
+  [TASK_PRICING_STATUS.CANCELLED]: 'Cancelado',
+};
+
+// =====================
+// Reschedule Reason Labels
+// =====================
+
+export const RESCHEDULE_REASON_LABELS: Record<RESCHEDULE_REASON, string> = {
+  [RESCHEDULE_REASON.CUSTOMER_REQUEST]: 'Solicitação do Cliente',
+  [RESCHEDULE_REASON.RESOURCE_UNAVAILABLE]: 'Recurso Indisponível',
+  [RESCHEDULE_REASON.MATERIAL_SHORTAGE]: 'Falta de Material',
+  [RESCHEDULE_REASON.EQUIPMENT_FAILURE]: 'Falha de Equipamento',
+  [RESCHEDULE_REASON.WEATHER_CONDITIONS]: 'Condições Climáticas',
+  [RESCHEDULE_REASON.STAFF_UNAVAILABLE]: 'Funcionário Indisponível',
+  [RESCHEDULE_REASON.PRIORITY_CHANGE]: 'Mudança de Prioridade',
+  [RESCHEDULE_REASON.TECHNICAL_ISSUES]: 'Problemas Técnicos',
+  [RESCHEDULE_REASON.OTHER]: 'Outro',
 };
