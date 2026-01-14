@@ -36,6 +36,7 @@ import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   TRUCK_SPOT,
+  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -78,6 +79,136 @@ export class TaskService {
     private readonly taskNotificationService: TaskNotificationService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
+
+  /**
+   * Helper: Check if user has permission to approve/reprove artworks
+   * Only COMMERCIAL and ADMIN users can change artwork status
+   */
+  private canApproveArtworks(userRole?: string): boolean {
+    const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
+    return userRole ? allowedRoles.includes(userRole as any) : false;
+  }
+
+  /**
+   * Helper: Convert File IDs to Artwork entity IDs
+   * Finds existing Artwork records or creates new ones for the given File IDs
+   * @param fileIds - Array of File IDs
+   * @param taskId - Task ID (optional, for creating new Artwork records)
+   * @param airbrushingId - Airbrushing ID (optional, for creating new Artwork records)
+   * @param artworkStatuses - Map of File ID to artwork status
+   * @param userRole - User role for permission checking
+   * @param tx - Prisma transaction
+   * @returns Array of Artwork IDs
+   */
+  private async convertFileIdsToArtworkIds(
+    fileIds: string[],
+    taskId?: string | null,
+    airbrushingId?: string | null,
+    artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+    userRole?: string,
+    tx?: PrismaTransaction,
+  ): Promise<string[]> {
+    const prisma = tx || this.prisma;
+    const artworkIds: string[] = [];
+
+    for (const fileId of fileIds) {
+      // Check if an Artwork record already exists for this file and task/airbrushing combination
+      let artwork = await prisma.artwork.findFirst({
+        where: {
+          fileId,
+          taskId: taskId || null,
+          airbrushingId: airbrushingId || null,
+        },
+      });
+
+      // Determine the status to use
+      const requestedStatus = artworkStatuses?.[fileId];
+      const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
+
+      if (!artwork) {
+        // Create new Artwork with the provided or default status
+        // If status is APPROVED/REPROVED, check permissions
+        if (status !== 'DRAFT' && !this.canApproveArtworks(userRole)) {
+          this.logger.warn(
+            `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
+          );
+          artwork = await prisma.artwork.create({
+            data: {
+              fileId,
+              status: 'DRAFT', // Force DRAFT if user doesn't have permission
+              taskId: taskId || null,
+              airbrushingId: airbrushingId || null,
+            },
+          });
+        } else {
+          artwork = await prisma.artwork.create({
+            data: {
+              fileId,
+              status,
+              taskId: taskId || null,
+              airbrushingId: airbrushingId || null,
+            },
+          });
+        }
+        this.logger.log(
+          `[convertFileIdsToArtworkIds] Created new Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
+        );
+      } else if (requestedStatus && artwork.status !== requestedStatus) {
+        // Update existing Artwork status if it changed
+        // Check permissions for status changes
+        if (!this.canApproveArtworks(userRole)) {
+          this.logger.warn(
+            `[convertFileIdsToArtworkIds] User without approval permission tried to change artwork status from ${artwork.status} to ${requestedStatus}. Ignoring.`,
+          );
+        } else {
+          artwork = await prisma.artwork.update({
+            where: { id: artwork.id },
+            data: { status: requestedStatus },
+          });
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] Updated Artwork ${artwork.id} status from ${artwork.status} to ${requestedStatus}`,
+          );
+        }
+      }
+
+      artworkIds.push(artwork.id);
+    }
+
+    return artworkIds;
+  }
+
+  /**
+   * Helper: Create Artwork entity when uploading a new artwork file
+   * @param fileRecord - The uploaded File entity
+   * @param taskId - Task ID (optional)
+   * @param airbrushingId - Airbrushing ID (optional)
+   * @param tx - Prisma transaction
+   * @returns Artwork entity ID
+   */
+  private async createArtworkForFile(
+    fileRecord: { id: string },
+    taskId?: string | null,
+    airbrushingId?: string | null,
+    status: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT',
+    tx?: PrismaTransaction,
+  ): Promise<string> {
+    const prisma = tx || this.prisma;
+
+    const artwork = await prisma.artwork.create({
+      data: {
+        fileId: fileRecord.id,
+        status, // Use provided status or default to DRAFT
+        taskId: taskId || null,
+        airbrushingId: airbrushingId || null,
+      },
+    });
+
+    this.logger.log(
+      `[createArtworkForFile] Created Artwork ${artwork.id} for File ${fileRecord.id} with status ${status}`,
+    );
+
+    return artwork.id;
+  }
 
   /**
    * Create a new task with complete changelog tracking and file uploads
@@ -316,11 +447,12 @@ export class TaskService {
             fileUpdates.receipts = { connect: receiptIds.map(id => ({ id })) };
           }
 
-          // Artwork files
+          // Artwork files - Create File entities and then Artwork entities
           if (files.artworks && files.artworks.length > 0) {
-            const artworkIds: string[] = [];
+            const artworkEntityIds: string[] = [];
             for (const artworkFile of files.artworks) {
-              const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+              // First, create the File entity
+              const fileRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 artworkFile,
                 'tasksArtworks',
@@ -331,9 +463,18 @@ export class TaskService {
                   customerName,
                 },
               );
-              artworkIds.push(artworkRecord.id);
+              // Then, create the Artwork entity that references this File
+              const artworkEntityId = await this.createArtworkForFile(
+                fileRecord,
+                newTask.id,
+                null,
+                'DRAFT', // Default status for new uploads
+                tx,
+              );
+              artworkEntityIds.push(artworkEntityId);
             }
-            fileUpdates.artworks = { connect: artworkIds.map(id => ({ id })) };
+            // Connect Artwork entities (not File entities) to the Task
+            fileUpdates.artworks = { connect: artworkEntityIds.map(id => ({ id })) };
           }
 
           // Base files (files used as base for artwork design)
@@ -387,33 +528,75 @@ export class TaskService {
                 `[TaskService] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
               );
 
-              const fileIds: string[] = [];
-              for (const file of airbrushingFiles) {
-                const fileRecord = await this.fileService.createFromUploadWithTransaction(
-                  tx,
-                  file,
-                  `airbrushing${fileType.charAt(0).toUpperCase() + fileType.slice(1)}` as any,
-                  userId,
-                  {
-                    entityId: airbrushing.id,
-                    entityType: 'AIRBRUSHING',
-                    customerName,
-                  },
-                );
-                fileIds.push(fileRecord.id);
-              }
+              // For artworks, we need to create both File AND Artwork entities
+              if (fileType === 'artworks') {
+                const artworkEntityIds: string[] = [];
+                for (const file of airbrushingFiles) {
+                  // Create File entity
+                  const fileRecord = await this.fileService.createFromUploadWithTransaction(
+                    tx,
+                    file,
+                    'airbrushingArtworks',
+                    userId,
+                    {
+                      entityId: airbrushing.id,
+                      entityType: 'AIRBRUSHING',
+                      customerName,
+                    },
+                  );
+                  // Create Artwork entity
+                  const artworkEntityId = await this.createArtworkForFile(
+                    fileRecord,
+                    null,
+                    airbrushing.id,
+                    'DRAFT', // Default status for airbrushing uploads
+                    tx,
+                  );
+                  artworkEntityIds.push(artworkEntityId);
+                }
 
-              // Update the airbrushing with file IDs
-              if (fileIds.length > 0) {
-                await tx.airbrushing.update({
-                  where: { id: airbrushing.id },
-                  data: {
-                    [fileType]: { connect: fileIds.map(id => ({ id })) },
-                  },
-                });
-                console.log(
-                  `[TaskService] Connected ${fileIds.length} ${fileType} to airbrushing ${airbrushing.id}`,
-                );
+                // Update the airbrushing with Artwork entity IDs
+                if (artworkEntityIds.length > 0) {
+                  await tx.airbrushing.update({
+                    where: { id: airbrushing.id },
+                    data: {
+                      artworks: { connect: artworkEntityIds.map(id => ({ id })) },
+                    },
+                  });
+                  console.log(
+                    `[TaskService] Connected ${artworkEntityIds.length} Artwork entities to airbrushing ${airbrushing.id}`,
+                  );
+                }
+              } else {
+                // For receipts and invoices, handle as before (File entities only)
+                const fileIds: string[] = [];
+                for (const file of airbrushingFiles) {
+                  const fileRecord = await this.fileService.createFromUploadWithTransaction(
+                    tx,
+                    file,
+                    `airbrushing${fileType.charAt(0).toUpperCase() + fileType.slice(1)}` as any,
+                    userId,
+                    {
+                      entityId: airbrushing.id,
+                      entityType: 'AIRBRUSHING',
+                      customerName,
+                    },
+                  );
+                  fileIds.push(fileRecord.id);
+                }
+
+                // Update the airbrushing with file IDs
+                if (fileIds.length > 0) {
+                  await tx.airbrushing.update({
+                    where: { id: airbrushing.id },
+                    data: {
+                      [fileType]: { connect: fileIds.map(id => ({ id })) },
+                    },
+                  });
+                  console.log(
+                    `[TaskService] Connected ${fileIds.length} ${fileType} to airbrushing ${airbrushing.id}`,
+                  );
+                }
               }
             }
           }
@@ -689,6 +872,12 @@ export class TaskService {
     },
   ): Promise<TaskUpdateResponse> {
     try {
+      // DEBUG: Log what data actually enters the service
+      this.logger.log('[Task Update] === SERVICE METHOD ENTRY ===');
+      this.logger.log(`[Task Update] data.artworkIds type: ${typeof data.artworkIds}, value: ${JSON.stringify(data.artworkIds)}`);
+      this.logger.log(`[Task Update] data.artworkStatuses type: ${typeof data.artworkStatuses}, value: ${JSON.stringify(data.artworkStatuses)}`);
+      this.logger.log('[Task Update] === END SERVICE METHOD ENTRY ===');
+
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
@@ -1199,9 +1388,20 @@ export class TaskService {
           ...(data.status && { statusOrder: getTaskStatusOrder(data.status as TASK_STATUS) }),
         };
 
+        // CRITICAL: Check for artwork data BEFORE deleting fields
+        // This flag determines if file processing block should run
+        const hasArtworkData = !!(updateData as any).artworkIds || !!(updateData as any).fileIds || !!(updateData as any).artworkStatuses;
+
         // Remove service orders from updateData to prevent Prisma nested create
         // We'll handle them explicitly below
         delete (updateData as any).serviceOrders;
+
+        // CRITICAL FIX: Remove artwork-related fields from updateData
+        // These will be handled explicitly in the file processing section below (around line 1665)
+        delete (updateData as any).artworkIds;
+        delete (updateData as any).artworkStatuses;
+        delete (updateData as any).newArtworkStatuses;
+        delete (updateData as any).fileIds; // Legacy field name for artworkIds
 
         // Update the task - always include customer for file organization
         // Also include file relations for changelog tracking
@@ -1365,7 +1565,15 @@ export class TaskService {
 
         // Process and save files WITHIN the transaction
         // This ensures files are only created if the task update succeeds
-        if (files) {
+        // CRITICAL: Also process if artworkStatuses is provided (even without file uploads)
+        // hasArtworkData was already computed at line 1393 BEFORE deleting fields
+        if (files || hasArtworkData) {
+          // Ensure files is defined (set to empty object if undefined)
+          // This is needed when hasArtworkData is true but no files were uploaded
+          if (!files) {
+            files = {} as any;
+          }
+
           const fileUpdates: any = {};
           const customerName =
             updatedTask.customer?.fantasyName || existingTask.customer?.fantasyName;
@@ -1376,7 +1584,7 @@ export class TaskService {
 
           // Budget files (multiple)
           // Process if new files are being uploaded OR if budgetIds is explicitly provided (for deletions)
-          if ((files.budgets && files.budgets.length > 0) || data.budgetIds !== undefined) {
+          if ((files?.budgets && files.budgets.length > 0) || data.budgetIds !== undefined) {
             // Start with the budgetIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
             const budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : [];
@@ -1408,7 +1616,7 @@ export class TaskService {
 
           // NFe files (multiple)
           // Process if new files are being uploaded OR if invoiceIds is explicitly provided (for deletions)
-          if ((files.invoices && files.invoices.length > 0) || data.invoiceIds !== undefined) {
+          if ((files?.invoices && files.invoices.length > 0) || data.invoiceIds !== undefined) {
             // Start with the invoiceIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
             const invoiceIds: string[] = data.invoiceIds ? [...data.invoiceIds] : [];
@@ -1440,7 +1648,7 @@ export class TaskService {
 
           // Receipt files (multiple)
           // Process if new files are being uploaded OR if receiptIds is explicitly provided (for deletions)
-          if ((files.receipts && files.receipts.length > 0) || data.receiptIds !== undefined) {
+          if ((files?.receipts && files.receipts.length > 0) || data.receiptIds !== undefined) {
             // Start with the receiptIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
             const receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : [];
@@ -1470,26 +1678,90 @@ export class TaskService {
             );
           }
 
-          // Artwork files
+          // Artwork files - CRITICAL FIX for Artwork entity
+          // Frontend sends artworkIds as File IDs, we need to convert to Artwork entity IDs
           // Process if new files are being uploaded OR if artworkIds/fileIds is explicitly provided (for deletions)
-          // Note: The schema transforms artworkIds to fileIds, so we check both
-          const artworkIdsFromRequest = (data as any).artworkIds || (data as any).fileIds;
-          if (
-            (files.artworks && files.artworks.length > 0) ||
-            artworkIdsFromRequest !== undefined
-          ) {
-            // Start with the artworkIds provided in the form data (files that should be kept)
-            // If not provided, default to empty array (will only have the new uploads)
-            const artworkIds: string[] = artworkIdsFromRequest ? [...artworkIdsFromRequest] : [];
-            this.logger.log(
-              `[Task Update] Processing artworks - Received ${artworkIdsFromRequest?.length || 0} existing IDs: [${artworkIdsFromRequest?.join(', ') || 'none'}]`,
-            );
+          let fileIdsFromRequest = (data as any).artworkIds || (data as any).fileIds;
+          const artworkStatuses = (data as any).artworkStatuses; // Status map: File ID → status (for existing files)
+          const newArtworkStatuses = (data as any).newArtworkStatuses; // Status array for new files (matches files array order)
 
-            // Upload new files and add their IDs
-            if (files.artworks && files.artworks.length > 0) {
+          this.logger.log(
+            `[Task Update] 🎨 ARTWORK DEBUG - Received data:`,
+          );
+          this.logger.log(`  - artworkIds in request: ${JSON.stringify((data as any).artworkIds)}`);
+          this.logger.log(`  - fileIds in request: ${JSON.stringify((data as any).fileIds)}`);
+          this.logger.log(`  - fileIdsFromRequest (final): ${JSON.stringify(fileIdsFromRequest)}`);
+          this.logger.log(`  - artworkStatuses: ${JSON.stringify(artworkStatuses)}`);
+          this.logger.log(`  - newArtworkStatuses: ${JSON.stringify(newArtworkStatuses)}`);
+          this.logger.log(`  - files.artworks: ${files.artworks?.length || 0} files`);
+
+          // SAFEGUARD: If artworkStatuses is provided but fileIdsFromRequest is missing/empty,
+          // this indicates a frontend state bug - fetch current artwork File IDs to prevent data loss
+          const hasArtworkStatusChanges = artworkStatuses && Object.keys(artworkStatuses).length > 0;
+          const artworkIdsAreMissing = fileIdsFromRequest === undefined || fileIdsFromRequest.length === 0;
+
+          if (hasArtworkStatusChanges && artworkIdsAreMissing) {
+            this.logger.warn(
+              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds is ${fileIdsFromRequest === undefined ? 'undefined' : 'empty array'}. Fetching current artworks to prevent data loss.`
+            );
+            const currentTask = await tx.task.findUnique({
+              where: { id },
+              include: { artworks: { select: { fileId: true, id: true } } },
+            });
+            if (currentTask && currentTask.artworks && currentTask.artworks.length > 0) {
+              // Initialize array if undefined
+              if (fileIdsFromRequest === undefined) {
+                fileIdsFromRequest = [];
+              }
+              // Restore File IDs from current artworks
+              const currentFileIds = currentTask.artworks.map(a => a.fileId);
+              fileIdsFromRequest.push(...currentFileIds);
+              this.logger.log(
+                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} artwork File IDs: [${fileIdsFromRequest.join(', ')}]`
+              );
+              this.logger.log(
+                `[Task Update] 🛡️ SAFEGUARD: Current task has ${currentTask.artworks.length} artworks (IDs: ${currentTask.artworks.map(a => a.id).join(', ')})`
+              );
+            } else {
+              this.logger.warn(
+                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore. This might be intentional removal.`
+              );
+            }
+          }
+
+          if (
+            (files?.artworks && files.artworks.length > 0) ||
+            fileIdsFromRequest !== undefined
+          ) {
+            // Start with empty array for Artwork entity IDs
+            const artworkEntityIds: string[] = [];
+
+            // Step 1: Convert existing File IDs to Artwork entity IDs (with status updates if provided)
+            if (fileIdsFromRequest && fileIdsFromRequest.length > 0) {
+              this.logger.log(
+                `[Task Update] Converting ${fileIdsFromRequest.length} File IDs to Artwork entity IDs: [${fileIdsFromRequest.join(', ')}]`,
+              );
+              const existingArtworkIds = await this.convertFileIdsToArtworkIds(
+                fileIdsFromRequest,
+                id,
+                null,
+                artworkStatuses,
+                userPrivilege,
+                tx,
+              );
+              artworkEntityIds.push(...existingArtworkIds);
+              this.logger.log(
+                `[Task Update] Converted to ${existingArtworkIds.length} Artwork entity IDs`,
+              );
+            }
+
+            // Step 2: Upload new artwork files and create Artwork entities for them
+            if (files?.artworks && files.artworks.length > 0) {
               this.logger.log(`[Task Update] Uploading ${files.artworks.length} new artwork files`);
-              for (const artworkFile of files.artworks) {
-                const artworkRecord = await this.fileService.createFromUploadWithTransaction(
+              for (let i = 0; i < files.artworks.length; i++) {
+                const artworkFile = files.artworks[i];
+                // First, create the File entity
+                const fileRecord = await this.fileService.createFromUploadWithTransaction(
                   tx,
                   artworkFile,
                   'tasksArtworks',
@@ -1501,26 +1773,61 @@ export class TaskService {
                   },
                 );
                 this.logger.log(
-                  `[Task Update] Created new artwork file with ID: ${artworkRecord.id}`,
+                  `[Task Update] Created new artwork File with ID: ${fileRecord.id}`,
                 );
-                artworkIds.push(artworkRecord.id);
+
+                // Determine status for new upload
+                // Use newArtworkStatuses array (by index) if provided, otherwise try artworkStatuses map, otherwise DRAFT
+                let newFileStatus: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT';
+                if (newArtworkStatuses && Array.isArray(newArtworkStatuses) && newArtworkStatuses[i]) {
+                  newFileStatus = newArtworkStatuses[i];
+                  this.logger.log(`[Task Update] Using status from newArtworkStatuses[${i}]: ${newFileStatus}`);
+                } else if (artworkStatuses?.[fileRecord.id]) {
+                  newFileStatus = artworkStatuses[fileRecord.id];
+                  this.logger.log(`[Task Update] Using status from artworkStatuses map: ${newFileStatus}`);
+                } else {
+                  this.logger.log(`[Task Update] Using default status: DRAFT`);
+                }
+
+                // Then, create the Artwork entity for this File
+                const artworkEntityId = await this.createArtworkForFile(
+                  fileRecord,
+                  id,
+                  null,
+                  newFileStatus,
+                  tx,
+                );
+                artworkEntityIds.push(artworkEntityId);
+                this.logger.log(
+                  `[Task Update] Created Artwork entity with ID: ${artworkEntityId} and status: ${newFileStatus}`,
+                );
               }
             }
 
-            // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
-            // This ensures removed files are actually removed from the relationship
+            // Step 3: Set the Artwork entities on the Task (using 'set' to REPLACE, not add)
             this.logger.log(
-              `[Task Update] Final artworkIds array (${artworkIds.length} total): [${artworkIds.join(', ')}]`,
+              `[Task Update] Final Artwork entity IDs array (${artworkEntityIds.length} total): [${artworkEntityIds.join(', ')}]`,
             );
-            fileUpdates.artworks = { set: artworkIds.map(id => ({ id })) };
+
+            // CRITICAL WARNING: Empty array will remove all artworks!
+            if (artworkEntityIds.length === 0 && fileIdsFromRequest !== undefined) {
+              this.logger.warn(
+                `[Task Update] ⚠️ WARNING: About to set artworks to EMPTY ARRAY! This will disconnect all artworks from the task. ` +
+                `fileIdsFromRequest=${fileIdsFromRequest?.length || 0}, ` +
+                `artworkStatuses=${artworkStatuses ? Object.keys(artworkStatuses).length : 0}, ` +
+                `hasArtworkStatusChanges=${hasArtworkStatusChanges}`
+              );
+            }
+
+            fileUpdates.artworks = { set: artworkEntityIds.map(id => ({ id })) };
             this.logger.log(
-              `[Task Update] Setting artworks to ${artworkIds.length} files (${artworkIdsFromRequest?.length || 0} existing + ${files.artworks?.length || 0} new)`,
+              `[Task Update] Setting artworks to ${artworkEntityIds.length} Artwork entities (${fileIdsFromRequest?.length || 0} existing + ${files.artworks?.length || 0} new)`,
             );
           }
 
           // Base files (files used as base for artwork design)
           // Process if new files are being uploaded OR if baseFileIds is explicitly provided (for deletions)
-          if ((files.baseFiles && files.baseFiles.length > 0) || data.baseFileIds !== undefined) {
+          if ((files?.baseFiles && files.baseFiles.length > 0) || data.baseFileIds !== undefined) {
             // Start with the baseFileIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
             const baseFileIds: string[] = data.baseFileIds ? [...data.baseFileIds] : [];
@@ -1597,42 +1904,101 @@ export class TaskService {
                 `[TaskService.update] Processing ${airbrushingFiles.length} ${fileType} for airbrushing ${index} (ID: ${airbrushing.id})`,
               );
 
-              // Get existing file IDs from the form data for this airbrushing
-              // The form should include the IDs of files that should be kept
+              // Get existing file/artwork IDs from the form data for this airbrushing
               const airbrushingData = (data as any).airbrushings?.[index];
               const fileIdKey = `${fileType === 'invoices' ? 'invoiceIds' : fileType === 'receipts' ? 'receiptIds' : 'artworkIds'}`;
               const existingFileIds = airbrushingData?.[fileIdKey] || [];
 
-              // Start with existing files from form data
-              const fileIds: string[] = [...existingFileIds];
+              // Special handling for artworks (need Artwork entities, not File entities)
+              if (fileType === 'artworks') {
+                // Start with empty array for Artwork entity IDs
+                const artworkEntityIds: string[] = [];
 
-              // Upload new files and add their IDs
-              for (const file of airbrushingFiles) {
-                const fileRecord = await this.fileService.createFromUploadWithTransaction(
-                  tx,
-                  file,
-                  `airbrushing${fileType.charAt(0).toUpperCase() + fileType.slice(1)}` as any,
-                  userId,
-                  {
-                    entityId: airbrushing.id,
-                    entityType: 'AIRBRUSHING',
-                    customerName,
-                  },
-                );
-                fileIds.push(fileRecord.id);
-              }
+                // Step 1: Convert existing File IDs to Artwork entity IDs
+                if (existingFileIds && existingFileIds.length > 0) {
+                  console.log(
+                    `[TaskService.update] Converting ${existingFileIds.length} File IDs to Artwork entity IDs for airbrushing ${airbrushing.id}`,
+                  );
+                  const existingArtworkIds = await this.convertFileIdsToArtworkIds(
+                    existingFileIds,
+                    null,
+                    airbrushing.id,
+                    undefined, // No artwork statuses for airbrushing in this context
+                    userPrivilege,
+                    tx,
+                  );
+                  artworkEntityIds.push(...existingArtworkIds);
+                }
 
-              // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
-              if (fileIds.length > 0) {
-                await tx.airbrushing.update({
-                  where: { id: airbrushing.id },
-                  data: {
-                    [fileType]: { set: fileIds.map(id => ({ id })) },
-                  },
-                });
-                console.log(
-                  `[TaskService.update] Set ${fileIds.length} ${fileType} for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
-                );
+                // Step 2: Upload new artwork files and create Artwork entities
+                for (const file of airbrushingFiles) {
+                  // Create File entity
+                  const fileRecord = await this.fileService.createFromUploadWithTransaction(
+                    tx,
+                    file,
+                    'airbrushingArtworks',
+                    userId,
+                    {
+                      entityId: airbrushing.id,
+                      entityType: 'AIRBRUSHING',
+                      customerName,
+                    },
+                  );
+                  // Create Artwork entity
+                  const artworkEntityId = await this.createArtworkForFile(
+                    fileRecord,
+                    null,
+                    airbrushing.id,
+                    'DRAFT', // Default status for airbrushing uploads
+                    tx,
+                  );
+                  artworkEntityIds.push(artworkEntityId);
+                }
+
+                // Update the airbrushing with Artwork entity IDs
+                if (artworkEntityIds.length > 0) {
+                  await tx.airbrushing.update({
+                    where: { id: airbrushing.id },
+                    data: {
+                      artworks: { set: artworkEntityIds.map(id => ({ id })) },
+                    },
+                  });
+                  console.log(
+                    `[TaskService.update] Set ${artworkEntityIds.length} Artwork entities for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
+                  );
+                }
+              } else {
+                // For receipts and invoices, handle as before (File entities only)
+                const fileIds: string[] = [...existingFileIds];
+
+                // Upload new files and add their IDs
+                for (const file of airbrushingFiles) {
+                  const fileRecord = await this.fileService.createFromUploadWithTransaction(
+                    tx,
+                    file,
+                    `airbrushing${fileType.charAt(0).toUpperCase() + fileType.slice(1)}` as any,
+                    userId,
+                    {
+                      entityId: airbrushing.id,
+                      entityType: 'AIRBRUSHING',
+                      customerName,
+                    },
+                  );
+                  fileIds.push(fileRecord.id);
+                }
+
+                // CRITICAL FIX: Use 'set' instead of 'connect' to REPLACE files instead of adding to them
+                if (fileIds.length > 0) {
+                  await tx.airbrushing.update({
+                    where: { id: airbrushing.id },
+                    data: {
+                      [fileType]: { set: fileIds.map(id => ({ id })) },
+                    },
+                  });
+                  console.log(
+                    `[TaskService.update] Set ${fileIds.length} ${fileType} for airbrushing ${airbrushing.id} (${existingFileIds.length} existing + ${airbrushingFiles.length} new)`,
+                  );
+                }
               }
             }
           }
@@ -3246,12 +3612,30 @@ export class TaskService {
   /**
    * Find a task by ID
    */
-  async findById(id: string, include?: TaskInclude): Promise<TaskGetUniqueResponse> {
+  async findById(id: string, include?: TaskInclude, userRole?: string): Promise<TaskGetUniqueResponse> {
     try {
       const task = await this.tasksRepository.findById(id, { include });
 
       if (!task) {
         throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
+      }
+
+      // Filter artworks based on user role
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Others can only see APPROVED artworks
+      if (task.artworks && userRole) {
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'ADMIN',
+        ].includes(userRole);
+
+        if (!canSeeAllArtworks) {
+          task.artworks = task.artworks.filter(
+            artwork => artwork.status === 'APPROVED' || artwork.status === null,
+          );
+        }
       }
 
       // Debug logging for logo paints
@@ -3285,7 +3669,7 @@ export class TaskService {
   /**
    * Find many tasks with filtering
    */
-  async findMany(query: TaskGetManyFormData): Promise<TaskGetManyResponse> {
+  async findMany(query: TaskGetManyFormData, userRole?: string): Promise<TaskGetManyResponse> {
     try {
       console.log('[TaskService.findMany] Query received:', {
         hasWhere: !!query.where,
@@ -3307,6 +3691,32 @@ export class TaskService {
       };
 
       const result = await this.tasksRepository.findMany(params);
+
+      // Filter artworks based on user role for each task
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Others can only see APPROVED artworks
+      if (userRole) {
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'ADMIN',
+        ].includes(userRole);
+
+        if (!canSeeAllArtworks) {
+          result.data = result.data.map(task => {
+            if (task.artworks) {
+              return {
+                ...task,
+                artworks: task.artworks.filter(
+                  artwork => artwork.status === 'APPROVED' || artwork.status === null,
+                ),
+              };
+            }
+            return task;
+          });
+        }
+      }
 
       return {
         success: true,

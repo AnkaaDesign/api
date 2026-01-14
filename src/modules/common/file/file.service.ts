@@ -874,7 +874,7 @@ export class FileService {
         const associations = await tx.file.findUnique({
           where: { id },
           include: {
-            tasksArtworks: { take: 1 },
+            artworks: { take: 1 }, // NEW: Artwork entities that reference this file
             customerLogo: { take: 1 },
             supplierLogo: { take: 1 },
             observations: { take: 1 },
@@ -894,7 +894,7 @@ export class FileService {
 
         if (associations) {
           const hasAssociations =
-            associations.tasksArtworks.length > 0 ||
+            associations.artworks.length > 0 || // NEW: Check Artwork associations
             associations.customerLogo.length > 0 ||
             associations.supplierLogo.length > 0 ||
             associations.observations.length > 0 ||
@@ -1183,7 +1183,7 @@ export class FileService {
           const associations = await tx.file.findUnique({
             where: { id: file.id },
             include: {
-              tasksArtworks: { take: 1 },
+              artworks: { take: 1 }, // NEW: Artwork entities that reference this file
               customerLogo: { take: 1 },
               supplierLogo: { take: 1 },
               observations: { take: 1 },
@@ -1203,7 +1203,7 @@ export class FileService {
 
           if (associations) {
             const hasAssociations =
-              (associations.tasksArtworks?.length || 0) > 0 ||
+              (associations.artworks?.length || 0) > 0 || // NEW: Check Artwork associations
               (associations.customerLogo?.length || 0) > 0 ||
               (associations.supplierLogo?.length || 0) > 0 ||
               (associations.observations?.length || 0) > 0 ||

@@ -43,7 +43,7 @@ model Airbrushing {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   task                  Task              @relation("AIRBRUSHING", fields: [taskId], references: [id], onDelete: Cascade)
-  artworks              File[]            @relation("AIRBRUSHING_ARTWORKS")
+  artworks              Artwork[]
   budgets               File[]            @relation("AIRBRUSHING_BUDGETS")
   invoices              File[]            @relation("AIRBRUSHING_INVOICES")
   invoiceReimbursements File[]            @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
@@ -51,6 +51,24 @@ model Airbrushing {
   reimbursements        File[]            @relation("AIRBRUSHING_REIMBURSEMENTS")
 
   @@index([statusOrder])
+}
+
+model Artwork {
+  id             String        @id @default(uuid())
+  fileId         String
+  status         ArtworkStatus @default(APPROVED)
+  taskId         String?
+  airbrushingId  String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  file           File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  task           Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  airbrushing    Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@index([taskId])
+  @@index([airbrushingId])
+  @@index([status])
 }
 
 model Borrow {
@@ -372,13 +390,13 @@ model File {
   thumbnailUrl                            String?
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt
+  artworks                                Artwork[]
   customerLogo                            Customer[]           @relation("CUSTOMER_LOGO")
   taskCuts                                Cut[]                @relation("TASK_CUTS")
   layoutPhotos                            Layout[]             @relation("LAYOUT_PHOTO")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
   userAvatar                              User[]               @relation("USER_AVATAR")
   thumbnailJob                            ThumbnailJob?
-  airbrushingArtworks                     Airbrushing[]        @relation("AIRBRUSHING_ARTWORKS")
   airbrushingBudgets                      Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
   airbrushingInvoices                     Airbrushing[]        @relation("AIRBRUSHING_INVOICES")
   airbrushingInvoiceReimbursements        Airbrushing[]        @relation("AIRBRUSHING_INVOICE_REIMBURSEMENTS")
@@ -396,7 +414,6 @@ model File {
   orderReceipts                           Order[]              @relation("ORDER_RECEIPTS")
   orderReimbursements                     Order[]              @relation("ORDER_REIMBURSEMENTS")
   taskBudgets                             Task[]               @relation("TASK_BUDGETS")
-  tasksArtworks                           Task[]               @relation("TASK_FILES")
   taskInvoices                            Task[]               @relation("TASK_INVOICES")
   taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
@@ -1107,7 +1124,7 @@ model Task {
   relatedTasks          Task[]               @relation("RelatedTasks")
   relatedTo             Task[]               @relation("RelatedTasks")
   budgets               File[]               @relation("TASK_BUDGETS")
-  artworks              File[]               @relation("TASK_FILES")
+  artworks              Artwork[]
   invoices              File[]               @relation("TASK_INVOICES")
   invoiceReimbursements File[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")
@@ -1849,6 +1866,12 @@ enum AirbrushingStatus {
   IN_PRODUCTION
   COMPLETED
   CANCELLED
+}
+
+enum ArtworkStatus {
+  DRAFT
+  APPROVED
+  REPROVED
 }
 
 enum CutStatus {
