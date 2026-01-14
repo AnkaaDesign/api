@@ -888,6 +888,7 @@ export class TaskService {
             artworks: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
+            serviceOrders: true, // Include for services field changelog tracking
           },
         });
 
@@ -1412,6 +1413,7 @@ export class TaskService {
             artworks: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
+            serviceOrders: true, // Include for services field changelog tracking
           },
         }, userId);
 
@@ -1561,6 +1563,20 @@ export class TaskService {
               }
             }
           }
+
+          // Refetch the task with updated serviceOrders for changelog tracking
+          updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
+            include: {
+              ...include,
+              customer: true,
+              artworks: true,
+              observation: { include: { files: true } },
+              truck: true,
+              serviceOrders: true, // Include updated service orders
+            },
+          });
+
+          this.logger.log(`[Task Update] After refetch, updatedTask.serviceOrders count: ${updatedTask?.serviceOrders?.length || 0}`);
         }
 
         // Process and save files WITHIN the transaction
@@ -2238,8 +2254,11 @@ export class TaskService {
 
         // Track services array changes
         if (data.serviceOrders !== undefined) {
-          const oldServices = existingTask.services || [];
-          const newServices = updatedTask?.services || [];
+          const oldServices = existingTask.serviceOrders || [];
+          const newServices = updatedTask?.serviceOrders || [];
+
+          this.logger.log(`[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`);
+          this.logger.log(`[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`);
 
           // Serialize services for changelog - store full data for rollback support
           const serializeServices = (services: any[]) => {
@@ -2253,6 +2272,9 @@ export class TaskService {
 
           const oldServicesSerialized = JSON.stringify(serializeServices(oldServices));
           const newServicesSerialized = JSON.stringify(serializeServices(newServices));
+
+          this.logger.log(`[Task Update Changelog] oldServicesSerialized: ${oldServicesSerialized}`);
+          this.logger.log(`[Task Update Changelog] newServicesSerialized: ${newServicesSerialized}`);
 
           // Only create changelog if services actually changed
           if (oldServicesSerialized !== newServicesSerialized) {

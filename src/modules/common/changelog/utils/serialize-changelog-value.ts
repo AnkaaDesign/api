@@ -18,6 +18,7 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
     }
 
     // For Date objects, convert to ISO string
+    // Prisma Json type will store this as a plain string (not double-encoded)
     if (value instanceof Date) {
       return value.toISOString();
     }

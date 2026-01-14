@@ -86,6 +86,23 @@ export class ServiceOrderService {
       }
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Get task's current service orders before creating new one
+        const taskWithServices = await tx.task.findUnique({
+          where: { id: data.taskId },
+          include: {
+            serviceOrders: {
+              select: {
+                description: true,
+                status: true,
+                startedAt: true,
+                finishedAt: true,
+              },
+            },
+          },
+        });
+
+        const oldServices = taskWithServices?.serviceOrders || [];
+
         // Create the service order with createdById
         const createData = {
           ...data,
@@ -106,6 +123,42 @@ export class ServiceOrderService {
           userId: userId || '',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           reason: 'Ordem de serviço criada',
+          transaction: tx,
+        });
+
+        // Build new services array by adding the created service order
+        const serializeServices = (services: any[]) => {
+          return services.map((s: any) => ({
+            description: s.description,
+            status: s.status,
+            ...(s.startedAt && { startedAt: s.startedAt }),
+            ...(s.finishedAt && { finishedAt: s.finishedAt }),
+          }));
+        };
+
+        // Add the newly created service order to the old services array
+        const newServices = [
+          ...oldServices,
+          {
+            description: created.description,
+            status: created.status,
+            startedAt: created.startedAt,
+            finishedAt: created.finishedAt,
+          },
+        ];
+
+        // Log task services field change
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: data.taskId,
+          action: CHANGE_ACTION.UPDATE,
+          field: 'services',
+          oldValue: serializeServices(oldServices),
+          newValue: serializeServices(newServices),
+          reason: `Ordem de serviço adicionada (${oldServices.length} → ${newServices.length})`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: data.taskId,
+          userId: userId || '',
           transaction: tx,
         });
 
@@ -647,8 +700,53 @@ export class ServiceOrderService {
         }
       }
 
+      // Process each update to apply automatic timestamp logic (same as single update)
       const updates = data.serviceOrders.map(item => {
-        return { id: item.id, data: item.data };
+        const oldData = existingMap.get(item.id);
+        if (!oldData) {
+          return { id: item.id, data: item.data };
+        }
+
+        const updateData: any = { ...item.data };
+
+        // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
+        if (updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
+          if (!oldData.startedById) {
+            updateData.startedById = userId || null;
+            updateData.startedAt = new Date();
+          }
+        }
+
+        // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
+        if (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+            updateData.status && updateData.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE) {
+          if (updateData.status === SERVICE_ORDER_STATUS.COMPLETED || updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+            if (!oldData.approvedById) {
+              updateData.approvedById = userId || null;
+              updateData.approvedAt = new Date();
+            }
+          }
+        }
+
+        // Automatically set completedBy/finishedAt when status changes to COMPLETED
+        if (updateData.status === SERVICE_ORDER_STATUS.COMPLETED && oldData.status !== SERVICE_ORDER_STATUS.COMPLETED) {
+          if (!oldData.completedById) {
+            updateData.completedById = userId || null;
+            updateData.finishedAt = new Date();
+          }
+        }
+
+        // If going back to IN_PROGRESS (rejection scenario), clear approval data
+        if (updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+            (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldData.status === SERVICE_ORDER_STATUS.COMPLETED)) {
+          // Clear completion data if going back from completed
+          if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
+            updateData.completedById = null;
+            updateData.finishedAt = null;
+          }
+        }
+
+        return { id: item.id, data: updateData };
       });
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -658,7 +756,7 @@ export class ServiceOrderService {
           { include },
         );
 
-        // Log all successful updates
+        // Log all successful updates with complete field tracking
         for (const serviceOrder of batchResult.success) {
           const oldData = existingMap.get(serviceOrder.id);
           if (oldData) {
@@ -671,9 +769,14 @@ export class ServiceOrderService {
               fieldsToTrack: [
                 'status',
                 'description',
+                'observation',
                 'taskId',
                 'startedAt',
+                'startedById',
+                'approvedAt',
+                'approvedById',
                 'finishedAt',
+                'completedById',
                 'type',
                 'assignedToId',
               ],
@@ -686,6 +789,59 @@ export class ServiceOrderService {
 
         return batchResult;
       });
+
+      // Emit events for successful updates
+      for (const serviceOrder of result.success) {
+        const oldData = existingMap.get(serviceOrder.id);
+        if (!oldData) continue;
+
+        // Emit status.changed event if status changed
+        if (oldData.status !== serviceOrder.status) {
+          this.eventEmitter.emit('service-order.status.changed', {
+            serviceOrder,
+            oldStatus: oldData.status,
+            newStatus: serviceOrder.status,
+            userId,
+          });
+
+          // If status changed to COMPLETED
+          if (serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED) {
+            this.eventEmitter.emit('service-order.completed', {
+              serviceOrder,
+              userId,
+            });
+          }
+
+          // If status changed to WAITING_APPROVE and type is ARTWORK
+          if (serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+              serviceOrder.type === 'ARTWORK') {
+            this.eventEmitter.emit('service-order.artwork-waiting-approval', {
+              serviceOrder,
+              userId,
+            });
+          }
+        }
+
+        // Emit assigned event if assignedToId changed
+        if (oldData.assignedToId !== serviceOrder.assignedToId) {
+          this.eventEmitter.emit('service-order.assigned', {
+            serviceOrder,
+            userId,
+            assignedToId: serviceOrder.assignedToId,
+            previousAssignedToId: oldData.assignedToId,
+          });
+
+          // Also emit assigned-user-updated if not a status change
+          if (oldData.status === serviceOrder.status) {
+            this.eventEmitter.emit('service-order.assigned-user-updated', {
+              serviceOrder,
+              oldServiceOrder: oldData,
+              userId,
+              assignedToId: serviceOrder.assignedToId,
+            });
+          }
+        }
+      }
 
       // Convert BatchUpdateResult to BatchOperationResult
       const batchOperationResult = {
