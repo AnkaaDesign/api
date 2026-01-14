@@ -9,6 +9,7 @@ import type {
   BaseDeleteResponse,
   BaseBatchResponse,
 } from './common';
+import type { Artwork, ArtworkIncludes } from './artwork';
 import type { Task, TaskIncludes } from './task';
 import type { Customer, CustomerIncludes } from './customer';
 import type { Supplier, SupplierIncludes } from './supplier';
@@ -32,6 +33,7 @@ export interface File extends BaseEntity {
   thumbnailUrl?: string | null; // URL for PDF thumbnails or image thumbnails
 
   // Relations
+  artworks?: Artwork[];
   tasksArtworks?: Task[];
   customerLogo?: Customer[];
   supplierLogo?: Supplier[];

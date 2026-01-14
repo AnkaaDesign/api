@@ -226,22 +226,9 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             include: z
               .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                reprimand: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
+                file: z.boolean().optional(), // Include the File entity
+                task: z.boolean().optional(), // Include the Task entity
+                airbrushing: z.boolean().optional(), // Include the Airbrushing entity
               })
               .optional(),
           }),
@@ -1619,6 +1606,15 @@ export const taskCreateSchema = z
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
+    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
+    artworkStatuses: z
+      .record(
+        z.string().uuid(),
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de artwork inválido' }),
+        }),
+      )
+      .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
@@ -1786,6 +1782,51 @@ export const taskUpdateSchema = z
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
+    // Artwork statuses map - maps File ID to artwork status (for approval workflow on existing files)
+    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
+    artworkStatuses: z
+      .preprocess((val) => {
+        // If it's already a proper record, return as-is
+        if (!val || typeof val !== 'object') return val;
+
+        // Check if it looks like array-like object: { "0": "...", "1": "..." }
+        const keys = Object.keys(val);
+        const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
+
+        if (isArrayLike) {
+          // Merge all parsed values into single record
+          const merged: any = {};
+          for (const value of Object.values(val)) {
+            if (typeof value === 'string') {
+              try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed === 'object') Object.assign(merged, parsed);
+              } catch (e) {
+                // Skip invalid JSON
+              }
+            } else if (typeof value === 'object') {
+              Object.assign(merged, value);
+            }
+          }
+          return Object.keys(merged).length > 0 ? merged : val;
+        }
+
+        return val;
+      }, z.record(
+        z.string().uuid(),
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de artwork inválido' }),
+        }),
+      ))
+      .optional(),
+    // New artwork statuses array - array of statuses for new files being uploaded (matches files array order)
+    newArtworkStatuses: z
+      .array(
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de artwork inválido' }),
+        }),
+      )
+      .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     observation: taskObservationCreateSchema.nullable().optional(),
@@ -1944,7 +1985,16 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   reimbursementInvoiceIds: task.invoiceReimbursements?.map(
     reimbursementInvoice => reimbursementInvoice.id,
   ),
-  artworkIds: task.artworks?.map(artwork => artwork.id),
+  // CRITICAL: artworkIds should be File IDs (artwork.fileId), not Artwork entity IDs
+  artworkIds: task.artworks?.map(artwork => artwork.fileId || (artwork as any).file?.id),
+  // Map artwork statuses (File ID → status)
+  artworkStatuses: task.artworks?.reduce((acc, artwork) => {
+    const fileId = artwork.fileId || (artwork as any).file?.id;
+    if (fileId && artwork.status) {
+      acc[fileId] = artwork.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
+    }
+    return acc;
+  }, {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>),
   baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,

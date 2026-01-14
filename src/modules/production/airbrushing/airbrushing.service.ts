@@ -68,9 +68,35 @@ export class AirbrushingService {
   /**
    * Buscar muitas aerografias com filtros
    */
-  async findMany(query: AirbrushingGetManyFormData): Promise<AirbrushingGetManyResponse> {
+  async findMany(query: AirbrushingGetManyFormData, userRole?: string): Promise<AirbrushingGetManyResponse> {
     try {
       const result = await this.airbrushingRepository.findMany(query);
+
+      // Filter artworks based on user role for each airbrushing
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Others can only see APPROVED artworks
+      if (userRole) {
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'ADMIN',
+        ].includes(userRole);
+
+        if (!canSeeAllArtworks) {
+          result.data = result.data.map(airbrushing => {
+            if (airbrushing.artworks) {
+              return {
+                ...airbrushing,
+                artworks: airbrushing.artworks.filter(
+                  artwork => artwork.status === 'APPROVED' || artwork.status === null,
+                ),
+              };
+            }
+            return airbrushing;
+          });
+        }
+      }
 
       return {
         success: true,
@@ -89,12 +115,30 @@ export class AirbrushingService {
   /**
    * Buscar uma aerografia por ID
    */
-  async findById(id: string, include?: AirbrushingInclude): Promise<AirbrushingGetUniqueResponse> {
+  async findById(id: string, include?: AirbrushingInclude, userRole?: string): Promise<AirbrushingGetUniqueResponse> {
     try {
       const airbrushing = await this.airbrushingRepository.findById(id, { include });
 
       if (!airbrushing) {
         throw new NotFoundException('Aerografia não encontrada.');
+      }
+
+      // Filter artworks based on user role
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Others can only see APPROVED artworks
+      if (airbrushing.artworks && userRole) {
+        const canSeeAllArtworks = [
+          'COMMERCIAL',
+          'DESIGNER',
+          'LOGISTIC',
+          'ADMIN',
+        ].includes(userRole);
+
+        if (!canSeeAllArtworks) {
+          airbrushing.artworks = airbrushing.artworks.filter(
+            artwork => artwork.status === 'APPROVED' || artwork.status === null,
+          );
+        }
       }
 
       return { success: true, data: airbrushing, message: 'Aerografia carregada com sucesso.' };
@@ -657,17 +701,20 @@ export class AirbrushingService {
         }
       }
 
-      // Process artwork files
+      // Process artwork files - NOTE: With Artwork entity, we just create Files here
+      // The Artwork entities will be created by the caller
       if (files.artworks && files.artworks.length > 0) {
         for (const file of files.artworks) {
-          const fileRecord = await this.saveFileTostorage(
-            file,
-            'airbrushingArtworks',
-            airbrushingId,
-            'airbrushing_artwork',
-            customerName,
-            userId,
+          const fileRecord = await this.fileService.createFromUploadWithTransaction(
             transaction,
+            file,
+            'tasksArtworks',
+            userId,
+            {
+              entityId: airbrushingId,
+              entityType: 'AIRBRUSHING',
+              customerName,
+            },
           );
           artworkIds.push(fileRecord.id);
         }
@@ -711,6 +758,7 @@ export class AirbrushingService {
       );
 
       // Connect the file to the airbrushing using the appropriate relation
+      // NOTE: artworks are now handled via the Artwork entity, not direct File relations
       if (entityType === 'airbrushing_receipt') {
         await tx.file.update({
           where: { id: fileRecord.id },
@@ -723,13 +771,6 @@ export class AirbrushingService {
           where: { id: fileRecord.id },
           data: {
             airbrushingInvoices: { connect: { id: entityId } },
-          },
-        });
-      } else if (entityType === 'airbrushing_artwork') {
-        await tx.file.update({
-          where: { id: fileRecord.id },
-          data: {
-            airbrushingArtworks: { connect: { id: entityId } },
           },
         });
       }

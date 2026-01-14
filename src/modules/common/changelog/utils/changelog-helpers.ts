@@ -23,22 +23,11 @@ export interface TrackAndLogFieldChangesParams {
 /**
  * Extract relationship name from entity if the field is a foreign key
  * For example, if field is "sectorId", this will look for entity.sector.name
+ * IMPORTANT: Always returns the ID value, not the relationship name, to maintain referential integrity
  */
 function extractRelationshipName(entity: any, field: string): any {
-  // Check if field ends with "Id" (foreign key pattern)
-  if (!field.endsWith('Id')) {
-    return entity?.[field];
-  }
-
-  // Get the relationship name by removing "Id" suffix
-  const relationshipName = field.slice(0, -2);
-  const relationshipObj = entity?.[relationshipName];
-
-  // If relationship exists and has a name, return it; otherwise return the ID
-  if (relationshipObj && typeof relationshipObj === 'object') {
-    return relationshipObj.name || entity?.[field] || null;
-  }
-
+  // Always return the actual field value (the ID) for foreign key fields
+  // This ensures changelog entries store UUIDs, not names, maintaining referential integrity
   return entity?.[field];
 }
 

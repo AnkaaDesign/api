@@ -101,8 +101,9 @@ export class TaskController {
   async findMany(
     @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
   ): Promise<TaskGetManyResponse> {
-    return this.tasksService.findMany(query);
+    return this.tasksService.findMany(query, user.role);
   }
 
   @Post()
@@ -521,8 +522,9 @@ export class TaskController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
   ): Promise<TaskGetUniqueResponse> {
-    return this.tasksService.findById(id, query.include);
+    return this.tasksService.findById(id, query.include, user.role);
   }
 
   @Put(':id')
@@ -596,8 +598,10 @@ export class TaskController {
     console.log('[TaskController] ========================================');
     console.log('[TaskController] UPDATE REQUEST RECEIVED');
     console.log('[TaskController] data keys:', Object.keys(data));
-    console.log('[TaskController] pricing in data:', 'pricing' in data);
-    console.log('[TaskController] data.pricing:', JSON.stringify(data.pricing, null, 2));
+    console.log('[TaskController] artworkIds:', JSON.stringify(data.artworkIds));
+    console.log('[TaskController] artworkStatuses:', JSON.stringify(data.artworkStatuses));
+    console.log('[TaskController] files keys:', files ? Object.keys(files) : 'no files');
+    console.log('[TaskController] files.artworks:', files?.artworks?.length || 0);
     console.log('[TaskController] ========================================');
 
     return this.tasksService.update(

@@ -11,6 +11,7 @@ import { orderByDirectionSchema, normalizeOrderBy } from './common';
 export const fileIncludeSchema = z
   .object({
     // File associations - matching the types file exactly
+    artworks: z.boolean().optional(),
     tasksArtworks: z.boolean().optional(),
     customerLogo: z.boolean().optional(),
     supplierLogo: z.boolean().optional(),
@@ -18,6 +19,7 @@ export const fileIncludeSchema = z
     warning: z.boolean().optional(),
     airbrushingReceipts: z.boolean().optional(),
     airbrushingInvoices: z.boolean().optional(),
+    airbrushingArtworks: z.boolean().optional(),
     orderBudgets: z.boolean().optional(),
     orderInvoices: z.boolean().optional(),
     orderReceipts: z.boolean().optional(),

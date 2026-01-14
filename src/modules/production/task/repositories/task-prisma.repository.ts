@@ -107,11 +107,18 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   artworks: {
     select: {
       id: true,
-      filename: true,
-      path: true,
-      mimetype: true,
-      size: true,
-      thumbnailUrl: true,
+      fileId: true,
+      status: true,
+      file: {
+        select: {
+          id: true,
+          filename: true,
+          path: true,
+          mimetype: true,
+          size: true,
+          thumbnailUrl: true,
+        },
+      },
     },
   },
   logoPaints: {
@@ -988,7 +995,12 @@ export class TaskPrismaRepository
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
         } else {
-          databaseInclude[key] = value;
+          // Only override if value is false OR if there's no default for this key
+          // This preserves complex default includes like artworks.file
+          if (value === false || !databaseInclude[key]) {
+            databaseInclude[key] = value;
+          }
+          // If value is true and there's already a default, keep the default (don't override)
         }
       } else if (typeof value === 'object' && value !== null && 'include' in value) {
         // Handle nested includes with field name mappings and recursive processing

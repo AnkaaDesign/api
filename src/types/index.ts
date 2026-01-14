@@ -1,5 +1,6 @@
 export * from './activity';
 export * from './airbrushing';
+export * from './artwork';
 export * from './bonus';
 export * from './bonusDiscount';
 export * from './borrow';

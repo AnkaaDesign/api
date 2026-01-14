@@ -12,6 +12,7 @@ import type {
 import type { AIRBRUSHING_STATUS, ORDER_BY_DIRECTION } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { File, FileIncludes } from './file';
+import type { Artwork, ArtworkIncludes } from './artwork';
 
 // =====================
 // Main Entity Interface
@@ -38,7 +39,7 @@ export interface Airbrushing extends BaseEntity {
   receipts?: File[];
   reimbursements?: File[];
   invoiceReimbursements?: File[];
-  artworks?: File[];
+  artworks?: Artwork[];
 }
 
 // =====================
@@ -79,7 +80,7 @@ export interface AirbrushingIncludes {
   artworks?:
     | boolean
     | {
-        include?: FileIncludes;
+        include?: ArtworkIncludes;
       };
 }
 
