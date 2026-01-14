@@ -17,6 +17,9 @@ import {
   isValidEmail,
   generateVerificationCode,
   createVerificationCodeExpiration,
+  getPhoneLookupVariants,
+  normalizeBrazilianPhone,
+  detectContactMethod,
 } from '../../../utils';
 
 @Injectable()
@@ -282,8 +285,11 @@ export class VerificationService {
   }
 
   private async sendVerificationSms(phone: string, userName: string, code: string): Promise<void> {
+    // Normalize the phone number before sending
+    const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
+    this.logger.debug(`Sending verification SMS to normalized phone: ${normalizedPhone}`);
     const message = `Olá ${userName}! Seu código de verificação do Ankaa é: ${code}`;
-    await this.smsService.sendSms(phone, message);
+    await this.smsService.sendSms(normalizedPhone, message);
   }
 
   private async sendVerificationEmail(
@@ -313,33 +319,32 @@ export class VerificationService {
   private async findUserByContact(contact: string): Promise<any> {
     const whereConditions: Array<{ email?: string; phone?: string }> = [];
 
-    // Check if input looks like email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (emailRegex.test(contact)) {
-      whereConditions.push({ email: contact });
-    } else {
-      // Assume it's a phone number - try multiple formats
-      const cleanedPhone = contact.replace(/\D/g, ''); // Remove non-digits
+    // Check what type of contact was provided
+    const contactType = detectContactMethod(contact);
 
-      // Try the provided format
+    if (contactType === 'email') {
+      // Search by email (exact match, case-insensitive)
+      whereConditions.push({ email: contact.toLowerCase() });
+      whereConditions.push({ email: contact });
+    } else if (contactType === 'phone') {
+      // Generate all possible phone format variants for lookup
+      const phoneVariants = getPhoneLookupVariants(contact);
+      this.logger.debug(`Phone lookup variants for "${contact}": ${JSON.stringify(phoneVariants)}`);
+
+      for (const variant of phoneVariants) {
+        whereConditions.push({ phone: variant });
+      }
+    } else {
+      // Unknown format - try both as fallback
+      whereConditions.push({ email: contact });
       whereConditions.push({ phone: contact });
 
-      // Try with Brazilian country code if not present
-      if (cleanedPhone.length === 11 && !cleanedPhone.startsWith('55')) {
-        whereConditions.push({ phone: `55${cleanedPhone}` });
+      // Also try phone variants in case it's a phone in unusual format
+      const phoneVariants = getPhoneLookupVariants(contact);
+      for (const variant of phoneVariants) {
+        whereConditions.push({ phone: variant });
       }
-
-      // Try without country code if present
-      if (cleanedPhone.length === 13 && cleanedPhone.startsWith('55')) {
-        whereConditions.push({ phone: cleanedPhone.substring(2) });
-      }
-
-      // Try the cleaned digits version
-      whereConditions.push({ phone: cleanedPhone });
     }
-
-    // Also search for exact match in both fields as fallback
-    whereConditions.push({ email: contact });
 
     const foundUsers = await this.userRepository.findMany({
       where: {

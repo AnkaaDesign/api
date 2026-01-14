@@ -19,6 +19,76 @@ export class TaskNotificationScheduler {
   ) {}
 
   /**
+   * Run hourly to check for tasks with deadlines within 4 hours
+   * This is the "Prazo Próximo" urgent notification
+   */
+  @Cron('0 * * * *') // Every hour at minute 0
+  async checkUrgentDeadlines() {
+    this.logger.log('Running hourly urgent deadline check (4 hours)...');
+
+    try {
+      const now = new Date();
+      const fourHoursFromNow = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4 hours from now
+      const threeHoursFromNow = new Date(now.getTime() + 3 * 60 * 60 * 1000); // 3 hours from now (to avoid re-notifying)
+
+      // Find tasks with deadline between 3 and 4 hours from now
+      // This ensures we notify exactly once when entering the 4-hour window
+      const tasks = await this.prisma.task.findMany({
+        where: {
+          term: {
+            gt: threeHoursFromNow,
+            lte: fourHoursFromNow,
+          },
+          status: {
+            notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED],
+          },
+        },
+        include: {
+          sector: {
+            select: {
+              id: true,
+              name: true,
+              managerId: true,
+            },
+          },
+          customer: {
+            select: {
+              id: true,
+              fantasyName: true,
+            },
+          },
+        },
+      });
+
+      this.logger.log(`Found ${tasks.length} tasks with deadline in ~4 hours`);
+
+      // Emit event for each task with hours remaining
+      for (const task of tasks) {
+        try {
+          // Calculate exact hours remaining
+          const hoursRemaining = Math.ceil(
+            (new Date(task.term!).getTime() - now.getTime()) / (1000 * 60 * 60),
+          );
+
+          this.eventEmitter.emit(
+            'task.deadline.approaching',
+            new TaskDeadlineApproachingEvent(task as any, 0, hoursRemaining), // 0 days, X hours
+          );
+        } catch (error) {
+          this.logger.error(
+            `Error emitting urgent deadline event for task ${task.id}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log('Hourly urgent deadline check completed successfully');
+    } catch (error) {
+      this.logger.error('Error during urgent deadline check:', error);
+    }
+  }
+
+  /**
    * Run daily at 9:00 AM to check for upcoming deadlines
    * Checks for tasks with deadlines in 1, 3, and 7 days
    */

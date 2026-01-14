@@ -436,27 +436,45 @@ export class TaskListener {
   /**
    * Handle deadline approaching event
    * Notify: assigned users + sector manager
+   * Supports both day-based (1, 3, 7 days) and hour-based (4 hours) notifications
    */
   private async handleTaskDeadlineApproaching(event: TaskDeadlineApproachingEvent): Promise<void> {
     try {
+      // Check if this is an hour-based notification (urgent 4-hour window)
+      const isHourBased = event.hoursRemaining !== undefined && event.hoursRemaining < 24;
+      const timeLabel = isHourBased
+        ? `${event.hoursRemaining} hora(s)`
+        : `${event.daysRemaining} dia(s)`;
+
       this.logger.log(
-        `Task deadline approaching: ${event.task.id} - ${event.daysRemaining} days remaining`,
+        `Task deadline approaching: ${event.task.id} - ${timeLabel} remaining`,
       );
 
       const targetUsers = await this.getTargetUsersForDeadline(event.task);
 
-      // Determine importance based on days remaining
-      const importance =
-        event.daysRemaining <= 1
-          ? NOTIFICATION_IMPORTANCE.URGENT
-          : event.daysRemaining <= 3
-            ? NOTIFICATION_IMPORTANCE.HIGH
-            : NOTIFICATION_IMPORTANCE.NORMAL;
+      // Determine importance based on time remaining
+      // Hour-based notifications (4 hours or less) are always URGENT
+      let importance: typeof NOTIFICATION_IMPORTANCE.URGENT | typeof NOTIFICATION_IMPORTANCE.HIGH | typeof NOTIFICATION_IMPORTANCE.NORMAL;
+      if (isHourBased && event.hoursRemaining! <= 4) {
+        importance = NOTIFICATION_IMPORTANCE.URGENT;
+      } else if (event.daysRemaining <= 1) {
+        importance = NOTIFICATION_IMPORTANCE.URGENT;
+      } else if (event.daysRemaining <= 3) {
+        importance = NOTIFICATION_IMPORTANCE.HIGH;
+      } else {
+        importance = NOTIFICATION_IMPORTANCE.NORMAL;
+      }
 
       // Determine channels based on urgency
+      // Hour-based urgent notifications use all channels including WhatsApp
       const defaultChannels =
-        event.daysRemaining <= 1
-          ? [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL]
+        (isHourBased && event.hoursRemaining! <= 4) || event.daysRemaining <= 1
+          ? [
+              NOTIFICATION_CHANNEL.IN_APP,
+              NOTIFICATION_CHANNEL.PUSH,
+              NOTIFICATION_CHANNEL.EMAIL,
+              NOTIFICATION_CHANNEL.WHATSAPP,
+            ]
           : [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
 
       // Create notifications for all target users
@@ -471,23 +489,35 @@ export class TaskListener {
 
         if (channels.length === 0) continue;
 
+        // Build notification title and body based on urgency
+        const title = isHourBased
+          ? '⚠️ PRAZO URGENTE - Tarefa com prazo em poucas horas!'
+          : 'Prazo da tarefa se aproximando';
+
+        const body = `Tarefa "${event.task.name}" tem prazo em ${timeLabel}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`;
+
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance,
-          title: 'Prazo da tarefa se aproximando',
-          body: `Tarefa "${event.task.name}" tem prazo em ${event.daysRemaining} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
+          title,
+          body,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
           relatedEntityId: event.task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            isUrgent: isHourBased && event.hoursRemaining! <= 4,
+            hoursRemaining: event.hoursRemaining,
+            daysRemaining: event.daysRemaining,
+          },
           channel: channels,
         });
       }
 
-      this.logger.log(`Created ${targetUsers.length} notifications for deadline approaching`);
+      this.logger.log(`Created ${targetUsers.length} notifications for deadline approaching (${timeLabel})`);
     } catch (error) {
       this.logger.error('Error handling task deadline approaching event:', error);
     }
