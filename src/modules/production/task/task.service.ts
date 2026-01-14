@@ -2253,6 +2253,9 @@ export class TaskService {
         }
 
         // Track services array changes
+        // NOTE: We skip creating TASK "services" changelog when service orders are only ADDED
+        // because individual SERVICE_ORDER CREATE changelogs are already created above.
+        // We only create this changelog when service orders are REMOVED to track deletions.
         if (data.serviceOrders !== undefined) {
           const oldServices = existingTask.serviceOrders || [];
           const newServices = updatedTask?.serviceOrders || [];
@@ -2260,24 +2263,26 @@ export class TaskService {
           this.logger.log(`[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`);
           this.logger.log(`[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`);
 
-          // Serialize services for changelog - store full data for rollback support
-          const serializeServices = (services: any[]) => {
-            return services.map((s: any) => ({
-              description: s.description,
-              status: s.status,
-              ...(s.startedAt && { startedAt: s.startedAt }),
-              ...(s.finishedAt && { finishedAt: s.finishedAt }),
-            }));
-          };
+          // Check if any service orders were removed (by comparing IDs)
+          const oldServiceIds = new Set(oldServices.map((s: any) => s.id));
+          const newServiceIds = new Set(newServices.map((s: any) => s.id));
+          const removedServices = oldServices.filter((s: any) => !newServiceIds.has(s.id));
 
-          const oldServicesSerialized = JSON.stringify(serializeServices(oldServices));
-          const newServicesSerialized = JSON.stringify(serializeServices(newServices));
+          this.logger.log(`[Task Update Changelog] Removed services count: ${removedServices.length}`);
 
-          this.logger.log(`[Task Update Changelog] oldServicesSerialized: ${oldServicesSerialized}`);
-          this.logger.log(`[Task Update Changelog] newServicesSerialized: ${newServicesSerialized}`);
+          // Only create TASK services changelog if service orders were REMOVED
+          // Service order ADDITIONS are already covered by individual SERVICE_ORDER CREATE changelogs
+          if (removedServices.length > 0) {
+            // Serialize services for changelog - store full data for rollback support
+            const serializeServices = (services: any[]) => {
+              return services.map((s: any) => ({
+                description: s.description,
+                status: s.status,
+                ...(s.startedAt && { startedAt: s.startedAt }),
+                ...(s.finishedAt && { finishedAt: s.finishedAt }),
+              }));
+            };
 
-          // Only create changelog if services actually changed
-          if (oldServicesSerialized !== newServicesSerialized) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
@@ -2285,7 +2290,7 @@ export class TaskService {
               field: 'services',
               oldValue: serializeServices(oldServices),
               newValue: serializeServices(newServices),
-              reason: `Serviços alterados de ${oldServices.length} para ${newServices.length}`,
+              reason: `${removedServices.length} ordem(ns) de serviço removida(s)`,
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: id,
               userId: userId || '',

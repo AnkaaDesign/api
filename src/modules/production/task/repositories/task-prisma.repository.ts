@@ -329,7 +329,7 @@ export class TaskPrismaRepository
             getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
           type: (service.type || 'PRODUCTION') as any,
           description: service.description || '',
-          assignedToId: service.assignedToId || null,
+          ...(service.assignedToId ? { assignedTo: { connect: { id: service.assignedToId } } } : {}),
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
           createdBy: { connect: { id: (service as any).createdById || creatorId } },

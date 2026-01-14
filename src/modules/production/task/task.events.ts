@@ -62,12 +62,31 @@ export class TaskFieldChangedEvent {
 
 /**
  * Event emitted when task deadline is approaching
+ * Supports both day-based and hour-based notifications
  */
 export class TaskDeadlineApproachingEvent {
   constructor(
     public readonly task: Task,
     public readonly daysRemaining: number,
+    public readonly hoursRemaining?: number, // Optional: for hour-based notifications (e.g., 4 hours)
   ) {}
+
+  /**
+   * Get a human-readable time remaining string
+   */
+  getTimeRemainingLabel(): string {
+    if (this.hoursRemaining !== undefined && this.hoursRemaining < 24) {
+      return `${this.hoursRemaining} hora(s)`;
+    }
+    return `${this.daysRemaining} dia(s)`;
+  }
+
+  /**
+   * Check if this is an urgent (hours-based) notification
+   */
+  isUrgent(): boolean {
+    return this.hoursRemaining !== undefined && this.hoursRemaining <= 4;
+  }
 }
 
 /**
