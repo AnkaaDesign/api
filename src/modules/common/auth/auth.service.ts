@@ -27,7 +27,13 @@ import {
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { trackFieldChanges } from '@modules/common/changelog/utils/changelog-helpers';
 import type { SignInFormData, SignUpFormData, ChangePasswordFormData } from '../../../schemas';
-import { isValidPhone, isValidEmail } from '../../../utils';
+import {
+  isValidPhone,
+  isValidEmail,
+  getPhoneLookupVariants,
+  normalizeBrazilianPhone,
+  detectContactMethod,
+} from '../../../utils';
 
 @Injectable()
 export class AuthService {
@@ -434,27 +440,77 @@ export class AuthService {
       });
     }
 
-    // Try email first, then SMS as fallback
+    // Determine what type of contact the user INPUT (not what's in the user record)
+    const inputContactType = detectContactMethod(contact);
+    this.logger.log(`Password reset requested via ${inputContactType} for contact: ${contact}`);
+
     let emailSent = false;
     let smsSent = false;
 
-    // Send email if available
-    if (user.email && isValidEmail(user.email)) {
-      try {
-        await this.sendPasswordResetEmail(user.email, user.name, resetCode);
-        emailSent = true;
-      } catch (error) {
-        this.logger.error(`Failed to send password reset email: ${error.message}`);
-      }
-    }
+    // Prioritize the method based on what the user INPUT
+    if (inputContactType === 'phone') {
+      // User input a phone number - prioritize SMS
+      // First, normalize the phone to find the best match
+      const normalizedInputPhone = normalizeBrazilianPhone(contact);
+      const phoneToUse = normalizedInputPhone || user.phone;
 
-    // Send SMS if phone is available (as primary or fallback)
-    if (user.phone && isValidPhone(user.phone)) {
-      try {
-        await this.sendPasswordResetSms(user.phone, user.name, resetCode);
-        smsSent = true;
-      } catch (error) {
-        this.logger.error(`Failed to send password reset SMS: ${error.message}`);
+      if (phoneToUse && isValidPhone(phoneToUse)) {
+        try {
+          this.logger.log(`Sending password reset SMS to normalized phone: ${phoneToUse}`);
+          await this.sendPasswordResetSms(phoneToUse, user.name, resetCode);
+          smsSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset SMS: ${error.message}`);
+        }
+      }
+
+      // Fallback to email if SMS fails and email is available
+      if (!smsSent && user.email && isValidEmail(user.email)) {
+        try {
+          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
+          emailSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset email (fallback): ${error.message}`);
+        }
+      }
+    } else if (inputContactType === 'email') {
+      // User input an email - prioritize email
+      if (user.email && isValidEmail(user.email)) {
+        try {
+          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
+          emailSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset email: ${error.message}`);
+        }
+      }
+
+      // Fallback to SMS if email fails and phone is available
+      if (!emailSent && user.phone && isValidPhone(user.phone)) {
+        try {
+          await this.sendPasswordResetSms(user.phone, user.name, resetCode);
+          smsSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset SMS (fallback): ${error.message}`);
+        }
+      }
+    } else {
+      // Unknown input type - try both (email first, then SMS)
+      if (user.email && isValidEmail(user.email)) {
+        try {
+          await this.sendPasswordResetEmail(user.email, user.name, resetCode);
+          emailSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset email: ${error.message}`);
+        }
+      }
+
+      if (user.phone && isValidPhone(user.phone)) {
+        try {
+          await this.sendPasswordResetSms(user.phone, user.name, resetCode);
+          smsSent = true;
+        } catch (error) {
+          this.logger.error(`Failed to send password reset SMS: ${error.message}`);
+        }
       }
     }
 
@@ -464,15 +520,15 @@ export class AuthService {
         success: true,
         message: 'Código de verificação enviado por email e SMS.',
       };
-    } else if (emailSent) {
-      return {
-        success: true,
-        message: 'Código de verificação enviado por email.',
-      };
     } else if (smsSent) {
       return {
         success: true,
         message: 'Código de verificação enviado por SMS.',
+      };
+    } else if (emailSent) {
+      return {
+        success: true,
+        message: 'Código de verificação enviado por email.',
       };
     } else {
       return {
@@ -876,9 +932,12 @@ export class AuthService {
   }
 
   async sendPasswordResetSms(phone: string, userName: string, resetCode?: string): Promise<void> {
+    // Normalize the phone number before sending
+    const normalizedPhone = normalizeBrazilianPhone(phone) || phone;
+    this.logger.debug(`Sending password reset SMS to normalized phone: ${normalizedPhone}`);
     const code = resetCode || this.generateSixDigitCode();
     const message = `Olá ${userName}! Seu código para redefinir a senha do Ankaa é: ${code}`;
-    await this.smsService.sendSms(phone, message);
+    await this.smsService.sendSms(normalizedPhone, message);
   }
 
   async sendPasswordResetEmail(email: string, userName: string, resetCode: string): Promise<void> {
@@ -1045,17 +1104,31 @@ export class AuthService {
     const whereConditions: Array<{ email?: string; phone?: string }> = [];
 
     // Check if input looks like email
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (emailRegex.test(contact)) {
-      whereConditions.push({ email: contact });
-    } else {
-      // Assume it's a phone number
-      whereConditions.push({ phone: contact });
-    }
+    const contactType = detectContactMethod(contact);
 
-    // Also search for exact match in both fields as fallback
-    whereConditions.push({ email: contact });
-    whereConditions.push({ phone: contact });
+    if (contactType === 'email') {
+      // Search by email (exact match, lowercase)
+      whereConditions.push({ email: contact.toLowerCase() });
+      whereConditions.push({ email: contact });
+    } else if (contactType === 'phone') {
+      // Generate all possible phone format variants for lookup
+      const phoneVariants = getPhoneLookupVariants(contact);
+      this.logger.debug(`Phone lookup variants for "${contact}": ${JSON.stringify(phoneVariants)}`);
+
+      for (const variant of phoneVariants) {
+        whereConditions.push({ phone: variant });
+      }
+    } else {
+      // Unknown format - try both as fallback
+      whereConditions.push({ email: contact });
+      whereConditions.push({ phone: contact });
+
+      // Also try phone variants in case it's a phone in unusual format
+      const phoneVariants = getPhoneLookupVariants(contact);
+      for (const variant of phoneVariants) {
+        whereConditions.push({ phone: variant });
+      }
+    }
 
     return whereConditions;
   }

@@ -57,6 +57,18 @@ export function checkServiceOrderUpdatePermission(
     };
   }
 
+  // WAITING_APPROVE is ONLY valid for ARTWORK service orders (designer approval workflow)
+  if (
+    newStatus === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+    serviceOrder.type !== SERVICE_ORDER_TYPE.ARTWORK
+  ) {
+    return {
+      canUpdate: false,
+      reason:
+        'O status "Aguardando Aprovação" é exclusivo para ordens de serviço de arte',
+    };
+  }
+
   // If service order is assigned, only assigned user (or ADMIN) can update
   if (serviceOrder.assignedToId && !isAssignedUser) {
     return {

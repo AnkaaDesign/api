@@ -169,3 +169,210 @@ export const formatZipCode = (zipCode: string): string => {
   }
   return zipCode;
 };
+
+/**
+ * Normalizes a Brazilian phone number to a consistent format for database storage/lookup.
+ * Handles various input formats and normalizes to 11 digits (DDD + 9-digit mobile).
+ *
+ * @param phone - Phone number in any format (with or without country code, DDD, etc.)
+ * @param defaultDDD - Default DDD to use if not provided (defaults to '43')
+ * @param defaultCountryCode - Default country code (defaults to '55')
+ * @returns Normalized phone number as 11 digits (e.g., '43991402403') or empty string if invalid
+ *
+ * @example
+ * normalizeBrazilianPhone('43991402403')     // '43991402403'
+ * normalizeBrazilianPhone('5543991402403')   // '43991402403'
+ * normalizeBrazilianPhone('991402403')       // '43991402403' (adds default DDD 43)
+ * normalizeBrazilianPhone('4391402403')      // '43991402403' (adds missing 9)
+ * normalizeBrazilianPhone('(43) 99140-2403') // '43991402403'
+ * normalizeBrazilianPhone('+55 43 99140-2403') // '43991402403'
+ */
+export const normalizeBrazilianPhone = (
+  phone: string,
+  defaultDDD: string = '43',
+  defaultCountryCode: string = '55',
+): string => {
+  if (!phone || typeof phone !== 'string') {
+    return '';
+  }
+
+  // Remove all non-digit characters
+  let digits = phone.replace(/\D/g, '');
+
+  if (digits.length === 0) {
+    return '';
+  }
+
+  // Remove country code if present (55)
+  if (digits.startsWith(defaultCountryCode) && digits.length >= 12) {
+    digits = digits.substring(2);
+  }
+
+  // Now we should have 9, 10, or 11 digits
+  // 9 digits = number only (missing DDD)
+  // 10 digits = DDD + 8-digit landline OR DDD + 8-digit mobile missing the leading 9
+  // 11 digits = DDD + 9-digit mobile (correct format)
+
+  if (digits.length === 9) {
+    // Just the number without DDD, add default DDD
+    // Check if it already starts with 9 (mobile)
+    if (digits.startsWith('9')) {
+      digits = defaultDDD + digits;
+    } else {
+      // Might be missing the 9 prefix, add DDD and 9
+      digits = defaultDDD + '9' + digits;
+    }
+  } else if (digits.length === 10) {
+    // Could be DDD + 8-digit number (missing the 9 for mobile)
+    // Or could be a landline (DDD + 8 digits starting with 2-5)
+    const possibleDDD = digits.substring(0, 2);
+    const possibleDDDNum = parseInt(possibleDDD, 10);
+    const thirdDigit = digits.charAt(2);
+
+    // Valid Brazilian DDDs are 11-99
+    if (possibleDDDNum >= 11 && possibleDDDNum <= 99) {
+      // Check if it's a landline (3rd digit is 2-5)
+      if (/^[2-5]$/.test(thirdDigit)) {
+        // It's a landline, return as-is (10 digits)
+        return digits;
+      } else {
+        // It's a mobile missing the 9, add it
+        digits = possibleDDD + '9' + digits.substring(2);
+      }
+    } else {
+      // First 2 digits don't look like a valid DDD
+      // Assume it's a 10-digit number without DDD, starting with the area code pattern
+      // This is unlikely but handle it by adding default DDD
+      digits = defaultDDD + digits;
+    }
+  } else if (digits.length === 8) {
+    // Just 8 digits - needs DDD and possibly the 9
+    // If it starts with 9, it's probably already a mobile just missing DDD
+    if (digits.startsWith('9')) {
+      digits = defaultDDD + digits;
+    } else {
+      // Add DDD and the 9 prefix for mobile
+      digits = defaultDDD + '9' + digits;
+    }
+  } else if (digits.length === 11) {
+    // Already in correct format (DDD + 9-digit mobile)
+    return digits;
+  } else if (digits.length > 11) {
+    // Too many digits, might have extra leading zeros or errors
+    // Try to extract the last 11 digits
+    digits = digits.substring(digits.length - 11);
+  } else if (digits.length < 8) {
+    // Too few digits to be a valid phone
+    return '';
+  }
+
+  // Final validation - should be 10 or 11 digits now
+  if (digits.length !== 10 && digits.length !== 11) {
+    return '';
+  }
+
+  return digits;
+};
+
+/**
+ * Generates all possible phone number formats for database lookup.
+ * This is useful when searching for a user by phone as we don't know how it was stored.
+ *
+ * @param phone - Phone number in any format
+ * @param defaultDDD - Default DDD to use if not provided (defaults to '43')
+ * @returns Array of possible phone formats to search for
+ */
+export const getPhoneLookupVariants = (phone: string, defaultDDD: string = '43'): string[] => {
+  if (!phone || typeof phone !== 'string') {
+    return [];
+  }
+
+  const variants: Set<string> = new Set();
+  const digits = phone.replace(/\D/g, '');
+
+  if (digits.length === 0) {
+    return [];
+  }
+
+  // Add original input
+  variants.add(phone);
+  variants.add(digits);
+
+  // Normalize and add
+  const normalized = normalizeBrazilianPhone(phone, defaultDDD);
+  if (normalized) {
+    variants.add(normalized);
+
+    // Add with country code
+    variants.add('55' + normalized);
+
+    // Add formatted versions
+    if (normalized.length === 11) {
+      // (43) 99140-2403
+      variants.add(
+        `(${normalized.substring(0, 2)}) ${normalized.substring(2, 7)}-${normalized.substring(7)}`,
+      );
+      // +55 43 99140-2403
+      variants.add(`+55 ${normalized.substring(0, 2)} ${normalized.substring(2, 7)}-${normalized.substring(7)}`);
+    }
+  }
+
+  // Handle case where country code might be present
+  if (digits.startsWith('55') && digits.length >= 12) {
+    const withoutCountry = digits.substring(2);
+    variants.add(withoutCountry);
+
+    // Normalize without country code
+    const normalizedWithoutCountry = normalizeBrazilianPhone(withoutCountry, defaultDDD);
+    if (normalizedWithoutCountry) {
+      variants.add(normalizedWithoutCountry);
+    }
+  }
+
+  // Handle 10-digit inputs (might be missing the 9)
+  if (digits.length === 10) {
+    // Try with 9 inserted after DDD
+    const with9 = digits.substring(0, 2) + '9' + digits.substring(2);
+    variants.add(with9);
+    variants.add('55' + with9);
+  }
+
+  // Handle 9-digit inputs (might be missing DDD)
+  if (digits.length === 9) {
+    variants.add(defaultDDD + digits);
+    variants.add('55' + defaultDDD + digits);
+
+    // If it doesn't start with 9, try adding it
+    if (!digits.startsWith('9')) {
+      variants.add(defaultDDD + '9' + digits);
+      variants.add('55' + defaultDDD + '9' + digits);
+    }
+  }
+
+  // Handle 8-digit inputs
+  if (digits.length === 8) {
+    // Add DDD
+    variants.add(defaultDDD + digits);
+    variants.add('55' + defaultDDD + digits);
+    // Add DDD + 9
+    variants.add(defaultDDD + '9' + digits);
+    variants.add('55' + defaultDDD + '9' + digits);
+  }
+
+  return Array.from(variants).filter((v) => v.length > 0);
+};
+
+/**
+ * Formats a phone number to E.164 format for Twilio/SMS sending.
+ *
+ * @param phone - Phone number in any format
+ * @param defaultDDD - Default DDD to use if not provided (defaults to '43')
+ * @returns Phone in E.164 format (e.g., '+5543991402403')
+ */
+export const formatPhoneForSms = (phone: string, defaultDDD: string = '43'): string => {
+  const normalized = normalizeBrazilianPhone(phone, defaultDDD);
+  if (!normalized) {
+    return '';
+  }
+  return `+55${normalized}`;
+};

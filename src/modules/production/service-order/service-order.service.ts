@@ -38,6 +38,7 @@ import {
 } from '../../../schemas/serviceOrder';
 import {
   SERVICE_ORDER_STATUS,
+  TASK_STATUS,
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
   CHANGE_ACTION,
@@ -248,6 +249,9 @@ export class ServiceOrderService {
         }
       }
 
+      // Track if task was auto-started for event emission after transaction
+      let taskAutoStarted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
 
@@ -323,6 +327,55 @@ export class ServiceOrderService {
           transaction: tx,
         });
 
+        // Auto-start task when service order is started and task is waiting for production
+        // This ensures the task workflow progresses automatically when work begins
+        if (
+          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true, startedAt: true },
+          });
+
+          // If task is WAITING_PRODUCTION, auto-start it
+          if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
+            this.logger.log(
+              `[AUTO-START] Service order ${id} started, auto-starting task ${task.id} (WAITING_PRODUCTION → IN_PRODUCTION)`,
+            );
+
+            await tx.task.update({
+              where: { id: task.id },
+              data: {
+                status: TASK_STATUS.IN_PRODUCTION,
+                startedAt: new Date(),
+              },
+            });
+
+            // Log the auto-start in changelog
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: task.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'status',
+              oldValue: TASK_STATUS.WAITING_PRODUCTION,
+              newValue: TASK_STATUS.IN_PRODUCTION,
+              reason: `Tarefa iniciada automaticamente quando ordem de serviço "${updated.description}" foi iniciada`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_AUTOMATION,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+
+            // Track for event emission after transaction commits
+            taskAutoStarted = {
+              taskId: task.id,
+              oldStatus: TASK_STATUS.WAITING_PRODUCTION,
+              newStatus: TASK_STATUS.IN_PRODUCTION,
+            };
+          }
+        }
+
         return updated;
       });
 
@@ -389,6 +442,42 @@ export class ServiceOrderService {
             userId,
             assignedToId: serviceOrder.assignedToId,
           });
+        }
+      }
+
+      // Emit task status changed event if task was auto-started
+      if (taskAutoStarted) {
+        // Get the updated task with user info for the event
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoStarted.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        // Get the user who triggered the auto-start
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoStarted.oldStatus,
+            newStatus: taskAutoStarted.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-START] Emitted task.status.changed event for task ${taskAutoStarted.taskId}`,
+          );
         }
       }
 
@@ -749,6 +838,9 @@ export class ServiceOrderService {
         return { id: item.id, data: updateData };
       });
 
+      // Track auto-started tasks for event emission after transaction
+      const tasksAutoStarted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
           tx,
@@ -784,6 +876,55 @@ export class ServiceOrderService {
               triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
               transaction: tx,
             });
+
+            // Auto-start task when service order is started and task is waiting for production
+            if (
+              serviceOrder.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+              oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+            ) {
+              // Check if this task was already auto-started in this batch
+              const alreadyStarted = tasksAutoStarted.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyStarted) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true, startedAt: true },
+                });
+
+                if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
+                  this.logger.log(
+                    `[AUTO-START BATCH] Service order ${serviceOrder.id} started, auto-starting task ${task.id}`,
+                  );
+
+                  await tx.task.update({
+                    where: { id: task.id },
+                    data: {
+                      status: TASK_STATUS.IN_PRODUCTION,
+                      startedAt: new Date(),
+                    },
+                  });
+
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: TASK_STATUS.WAITING_PRODUCTION,
+                    newValue: TASK_STATUS.IN_PRODUCTION,
+                    reason: `Tarefa iniciada automaticamente quando ordem de serviço "${serviceOrder.description}" foi iniciada (batch)`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_AUTOMATION,
+                    triggeredById: serviceOrder.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
+                  tasksAutoStarted.push({
+                    taskId: task.id,
+                    oldStatus: TASK_STATUS.WAITING_PRODUCTION,
+                    newStatus: TASK_STATUS.IN_PRODUCTION,
+                  });
+                }
+              }
+            }
           }
         }
 
@@ -840,6 +981,40 @@ export class ServiceOrderService {
               assignedToId: serviceOrder.assignedToId,
             });
           }
+        }
+      }
+
+      // Emit task status changed events for auto-started tasks
+      for (const taskAutoStarted of tasksAutoStarted) {
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoStarted.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoStarted.oldStatus,
+            newStatus: taskAutoStarted.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-START BATCH] Emitted task.status.changed event for task ${taskAutoStarted.taskId}`,
+          );
         }
       }
 

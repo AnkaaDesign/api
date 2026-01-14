@@ -32,8 +32,17 @@ export function isValidTaskStatusTransition(
       TASK_STATUS.WAITING_PRODUCTION,
       TASK_STATUS.CANCELLED,
     ],
-    [TASK_STATUS.COMPLETED]: [],
-    [TASK_STATUS.CANCELLED]: [],
+    [TASK_STATUS.COMPLETED]: [
+      TASK_STATUS.IN_PRODUCTION,
+      TASK_STATUS.WAITING_PRODUCTION,
+      TASK_STATUS.PREPARATION,
+      TASK_STATUS.CANCELLED,
+    ],
+    [TASK_STATUS.CANCELLED]: [
+      TASK_STATUS.PREPARATION,
+      TASK_STATUS.WAITING_PRODUCTION,
+      TASK_STATUS.IN_PRODUCTION,
+    ],
   };
 
   return validTransitions[fromStatus]?.includes(toStatus) || false;
