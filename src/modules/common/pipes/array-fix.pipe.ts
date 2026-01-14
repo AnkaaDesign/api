@@ -24,7 +24,7 @@ export class ArrayFixPipe implements PipeTransform {
     return this.fixArrays(value);
   }
 
-  private fixArrays(obj: any): any {
+  private fixArrays(obj: any, parentKey?: string): any {
     if (obj === null || obj === undefined) {
       return obj;
     }
@@ -40,7 +40,7 @@ export class ArrayFixPipe implements PipeTransform {
         const parsed = JSON.parse(obj);
         // Only process if it's an object or array
         if (typeof parsed === 'object' && parsed !== null) {
-          return this.fixArrays(parsed);
+          return this.fixArrays(parsed, parentKey);
         }
       } catch (e) {
         // Not JSON, try type conversion
@@ -72,13 +72,13 @@ export class ArrayFixPipe implements PipeTransform {
 
     // Check if this object looks like a serialized array
     if (this.isSerializedArray(obj)) {
-      return this.convertToArray(obj);
+      return this.convertToArray(obj, parentKey);
     }
 
     // Recursively fix nested objects
     const fixed: any = {};
     for (const [key, value] of Object.entries(obj)) {
-      fixed[key] = this.fixArrays(value);
+      fixed[key] = this.fixArrays(value, key);
     }
 
     return fixed;
@@ -96,14 +96,14 @@ export class ArrayFixPipe implements PipeTransform {
     return numericKeys.every((key, index) => key === index);
   }
 
-  private convertToArray(obj: any): any[] {
+  private convertToArray(obj: any, parentKey?: string): any[] {
     const keys = Object.keys(obj)
       .map(k => parseInt(k, 10))
       .sort((a, b) => a - b);
     const array: any[] = [];
 
     for (const key of keys) {
-      array.push(this.fixArrays(obj[key.toString()]));
+      array.push(this.fixArrays(obj[key.toString()], parentKey));
     }
 
     return array;

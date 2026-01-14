@@ -51,7 +51,7 @@ import type {
   AirbrushingBatchDeleteResponse,
   Airbrushing,
 } from '../../../types';
-import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
@@ -74,8 +74,9 @@ export class AirbrushingController {
   )
   async findMany(
     @Query(new ZodQueryValidationPipe(airbrushingGetManySchema)) query: AirbrushingGetManyFormData,
+    @User() user: UserPayload,
   ): Promise<AirbrushingGetManyResponse> {
-    return this.airbrushingService.findMany(query);
+    return this.airbrushingService.findMany(query, user.role);
   }
 
   @Post()
@@ -198,8 +199,9 @@ export class AirbrushingController {
   async findById(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
+    @User() user: UserPayload,
   ): Promise<AirbrushingGetUniqueResponse> {
-    return this.airbrushingService.findById(id, query.include);
+    return this.airbrushingService.findById(id, query.include, user.role);
   }
 
   @Put(':id')

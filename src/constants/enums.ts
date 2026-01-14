@@ -114,6 +114,12 @@ export enum AIRBRUSHING_STATUS {
   CANCELLED = 'CANCELLED',
 }
 
+export enum ARTWORK_STATUS {
+  DRAFT = 'DRAFT',
+  APPROVED = 'APPROVED',
+  REPROVED = 'REPROVED',
+}
+
 export enum CUT_TYPE {
   VINYL = 'VINYL',
   STENCIL = 'STENCIL',

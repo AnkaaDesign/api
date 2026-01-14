@@ -58,15 +58,25 @@ export class ServiceOrderPrismaRepository
       status: databaseEntity.status,
       statusOrder: databaseEntity.statusOrder,
       description: databaseEntity.description,
+      observation: databaseEntity.observation,
       type: databaseEntity.type,
       taskId: databaseEntity.taskId,
       assignedToId: databaseEntity.assignedToId,
+      startedById: databaseEntity.startedById,
+      approvedById: databaseEntity.approvedById,
+      completedById: databaseEntity.completedById,
       startedAt: databaseEntity.startedAt,
+      approvedAt: databaseEntity.approvedAt,
       finishedAt: databaseEntity.finishedAt,
       createdAt: databaseEntity.createdAt,
       updatedAt: databaseEntity.updatedAt,
       // Relations
       task: databaseEntity.task,
+      assignedTo: databaseEntity.assignedTo,
+      createdBy: databaseEntity.createdBy,
+      startedBy: databaseEntity.startedBy,
+      approvedBy: databaseEntity.approvedBy,
+      completedBy: databaseEntity.completedBy,
     };
   }
 
