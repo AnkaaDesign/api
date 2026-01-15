@@ -9,7 +9,7 @@ import {
   moneySchema,
 } from './common';
 import type { TaskPricing } from '@types';
-import { TASK_PRICING_STATUS } from '@constants';
+import { TASK_PRICING_STATUS, DISCOUNT_TYPE } from '@constants';
 
 // =====================
 // TaskPricing Status Schema
@@ -20,6 +20,16 @@ export const taskPricingStatusSchema = z.enum([
   TASK_PRICING_STATUS.APPROVED,
   TASK_PRICING_STATUS.REJECTED,
   TASK_PRICING_STATUS.CANCELLED,
+]);
+
+// =====================
+// Discount Type Schema
+// =====================
+
+export const discountTypeSchema = z.enum([
+  DISCOUNT_TYPE.NONE,
+  DISCOUNT_TYPE.PERCENTAGE,
+  DISCOUNT_TYPE.FIXED_VALUE,
 ]);
 
 // =====================
@@ -340,6 +350,9 @@ export const taskPricingCreateNestedSchema = z.object({
 // =====================
 
 export const taskPricingCreateSchema = z.object({
+  subtotal: moneySchema,
+  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE),
+  discountValue: moneySchema.optional(),
   total: moneySchema,
   expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
   status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.DRAFT),
@@ -348,9 +361,28 @@ export const taskPricingCreateSchema = z.object({
     .array(taskPricingItemCreateNestedSchema)
     .min(1, 'Pelo menos um item é obrigatório')
     .optional(),
-});
+}).refine(
+  (data) => {
+    // If discount type is not NONE, discountValue must be provided
+    if (data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
+      return false;
+    }
+    // If discount type is PERCENTAGE, discountValue must be between 0 and 100
+    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
+      return data.discountValue >= 0 && data.discountValue <= 100;
+    }
+    return true;
+  },
+  {
+    message: 'Valor de desconto inválido para o tipo selecionado',
+    path: ['discountValue'],
+  },
+);
 
 export const taskPricingUpdateSchema = z.object({
+  subtotal: moneySchema.optional(),
+  discountType: discountTypeSchema.optional(),
+  discountValue: moneySchema.optional(),
   total: moneySchema.optional(),
   expiresAt: z.coerce
     .date({ errorMap: () => ({ message: 'Data de validade inválida' }) })
@@ -358,7 +390,23 @@ export const taskPricingUpdateSchema = z.object({
   status: taskPricingStatusSchema.optional(),
   taskId: z.string().uuid('Tarefa inválida').optional(),
   items: z.array(taskPricingItemCreateNestedSchema).optional(),
-});
+}).refine(
+  (data) => {
+    // If discount type is provided and not NONE, discountValue must be provided
+    if (data.discountType && data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
+      return false;
+    }
+    // If discount type is PERCENTAGE, discountValue must be between 0 and 100
+    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
+      return data.discountValue >= 0 && data.discountValue <= 100;
+    }
+    return true;
+  },
+  {
+    message: 'Valor de desconto inválido para o tipo selecionado',
+    path: ['discountValue'],
+  },
+);
 
 // =====================
 // Batch Operations Schemas - TaskPricing

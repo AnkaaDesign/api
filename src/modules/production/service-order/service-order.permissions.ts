@@ -21,8 +21,13 @@ import type { ServiceOrder } from '@types';
  * - FINANCIAL can update
  * - ADMIN can update
  *
- * NEGOTIATION Service Orders:
- * - ONLY ADMIN can update (no other role)
+ * COMMERCIAL Service Orders:
+ * - COMMERCIAL can update
+ * - ADMIN can update
+ *
+ * LOGISTIC Service Orders:
+ * - LOGISTIC can update
+ * - ADMIN can update
  *
  * ARTWORK Service Orders:
  * - DESIGNER can update (but can only set status to WAITING_APPROVE, not COMPLETED)
@@ -105,12 +110,26 @@ export function checkServiceOrderUpdatePermission(
           'Apenas usuários financeiros ou administradores podem atualizar ordens de serviço financeiras',
       };
 
-    case SERVICE_ORDER_TYPE.NEGOTIATION:
-      // ONLY ADMIN can update NEGOTIATION service orders (already handled above)
+    case SERVICE_ORDER_TYPE.COMMERCIAL:
+      // COMMERCIAL can update COMMERCIAL service orders
+      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
+        return { canUpdate: true };
+      }
       return {
         canUpdate: false,
         reason:
-          'Apenas administradores podem atualizar ordens de serviço de negociação',
+          'Apenas usuários comerciais ou administradores podem atualizar ordens de serviço comerciais',
+      };
+
+    case SERVICE_ORDER_TYPE.LOGISTIC:
+      // LOGISTIC can update LOGISTIC service orders
+      if (userPrivilege === SECTOR_PRIVILEGES.LOGISTIC) {
+        return { canUpdate: true };
+      }
+      return {
+        canUpdate: false,
+        reason:
+          'Apenas usuários de logística ou administradores podem atualizar ordens de serviço de logística',
       };
 
     case SERVICE_ORDER_TYPE.ARTWORK:
