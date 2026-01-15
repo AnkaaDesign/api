@@ -37,6 +37,8 @@ import {
   CHANGE_ACTION,
   TRUCK_SPOT,
   SECTOR_PRIVILEGES,
+  SERVICE_ORDER_STATUS,
+  SERVICE_ORDER_TYPE,
 } from '../../../constants/enums';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -869,14 +871,19 @@ export class TaskService {
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
+      pricingLayoutFile?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
       // DEBUG: Log what data actually enters the service
       this.logger.log('[Task Update] === SERVICE METHOD ENTRY ===');
-      this.logger.log(`[Task Update] data.artworkIds type: ${typeof data.artworkIds}, value: ${JSON.stringify(data.artworkIds)}`);
-      this.logger.log(`[Task Update] data.artworkStatuses type: ${typeof data.artworkStatuses}, value: ${JSON.stringify(data.artworkStatuses)}`);
+      this.logger.log('[Task Update] Full data received:', JSON.stringify(data, null, 2));
+      this.logger.log(`[Task Update] customerId: ${data.customerId}`);
+      this.logger.log(`[Task Update] pricing: ${JSON.stringify((data as any).pricing)}`);
       this.logger.log('[Task Update] === END SERVICE METHOD ENTRY ===');
+
+      // Track if task was auto-transitioned to WAITING_PRODUCTION for notification after transaction
+      let taskAutoTransitionedToWaitingProduction = false;
 
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
@@ -1017,6 +1024,8 @@ export class TaskService {
                   taskId: id,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
+                  category: truckData.category || null,
+                  implementType: truckData.implementType || null,
                   spot: truckData.spot || null,
                 },
               });
@@ -1042,6 +1051,8 @@ export class TaskService {
               if (truckData.plate !== undefined) updateFields.plate = truckData.plate;
               if (truckData.chassisNumber !== undefined)
                 updateFields.chassisNumber = truckData.chassisNumber;
+              if (truckData.category !== undefined) updateFields.category = truckData.category;
+              if (truckData.implementType !== undefined) updateFields.implementType = truckData.implementType;
               if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
               if (Object.keys(updateFields).length > 0) {
@@ -1378,6 +1389,29 @@ export class TaskService {
           );
         }
 
+        // Process pricing layout file BEFORE task update (to get the file ID for pricing)
+        if (files?.pricingLayoutFile && files.pricingLayoutFile.length > 0 && (data as any).pricing) {
+          console.log('[TaskService] Processing pricing layout file');
+          const customerName = existingTask.customer?.fantasyName;
+
+          const layoutFile = files.pricingLayoutFile[0];
+          const fileRecord = await this.fileService.createFromUploadWithTransaction(
+            tx,
+            layoutFile,
+            'pricing-layouts',
+            userId,
+            {
+              entityId: id,
+              entityType: 'PRICING_LAYOUT',
+              customerName,
+            },
+          );
+          console.log('[TaskService] Uploaded pricing layout file:', fileRecord.id);
+
+          // Set the layoutFileId in the pricing data
+          (data as any).pricing.layoutFileId = fileRecord.id;
+        }
+
         // Extract service orders from data to handle them explicitly
         // This prevents Prisma from doing a silent nested create without events/changelogs
         const serviceOrdersData = (data as any).serviceOrders;
@@ -1394,8 +1428,12 @@ export class TaskService {
         const hasArtworkData = !!(updateData as any).artworkIds || !!(updateData as any).fileIds || !!(updateData as any).artworkStatuses;
 
         // Remove service orders from updateData to prevent Prisma nested create
-        // We'll handle them explicitly below
+        // We'll handle them explicitly below (serviceOrdersData was already extracted at line 1393)
         delete (updateData as any).serviceOrders;
+
+        // Extract airbrushings data - we'll handle updates/creates explicitly
+        // The repository only handles deletions (via notIn), preserving existing airbrushings and their artworks
+        const airbrushingsData = (updateData as any).airbrushings;
 
         // CRITICAL FIX: Remove artwork-related fields from updateData
         // These will be handled explicitly in the file processing section below (around line 1665)
@@ -1414,6 +1452,7 @@ export class TaskService {
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
             serviceOrders: true, // Include for services field changelog tracking
+            airbrushings: true, // Include for airbrushing file uploads
           },
         }, userId);
 
@@ -1577,6 +1616,171 @@ export class TaskService {
           });
 
           this.logger.log(`[Task Update] After refetch, updatedTask.serviceOrders count: ${updatedTask?.serviceOrders?.length || 0}`);
+
+          // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
+          // This ensures the task workflow progresses automatically when all artwork approvals are complete
+          if (updatedTask && updatedTask.status === TASK_STATUS.PREPARATION) {
+            // Get all ARTWORK service orders for this task (from the refetched data)
+            const artworkServiceOrders = (updatedTask.serviceOrders || []).filter(
+              (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK
+            );
+
+            // Check if there's at least 1 artwork service order and ALL are COMPLETED
+            const hasArtworkOrders = artworkServiceOrders.length > 0;
+            const allArtworkCompleted = artworkServiceOrders.every(
+              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (hasArtworkOrders && allArtworkCompleted) {
+              this.logger.log(
+                `[AUTO-TRANSITION Task Update] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+              );
+
+              // Update task status to WAITING_PRODUCTION
+              // Using tx.task.update directly to include statusOrder which is not in the form data type
+              updatedTask = await tx.task.update({
+                where: { id },
+                data: {
+                  status: TASK_STATUS.WAITING_PRODUCTION,
+                  statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                },
+                include: {
+                  ...include,
+                  customer: true,
+                  artworks: true,
+                  observation: { include: { files: true } },
+                  truck: true,
+                  serviceOrders: true,
+                },
+              }) as any;
+
+              // Log the auto-transition in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: TASK_STATUS.PREPARATION,
+                newValue: TASK_STATUS.WAITING_PRODUCTION,
+                reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track that task was auto-transitioned for event/notification emission after transaction
+              taskAutoTransitionedToWaitingProduction = true;
+            }
+          }
+        }
+
+        // Handle airbrushings explicitly - update existing and create new ones
+        // The repository only handles deletions (via notIn), we handle updates/creates here
+        // This prevents cascade deletion of artworks (which have onDelete: Cascade on airbrushing)
+        if (airbrushingsData && Array.isArray(airbrushingsData) && airbrushingsData.length > 0) {
+          this.logger.log(`[Task Update] Processing ${airbrushingsData.length} airbrushings for task ${id}`);
+
+          for (const airbrushingData of airbrushingsData) {
+            // Check if this is an existing airbrushing (valid UUID) or a new one (temp ID)
+            const isExisting = airbrushingData.id &&
+              typeof airbrushingData.id === 'string' &&
+              !airbrushingData.id.startsWith('airbrushing-');
+
+            if (isExisting) {
+              // UPDATE existing airbrushing - preserves artworks (no deletion)
+              this.logger.log(`[Task Update] Updating existing airbrushing ${airbrushingData.id}`);
+
+              const updatePayload: any = {
+                status: airbrushingData.status || 'PENDING',
+                price: airbrushingData.price !== undefined && airbrushingData.price !== null
+                  ? Number(airbrushingData.price)
+                  : null,
+                startDate: airbrushingData.startDate || null,
+                finishDate: airbrushingData.finishDate || null,
+              };
+
+              // Handle receipts (File IDs)
+              if (airbrushingData.receiptIds !== undefined) {
+                updatePayload.receipts = airbrushingData.receiptIds.length > 0
+                  ? { set: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
+                  : { set: [] };
+              }
+
+              // Handle invoices (File IDs)
+              if (airbrushingData.invoiceIds !== undefined) {
+                updatePayload.invoices = airbrushingData.invoiceIds.length > 0
+                  ? { set: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
+                  : { set: [] };
+              }
+
+              // Handle artworks (File IDs -> Artwork entity IDs)
+              // CRITICAL: This must be handled here to preserve artworks when no file uploads occur
+              if (airbrushingData.artworkIds !== undefined) {
+                if (airbrushingData.artworkIds.length > 0) {
+                  // Convert File IDs to Artwork entity IDs
+                  const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+                    airbrushingData.artworkIds,
+                    null, // taskId - null for airbrushing artworks
+                    airbrushingData.id, // airbrushingId
+                    undefined, // artworkStatuses
+                    userPrivilege,
+                    tx,
+                  );
+                  updatePayload.artworks = { set: artworkEntityIds.map((aid: string) => ({ id: aid })) };
+                  this.logger.log(`[Task Update] Setting ${artworkEntityIds.length} artworks for airbrushing ${airbrushingData.id}`);
+                } else {
+                  updatePayload.artworks = { set: [] };
+                  this.logger.log(`[Task Update] Clearing artworks for airbrushing ${airbrushingData.id}`);
+                }
+              }
+
+              await tx.airbrushing.update({
+                where: { id: airbrushingData.id },
+                data: updatePayload,
+              });
+
+              this.logger.log(`[Task Update] Updated airbrushing ${airbrushingData.id}`);
+            } else {
+              // CREATE new airbrushing
+              this.logger.log(`[Task Update] Creating new airbrushing for task ${id}`);
+
+              const newAirbrushing = await tx.airbrushing.create({
+                data: {
+                  taskId: id,
+                  status: airbrushingData.status || 'PENDING',
+                  price: airbrushingData.price !== undefined && airbrushingData.price !== null
+                    ? Number(airbrushingData.price)
+                    : null,
+                  startDate: airbrushingData.startDate || null,
+                  finishDate: airbrushingData.finishDate || null,
+                  receipts: airbrushingData.receiptIds && airbrushingData.receiptIds.length > 0
+                    ? { connect: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
+                    : undefined,
+                  invoices: airbrushingData.invoiceIds && airbrushingData.invoiceIds.length > 0
+                    ? { connect: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
+                    : undefined,
+                },
+              });
+
+              this.logger.log(`[Task Update] Created airbrushing ${newAirbrushing.id}`);
+            }
+          }
+
+          // Refetch task with updated airbrushings for file processing
+          updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
+            include: {
+              ...include,
+              customer: true,
+              artworks: true,
+              observation: { include: { files: true } },
+              truck: true,
+              serviceOrders: true,
+              airbrushings: true,
+            },
+          });
+
+          this.logger.log(`[Task Update] After airbrushings refetch, task has ${updatedTask?.airbrushings?.length || 0} airbrushings`);
         }
 
         // Process and save files WITHIN the transaction
@@ -2051,6 +2255,9 @@ export class TaskService {
           'serialNumber',
           'term',
           'entryDate',
+          'forecastDate',
+          'invoiceToId',
+          'negotiatingWith',
           'priority',
           'bonusDiscountId',
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
@@ -2562,11 +2769,11 @@ export class TaskService {
           }
         }
 
-        return { updatedTask: updatedTask!, createdServiceOrders };
+        return { updatedTask: updatedTask!, createdServiceOrders, taskAutoTransitionedToWaitingProduction };
       });
 
       // Destructure transaction result
-      const { updatedTask, createdServiceOrders } = transactionResult;
+      const { updatedTask, createdServiceOrders, taskAutoTransitionedToWaitingProduction: wasAutoTransitioned } = transactionResult;
 
       // Emit events for created service orders AFTER transaction commits
       if (createdServiceOrders && createdServiceOrders.length > 0) {
@@ -2593,6 +2800,48 @@ export class TaskService {
         }
       } else {
         this.logger.log(`[Task Update] No service orders to emit events for`);
+      }
+
+      // If task was auto-transitioned to WAITING_PRODUCTION, emit event and send notifications
+      // This notifies production sector users that a new task is ready for production
+      if (wasAutoTransitioned) {
+        this.logger.log(`[Task Update] Task ${id} was auto-transitioned to WAITING_PRODUCTION, emitting events and notifications`);
+
+        // Get the user who triggered the auto-transition
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        // Emit task status changed event
+        this.eventEmitter.emit('task.status.changed', {
+          task: {
+            id: updatedTask.id,
+            name: updatedTask.name,
+            serialNumber: updatedTask.serialNumber,
+            status: updatedTask.status,
+            sectorId: updatedTask.sectorId,
+          },
+          oldStatus: TASK_STATUS.PREPARATION,
+          newStatus: TASK_STATUS.WAITING_PRODUCTION,
+          changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+        });
+
+        // Send notification to production sector users about new task ready for production
+        // This is like a "task created" notification for them since WAITING_PRODUCTION is the first status they see
+        try {
+          // Emit task.created event to notify production sector users
+          // For production users, WAITING_PRODUCTION is effectively the "new task" status
+          this.eventEmitter.emit(
+            'task.created',
+            new TaskCreatedEvent(updatedTask as Task, changedByUser as any),
+          );
+          this.logger.log(`[Task Update] Emitted task.created event for task ${id} (auto-transitioned to WAITING_PRODUCTION)`);
+        } catch (notificationError) {
+          this.logger.warn(`[Task Update] Failed to emit task notification: ${notificationError}`);
+        }
       }
 
       return {
@@ -3138,6 +3387,8 @@ export class TaskService {
                   taskId: task.id,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
+                  category: truckData.category || null,
+                  implementType: truckData.implementType || null,
                   spot: truckData.spot || null,
                 },
               });

@@ -529,8 +529,8 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .optional(),
       sectorId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
-      nfeId: z.string().optional(),
-      receiptId: z.string().optional(),
+      invoiceIds: z.array(z.string()).optional(),
+      receiptIds: z.array(z.string()).optional(),
       // Relations
       sector: z.any().optional(),
       customer: z.any().optional(),
@@ -740,7 +740,7 @@ const taskTransform = (data: any): any => {
     delete data.hasIncompleteServiceOrders;
   }
 
-  // For admin users: show tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
+  // For admin users: show tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
   if (data.hasIncompleteNonFinancialServiceOrders === true) {
     andConditions.push({
       OR: [
@@ -749,7 +749,7 @@ const taskTransform = (data: any): any => {
           serviceOrders: {
             some: {
               AND: [
-                { type: { in: ['NEGOTIATION', 'PRODUCTION', 'ARTWORK'] } },
+                { type: { in: ['COMMERCIAL', 'PRODUCTION', 'ARTWORK'] } },
                 { status: { in: ['PENDING', 'IN_PROGRESS'] } },
               ],
             },
@@ -782,7 +782,7 @@ const taskTransform = (data: any): any => {
                 AND: [
                   { serviceOrders: { some: { type: 'PRODUCTION' } } },
                   { serviceOrders: { some: { type: 'FINANCIAL' } } },
-                  { serviceOrders: { some: { type: 'NEGOTIATION' } } },
+                  { serviceOrders: { some: { type: 'COMMERCIAL' } } },
                   { serviceOrders: { some: { type: 'ARTWORK' } } },
                 ],
               },
@@ -811,18 +811,18 @@ const taskTransform = (data: any): any => {
   }
 
   if (data.hasNfe === true) {
-    andConditions.push({ nfeId: { not: null } });
+    andConditions.push({ invoices: { some: {} } });
     delete data.hasNfe;
   } else if (data.hasNfe === false) {
-    andConditions.push({ nfeId: null });
+    andConditions.push({ invoices: { none: {} } });
     delete data.hasNfe;
   }
 
   if (data.hasReceipt === true) {
-    andConditions.push({ receiptId: { not: null } });
+    andConditions.push({ receipts: { some: {} } });
     delete data.hasReceipt;
   } else if (data.hasReceipt === false) {
-    andConditions.push({ receiptId: null });
+    andConditions.push({ receipts: { none: {} } });
     delete data.hasReceipt;
   }
 
@@ -1215,7 +1215,7 @@ export const taskGetManySchema = z
     hasPaints: z.boolean().optional(),
     hasServices: z.boolean().optional(),
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
-    hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete NEGOTIATION/PRODUCTION/ARTWORK service orders
+    hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
     shouldDisplayInAgenda: z.boolean().optional(), // Agenda display logic: excludes CANCELLED and fully completed tasks
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
@@ -1617,10 +1617,6 @@ export const taskCreateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    // Single file IDs (alternative to arrays for budget, nfe, receipt) - used by frontend form
-    budgetId: z.string().uuid('Orçamento inválido').nullable().optional(),
-    nfeId: z.string().uuid('NFe inválida').nullable().optional(),
-    receiptId: z.string().uuid('Recibo inválido').nullable().optional(),
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts

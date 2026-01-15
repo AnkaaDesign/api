@@ -14,6 +14,7 @@ import {
   NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
   ALERT_TYPE,
+  NOTIFICATION_ACTION_TYPE,
 } from '../../../constants/enums';
 
 /**
@@ -99,7 +100,7 @@ export class OrderListener {
         type: ALERT_TYPE.DELIVERY_DELAY, // Using existing ALERT_TYPE for orders
         importance,
         actionUrl,
-        actionType: 'NAVIGATE',
+        actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
       }));

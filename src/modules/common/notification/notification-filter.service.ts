@@ -310,7 +310,7 @@ export class NotificationFilterService {
             (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION || userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)) {
           return true;
         }
-        if (serviceOrderType === 'NEGOTIATION' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
+        if (serviceOrderType === 'COMMERCIAL' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
           return true;
         }
 

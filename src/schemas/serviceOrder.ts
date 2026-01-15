@@ -24,8 +24,8 @@ export const serviceOrderIncludeSchema = z
             .object({
               sector: z.boolean().optional(),
               customer: z.boolean().optional(),
-              budget: z.boolean().optional(),
-              nfe: z.boolean().optional(),
+              budgets: z.boolean().optional(),
+              invoices: z.boolean().optional(),
               observation: z.boolean().optional(),
               generalPainting: z.boolean().optional(),
               createdBy: z.boolean().optional(),

@@ -45,6 +45,32 @@ export class AirbrushingPrismaRepository
 
   // Abstract method implementations from BaseStringPrismaRepository
   protected mapDatabaseEntityToEntity(databaseEntity: any): Airbrushing {
+    // Transform artworks from nested Artwork+File structure to flattened File structure
+    // Frontend expects: { id: fileId, filename, size, mimetype, thumbnailUrl, status }
+    // Backend returns: { id: artworkId, fileId, status, file: { id, filename, ... } }
+    if (databaseEntity.artworks && Array.isArray(databaseEntity.artworks)) {
+      databaseEntity.artworks = databaseEntity.artworks.map((artwork: any) => {
+        if (artwork.file) {
+          return {
+            // Use file ID as the primary identifier (needed for URL construction)
+            id: artwork.file.id,
+            // Include artwork-specific fields
+            artworkId: artwork.id,
+            status: artwork.status,
+            // Spread all file properties
+            filename: artwork.file.filename,
+            originalName: artwork.file.originalName,
+            path: artwork.file.path,
+            mimetype: artwork.file.mimetype,
+            size: artwork.file.size,
+            thumbnailUrl: artwork.file.thumbnailUrl,
+            createdAt: artwork.file.createdAt,
+            updatedAt: artwork.file.updatedAt,
+          };
+        }
+        return artwork;
+      });
+    }
     return databaseEntity as Airbrushing;
   }
 
@@ -182,7 +208,20 @@ export class AirbrushingPrismaRepository
   protected mapIncludeToDatabaseInclude(
     include?: AirbrushingInclude,
   ): Prisma.AirbrushingInclude | undefined {
-    return include as Prisma.AirbrushingInclude | undefined;
+    if (!include) return undefined;
+
+    // Ensure artworks always includes nested file data when artworks is requested
+    // This is required for proper frontend display (FileItem component needs file properties)
+    const mappedInclude = { ...include } as Prisma.AirbrushingInclude;
+    if (mappedInclude.artworks === true) {
+      mappedInclude.artworks = {
+        include: {
+          file: true,
+        },
+      };
+    }
+
+    return mappedInclude;
   }
 
   protected mapOrderByToDatabaseOrderBy(
@@ -203,7 +242,11 @@ export class AirbrushingPrismaRepository
       task: true,
       receipts: true,
       invoices: true,
-      artworks: true,
+      artworks: {
+        include: {
+          file: true,
+        },
+      },
     };
   }
 
@@ -324,7 +367,7 @@ export class AirbrushingPrismaRepository
       transaction.airbrushing.findMany({
         where: this.mapWhereToDatabaseWhere(where),
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
-        include: this.mapIncludeToDatabaseInclude(include),
+        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
         skip,
         take,
       }),

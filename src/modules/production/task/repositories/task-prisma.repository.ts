@@ -33,7 +33,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
-  pricing: { include: { items: true } }, // Task pricing with status and items
+  pricing: { include: { items: true, layoutFile: true } }, // Task pricing with status, items, and layout file
   budgets: {
     select: {
       id: true,
@@ -141,7 +141,49 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   },
   truck: true,
   airbrushings: {
-    orderBy: { createdAt: 'desc' },
+    include: {
+      receipts: {
+        select: {
+          id: true,
+          filename: true,
+          path: true,
+          mimetype: true,
+          size: true,
+          thumbnailUrl: true,
+        },
+      },
+      invoices: {
+        select: {
+          id: true,
+          filename: true,
+          path: true,
+          mimetype: true,
+          size: true,
+          thumbnailUrl: true,
+        },
+      },
+      artworks: {
+        select: {
+          id: true,
+          fileId: true,
+          status: true,
+          file: {
+            select: {
+              id: true,
+              filename: true,
+              path: true,
+              mimetype: true,
+              size: true,
+              thumbnailUrl: true,
+            },
+          },
+        },
+      },
+    },
+    // CRITICAL: Use ASC to preserve creation order for file processing
+    // When using deleteMany + create, all airbrushings get same createdAt
+    // DESC would return them in unpredictable order, causing file index mismatch
+    orderBy: { createdAt: 'asc' },
   },
   cuts: {
     include: {
@@ -201,6 +243,60 @@ export class TaskPrismaRepository
     // Transform logoPaints colorPreview paths to URLs
     if (task.logoPaints && Array.isArray(task.logoPaints)) {
       task.logoPaints = task.logoPaints.map((paint: any) => transformPaintColorPreview(paint));
+    }
+
+    // Transform task artworks from nested Artwork+File structure to flattened File structure
+    // Frontend expects: { id: fileId, filename, size, mimetype, thumbnailUrl, status }
+    // Backend returns: { id: artworkId, fileId, status, file: { id, filename, ... } }
+    if (task.artworks && Array.isArray(task.artworks)) {
+      task.artworks = task.artworks.map((artwork: any) => {
+        if (artwork.file) {
+          return {
+            id: artwork.file.id,
+            artworkId: artwork.id,
+            status: artwork.status,
+            filename: artwork.file.filename,
+            originalName: artwork.file.originalName,
+            path: artwork.file.path,
+            mimetype: artwork.file.mimetype,
+            size: artwork.file.size,
+            thumbnailUrl: artwork.file.thumbnailUrl,
+            createdAt: artwork.file.createdAt,
+            updatedAt: artwork.file.updatedAt,
+          };
+        }
+        return artwork;
+      });
+    }
+
+    // Transform airbrushing artworks as well
+    if (task.airbrushings && Array.isArray(task.airbrushings)) {
+      task.airbrushings = task.airbrushings.map((airbrushing: any) => {
+        if (airbrushing.artworks && Array.isArray(airbrushing.artworks)) {
+          return {
+            ...airbrushing,
+            artworks: airbrushing.artworks.map((artwork: any) => {
+              if (artwork.file) {
+                return {
+                  id: artwork.file.id,
+                  artworkId: artwork.id,
+                  status: artwork.status,
+                  filename: artwork.file.filename,
+                  originalName: artwork.file.originalName,
+                  path: artwork.file.path,
+                  mimetype: artwork.file.mimetype,
+                  size: artwork.file.size,
+                  thumbnailUrl: artwork.file.thumbnailUrl,
+                  createdAt: artwork.file.createdAt,
+                  updatedAt: artwork.file.updatedAt,
+                };
+              }
+              return artwork;
+            }),
+          };
+        }
+        return airbrushing;
+      });
     }
 
     return task;
@@ -453,9 +549,23 @@ export class TaskPrismaRepository
       );
       taskData.pricing = {
         create: {
-          total,
+          subtotal: pricing.subtotal ?? total,
+          discountType: pricing.discountType || 'NONE',
+          discountValue: pricing.discountValue || null,
+          total: pricing.total ?? total,
           expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
           status: pricing.status || 'DRAFT',
+          // Payment Terms (simplified)
+          paymentCondition: pricing.paymentCondition || null,
+          downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
+          customPaymentText: pricing.customPaymentText || null,
+          // Guarantee Terms
+          guaranteeYears: pricing.guaranteeYears || null,
+          customGuaranteeText: pricing.customGuaranteeText || null,
+          // Layout File (connect if provided)
+          ...(pricing.layoutFileId && {
+            layoutFile: { connect: { id: pricing.layoutFileId } },
+          }),
           items: {
             create: pricing.items.map((item: any) => ({
               description: item.description,
@@ -502,6 +612,9 @@ export class TaskPrismaRepository
     formData: TaskUpdateFormData,
     userId?: string,
   ): Prisma.TaskUpdateInput {
+    // DEBUG: Log incoming form data
+    this.logger.log('[mapUpdateFormDataToDatabaseUpdateInput] Incoming formData:', JSON.stringify(formData, null, 2));
+
     // Cast to extended type to access all properties
     const extendedData = formData as TaskUpdateFormData;
 
@@ -530,10 +643,6 @@ export class TaskPrismaRepository
       reimbursementInvoiceIds,
       artworkIds, // was fileIds - using correct property name
       paintIds,
-      // Single file IDs (convert to arrays for compatibility)
-      budgetId,
-      nfeId,
-      receiptId,
       serviceOrders,
       observation,
       truck,
@@ -592,23 +701,16 @@ export class TaskPrismaRepository
     }
 
     // Handle many-to-many file relations with set operation
-    // Support both array format (budgetIds) and single ID format (budgetId)
     if (budgetIds !== undefined) {
       updateData.budgets = { set: budgetIds.map(id => ({ id })) };
-    } else if (budgetId !== undefined) {
-      updateData.budgets = budgetId ? { set: [{ id: budgetId }] } : { set: [] };
     }
 
     if (invoiceIds !== undefined) {
       updateData.invoices = { set: invoiceIds.map(id => ({ id })) };
-    } else if (nfeId !== undefined) {
-      updateData.invoices = nfeId ? { set: [{ id: nfeId }] } : { set: [] };
     }
 
     if (receiptIds !== undefined) {
       updateData.receipts = { set: receiptIds.map(id => ({ id })) };
-    } else if (receiptId !== undefined) {
-      updateData.receipts = receiptId ? { set: [{ id: receiptId }] } : { set: [] };
     }
 
     if (reimbursementIds !== undefined) {
@@ -651,7 +753,6 @@ export class TaskPrismaRepository
     // Handle services update - use upsert logic instead of deleteMany + create
     // FIX: Properly handle existing service orders to prevent duplication
     if (serviceOrders !== undefined) {
-      console.log('[TaskRepo] Processing service orders with upsert logic:', JSON.stringify(serviceOrders, null, 2));
 
       // Separate service orders into those with IDs (updates) and without IDs (creates)
       const existingOrders = serviceOrders.filter((service: any) => service.id);
@@ -836,20 +937,9 @@ export class TaskPrismaRepository
 
     // Handle pricing update (object with items, expiresAt, and status) - upsert pricing
     const pricing = (extendedData as any).pricing;
-    console.log('[TaskRepo] ========================================');
-    console.log('[TaskRepo] PRICING UPDATE DEBUG');
-    console.log('[TaskRepo] pricing !== undefined:', pricing !== undefined);
-    console.log('[TaskRepo] pricing value:', JSON.stringify(pricing, null, 2));
-    console.log('[TaskRepo] typeof pricing:', typeof pricing);
-    console.log('[TaskRepo] pricing.items:', pricing?.items);
-    console.log('[TaskRepo] Array.isArray(pricing.items):', Array.isArray(pricing?.items));
-    console.log('[TaskRepo] pricing.items.length:', pricing?.items?.length);
-    console.log('[TaskRepo] ========================================');
 
     if (pricing !== undefined) {
-      console.log('[TaskRepo] ✅ Pricing is defined');
       if (pricing === null) {
-        console.log('[TaskRepo] 🗑️  Pricing is null - deleting');
         updateData.pricing = { delete: true };
       } else if (
         typeof pricing === 'object' &&
@@ -857,18 +947,38 @@ export class TaskPrismaRepository
         Array.isArray(pricing.items) &&
         pricing.items.length > 0
       ) {
-        console.log('[TaskRepo] ✅ Pricing has items - upserting');
-        // Calculate total from items
-        const total = pricing.items.reduce(
+        // Calculate subtotal from items (sum before discount)
+        const calculatedSubtotal = pricing.items.reduce(
           (sum: number, item: any) => sum + Number(item.amount || 0),
           0,
         );
+        // Use provided values or calculate from items
+        const subtotal = pricing.subtotal !== undefined ? Number(pricing.subtotal) : calculatedSubtotal;
+        const total = pricing.total !== undefined ? Number(pricing.total) : calculatedSubtotal;
+
+        // Prepare layout file connection if provided
+        const layoutFileConnect = pricing.layoutFileId
+          ? { layoutFile: { connect: { id: pricing.layoutFileId } } }
+          : {};
+
         updateData.pricing = {
           upsert: {
             create: {
+              subtotal,
               total,
+              discountType: pricing.discountType || 'NONE',
+              discountValue: pricing.discountValue !== undefined ? Number(pricing.discountValue) : null,
               expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
               status: pricing.status || 'DRAFT',
+              // Payment Terms (simplified)
+              paymentCondition: pricing.paymentCondition || null,
+              downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
+              customPaymentText: pricing.customPaymentText || null,
+              // Guarantee Terms
+              guaranteeYears: pricing.guaranteeYears || null,
+              customGuaranteeText: pricing.customGuaranteeText || null,
+              // Layout File
+              ...layoutFileConnect,
               items: {
                 create: pricing.items.map((item: any) => ({
                   description: item.description,
@@ -877,9 +987,23 @@ export class TaskPrismaRepository
               },
             },
             update: {
+              subtotal,
               total,
+              discountType: pricing.discountType || 'NONE',
+              discountValue: pricing.discountValue !== undefined ? Number(pricing.discountValue) : null,
               expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
               status: pricing.status || 'DRAFT',
+              // Payment Terms (simplified)
+              paymentCondition: pricing.paymentCondition || null,
+              downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
+              customPaymentText: pricing.customPaymentText || null,
+              // Guarantee Terms
+              guaranteeYears: pricing.guaranteeYears || null,
+              customGuaranteeText: pricing.customGuaranteeText || null,
+              // Layout File
+              ...(pricing.layoutFileId
+                ? { layoutFile: { connect: { id: pricing.layoutFileId } } }
+                : { layoutFileId: null }),
               items: {
                 deleteMany: {}, // Delete all existing items
                 create: pricing.items.map((item: any) => ({
@@ -890,54 +1014,40 @@ export class TaskPrismaRepository
             },
           },
         };
-        console.log('[TaskRepo] ✅ Pricing updateData set');
-      } else {
-        console.log('[TaskRepo] ❌ Pricing conditions NOT met:');
-        console.log('[TaskRepo]    - typeof pricing === "object":', typeof pricing === 'object');
-        console.log('[TaskRepo]    - pricing.items exists:', !!pricing.items);
-        console.log('[TaskRepo]    - Array.isArray(pricing.items):', Array.isArray(pricing?.items));
-        console.log('[TaskRepo]    - pricing.items.length > 0:', (pricing?.items?.length || 0) > 0);
       }
-    } else {
-      console.log('[TaskRepo] ❌ Pricing is undefined - not updating');
     }
-    console.log('[TaskRepo] Final updateData.pricing:', updateData.pricing ? 'SET' : 'NOT SET');
-    console.log('[TaskRepo] ========================================');
 
-    // Handle airbrushings update (array of airbrushing items) - replace all existing airbrushings
+    // Handle airbrushings update (array of airbrushing items)
+    // CRITICAL: Artworks have onDelete: Cascade on airbrushing relation
+    // We must NOT delete existing airbrushings that we want to keep, only delete removed ones
+    // Individual airbrushing updates and creations are handled in TaskService.update()
     const airbrushings = (extendedData as any).airbrushings;
 
     if (airbrushings !== undefined) {
       if (airbrushings === null || (Array.isArray(airbrushings) && airbrushings.length === 0)) {
+        // Delete all airbrushings when explicitly set to null or empty
         updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
-        updateData.airbrushings = {
-          deleteMany: {}, // Delete all existing airbrushings
-          create: airbrushings.map((item: any, index: number) => {
-            const airbrushingData = {
-              status: item.status || 'PENDING',
-              price: item.price !== undefined && item.price !== null ? Number(item.price) : null,
-              startDate: item.startDate || null,
-              finishDate: item.finishDate || null,
-              // Connect existing file IDs if provided
-              receipts:
-                item.receiptIds && item.receiptIds.length > 0
-                  ? { connect: item.receiptIds.map((id: string) => ({ id })) }
-                  : undefined,
-              invoices:
-                item.invoiceIds && item.invoiceIds.length > 0
-                  ? { connect: item.invoiceIds.map((id: string) => ({ id })) }
-                  : undefined,
-              artworks:
-                item.artworkIds && item.artworkIds.length > 0
-                  ? { connect: item.artworkIds.map((id: string) => ({ id })) }
-                  : undefined,
-            };
-            return airbrushingData;
-          }),
-        };
+        // Collect IDs of existing airbrushings to keep (those with valid UUID, not temp IDs)
+        const idsToKeep = airbrushings
+          .filter((item: any) => item.id && typeof item.id === 'string' && !item.id.startsWith('airbrushing-'))
+          .map((item: any) => item.id);
+
+        // Only delete airbrushings that are NOT in the form data
+        // This prevents cascade deletion of artworks for airbrushings we want to keep
+        if (idsToKeep.length > 0) {
+          updateData.airbrushings = {
+            deleteMany: { id: { notIn: idsToKeep } },
+          };
+          this.logger.log(`[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings: keeping ${idsToKeep.length} existing, deleting others`);
+        }
+        // Note: Individual updates and creates are handled in TaskService.update() method
+        // because Prisma nested writes don't support multiple individual updates
       }
     }
+
+    // DEBUG: Log the final update data being sent to Prisma
+    this.logger.log('[mapUpdateFormDataToDatabaseUpdateInput] Final updateData:', JSON.stringify(updateData, null, 2));
 
     return updateData;
   }
@@ -994,6 +1104,13 @@ export class TaskPrismaRepository
         // Handle field name mappings for backwards compatibility
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
+        } else if (key === 'services') {
+          // Map 'services' (frontend name) to 'serviceOrders' (Prisma relation name)
+          // Keep the default include (with assignedTo) if value is true
+          if (value === false) {
+            databaseInclude.serviceOrders = false;
+          }
+          // If true, the default include (serviceOrders with assignedTo) is already set
         } else {
           // Only override if value is false OR if there's no default for this key
           // This preserves complex default includes like artworks.file
@@ -1009,6 +1126,17 @@ export class TaskPrismaRepository
         // Special handling for relations that need deep merging with defaults
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = processedValue;
+        } else if (key === 'services') {
+          // Map 'services' (frontend name) to 'serviceOrders' (Prisma relation name)
+          const existingValue = databaseInclude.serviceOrders;
+          if (existingValue && typeof existingValue === 'object' && 'include' in existingValue) {
+            databaseInclude.serviceOrders = {
+              ...existingValue,
+              include: { ...existingValue.include, ...processedValue.include },
+            };
+          } else {
+            databaseInclude.serviceOrders = processedValue;
+          }
         } else {
           // Deep merge nested includes to preserve default nested relations
           const existingValue = databaseInclude[key];
