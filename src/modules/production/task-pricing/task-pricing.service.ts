@@ -26,9 +26,44 @@ import type {
   TaskPricingBatchDeleteResponse,
   TaskPricing,
 } from '@types';
-import { TASK_PRICING_STATUS, CHANGE_LOG_ENTITY_TYPE, CHANGE_LOG_ACTION } from '@constants';
+import { TASK_PRICING_STATUS, CHANGE_LOG_ENTITY_TYPE, CHANGE_LOG_ACTION, DISCOUNT_TYPE } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
+
+/**
+ * Calculate discount amount based on discount type and value
+ */
+function calculateDiscountAmount(
+  subtotal: number,
+  discountType: string,
+  discountValue?: number,
+): number {
+  if (!discountValue || discountType === DISCOUNT_TYPE.NONE) {
+    return 0;
+  }
+
+  if (discountType === DISCOUNT_TYPE.PERCENTAGE) {
+    return Math.round((subtotal * discountValue) / 100 * 100) / 100; // Round to 2 decimal places
+  }
+
+  if (discountType === DISCOUNT_TYPE.FIXED_VALUE) {
+    return discountValue;
+  }
+
+  return 0;
+}
+
+/**
+ * Calculate total from subtotal and discount
+ */
+function calculateTotal(
+  subtotal: number,
+  discountType: string,
+  discountValue?: number,
+): number {
+  const discountAmount = calculateDiscountAmount(subtotal, discountType, discountValue);
+  return Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100); // Ensure non-negative and round to 2 decimals
+}
 
 /**
  * Service for managing TaskPricing entities
@@ -140,11 +175,20 @@ export class TaskPricingService {
         throw new BadRequestException('Pelo menos um item é obrigatório.');
       }
 
-      // Validate total matches items sum
+      // Validate subtotal matches items sum
       const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
-      if (Math.abs(data.total - itemsTotal) > 0.01) {
+      if (Math.abs(data.subtotal - itemsTotal) > 0.01) {
         throw new BadRequestException(
-          'O total deve ser igual à soma dos itens do orçamento.',
+          'O subtotal deve ser igual à soma dos itens do orçamento.',
+        );
+      }
+
+      // Calculate and validate total with discount
+      const discountType = data.discountType || DISCOUNT_TYPE.NONE;
+      const calculatedTotal = calculateTotal(data.subtotal, discountType, data.discountValue);
+      if (Math.abs(data.total - calculatedTotal) > 0.01) {
+        throw new BadRequestException(
+          `O total calculado (${calculatedTotal.toFixed(2)}) não corresponde ao total fornecido (${data.total.toFixed(2)}).`,
         );
       }
 
@@ -152,6 +196,9 @@ export class TaskPricingService {
       const pricing = await this.prisma.$transaction(async tx => {
         const newPricing = await tx.taskPricing.create({
           data: {
+            subtotal: data.subtotal,
+            discountType: discountType,
+            discountValue: data.discountValue || null,
             total: data.total,
             expiresAt: data.expiresAt,
             status: data.status || TASK_PRICING_STATUS.DRAFT,
@@ -208,12 +255,28 @@ export class TaskPricingService {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
-      // Validate items if provided
-      if (data.items && data.items.length > 0 && data.total) {
+      // Determine current or new values
+      const subtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
+      const discountType = data.discountType !== undefined ? data.discountType : existing.discountType;
+      const discountValue = data.discountValue !== undefined ? data.discountValue : existing.discountValue;
+
+      // Validate items if provided (check against subtotal)
+      if (data.items && data.items.length > 0) {
         const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
-        if (Math.abs(data.total - itemsTotal) > 0.01) {
+        const targetSubtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
+        if (Math.abs(targetSubtotal - itemsTotal) > 0.01) {
           throw new BadRequestException(
-            'O total deve ser igual à soma dos itens do orçamento.',
+            'O subtotal deve ser igual à soma dos itens do orçamento.',
+          );
+        }
+      }
+
+      // Validate total with discount if total is being updated
+      if (data.total !== undefined) {
+        const calculatedTotal = calculateTotal(subtotal, discountType, discountValue || undefined);
+        if (Math.abs(data.total - calculatedTotal) > 0.01) {
+          throw new BadRequestException(
+            `O total calculado (${calculatedTotal.toFixed(2)}) não corresponde ao total fornecido (${data.total.toFixed(2)}).`,
           );
         }
       }
@@ -223,6 +286,9 @@ export class TaskPricingService {
         const updatedPricing = await tx.taskPricing.update({
           where: { id },
           data: {
+            ...(data.subtotal !== undefined && { subtotal: data.subtotal }),
+            ...(data.discountType !== undefined && { discountType: data.discountType }),
+            ...(data.discountValue !== undefined && { discountValue: data.discountValue }),
             ...(data.total !== undefined && { total: data.total }),
             ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt }),
             ...(data.status !== undefined && { status: data.status }),

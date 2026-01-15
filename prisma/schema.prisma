@@ -1027,15 +1027,18 @@ model ServiceOrder {
 }
 
 model TaskPricing {
-  id        String            @id @default(uuid())
-  total     Decimal           @db.Decimal(10, 2)
-  expiresAt DateTime
-  status    TaskPricingStatus @default(DRAFT)
-  taskId    String            @unique
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  task      Task              @relation("TASK_PRICING", fields: [taskId], references: [id], onDelete: Cascade)
-  items     TaskPricingItem[] @relation("PRICING_ITEMS")
+  id            String            @id @default(uuid())
+  subtotal      Decimal           @db.Decimal(10, 2)
+  discountType  DiscountType      @default(NONE)
+  discountValue Decimal?          @db.Decimal(10, 2)
+  total         Decimal           @db.Decimal(10, 2)
+  expiresAt     DateTime
+  status        TaskPricingStatus @default(DRAFT)
+  taskId        String            @unique
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  task          Task              @relation("TASK_PRICING", fields: [taskId], references: [id], onDelete: Cascade)
+  items         TaskPricingItem[] @relation("PRICING_ITEMS")
 
   @@index([taskId])
   @@index([status])
@@ -1849,8 +1852,9 @@ enum TaskStatus {
 enum ServiceOrderType {
   PRODUCTION
   FINANCIAL
-  NEGOTIATION
+  COMMERCIAL
   ARTWORK
+  LOGISTIC
 }
 
 enum ServiceOrderStatus {
@@ -2488,6 +2492,12 @@ enum TaskPricingStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+enum DiscountType {
+  NONE
+  PERCENTAGE
+  FIXED_VALUE
 }
 
 enum PayrollDiscountType {
