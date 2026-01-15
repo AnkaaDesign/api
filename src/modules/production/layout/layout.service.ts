@@ -317,7 +317,7 @@ export class LayoutService {
           entityType: ENTITY_TYPE.LAYOUT,
           entityId: layout.id,
           action: CHANGE_ACTION.CREATE,
-          reason: 'Layout do caminhão criado',
+          reason: `Layout do lado ${side} do caminhão criado`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId || null,
           userId: userId || null,

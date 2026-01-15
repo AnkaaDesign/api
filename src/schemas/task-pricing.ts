@@ -9,7 +9,12 @@ import {
   moneySchema,
 } from './common';
 import type { TaskPricing } from '@types';
-import { TASK_PRICING_STATUS, DISCOUNT_TYPE } from '@constants';
+import {
+  TASK_PRICING_STATUS,
+  DISCOUNT_TYPE,
+  PAYMENT_CONDITION,
+  GUARANTEE_YEARS_OPTIONS,
+} from '@constants';
 
 // =====================
 // TaskPricing Status Schema
@@ -31,6 +36,30 @@ export const discountTypeSchema = z.enum([
   DISCOUNT_TYPE.PERCENTAGE,
   DISCOUNT_TYPE.FIXED_VALUE,
 ]);
+
+// =====================
+// Payment Condition Schema
+// =====================
+
+export const paymentConditionSchema = z.enum([
+  PAYMENT_CONDITION.CASH,
+  PAYMENT_CONDITION.INSTALLMENTS_2,
+  PAYMENT_CONDITION.INSTALLMENTS_3,
+  PAYMENT_CONDITION.INSTALLMENTS_4,
+  PAYMENT_CONDITION.INSTALLMENTS_5,
+  PAYMENT_CONDITION.INSTALLMENTS_6,
+  PAYMENT_CONDITION.INSTALLMENTS_7,
+  PAYMENT_CONDITION.CUSTOM,
+]);
+
+// =====================
+// Guarantee Years Schema
+// =====================
+
+export const guaranteeYearsSchema = z.number().refine(
+  (val) => (GUARANTEE_YEARS_OPTIONS as readonly number[]).includes(val),
+  { message: 'Período de garantia inválido' }
+);
 
 // =====================
 // TaskPricing Include Schema Based on Prisma Schema (Second Level Only)
@@ -64,6 +93,7 @@ export const taskPricingIncludeSchema = z
       ])
       .optional(),
     items: z.boolean().optional(),
+    layoutFile: z.boolean().optional(),
   })
   .partial();
 
@@ -326,12 +356,19 @@ export const taskPricingGetManySchema = z
 // =====================
 
 // TaskPricingItem nested schema
+// Amount is optional and defaults to 0 (courtesy items)
 export const taskPricingItemCreateNestedSchema = z.object({
   description: z
     .string()
     .min(1, 'Descrição é obrigatória')
     .max(400, 'Máximo de 400 caracteres atingido'),
-  amount: moneySchema,
+  amount: z
+    .number()
+    .min(0, { message: 'Valor não pode ser negativo' })
+    .optional()
+    .nullable()
+    .default(0)
+    .transform(val => val ?? 0),
 });
 
 // TaskPricing nested schema for task create/update (matches Prisma TaskPricing model)
@@ -343,6 +380,27 @@ export const taskPricingCreateNestedSchema = z.object({
     errorMap: () => ({ message: 'Data de validade inválida' }),
   }),
   status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.DRAFT),
+  // Pricing calculation fields
+  subtotal: moneySchema.optional(),
+  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
+  discountValue: moneySchema.nullable().optional(),
+  total: moneySchema.optional(),
+
+  // Payment Terms (simplified)
+  paymentCondition: paymentConditionSchema.optional().nullable(),
+  // Preprocess to handle null/empty before coercing to date
+  downPaymentDate: z.preprocess(
+    (val) => (val === null || val === undefined || val === '' ? null : val),
+    z.coerce.date().nullable()
+  ).optional(),
+  customPaymentText: z.string().max(2000).optional().nullable(),
+
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
+
+  // Layout File
+  layoutFileId: z.string().uuid().optional().nullable(),
 });
 
 // =====================
@@ -361,23 +419,41 @@ export const taskPricingCreateSchema = z.object({
     .array(taskPricingItemCreateNestedSchema)
     .min(1, 'Pelo menos um item é obrigatório')
     .optional(),
-}).refine(
-  (data) => {
-    // If discount type is not NONE, discountValue must be provided
-    if (data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
-      return false;
+
+  // Payment Terms (simplified)
+  paymentCondition: paymentConditionSchema.optional().nullable(),
+  // Preprocess to handle null/empty before coercing to date
+  downPaymentDate: z.preprocess(
+    (val) => (val === null || val === undefined || val === '' ? null : val),
+    z.coerce.date().nullable()
+  ).optional(),
+  customPaymentText: z.string().max(2000).optional().nullable(),
+
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
+
+  // Layout File
+  layoutFileId: z.string().uuid().optional().nullable(),
+}).superRefine((data, ctx) => {
+  // Discount validation
+  if (data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Valor de desconto é obrigatório quando o tipo não é "Nenhum"',
+      path: ['discountValue'],
+    });
+  }
+  if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
+    if (data.discountValue < 0 || data.discountValue > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Porcentagem de desconto deve estar entre 0 e 100',
+        path: ['discountValue'],
+      });
     }
-    // If discount type is PERCENTAGE, discountValue must be between 0 and 100
-    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
-      return data.discountValue >= 0 && data.discountValue <= 100;
-    }
-    return true;
-  },
-  {
-    message: 'Valor de desconto inválido para o tipo selecionado',
-    path: ['discountValue'],
-  },
-);
+  }
+});
 
 export const taskPricingUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
@@ -390,23 +466,41 @@ export const taskPricingUpdateSchema = z.object({
   status: taskPricingStatusSchema.optional(),
   taskId: z.string().uuid('Tarefa inválida').optional(),
   items: z.array(taskPricingItemCreateNestedSchema).optional(),
-}).refine(
-  (data) => {
-    // If discount type is provided and not NONE, discountValue must be provided
-    if (data.discountType && data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
-      return false;
+
+  // Payment Terms (simplified)
+  paymentCondition: paymentConditionSchema.optional().nullable(),
+  // Preprocess to handle null/empty before coercing to date
+  downPaymentDate: z.preprocess(
+    (val) => (val === null || val === undefined || val === '' ? null : val),
+    z.coerce.date().nullable()
+  ).optional(),
+  customPaymentText: z.string().max(2000).optional().nullable(),
+
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
+
+  // Layout File
+  layoutFileId: z.string().uuid().optional().nullable(),
+}).superRefine((data, ctx) => {
+  // Discount validation
+  if (data.discountType && data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Valor de desconto é obrigatório quando o tipo não é "Nenhum"',
+      path: ['discountValue'],
+    });
+  }
+  if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
+    if (data.discountValue < 0 || data.discountValue > 100) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Porcentagem de desconto deve estar entre 0 e 100',
+        path: ['discountValue'],
+      });
     }
-    // If discount type is PERCENTAGE, discountValue must be between 0 and 100
-    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
-      return data.discountValue >= 0 && data.discountValue <= 100;
-    }
-    return true;
-  },
-  {
-    message: 'Valor de desconto inválido para o tipo selecionado',
-    path: ['discountValue'],
-  },
-);
+  }
+});
 
 // =====================
 // Batch Operations Schemas - TaskPricing

@@ -257,21 +257,24 @@ export class AirbrushingService {
         // Combine existing fileIds from data with newly uploaded file IDs
         const combinedReceiptIds = [...(data.receiptIds || []), ...newFileIds.receiptIds];
         const combinedInvoiceIds = [...(data.invoiceIds || []), ...newFileIds.invoiceIds];
-        const combinedArtworkIds = [...(data.artworkIds || []), ...newFileIds.artworkIds];
+        const combinedArtworkFileIds = [...(data.artworkIds || []), ...newFileIds.artworkIds];
 
-        // Update data with combined file IDs if any new files were uploaded
-        const hasNewFiles =
-          newFileIds.receiptIds.length > 0 ||
-          newFileIds.invoiceIds.length > 0 ||
-          newFileIds.artworkIds.length > 0;
-        const updateData = hasNewFiles
-          ? {
-              ...data,
-              receiptIds: combinedReceiptIds,
-              invoiceIds: combinedInvoiceIds,
-              artworkIds: combinedArtworkIds,
-            }
-          : data;
+        // CRITICAL: Convert File IDs to Artwork entity IDs
+        // artworkIds from frontend are File IDs, but the artworks relation expects Artwork entity IDs
+        let artworkEntityIds: string[] = [];
+        if (combinedArtworkFileIds.length > 0) {
+          artworkEntityIds = await this.convertFileIdsToArtworkIds(combinedArtworkFileIds, id, tx);
+          this.logger.log(`[Airbrushing Update] Converted ${combinedArtworkFileIds.length} File IDs to ${artworkEntityIds.length} Artwork entity IDs`);
+        }
+
+        // Build update data with converted artwork IDs
+        const updateData = {
+          ...data,
+          receiptIds: combinedReceiptIds,
+          invoiceIds: combinedInvoiceIds,
+          // Use converted Artwork entity IDs, not File IDs
+          artworkIds: artworkEntityIds,
+        };
 
         // Atualizar a aerografia
         const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
@@ -781,5 +784,49 @@ export class AirbrushingService {
       this.logger.error(`Error saving file to storage:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Convert File IDs to Artwork entity IDs
+   * Creates Artwork entities if they don't exist for the given File IDs
+   */
+  private async convertFileIdsToArtworkIds(
+    fileIds: string[],
+    airbrushingId: string,
+    tx: PrismaTransaction,
+  ): Promise<string[]> {
+    const artworkIds: string[] = [];
+
+    for (const fileId of fileIds) {
+      // Check if an Artwork record already exists for this file and airbrushing
+      let artwork = await tx.artwork.findFirst({
+        where: {
+          fileId,
+          airbrushingId,
+        },
+      });
+
+      if (!artwork) {
+        // Create new Artwork entity with DRAFT status
+        artwork = await tx.artwork.create({
+          data: {
+            fileId,
+            status: 'DRAFT',
+            airbrushingId,
+          },
+        });
+        this.logger.log(
+          `[convertFileIdsToArtworkIds] Created new Artwork ${artwork.id} for File ${fileId} on Airbrushing ${airbrushingId}`,
+        );
+      } else {
+        this.logger.log(
+          `[convertFileIdsToArtworkIds] Found existing Artwork ${artwork.id} for File ${fileId}`,
+        );
+      }
+
+      artworkIds.push(artwork.id);
+    }
+
+    return artworkIds;
   }
 }

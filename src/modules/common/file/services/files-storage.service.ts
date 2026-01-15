@@ -55,6 +55,7 @@ export interface FilesFolderMapping {
   observations: string;
   warning: string;
   layoutPhotos: string;
+  'pricing-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
   thumbnails: string;
@@ -144,6 +145,7 @@ export class FilesStorageService {
     observations: 'Observacoes',
     warning: 'Advertencias',
     layoutPhotos: 'Auxiliares/Traseiras/Fotos',
+    'pricing-layouts': 'Layouts/Orcamentos',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
     thumbnails: 'Thumbnails',

@@ -65,9 +65,23 @@ export class TaskPricingPrismaRepository
     formData: TaskPricingCreateFormData,
   ): Prisma.TaskPricingCreateInput {
     const createInput: Prisma.TaskPricingCreateInput = {
+      subtotal: formData.subtotal || 0,
+      discountType: (formData.discountType as any) || 'NONE',
+      discountValue: formData.discountValue || null,
       total: formData.total || 0,
       expiresAt: formData.expiresAt || new Date(),
       status: (formData.status as any) || TASK_PRICING_STATUS.DRAFT,
+      // Payment Terms (simplified)
+      paymentCondition: (formData.paymentCondition as any) || null,
+      downPaymentDate: formData.downPaymentDate || null,
+      customPaymentText: formData.customPaymentText || null,
+      // Guarantee Terms
+      guaranteeYears: formData.guaranteeYears || null,
+      customGuaranteeText: formData.customGuaranteeText || null,
+      // Layout File
+      ...(formData.layoutFileId && {
+        layoutFile: { connect: { id: formData.layoutFileId } },
+      }),
       task: {
         connect: { id: formData.taskId },
       },
@@ -91,9 +105,30 @@ export class TaskPricingPrismaRepository
   ): Prisma.TaskPricingUpdateInput {
     const updateInput: Prisma.TaskPricingUpdateInput = {};
 
+    if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
+    if (formData.discountType !== undefined) updateInput.discountType = formData.discountType as any;
+    if (formData.discountValue !== undefined) updateInput.discountValue = formData.discountValue;
     if (formData.total !== undefined) updateInput.total = formData.total;
     if (formData.expiresAt !== undefined) updateInput.expiresAt = formData.expiresAt;
     if (formData.status !== undefined) updateInput.status = formData.status as any;
+
+    // Payment Terms (simplified)
+    if (formData.paymentCondition !== undefined) updateInput.paymentCondition = formData.paymentCondition as any;
+    if (formData.downPaymentDate !== undefined) updateInput.downPaymentDate = formData.downPaymentDate;
+    if (formData.customPaymentText !== undefined) updateInput.customPaymentText = formData.customPaymentText;
+
+    // Guarantee Terms
+    if (formData.guaranteeYears !== undefined) updateInput.guaranteeYears = formData.guaranteeYears;
+    if (formData.customGuaranteeText !== undefined) updateInput.customGuaranteeText = formData.customGuaranteeText;
+
+    // Layout File
+    if (formData.layoutFileId !== undefined) {
+      if (formData.layoutFileId) {
+        updateInput.layoutFile = { connect: { id: formData.layoutFileId } };
+      } else {
+        updateInput.layoutFile = { disconnect: true };
+      }
+    }
 
     return updateInput;
   }
@@ -113,6 +148,7 @@ export class TaskPricingPrismaRepository
         mappedInclude.task = { include: include.task.include as any };
       }
     }
+    if ((include as any).layoutFile !== undefined) mappedInclude.layoutFile = (include as any).layoutFile;
 
     return mappedInclude;
   }

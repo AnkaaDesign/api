@@ -13,6 +13,7 @@ import {
   NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
   NOTIFICATION_TYPE,
+  NOTIFICATION_ACTION_TYPE,
 } from '../../../constants/enums';
 
 /**
@@ -98,7 +99,7 @@ export class ItemListener {
         type: NOTIFICATION_TYPE.STOCK,
         importance,
         actionUrl,
-        actionType: 'NAVIGATE',
+        actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
       }));

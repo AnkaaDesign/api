@@ -547,6 +547,8 @@ export class TaskController {
         { name: 'baseFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
+        // Pricing layout file
+        { name: 'pricingLayoutFile', maxCount: 1 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
@@ -597,11 +599,11 @@ export class TaskController {
   ): Promise<TaskUpdateResponse> {
     console.log('[TaskController] ========================================');
     console.log('[TaskController] UPDATE REQUEST RECEIVED');
+    console.log('[TaskController] Full data:', JSON.stringify(data, null, 2));
+    console.log('[TaskController] customerId:', data.customerId);
+    console.log('[TaskController] pricing:', JSON.stringify((data as any).pricing));
     console.log('[TaskController] data keys:', Object.keys(data));
-    console.log('[TaskController] artworkIds:', JSON.stringify(data.artworkIds));
-    console.log('[TaskController] artworkStatuses:', JSON.stringify(data.artworkStatuses));
     console.log('[TaskController] files keys:', files ? Object.keys(files) : 'no files');
-    console.log('[TaskController] files.artworks:', files?.artworks?.length || 0);
     console.log('[TaskController] ========================================');
 
     return this.tasksService.update(
