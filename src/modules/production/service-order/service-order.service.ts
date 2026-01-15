@@ -38,6 +38,7 @@ import {
 } from '../../../schemas/serviceOrder';
 import {
   SERVICE_ORDER_STATUS,
+  SERVICE_ORDER_TYPE,
   TASK_STATUS,
   CHANGE_TRIGGERED_BY,
   ENTITY_TYPE,
@@ -251,6 +252,8 @@ export class ServiceOrderService {
 
       // Track if task was auto-started for event emission after transaction
       let taskAutoStarted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      // Track if task was auto-transitioned to WAITING_PRODUCTION for event emission after transaction
+      let taskAutoTransitionedToWaitingProduction: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
@@ -361,7 +364,7 @@ export class ServiceOrderService {
               oldValue: TASK_STATUS.WAITING_PRODUCTION,
               newValue: TASK_STATUS.IN_PRODUCTION,
               reason: `Tarefa iniciada automaticamente quando ordem de serviço "${updated.description}" foi iniciada`,
-              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_AUTOMATION,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
               triggeredById: id,
               userId: userId || '',
               transaction: tx,
@@ -373,6 +376,73 @@ export class ServiceOrderService {
               oldStatus: TASK_STATUS.WAITING_PRODUCTION,
               newStatus: TASK_STATUS.IN_PRODUCTION,
             };
+          }
+        }
+
+        // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
+        // This ensures the task workflow progresses automatically when all artwork approvals are complete
+        if (
+          data.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+          updated.type === SERVICE_ORDER_TYPE.ARTWORK
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true },
+          });
+
+          // Only proceed if task is in PREPARATION status
+          if (task && task.status === TASK_STATUS.PREPARATION) {
+            // Get all ARTWORK service orders for this task
+            const artworkServiceOrders = await tx.serviceOrder.findMany({
+              where: {
+                taskId: updated.taskId,
+                type: SERVICE_ORDER_TYPE.ARTWORK,
+              },
+              select: { id: true, status: true },
+            });
+
+            // Check if there's at least 1 artwork service order and ALL are COMPLETED
+            const hasArtworkOrders = artworkServiceOrders.length > 0;
+            const allArtworkCompleted = artworkServiceOrders.every(
+              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (hasArtworkOrders && allArtworkCompleted) {
+              this.logger.log(
+                `[AUTO-TRANSITION] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+              );
+
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.WAITING_PRODUCTION,
+                  statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                },
+              });
+
+              // Log the auto-transition in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: TASK_STATUS.PREPARATION,
+                newValue: TASK_STATUS.WAITING_PRODUCTION,
+                reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskAutoTransitionedToWaitingProduction = {
+                taskId: task.id,
+                oldStatus: TASK_STATUS.PREPARATION,
+                newStatus: TASK_STATUS.WAITING_PRODUCTION,
+              };
+            }
           }
         }
 
@@ -400,7 +470,7 @@ export class ServiceOrderService {
         // If status changed to WAITING_APPROVE and type is ARTWORK
         if (
           serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
-          serviceOrder.type === 'ARTWORK'
+          serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
         ) {
           this.eventEmitter.emit('service-order.artwork-waiting-approval', {
             serviceOrder,
@@ -477,6 +547,53 @@ export class ServiceOrderService {
 
           this.logger.log(
             `[AUTO-START] Emitted task.status.changed event for task ${taskAutoStarted.taskId}`,
+          );
+        }
+      }
+
+      // Emit task status changed event if task was auto-transitioned to WAITING_PRODUCTION
+      if (taskAutoTransitionedToWaitingProduction) {
+        // Get the updated task with user info for the event
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoTransitionedToWaitingProduction.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        // Get the user who triggered the auto-transition
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoTransitionedToWaitingProduction.oldStatus,
+            newStatus: taskAutoTransitionedToWaitingProduction.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-TRANSITION] Emitted task.status.changed event for task ${taskAutoTransitionedToWaitingProduction.taskId} (PREPARATION → WAITING_PRODUCTION)`,
+          );
+
+          // Emit task.created event to notify production sector users
+          // For production users, WAITING_PRODUCTION is effectively the "new task" status
+          this.eventEmitter.emit('task.created', {
+            task: updatedTask,
+            createdBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-TRANSITION] Emitted task.created event for task ${taskAutoTransitionedToWaitingProduction.taskId} (notifying production sector users)`,
           );
         }
       }
@@ -840,6 +957,8 @@ export class ServiceOrderService {
 
       // Track auto-started tasks for event emission after transaction
       const tasksAutoStarted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      // Track tasks auto-transitioned to WAITING_PRODUCTION for event emission after transaction
+      const tasksAutoTransitionedToWaitingProduction: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
@@ -911,7 +1030,7 @@ export class ServiceOrderService {
                     oldValue: TASK_STATUS.WAITING_PRODUCTION,
                     newValue: TASK_STATUS.IN_PRODUCTION,
                     reason: `Tarefa iniciada automaticamente quando ordem de serviço "${serviceOrder.description}" foi iniciada (batch)`,
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_AUTOMATION,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                     triggeredById: serviceOrder.id,
                     userId: userId || '',
                     transaction: tx,
@@ -922,6 +1041,74 @@ export class ServiceOrderService {
                     oldStatus: TASK_STATUS.WAITING_PRODUCTION,
                     newStatus: TASK_STATUS.IN_PRODUCTION,
                   });
+                }
+              }
+            }
+
+            // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
+            if (
+              serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED &&
+              oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+            ) {
+              // Check if this task was already auto-transitioned in this batch
+              const alreadyTransitioned = tasksAutoTransitionedToWaitingProduction.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyTransitioned) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true },
+                });
+
+                // Only proceed if task is in PREPARATION status
+                if (task && task.status === TASK_STATUS.PREPARATION) {
+                  // Get all ARTWORK service orders for this task
+                  const artworkServiceOrders = await tx.serviceOrder.findMany({
+                    where: {
+                      taskId: serviceOrder.taskId,
+                      type: SERVICE_ORDER_TYPE.ARTWORK,
+                    },
+                    select: { id: true, status: true },
+                  });
+
+                  // Check if there's at least 1 artwork service order and ALL are COMPLETED
+                  const hasArtworkOrders = artworkServiceOrders.length > 0;
+                  const allArtworkCompleted = artworkServiceOrders.every(
+                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  );
+
+                  if (hasArtworkOrders && allArtworkCompleted) {
+                    this.logger.log(
+                      `[AUTO-TRANSITION BATCH] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
+                    );
+
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.WAITING_PRODUCTION,
+                        statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                      },
+                    });
+
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: TASK_STATUS.PREPARATION,
+                      newValue: TASK_STATUS.WAITING_PRODUCTION,
+                      reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksAutoTransitionedToWaitingProduction.push({
+                      taskId: task.id,
+                      oldStatus: TASK_STATUS.PREPARATION,
+                      newStatus: TASK_STATUS.WAITING_PRODUCTION,
+                    });
+                  }
                 }
               }
             }
@@ -955,7 +1142,7 @@ export class ServiceOrderService {
 
           // If status changed to WAITING_APPROVE and type is ARTWORK
           if (serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
-              serviceOrder.type === 'ARTWORK') {
+              serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK) {
             this.eventEmitter.emit('service-order.artwork-waiting-approval', {
               serviceOrder,
               userId,
@@ -1014,6 +1201,51 @@ export class ServiceOrderService {
 
           this.logger.log(
             `[AUTO-START BATCH] Emitted task.status.changed event for task ${taskAutoStarted.taskId}`,
+          );
+        }
+      }
+
+      // Emit task status changed events for tasks auto-transitioned to WAITING_PRODUCTION
+      for (const taskAutoTransitioned of tasksAutoTransitionedToWaitingProduction) {
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoTransitioned.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoTransitioned.oldStatus,
+            newStatus: taskAutoTransitioned.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-TRANSITION BATCH] Emitted task.status.changed event for task ${taskAutoTransitioned.taskId} (PREPARATION → WAITING_PRODUCTION)`,
+          );
+
+          // Emit task.created event to notify production sector users
+          // For production users, WAITING_PRODUCTION is effectively the "new task" status
+          this.eventEmitter.emit('task.created', {
+            task: updatedTask,
+            createdBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-TRANSITION BATCH] Emitted task.created event for task ${taskAutoTransitioned.taskId} (notifying production sector users)`,
           );
         }
       }

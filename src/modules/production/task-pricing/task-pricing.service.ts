@@ -203,6 +203,15 @@ export class TaskPricingService {
             expiresAt: data.expiresAt,
             status: data.status || TASK_PRICING_STATUS.DRAFT,
             taskId: data.taskId,
+            // Payment Terms (simplified)
+            paymentCondition: data.paymentCondition || null,
+            downPaymentDate: data.downPaymentDate || null,
+            customPaymentText: data.customPaymentText || null,
+            // Guarantee Terms
+            guaranteeYears: data.guaranteeYears || null,
+            customGuaranteeText: data.customGuaranteeText || null,
+            // Layout File
+            layoutFileId: data.layoutFileId || null,
             items: {
               create: data.items.map(item => ({
                 amount: item.amount || 0,
@@ -210,7 +219,7 @@ export class TaskPricingService {
               })),
             },
           },
-          include: { items: true, task: true },
+          include: { items: true, task: true, layoutFile: true },
         });
 
         // Log change
@@ -292,6 +301,15 @@ export class TaskPricingService {
             ...(data.total !== undefined && { total: data.total }),
             ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt }),
             ...(data.status !== undefined && { status: data.status }),
+            // Payment Terms (simplified)
+            ...(data.paymentCondition !== undefined && { paymentCondition: data.paymentCondition }),
+            ...(data.downPaymentDate !== undefined && { downPaymentDate: data.downPaymentDate }),
+            ...(data.customPaymentText !== undefined && { customPaymentText: data.customPaymentText }),
+            // Guarantee Terms
+            ...(data.guaranteeYears !== undefined && { guaranteeYears: data.guaranteeYears }),
+            ...(data.customGuaranteeText !== undefined && { customGuaranteeText: data.customGuaranteeText }),
+            // Layout File
+            ...(data.layoutFileId !== undefined && { layoutFileId: data.layoutFileId }),
             ...(data.items && {
               items: {
                 deleteMany: {},
@@ -302,7 +320,7 @@ export class TaskPricingService {
               },
             }),
           },
-          include: { items: true, task: true },
+          include: { items: true, task: true, layoutFile: true },
         });
 
         // Log change
