@@ -35,6 +35,7 @@ export type PAYMENT_CONDITION =
 // =====================
 
 export interface TaskPricing extends BaseEntity {
+  budgetNumber: number; // Auto-generated sequential number for display
   subtotal: number;
   discountType: DISCOUNT_TYPE;
   discountValue: number | null;
@@ -56,6 +57,10 @@ export interface TaskPricing extends BaseEntity {
   layoutFileId: string | null;
   layoutFile?: File;
 
+  // Customer Signature (uploaded by customer on public page)
+  customerSignatureId: string | null;
+  customerSignature?: File;
+
   // Relations
   task?: Task;
   items?: TaskPricingItem[];
@@ -73,6 +78,7 @@ export interface TaskPricingIncludes {
       };
   items?: boolean;
   layoutFile?: boolean;
+  customerSignature?: boolean;
 }
 
 // Alias for backward compatibility

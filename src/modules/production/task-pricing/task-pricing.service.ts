@@ -194,8 +194,15 @@ export class TaskPricingService {
 
       // Create pricing with items in transaction
       const pricing = await this.prisma.$transaction(async tx => {
+        // Get next budget number (auto-increment)
+        const maxBudgetNumber = await tx.taskPricing.aggregate({
+          _max: { budgetNumber: true },
+        });
+        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
         const newPricing = await tx.taskPricing.create({
           data: {
+            budgetNumber: nextBudgetNumber,
             subtotal: data.subtotal,
             discountType: discountType,
             discountValue: data.discountValue || null,
@@ -482,6 +489,136 @@ export class TaskPricingService {
     } catch (error: unknown) {
       this.logger.error('Error finding expired pricings:', error);
       throw new InternalServerErrorException('Erro ao buscar orçamentos expirados.');
+    }
+  }
+
+  // =====================
+  // PUBLIC METHODS (No Authentication Required)
+  // =====================
+
+  /**
+   * Find pricing for public view (customer budget page)
+   * Only returns data if pricing is not expired
+   */
+  async findPublic(id: string): Promise<TaskPricingGetUniqueResponse> {
+    try {
+      const pricing = await this.prisma.taskPricing.findUnique({
+        where: { id },
+        include: {
+          items: true,
+          layoutFile: true,
+          customerSignature: true,
+          task: {
+            include: {
+              customer: true,
+            },
+          },
+        },
+      });
+
+      if (!pricing) {
+        throw new NotFoundException('Orçamento não encontrado.');
+      }
+
+      // Check if pricing is expired
+      const now = new Date();
+      if (new Date(pricing.expiresAt) < now) {
+        throw new BadRequestException(
+          'Este orçamento expirou e não está mais disponível para visualização.',
+        );
+      }
+
+      return {
+        success: true,
+        data: pricing as any,
+        message: 'Orçamento carregado com sucesso.',
+      };
+    } catch (error: unknown) {
+      this.logger.error(`Error finding public pricing ${id}:`, error);
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Erro ao carregar orçamento.');
+    }
+  }
+
+  /**
+   * Upload customer signature for pricing (public endpoint)
+   * Only allows upload if pricing is not expired
+   */
+  async uploadCustomerSignature(
+    id: string,
+    file: Express.Multer.File,
+  ): Promise<TaskPricingUpdateResponse> {
+    try {
+      const pricing = await this.prisma.taskPricing.findUnique({
+        where: { id },
+        include: { customerSignature: true },
+      });
+
+      if (!pricing) {
+        throw new NotFoundException('Orçamento não encontrado.');
+      }
+
+      // Check if pricing is expired
+      const now = new Date();
+      if (new Date(pricing.expiresAt) < now) {
+        throw new BadRequestException(
+          'Este orçamento expirou. Não é possível enviar a assinatura.',
+        );
+      }
+
+      // Create file record for signature
+      const signatureFile = await this.prisma.file.create({
+        data: {
+          filename: file.filename,
+          originalName: file.originalname,
+          mimetype: file.mimetype,
+          path: file.path,
+          size: file.size,
+        },
+      });
+
+      // Update pricing with signature
+      const updated = await this.prisma.taskPricing.update({
+        where: { id },
+        data: {
+          customerSignatureId: signatureFile.id,
+        },
+        include: {
+          items: true,
+          layoutFile: true,
+          customerSignature: true,
+          task: {
+            include: {
+              customer: true,
+            },
+          },
+        },
+      });
+
+      // Delete old signature file if it exists
+      if (pricing.customerSignature) {
+        await this.prisma.file.delete({
+          where: { id: pricing.customerSignature.id },
+        }).catch(() => {
+          // Ignore errors when deleting old file
+        });
+      }
+
+      this.logger.log(`Customer signature uploaded for pricing ${id}`);
+
+      return {
+        success: true,
+        data: updated as any,
+        message: 'Assinatura enviada com sucesso.',
+      };
+    } catch (error: unknown) {
+      this.logger.error(`Error uploading signature for pricing ${id}:`, error);
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Erro ao enviar assinatura.');
     }
   }
 

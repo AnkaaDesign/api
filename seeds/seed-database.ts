@@ -4029,12 +4029,15 @@ async function migrateTasks() {
       const entryDate = parseMongoDateWithTime(work.entry_date);
 
       // Sync term and finishedAt: if one exists but not the other, copy the value
+      // Only apply this sync for completed tasks
       let finalTerm = term;
       let finalFinishedAt = finishedAt;
-      if (term && !finishedAt) {
-        finalFinishedAt = term;
-      } else if (finishedAt && !term) {
-        finalTerm = finishedAt;
+      if (status === TASK_STATUS.COMPLETED) {
+        if (term && !finishedAt) {
+          finalFinishedAt = term;
+        } else if (finishedAt && !term) {
+          finalTerm = finishedAt;
+        }
       }
 
       const taskData: any = {
@@ -4334,75 +4337,6 @@ async function migrateTasks() {
             },
           },
         });
-      }
-
-      // Create truck with standard layouts for processed brands
-      if (work.brand && processedBrandsForTrucks.has(work.brand)) {
-        try {
-          // Create layouts for left, right, and back sides
-          const leftSideLayout = await prisma.layout.create({
-            data: {
-              height: 2.4, // 2.4 meters for left/right sides
-              layoutSections: {
-                create: [
-                  {
-                    width: 8.0, // 8 meters for left/right sides
-                    isDoor: false,
-                    position: 0,
-                  },
-                ],
-              },
-            },
-          });
-
-          const rightSideLayout = await prisma.layout.create({
-            data: {
-              height: 2.4, // 2.4 meters for left/right sides
-              layoutSections: {
-                create: [
-                  {
-                    width: 8.0, // 8 meters for left/right sides
-                    isDoor: false,
-                    position: 0,
-                  },
-                ],
-              },
-            },
-          });
-
-          const backSideLayout = await prisma.layout.create({
-            data: {
-              height: 2.42, // 2.42 meters for back side
-              layoutSections: {
-                create: [
-                  {
-                    width: 2.42, // 2.42 meters for back side
-                    isDoor: false,
-                    position: 0,
-                  },
-                ],
-              },
-            },
-          });
-
-          // Create truck with layout references and plate
-          await prisma.truck.create({
-            data: {
-              plate: plate || null, // Use detected plate or null if not available
-              chassisNumber: null, // No chassis number in source data
-              taskId: task.id,
-              leftSideLayoutId: leftSideLayout.id,
-              rightSideLayoutId: rightSideLayout.id,
-              backSideLayoutId: backSideLayout.id,
-            },
-          });
-
-          console.log(
-            `    📦 Truck created for task ${task.name} with plate "${plate || 'none'}" and layouts (Left: 8.0x2.4m, Right: 8.0x2.4m, Back: 2.42x2.42m)`,
-          );
-        } catch (error) {
-          console.error(`    ❌ Failed to create truck for task ${task.name}:`, error);
-        }
       }
 
       idMappings.tasks[work._id] = task.id;
@@ -5527,7 +5461,7 @@ async function seedNotificationPreferences() {
 const FILES_ROOT = process.env.FILES_ROOT || './uploads/files';
 const FILES_BASE_URL =
   process.env.NODE_ENV === 'production'
-    ? 'https://arquivos.ankaa.live'
+    ? 'https://arquivos.ankaadesign.com.br'
     : process.env.WEBDAV_BASE_URL || 'http://localhost:3030/uploads/files';
 
 const COMPANY_LOGO_URL = `${FILES_BASE_URL}/Mensagens/logo.png`;

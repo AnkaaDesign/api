@@ -1,12 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Process, Processor, OnQueueActive, OnQueueCompleted, OnQueueFailed } from '@nestjs/bull';
 import { Job } from 'bull';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../mailer/services/email.service';
 import { SmsService } from '../sms/sms.service';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { PushService } from '../push/push.service';
 import { NOTIFICATION_CHANNEL } from '../../../constants';
+
+/**
+ * Helper interface for parsed action URLs
+ */
+interface ParsedActionUrl {
+  web: string;
+  mobile?: string;
+  universalLink?: string;
+}
 
 /**
  * Notification job data structure
@@ -50,13 +60,56 @@ export interface NotificationDeliveryResult {
 export class NotificationQueueProcessor {
   private readonly logger = new Logger(NotificationQueueProcessor.name);
 
+  // Base URL for web application, loaded from environment
+  private readonly webAppUrl: string;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly smsService: SmsService,
     private readonly whatsappNotificationService: WhatsAppNotificationService,
     private readonly pushService: PushService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'https://ankaadesign.com.br';
+  }
+
+  /**
+   * Parse action URL which can be either:
+   * 1. A JSON string with web, mobile, universalLink fields
+   * 2. A relative path (legacy format)
+   * 3. A full URL
+   *
+   * @param actionUrl - The action URL to parse
+   * @returns Parsed URL with web and optionally mobile/universalLink
+   */
+  private parseActionUrl(actionUrl: string | undefined): ParsedActionUrl | null {
+    if (!actionUrl) {
+      return null;
+    }
+
+    // Try to parse as JSON first (new format from DeepLinkService)
+    try {
+      const parsed = JSON.parse(actionUrl);
+      if (parsed && typeof parsed === 'object' && parsed.web) {
+        return {
+          web: parsed.web,
+          mobile: parsed.mobile,
+          universalLink: parsed.universalLink,
+        };
+      }
+    } catch {
+      // Not JSON, continue with other formats
+    }
+
+    // Check if it's already a full URL
+    if (actionUrl.startsWith('http://') || actionUrl.startsWith('https://')) {
+      return { web: actionUrl };
+    }
+
+    // It's a relative path - prepend base URL
+    return { web: `${this.webAppUrl}${actionUrl}` };
+  }
 
   /**
    * Process email notification
@@ -268,17 +321,19 @@ export class NotificationQueueProcessor {
     try {
       await job.progress(20);
 
-      // Build full action URL if it's a relative path
-      const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
-      let fullActionUrl = actionUrl;
-      if (actionUrl && !actionUrl.startsWith('http')) {
-        fullActionUrl = `${baseUrl}${actionUrl}`;
-      }
+      // Parse action URL - for push notifications, we keep the full JSON if available
+      // so the mobile app can extract the mobile URL
+      const parsedUrl = this.parseActionUrl(actionUrl);
 
       // Prepare data payload for the push notification
+      // Include the full actionUrl (which may be JSON) so mobile can parse it
       const dataPayload = {
         notificationId,
-        actionUrl: fullActionUrl || '',
+        actionUrl: actionUrl || '', // Keep original JSON for mobile to parse
+        // Also include extracted URLs for convenience
+        webUrl: parsedUrl?.web || '',
+        mobileUrl: parsedUrl?.mobile || '',
+        universalLink: parsedUrl?.universalLink || '',
         type: metadata?.type || 'notification',
         ...metadata,
       };
@@ -645,13 +700,10 @@ export class NotificationQueueProcessor {
   private generateEmailHtml(title: string, body: string, actionUrl?: string, data?: any): string {
     const companyName = data?.companyName || process.env.COMPANY_NAME || 'Ankaa Design';
     const supportEmail = data?.supportEmail || process.env.SUPPORT_EMAIL || '';
-    const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:5173';
 
-    // Build full action URL if it's a relative path
-    let fullActionUrl = actionUrl;
-    if (actionUrl && !actionUrl.startsWith('http')) {
-      fullActionUrl = `${baseUrl}${actionUrl}`;
-    }
+    // Parse action URL and extract web URL for email
+    const parsedUrl = this.parseActionUrl(actionUrl);
+    const fullActionUrl = parsedUrl?.web;
 
     return `
 <!DOCTYPE html>

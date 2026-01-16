@@ -26,6 +26,15 @@ export enum DeepLinkEntity {
 }
 
 /**
+ * List page types that can be deep linked (for filtered views)
+ */
+export enum DeepLinkListPage {
+  ItemList = 'ItemList',
+  OrderList = 'OrderList',
+  TaskList = 'TaskList',
+}
+
+/**
  * Route configuration for each entity type
  */
 interface RouteConfig {
@@ -101,10 +110,27 @@ export class DeepLinkService {
     },
   };
 
+  // List page routes (for filtered views without specific entity ID)
+  // Mobile routes point to the list page - mobile doesn't support query filters via URL yet
+  private readonly LIST_ROUTES: Record<DeepLinkListPage, RouteConfig> = {
+    [DeepLinkListPage.ItemList]: {
+      web: '/estoque/produtos',
+      mobile: 'items', // Mobile navigates to item list page
+    },
+    [DeepLinkListPage.OrderList]: {
+      web: '/estoque/pedidos',
+      mobile: 'orders',
+    },
+    [DeepLinkListPage.TaskList]: {
+      web: '/producao/agenda',
+      mobile: 'tasks',
+    },
+  };
+
   constructor(private readonly configService: ConfigService) {
     // Load configuration from environment variables with fallbacks
-    this.webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'https://yourapp.com';
-    this.mobileAppScheme = this.configService.get<string>('MOBILE_APP_SCHEME') || 'yourapp';
+    this.webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'https://ankaadesign.com.br';
+    this.mobileAppScheme = this.configService.get<string>('MOBILE_APP_SCHEME') || 'ankaadesign';
     this.universalLinkDomain =
       this.configService.get<string>('UNIVERSAL_LINK_DOMAIN') || this.webAppUrl;
 
@@ -407,6 +433,74 @@ export class DeepLinkService {
   ): string {
     const links = this.generateBothLinks(entityType, entityId, queryParams);
     return JSON.stringify(links);
+  }
+
+  /**
+   * Generate deep links for a list page (e.g., inventory items with filters)
+   * Web gets the full URL with query parameters
+   * Mobile gets the list page route (mobile doesn't support query param filters yet)
+   *
+   * @param listPage - The type of list page
+   * @param queryParams - Query parameters for filtering (applied to web only)
+   * @returns Object containing web, mobile, and universal link URLs
+   */
+  generateListPageLinks(
+    listPage: DeepLinkListPage,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult {
+    const route = this.LIST_ROUTES[listPage];
+    if (!route) {
+      throw new Error(`Unknown list page type: ${listPage}`);
+    }
+
+    // Build web URL with query params
+    let webUrl = `${this.webAppUrl}${route.web}`;
+    if (queryParams && Object.keys(queryParams).length > 0) {
+      const queryString = this.buildQueryString(queryParams);
+      webUrl = `${webUrl}?${queryString}`;
+    }
+
+    // Mobile gets simple list page (no query param support)
+    const mobileUrl = `${this.mobileAppScheme}://${route.mobile}`;
+
+    // Universal link for mobile with /app/ prefix
+    const universalLink = `${this.universalLinkDomain}/app/${route.mobile}`;
+
+    return {
+      web: webUrl,
+      mobile: mobileUrl,
+      universalLink,
+    };
+  }
+
+  /**
+   * Generate action URL for list page notifications (includes both web and mobile)
+   * Use this for notifications that link to filtered list views (e.g., low stock items)
+   *
+   * @param listPage - The type of list page
+   * @param queryParams - Query parameters for filtering (applied to web only)
+   * @returns JSON string containing web and mobile URLs
+   */
+  generateListPageActionUrl(
+    listPage: DeepLinkListPage,
+    queryParams?: DeepLinkQueryParams,
+  ): string {
+    const links = this.generateListPageLinks(listPage, queryParams);
+    return JSON.stringify(links);
+  }
+
+  /**
+   * Generate item list page links with stock level filters
+   * Convenience method for stock-related notifications
+   *
+   * @param stockLevels - Array of stock levels to filter by (e.g., ['LOW', 'CRITICAL', 'OUT_OF_STOCK'])
+   * @returns Object containing web, mobile, and universal link URLs
+   */
+  generateLowStockItemListLinks(stockLevels: string[]): DeepLinkResult {
+    return this.generateListPageLinks(DeepLinkListPage.ItemList, {
+      stockLevels: JSON.stringify(stockLevels),
+      isActive: 'true',
+    });
   }
 
   /**

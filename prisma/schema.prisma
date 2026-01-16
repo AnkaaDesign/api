@@ -420,6 +420,7 @@ model File {
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
   taskBaseFiles                           Task[]               @relation("TASK_BASE_FILES")
   pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
+  pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
 
   @@index([filename])
   @@index([originalName])
@@ -1029,6 +1030,7 @@ model ServiceOrder {
 
 model TaskPricing {
   id            String            @id @default(uuid())
+  budgetNumber  Int               @unique // Auto-generated sequential number for display
   subtotal      Decimal           @db.Decimal(10, 2)
   discountType  DiscountType      @default(NONE)
   discountValue Decimal?          @db.Decimal(10, 2)
@@ -1050,6 +1052,10 @@ model TaskPricing {
   layoutFileId        String?
   layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
 
+  // Customer Signature (uploaded by customer on public page)
+  customerSignatureId String?
+  customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
+
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
   task          Task              @relation("TASK_PRICING", fields: [taskId], references: [id], onDelete: Cascade)
@@ -1059,6 +1065,7 @@ model TaskPricing {
   @@index([status])
   @@index([expiresAt])
   @@index([layoutFileId])
+  @@index([customerSignatureId])
 }
 
 model TaskPricingItem {

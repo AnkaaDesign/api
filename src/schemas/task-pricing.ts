@@ -94,6 +94,7 @@ export const taskPricingIncludeSchema = z
       .optional(),
     items: z.boolean().optional(),
     layoutFile: z.boolean().optional(),
+    customerSignature: z.boolean().optional(),
   })
   .partial();
 
@@ -482,6 +483,9 @@ export const taskPricingUpdateSchema = z.object({
 
   // Layout File
   layoutFileId: z.string().uuid().optional().nullable(),
+
+  // Customer Signature (uploaded by customer on public page)
+  customerSignatureId: z.string().uuid().optional().nullable(),
 }).superRefine((data, ctx) => {
   // Discount validation
   if (data.discountType && data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
