@@ -27,7 +27,10 @@ export interface Bonus extends BaseEntity {
   year: number;
   month: number;
   performanceLevel: number;
-  baseBonus: number | { toNumber: () => number }; // Decimal from Prisma
+  baseBonus: number | { toNumber: () => number }; // Decimal from Prisma - Gross bonus before discounts
+  netBonus: number | { toNumber: () => number }; // Decimal from Prisma - Net bonus after discounts
+  weightedTasks: number | { toNumber: () => number }; // Decimal from Prisma - Total weighted tasks in period
+  averageTaskPerUser: number | { toNumber: () => number }; // Decimal from Prisma - Average tasks per eligible user
 
   // Relations (optional, populated based on query)
   user?: User;
@@ -198,10 +201,14 @@ export interface LiveBonus {
   year: number;
   month: number;
   performanceLevel: number;
-  baseBonus: number;
+  baseBonus: number; // Gross bonus before discounts
+  netBonus: number; // Net bonus after discounts (calculated from baseBonus - discounts)
+  weightedTasks?: number; // Total weighted tasks in period
+  averageTaskPerUser?: number; // Average tasks per eligible user
   isLive: true;
   tasks?: Task[];
   users?: User[];
+  bonusDiscounts?: BonusDiscount[]; // Discounts applied to this bonus
   payrollId?: string;
   createdAt?: Date;
   updatedAt?: Date;

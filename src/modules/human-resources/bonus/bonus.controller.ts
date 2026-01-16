@@ -294,6 +294,24 @@ export class BonusController {
     };
   }
 
+  /**
+   * Fix all existing bonuses with netBonus=0.
+   * This is a maintenance endpoint to fix legacy data where netBonus was never properly calculated.
+   * Should only need to be run once.
+   */
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Post('fix-net-bonus')
+  @WriteRateLimit()
+  @HttpCode(HttpStatus.OK)
+  async fixAllBonusesWithZeroNetBonus(@UserId() userId: string) {
+    const result = await this.bonusService.fixAllBonusesWithZeroNetBonus();
+    return {
+      success: true,
+      data: result,
+      message: `Correção concluída: ${result.totalFixed}/${result.totalChecked} bônus corrigidos.`,
+    };
+  }
+
   // =====================
   // Filtering Endpoints
   // =====================
