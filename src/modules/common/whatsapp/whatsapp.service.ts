@@ -258,14 +258,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process',
             '--disable-gpu',
             '--disable-extensions',
             '--disable-background-timer-throttling',
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding',
+            '--disable-features=Crashpad',
+            '--enable-crashpad=false',
           ],
-          timeout: 60000,
+          timeout: 120000,
         },
       });
 

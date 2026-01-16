@@ -80,12 +80,19 @@ export class ThumbnailService {
     }
 
     try {
-      // Check ImageMagick
-      await execAsync('magick -version');
-      this.toolsAvailable.imagemagick = true;
-      this.logger.log('ImageMagick disponível');
+      // Check ImageMagick (try 'magick' for v7, 'convert' for v6)
+      try {
+        await execAsync('magick -version');
+        this.toolsAvailable.imagemagick = true;
+        this.logger.log('ImageMagick v7 disponível (magick)');
+      } catch {
+        // Try ImageMagick 6 (convert command)
+        await execAsync('convert -version');
+        this.toolsAvailable.imagemagick = true;
+        this.logger.log('ImageMagick v6 disponível (convert)');
+      }
     } catch (e) {
-      this.logger.warn('ImageMagick não está instalado. Instale com: brew install imagemagick');
+      this.logger.warn('ImageMagick não está instalado. Instale com: apt install imagemagick');
     }
 
     try {
@@ -238,18 +245,27 @@ export class ThumbnailService {
       // Ensure directory exists
       await fs.mkdir(dirname(tempPngPath), { recursive: true });
 
-      // Use high density and size constraints for maximum quality
-      // Create a 3x larger temp image for better quality after downscaling
-      const tempSize = finalOptions.width * 3;
-      const density = 300; // Maximum density for best quality
-      const quality = 100;
+      // Use moderate density for good quality with reasonable memory usage
+      // Create a 2x larger temp image for better quality after downscaling
+      // Note: 300 DPI with 3x size can use 500MB+ RAM per conversion
+      const tempSize = finalOptions.width * 2;
+      const density = 150; // Good quality for thumbnails, lower memory usage
+      const quality = 90;
 
       try {
-        // Try ImageMagick first with improved settings
-        const magickCommand = `magick -density ${density} "${pdfPath}[0]" -background white -alpha remove -resize ${tempSize}x${tempSize} -quality ${quality} "${tempPngPath}"`;
+        // Try ImageMagick first with improved settings (try 'magick' for v7, 'convert' for v6)
+        // Add -limit memory 256MB -limit map 512MB to prevent excessive memory usage
+        let magickCommand = `magick -limit memory 256MB -limit map 512MB -density ${density} "${pdfPath}[0]" -background white -alpha remove -resize ${tempSize}x${tempSize} -quality ${quality} "${tempPngPath}"`;
 
-        this.logger.log(`Executando comando ImageMagick: ${magickCommand}`);
-        await execAsync(magickCommand, { timeout: 30000 });
+        this.logger.log(`Executando comando ImageMagick (v7): ${magickCommand}`);
+        try {
+          await execAsync(magickCommand, { timeout: 60000 });
+        } catch {
+          // Try ImageMagick 6 (convert command)
+          magickCommand = `convert -limit memory 256MB -limit map 512MB -density ${density} "${pdfPath}[0]" -background white -alpha remove -resize ${tempSize}x${tempSize} -quality ${quality} "${tempPngPath}"`;
+          this.logger.log(`Executando comando ImageMagick (v6): ${magickCommand}`);
+          await execAsync(magickCommand, { timeout: 60000 });
+        }
       } catch (error) {
         this.logger.warn('ImageMagick falhou, tentando Ghostscript...');
 

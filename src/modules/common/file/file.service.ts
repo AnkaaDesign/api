@@ -54,6 +54,10 @@ import type {
 export class FileService {
   private readonly logger = new Logger(FileService.name);
 
+  // Lock mechanism to prevent concurrent thumbnail generation for the same file
+  // This prevents memory exhaustion from multiple ImageMagick processes
+  private readonly thumbnailGenerationLocks = new Map<string, Promise<any>>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly fileRepository: FileRepository,
@@ -425,50 +429,89 @@ export class FileService {
 
           if (!existsSync(actualPath)) {
             // Thumbnail doesn't exist - try to generate it on-demand
-            this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
-            try {
-              // Resolve file path to absolute if it's relative
-              const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
+            // Use lock mechanism to prevent multiple concurrent generations for the same file
+            const lockKey = `${file.id}-${thumbnailSizeStr}`;
 
-              this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
-
-              const result = await this.thumbnailService.generateThumbnail(
-                absoluteFilePath,
-                file.mimetype,
-                file.id,
-                { format: 'webp', quality: 80 },
-              );
-
-              this.logger.log(
-                `Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`,
-              );
-
-              if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
-                actualPath = result.thumbnailPath;
-                contentType = 'image/webp';
-                this.logger.log(`On-demand thumbnail generated successfully for ${file.id}`);
-
-                // Update database with thumbnailUrl if it wasn't set
-                if (!file.thumbnailUrl && result.thumbnailUrl) {
-                  await this.fileRepository.update(
-                    file.id,
-                    { thumbnailUrl: result.thumbnailUrl },
-                    {},
-                  );
-                  this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
+            // Check if generation is already in progress for this file
+            const existingLock = this.thumbnailGenerationLocks.get(lockKey);
+            if (existingLock) {
+              this.logger.log(`Thumbnail generation already in progress for ${file.id}, waiting...`);
+              try {
+                const result = await existingLock;
+                if (result?.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+                  actualPath = result.thumbnailPath;
+                  contentType = 'image/webp';
+                } else {
+                  throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
                 }
-              } else {
-                this.logger.error(
-                  `Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`,
-                );
-                throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
+              } catch (waitError: any) {
+                throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
               }
-            } catch (genError: any) {
-              this.logger.error(
-                `Failed to generate thumbnail on-demand: ${genError.message}`,
-                genError.stack,
-              );
-              throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
+            } else {
+              // Start new generation with lock
+              this.logger.log(`Thumbnail not found for ${file.id}, generating on-demand...`);
+
+              const generatePromise = (async () => {
+                try {
+                  // Resolve file path to absolute if it's relative
+                  const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
+
+                  this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
+
+                  const result = await this.thumbnailService.generateThumbnail(
+                    absoluteFilePath,
+                    file.mimetype,
+                    file.id,
+                    { format: 'webp', quality: 80 },
+                  );
+
+                  this.logger.log(
+                    `Thumbnail generation result: ${JSON.stringify({ success: result.success, thumbnailPath: result.thumbnailPath, thumbnailUrl: result.thumbnailUrl })}`,
+                  );
+
+                  if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+                    this.logger.log(`On-demand thumbnail generated successfully for ${file.id}`);
+
+                    // Update database with thumbnailUrl if it wasn't set
+                    if (!file.thumbnailUrl && result.thumbnailUrl) {
+                      await this.fileRepository.update(
+                        file.id,
+                        { thumbnailUrl: result.thumbnailUrl },
+                        {},
+                      );
+                      this.logger.log(`Updated thumbnailUrl in database for ${file.id}`);
+                    }
+                  }
+
+                  return result;
+                } finally {
+                  // Always clean up lock after completion (success or failure)
+                  this.thumbnailGenerationLocks.delete(lockKey);
+                }
+              })();
+
+              // Store the promise so other requests can wait
+              this.thumbnailGenerationLocks.set(lockKey, generatePromise);
+
+              try {
+                const result = await generatePromise;
+
+                if (result.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
+                  actualPath = result.thumbnailPath;
+                  contentType = 'image/webp';
+                } else {
+                  this.logger.error(
+                    `Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`,
+                  );
+                  throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
+                }
+              } catch (genError: any) {
+                this.logger.error(
+                  `Failed to generate thumbnail on-demand: ${genError.message}`,
+                  genError.stack,
+                );
+                throw new NotFoundException('Thumbnail não disponível e não foi possível gerar.');
+              }
             }
           }
         }
