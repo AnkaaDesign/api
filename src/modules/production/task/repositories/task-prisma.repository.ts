@@ -549,6 +549,8 @@ export class TaskPrismaRepository
       );
       taskData.pricing = {
         create: {
+          // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
+          budgetNumber: 0,
           subtotal: pricing.subtotal ?? total,
           discountType: pricing.discountType || 'NONE',
           discountValue: pricing.discountValue || null,
@@ -964,6 +966,8 @@ export class TaskPrismaRepository
         updateData.pricing = {
           upsert: {
             create: {
+              // budgetNumber is set to 0 as placeholder - will be replaced at runtime in updateWithTransaction
+              budgetNumber: 0,
               subtotal,
               total,
               discountType: pricing.discountType || 'NONE',
@@ -1187,6 +1191,26 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
+      // Handle pricing create - need to generate budgetNumber
+      // The budgetNumber is required and must be auto-generated
+      if (
+        createInput.pricing &&
+        typeof createInput.pricing === 'object' &&
+        'create' in createInput.pricing &&
+        createInput.pricing.create
+      ) {
+        const pricingCreate = createInput.pricing.create as Record<string, any>;
+
+        // Get next budget number for create operation
+        const maxBudgetNumber = await transaction.taskPricing.aggregate({
+          _max: { budgetNumber: true },
+        });
+        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+        // Inject budgetNumber into the create block
+        pricingCreate.budgetNumber = nextBudgetNumber;
+      }
+
       const result = await transaction.task.create({
         data: createInput,
         include: includeInput,
@@ -1311,6 +1335,29 @@ export class TaskPrismaRepository
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data, userId);
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+      // Handle pricing upsert - need to generate budgetNumber for create operation
+      // The budgetNumber is required and must be auto-generated
+      if (
+        updateInput.pricing &&
+        typeof updateInput.pricing === 'object' &&
+        'upsert' in updateInput.pricing &&
+        updateInput.pricing.upsert
+      ) {
+        const pricingUpsert = updateInput.pricing.upsert as {
+          create: Record<string, any>;
+          update: Record<string, any>;
+        };
+
+        // Get next budget number for potential create operation
+        const maxBudgetNumber = await transaction.taskPricing.aggregate({
+          _max: { budgetNumber: true },
+        });
+        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+        // Inject budgetNumber into the create block
+        pricingUpsert.create.budgetNumber = nextBudgetNumber;
+      }
 
       const result = await transaction.task.update({
         where: { id },

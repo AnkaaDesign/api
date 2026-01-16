@@ -4,6 +4,10 @@ import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
 import {
+  DeepLinkService,
+  DeepLinkListPage,
+} from '@modules/common/notification/deep-link.service';
+import {
   SECTOR_PRIVILEGES,
   NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
@@ -30,6 +34,7 @@ export class ItemNotificationScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly deepLinkService: DeepLinkService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
@@ -251,6 +256,17 @@ export class ItemNotificationScheduler {
 
       const title = `Verificação Diária de Estoque - ${totalItems} ${totalItems === 1 ? 'item requer' : 'itens requerem'} atenção`;
 
+      // Generate proper action URL with both web and mobile links
+      // Web gets filters for stock levels, mobile navigates to item list page
+      const stockLevels = ['LOW', 'CRITICAL', 'OUT_OF_STOCK'];
+      const actionUrl = this.deepLinkService.generateListPageActionUrl(
+        DeepLinkListPage.ItemList,
+        {
+          stockLevels: JSON.stringify(stockLevels),
+          isActive: 'true',
+        },
+      );
+
       // Create batch notifications
       const notificationData = userIds.map(userId => ({
         userId,
@@ -258,7 +274,7 @@ export class ItemNotificationScheduler {
         body,
         type: NOTIFICATION_TYPE.STOCK,
         importance,
-        actionUrl: '/inventory/items?filter=low-stock',
+        actionUrl,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),

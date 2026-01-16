@@ -12,10 +12,16 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TaskPricingService } from './task-pricing.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
+import { Public } from '@modules/common/auth/decorators/public.decorator';
+import { multerConfig } from '@modules/common/file/config/upload.config';
 import { SECTOR_PRIVILEGES } from '@constants';
 import {
   ZodValidationPipe,
@@ -231,5 +237,52 @@ export class TaskPricingController {
       data: expired,
       message: `${expired.length} orçamentos expirados encontrados.`,
     };
+  }
+
+  // =====================
+  // PUBLIC ENDPOINTS (No Authentication Required)
+  // =====================
+
+  /**
+   * GET /task-pricings/public/:id
+   * Get pricing for public view (customer budget page)
+   * Only returns data if pricing is not expired
+   *
+   * Access: PUBLIC (no authentication required)
+   */
+  @Get('public/:id')
+  @Public()
+  async findPublic(@Param('id', ParseUUIDPipe) id: string) {
+    return this.taskPricingService.findPublic(id);
+  }
+
+  /**
+   * POST /task-pricings/public/:id/signature
+   * Upload customer signature for pricing
+   * Only allows upload if pricing is not expired
+   *
+   * Access: PUBLIC (no authentication required)
+   */
+  @Post('public/:id/signature')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('signature', multerConfig))
+  async uploadPublicSignature(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Arquivo de assinatura é obrigatório.');
+    }
+
+    // Validate file type (only images allowed for signatures)
+    const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Tipo de arquivo inválido. Apenas imagens PNG, JPEG ou WebP são permitidas.',
+      );
+    }
+
+    return this.taskPricingService.uploadCustomerSignature(id, file);
   }
 }

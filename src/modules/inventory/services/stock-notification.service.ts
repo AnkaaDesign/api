@@ -2,6 +2,10 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationService } from '@modules/common/notification/notification.service';
+import {
+  DeepLinkService,
+  DeepLinkEntity,
+} from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   NOTIFICATION_TYPE,
@@ -69,6 +73,7 @@ export class StockNotificationService {
 
   constructor(
     private readonly notificationService: NotificationService,
+    private readonly deepLinkService: DeepLinkService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -477,14 +482,16 @@ export class StockNotificationService {
 
   /**
    * Build deep link to item/stock page
-   *
-   * Format: /estoque/itens/detalhes/{itemId}
+   * Uses DeepLinkService to generate proper URLs for both web and mobile
    *
    * @param itemId - Item ID
-   * @returns Deep link URL
+   * @returns JSON string containing web and mobile URLs
    */
   private buildDeepLink(itemId: string): string {
-    return `/estoque/itens/detalhes/${itemId}`;
+    return this.deepLinkService.generateNotificationActionUrl(
+      DeepLinkEntity.Item,
+      itemId,
+    );
   }
 
   /**
