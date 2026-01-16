@@ -407,7 +407,9 @@ export class BonusService {
         month,
         performanceLevel: userLiveBonus?.performanceLevel || user.performanceLevel || 0,
         baseBonus: userLiveBonus?.baseBonus || 0,
-        netBonus: userLiveBonus?.netBonus || userLiveBonus?.baseBonus || 0,
+        // Use nullish coalescing (??) to allow 0 as a valid value
+        // Only fall back to baseBonus if netBonus is null/undefined
+        netBonus: userLiveBonus?.netBonus ?? userLiveBonus?.baseBonus ?? 0,
         weightedTasks: liveData.totalWeightedTasks,
         averageTaskPerUser: liveData.averageTasksPerEmployee,
         payrollId: null,
@@ -763,27 +765,22 @@ export class BonusService {
       let updatedBonus: any;
 
       await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        updatedBonus = await tx.bonus.update({
+        // First update baseBonus and other fields
+        // Set netBonus temporarily to baseBonus (will be recalculated below)
+        await tx.bonus.update({
           where: { id },
           data: {
             baseBonus: data.baseBonus,
-            netBonus: data.baseBonus, // Update netBonus when baseBonus changes
+            netBonus: data.baseBonus, // Temporary, will be recalculated
             performanceLevel: data.performanceLevel,
             payrollId: data.payrollId,
             // Note: weightedTasks and averageTaskByUser should be set via bulk calculation
           },
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                performanceLevel: true,
-              },
-            },
-            bonusDiscounts: true,
-            tasks: true,
-          },
         });
+
+        // CRITICAL: Recalculate netBonus based on existing discounts
+        // This ensures netBonus is correct when baseBonus changes
+        updatedBonus = await this.recalculateNetBonus(id, tx);
 
         await logEntityChange({
           changeLogService: this.changeLogService,
@@ -930,6 +927,217 @@ export class BonusService {
   }
 
   // =====================
+  // Net Bonus Recalculation
+  // =====================
+
+  /**
+   * Recalculate netBonus for a bonus based on its discounts.
+   * This is the SINGLE SOURCE OF TRUTH for netBonus calculation.
+   *
+   * Formula: netBonus = baseBonus - sum(all discounts applied in order)
+   * - Percentage discounts: applied to current remaining value
+   * - Fixed value discounts: subtracted directly (capped at current value)
+   *
+   * @param bonusId The bonus ID to recalculate
+   * @param transaction Optional transaction for atomic operations
+   * @returns The updated bonus with recalculated netBonus
+   */
+  async recalculateNetBonus(
+    bonusId: string,
+    transaction?: PrismaTransaction,
+  ): Promise<any> {
+    const client = transaction || this.prisma;
+
+    // Get the bonus with its discounts
+    const bonus = await client.bonus.findUnique({
+      where: { id: bonusId },
+      include: {
+        bonusDiscounts: {
+          orderBy: { calculationOrder: 'asc' },
+        },
+      },
+    });
+
+    if (!bonus) {
+      throw new NotFoundException('Bônus não encontrado.');
+    }
+
+    const baseBonus = Number(bonus.baseBonus);
+    let currentValue = baseBonus;
+
+    // Apply discounts in order
+    for (const discount of bonus.bonusDiscounts) {
+      if (discount.percentage !== null) {
+        // Percentage discount: apply to current remaining value
+        const discountAmount = currentValue * (Number(discount.percentage) / 100);
+        currentValue = Math.max(0, currentValue - discountAmount);
+      } else if (discount.value !== null) {
+        // Fixed value discount: subtract directly (capped at current value)
+        const discountAmount = Math.min(Number(discount.value), currentValue);
+        currentValue = Math.max(0, currentValue - discountAmount);
+      }
+    }
+
+    // Round to 2 decimal places
+    const netBonus = roundCurrency(currentValue);
+
+    // Update the bonus with recalculated netBonus
+    const updatedBonus = await client.bonus.update({
+      where: { id: bonusId },
+      data: { netBonus },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            performanceLevel: true,
+          },
+        },
+        bonusDiscounts: {
+          orderBy: { calculationOrder: 'asc' },
+        },
+        tasks: true,
+      },
+    });
+
+    this.logger.debug(
+      `Recalculated netBonus for bonus ${bonusId}: baseBonus=${baseBonus}, netBonus=${netBonus} (${bonus.bonusDiscounts.length} discounts applied)`,
+    );
+
+    return updatedBonus;
+  }
+
+  /**
+   * Recalculate netBonus for all bonuses of a user in a specific period.
+   * Used when bulk operations affect multiple bonuses.
+   */
+  async recalculateNetBonusForPeriod(
+    userId: string,
+    year: number,
+    month: number,
+    transaction?: PrismaTransaction,
+  ): Promise<void> {
+    const client = transaction || this.prisma;
+
+    const bonuses = await client.bonus.findMany({
+      where: { userId, year, month },
+      select: { id: true },
+    });
+
+    for (const bonus of bonuses) {
+      await this.recalculateNetBonus(bonus.id, transaction);
+    }
+  }
+
+  /**
+   * Fix all existing bonuses that have netBonus=0 but baseBonus>0.
+   * This handles legacy data where netBonus was never properly calculated.
+   *
+   * IMPORTANT: This should be run once to fix existing data, then the
+   * normal recalculateNetBonus flow will maintain correct values.
+   *
+   * @returns Count of bonuses fixed
+   */
+  async fixAllBonusesWithZeroNetBonus(): Promise<{
+    totalChecked: number;
+    totalFixed: number;
+    totalSkipped: number;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    let totalFixed = 0;
+    let totalSkipped = 0;
+
+    this.logger.log('Starting fix for all bonuses with netBonus=0...');
+
+    // Find all bonuses where netBonus=0 but baseBonus>0
+    const bonusesToFix = await this.prisma.bonus.findMany({
+      where: {
+        netBonus: 0,
+        baseBonus: { gt: 0 },
+      },
+      include: {
+        bonusDiscounts: {
+          orderBy: { calculationOrder: 'asc' },
+        },
+      },
+    });
+
+    this.logger.log(`Found ${bonusesToFix.length} bonuses to fix`);
+
+    // Process in batches within a transaction for atomicity and performance
+    const BATCH_SIZE = 50;
+    const batches = [];
+    for (let i = 0; i < bonusesToFix.length; i += BATCH_SIZE) {
+      batches.push(bonusesToFix.slice(i, i + BATCH_SIZE));
+    }
+
+    for (const batch of batches) {
+      try {
+        await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+          for (const bonus of batch) {
+            const baseBonus = Number(bonus.baseBonus);
+            let calculatedNetBonus = baseBonus;
+
+            // Apply discounts in order to calculate correct netBonus
+            for (const discount of bonus.bonusDiscounts) {
+              if (discount.percentage !== null) {
+                const discountAmount = calculatedNetBonus * (Number(discount.percentage) / 100);
+                calculatedNetBonus = Math.max(0, calculatedNetBonus - discountAmount);
+              } else if (discount.value !== null) {
+                const discountAmount = Math.min(Number(discount.value), calculatedNetBonus);
+                calculatedNetBonus = Math.max(0, calculatedNetBonus - discountAmount);
+              }
+            }
+
+            // Round to 2 decimal places
+            calculatedNetBonus = roundCurrency(calculatedNetBonus);
+
+            // Skip if netBonus would be 0 (all discounts consume the bonus) - idempotency check
+            if (calculatedNetBonus === 0) {
+              totalSkipped++;
+              this.logger.debug(
+                `Skipped bonus ${bonus.id}: calculated netBonus is 0 (discounts consume full bonus)`,
+              );
+              continue;
+            }
+
+            // Update the bonus
+            await tx.bonus.update({
+              where: { id: bonus.id },
+              data: { netBonus: calculatedNetBonus },
+            });
+
+            totalFixed++;
+
+            this.logger.debug(
+              `Fixed bonus ${bonus.id}: baseBonus=${baseBonus}, netBonus=${calculatedNetBonus} (${bonus.bonusDiscounts.length} discounts)`,
+            );
+          }
+        });
+      } catch (error) {
+        // If batch fails, log all bonus IDs in that batch as errors
+        for (const bonus of batch) {
+          const errorMsg = `Failed to fix bonus ${bonus.id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+          errors.push(errorMsg);
+        }
+        this.logger.error(`Batch fix failed:`, error);
+      }
+    }
+
+    this.logger.log(
+      `Completed fixing bonuses: ${totalFixed}/${bonusesToFix.length} fixed, ${totalSkipped} skipped, ${errors.length} errors`,
+    );
+
+    return {
+      totalChecked: bonusesToFix.length,
+      totalFixed,
+      totalSkipped,
+      errors,
+    };
+  }
+
+  // =====================
   // Discount Management
   // =====================
 
@@ -947,29 +1155,38 @@ export class BonusService {
         throw new NotFoundException('Bônus não encontrado.');
       }
 
-      const discount = await this.prisma.bonusDiscount.create({
-        data: {
-          bonusId,
-          reference: data.reason,
-          percentage: data.percentage,
-          calculationOrder: 1,
-        },
-      });
+      let discount: any;
+      let updatedBonus: any;
 
-      await logEntityChange({
-        changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.BONUS,
-        entityId: bonusId,
-        action: CHANGE_ACTION.UPDATE,
-        entity: { discount },
-        reason: `Desconto adicionado: ${data.reason} (${data.percentage}%)`,
-        userId: userId || null,
-        triggeredBy: CHANGE_TRIGGERED_BY.USER,
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        discount = await tx.bonusDiscount.create({
+          data: {
+            bonusId,
+            reference: data.reason,
+            percentage: data.percentage,
+            calculationOrder: 1,
+          },
+        });
+
+        // CRITICAL: Recalculate netBonus after adding discount
+        updatedBonus = await this.recalculateNetBonus(bonusId, tx);
+
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.BONUS,
+          entityId: bonusId,
+          action: CHANGE_ACTION.UPDATE,
+          entity: { discount, updatedNetBonus: updatedBonus.netBonus },
+          reason: `Desconto adicionado: ${data.reason} (${data.percentage}%)`,
+          userId: userId || null,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          transaction: tx,
+        });
       });
 
       return {
         success: true,
-        data: discount,
+        data: { discount, bonus: updatedBonus },
         message: 'Desconto adicionado com sucesso.',
       };
     } catch (error) {
@@ -981,7 +1198,7 @@ export class BonusService {
     }
   }
 
-  async deleteDiscount(discountId: string, userId?: string): Promise<void> {
+  async deleteDiscount(discountId: string, userId?: string): Promise<any> {
     try {
       const discount = await this.prisma.bonusDiscount.findUnique({
         where: { id: discountId },
@@ -992,20 +1209,35 @@ export class BonusService {
         throw new NotFoundException('Desconto não encontrado.');
       }
 
-      await this.prisma.bonusDiscount.delete({
-        where: { id: discountId },
+      const bonusId = discount.bonusId;
+      let updatedBonus: any;
+
+      await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        await tx.bonusDiscount.delete({
+          where: { id: discountId },
+        });
+
+        // CRITICAL: Recalculate netBonus after removing discount
+        updatedBonus = await this.recalculateNetBonus(bonusId, tx);
+
+        await logEntityChange({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.BONUS,
+          entityId: bonusId,
+          action: CHANGE_ACTION.UPDATE,
+          entity: { discountRemoved: discountId, updatedNetBonus: updatedBonus.netBonus },
+          reason: `Desconto removido: ${discount.reference}`,
+          userId: userId || null,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          transaction: tx,
+        });
       });
 
-      await logEntityChange({
-        changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.BONUS,
-        entityId: discount.bonusId,
-        action: CHANGE_ACTION.UPDATE,
-        entity: { discountRemoved: discountId },
-        reason: `Desconto removido: ${discount.reference}`,
-        userId: userId || null,
-        triggeredBy: CHANGE_TRIGGERED_BY.USER,
-      });
+      return {
+        success: true,
+        data: { bonus: updatedBonus },
+        message: 'Desconto removido com sucesso.',
+      };
     } catch (error) {
       this.logger.error('Error deleting bonus discount:', error);
       if (error instanceof NotFoundException) {
@@ -1357,8 +1589,42 @@ export class BonusService {
         if (savedBonus) {
           // User has saved bonus - use it
           // Position comes from payroll snapshot or user current (already added by findManyWithWhere)
+
+          // CRITICAL FIX: Ensure netBonus is properly set
+          // If netBonus is 0 or undefined in database but baseBonus > 0, calculate correct netBonus
+          const savedBaseBonus = Number(savedBonus.baseBonus) || 0;
+          let savedNetBonus = Number(savedBonus.netBonus) || 0;
+
+          // If netBonus is 0 but baseBonus > 0, calculate netBonus from discounts
+          // This handles legacy data where netBonus was not properly saved
+          if (savedNetBonus === 0 && savedBaseBonus > 0) {
+            // Apply discounts to baseBonus to calculate correct netBonus
+            const discounts = savedBonus.bonusDiscounts || [];
+            let calculatedNet = savedBaseBonus;
+
+            // Sort discounts by calculationOrder and apply
+            const sortedDiscounts = [...discounts].sort(
+              (a: any, b: any) => (a.calculationOrder || 0) - (b.calculationOrder || 0),
+            );
+
+            for (const discount of sortedDiscounts) {
+              if (discount.percentage !== null && discount.percentage !== undefined) {
+                const discountAmount = calculatedNet * (Number(discount.percentage) / 100);
+                calculatedNet = Math.max(0, calculatedNet - discountAmount);
+              } else if (discount.value !== null && discount.value !== undefined) {
+                const discountAmount = Math.min(Number(discount.value), calculatedNet);
+                calculatedNet = Math.max(0, calculatedNet - discountAmount);
+              }
+            }
+
+            // If no discounts exist, netBonus should equal baseBonus
+            savedNetBonus = discounts.length > 0 ? roundCurrency(calculatedNet) : savedBaseBonus;
+          }
+
           mergedBonuses.push({
             ...savedBonus,
+            // Override netBonus with correctly calculated value
+            netBonus: savedNetBonus,
             users: savedBonus.users || allEligibleUserRefs,
             // Ensure position is set (from payroll snapshot or user current)
             position:
@@ -1394,7 +1660,8 @@ export class BonusService {
             month: currentPeriod.month,
             performanceLevel: liveBonus.performanceLevel,
             baseBonus: liveBonus.baseBonus,
-            netBonus: liveBonus.netBonus || liveBonus.baseBonus, // Use calculated netBonus
+            // Use nullish coalescing (??) to allow 0 as valid value (e.g., performanceLevel=0)
+            netBonus: liveBonus.netBonus ?? liveBonus.baseBonus,
             weightedTasks: liveData.totalWeightedTasks,
             averageTaskPerUser: liveData.averageTasksPerEmployee,
             payrollId: null,
@@ -1589,7 +1856,9 @@ export class BonusService {
 
             // Eligible users get calculated values, non-eligible get 0
             const baseBonus = isEligible ? eligibleBonus.baseBonus : 0;
-            const netBonus = isEligible ? eligibleBonus.netBonus || eligibleBonus.baseBonus : 0;
+            // Use nullish coalescing (??) to allow 0 as valid value
+            // Only fall back to baseBonus if netBonus is null/undefined
+            const netBonus = isEligible ? (eligibleBonus.netBonus ?? eligibleBonus.baseBonus) : 0;
             const suspendedTasksDiscount = isEligible ? eligibleBonus.suspendedTasksDiscount : 0;
 
             // All users share the same period-level data
@@ -1658,6 +1927,10 @@ export class BonusService {
                   bonusDiscountId: discount.id,
                 },
               });
+
+              // CRITICAL: Recalculate netBonus after discount creation
+              // This ensures netBonus is correctly calculated based on all discounts
+              await this.recalculateNetBonus(bonusId, tx);
 
               this.logger.debug(
                 `Created "Tarefas Suspensas" discount for user ${user.name}: R$ ${suspendedTasksDiscount.toFixed(2)} (${suspendedTaskIds.length} tasks)`,

@@ -511,47 +511,6 @@ export class PpeController {
     return this.ppeDeliveryService.findAvailablePpeForUser(targetUserId, ppeType, query.include);
   }
 
-  @Get('deliveries/:id')
-  @Roles(
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.EXTERNAL,
-  )
-  async getPpeDeliveryById(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(ppeDeliveryGetByIdSchema)) query: PpeDeliveryGetByIdFormData,
-    @UserId() userId: string,
-  ): Promise<PpeDeliveryGetUniqueResponse> {
-    return this.ppeDeliveryService.findById(id, query.include);
-  }
-
-  @Put('deliveries/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async updatePpeDelivery(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(ppeDeliveryUpdateSchema)) data: PpeDeliveryUpdateFormData,
-    @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
-    @UserId() userId: string,
-  ): Promise<PpeDeliveryUpdateResponse> {
-    return this.ppeDeliveryService.update(id, data, query.include, userId);
-  }
-
-  @Delete('deliveries/:id')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
-  async deletePpeDelivery(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<PpeDeliveryDeleteResponse> {
-    return this.ppeDeliveryService.delete(id, userId);
-  }
-
   @Get('deliveries/stats')
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,
@@ -692,6 +651,51 @@ export class PpeController {
       statusOrder: 1,
     };
     return this.ppeDeliveryService.create(requestData, query.include, userId);
+  }
+
+  // =====================
+  // SINGLE DELIVERY OPERATIONS (must be after static routes to avoid route conflicts)
+  // =====================
+
+  @Get('deliveries/:id')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getPpeDeliveryById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodQueryValidationPipe(ppeDeliveryGetByIdSchema)) query: PpeDeliveryGetByIdFormData,
+    @UserId() userId: string,
+  ): Promise<PpeDeliveryGetUniqueResponse> {
+    return this.ppeDeliveryService.findById(id, query.include);
+  }
+
+  @Put('deliveries/:id')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async updatePpeDelivery(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(ppeDeliveryUpdateSchema)) data: PpeDeliveryUpdateFormData,
+    @Query(new ZodQueryValidationPipe(ppeDeliveryQuerySchema)) query: PpeDeliveryQueryFormData,
+    @UserId() userId: string,
+  ): Promise<PpeDeliveryUpdateResponse> {
+    return this.ppeDeliveryService.update(id, data, query.include, userId);
+  }
+
+  @Delete('deliveries/:id')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  async deletePpeDelivery(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UserId() userId: string,
+  ): Promise<PpeDeliveryDeleteResponse> {
+    return this.ppeDeliveryService.delete(id, userId);
   }
 
   /* COMMENTED OUT: PPE CONFIG OPERATIONS - PPE config now in Item model
