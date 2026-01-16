@@ -8,9 +8,9 @@ import { createReadStream } from 'fs';
 import * as bcrypt from 'bcrypt';
 
 // Import validation utilities for data quality
-import { isValidCPF, isValidCNPJ, isValidPhone } from './src/utils/validators';
+import { isValidCPF, isValidCNPJ, isValidPhone } from '../../src/utils/validators';
 
-// Import enums and sort orders from constants (ADAPTED: using local constants instead of package)
+// Import enums and sort orders from constants
 import {
   USER_STATUS,
   SECTOR_PRIVILEGES,
@@ -28,7 +28,7 @@ import {
   TaxType,
   TaxCalculationMethod,
   NotificationChannel,
-} from './src/constants/enums';
+} from '../../src/constants/enums';
 
 import {
   USER_STATUS_ORDER,
@@ -41,7 +41,7 @@ import {
   XYZ_CATEGORY_ORDER,
   ITEM_CATEGORY_TYPE_ORDER,
   BONUS_STATUS_ORDER,
-} from './src/constants/sortOrders';
+} from '../../src/constants/sortOrders';
 
 const prisma = new PrismaClient();
 
@@ -335,7 +335,7 @@ function cleanTruckBrandName(brandName: string): string {
 // Read CSV file with improved error handling
 // Returns empty array if file not found or parsing fails
 async function readCSV(filename: string): Promise<CSVRow[]> {
-  const filePath = path.join('./prisma/seeds/csv', filename);
+  const filePath = path.join(__dirname, 'csv', filename);
   const results: CSVRow[] = [];
 
   return new Promise((resolve, reject) => {
