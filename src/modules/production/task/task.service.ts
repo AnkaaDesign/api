@@ -1915,38 +1915,42 @@ export class TaskService {
           this.logger.log(`  - newArtworkStatuses: ${JSON.stringify(newArtworkStatuses)}`);
           this.logger.log(`  - files.artworks: ${files.artworks?.length || 0} files`);
 
-          // SAFEGUARD: If artworkStatuses is provided but fileIdsFromRequest is missing/empty,
-          // this indicates a frontend state bug - fetch current artwork File IDs to prevent data loss
+          // SAFEGUARD: Only restore artworks if artworkStatuses was provided but artworkIds was completely missing (undefined).
+          // If artworkIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
+          // The frontend now cleans up artworkStatuses when files are removed, so this safeguard
+          // should only trigger in edge cases where frontend sends status changes without file IDs.
           const hasArtworkStatusChanges = artworkStatuses && Object.keys(artworkStatuses).length > 0;
-          const artworkIdsAreMissing = fileIdsFromRequest === undefined || fileIdsFromRequest.length === 0;
+          const artworkIdsWasNotSent = fileIdsFromRequest === undefined;
+          const artworkIdsIsEmptyArray = Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
 
-          if (hasArtworkStatusChanges && artworkIdsAreMissing) {
+          // Only restore if artworkIds was completely missing (undefined), NOT if it was explicitly sent as empty array
+          if (hasArtworkStatusChanges && artworkIdsWasNotSent) {
             this.logger.warn(
-              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds is ${fileIdsFromRequest === undefined ? 'undefined' : 'empty array'}. Fetching current artworks to prevent data loss.`
+              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds was NOT sent (undefined). Fetching current artworks to prevent data loss.`
             );
             const currentTask = await tx.task.findUnique({
               where: { id },
               include: { artworks: { select: { fileId: true, id: true } } },
             });
             if (currentTask && currentTask.artworks && currentTask.artworks.length > 0) {
-              // Initialize array if undefined
-              if (fileIdsFromRequest === undefined) {
-                fileIdsFromRequest = [];
-              }
+              // Initialize array since it was undefined
+              fileIdsFromRequest = [];
               // Restore File IDs from current artworks
               const currentFileIds = currentTask.artworks.map(a => a.fileId);
               fileIdsFromRequest.push(...currentFileIds);
               this.logger.log(
                 `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} artwork File IDs: [${fileIdsFromRequest.join(', ')}]`
               );
-              this.logger.log(
-                `[Task Update] 🛡️ SAFEGUARD: Current task has ${currentTask.artworks.length} artworks (IDs: ${currentTask.artworks.map(a => a.id).join(', ')})`
-              );
             } else {
               this.logger.warn(
-                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore. This might be intentional removal.`
+                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore.`
               );
             }
+          } else if (artworkIdsIsEmptyArray) {
+            // Empty array was explicitly sent - this is intentional removal, log and allow it
+            this.logger.log(
+              `[Task Update] 📋 artworkIds is empty array (intentional removal). hasArtworkStatusChanges: ${hasArtworkStatusChanges}, artworkStatuses entries: ${Object.keys(artworkStatuses || {}).length}`
+            );
           }
 
           if (

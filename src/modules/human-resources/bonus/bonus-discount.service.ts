@@ -6,11 +6,14 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  forwardRef,
+  Inject,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { BonusDiscountRepository } from './repositories/bonus-discount/bonus-discount.repository';
+import { BonusService } from './bonus.service';
 import { CHANGE_TRIGGERED_BY, ENTITY_TYPE, CHANGE_ACTION } from '../../../constants/enums';
 import {
   trackFieldChanges,
@@ -61,6 +64,8 @@ export class BonusDiscountService {
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly bonusDiscountRepository: BonusDiscountRepository,
+    @Inject(forwardRef(() => BonusService))
+    private readonly bonusService: BonusService,
   ) {}
 
   /**
@@ -377,6 +382,10 @@ export class BonusDiscountService {
           `Created bonus discount ${discount.id} for bonus ${data.bonusId}${suspendedTaskIds && suspendedTaskIds.length > 0 ? ` with ${suspendedTaskIds.length} suspended tasks` : ''}`,
         );
 
+        // CRITICAL: Recalculate netBonus after adding a discount
+        // This ensures the bonus.netBonus field is always accurate
+        await this.bonusService.recalculateNetBonus(data.bonusId, transaction);
+
         // Return discount with suspended tasks
         return this.findByIdOrThrow(discount.id, {
           bonus: true,
@@ -532,6 +541,10 @@ export class BonusDiscountService {
           `Updated bonus discount ${id}${suspendedTasksChanged ? ` with ${suspendedTaskIds?.length || 0} suspended tasks` : ''}`,
         );
 
+        // CRITICAL: Recalculate netBonus after updating a discount
+        // This ensures the bonus.netBonus field is always accurate
+        await this.bonusService.recalculateNetBonus(currentDiscount.bonusId, transaction);
+
         // Return updated discount with suspended tasks
         return this.findByIdOrThrow(id, {
           bonus: true,
@@ -626,6 +639,9 @@ export class BonusDiscountService {
           throw new NotFoundException(`Desconto com ID ${id} não foi encontrado`);
         }
 
+        // Store bonusId before deletion for recalculation
+        const bonusId = currentDiscount.bonusId;
+
         // Delete the discount
         await this.bonusDiscountRepository.deleteWithTransaction(transaction, id);
 
@@ -642,6 +658,10 @@ export class BonusDiscountService {
         });
 
         this.logger.log(`Deleted bonus discount ${id}`);
+
+        // CRITICAL: Recalculate netBonus after deleting a discount
+        // This ensures the bonus.netBonus field is always accurate
+        await this.bonusService.recalculateNetBonus(bonusId, transaction);
 
         return {
           success: true,
@@ -849,6 +869,10 @@ export class BonusDiscountService {
           `Updated calculation order for ${orderUpdates.length} discounts in bonus ${bonusId}`,
         );
 
+        // CRITICAL: Recalculate netBonus after reordering discounts
+        // Order matters for percentage vs fixed value discount application
+        await this.bonusService.recalculateNetBonus(bonusId, transaction);
+
         return updatedDiscounts;
       } catch (error) {
         this.logger.error(`Error updating calculation order for bonus ${bonusId}:`, error);
@@ -955,6 +979,10 @@ export class BonusDiscountService {
 
         this.logger.log(`Added suspended task ${taskId} to bonus discount ${bonusDiscountId}`);
 
+        // CRITICAL: Recalculate netBonus after adding suspended task
+        // This ensures consistency even if future logic considers suspended task count
+        await this.bonusService.recalculateNetBonus(currentDiscount.bonusId, transaction);
+
         // Fetch updated discount with all relations
         return this.findByIdOrThrow(bonusDiscountId, {
           bonus: true,
@@ -1049,6 +1077,10 @@ export class BonusDiscountService {
         });
 
         this.logger.log(`Removed suspended task ${taskId} from bonus discount ${bonusDiscountId}`);
+
+        // CRITICAL: Recalculate netBonus after removing suspended task
+        // This ensures consistency even if future logic considers suspended task count
+        await this.bonusService.recalculateNetBonus(currentDiscount.bonusId, transaction);
 
         return updatedDiscount!;
       } catch (error) {
@@ -1272,6 +1304,10 @@ export class BonusDiscountService {
         }
 
         this.logger.log(`Deleted ${deletedCount} discounts for bonus ${bonusId}`);
+
+        // CRITICAL: Recalculate netBonus after deleting all discounts
+        // netBonus should now equal baseBonus
+        await this.bonusService.recalculateNetBonus(bonusId, transaction);
 
         return deletedCount;
       } catch (error) {

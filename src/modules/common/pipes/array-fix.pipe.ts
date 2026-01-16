@@ -78,6 +78,13 @@ export class ArrayFixPipe implements PipeTransform {
     // Recursively fix nested objects
     const fixed: any = {};
     for (const [key, value] of Object.entries(obj)) {
+      // Handle _empty suffix convention from FormData
+      // When frontend sends "fieldName_empty: true", convert to "fieldName: []"
+      if (key.endsWith('_empty') && value === 'true') {
+        const actualKey = key.slice(0, -6); // Remove '_empty' suffix
+        fixed[actualKey] = [];
+        continue;
+      }
       fixed[key] = this.fixArrays(value, key);
     }
 
