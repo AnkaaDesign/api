@@ -34,6 +34,31 @@ export class ServiceOrderListener {
   }
 
   /**
+   * Get notification metadata for a task including web and mobile deep links
+   * Returns actionUrl (web) and metadata with all link types for channel-specific routing
+   *
+   * @param taskId - Task ID to generate links for
+   * @returns Object with actionUrl and metadata containing all link types
+   */
+  private getTaskNotificationMetadata(taskId: string): { actionUrl: string; metadata: any } {
+    // Generate status-agnostic web URL (default to agenda)
+    const webUrl = `/producao/agenda/detalhes/${taskId}`;
+
+    // Generate deep links for mobile and universal linking
+    const deepLinks = this.deepLinkService.generateTaskLinks(taskId);
+
+    return {
+      actionUrl: webUrl,
+      metadata: {
+        webUrl,
+        mobileUrl: deepLinks.mobile,
+        universalLink: deepLinks.universalLink,
+        taskId,
+      },
+    };
+  }
+
+  /**
    * Handle service order creation event
    * Notify: ADMIN users only (other sectors see service orders when assigned)
    * Channels: IN_APP, PUSH, WHATSAPP (mandatory)
@@ -76,11 +101,8 @@ export class ServiceOrderListener {
       const creatorName = serviceOrderWithCreator?.createdBy?.name || 'Alguém';
       const creatorId = serviceOrderWithCreator?.createdById;
 
-      // Create deep link to task (service orders are viewed within the task)
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // Only notify ADMIN users for new service orders
       const adminUsers = await this.prisma.user.findMany({
@@ -117,14 +139,14 @@ export class ServiceOrderListener {
           ],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: deepLink,
+          actionUrl,
           relatedEntityType: 'SERVICE_ORDER',
           relatedEntityId: serviceOrder.id,
           isMandatory: true,
           metadata: {
+            ...linkMetadata,
             serviceOrderId: serviceOrder.id,
             serviceOrderType: serviceOrder.type,
-            taskId: serviceOrder.taskId,
             taskIdentifier,
             createdBy: creatorName,
             eventType: 'created',
@@ -170,11 +192,8 @@ export class ServiceOrderListener {
 
       const assignedUserName = assignedUser?.name || 'Usuário';
 
-      // Create deep link to task (service orders are viewed within the task)
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // 1. Notify the assigned user
       await this.notificationService.createNotification({
@@ -190,14 +209,14 @@ export class ServiceOrderListener {
         ],
         importance: NOTIFICATION_IMPORTANCE.HIGH,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
-        actionUrl: deepLink,
+        actionUrl,
         relatedEntityType: 'SERVICE_ORDER',
         relatedEntityId: serviceOrder.id,
         isMandatory: true, // Cannot be disabled
         metadata: {
+          ...linkMetadata,
           serviceOrderId: serviceOrder.id,
           serviceOrderType: serviceOrder.type,
-          taskId: serviceOrder.taskId,
           taskIdentifier,
           eventType: 'assigned',
         },
@@ -238,14 +257,14 @@ export class ServiceOrderListener {
           ],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: deepLink,
+          actionUrl,
           relatedEntityType: 'SERVICE_ORDER',
           relatedEntityId: serviceOrder.id,
           isMandatory: true,
           metadata: {
+            ...linkMetadata,
             serviceOrderId: serviceOrder.id,
             serviceOrderType: serviceOrder.type,
-            taskId: serviceOrder.taskId,
             taskIdentifier,
             assignedTo: assignedUserName,
             assignedToId,
@@ -317,11 +336,8 @@ export class ServiceOrderListener {
       const approvedByName = serviceOrderWithRelations.approvedBy?.name || null;
       const taskIdentifier = task.serialNumber || task.name || 'Task';
 
-      // Create deep link to task (service orders are viewed within the task)
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // 1. Notify the creator
       await this.notificationService.createNotification({
@@ -337,14 +353,14 @@ export class ServiceOrderListener {
         ],
         importance: NOTIFICATION_IMPORTANCE.NORMAL,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
-        actionUrl: deepLink,
+        actionUrl,
         relatedEntityType: 'SERVICE_ORDER',
         relatedEntityId: serviceOrder.id,
         isMandatory: true, // Cannot be disabled
         metadata: {
+          ...linkMetadata,
           serviceOrderId: serviceOrder.id,
           serviceOrderType: serviceOrder.type,
-          taskId: serviceOrder.taskId,
           taskIdentifier,
           status: SERVICE_ORDER_STATUS.COMPLETED,
           completedBy: completedByName,
@@ -389,14 +405,14 @@ export class ServiceOrderListener {
           ],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: deepLink,
+          actionUrl,
           relatedEntityType: 'SERVICE_ORDER',
           relatedEntityId: serviceOrder.id,
           isMandatory: true,
           metadata: {
+            ...linkMetadata,
             serviceOrderId: serviceOrder.id,
             serviceOrderType: serviceOrder.type,
-            taskId: serviceOrder.taskId,
             taskIdentifier,
             status: SERVICE_ORDER_STATUS.COMPLETED,
             completedBy: completedByName,
@@ -435,11 +451,8 @@ export class ServiceOrderListener {
 
       const taskIdentifier = task?.serialNumber || task?.name || 'Task';
 
-      // Create deep link to task (service orders are viewed within the task)
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // Get all admin users
       const admins = await this.prisma.user.findMany({
@@ -468,15 +481,15 @@ export class ServiceOrderListener {
         ],
         importance: NOTIFICATION_IMPORTANCE.HIGH,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
-        actionUrl: deepLink,
+        actionUrl,
         relatedEntityType: 'SERVICE_ORDER',
         relatedEntityId: serviceOrder.id,
         targetSectors: [SECTOR_PRIVILEGES.ADMIN],
         isMandatory: true, // Cannot be disabled
         metadata: {
+          ...linkMetadata,
           serviceOrderId: serviceOrder.id,
           serviceOrderType: SERVICE_ORDER_TYPE.ARTWORK,
-          taskId: serviceOrder.taskId,
           taskIdentifier,
           status: SERVICE_ORDER_STATUS.WAITING_APPROVE,
         },
@@ -548,11 +561,8 @@ export class ServiceOrderListener {
         changedByName = changedByUser?.name || 'Alguém';
       }
 
-      // Create deep link to task (service orders are viewed within the task)
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // Get status labels for display
       const oldStatusLabel = SERVICE_ORDER_STATUS_LABELS[oldStatus] || oldStatus;
@@ -577,9 +587,9 @@ export class ServiceOrderListener {
 
       // Build base metadata with all user tracking info
       const baseMetadata: any = {
+        ...linkMetadata,
         serviceOrderId: serviceOrder.id,
         serviceOrderType: serviceOrder.type,
-        taskId: serviceOrder.taskId,
         taskIdentifier,
         oldStatus,
         newStatus,
@@ -618,7 +628,7 @@ export class ServiceOrderListener {
             ],
             importance,
             actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: deepLink,
+            actionUrl,
             relatedEntityType: 'SERVICE_ORDER',
             relatedEntityId: serviceOrder.id,
             isMandatory: false,
@@ -649,7 +659,7 @@ export class ServiceOrderListener {
             ],
             importance,
             actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: deepLink,
+            actionUrl,
             relatedEntityType: 'SERVICE_ORDER',
             relatedEntityId: serviceOrder.id,
             isMandatory: false,
@@ -683,7 +693,7 @@ export class ServiceOrderListener {
           ],
           importance,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: deepLink,
+          actionUrl,
           relatedEntityType: 'SERVICE_ORDER',
           relatedEntityId: serviceOrder.id,
           isMandatory: true,
@@ -748,11 +758,8 @@ export class ServiceOrderListener {
 
       const changesText = changes.length > 0 ? changes.join(', ') : 'campos';
 
-      // Create deep link to task
-      const deepLink = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Task,
-        serviceOrder.taskId,
-      );
+      // Get proper actionUrl and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
 
       // Notify the assigned user about the update
       await this.notificationService.createNotification({
@@ -767,14 +774,14 @@ export class ServiceOrderListener {
         ],
         importance: NOTIFICATION_IMPORTANCE.NORMAL,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-        actionUrl: deepLink,
+        actionUrl,
         relatedEntityType: 'SERVICE_ORDER',
         relatedEntityId: serviceOrder.id,
         isMandatory: false, // User can disable if they prefer
         metadata: {
+          ...linkMetadata,
           serviceOrderId: serviceOrder.id,
           serviceOrderType: serviceOrder.type,
-          taskId: serviceOrder.taskId,
           taskIdentifier,
           changedBy: changedByName,
           changedFields: changes,
@@ -809,14 +816,14 @@ export class ServiceOrderListener {
             ],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: deepLink,
+            actionUrl,
             relatedEntityType: 'SERVICE_ORDER',
             relatedEntityId: serviceOrder.id,
             isMandatory: false,
             metadata: {
+              ...linkMetadata,
               serviceOrderId: serviceOrder.id,
               serviceOrderType: serviceOrder.type,
-              taskId: serviceOrder.taskId,
               taskIdentifier,
               changedBy: changedByName,
               changedFields: changes,
