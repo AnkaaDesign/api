@@ -77,7 +77,7 @@ export class ServiceOrderListener {
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true, serialNumber: true },
+        select: { name: true, serialNumber: true, customer: { select: { fantasyName: true } } },
       });
 
       if (!task) {
@@ -85,7 +85,7 @@ export class ServiceOrderListener {
         return;
       }
 
-      const taskIdentifier = task.serialNumber || task.name || 'Task';
+      const taskIdentifier = task.name || task.customer?.fantasyName || task.serialNumber || 'Tarefa';
 
       // Get service order with creator information
       const serviceOrderWithCreator = await this.prisma.serviceOrder.findUnique({
@@ -179,10 +179,10 @@ export class ServiceOrderListener {
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true, serialNumber: true },
+        select: { name: true, serialNumber: true, customer: { select: { fantasyName: true } } },
       });
 
-      const taskIdentifier = task?.serialNumber || task?.name || 'Task';
+      const taskIdentifier = task?.name || task?.customer?.fantasyName || task?.serialNumber || 'Tarefa';
 
       // Get assigned user info
       const assignedUser = await this.prisma.user.findUnique({
@@ -299,6 +299,7 @@ export class ServiceOrderListener {
         select: {
           name: true,
           serialNumber: true,
+          customer: { select: { fantasyName: true } },
         },
       });
 
@@ -334,7 +335,7 @@ export class ServiceOrderListener {
       const completedByName = serviceOrderWithRelations.completedBy?.name || 'Alguém';
       const startedByName = serviceOrderWithRelations.startedBy?.name || null;
       const approvedByName = serviceOrderWithRelations.approvedBy?.name || null;
-      const taskIdentifier = task.serialNumber || task.name || 'Task';
+      const taskIdentifier = task.name || task.customer?.fantasyName || task.serialNumber || 'Tarefa';
 
       // Get proper actionUrl and metadata for the task
       const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
@@ -446,10 +447,10 @@ export class ServiceOrderListener {
       // Get task information
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true, serialNumber: true },
+        select: { name: true, serialNumber: true, customer: { select: { fantasyName: true } } },
       });
 
-      const taskIdentifier = task?.serialNumber || task?.name || 'Task';
+      const taskIdentifier = task?.name || task?.customer?.fantasyName || task?.serialNumber || 'Tarefa';
 
       // Get proper actionUrl and metadata for the task
       const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(serviceOrder.taskId);
@@ -525,7 +526,7 @@ export class ServiceOrderListener {
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true, serialNumber: true },
+        select: { name: true, serialNumber: true, customer: { select: { fantasyName: true } } },
       });
 
       if (!task) {
@@ -533,7 +534,7 @@ export class ServiceOrderListener {
         return;
       }
 
-      const taskIdentifier = task.serialNumber || task.name || 'Task';
+      const taskIdentifier = task.name || task.customer?.fantasyName || task.serialNumber || 'Tarefa';
 
       // Get service order with all user relations for metadata
       const serviceOrderWithUsers = await this.prisma.serviceOrder.findUnique({
@@ -727,7 +728,7 @@ export class ServiceOrderListener {
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: serviceOrder.taskId },
-        select: { name: true, serialNumber: true },
+        select: { name: true, serialNumber: true, customer: { select: { fantasyName: true } } },
       });
 
       if (!task) {
@@ -735,7 +736,7 @@ export class ServiceOrderListener {
         return;
       }
 
-      const taskIdentifier = task.serialNumber || task.name || 'Task';
+      const taskIdentifier = task.name || task.customer?.fantasyName || task.serialNumber || 'Tarefa';
 
       // Get user who made the change
       const changedByUser = await this.prisma.user.findUnique({
