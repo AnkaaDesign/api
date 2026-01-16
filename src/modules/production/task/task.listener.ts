@@ -288,6 +288,9 @@ export class TaskListener {
         ? config.messages.cleared
         : config.messages.updated;
 
+      // Get task identifier for the notification title
+      const taskIdentifier = event.task.serialNumber || event.task.name || 'Tarefa';
+
       // Create notifications for all target users
       for (const userId of targetUsers) {
         // Use just the field name to match user preference event type
@@ -312,13 +315,16 @@ export class TaskListener {
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: config.importance,
-          title: `Tarefa atualizada: ${config.label}`,
+          title: `Tarefa atualizada: ${taskIdentifier}`,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
           relatedEntityId: event.task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            fieldLabel: config.label,
+          },
           channel: channels,
         });
       }
@@ -396,6 +402,9 @@ export class TaskListener {
         messageVars.newValue = newValueFormatted;
       }
 
+      // Get task identifier for the notification title
+      const taskIdentifier = event.task.serialNumber || event.task.name || 'Tarefa';
+
       // Create notifications for all target users
       for (const userId of targetUsers) {
         // Use just the field name to match user preference event type
@@ -414,13 +423,16 @@ export class TaskListener {
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: config.importance,
-          title: `Tarefa atualizada: ${config.label}`,
+          title: `Tarefa atualizada: ${taskIdentifier}`,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
           relatedEntityId: event.task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            fieldLabel: config.label,
+          },
           channel: channels,
         });
       }
