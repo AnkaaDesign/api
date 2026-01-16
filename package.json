@@ -34,6 +34,8 @@
     "db:migrate:reset": "prisma migrate reset",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
+    "db:seed": "npx tsx prisma/seeds/seed-database.ts",
+    "seed": "npx tsx prisma/seeds/seed-database.ts",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v && docker compose up -d",
