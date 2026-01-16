@@ -65,6 +65,8 @@ export class TaskPricingPrismaRepository
     formData: TaskPricingCreateFormData,
   ): Prisma.TaskPricingCreateInput {
     const createInput: Prisma.TaskPricingCreateInput = {
+      // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
+      budgetNumber: 0,
       subtotal: formData.subtotal || 0,
       discountType: (formData.discountType as any) || 'NONE',
       discountValue: formData.discountValue || null,
@@ -179,6 +181,15 @@ export class TaskPricingPrismaRepository
   ): Promise<TaskPricing> {
     const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+
+    // Generate budgetNumber - required field that must be auto-generated
+    const maxBudgetNumber = await transaction.taskPricing.aggregate({
+      _max: { budgetNumber: true },
+    });
+    const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+    // Inject budgetNumber into create input
+    (createInput as any).budgetNumber = nextBudgetNumber;
 
     const created = await transaction.taskPricing.create({
       data: createInput,

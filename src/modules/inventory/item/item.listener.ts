@@ -3,6 +3,10 @@ import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
 import {
+  DeepLinkService,
+  DeepLinkEntity,
+} from '@modules/common/notification/deep-link.service';
+import {
   ItemLowStockEvent,
   ItemOutOfStockEvent,
   ItemReorderRequiredEvent,
@@ -31,6 +35,7 @@ export class ItemListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly deepLinkService: DeepLinkService,
   ) {
     this.registerEventListeners();
   }
@@ -168,7 +173,10 @@ export class ItemListener {
       const itemDetails = this.formatItemDetails(item);
       const title = `Estoque Baixo: ${item.name}`;
       const body = `O item "${item.name}" está com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposição.`;
-      const actionUrl = `/inventory/items/${item.id}`;
+      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Item,
+        item.id,
+      );
 
       await this.createNotificationsForUsers(
         targetUsers,
@@ -217,7 +225,10 @@ export class ItemListener {
 
       const title = `Estoque Esgotado: ${item.name}`;
       const body = `O item "${item.name}" está ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAção urgente necessária para repor o item.`;
-      const actionUrl = `/inventory/items/${item.id}`;
+      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Item,
+        item.id,
+      );
 
       await this.createNotificationsForUsers(
         targetUsers,
@@ -271,7 +282,10 @@ export class ItemListener {
 
       const title = `Recompra Necessária: ${item.name}`;
       const body = `O item "${item.name}" requer recompra.${itemDetails}${supplierInfo}${leadTimeInfo}\n\nEstoque atual: ${event.currentQuantity} unidades\nQuantidade sugerida para pedido: ${event.reorderQuantity} unidades\n\nRealize o pedido de compra.`;
-      const actionUrl = `/inventory/items/${item.id}`;
+      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Item,
+        item.id,
+      );
 
       await this.createNotificationsForUsers(
         targetUsers,
@@ -319,7 +333,10 @@ export class ItemListener {
 
       const title = `Excesso de Estoque: ${item.name}`;
       const body = `O item "${item.name}" está com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque máximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possíveis desperdícios ou ajuste o estoque máximo.`;
-      const actionUrl = `/inventory/items/${item.id}`;
+      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
+        DeepLinkEntity.Item,
+        item.id,
+      );
 
       await this.createNotificationsForUsers(
         targetUsers,
