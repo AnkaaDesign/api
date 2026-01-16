@@ -60,7 +60,7 @@ export class CacheService implements OnModuleDestroy {
    * Get object from cache (JSON)
    */
   async getObject<T>(key: string): Promise<T | null> {
-    const value = await this.get(key);
+    const value = await this.redis.get(key);
     if (!value) return null;
 
     try {

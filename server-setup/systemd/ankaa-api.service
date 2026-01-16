@@ -8,12 +8,14 @@ Wants=postgresql.service redis.service
 Type=simple
 User=kennedy
 Group=ankaa
-WorkingDirectory=/home/kennedy/ankaa/api
+WorkingDirectory=/home/kennedy/repositories/api
 
 # Environment
 Environment=NODE_ENV=production
 Environment=PORT=3030
-EnvironmentFile=/home/kennedy/ankaa/api/.env.production
+# Node.js memory optimization - allow up to 4GB heap for smooth performance
+Environment=NODE_OPTIONS="--max-old-space-size=4096"
+EnvironmentFile=/home/kennedy/repositories/api/.env.production
 
 # Node.js executable
 ExecStart=/usr/bin/node dist/main.js
@@ -24,26 +26,16 @@ RestartSec=10
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
-# Resource limits
+# Resource limits - Server has 29GB RAM, max 20 users
+# Generous limits for fluid performance
 LimitNOFILE=65535
-MemoryMax=2G
-CPUQuota=200%
+MemoryMax=12G
+MemorySwapMax=4G
+CPUQuota=400%
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=read-only
-PrivateTmp=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-
-# Allow write access to specific directories
-ReadWritePaths=/home/kennedy/ankaa/api/uploads
-ReadWritePaths=/home/kennedy/ankaa/api/logs
-ReadWritePaths=/srv/files
+# Note: Security hardening (ProtectHome, PrivateTmp, etc.) has been removed
+# because it interferes with Chrome/Puppeteer used by WhatsApp integration.
+# Chrome requires write access to ~/.local, ~/.config, and ~/.cache directories.
 
 # Logging
 StandardOutput=journal

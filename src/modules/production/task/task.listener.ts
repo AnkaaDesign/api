@@ -288,8 +288,8 @@ export class TaskListener {
         ? config.messages.cleared
         : config.messages.updated;
 
-      // Get task identifier for the notification title
-      const taskIdentifier = event.task.serialNumber || event.task.name || 'Tarefa';
+      // Get task identifier for the notification title (prefer name, then customer fantasyName, then serialNumber)
+      const taskIdentifier = event.task.name || event.task.customer?.fantasyName || event.task.serialNumber || 'Tarefa';
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
@@ -402,8 +402,8 @@ export class TaskListener {
         messageVars.newValue = newValueFormatted;
       }
 
-      // Get task identifier for the notification title
-      const taskIdentifier = event.task.serialNumber || event.task.name || 'Tarefa';
+      // Get task identifier for the notification title (prefer name, then customer fantasyName, then serialNumber)
+      const taskIdentifier = event.task.name || event.task.customer?.fantasyName || event.task.serialNumber || 'Tarefa';
 
       // Create notifications for all target users
       for (const userId of targetUsers) {
