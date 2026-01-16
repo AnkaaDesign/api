@@ -8,7 +8,8 @@
       "Read(//home/kennedy/repositories/web/**)",
       "Bash(git rebase:*)",
       "Bash(git rm:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(npx tsx:*)"
     ],
     "deny": [],
     "ask": []
