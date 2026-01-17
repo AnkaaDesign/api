@@ -2043,13 +2043,10 @@ enum NotificationImportance {
 }
 
 enum NotificationChannel {
-  EMAIL
-  SMS
-  PUSH
   IN_APP
+  PUSH
+  EMAIL
   WHATSAPP
-  DESKTOP_PUSH
-  MOBILE_PUSH
 }
 
 enum Platform {

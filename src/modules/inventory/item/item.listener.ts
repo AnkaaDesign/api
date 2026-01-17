@@ -82,6 +82,28 @@ export class ItemListener {
   }
 
   /**
+   * Generate item notification metadata with proper deep links
+   * Similar to task notification metadata pattern
+   * @param itemId - The item identifier
+   * @returns Object with actionUrl and metadata containing all link types
+   */
+  private getItemNotificationMetadata(itemId: string): { actionUrl: string; metadata: any } {
+    // Generate deep links for mobile and universal linking
+    const deepLinks = this.deepLinkService.generateItemLinks(itemId);
+
+    // Return actionUrl (web) and comprehensive metadata
+    return {
+      actionUrl: deepLinks.web,  // Web URL for backward compatibility
+      metadata: {
+        webUrl: deepLinks.web,                  // Web route
+        mobileUrl: deepLinks.mobile,            // Mobile app deep link (custom scheme)
+        universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
+        itemId,                                 // For reference
+      },
+    };
+  }
+
+  /**
    * Create notifications for multiple users
    */
   private async createNotificationsForUsers(
@@ -89,6 +111,7 @@ export class ItemListener {
     title: string,
     body: string,
     actionUrl: string,
+    metadata: any,
     importance: NOTIFICATION_IMPORTANCE = NOTIFICATION_IMPORTANCE.NORMAL,
   ): Promise<void> {
     try {
@@ -105,6 +128,7 @@ export class ItemListener {
         importance,
         actionUrl,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
+        metadata,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
       }));
@@ -173,16 +197,16 @@ export class ItemListener {
       const itemDetails = this.formatItemDetails(item);
       const title = `Estoque Baixo: ${item.name}`;
       const body = `O item "${item.name}" está com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposição.`;
-      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Item,
-        item.id,
-      );
+
+      // Generate proper notification metadata with web, mobile, and universal links
+      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
 
       await this.createNotificationsForUsers(
         targetUsers,
         title,
         body,
         actionUrl,
+        metadata,
         NOTIFICATION_IMPORTANCE.NORMAL,
       );
     } catch (error) {
@@ -225,16 +249,16 @@ export class ItemListener {
 
       const title = `Estoque Esgotado: ${item.name}`;
       const body = `O item "${item.name}" está ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAção urgente necessária para repor o item.`;
-      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Item,
-        item.id,
-      );
+
+      // Generate proper notification metadata with web, mobile, and universal links
+      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
 
       await this.createNotificationsForUsers(
         targetUsers,
         title,
         body,
         actionUrl,
+        metadata,
         NOTIFICATION_IMPORTANCE.HIGH,
       );
     } catch (error) {
@@ -282,16 +306,16 @@ export class ItemListener {
 
       const title = `Recompra Necessária: ${item.name}`;
       const body = `O item "${item.name}" requer recompra.${itemDetails}${supplierInfo}${leadTimeInfo}\n\nEstoque atual: ${event.currentQuantity} unidades\nQuantidade sugerida para pedido: ${event.reorderQuantity} unidades\n\nRealize o pedido de compra.`;
-      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Item,
-        item.id,
-      );
+
+      // Generate proper notification metadata with web, mobile, and universal links
+      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
 
       await this.createNotificationsForUsers(
         targetUsers,
         title,
         body,
         actionUrl,
+        metadata,
         NOTIFICATION_IMPORTANCE.NORMAL,
       );
     } catch (error) {
@@ -333,16 +357,16 @@ export class ItemListener {
 
       const title = `Excesso de Estoque: ${item.name}`;
       const body = `O item "${item.name}" está com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque máximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possíveis desperdícios ou ajuste o estoque máximo.`;
-      const actionUrl = this.deepLinkService.generateNotificationActionUrl(
-        DeepLinkEntity.Item,
-        item.id,
-      );
+
+      // Generate proper notification metadata with web, mobile, and universal links
+      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
 
       await this.createNotificationsForUsers(
         targetUsers,
         title,
         body,
         actionUrl,
+        metadata,
         NOTIFICATION_IMPORTANCE.LOW,
       );
     } catch (error) {

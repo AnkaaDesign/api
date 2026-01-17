@@ -105,6 +105,7 @@ export class TaskNotificationService {
       taskStatus: string;
       changes: TaskFieldChange[];
       userId: string;
+      actorId?: string;
       firstChangeAt: Date;
       timeoutId: NodeJS.Timeout;
     }
@@ -195,7 +196,8 @@ export class TaskNotificationService {
    * @param task - Updated task
    * @param changes - Array of field changes
    * @param userId - User to notify
-   * @param changedBy - User who made the changes
+   * @param changedBy - User who made the changes (display name)
+   * @param actorId - ID of the user who performed the action (for self-action filtering)
    * @returns Array of created notification IDs
    */
   async createFieldChangeNotifications(
@@ -203,6 +205,7 @@ export class TaskNotificationService {
     changes: TaskFieldChange[],
     userId: string,
     changedBy: string,
+    actorId?: string,
   ): Promise<string[]> {
     const notificationIds: string[] = [];
 
@@ -249,6 +252,7 @@ export class TaskNotificationService {
             oldValue: change.formattedOldValue,
             newValue: change.formattedNewValue,
             changedBy,
+            actorId: actorId || undefined, // User who performed the action (for filtering)
           },
         });
 
@@ -332,7 +336,8 @@ export class TaskNotificationService {
    * @param task - Updated task
    * @param changes - Array of field changes
    * @param userId - User to notify
-   * @param changedBy - User who made the changes
+   * @param changedBy - User who made the changes (display name)
+   * @param actorId - ID of the user who performed the action (for self-action filtering)
    * @param immediate - If true, send immediately; otherwise wait for aggregation window
    */
   async aggregateFieldChanges(
@@ -340,6 +345,7 @@ export class TaskNotificationService {
     changes: TaskFieldChange[],
     userId: string,
     changedBy: string,
+    actorId?: string,
     immediate: boolean = false,
   ): Promise<void> {
     const aggregationKey = `${task.id}-${userId}`;
@@ -387,6 +393,7 @@ export class TaskNotificationService {
         taskStatus: task.status,
         changes: filteredChanges,
         userId,
+        actorId,
         firstChangeAt: new Date(),
         timeoutId,
       });
@@ -459,6 +466,7 @@ export class TaskNotificationService {
           changes: changeDetails,
           firstChangeAt: aggregation.firstChangeAt,
           sentAt: new Date(),
+          actorId: aggregation.actorId || undefined, // User who performed the action (for filtering)
         },
       });
 

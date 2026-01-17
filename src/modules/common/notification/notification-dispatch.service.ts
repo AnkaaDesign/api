@@ -557,7 +557,23 @@ export class NotificationDispatchService {
       });
 
       // Filter users based on eligibility
-      return users.filter(user => this.isUserEligible(user as User, notification)) as User[];
+      let eligibleUsers = users.filter(user => this.isUserEligible(user as User, notification)) as User[];
+
+      // ✅ CRITICAL: Filter out the actor (user who performed the action)
+      // Users should NEVER receive notifications for their own actions
+      const actorId = this.extractActorId(notification);
+      if (actorId) {
+        const initialCount = eligibleUsers.length;
+        eligibleUsers = eligibleUsers.filter(user => user.id !== actorId);
+
+        if (eligibleUsers.length < initialCount) {
+          this.logger.log(
+            `Filtered out actor ${actorId} from notification ${notification.id} recipients (self-action)`,
+          );
+        }
+      }
+
+      return eligibleUsers;
     } catch (error) {
       this.logger.error(
         `Error getting target users for notification ${notification.id}: ${error.message}`,
@@ -565,6 +581,35 @@ export class NotificationDispatchService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Extract actor ID from notification metadata
+   * The actor is the user who performed the action that triggered the notification
+   *
+   * @param notification - The notification to extract actor from
+   * @returns Actor user ID or null if not found
+   */
+  private extractActorId(notification: Notification): string | null {
+    const metadata = notification.metadata as any;
+
+    if (!metadata) {
+      return null;
+    }
+
+    // Try multiple possible fields where actor ID might be stored
+    return (
+      metadata.actorId ||
+      metadata.userId ||
+      metadata.changedById ||
+      metadata.task?.createdById ||
+      metadata.cut?.createdById ||
+      metadata.order?.createdById ||
+      metadata.vacation?.userId ||
+      metadata.warning?.userId ||
+      metadata.ppe?.userId ||
+      null
+    );
   }
 
   /**
