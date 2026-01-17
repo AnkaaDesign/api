@@ -337,8 +337,8 @@ export class StockNotificationService {
     // Build notification content
     const { title, body } = this.buildNotificationContent(metadata);
 
-    // Build deep link to item/stock page
-    const actionUrl = this.buildDeepLink(metadata.itemId);
+    // Build deep links with proper web, mobile, and universal link support
+    const deepLinks = this.deepLinkService.generateItemLinks(metadata.itemId);
 
     // Create notification for each target user
     for (const user of targetUsers) {
@@ -355,8 +355,13 @@ export class StockNotificationService {
             ],
             importance: this.getImportance(metadata.eventType),
             actionType: metadata.eventType,
-            actionUrl,
-            metadata: metadata as any,
+            actionUrl: deepLinks.web,  // Web URL for backward compatibility
+            metadata: {
+              ...(metadata as any),
+              webUrl: deepLinks.web,                  // Web route
+              mobileUrl: deepLinks.mobile,            // Mobile app deep link
+              universalLink: deepLinks.universalLink, // Universal link for mobile
+            },
           },
           { user: true },
           'system',
@@ -481,6 +486,9 @@ export class StockNotificationService {
   }
 
   /**
+   * @deprecated This method is no longer used. Deep links are now generated inline
+   * using deepLinkService.generateItemLinks() for better separation of web/mobile URLs.
+   *
    * Build deep link to item/stock page
    * Uses DeepLinkService to generate proper URLs for both web and mobile
    *

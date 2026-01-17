@@ -145,7 +145,10 @@ export class TaskListener {
           actionUrl,
           relatedEntityId: event.task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            actorId: event.createdBy.id, // User who created the task (for self-action filtering)
+          },
           channel: channels,
         });
         this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
@@ -229,7 +232,10 @@ export class TaskListener {
           actionUrl,
           relatedEntityId: event.task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            actorId: event.changedBy.id, // User who changed the status (for self-action filtering)
+          },
           channel: channels,
         });
         this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
@@ -324,6 +330,7 @@ export class TaskListener {
           metadata: {
             ...metadata,
             fieldLabel: config.label,
+            actorId: event.updatedBy.id, // User who updated the field (for self-action filtering)
           },
           channel: channels,
         });
@@ -432,6 +439,7 @@ export class TaskListener {
           metadata: {
             ...metadata,
             fieldLabel: config.label,
+            actorId: event.changedBy, // User who changed the field (for self-action filtering)
           },
           channel: channels,
         });
@@ -652,7 +660,10 @@ export class TaskListener {
           actionUrl,
           relatedEntityId: task.id,
           relatedEntityType: 'TASK',
-          metadata,
+          metadata: {
+            ...metadata,
+            actorId: changedBy.id, // User who changed status to production (for self-action filtering)
+          },
           channel: channels,
         });
         this.logger.log(`[TASK EVENT] ✅ Production notification created for user ${userId}`);

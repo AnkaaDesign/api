@@ -169,6 +169,11 @@ export class NotificationFilterService {
           return true;
         }
 
+        // Warehouse can see all production-related tasks (inventory management)
+        if (user.sector?.privileges === SECTOR_PRIVILEGES.WAREHOUSE) {
+          return true;
+        }
+
         return false;
       },
     },
@@ -867,11 +872,16 @@ export class NotificationFilterService {
    * Production notifications are sent to:
    * - ADMIN
    * - PRODUCTION sectors
+   * - WAREHOUSE sectors (inventory management for production)
    *
    * @returns Promise resolving to array of users
    */
   async getUsersForProductionNotification(): Promise<User[]> {
-    return this.getUsersForSectors([SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION]);
+    return this.getUsersForSectors([
+      SECTOR_PRIVILEGES.ADMIN,
+      SECTOR_PRIVILEGES.PRODUCTION,
+      SECTOR_PRIVILEGES.WAREHOUSE,
+    ]);
   }
 
   /**
