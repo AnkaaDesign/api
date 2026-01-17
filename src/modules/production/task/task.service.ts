@@ -2448,6 +2448,7 @@ export class TaskService {
                         taskChanges,
                         targetUserId,
                         userId,
+                        userId, // Pass userId as actorId for self-action filtering
                       );
                     }
                   }

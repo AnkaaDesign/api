@@ -13,7 +13,7 @@ import {
   SECTOR_PRIVILEGES,
   NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
-  ALERT_TYPE,
+  NOTIFICATION_TYPE,
   NOTIFICATION_ACTION_TYPE,
 } from '../../../constants/enums';
 
@@ -97,7 +97,7 @@ export class OrderListener {
         userId,
         title,
         body,
-        type: ALERT_TYPE.DELIVERY_DELAY, // Using existing ALERT_TYPE for orders
+        type: NOTIFICATION_TYPE.ORDER, // Fixed: Using correct NOTIFICATION_TYPE for orders
         importance,
         actionUrl,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
