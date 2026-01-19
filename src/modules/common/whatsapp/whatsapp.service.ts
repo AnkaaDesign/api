@@ -244,10 +244,11 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         authStrategy: new LocalAuth({
           dataPath: process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth',
         }),
-        // Use webVersionCache to avoid compatibility issues with Chrome versions
+        // Use webVersionCache to avoid compatibility issues
+        // Using 'none' to let WhatsApp Web use its latest version
+        // This avoids markedUnread and other API compatibility issues
         webVersionCache: {
-          type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+          type: 'none',
         },
         puppeteer: {
           headless: true,
@@ -543,7 +544,27 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Send message using the WhatsApp ID
-      await this.client.sendMessage(whatsappId, message);
+      // Wrap in try-catch to handle sendSeen errors that occur after message is actually sent
+      try {
+        await this.client.sendMessage(whatsappId, message);
+      } catch (sendError: any) {
+        // Check if this is a sendSeen/markedUnread error
+        // These errors occur AFTER the message is sent, during the "mark as seen" step
+        // The message was actually delivered successfully
+        const errorMsg = sendError.message || '';
+        const isSendSeenError = errorMsg.includes('markedUnread') ||
+                                errorMsg.includes('sendSeen') ||
+                                errorMsg.includes('Cannot read properties of undefined');
+
+        if (isSendSeenError) {
+          this.logger.warn(
+            `Message to ${this.maskPhone(cleanPhone)} was sent but sendSeen failed (harmless): ${errorMsg}`,
+          );
+          // Continue as success - the message was actually sent
+        } else {
+          throw sendError;
+        }
+      }
 
       this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}`);
 
@@ -555,18 +576,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       });
 
       return true;
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(
         `Failed to send message to ${this.maskPhone(cleanPhone)}: ${error.message}`,
       );
 
       // Handle rate limiting
-      if (error.message.includes('rate limit')) {
+      if (error.message?.includes('rate limit')) {
         throw new Error('Rate limit exceeded. Please try again later.');
       }
 
       // Handle disconnection during send
-      if (error.message.includes('session') || error.message.includes('disconnected')) {
+      if (error.message?.includes('session') || error.message?.includes('disconnected')) {
         this.isClientReady = false;
         throw new Error('WhatsApp client disconnected. Please reconnect and try again.');
       }

@@ -1079,25 +1079,9 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Get notification channel from token (MOBILE_PUSH or DESKTOP_PUSH)
+   * Get notification channel from token
    */
-  private async getChannelFromToken(token: string): Promise<any> {
-    try {
-      const device = await this.prisma.deviceToken.findUnique({
-        where: { token },
-        select: { platform: true },
-      });
-
-      // Map platform to channel
-      if (device?.platform === 'WEB') {
-        return 'DESKTOP_PUSH';
-      } else if (device?.platform === 'IOS' || device?.platform === 'ANDROID') {
-        return 'MOBILE_PUSH';
-      }
-
-      return 'PUSH';
-    } catch (error) {
-      return 'PUSH';
-    }
+  private async getChannelFromToken(token: string): Promise<string> {
+    return 'PUSH';
   }
 }
