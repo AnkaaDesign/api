@@ -259,7 +259,7 @@ export class ItemNotificationScheduler {
       // Generate proper action URL with both web and mobile links
       // Web gets filters for stock levels, mobile navigates to item list page
       const stockLevels = ['LOW', 'CRITICAL', 'OUT_OF_STOCK'];
-      const actionUrl = this.deepLinkService.generateListPageActionUrl(
+      const deepLinks = this.deepLinkService.generateListPageLinks(
         DeepLinkListPage.ItemList,
         {
           stockLevels: JSON.stringify(stockLevels),
@@ -274,10 +274,15 @@ export class ItemNotificationScheduler {
         body,
         type: NOTIFICATION_TYPE.STOCK,
         importance,
-        actionUrl,
+        actionUrl: deepLinks.web,  // Use web URL for backward compatibility
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
+        metadata: {
+          webUrl: deepLinks.web,
+          mobileUrl: deepLinks.mobile,
+          universalLink: deepLinks.universalLink,
+        },
       }));
 
       if (notificationData.length > 0) {

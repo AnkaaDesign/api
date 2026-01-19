@@ -129,7 +129,7 @@ export class ServiceOrderListener {
       for (const user of usersToNotify) {
         await this.notificationService.createNotification({
           userId: user.id,
-          title: 'Nova Ordem de Serviço Criada',
+          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" criada por ${creatorName}`,
           body: `Ordem de serviço "${serviceOrder.description}" foi criada para a tarefa "${taskIdentifier}" por ${creatorName} (Tipo: ${typeLabel})`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
@@ -198,7 +198,7 @@ export class ServiceOrderListener {
       // 1. Notify the assigned user
       await this.notificationService.createNotification({
         userId: assignedToId,
-        title: 'Nova Ordem de Serviço Atribuída',
+        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" atribuída a você`,
         body: `Você foi atribuído à ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
@@ -247,7 +247,7 @@ export class ServiceOrderListener {
 
         await this.notificationService.createNotification({
           userId: admin.id,
-          title: 'Ordem de Serviço Atribuída',
+          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" atribuída a ${assignedUserName}`,
           body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi atribuída a ${assignedUserName}`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
@@ -343,7 +343,7 @@ export class ServiceOrderListener {
       // 1. Notify the creator
       await this.notificationService.createNotification({
         userId: creatorId,
-        title: 'Ordem de Serviço Concluída',
+        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" concluída por ${completedByName}`,
         body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} foi concluída por ${completedByName}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
@@ -396,7 +396,7 @@ export class ServiceOrderListener {
 
         await this.notificationService.createNotification({
           userId: admin.id,
-          title: 'Ordem de Serviço Concluída',
+          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" concluída por ${completedByName}`,
           body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída por ${completedByName}`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
@@ -471,7 +471,7 @@ export class ServiceOrderListener {
       // Create notification for all admins
       await this.notificationService.createNotification({
         userId: null, // Will target all admins via targetSectors
-        title: 'Arte Aguardando Aprovação',
+        title: `Arte "${serviceOrder.description}" da tarefa "${taskIdentifier}" aguardando aprovação`,
         body: `A ordem de serviço de arte "${serviceOrder.description}" da tarefa ${taskIdentifier} está aguardando aprovação`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
@@ -571,7 +571,8 @@ export class ServiceOrderListener {
 
       // Determine importance and special handling based on status transition
       let importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      let title = 'Ordem de Serviço Atualizada';
+      // Detailed title matching the user's expected format: "Ordem de serviço 'X' da tarefa 'Y' mudou de 'A' para 'B' por Z"
+      let title = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
       let body = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
 
       // Handle rejection case (going back to IN_PROGRESS from WAITING_APPROVE or COMPLETED)
@@ -579,7 +580,7 @@ export class ServiceOrderListener {
         (oldStatus === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldStatus === SERVICE_ORDER_STATUS.COMPLETED);
 
       if (isRejection && serviceOrderWithUsers?.observation) {
-        title = 'Ordem de Serviço Reprovada';
+        title = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" reprovada por ${changedByName}`;
         body = `Ordem de serviço "${serviceOrder.description}" foi reprovada por ${changedByName}. Motivo: ${serviceOrderWithUsers.observation}`;
         importance = NOTIFICATION_IMPORTANCE.HIGH;
       } else if (newStatus === SERVICE_ORDER_STATUS.COMPLETED || newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
@@ -765,7 +766,7 @@ export class ServiceOrderListener {
       // Notify the assigned user about the update
       await this.notificationService.createNotification({
         userId: assignedToId,
-        title: 'Ordem de Serviço Atualizada',
+        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}": ${changesText} alterado(s) por ${changedByName}`,
         body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} teve ${changesText} alterado(s) por ${changedByName}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
@@ -807,7 +808,7 @@ export class ServiceOrderListener {
         if (creator?.isActive) {
           await this.notificationService.createNotification({
             userId: serviceOrderWithCreator.createdById,
-            title: 'Ordem de Serviço Atualizada',
+            title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}": ${changesText} alterado(s) por ${changedByName}`,
             body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} teve ${changesText} alterado(s) por ${changedByName}`,
             type: NOTIFICATION_TYPE.SERVICE_ORDER,
             channel: [

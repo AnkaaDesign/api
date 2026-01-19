@@ -588,10 +588,14 @@ export class ZodValidationPipe implements PipeTransform {
     const keys = Object.keys(obj);
     if (keys.length === 0) return false;
 
-    // Check if all keys are numeric and sequential starting from 0
-    const numericKeys = keys.map(k => parseInt(k, 10));
-    if (numericKeys.some(k => isNaN(k))) return false;
+    // Check if all keys are PURELY numeric (not just starting with a digit)
+    // This prevents UUIDs like "0c656895-..." from being mistaken as array indices
+    // parseInt("0c656895-...") incorrectly returns 0, so we use regex instead
+    const isNumericKey = (k: string) => /^\d+$/.test(k);
+    if (!keys.every(isNumericKey)) return false;
 
+    // Check if keys are sequential starting from 0
+    const numericKeys = keys.map(k => parseInt(k, 10));
     numericKeys.sort((a, b) => a - b);
     return numericKeys.every((key, index) => key === index);
   }

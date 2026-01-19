@@ -1994,8 +1994,8 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,
-  // Service orders mapping (supports both new serviceOrders and legacy services fields)
-  serviceOrders: task.serviceOrders || task.services,
+  // Service orders mapping
+  serviceOrders: task.serviceOrders,
   // Complex relations need to be handled separately
 }));
 

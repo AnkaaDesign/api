@@ -135,12 +135,13 @@ export class TaskListener {
 
         this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
+        const serialNumberSuffix = event.task.serialNumber ? ` (${event.task.serialNumber})` : '';
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Nova tarefa criada',
-          body: `Tarefa "${event.task.name}" foi criada por ${event.createdBy.name}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
+          title: `Nova tarefa "${event.task.name}"${serialNumberSuffix} criada por ${event.createdBy.name}`,
+          body: `Tarefa "${event.task.name}" foi criada por ${event.createdBy.name}${serialNumberSuffix}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
           actionUrl,
           relatedEntityId: event.task.id,
@@ -222,11 +223,12 @@ export class TaskListener {
 
         this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
+        const taskIdentifier = event.task.name || event.task.serialNumber || 'Tarefa';
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: NOTIFICATION_IMPORTANCE.HIGH,
-          title: 'Status da tarefa alterado',
+          title: `Status da tarefa "${taskIdentifier}" alterado de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
           body: `Tarefa "${event.task.name}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
@@ -316,12 +318,15 @@ export class TaskListener {
           changedBy: event.updatedBy.name,
         });
 
+        // Build detailed title with field label, old/new values, and who made the change
+        const detailedTitle = `${config.label} da tarefa "${taskIdentifier}" alterado de "${oldValueFormatted}" para "${newValueFormatted}" por ${event.updatedBy.name}`;
+
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: config.importance,
-          title: `Tarefa atualizada: ${taskIdentifier}`,
+          title: detailedTitle,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
@@ -425,12 +430,29 @@ export class TaskListener {
 
         const body = this.interpolateMessage(messageConfig.inApp, messageVars);
 
+        // Build detailed title based on change type
+        let detailedTitle: string;
+        if (event.isFileArray && event.fileChange) {
+          const { added, removed } = event.fileChange;
+          if (added > 0 && removed === 0) {
+            detailedTitle = `${config.label} da tarefa "${taskIdentifier}": ${added} arquivo(s) adicionado(s) por ${changedByName}`;
+          } else if (removed > 0 && added === 0) {
+            detailedTitle = `${config.label} da tarefa "${taskIdentifier}": ${removed} arquivo(s) removido(s) por ${changedByName}`;
+          } else {
+            detailedTitle = `${config.label} da tarefa "${taskIdentifier}": ${added} adicionado(s), ${removed} removido(s) por ${changedByName}`;
+          }
+        } else {
+          const oldVal = messageVars.oldValue || 'N/A';
+          const newVal = messageVars.newValue || 'N/A';
+          detailedTitle = `${config.label} da tarefa "${taskIdentifier}" alterado de "${oldVal}" para "${newVal}" por ${changedByName}`;
+        }
+
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: config.importance,
-          title: `Tarefa atualizada: ${taskIdentifier}`,
+          title: detailedTitle,
           body,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
           actionUrl,
@@ -566,12 +588,14 @@ export class TaskListener {
         if (channels.length === 0) continue;
 
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
+        const taskIdentifier = event.task.name || event.task.serialNumber || 'Tarefa';
+        const serialNumberSuffix = event.task.serialNumber ? ` (${event.task.serialNumber})` : '';
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: NOTIFICATION_IMPORTANCE.URGENT,
-          title: 'Tarefa atrasada',
-          body: `Tarefa "${event.task.name}" está atrasada há ${event.daysOverdue} dia(s)${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`,
+          title: `Tarefa "${taskIdentifier}" está atrasada há ${event.daysOverdue} dia(s)`,
+          body: `Tarefa "${event.task.name}" está atrasada há ${event.daysOverdue} dia(s)${serialNumberSuffix}`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
           relatedEntityId: event.task.id,
@@ -650,12 +674,14 @@ export class TaskListener {
         }
 
         const { actionUrl, metadata } = this.getTaskNotificationMetadata(task);
+        const taskIdentifier = task.name || task.serialNumber || 'Tarefa';
+        const serialNumberSuffix = task.serialNumber ? ` (${task.serialNumber})` : '';
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.TASK,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Nova tarefa aguardando produção',
-          body: `Tarefa "${task.name}" está pronta para produção${task.serialNumber ? ` (${task.serialNumber})` : ''} - alterado por ${changedBy.name}`,
+          title: `Tarefa "${taskIdentifier}"${serialNumberSuffix} aguardando produção - alterado por ${changedBy.name}`,
+          body: `Tarefa "${task.name}" está pronta para produção${serialNumberSuffix} - alterado por ${changedBy.name}`,
           actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
           actionUrl,
           relatedEntityId: task.id,
