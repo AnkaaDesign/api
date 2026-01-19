@@ -18,7 +18,6 @@ import {
 import { Prisma } from '@prisma/client';
 
 // Import services (these need to be created separately or already exist)
-import { SmsService } from '../sms/sms.service';
 import { EmailService } from '../mailer/services/email.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationGatewayService } from './notification-gateway.service';
@@ -72,7 +71,6 @@ export class NotificationDispatchService {
     private readonly queueService: NotificationQueueService,
     private readonly gatewayService: NotificationGatewayService,
     private readonly emailService: EmailService,
-    private readonly smsService: SmsService,
     private readonly pushService: PushService,
     private readonly whatsappService: WhatsAppService,
     private readonly eventEmitter: EventEmitter2,
@@ -286,26 +284,13 @@ export class NotificationDispatchService {
           await this.handleEmailChannel(notification, user, deliveryId);
           break;
 
-        case NOTIFICATION_CHANNEL.SMS:
-          await this.handleSmsChannel(notification, user, deliveryId);
-          break;
-
         case NOTIFICATION_CHANNEL.WHATSAPP:
           await this.handleWhatsAppChannel(notification, user, deliveryId);
           break;
 
-        case NOTIFICATION_CHANNEL.MOBILE_PUSH:
-          await this.handleMobilePushChannel(notification, user, deliveryId);
-          break;
-
-        case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
-          await this.handleDesktopPushChannel(notification, user, deliveryId);
-          break;
-
         case NOTIFICATION_CHANNEL.PUSH:
-          // Generic push - sends to all registered devices (mobile + desktop)
-          // Note: sendToUser already handles all device tokens, no need to call both handlers
-          await this.handleMobilePushChannel(notification, user, deliveryId);
+          // Push - sends to all registered devices (mobile + desktop)
+          await this.handlePushChannel(notification, user, deliveryId);
           break;
 
         default:
@@ -393,31 +378,6 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Handle SMS channel - queue for async processing
-   */
-  private async handleSmsChannel(
-    notification: Notification,
-    user: User,
-    deliveryId: string,
-  ): Promise<void> {
-    this.logger.log(`Queueing SMS notification ${notification.id} for user ${user.id}`);
-
-    if (!user.phone) {
-      throw new Error(`User ${user.id} has no phone number`);
-    }
-
-    await this.queueService.queueNotificationJob({
-      notificationId: notification.id,
-      deliveryId,
-      channel: NOTIFICATION_CHANNEL.SMS,
-      userId: user.id,
-      attempts: 0,
-    });
-
-    await this.updateDeliveryStatus(deliveryId, DELIVERY_STATUS.PROCESSING);
-  }
-
-  /**
    * Handle WHATSAPP channel - queue for async processing
    */
   private async handleWhatsAppChannel(
@@ -443,40 +403,19 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Handle MOBILE_PUSH channel - queue for async processing
+   * Handle PUSH channel - queue for async processing (handles both mobile and desktop)
    */
-  private async handleMobilePushChannel(
+  private async handlePushChannel(
     notification: Notification,
     user: User,
     deliveryId: string,
   ): Promise<void> {
-    this.logger.log(`Queueing mobile push notification ${notification.id} for user ${user.id}`);
+    this.logger.log(`Queueing push notification ${notification.id} for user ${user.id}`);
 
     await this.queueService.queueNotificationJob({
       notificationId: notification.id,
       deliveryId,
-      channel: NOTIFICATION_CHANNEL.MOBILE_PUSH,
-      userId: user.id,
-      attempts: 0,
-    });
-
-    await this.updateDeliveryStatus(deliveryId, DELIVERY_STATUS.PROCESSING);
-  }
-
-  /**
-   * Handle DESKTOP_PUSH channel - queue for async processing
-   */
-  private async handleDesktopPushChannel(
-    notification: Notification,
-    user: User,
-    deliveryId: string,
-  ): Promise<void> {
-    this.logger.log(`Queueing desktop push notification ${notification.id} for user ${user.id}`);
-
-    await this.queueService.queueNotificationJob({
-      notificationId: notification.id,
-      deliveryId,
-      channel: NOTIFICATION_CHANNEL.DESKTOP_PUSH,
+      channel: NOTIFICATION_CHANNEL.PUSH,
       userId: user.id,
       attempts: 0,
     });

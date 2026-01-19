@@ -10,7 +10,6 @@ import { NotificationQueueMonitorController } from './notification-queue-monitor
 import { NotificationQueueHealthController } from './notification-queue-health.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { MailerModule } from '../mailer/mailer.module';
-import { SmsModule } from '../sms/sms.module';
 import { PushModule } from '../push/push.module';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
@@ -21,7 +20,6 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
   imports: [
     PrismaModule,
     MailerModule,
-    SmsModule,
     PushModule,
     WhatsAppModule,
     JwtModule.register({

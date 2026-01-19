@@ -348,8 +348,9 @@ export class LayoutService {
 
     // Use layoutSections from database
     const layoutSections = (layout as any).layoutSections || [];
-    const height = layout.height * 1000; // Convert to mm
-    const totalLength = layoutSections.reduce((sum: number, s: any) => sum + s.width * 1000, 0);
+    // Scale: 1cm = 1mm in SVG (so 840cm layout becomes 840mm SVG)
+    const height = layout.height * 100; // Convert m to cm scale (as mm in SVG)
+    const totalLength = layoutSections.reduce((sum: number, s: any) => sum + s.width * 100, 0);
 
     const marginX = 50;
     const marginY = 50;
@@ -358,17 +359,13 @@ export class LayoutService {
 
     let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${svgWidth}mm" height="${svgHeight}mm" viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-    <!-- Background -->
-    <rect width="100%" height="100%" fill="white"/>
-
-    <!-- Main container outline -->
     <rect x="${marginX}" y="${marginY}" width="${totalLength}" height="${height}" fill="none" stroke="#000" stroke-width="1"/>`;
 
     // Draw vertical section lines and door lines
     let currentX = marginX;
     for (let i = 0; i < layoutSections.length; i++) {
       const section = layoutSections[i];
-      const sectionWidth = section.width * 1000;
+      const sectionWidth = section.width * 100; // cm scale
 
       // Draw vertical line between sections (except for the last one)
       if (i < layoutSections.length - 1) {
@@ -380,8 +377,8 @@ export class LayoutService {
       // doorHeight is measured from bottom of layout to top of door opening
       // So the door top line Y position = marginY + (height - doorHeight)
       if (section.isDoor && section.doorHeight !== null && section.doorHeight !== undefined) {
-        const doorHeightMm = section.doorHeight * 1000;
-        const doorTopY = marginY + (height - doorHeightMm);
+        const doorHeightCm = section.doorHeight * 100; // cm scale
+        const doorTopY = marginY + (height - doorHeightCm);
         svgContent += `
     <line x1="${currentX}" y1="${doorTopY}" x2="${currentX + sectionWidth}" y2="${doorTopY}" stroke="#000" stroke-width="1"/>`;
       }
@@ -389,47 +386,41 @@ export class LayoutService {
       currentX += sectionWidth;
     }
 
-    // Add dimension annotations
+    // Add dimension annotations (values in cm)
     svgContent += `
-
-    <!-- Height dimension -->
     <line x1="${marginX - 20}" y1="${marginY}" x2="${marginX - 20}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${marginX - 25}" y1="${marginY}" x2="${marginX - 15}" y2="${marginY}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${marginX - 25}" y1="${marginY + height}" x2="${marginX - 15}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
     <polygon points="${marginX - 20},${marginY + 5} ${marginX - 17},${marginY + 10} ${marginX - 23},${marginY + 10}" fill="#0066cc"/>
     <polygon points="${marginX - 20},${marginY + height - 5} ${marginX - 17},${marginY + height - 10} ${marginX - 23},${marginY + height - 10}" fill="#0066cc"/>
-    <text x="${marginX - 30}" y="${marginY + height / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(-90, ${marginX - 30}, ${marginY + height / 2})">${height} mm</text>`;
+    <text x="${marginX - 30}" y="${marginY + height / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(-90, ${marginX - 30}, ${marginY + height / 2})">${Math.round(height)} cm</text>`;
 
     // Add width dimensions for each section
     currentX = marginX;
     for (let i = 0; i < layoutSections.length; i++) {
       const section = layoutSections[i];
-      const sectionWidth = section.width * 1000;
+      const sectionWidth = section.width * 100; // cm scale
 
       svgContent += `
-
-    <!-- Section ${i + 1} width -->
     <line x1="${currentX}" y1="${marginY + height + 20}" x2="${currentX + sectionWidth}" y2="${marginY + height + 20}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${currentX}" y1="${marginY + height + 15}" x2="${currentX}" y2="${marginY + height + 25}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${currentX + sectionWidth}" y1="${marginY + height + 15}" x2="${currentX + sectionWidth}" y2="${marginY + height + 25}" stroke="#0066cc" stroke-width="0.5"/>
     <polygon points="${currentX + 5},${marginY + height + 20} ${currentX + 10},${marginY + height + 17} ${currentX + 10},${marginY + height + 23}" fill="#0066cc"/>
     <polygon points="${currentX + sectionWidth - 5},${marginY + height + 20} ${currentX + sectionWidth - 10},${marginY + height + 17} ${currentX + sectionWidth - 10},${marginY + height + 23}" fill="#0066cc"/>
-    <text x="${currentX + sectionWidth / 2}" y="${marginY + height + 35}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc">${sectionWidth} mm</text>`;
+    <text x="${currentX + sectionWidth / 2}" y="${marginY + height + 35}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc">${Math.round(sectionWidth)} cm</text>`;
 
       // Add door height dimension if this section is a door
       // doorHeight is measured from bottom of layout to top of door opening
       if (section.isDoor && section.doorHeight !== null && section.doorHeight !== undefined) {
-        const doorHeightMm = section.doorHeight * 1000;
-        const doorTopY = marginY + (height - doorHeightMm);
+        const doorHeightCm = section.doorHeight * 100; // cm scale
+        const doorTopY = marginY + (height - doorHeightCm);
         svgContent += `
-
-    <!-- Door height for section ${i + 1} -->
     <line x1="${currentX + sectionWidth + 20}" y1="${doorTopY}" x2="${currentX + sectionWidth + 20}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${currentX + sectionWidth + 15}" y1="${doorTopY}" x2="${currentX + sectionWidth + 25}" y2="${doorTopY}" stroke="#0066cc" stroke-width="0.5"/>
     <line x1="${currentX + sectionWidth + 15}" y1="${marginY + height}" x2="${currentX + sectionWidth + 25}" y2="${marginY + height}" stroke="#0066cc" stroke-width="0.5"/>
     <polygon points="${currentX + sectionWidth + 20},${doorTopY + 5} ${currentX + sectionWidth + 17},${doorTopY + 10} ${currentX + sectionWidth + 23},${doorTopY + 10}" fill="#0066cc"/>
     <polygon points="${currentX + sectionWidth + 20},${marginY + height - 5} ${currentX + sectionWidth + 17},${marginY + height - 10} ${currentX + sectionWidth + 23},${marginY + height - 10}" fill="#0066cc"/>
-    <text x="${currentX + sectionWidth + 30}" y="${doorTopY + doorHeightMm / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(90, ${currentX + sectionWidth + 30}, ${doorTopY + doorHeightMm / 2})">${doorHeightMm} mm</text>`;
+    <text x="${currentX + sectionWidth + 30}" y="${doorTopY + doorHeightCm / 2}" text-anchor="middle" font-size="12" font-family="Arial" fill="#0066cc" transform="rotate(90, ${currentX + sectionWidth + 30}, ${doorTopY + doorHeightCm / 2})">${Math.round(doorHeightCm)} cm</text>`;
       }
 
       currentX += sectionWidth;

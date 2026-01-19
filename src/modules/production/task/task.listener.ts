@@ -1034,8 +1034,8 @@ export class TaskListener {
    * Returns actionUrl (web) and metadata with all link types for channel-specific routing
    *
    * Channel routing:
-   * - IN_APP, EMAIL, DESKTOP_PUSH → Use webUrl (status-specific routes)
-   * - WHATSAPP, MOBILE_PUSH → Use mobileUrl or universalLink
+   * - IN_APP, EMAIL → Use webUrl (status-specific routes)
+   * - WHATSAPP, PUSH → Use mobileUrl or universalLink
    *
    * @param task - Task object with id
    * @returns Object with actionUrl and metadata containing all link types

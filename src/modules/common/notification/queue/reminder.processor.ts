@@ -421,8 +421,6 @@ export class ReminderProcessor {
         queueName = 'email-notifications';
         break;
       case NOTIFICATION_CHANNEL.PUSH:
-      case NOTIFICATION_CHANNEL.MOBILE_PUSH:
-      case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
         queueName = 'push-notifications';
         break;
       case NOTIFICATION_CHANNEL.WHATSAPP:

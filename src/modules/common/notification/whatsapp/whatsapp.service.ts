@@ -495,6 +495,24 @@ export class WhatsAppNotificationService {
 
     // Categorize errors and determine retry strategy
 
+    // 0. sendSeen/markedUnread errors - message was actually sent, no retry needed
+    // These errors occur AFTER the message is delivered, during WhatsApp's internal "mark as seen" step
+    if (
+      errorMessage.includes('markedUnread') ||
+      errorMessage.includes('sendSeen')
+    ) {
+      this.logger.log(
+        `sendSeen error for delivery ${deliveryId} - message was sent successfully, no retry needed`,
+      );
+      // Update status to DELIVERED since the message was actually sent
+      await this.handleDeliveryStatus({
+        deliveryId,
+        status: 'DELIVERED',
+        deliveredAt: new Date(),
+      });
+      return false;
+    }
+
     // 1. Client not ready errors - should retry
     if (
       errorMessage.includes('not ready') ||

@@ -21,7 +21,6 @@ export interface ChannelPreferences {
   [NOTIFICATION_CHANNEL.EMAIL]: UserNotificationPreference[];
   [NOTIFICATION_CHANNEL.PUSH]: UserNotificationPreference[];
   [NOTIFICATION_CHANNEL.IN_APP]: UserNotificationPreference[];
-  [NOTIFICATION_CHANNEL.SMS]: UserNotificationPreference[];
   [NOTIFICATION_CHANNEL.WHATSAPP]: UserNotificationPreference[];
 }
 
@@ -325,7 +324,6 @@ export class NotificationPreferenceService {
         [NOTIFICATION_CHANNEL.EMAIL]: [],
         [NOTIFICATION_CHANNEL.PUSH]: [],
         [NOTIFICATION_CHANNEL.IN_APP]: [],
-        [NOTIFICATION_CHANNEL.SMS]: [],
         [NOTIFICATION_CHANNEL.WHATSAPP]: [],
       };
 

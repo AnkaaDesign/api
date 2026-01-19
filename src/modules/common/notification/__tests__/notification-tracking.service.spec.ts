@@ -369,7 +369,7 @@ describe('NotificationTrackingService', () => {
       const mockNotification = {
         id: 'notif-1',
         title: 'Test',
-        channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.SMS],
+        channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
         deliveries: [
           {
             id: 'delivery-1',
@@ -393,7 +393,7 @@ describe('NotificationTrackingService', () => {
           },
           {
             id: 'delivery-3',
-            channel: NOTIFICATION_CHANNEL.SMS,
+            channel: NOTIFICATION_CHANNEL.WHATSAPP,
             status: 'PENDING',
             sentAt: null,
             deliveredAt: null,

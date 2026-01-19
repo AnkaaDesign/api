@@ -352,7 +352,7 @@ describe('NotificationPreferenceService', () => {
 
       expect(result[NOTIFICATION_CHANNEL.EMAIL]).toHaveLength(2);
       expect(result[NOTIFICATION_CHANNEL.PUSH]).toHaveLength(1);
-      expect(result[NOTIFICATION_CHANNEL.SMS]).toHaveLength(0);
+      expect(result[NOTIFICATION_CHANNEL.WHATSAPP]).toHaveLength(0);
     });
   });
 

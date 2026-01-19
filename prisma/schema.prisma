@@ -55,18 +55,16 @@ model Airbrushing {
 
 model Artwork {
   id             String        @id @default(uuid())
-  fileId         String
+  fileId         String        @unique // One artwork per file (shared across tasks)
   status         ArtworkStatus @default(APPROVED)
-  taskId         String?
   airbrushingId  String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   file           File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  task           Task?         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tasks          Task[]        @relation("TaskArtworks") // Many-to-many: shared across tasks
   airbrushing    Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
 
   @@index([fileId])
-  @@index([taskId])
   @@index([airbrushingId])
   @@index([status])
 }
@@ -1150,7 +1148,7 @@ model Task {
   relatedTasks          Task[]               @relation("RelatedTasks")
   relatedTo             Task[]               @relation("RelatedTasks")
   budgets               File[]               @relation("TASK_BUDGETS")
-  artworks              Artwork[]
+  artworks              Artwork[]            @relation("TaskArtworks") // Many-to-many: shared artworks
   invoices              File[]               @relation("TASK_INVOICES")
   invoiceReimbursements File[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")

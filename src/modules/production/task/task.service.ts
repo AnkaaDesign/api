@@ -57,6 +57,10 @@ import {
   getTaskStatusLabel,
   getTaskStatusOrder,
 } from '../../../utils';
+import {
+  getServiceOrderUpdatesForTaskStatusChange,
+  getServiceOrderStatusOrder,
+} from '../../../utils/task-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
@@ -93,18 +97,22 @@ export class TaskService {
 
   /**
    * Helper: Convert File IDs to Artwork entity IDs
-   * Finds existing Artwork records or creates new ones for the given File IDs
+   * Finds existing Artwork records or creates new ones for the given File IDs.
+   *
+   * IMPORTANT: Artworks are SHARED across tasks (many-to-many relationship).
+   * - Each File has at most ONE Artwork entity (fileId is unique in Artwork)
+   * - Multiple Tasks can reference the same Artwork
+   * - Status changes on an Artwork reflect on ALL tasks that share it
+   *
    * @param fileIds - Array of File IDs
-   * @param taskId - Task ID (optional, for creating new Artwork records)
-   * @param airbrushingId - Airbrushing ID (optional, for creating new Artwork records)
    * @param artworkStatuses - Map of File ID to artwork status
    * @param userRole - User role for permission checking
    * @param tx - Prisma transaction
-   * @returns Array of Artwork IDs
+   * @returns Array of Artwork IDs (to be connected to Task via many-to-many)
    */
   private async convertFileIdsToArtworkIds(
     fileIds: string[],
-    taskId?: string | null,
+    _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
     airbrushingId?: string | null,
     artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
     userRole?: string,
@@ -123,13 +131,10 @@ export class TaskService {
     );
 
     for (const fileId of fileIds) {
-      // Check if an Artwork record already exists for this file and task/airbrushing combination
-      let artwork = await prisma.artwork.findFirst({
-        where: {
-          fileId,
-          taskId: taskId || null,
-          airbrushingId: airbrushingId || null,
-        },
+      // Find existing Artwork by fileId only (since fileId is unique in the new schema)
+      // Artworks are now SHARED across tasks, so we don't filter by taskId
+      let artwork = await prisma.artwork.findUnique({
+        where: { fileId },
       });
 
       // Determine the status to use
@@ -141,8 +146,8 @@ export class TaskService {
       );
 
       if (!artwork) {
-        // Create new Artwork with the provided or default status
-        // If status is APPROVED/REPROVED, check permissions
+        // Create new Artwork (shared across all tasks that will reference it)
+        // Note: airbrushingId is only set for airbrushing-specific artworks
         if (status !== 'DRAFT' && !hasApprovalPermission) {
           this.logger.warn(
             `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
@@ -151,7 +156,6 @@ export class TaskService {
             data: {
               fileId,
               status: 'DRAFT', // Force DRAFT if user doesn't have permission
-              taskId: taskId || null,
               airbrushingId: airbrushingId || null,
             },
           });
@@ -160,16 +164,16 @@ export class TaskService {
             data: {
               fileId,
               status,
-              taskId: taskId || null,
               airbrushingId: airbrushingId || null,
             },
           });
         }
         this.logger.log(
-          `[convertFileIdsToArtworkIds] Created new Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
+          `[convertFileIdsToArtworkIds] Created new shared Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
         );
       } else if (requestedStatus && artwork.status !== requestedStatus) {
         // Update existing Artwork status if it changed
+        // This will affect ALL tasks that share this artwork!
         const oldStatus = artwork.status;
         // Check permissions for status changes
         if (!hasApprovalPermission) {
@@ -182,7 +186,7 @@ export class TaskService {
             data: { status: requestedStatus },
           });
           this.logger.log(
-            `[convertFileIdsToArtworkIds] ✅ Updated Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus}`,
+            `[convertFileIdsToArtworkIds] ✅ Updated shared Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus} (affects all connected tasks)`,
           );
         }
       } else {
@@ -206,32 +210,46 @@ export class TaskService {
 
   /**
    * Helper: Create Artwork entity when uploading a new artwork file
+   * Creates a shared Artwork that can be connected to multiple Tasks.
+   *
    * @param fileRecord - The uploaded File entity
-   * @param taskId - Task ID (optional)
-   * @param airbrushingId - Airbrushing ID (optional)
+   * @param airbrushingId - Airbrushing ID (optional, for airbrushing-specific artworks)
+   * @param status - Initial artwork status
    * @param tx - Prisma transaction
    * @returns Artwork entity ID
    */
   private async createArtworkForFile(
     fileRecord: { id: string },
-    taskId?: string | null,
+    _taskId?: string | null, // Deprecated: kept for backwards compatibility, not used
     airbrushingId?: string | null,
     status: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT',
     tx?: PrismaTransaction,
   ): Promise<string> {
     const prisma = tx || this.prisma;
 
+    // First check if artwork already exists for this file
+    const existing = await prisma.artwork.findUnique({
+      where: { fileId: fileRecord.id },
+    });
+
+    if (existing) {
+      this.logger.log(
+        `[createArtworkForFile] Found existing shared Artwork ${existing.id} for File ${fileRecord.id}`,
+      );
+      return existing.id;
+    }
+
+    // Create new shared Artwork (no taskId - tasks connect via many-to-many)
     const artwork = await prisma.artwork.create({
       data: {
         fileId: fileRecord.id,
-        status, // Use provided status or default to DRAFT
-        taskId: taskId || null,
+        status,
         airbrushingId: airbrushingId || null,
       },
     });
 
     this.logger.log(
-      `[createArtworkForFile] Created Artwork ${artwork.id} for File ${fileRecord.id} with status ${status}`,
+      `[createArtworkForFile] Created shared Artwork ${artwork.id} for File ${fileRecord.id} with status ${status}`,
     );
 
     return artwork.id;
@@ -1768,42 +1786,82 @@ export class TaskService {
           }
         }
 
-        // Auto-complete all PRODUCTION service orders when task is set to COMPLETED
-        // This ensures bidirectional sync: task completion also completes production service orders
-        if (data.status === TASK_STATUS.COMPLETED && existingTask.status !== TASK_STATUS.COMPLETED) {
-          const productionServiceOrders = (updatedTask?.serviceOrders || []).filter(
-            (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION && so.status !== SERVICE_ORDER_STATUS.COMPLETED
+        // =====================================================================
+        // BIDIRECTIONAL SYNC: Task Status → Service Order Status
+        // When task status changes, sync production service orders accordingly
+        // =====================================================================
+        if (data.status && data.status !== existingTask.status) {
+          const oldTaskStatus = existingTask.status as TASK_STATUS;
+          const newTaskStatus = data.status as TASK_STATUS;
+
+          // Get service order updates needed for this task status change
+          const serviceOrderUpdates = getServiceOrderUpdatesForTaskStatusChange(
+            (updatedTask?.serviceOrders || []).map((so: any) => ({
+              id: so.id,
+              status: so.status as SERVICE_ORDER_STATUS,
+              type: so.type as SERVICE_ORDER_TYPE,
+              startedAt: so.startedAt,
+              finishedAt: so.finishedAt,
+            })),
+            oldTaskStatus,
+            newTaskStatus,
           );
 
-          if (productionServiceOrders.length > 0) {
+          if (serviceOrderUpdates.length > 0) {
             this.logger.log(
-              `[AUTO-COMPLETE SOs] Task ${id} completed, auto-completing ${productionServiceOrders.length} PRODUCTION service orders`,
+              `[TASK→SO SYNC] Task ${id} status changed ${oldTaskStatus} → ${newTaskStatus}, updating ${serviceOrderUpdates.length} service orders`,
             );
 
-            for (const so of productionServiceOrders) {
+            for (const update of serviceOrderUpdates) {
+              const so = (updatedTask?.serviceOrders || []).find((s: any) => s.id === update.serviceOrderId);
+              if (!so) continue;
+
+              const updateData: any = {
+                status: update.newStatus,
+                statusOrder: getServiceOrderStatusOrder(update.newStatus),
+              };
+
+              // Set dates based on update flags
+              if (update.setStartedAt && !so.startedAt) {
+                updateData.startedAt = new Date();
+                updateData.startedById = userId || null;
+              }
+              if (update.setFinishedAt && !so.finishedAt) {
+                updateData.finishedAt = new Date();
+                updateData.completedById = userId || null;
+              }
+              if (update.clearStartedAt) {
+                updateData.startedAt = null;
+                updateData.startedById = null;
+              }
+              if (update.clearFinishedAt) {
+                updateData.finishedAt = null;
+                updateData.completedById = null;
+              }
+
               await tx.serviceOrder.update({
-                where: { id: so.id },
-                data: {
-                  status: SERVICE_ORDER_STATUS.COMPLETED,
-                  finishedAt: so.finishedAt || new Date(),
-                  completedById: so.completedById || userId || null,
-                },
+                where: { id: update.serviceOrderId },
+                data: updateData,
               });
 
-              // Log the auto-complete in changelog
+              // Log the sync in changelog
               await this.changeLogService.logChange({
                 entityType: ENTITY_TYPE.SERVICE_ORDER,
-                entityId: so.id,
+                entityId: update.serviceOrderId,
                 action: CHANGE_ACTION.UPDATE,
                 field: 'status',
                 oldValue: so.status,
-                newValue: SERVICE_ORDER_STATUS.COMPLETED,
-                reason: `Ordem de serviço "${so.description}" concluída automaticamente quando a tarefa foi finalizada`,
+                newValue: update.newStatus,
+                reason: update.reason,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
                 transaction: tx,
               });
+
+              this.logger.log(
+                `[TASK→SO SYNC] Service order ${update.serviceOrderId} (${so.description}) status: ${so.status} → ${update.newStatus}`,
+              );
             }
 
             // Refetch task with updated service orders
@@ -3120,25 +3178,8 @@ export class TaskService {
                   );
                 }
 
-                // Validate date requirements based on status
-                if (
-                  (update.data.status as TASK_STATUS) === TASK_STATUS.IN_PRODUCTION &&
-                  !existingTask.startedAt &&
-                  !update.data.startedAt
-                ) {
-                  throw new BadRequestException(
-                    'Data de início é obrigatória ao mover tarefa para EM PRODUÇÃO',
-                  );
-                }
-                if (
-                  (update.data.status as TASK_STATUS) === TASK_STATUS.COMPLETED &&
-                  !existingTask.finishedAt &&
-                  !update.data.finishedAt
-                ) {
-                  throw new BadRequestException(
-                    'Data de conclusão é obrigatória ao mover tarefa para CONCLUÍDO',
-                  );
-                }
+                // Note: startedAt and finishedAt are no longer required as they are auto-filled
+                // when task status changes to IN_PRODUCTION or COMPLETED respectively
               }
 
               // Ensure statusOrder is updated when status changes
@@ -3865,6 +3906,99 @@ export class TaskService {
                     userId: userId || '',
                     transaction: tx,
                   });
+                }
+              }
+            }
+
+            // =====================================================================
+            // BIDIRECTIONAL SYNC: Task Status → Service Order Status (Batch)
+            // When task status changes, sync production service orders accordingly
+            // =====================================================================
+            if (updateData.status && updateData.status !== existingTask.status) {
+              const oldTaskStatus = existingTask.status as TASK_STATUS;
+              const newTaskStatus = updateData.status as TASK_STATUS;
+
+              // Get all service orders for this task
+              const taskServiceOrders = await tx.serviceOrder.findMany({
+                where: { taskId: task.id },
+                select: {
+                  id: true,
+                  status: true,
+                  type: true,
+                  description: true,
+                  startedAt: true,
+                  finishedAt: true,
+                },
+              });
+
+              // Get service order updates needed for this task status change
+              const serviceOrderUpdates = getServiceOrderUpdatesForTaskStatusChange(
+                taskServiceOrders.map((so: any) => ({
+                  id: so.id,
+                  status: so.status as SERVICE_ORDER_STATUS,
+                  type: so.type as SERVICE_ORDER_TYPE,
+                  startedAt: so.startedAt,
+                  finishedAt: so.finishedAt,
+                })),
+                oldTaskStatus,
+                newTaskStatus,
+              );
+
+              if (serviceOrderUpdates.length > 0) {
+                this.logger.log(
+                  `[TASK→SO SYNC BATCH] Task ${task.id} status changed ${oldTaskStatus} → ${newTaskStatus}, updating ${serviceOrderUpdates.length} service orders`,
+                );
+
+                for (const update of serviceOrderUpdates) {
+                  const so = taskServiceOrders.find((s: any) => s.id === update.serviceOrderId);
+                  if (!so) continue;
+
+                  const soUpdateData: any = {
+                    status: update.newStatus,
+                    statusOrder: getServiceOrderStatusOrder(update.newStatus),
+                  };
+
+                  // Set dates based on update flags
+                  if (update.setStartedAt && !so.startedAt) {
+                    soUpdateData.startedAt = new Date();
+                    soUpdateData.startedById = userId || null;
+                  }
+                  if (update.setFinishedAt && !so.finishedAt) {
+                    soUpdateData.finishedAt = new Date();
+                    soUpdateData.completedById = userId || null;
+                  }
+                  if (update.clearStartedAt) {
+                    soUpdateData.startedAt = null;
+                    soUpdateData.startedById = null;
+                  }
+                  if (update.clearFinishedAt) {
+                    soUpdateData.finishedAt = null;
+                    soUpdateData.completedById = null;
+                  }
+
+                  await tx.serviceOrder.update({
+                    where: { id: update.serviceOrderId },
+                    data: soUpdateData,
+                  });
+
+                  // Log the sync in changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.SERVICE_ORDER,
+                    entityId: update.serviceOrderId,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: so.status,
+                    newValue: update.newStatus,
+                    reason: update.reason + ' (batch)',
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
+                  this.logger.log(
+                    `[TASK→SO SYNC BATCH] Service order ${update.serviceOrderId} (${so.description}) status: ${so.status} → ${update.newStatus}`,
+                  );
                 }
               }
             }

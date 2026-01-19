@@ -54,7 +54,6 @@ import { NotificationQueueModule } from './notification-queue.module';
 import { PushModule } from '../push/push.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MailerModule } from '../mailer/mailer.module';
-import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
@@ -63,7 +62,6 @@ import { SmsModule } from '../sms/sms.module';
     CacheModule,
     ConfigModule,
     MailerModule,
-    SmsModule,
     NotificationQueueModule,
     PushModule,
     WhatsAppModule,
