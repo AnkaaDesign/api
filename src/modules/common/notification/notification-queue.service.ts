@@ -111,52 +111,6 @@ export class NotificationQueueService {
   }
 
   /**
-   * Add SMS notification job to the queue
-   */
-  async addSmsJob(
-    notificationId: string,
-    recipientPhone: string,
-    body: string,
-    options?: {
-      metadata?: Record<string, any>;
-      priority?: 'low' | 'normal' | 'high' | 'critical';
-      delay?: number;
-      scheduledFor?: Date;
-    },
-  ): Promise<Job<NotificationJobData>> {
-    try {
-      const jobData: NotificationJobData = {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.SMS,
-        recipientPhone,
-        title: '', // SMS doesn't have a title
-        body,
-        metadata: options?.metadata,
-        priority: options?.priority || 'normal',
-        scheduledFor: options?.scheduledFor,
-      };
-
-      const jobOptions = this.getJobOptions(options?.priority || 'normal', options?.delay);
-
-      this.logger.log(
-        `Adding SMS job for notification ${notificationId} to ${this.maskPhone(recipientPhone)}`,
-      );
-
-      const job = await this.notificationQueue.add('send-sms', jobData, {
-        ...jobOptions,
-        jobId: `sms-${notificationId}-${Date.now()}`,
-      });
-
-      return job;
-    } catch (error: any) {
-      this.logger.error(
-        `Failed to add SMS job for notification ${notificationId}: ${error.message}`,
-      );
-      throw error;
-    }
-  }
-
-  /**
    * Add WhatsApp notification job to the queue
    */
   async addWhatsAppJob(
@@ -385,18 +339,7 @@ export class NotificationQueueService {
             }
             break;
 
-          case NOTIFICATION_CHANNEL.SMS:
-            if (data.recipientPhone) {
-              job = await this.addSmsJob(notificationId, data.recipientPhone, data.body, {
-                metadata: data.metadata,
-                priority: data.priority,
-              });
-            }
-            break;
-
           case NOTIFICATION_CHANNEL.PUSH:
-          case NOTIFICATION_CHANNEL.MOBILE_PUSH:
-          case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
             // Prefer sending to user's devices if userId is available
             if (data.userId) {
               job = await this.addPushJobForUser(
@@ -497,11 +440,6 @@ export class NotificationQueueService {
           data.body,
           options,
         );
-
-      case NOTIFICATION_CHANNEL.SMS:
-        if (!data.recipientPhone)
-          throw new Error('recipientPhone is required for SMS notifications');
-        return await this.addSmsJob(notificationId, data.recipientPhone, data.body, options);
 
       case NOTIFICATION_CHANNEL.PUSH:
         if (!data.recipientDeviceToken)
@@ -916,19 +854,7 @@ export class NotificationQueueService {
           }
           break;
 
-        case 'SMS':
-          if (user?.phone) {
-            job = await this.addSmsJob(notification.id, user.phone, notification.body, {
-              metadata: metadata,
-              priority: 'high',
-              delay: backoffDelay,
-            });
-          }
-          break;
-
         case 'PUSH':
-        case 'MOBILE_PUSH':
-        case 'DESKTOP_PUSH':
           // Would need device token from user or metadata
           this.logger.warn(
             `Push notification retry not implemented yet for delivery ${deliveryId}`,
@@ -1013,15 +939,6 @@ export class NotificationQueueService {
           },
         );
 
-      case NOTIFICATION_CHANNEL.SMS:
-        if (!user.phone) {
-          throw new Error(`User ${user.id} has no phone number`);
-        }
-        return await this.addSmsJob(job.notificationId, user.phone, notification.body, {
-          metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
-          priority: 'normal',
-        });
-
       case NOTIFICATION_CHANNEL.WHATSAPP:
         if (!user.phone) {
           throw new Error(`User ${user.id} has no phone number for WhatsApp`);
@@ -1032,8 +949,6 @@ export class NotificationQueueService {
         });
 
       case NOTIFICATION_CHANNEL.PUSH:
-      case NOTIFICATION_CHANNEL.MOBILE_PUSH:
-      case NOTIFICATION_CHANNEL.DESKTOP_PUSH:
         // For push notifications, we send to all user's registered devices
         return await this.addPushJobForUser(
           job.notificationId,

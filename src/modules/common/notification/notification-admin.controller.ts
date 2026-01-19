@@ -47,6 +47,7 @@ interface NotificationListFilters {
   limit?: number;
   orderBy?: string;
   order?: 'asc' | 'desc';
+  searchingFor?: string;
 }
 
 /**
@@ -232,6 +233,11 @@ export class NotificationAdminController {
     enum: ['asc', 'desc'],
     description: 'Sort order (default: desc)',
   })
+  @ApiQuery({
+    name: 'searchingFor',
+    required: false,
+    description: 'Search text in title and body',
+  })
   @ApiResponse({
     status: 200,
     description: 'Notifications retrieved successfully',
@@ -255,10 +261,23 @@ export class NotificationAdminController {
         limit = 20,
         orderBy = 'createdAt',
         order = 'desc',
+        searchingFor,
       } = filters;
 
-      // Build where clause
+      // Build where clause with AND array to combine conditions properly
       const where: any = {};
+      const andConditions: any[] = [];
+
+      // Text search in title and body
+      if (searchingFor && searchingFor.trim()) {
+        const searchTerm = searchingFor.trim();
+        andConditions.push({
+          OR: [
+            { title: { contains: searchTerm, mode: 'insensitive' } },
+            { body: { contains: searchTerm, mode: 'insensitive' } },
+          ],
+        });
+      }
 
       if (type) {
         where.type = type;
@@ -281,9 +300,16 @@ export class NotificationAdminController {
             break;
           case 'pending':
             where.sentAt = null;
-            where.OR = [{ scheduledAt: null }, { scheduledAt: { lte: new Date() } }];
+            andConditions.push({
+              OR: [{ scheduledAt: null }, { scheduledAt: { lte: new Date() } }],
+            });
             break;
         }
+      }
+
+      // Apply AND conditions if any
+      if (andConditions.length > 0) {
+        where.AND = andConditions;
       }
 
       if (userId) {
@@ -1018,20 +1044,6 @@ export class NotificationAdminController {
                 }
                 break;
 
-              case NOTIFICATION_CHANNEL.SMS:
-                if (notification.user.phone) {
-                  await this.notificationQueueService.addSmsJob(
-                    notification.id,
-                    notification.user.phone,
-                    notification.body,
-                    {
-                      priority: 'high',
-                    },
-                  );
-                  jobAdded = true;
-                }
-                break;
-
               case NOTIFICATION_CHANNEL.PUSH:
                 // Push notifications would need device tokens
                 this.logger.warn(
@@ -1626,10 +1638,7 @@ export class NotificationAdminController {
   private mapChannelToKey(channel: string): keyof NotificationStats['deliveryRate'] | null {
     const mapping: Record<string, keyof NotificationStats['deliveryRate']> = {
       EMAIL: 'email',
-      SMS: 'sms',
       PUSH: 'push',
-      MOBILE_PUSH: 'push',
-      DESKTOP_PUSH: 'push',
       WHATSAPP: 'whatsapp',
       IN_APP: 'inApp',
     };

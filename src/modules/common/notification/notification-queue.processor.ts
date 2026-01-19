@@ -4,7 +4,6 @@ import { Job } from 'bull';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../mailer/services/email.service';
-import { SmsService } from '../sms/sms.service';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { PushService } from '../push/push.service';
 import { NOTIFICATION_CHANNEL } from '../../../constants';
@@ -66,7 +65,6 @@ export class NotificationQueueProcessor {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
-    private readonly smsService: SmsService,
     private readonly whatsappNotificationService: WhatsAppNotificationService,
     private readonly pushService: PushService,
     private readonly configService: ConfigService,
@@ -218,83 +216,6 @@ export class NotificationQueueProcessor {
       return {
         notificationId,
         channel: NOTIFICATION_CHANNEL.EMAIL,
-        success: false,
-        error: error.message,
-        retryCount: job.attemptsMade,
-        processingTime,
-      };
-    }
-  }
-
-  /**
-   * Process SMS notification
-   */
-  @Process({
-    name: 'send-sms',
-    concurrency: 3, // Process up to 3 SMS simultaneously
-  })
-  async processSmsNotification(job: Job<NotificationJobData>): Promise<NotificationDeliveryResult> {
-    const startTime = Date.now();
-    const { notificationId, recipientPhone, body } = job.data;
-
-    this.logger.log(
-      `Processing SMS notification ${notificationId} to ${this.maskPhone(recipientPhone)}`,
-    );
-
-    try {
-      if (!recipientPhone) {
-        throw new Error('Recipient phone is required for SMS notifications');
-      }
-
-      await job.progress(30);
-
-      // Truncate message to 160 characters for SMS
-      const smsMessage = body.length > 160 ? body.substring(0, 157) + '...' : body;
-
-      await job.progress(50);
-
-      // Send SMS
-      await this.smsService.sendSms(recipientPhone, smsMessage);
-
-      await job.progress(80);
-
-      const processingTime = Date.now() - startTime;
-
-      // Update notification delivery status
-      await this.updateDeliveryStatus(notificationId, NOTIFICATION_CHANNEL.SMS, true);
-
-      await job.progress(100);
-
-      this.logger.log(
-        `SMS notification ${notificationId} sent successfully in ${processingTime}ms`,
-      );
-
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.SMS,
-        success: true,
-        deliveredAt: new Date(),
-        processingTime,
-      };
-    } catch (error: any) {
-      const processingTime = Date.now() - startTime;
-      this.logger.error(
-        `Failed to send SMS notification ${notificationId}: ${error.message}`,
-        error.stack,
-      );
-
-      // Update notification delivery status as failed
-      await this.updateDeliveryStatus(
-        notificationId,
-        NOTIFICATION_CHANNEL.SMS,
-        false,
-        undefined,
-        error.message,
-      );
-
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.SMS,
         success: false,
         error: error.message,
         retryCount: job.attemptsMade,

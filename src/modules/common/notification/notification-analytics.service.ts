@@ -1149,10 +1149,7 @@ export class NotificationAnalyticsService {
   private mapChannelToKey(channel: string): keyof DeliveryStats | null {
     const mapping: Record<string, keyof DeliveryStats> = {
       EMAIL: 'email',
-      SMS: 'sms',
       PUSH: 'push',
-      MOBILE_PUSH: 'push',
-      DESKTOP_PUSH: 'push',
       WHATSAPP: 'whatsapp',
       IN_APP: 'inApp',
     };
