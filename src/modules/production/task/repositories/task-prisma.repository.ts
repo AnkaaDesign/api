@@ -231,8 +231,9 @@ export class TaskPrismaRepository
     const task: Task = {
       ...databaseEntity,
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
-      // Alias serviceOrders to services for backward compatibility
-      services: databaseEntity.serviceOrders || databaseEntity.services,
+      // NOTE: The compatibility hack for 'services' has been removed.
+      // All clients (mobile/web) now use 'serviceOrders' correctly.
+      // If you see errors about missing 'services', update your client code to use 'serviceOrders'.
     };
 
     // Transform generalPainting.colorPreview path to URL

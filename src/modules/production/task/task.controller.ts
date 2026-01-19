@@ -15,6 +15,7 @@ import {
   UploadedFiles,
   BadRequestException,
 } from '@nestjs/common';
+import { validateIncludes } from '@modules/common/base/include-access-control';
 import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { multerConfig } from '@modules/common/file/config/upload.config';
 import { FileService } from '@modules/common/file/file.service';
@@ -103,6 +104,10 @@ export class TaskController {
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<TaskGetManyResponse> {
+    // Validate includes for security
+    if (query.include) {
+      validateIncludes('Task', query.include);
+    }
     return this.tasksService.findMany(query, user.role);
   }
 
@@ -524,6 +529,10 @@ export class TaskController {
     @UserId() userId: string,
     @User() user: UserPayload,
   ): Promise<TaskGetUniqueResponse> {
+    // Validate includes for security
+    if (query.include) {
+      validateIncludes('Task', query.include);
+    }
     return this.tasksService.findById(id, query.include, user.role);
   }
 
