@@ -112,7 +112,7 @@ export class TaskController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.LOGISTIC)
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor(

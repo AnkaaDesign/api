@@ -1124,10 +1124,21 @@ const paintFilters = {
   paintTypeIds: z.array(z.string()).optional(),
   paintBrandIds: z.array(z.string()).optional(),
   // Color similarity filtering
+  // Transform empty strings to undefined to prevent validation errors
   similarColor: z
     .string()
-    .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color')
-    .optional(),
+    .optional()
+    .transform((val) => {
+      // Treat empty strings and default black as "no filter"
+      if (!val || val === '' || val === '#000000') return undefined;
+      return val;
+    })
+    .pipe(
+      z
+        .string()
+        .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color')
+        .optional()
+    ),
   similarColorThreshold: z.coerce.number().min(0).max(100).default(15).optional(),
 };
 

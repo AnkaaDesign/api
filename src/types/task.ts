@@ -69,8 +69,7 @@ export interface Task extends BaseEntity {
   createdBy?: User;
   artworks?: Artwork[];
   logoPaints?: Paint[];
-  services?: ServiceOrder[]; // Alias for backward compatibility
-  serviceOrders?: ServiceOrder[]; // Prisma field name
+  serviceOrders?: ServiceOrder[]; // Prisma relation field
   pricing?: TaskPricing; // Task pricing with status and items
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
@@ -149,7 +148,7 @@ export interface TaskIncludes {
     | {
         include?: PaintIncludes;
       };
-  services?:
+  serviceOrders?:
     | boolean
     | {
         include?: ServiceOrderIncludes;

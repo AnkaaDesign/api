@@ -57,7 +57,7 @@ export class UserPrismaRepository
     const user = {
       ...restUser,
       // Map database field names to entity field names
-      birthDate: birth || null,
+      birth: birth || null,
       hireDate: admissional || null,
     } as User;
 
@@ -149,7 +149,6 @@ export class UserPrismaRepository
       verificationExpiresAt,
       requirePasswordChange,
       ppeSize,
-      birth,
       ...rest
     } = formData;
 
@@ -164,8 +163,6 @@ export class UserPrismaRepository
       ...(verificationCode !== undefined && { verificationCode }),
       ...(verificationExpiresAt !== undefined && { verificationExpiresAt }),
       ...(requirePasswordChange !== undefined && { requirePasswordChange }),
-      // Map date fields to Prisma model field names
-      ...(birth !== undefined && { birth }),
     };
 
     if (positionId !== undefined) {

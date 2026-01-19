@@ -113,6 +113,15 @@ export class TaskService {
     const prisma = tx || this.prisma;
     const artworkIds: string[] = [];
 
+    // Debug: Log permission check info
+    const hasApprovalPermission = this.canApproveArtworks(userRole);
+    this.logger.log(
+      `[convertFileIdsToArtworkIds] Permission check: userRole=${userRole}, canApproveArtworks=${hasApprovalPermission}`,
+    );
+    this.logger.log(
+      `[convertFileIdsToArtworkIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(artworkStatuses)}`,
+    );
+
     for (const fileId of fileIds) {
       // Check if an Artwork record already exists for this file and task/airbrushing combination
       let artwork = await prisma.artwork.findFirst({
@@ -127,10 +136,14 @@ export class TaskService {
       const requestedStatus = artworkStatuses?.[fileId];
       const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
 
+      this.logger.log(
+        `[convertFileIdsToArtworkIds] File ${fileId}: found=${!!artwork}, currentStatus=${artwork?.status}, requestedStatus=${requestedStatus}`,
+      );
+
       if (!artwork) {
         // Create new Artwork with the provided or default status
         // If status is APPROVED/REPROVED, check permissions
-        if (status !== 'DRAFT' && !this.canApproveArtworks(userRole)) {
+        if (status !== 'DRAFT' && !hasApprovalPermission) {
           this.logger.warn(
             `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
           );
@@ -157,10 +170,11 @@ export class TaskService {
         );
       } else if (requestedStatus && artwork.status !== requestedStatus) {
         // Update existing Artwork status if it changed
+        const oldStatus = artwork.status;
         // Check permissions for status changes
-        if (!this.canApproveArtworks(userRole)) {
+        if (!hasApprovalPermission) {
           this.logger.warn(
-            `[convertFileIdsToArtworkIds] User without approval permission tried to change artwork status from ${artwork.status} to ${requestedStatus}. Ignoring.`,
+            `[convertFileIdsToArtworkIds] User without approval permission (role=${userRole}) tried to change artwork status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
           );
         } else {
           artwork = await prisma.artwork.update({
@@ -168,7 +182,18 @@ export class TaskService {
             data: { status: requestedStatus },
           });
           this.logger.log(
-            `[convertFileIdsToArtworkIds] Updated Artwork ${artwork.id} status from ${artwork.status} to ${requestedStatus}`,
+            `[convertFileIdsToArtworkIds] ✅ Updated Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus}`,
+          );
+        }
+      } else {
+        // Log why we're not updating
+        if (!requestedStatus) {
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: requestedStatus is undefined`,
+          );
+        } else {
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: current status (${artwork.status}) already matches requested (${requestedStatus})`,
           );
         }
       }
@@ -1279,24 +1304,34 @@ export class TaskService {
             );
           }
 
-          // Validate date requirements based on status
+          // Auto-fill date requirements based on status transition
+          // Instead of throwing an error, automatically set the required dates
           if (
             (data.status as TASK_STATUS) === TASK_STATUS.IN_PRODUCTION &&
             !existingTask.startedAt &&
             !data.startedAt
           ) {
-            throw new BadRequestException(
-              'Data de início é obrigatória ao mover tarefa para EM PRODUÇÃO',
+            this.logger.log(
+              `[AUTO-FILL] Auto-setting startedAt for task ${id} (status → IN_PRODUCTION)`,
             );
+            data.startedAt = new Date();
           }
           if (
             (data.status as TASK_STATUS) === TASK_STATUS.COMPLETED &&
             !existingTask.finishedAt &&
             !data.finishedAt
           ) {
-            throw new BadRequestException(
-              'Data de conclusão é obrigatória ao mover tarefa para CONCLUÍDO',
+            this.logger.log(
+              `[AUTO-FILL] Auto-setting finishedAt for task ${id} (status → COMPLETED)`,
             );
+            data.finishedAt = new Date();
+            // Also auto-fill startedAt if it's not set (task going directly to completed)
+            if (!existingTask.startedAt && !data.startedAt) {
+              this.logger.log(
+                `[AUTO-FILL] Auto-setting startedAt for task ${id} (completing without start date)`,
+              );
+              data.startedAt = new Date();
+            }
           }
         }
 
@@ -1672,6 +1707,116 @@ export class TaskService {
               // Track that task was auto-transitioned for event/notification emission after transaction
               taskAutoTransitionedToWaitingProduction = true;
             }
+          }
+
+          // Auto-complete task when all PRODUCTION service orders are COMPLETED
+          // This ensures task workflow progresses automatically when all production work is done
+          if (updatedTask && (updatedTask.status === TASK_STATUS.IN_PRODUCTION || updatedTask.status === TASK_STATUS.WAITING_PRODUCTION)) {
+            // Get all PRODUCTION service orders for this task (from the refetched data)
+            const productionServiceOrders = (updatedTask.serviceOrders || []).filter(
+              (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION
+            );
+
+            // Check if there's at least 1 production service order and ALL are COMPLETED
+            const hasProductionOrders = productionServiceOrders.length > 0;
+            const allProductionCompleted = productionServiceOrders.every(
+              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (hasProductionOrders && allProductionCompleted) {
+              this.logger.log(
+                `[AUTO-COMPLETE TASK] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${id}, transitioning to COMPLETED`,
+              );
+
+              // Update task status to COMPLETED
+              updatedTask = await tx.task.update({
+                where: { id },
+                data: {
+                  status: TASK_STATUS.COMPLETED,
+                  statusOrder: 4, // COMPLETED statusOrder
+                  finishedAt: updatedTask.finishedAt || new Date(),
+                  startedAt: updatedTask.startedAt || new Date(),
+                },
+                include: {
+                  ...include,
+                  customer: true,
+                  artworks: true,
+                  observation: { include: { files: true } },
+                  truck: true,
+                  serviceOrders: true,
+                },
+              }) as any;
+
+              // Log the auto-complete in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: existingTask.status,
+                newValue: TASK_STATUS.COMPLETED,
+                reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track that task was auto-completed for event/notification emission after transaction
+              taskAutoTransitionedToWaitingProduction = true; // Reuse this flag for event emission
+            }
+          }
+        }
+
+        // Auto-complete all PRODUCTION service orders when task is set to COMPLETED
+        // This ensures bidirectional sync: task completion also completes production service orders
+        if (data.status === TASK_STATUS.COMPLETED && existingTask.status !== TASK_STATUS.COMPLETED) {
+          const productionServiceOrders = (updatedTask?.serviceOrders || []).filter(
+            (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION && so.status !== SERVICE_ORDER_STATUS.COMPLETED
+          );
+
+          if (productionServiceOrders.length > 0) {
+            this.logger.log(
+              `[AUTO-COMPLETE SOs] Task ${id} completed, auto-completing ${productionServiceOrders.length} PRODUCTION service orders`,
+            );
+
+            for (const so of productionServiceOrders) {
+              await tx.serviceOrder.update({
+                where: { id: so.id },
+                data: {
+                  status: SERVICE_ORDER_STATUS.COMPLETED,
+                  finishedAt: so.finishedAt || new Date(),
+                  completedById: so.completedById || userId || null,
+                },
+              });
+
+              // Log the auto-complete in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.SERVICE_ORDER,
+                entityId: so.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: so.status,
+                newValue: SERVICE_ORDER_STATUS.COMPLETED,
+                reason: `Ordem de serviço "${so.description}" concluída automaticamente quando a tarefa foi finalizada`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+            }
+
+            // Refetch task with updated service orders
+            updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
+              include: {
+                ...include,
+                customer: true,
+                artworks: true,
+                observation: { include: { files: true } },
+                truck: true,
+                serviceOrders: true,
+              },
+            });
           }
         }
 
@@ -2499,7 +2644,7 @@ export class TaskService {
               entityType: ENTITY_TYPE.TASK,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'services',
+              field: 'serviceOrders',
               oldValue: serializeServices(oldServices),
               newValue: serializeServices(newServices),
               reason: `${removedServices.length} ordem(ns) de serviço removida(s)`,

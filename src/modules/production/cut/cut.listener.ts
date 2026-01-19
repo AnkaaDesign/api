@@ -132,7 +132,7 @@ export class CutListener {
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Novo Recorte Adicionado',
+          title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber} por ${event.createdBy.name}`,
           body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber} por ${event.createdBy.name}.`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
@@ -213,7 +213,7 @@ export class CutListener {
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Recorte Iniciado',
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} iniciado por ${event.startedBy.name}`,
           body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} foi iniciado por ${event.startedBy.name}.`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
@@ -294,7 +294,7 @@ export class CutListener {
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Recorte Concluído',
+          title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} concluído por ${event.completedBy.name}`,
           body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} foi concluído por ${event.completedBy.name}.`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
@@ -363,7 +363,7 @@ export class CutListener {
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.URGENT,
-          title: 'Solicitação de Novo Recorte',
+          title: `Novo recorte de ${cutTypeLabel} solicitado para tarefa "${taskName}"${serialNumber} por ${event.createdBy.name} - Motivo: ${reasonLabel}`,
           body: `Foi solicitado um novo recorte de ${cutTypeLabel} para a tarefa "${taskName}"${serialNumber}. Motivo: ${reasonLabel}. Solicitado por ${event.createdBy.name}.`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
@@ -426,11 +426,14 @@ export class CutListener {
 
         // Use task for navigation
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cuts[0], event.task);
+        const detailedTitle = cutsCount === 1
+          ? `1 recorte adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`
+          : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`;
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: cutsCount === 1 ? 'Recorte Adicionado à Tarefa' : 'Recortes Adicionados à Tarefa',
+          title: detailedTitle,
           body: cutsCount === 1
             ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`
             : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`,

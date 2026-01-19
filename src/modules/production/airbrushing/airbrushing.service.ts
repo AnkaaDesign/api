@@ -9,7 +9,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { AirbrushingRepository, PrismaTransaction } from './repositories/airbrushing.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
-import { CHANGE_TRIGGERED_BY, CHANGE_ACTION, ENTITY_TYPE } from '../../../constants/enums';
+import { CHANGE_TRIGGERED_BY, CHANGE_ACTION, ENTITY_TYPE, SECTOR_PRIVILEGES } from '../../../constants/enums';
 import type {
   AirbrushingBatchCreateResponse,
   AirbrushingBatchDeleteResponse,
@@ -228,6 +228,7 @@ export class AirbrushingService {
       invoices?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
     },
+    userRole?: string,
   ): Promise<AirbrushingUpdateResponse> {
     try {
       const updatedAirbrushing = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
@@ -243,6 +244,10 @@ export class AirbrushingService {
 
         // Validar entidade completa
         await this.validateAirbrushing(data, id, tx);
+
+        // Extract artworkStatuses from data before removing it
+        const artworkStatuses = (data as any).artworkStatuses as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined;
+        this.logger.log(`[Airbrushing Update] artworkStatuses received: ${JSON.stringify(artworkStatuses)}`);
 
         // Process file uploads if provided and get new file IDs
         let newFileIds = {
@@ -263,11 +268,17 @@ export class AirbrushingService {
         // artworkIds from frontend are File IDs, but the artworks relation expects Artwork entity IDs
         let artworkEntityIds: string[] = [];
         if (combinedArtworkFileIds.length > 0) {
-          artworkEntityIds = await this.convertFileIdsToArtworkIds(combinedArtworkFileIds, id, tx);
+          artworkEntityIds = await this.convertFileIdsToArtworkIds(
+            combinedArtworkFileIds,
+            id,
+            artworkStatuses,
+            userRole,
+            tx,
+          );
           this.logger.log(`[Airbrushing Update] Converted ${combinedArtworkFileIds.length} File IDs to ${artworkEntityIds.length} Artwork entity IDs`);
         }
 
-        // Build update data with converted artwork IDs
+        // Build update data with converted artwork IDs (removing artworkStatuses as it's not a Prisma field)
         const updateData = {
           ...data,
           receiptIds: combinedReceiptIds,
@@ -275,6 +286,8 @@ export class AirbrushingService {
           // Use converted Artwork entity IDs, not File IDs
           artworkIds: artworkEntityIds,
         };
+        // Remove artworkStatuses from updateData as it's not a Prisma field
+        delete (updateData as any).artworkStatuses;
 
         // Atualizar a aerografia
         const updatedAirbrushing = await this.airbrushingRepository.updateWithTransaction(
@@ -787,41 +800,114 @@ export class AirbrushingService {
   }
 
   /**
+   * Helper: Check if user can approve/reprove artworks
+   * Only COMMERCIAL and ADMIN users can change artwork status
+   */
+  private canApproveArtworks(userRole?: string): boolean {
+    const allowedRoles = [SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN];
+    return userRole ? allowedRoles.includes(userRole as any) : false;
+  }
+
+  /**
    * Convert File IDs to Artwork entity IDs
    * Creates Artwork entities if they don't exist for the given File IDs
+   * @param fileIds - Array of File IDs
+   * @param airbrushingId - Airbrushing ID for creating new Artwork records
+   * @param artworkStatuses - Map of File ID to artwork status
+   * @param userRole - User role for permission checking
+   * @param tx - Prisma transaction
+   * @returns Array of Artwork IDs
    */
   private async convertFileIdsToArtworkIds(
     fileIds: string[],
     airbrushingId: string,
-    tx: PrismaTransaction,
+    artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+    userRole?: string,
+    tx?: PrismaTransaction,
   ): Promise<string[]> {
+    const prisma = tx || this.prisma;
     const artworkIds: string[] = [];
+
+    // Debug: Log permission check info
+    const hasApprovalPermission = this.canApproveArtworks(userRole);
+    this.logger.log(
+      `[convertFileIdsToArtworkIds] Permission check: userRole=${userRole}, canApproveArtworks=${hasApprovalPermission}`,
+    );
+    this.logger.log(
+      `[convertFileIdsToArtworkIds] Processing ${fileIds.length} files with statuses: ${JSON.stringify(artworkStatuses)}`,
+    );
 
     for (const fileId of fileIds) {
       // Check if an Artwork record already exists for this file and airbrushing
-      let artwork = await tx.artwork.findFirst({
+      let artwork = await prisma.artwork.findFirst({
         where: {
           fileId,
           airbrushingId,
         },
       });
 
+      // Determine the status to use
+      const requestedStatus = artworkStatuses?.[fileId];
+      const status = requestedStatus || 'DRAFT'; // Default to DRAFT for new uploads
+
+      this.logger.log(
+        `[convertFileIdsToArtworkIds] File ${fileId}: found=${!!artwork}, currentStatus=${artwork?.status}, requestedStatus=${requestedStatus}`,
+      );
+
       if (!artwork) {
-        // Create new Artwork entity with DRAFT status
-        artwork = await tx.artwork.create({
-          data: {
-            fileId,
-            status: 'DRAFT',
-            airbrushingId,
-          },
-        });
+        // Create new Artwork with the provided or default status
+        // If status is APPROVED/REPROVED, check permissions
+        if (status !== 'DRAFT' && !hasApprovalPermission) {
+          this.logger.warn(
+            `[convertFileIdsToArtworkIds] User without approval permission tried to create artwork with status ${status}. Using DRAFT instead.`,
+          );
+          artwork = await prisma.artwork.create({
+            data: {
+              fileId,
+              status: 'DRAFT', // Force DRAFT if user doesn't have permission
+              airbrushingId,
+            },
+          });
+        } else {
+          artwork = await prisma.artwork.create({
+            data: {
+              fileId,
+              status,
+              airbrushingId,
+            },
+          });
+        }
         this.logger.log(
-          `[convertFileIdsToArtworkIds] Created new Artwork ${artwork.id} for File ${fileId} on Airbrushing ${airbrushingId}`,
+          `[convertFileIdsToArtworkIds] Created new Artwork record ${artwork.id} for File ${fileId} with status ${artwork.status}`,
         );
+      } else if (requestedStatus && artwork.status !== requestedStatus) {
+        // Update existing Artwork status if it changed
+        const oldStatus = artwork.status;
+        // Check permissions for status changes
+        if (!hasApprovalPermission) {
+          this.logger.warn(
+            `[convertFileIdsToArtworkIds] User without approval permission (role=${userRole}) tried to change artwork status from ${oldStatus} to ${requestedStatus}. Ignoring.`,
+          );
+        } else {
+          artwork = await prisma.artwork.update({
+            where: { id: artwork.id },
+            data: { status: requestedStatus },
+          });
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] ✅ Updated Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus}`,
+          );
+        }
       } else {
-        this.logger.log(
-          `[convertFileIdsToArtworkIds] Found existing Artwork ${artwork.id} for File ${fileId}`,
-        );
+        // Log why we're not updating
+        if (!requestedStatus) {
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: requestedStatus is undefined`,
+          );
+        } else {
+          this.logger.log(
+            `[convertFileIdsToArtworkIds] No status change for File ${fileId}: current status (${artwork.status}) already matches requested (${requestedStatus})`,
+          );
+        }
       }
 
       artworkIds.push(artwork.id);
