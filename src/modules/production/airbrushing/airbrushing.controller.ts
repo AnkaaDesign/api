@@ -232,6 +232,7 @@ export class AirbrushingController {
     @Body(new ZodValidationPipe(airbrushingUpdateSchema)) data: AirbrushingUpdateFormData,
     @Query(new ZodQueryValidationPipe(airbrushingQuerySchema)) query: AirbrushingQueryFormData,
     @UserId() userId: string,
+    @User() user: UserPayload,
     @UploadedFiles()
     files?: {
       receipts?: Express.Multer.File[];
@@ -239,7 +240,7 @@ export class AirbrushingController {
       artworks?: Express.Multer.File[];
     },
   ): Promise<AirbrushingUpdateResponse> {
-    return this.airbrushingService.update(id, data, query.include, userId, files);
+    return this.airbrushingService.update(id, data, query.include, userId, files, user.role);
   }
 
   @Delete(':id')

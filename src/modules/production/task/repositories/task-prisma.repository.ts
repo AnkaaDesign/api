@@ -1109,8 +1109,7 @@ export class TaskPrismaRepository
         // Handle field name mappings for backwards compatibility
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
-        } else if (key === 'services') {
-          // Map 'services' (frontend name) to 'serviceOrders' (Prisma relation name)
+        } else if (key === 'serviceOrders') {
           // Keep the default include (with assignedTo) if value is true
           if (value === false) {
             databaseInclude.serviceOrders = false;
@@ -1131,8 +1130,8 @@ export class TaskPrismaRepository
         // Special handling for relations that need deep merging with defaults
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = processedValue;
-        } else if (key === 'services') {
-          // Map 'services' (frontend name) to 'serviceOrders' (Prisma relation name)
+        } else if (key === 'serviceOrders') {
+          // Deep merge serviceOrders includes with defaults
           const existingValue = databaseInclude.serviceOrders;
           if (existingValue && typeof existingValue === 'object' && 'include' in existingValue) {
             databaseInclude.serviceOrders = {

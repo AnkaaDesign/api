@@ -592,6 +592,35 @@ export const airbrushingCreateSchema = z.preprocess(
     reimbursementIds: z.array(z.string().uuid()).optional(),
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
+    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
+    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
+    artworkStatuses: z
+      .preprocess((val) => {
+        if (!val || typeof val !== 'object') return val;
+        const keys = Object.keys(val);
+        const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
+        if (isArrayLike) {
+          const merged: any = {};
+          for (const value of Object.values(val)) {
+            if (typeof value === 'string') {
+              try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed === 'object') Object.assign(merged, parsed);
+              } catch (e) { /* Skip invalid JSON */ }
+            } else if (typeof value === 'object') {
+              Object.assign(merged, value);
+            }
+          }
+          return Object.keys(merged).length > 0 ? merged : val;
+        }
+        return val;
+      }, z.record(
+        z.string().uuid(),
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de artwork inválido' }),
+        }),
+      ))
+      .optional(),
   }),
 );
 
@@ -615,6 +644,35 @@ export const airbrushingUpdateSchema = z.preprocess(
     reimbursementIds: z.array(z.string().uuid()).optional(),
     reimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
     artworkIds: z.array(z.string().uuid()).optional(),
+    // Artwork statuses map - maps File ID to artwork status (for approval workflow)
+    // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
+    artworkStatuses: z
+      .preprocess((val) => {
+        if (!val || typeof val !== 'object') return val;
+        const keys = Object.keys(val);
+        const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
+        if (isArrayLike) {
+          const merged: any = {};
+          for (const value of Object.values(val)) {
+            if (typeof value === 'string') {
+              try {
+                const parsed = JSON.parse(value);
+                if (typeof parsed === 'object') Object.assign(merged, parsed);
+              } catch (e) { /* Skip invalid JSON */ }
+            } else if (typeof value === 'object') {
+              Object.assign(merged, value);
+            }
+          }
+          return Object.keys(merged).length > 0 ? merged : val;
+        }
+        return val;
+      }, z.record(
+        z.string().uuid(),
+        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+          errorMap: () => ({ message: 'Status de artwork inválido' }),
+        }),
+      ))
+      .optional(),
   }),
 );
 

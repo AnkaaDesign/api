@@ -149,12 +149,12 @@ export class ServiceOrderService {
           },
         ];
 
-        // Log task services field change
+        // Log task serviceOrders field change
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TASK,
           entityId: data.taskId,
           action: CHANGE_ACTION.UPDATE,
-          field: 'services',
+          field: 'serviceOrders',
           oldValue: serializeServices(oldServices),
           newValue: serializeServices(newServices),
           reason: `Ordem de serviço adicionada (${oldServices.length} → ${newServices.length})`,
@@ -254,6 +254,8 @@ export class ServiceOrderService {
       let taskAutoStarted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
       // Track if task was auto-transitioned to WAITING_PRODUCTION for event emission after transaction
       let taskAutoTransitionedToWaitingProduction: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      // Track if task was auto-completed for event emission after transaction
+      let taskAutoCompleted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
@@ -446,6 +448,77 @@ export class ServiceOrderService {
           }
         }
 
+        // Auto-complete task when all PRODUCTION service orders are COMPLETED
+        // This ensures the task workflow progresses automatically when all production work is done
+        if (
+          data.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+          updated.type === SERVICE_ORDER_TYPE.PRODUCTION
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true, startedAt: true, finishedAt: true },
+          });
+
+          // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status (not already completed)
+          if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+            // Get all PRODUCTION service orders for this task
+            const productionServiceOrders = await tx.serviceOrder.findMany({
+              where: {
+                taskId: updated.taskId,
+                type: SERVICE_ORDER_TYPE.PRODUCTION,
+              },
+              select: { id: true, status: true },
+            });
+
+            // Check if there's at least 1 production service order and ALL are COMPLETED
+            const hasProductionOrders = productionServiceOrders.length > 0;
+            const allProductionCompleted = productionServiceOrders.every(
+              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (hasProductionOrders && allProductionCompleted) {
+              this.logger.log(
+                `[AUTO-COMPLETE TASK] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
+              );
+
+              const oldTaskStatus = task.status;
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.COMPLETED,
+                  statusOrder: 4, // COMPLETED statusOrder
+                  finishedAt: task.finishedAt || new Date(),
+                  // Also set startedAt if not already set
+                  startedAt: task.startedAt || new Date(),
+                },
+              });
+
+              // Log the auto-complete in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: oldTaskStatus,
+                newValue: TASK_STATUS.COMPLETED,
+                reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskAutoCompleted = {
+                taskId: task.id,
+                oldStatus: oldTaskStatus,
+                newStatus: TASK_STATUS.COMPLETED,
+              };
+            }
+          }
+        }
+
         return updated;
       });
 
@@ -594,6 +667,42 @@ export class ServiceOrderService {
 
           this.logger.log(
             `[AUTO-TRANSITION] Emitted task.created event for task ${taskAutoTransitionedToWaitingProduction.taskId} (notifying production sector users)`,
+          );
+        }
+      }
+
+      // Emit task status changed event if task was auto-completed
+      if (taskAutoCompleted) {
+        // Get the updated task with user info for the event
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoCompleted.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        // Get the user who triggered the auto-complete
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoCompleted.oldStatus,
+            newStatus: taskAutoCompleted.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-COMPLETE TASK] Emitted task.status.changed event for task ${taskAutoCompleted.taskId} (${taskAutoCompleted.oldStatus} → COMPLETED)`,
           );
         }
       }
@@ -959,6 +1068,8 @@ export class ServiceOrderService {
       const tasksAutoStarted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
       // Track tasks auto-transitioned to WAITING_PRODUCTION for event emission after transaction
       const tasksAutoTransitionedToWaitingProduction: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      // Track tasks auto-completed for event emission after transaction
+      const tasksAutoCompleted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
@@ -1112,6 +1223,77 @@ export class ServiceOrderService {
                 }
               }
             }
+
+            // Auto-complete task when all PRODUCTION service orders are COMPLETED
+            if (
+              serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED &&
+              oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION
+            ) {
+              // Check if this task was already auto-completed in this batch
+              const alreadyCompleted = tasksAutoCompleted.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyCompleted) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true, startedAt: true, finishedAt: true },
+                });
+
+                // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
+                if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+                  // Get all PRODUCTION service orders for this task
+                  const productionServiceOrders = await tx.serviceOrder.findMany({
+                    where: {
+                      taskId: serviceOrder.taskId,
+                      type: SERVICE_ORDER_TYPE.PRODUCTION,
+                    },
+                    select: { id: true, status: true },
+                  });
+
+                  // Check if there's at least 1 production service order and ALL are COMPLETED
+                  const hasProductionOrders = productionServiceOrders.length > 0;
+                  const allProductionCompleted = productionServiceOrders.every(
+                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  );
+
+                  if (hasProductionOrders && allProductionCompleted) {
+                    this.logger.log(
+                      `[AUTO-COMPLETE TASK BATCH] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
+                    );
+
+                    const oldTaskStatus = task.status;
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.COMPLETED,
+                        statusOrder: 4, // COMPLETED statusOrder
+                        finishedAt: task.finishedAt || new Date(),
+                        startedAt: task.startedAt || new Date(),
+                      },
+                    });
+
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: oldTaskStatus,
+                      newValue: TASK_STATUS.COMPLETED,
+                      reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksAutoCompleted.push({
+                      taskId: task.id,
+                      oldStatus: oldTaskStatus,
+                      newStatus: TASK_STATUS.COMPLETED,
+                    });
+                  }
+                }
+              }
+            }
           }
         }
 
@@ -1246,6 +1428,40 @@ export class ServiceOrderService {
 
           this.logger.log(
             `[AUTO-TRANSITION BATCH] Emitted task.created event for task ${taskAutoTransitioned.taskId} (notifying production sector users)`,
+          );
+        }
+      }
+
+      // Emit task status changed events for tasks auto-completed
+      for (const taskAutoComplete of tasksAutoCompleted) {
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: taskAutoComplete.taskId },
+          select: {
+            id: true,
+            name: true,
+            serialNumber: true,
+            status: true,
+            sectorId: true,
+          },
+        });
+
+        const changedByUser = userId
+          ? await this.prisma.user.findUnique({
+              where: { id: userId },
+              select: { id: true, name: true },
+            })
+          : null;
+
+        if (updatedTask) {
+          this.eventEmitter.emit('task.status.changed', {
+            task: updatedTask,
+            oldStatus: taskAutoComplete.oldStatus,
+            newStatus: taskAutoComplete.newStatus,
+            changedBy: changedByUser || { id: 'system', name: 'Sistema' },
+          });
+
+          this.logger.log(
+            `[AUTO-COMPLETE TASK BATCH] Emitted task.status.changed event for task ${taskAutoComplete.taskId} (${taskAutoComplete.oldStatus} → COMPLETED)`,
           );
         }
       }
