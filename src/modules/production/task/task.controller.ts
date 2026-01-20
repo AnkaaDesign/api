@@ -167,6 +167,36 @@ export class TaskController {
     return this.tasksService.create(data, query.include, userId, files);
   }
 
+  // Diagnostic Endpoints (for debugging copy-from-task issues)
+  @Get(':id/artworks/diagnostic')
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  async diagnosticArtworks(@Param('id', ParseUUIDPipe) id: string): Promise<any> {
+    const task: any = await this.tasksService.findById(id, {
+      artworks: { include: { file: true } },
+    });
+
+    if (!task || !task.data) {
+      throw new Error(`Task ${id} not found`);
+    }
+
+    const taskData = task.data;
+    return {
+      taskId: taskData.id,
+      taskName: taskData.name,
+      artworkCount: taskData.artworks?.length || 0,
+      artworks: taskData.artworks?.map((artwork: any) => ({
+        artworkId: artwork.id,
+        fileId: artwork.fileId,
+        status: artwork.status,
+        file: artwork.file ? {
+          id: artwork.file.id,
+          filename: artwork.file.filename,
+          originalName: artwork.file.originalName,
+        } : null,
+      })) || [],
+    };
+  }
+
   // Batch Operations
   @Post('batch')
   @Roles(SECTOR_PRIVILEGES.ADMIN)

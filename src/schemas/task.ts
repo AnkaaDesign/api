@@ -317,14 +317,16 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      pricing: z
+      pricings: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
-                task: z.boolean().optional(),
+                tasks: z.boolean().optional(),
                 items: z.boolean().optional(),
+                layoutFile: z.boolean().optional(),
+                customerSignature: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -1617,6 +1619,7 @@ export const taskCreateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
+    pricingIds: uuidArraySchema('Precificação inválida'), // MANY-TO-MANY relation with Pricing entities
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
@@ -1825,9 +1828,9 @@ export const taskUpdateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
+    pricingIds: uuidArraySchema('Precificação inválida'), // MANY-TO-MANY relation with Pricing entities
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
-    pricing: taskPricingCreateNestedSchema.nullable().optional(), // ONE-TO-ONE relation with Pricing entity
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
     cut: cutCreateNestedSchema.nullable().optional(),
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts

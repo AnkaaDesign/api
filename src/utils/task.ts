@@ -200,18 +200,19 @@ export function formatTaskSummary(task: Task): string {
 }
 
 /**
- * Calculate task price from pricing
+ * Calculate task price from pricing (uses first pricing if multiple exist)
  */
 export function calculateTaskPrice(task: Task): number {
-  if (!task.pricing) return 0;
-  return Number(task.pricing.total) || 0;
+  if (!task.pricings || task.pricings.length === 0) return 0;
+  // Use first pricing (or could filter for approved status if needed)
+  return Number(task.pricings[0].total) || 0;
 }
 
 /**
  * Format task price from pricing total
  */
 export function formatTaskPrice(task: Task): string {
-  if (!task.pricing || !task.pricing.total) return 'Sem valor';
+  if (!task.pricings || task.pricings.length === 0 || !task.pricings[0].total) return 'Sem valor';
   const totalValue = calculateTaskPrice(task);
   return numberUtils.formatCurrency(totalValue);
 }

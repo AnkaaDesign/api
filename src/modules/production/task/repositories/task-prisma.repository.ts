@@ -33,7 +33,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
-  pricing: { include: { items: true, layoutFile: true } }, // Task pricing with status, items, and layout file
+  pricings: { include: { items: true, layoutFile: true } }, // Task pricings (many-to-many: shared pricing)
   budgets: {
     select: {
       id: true,
@@ -333,6 +333,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds, // was fileIds - using correct property name
+      pricingIds,
       paintIds,
       serviceOrders,
       observation,
@@ -394,6 +395,9 @@ export class TaskPrismaRepository
     }
     if (artworkIds && artworkIds.length > 0) {
       taskData.artworks = { connect: artworkIds.map(id => ({ id })) };
+    }
+    if (pricingIds && pricingIds.length > 0) {
+      taskData.pricings = { connect: pricingIds.map(id => ({ id })) };
     }
     if (paintIds && paintIds.length > 0) {
       taskData.logoPaints = { connect: paintIds.map(id => ({ id })) };
@@ -534,50 +538,9 @@ export class TaskPrismaRepository
       };
     }
 
-    // Handle pricing creation (object with items, expiresAt, and status)
-    const pricing = (extendedData as any).pricing;
-    if (
-      pricing &&
-      typeof pricing === 'object' &&
-      pricing.items &&
-      Array.isArray(pricing.items) &&
-      pricing.items.length > 0
-    ) {
-      // Calculate total from items
-      const total = pricing.items.reduce(
-        (sum: number, item: any) => sum + Number(item.amount || 0),
-        0,
-      );
-      taskData.pricing = {
-        create: {
-          // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
-          budgetNumber: 0,
-          subtotal: pricing.subtotal ?? total,
-          discountType: pricing.discountType || 'NONE',
-          discountValue: pricing.discountValue || null,
-          total: pricing.total ?? total,
-          expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
-          status: pricing.status || 'DRAFT',
-          // Payment Terms (simplified)
-          paymentCondition: pricing.paymentCondition || null,
-          downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
-          customPaymentText: pricing.customPaymentText || null,
-          // Guarantee Terms
-          guaranteeYears: pricing.guaranteeYears || null,
-          customGuaranteeText: pricing.customGuaranteeText || null,
-          // Layout File (connect if provided)
-          ...(pricing.layoutFileId && {
-            layoutFile: { connect: { id: pricing.layoutFileId } },
-          }),
-          items: {
-            create: pricing.items.map((item: any) => ({
-              description: item.description,
-              amount: Number(item.amount || 0),
-            })),
-          },
-        },
-      };
-    }
+    // DEPRECATED: Pricing is now many-to-many, handled in createWithTransaction
+    // The pricing field is stored in extendedData for later processing
+    // We don't add it to taskData here because it needs to be created separately and connected
 
     // Handle airbrushings creation (array of airbrushing items)
     const airbrushings = (extendedData as any).airbrushings;
@@ -645,6 +608,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds, // was fileIds - using correct property name
+      pricingIds,
       paintIds,
       serviceOrders,
       observation,
@@ -724,6 +688,9 @@ export class TaskPrismaRepository
     }
     if (artworkIds !== undefined) {
       updateData.artworks = { set: artworkIds.map(id => ({ id })) };
+    }
+    if (pricingIds !== undefined) {
+      updateData.pricings = { set: pricingIds.map(id => ({ id })) };
     }
     if (paintIds !== undefined) {
       updateData.logoPaints = { set: paintIds.map(id => ({ id })) };
@@ -938,89 +905,10 @@ export class TaskPrismaRepository
       }
     }
 
-    // Handle pricing update (object with items, expiresAt, and status) - upsert pricing
-    const pricing = (extendedData as any).pricing;
-
-    if (pricing !== undefined) {
-      if (pricing === null) {
-        updateData.pricing = { delete: true };
-      } else if (
-        typeof pricing === 'object' &&
-        pricing.items &&
-        Array.isArray(pricing.items) &&
-        pricing.items.length > 0
-      ) {
-        // Calculate subtotal from items (sum before discount)
-        const calculatedSubtotal = pricing.items.reduce(
-          (sum: number, item: any) => sum + Number(item.amount || 0),
-          0,
-        );
-        // Use provided values or calculate from items
-        const subtotal = pricing.subtotal !== undefined ? Number(pricing.subtotal) : calculatedSubtotal;
-        const total = pricing.total !== undefined ? Number(pricing.total) : calculatedSubtotal;
-
-        // Prepare layout file connection if provided
-        const layoutFileConnect = pricing.layoutFileId
-          ? { layoutFile: { connect: { id: pricing.layoutFileId } } }
-          : {};
-
-        updateData.pricing = {
-          upsert: {
-            create: {
-              // budgetNumber is set to 0 as placeholder - will be replaced at runtime in updateWithTransaction
-              budgetNumber: 0,
-              subtotal,
-              total,
-              discountType: pricing.discountType || 'NONE',
-              discountValue: pricing.discountValue !== undefined ? Number(pricing.discountValue) : null,
-              expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
-              status: pricing.status || 'DRAFT',
-              // Payment Terms (simplified)
-              paymentCondition: pricing.paymentCondition || null,
-              downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
-              customPaymentText: pricing.customPaymentText || null,
-              // Guarantee Terms
-              guaranteeYears: pricing.guaranteeYears || null,
-              customGuaranteeText: pricing.customGuaranteeText || null,
-              // Layout File
-              ...layoutFileConnect,
-              items: {
-                create: pricing.items.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount || 0),
-                })),
-              },
-            },
-            update: {
-              subtotal,
-              total,
-              discountType: pricing.discountType || 'NONE',
-              discountValue: pricing.discountValue !== undefined ? Number(pricing.discountValue) : null,
-              expiresAt: pricing.expiresAt ? new Date(pricing.expiresAt) : new Date(),
-              status: pricing.status || 'DRAFT',
-              // Payment Terms (simplified)
-              paymentCondition: pricing.paymentCondition || null,
-              downPaymentDate: pricing.downPaymentDate ? new Date(pricing.downPaymentDate) : null,
-              customPaymentText: pricing.customPaymentText || null,
-              // Guarantee Terms
-              guaranteeYears: pricing.guaranteeYears || null,
-              customGuaranteeText: pricing.customGuaranteeText || null,
-              // Layout File
-              ...(pricing.layoutFileId
-                ? { layoutFile: { connect: { id: pricing.layoutFileId } } }
-                : { layoutFileId: null }),
-              items: {
-                deleteMany: {}, // Delete all existing items
-                create: pricing.items.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount || 0),
-                })),
-              },
-            },
-          },
-        };
-      }
-    }
+    // DEPRECATED: Pricing is now many-to-many, so we don't handle it here in mapUpdateFormDataToDatabaseUpdateInput
+    // Instead, pricing must be handled in updateWithTransaction where we can create the TaskPricing entity
+    // and connect it via the many-to-many relationship
+    // The pricing field is stored in extendedData for later processing
 
     // Handle airbrushings update (array of airbrushing items)
     // CRITICAL: Artworks have onDelete: Cascade on airbrushing relation
@@ -1109,6 +997,9 @@ export class TaskPrismaRepository
         // Handle field name mappings for backwards compatibility
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
+        } else if (key === 'pricing') {
+          // Map old 'pricing' field to new 'pricings' field for backwards compatibility
+          databaseInclude.pricings = value;
         } else if (key === 'serviceOrders') {
           // Keep the default include (with assignedTo) if value is true
           if (value === false) {
@@ -1130,6 +1021,9 @@ export class TaskPrismaRepository
         // Special handling for relations that need deep merging with defaults
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = processedValue;
+        } else if (key === 'pricing') {
+          // Map old 'pricing' field to new 'pricings' field for backwards compatibility
+          databaseInclude.pricings = processedValue;
         } else if (key === 'serviceOrders') {
           // Deep merge serviceOrders includes with defaults
           const existingValue = databaseInclude.serviceOrders;
@@ -1191,24 +1085,69 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      // Handle pricing create - need to generate budgetNumber
-      // The budgetNumber is required and must be auto-generated
-      if (
-        createInput.pricing &&
-        typeof createInput.pricing === 'object' &&
-        'create' in createInput.pricing &&
-        createInput.pricing.create
-      ) {
-        const pricingCreate = createInput.pricing.create as Record<string, any>;
+      // Handle pricing creation for many-to-many relationship
+      const pricingData = (data as any).pricing;
+      let createdPricingId: string | null = null;
 
-        // Get next budget number for create operation
+      if (
+        pricingData &&
+        typeof pricingData === 'object' &&
+        pricingData.items &&
+        Array.isArray(pricingData.items) &&
+        pricingData.items.length > 0
+      ) {
+        // Calculate subtotal from items
+        const calculatedSubtotal = pricingData.items.reduce(
+          (sum: number, item: any) => sum + Number(item.amount || 0),
+          0,
+        );
+        const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+        const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+
+        // Get next budget number
         const maxBudgetNumber = await transaction.taskPricing.aggregate({
           _max: { budgetNumber: true },
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        // Inject budgetNumber into the create block
-        pricingCreate.budgetNumber = nextBudgetNumber;
+        // Prepare layout file connection
+        const layoutFileConnect = pricingData.layoutFileId
+          ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
+          : {};
+
+        // Create new TaskPricing entity
+        const newPricing = await transaction.taskPricing.create({
+          data: {
+            budgetNumber: nextBudgetNumber,
+            subtotal,
+            total,
+            discountType: pricingData.discountType || 'NONE',
+            discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+            expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
+            status: pricingData.status || 'DRAFT',
+            paymentCondition: pricingData.paymentCondition || null,
+            downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+            customPaymentText: pricingData.customPaymentText || null,
+            guaranteeYears: pricingData.guaranteeYears || null,
+            customGuaranteeText: pricingData.customGuaranteeText || null,
+            ...layoutFileConnect,
+            items: {
+              create: pricingData.items.map((item: any) => ({
+                description: item.description,
+                amount: Number(item.amount || 0),
+              })),
+            },
+          },
+        });
+
+        createdPricingId = newPricing.id;
+      }
+
+      // Add pricing connection if created
+      if (createdPricingId) {
+        createInput.pricings = {
+          connect: [{ id: createdPricingId }],
+        };
       }
 
       const result = await transaction.task.create({
@@ -1336,27 +1275,67 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      // Handle pricing upsert - need to generate budgetNumber for create operation
-      // The budgetNumber is required and must be auto-generated
-      if (
-        updateInput.pricing &&
-        typeof updateInput.pricing === 'object' &&
-        'upsert' in updateInput.pricing &&
-        updateInput.pricing.upsert
-      ) {
-        const pricingUpsert = updateInput.pricing.upsert as {
-          create: Record<string, any>;
-          update: Record<string, any>;
-        };
+      // Handle pricing creation/update for many-to-many relationship
+      // Since pricing is now many-to-many, we create a new TaskPricing entity and connect it
+      const pricingData = (data as any).pricing;
 
-        // Get next budget number for potential create operation
-        const maxBudgetNumber = await transaction.taskPricing.aggregate({
-          _max: { budgetNumber: true },
-        });
-        const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+      if (pricingData !== undefined && pricingData !== null) {
+        if (
+          typeof pricingData === 'object' &&
+          pricingData.items &&
+          Array.isArray(pricingData.items) &&
+          pricingData.items.length > 0
+        ) {
+          // Calculate subtotal from items
+          const calculatedSubtotal = pricingData.items.reduce(
+            (sum: number, item: any) => sum + Number(item.amount || 0),
+            0,
+          );
+          const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+          const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
 
-        // Inject budgetNumber into the create block
-        pricingUpsert.create.budgetNumber = nextBudgetNumber;
+          // Get next budget number
+          const maxBudgetNumber = await transaction.taskPricing.aggregate({
+            _max: { budgetNumber: true },
+          });
+          const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+          // Prepare layout file connection
+          const layoutFileConnect = pricingData.layoutFileId
+            ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
+            : {};
+
+          // Create new TaskPricing entity
+          const newPricing = await transaction.taskPricing.create({
+            data: {
+              budgetNumber: nextBudgetNumber,
+              subtotal,
+              total,
+              discountType: pricingData.discountType || 'NONE',
+              discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+              expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
+              status: pricingData.status || 'DRAFT',
+              paymentCondition: pricingData.paymentCondition || null,
+              downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+              customPaymentText: pricingData.customPaymentText || null,
+              guaranteeYears: pricingData.guaranteeYears || null,
+              customGuaranteeText: pricingData.customGuaranteeText || null,
+              ...layoutFileConnect,
+              items: {
+                create: pricingData.items.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount || 0),
+                })),
+              },
+            },
+          });
+
+          // Connect the new pricing to the task via many-to-many
+          // Replace existing pricings with the new one
+          updateInput.pricings = {
+            set: [{ id: newPricing.id }],
+          };
+        }
       }
 
       const result = await transaction.task.update({
