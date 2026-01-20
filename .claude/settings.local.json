@@ -9,7 +9,9 @@
       "Bash(git rebase:*)",
       "Bash(git rm:*)",
       "Bash(git reset:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash drop:*)"
     ],
     "deny": [],
     "ask": []

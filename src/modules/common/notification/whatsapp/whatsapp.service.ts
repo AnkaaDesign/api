@@ -310,8 +310,17 @@ export class WhatsAppNotificationService {
   }
 
   /**
-   * Validate and format phone number
-   * Ensures phone number is in the correct format for WhatsApp
+   * Validate and format phone number for WhatsApp
+   * Intelligently handles Brazilian phone number formats and ensures
+   * the number is properly formatted for WhatsApp API
+   *
+   * Brazilian phone number formats:
+   * - 8 digits: Old landline format (XXXX-XXXX) - requires DDD
+   * - 9 digits: Mobile without DDD (9XXXX-XXXX) - requires DDD
+   * - 10 digits: Landline with DDD (XX XXXX-XXXX)
+   * - 11 digits: Mobile with DDD (XX 9XXXX-XXXX)
+   * - 12 digits: Landline with country code (55 XX XXXX-XXXX)
+   * - 13 digits: Mobile with country code (55 XX 9XXXX-XXXX)
    *
    * @param user - The user whose phone number to validate
    * @returns Promise<PhoneValidationResult>
@@ -326,30 +335,23 @@ export class WhatsAppNotificationService {
         };
       }
 
-      // Remove all non-digit characters
-      const cleanPhone = user.phone.replace(/\D/g, '');
+      // Format the phone number using the intelligent formatter
+      const formattedPhone = this.formatBrazilianPhoneNumber(user.phone);
 
-      // Basic validation - phone should be 10-15 digits
-      if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      if (!formattedPhone) {
         return {
           valid: false,
-          error: 'Phone number must be between 10 and 15 digits',
+          error: 'Invalid phone number format. Expected Brazilian phone number with 10-13 digits.',
         };
       }
 
-      // Format the phone number
-      // If it doesn't start with country code, assume Brazil (+55)
-      let formattedPhone = cleanPhone;
-      if (!formattedPhone.startsWith('55') && cleanPhone.length <= 11) {
-        formattedPhone = `55${cleanPhone}`;
-      }
+      // Validate the formatted number
+      const validation = this.validateBrazilianPhoneNumber(formattedPhone);
 
-      // Validate format with regex
-      const phoneRegex = /^\d{10,15}$/;
-      if (!phoneRegex.test(formattedPhone)) {
+      if (!validation.valid) {
         return {
           valid: false,
-          error: 'Invalid phone number format',
+          error: validation.error,
         };
       }
 
@@ -368,6 +370,114 @@ export class WhatsAppNotificationService {
         error: `Phone validation error: ${error.message}`,
       };
     }
+  }
+
+  /**
+   * Intelligently format a Brazilian phone number
+   * Handles various input formats and normalizes to WhatsApp format (55XXXXXXXXXXX)
+   *
+   * @param phone - Raw phone number string
+   * @returns Formatted phone number or null if invalid
+   */
+  private formatBrazilianPhoneNumber(phone: string): string | null {
+    // Remove all non-digit characters
+    let cleanPhone = phone.replace(/\D/g, '');
+
+    // Remove leading zeros (some formats include 0 before DDD)
+    cleanPhone = cleanPhone.replace(/^0+/, '');
+
+    // Handle different lengths
+    const length = cleanPhone.length;
+
+    // Already has Brazil country code (55)
+    if (cleanPhone.startsWith('55')) {
+      // 12 digits: 55 + DDD (2) + landline (8) = valid
+      // 13 digits: 55 + DDD (2) + mobile (9) = valid
+      if (length === 12 || length === 13) {
+        return cleanPhone;
+      }
+      // Invalid length with country code
+      return null;
+    }
+
+    // No country code - need to add 55
+    switch (length) {
+      case 10:
+        // Landline with DDD: XX XXXX-XXXX -> 55XXXXXXXXXX
+        return `55${cleanPhone}`;
+
+      case 11:
+        // Mobile with DDD: XX 9XXXX-XXXX -> 55XXXXXXXXXXX
+        // Verify it's a mobile number (3rd digit should be 9)
+        if (cleanPhone.charAt(2) === '9') {
+          return `55${cleanPhone}`;
+        }
+        // Could be a landline in some regions with extra digit, still valid
+        return `55${cleanPhone}`;
+
+      case 8:
+        // Old landline format without DDD - cannot process without DDD
+        this.logger.warn(
+          `Phone number has only 8 digits (no DDD): ${this.maskPhoneNumber(cleanPhone)}`,
+        );
+        return null;
+
+      case 9:
+        // Mobile without DDD - cannot process without DDD
+        this.logger.warn(
+          `Phone number has only 9 digits (no DDD): ${this.maskPhoneNumber(cleanPhone)}`,
+        );
+        return null;
+
+      default:
+        // Invalid length
+        this.logger.warn(
+          `Phone number has invalid length (${length} digits): ${this.maskPhoneNumber(cleanPhone)}`,
+        );
+        return null;
+    }
+  }
+
+  /**
+   * Validate a formatted Brazilian phone number
+   * Checks DDD validity and number format
+   *
+   * @param phone - Formatted phone number (with country code 55)
+   * @returns Validation result
+   */
+  private validateBrazilianPhoneNumber(phone: string): { valid: boolean; error?: string } {
+    // Must start with Brazil country code
+    if (!phone.startsWith('55')) {
+      return { valid: false, error: 'Phone number must have Brazil country code (55)' };
+    }
+
+    // Extract DDD (area code) - 2 digits after country code
+    const ddd = phone.substring(2, 4);
+    const dddNumber = parseInt(ddd, 10);
+
+    // Valid Brazilian DDDs range from 11 to 99
+    // Main DDDs: 11-19 (SP), 21-28 (RJ/ES), 31-38 (MG), 41-49 (PR/SC), 51-55 (RS),
+    // 61-69 (DF/GO/MT/MS/AC/RO), 71-79 (BA/SE), 81-89 (PE/AL/PB/RN/CE/PI/MA), 91-99 (PA/AM/RR/AP)
+    if (dddNumber < 11 || dddNumber > 99) {
+      return { valid: false, error: `Invalid DDD (area code): ${ddd}` };
+    }
+
+    // Validate the local number part
+    const localNumber = phone.substring(4);
+    const localLength = localNumber.length;
+
+    // Local number should be 8 (landline) or 9 (mobile) digits
+    if (localLength !== 8 && localLength !== 9) {
+      return { valid: false, error: `Invalid local number length: ${localLength} digits` };
+    }
+
+    // Mobile numbers should start with 9
+    if (localLength === 9 && localNumber.charAt(0) !== '9') {
+      return { valid: false, error: 'Mobile numbers must start with 9' };
+    }
+
+    // All validations passed
+    return { valid: true };
   }
 
   /**
@@ -592,7 +702,7 @@ export class WhatsAppNotificationService {
       }
 
       // Get retry count from metadata
-      const metadata = delivery.metadata as any || {};
+      const metadata = (delivery.metadata as any) || {};
       const retryCount = metadata.retryCount || 0;
 
       // Check if max retries exceeded

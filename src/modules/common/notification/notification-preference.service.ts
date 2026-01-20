@@ -18,9 +18,9 @@ export interface DefaultNotificationPreference {
 }
 
 export interface ChannelPreferences {
-  [NOTIFICATION_CHANNEL.EMAIL]: UserNotificationPreference[];
-  [NOTIFICATION_CHANNEL.PUSH]: UserNotificationPreference[];
   [NOTIFICATION_CHANNEL.IN_APP]: UserNotificationPreference[];
+  [NOTIFICATION_CHANNEL.PUSH]: UserNotificationPreference[];
+  [NOTIFICATION_CHANNEL.EMAIL]: UserNotificationPreference[];
   [NOTIFICATION_CHANNEL.WHATSAPP]: UserNotificationPreference[];
 }
 
@@ -321,9 +321,9 @@ export class NotificationPreferenceService {
       const allPreferences = await this.getUserPreferences(userId);
 
       const channelPrefs: ChannelPreferences = {
-        [NOTIFICATION_CHANNEL.EMAIL]: [],
-        [NOTIFICATION_CHANNEL.PUSH]: [],
         [NOTIFICATION_CHANNEL.IN_APP]: [],
+        [NOTIFICATION_CHANNEL.PUSH]: [],
+        [NOTIFICATION_CHANNEL.EMAIL]: [],
         [NOTIFICATION_CHANNEL.WHATSAPP]: [],
       };
 

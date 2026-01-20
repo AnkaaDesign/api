@@ -378,13 +378,17 @@ export class BackupService implements OnModuleInit {
       if (metadata.type === 'system') typeFolder = 'sistema';
 
       let deleted = false;
+      let relativePath: string | null = null;
 
       // Search for backup directory in all date-based paths
       // The backup could be in any date folder, not just today's
       const basePath = path.join(this.backupBasePath, typeFolder);
 
-      // Recursively search for the backup directory
-      const findBackupDir = async (searchPath: string): Promise<string | null> => {
+      // Recursively search for the backup directory and get relative path
+      const findBackupDir = async (
+        searchPath: string,
+        relPath: string = '',
+      ): Promise<{ fullPath: string; relativePath: string } | null> => {
         try {
           const entries = await fs.readdir(searchPath, { withFileTypes: true });
 
@@ -392,14 +396,15 @@ export class BackupService implements OnModuleInit {
             if (!entry.isDirectory()) continue;
 
             const fullPath = path.join(searchPath, entry.name);
+            const currentRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
 
             // If this directory is the backup ID, we found it
             if (entry.name === backupId) {
-              return fullPath;
+              return { fullPath, relativePath: `${typeFolder}/${currentRelPath}` };
             }
 
             // Otherwise, search recursively (for date folders like 2025/10/25)
-            const found = await findBackupDir(fullPath);
+            const found = await findBackupDir(fullPath, currentRelPath);
             if (found) return found;
           }
         } catch (error) {
@@ -409,16 +414,19 @@ export class BackupService implements OnModuleInit {
         return null;
       };
 
-      const backupDir = await findBackupDir(basePath);
+      const backupInfo = await findBackupDir(basePath);
 
       // Try deleting from new structure (folder per backup)
-      if (backupDir) {
+      if (backupInfo) {
         try {
-          await fs.rm(backupDir, { recursive: true, force: true });
-          this.logger.log(`Backup deleted (new structure): ${backupId} at ${backupDir}`);
+          await fs.rm(backupInfo.fullPath, { recursive: true, force: true });
+          this.logger.log(`Backup deleted (new structure): ${backupId} at ${backupInfo.fullPath}`);
           deleted = true;
+          relativePath = backupInfo.relativePath;
         } catch (error) {
-          this.logger.warn(`Failed to delete backup directory: ${backupDir} - ${error.message}`);
+          this.logger.warn(
+            `Failed to delete backup directory: ${backupInfo.fullPath} - ${error.message}`,
+          );
         }
       } else {
         this.logger.warn(`New structure not found for ${backupId}, trying old flat structure...`);
@@ -437,6 +445,7 @@ export class BackupService implements OnModuleInit {
           await fs.unlink(oldBackupPath);
           this.logger.log(`Deleted old backup file: ${oldBackupPath}`);
           backupFileDeleted = true;
+          relativePath = `${metadata.type}/${backupFileName}`;
         } catch (error) {
           if (error.code !== 'ENOENT') {
             this.logger.warn(`Failed to delete old backup file: ${oldBackupPath}`);
@@ -465,10 +474,37 @@ export class BackupService implements OnModuleInit {
       if (!deleted) {
         throw new Error(`Backup files not found for ${backupId}`);
       }
+
+      // Delete from Google Drive asynchronously
+      if (deleted) {
+        this.deleteFromGoogleDrive(backupId);
+      }
     } catch (error) {
       this.logger.error(`Failed to delete backup: ${error.message}`);
       throw new InternalServerErrorException('Failed to delete backup');
     }
+  }
+
+  /**
+   * Delete backup from Google Drive
+   * Runs asynchronously in the background to not block the response
+   */
+  private deleteFromGoogleDrive(backupId: string): void {
+    this.logger.log(`Triggering Google Drive deletion for backup: ${backupId}`);
+
+    exec(
+      `/home/kennedy/scripts/backup/gdrive-delete.sh --id ${backupId}`,
+      { timeout: 60000 }, // 1 minute timeout
+      (error: Error | null, stdout: string, stderr: string) => {
+        if (error) {
+          this.logger.error(`Google Drive deletion failed for ${backupId}: ${error.message}`);
+          if (stderr) this.logger.error(`Deletion stderr: ${stderr}`);
+        } else {
+          this.logger.log(`Google Drive deletion completed for backup: ${backupId}`);
+          if (stdout) this.logger.debug(`Deletion stdout: ${stdout}`);
+        }
+      },
+    );
   }
 
   async restoreBackup(backupId: string, targetPath?: string): Promise<{ message: string }> {
