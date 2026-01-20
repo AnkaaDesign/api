@@ -42,7 +42,6 @@ export interface TaskPricing extends BaseEntity {
   total: number;
   expiresAt: Date;
   status: TASK_PRICING_STATUS;
-  taskId: string;
 
   // Payment Terms (simplified)
   paymentCondition: PAYMENT_CONDITION | null;
@@ -62,7 +61,7 @@ export interface TaskPricing extends BaseEntity {
   customerSignature?: File;
 
   // Relations
-  task?: Task;
+  tasks?: Task[]; // Many-to-many relationship with tasks
   items?: TaskPricingItem[];
 }
 
@@ -71,7 +70,7 @@ export interface TaskPricing extends BaseEntity {
 // =====================
 
 export interface TaskPricingIncludes {
-  task?:
+  tasks?:
     | boolean
     | {
         include?: TaskIncludes;
