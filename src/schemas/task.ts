@@ -65,6 +65,19 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      invoiceTo: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                logo: z.boolean().optional(),
+                tasks: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
       budgets: z
         .union([
           z.boolean(),
@@ -317,7 +330,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      pricings: z
+      pricing: z
         .union([
           z.boolean(),
           z.object({
@@ -1619,7 +1632,8 @@ export const taskCreateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingIds: uuidArraySchema('Precificação inválida'), // MANY-TO-MANY relation with Pricing entities
+    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-MANY: one task has one pricing, but pricing can be shared across tasks
+    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-many: one pricing can be shared across multiple tasks)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
@@ -1828,7 +1842,8 @@ export const taskUpdateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingIds: uuidArraySchema('Precificação inválida'), // MANY-TO-MANY relation with Pricing entities
+    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-MANY: one task has one pricing, but pricing can be shared across tasks
+    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-many: one pricing can be shared across multiple tasks)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts

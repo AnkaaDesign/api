@@ -1055,7 +1055,7 @@ model TaskPricing {
 
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
-  tasks     Task[]            @relation("TaskPricings") // Many-to-many: shared pricing across tasks
+  tasks     Task[]            @relation("TASK_PRICING") // One-to-many: one pricing can be shared across multiple tasks
   items     TaskPricingItem[] @relation("PRICING_ITEMS")
 
   @@index([status])
@@ -1130,8 +1130,9 @@ model Task {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
+  pricingId             String? // One-to-many: one task has one pricing, but pricing can be shared across tasks
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
-  pricings              TaskPricing[]        @relation("TaskPricings") // Many-to-many: shared pricing
+  pricing               TaskPricing?         @relation("TASK_PRICING", fields: [pricingId], references: [id])
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
   serviceOrders         ServiceOrder[]       @relation("SERVICE_ORDER_TASK")
@@ -1163,6 +1164,7 @@ model Task {
   @@index([customerId])
   @@index([invoiceToId])
   @@index([createdById])
+  @@index([pricingId])
 }
 
 model TaskFieldChangeLog {
@@ -1223,9 +1225,9 @@ model Truck {
   taskId            String         @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
-  backSideLayoutId  String?        @unique
-  leftSideLayoutId  String?        @unique
-  rightSideLayoutId String?        @unique
+  backSideLayoutId  String? // Foreign key to shared Layout (NO LONGER @unique)
+  leftSideLayoutId  String? // Foreign key to shared Layout (NO LONGER @unique)
+  rightSideLayoutId String? // Foreign key to shared Layout (NO LONGER @unique)
   backSideLayout    Layout?        @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
   leftSideLayout    Layout?        @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
   rightSideLayout   Layout?        @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
@@ -1233,19 +1235,22 @@ model Truck {
 
   @@index([spot])
   @@index([plate])
+  @@index([backSideLayoutId]) // Index for finding all trucks using a layout
+  @@index([leftSideLayoutId]) // Index for finding all trucks using a layout
+  @@index([rightSideLayoutId]) // Index for finding all trucks using a layout
 }
 
 model Layout {
-  id             String          @id @default(uuid())
-  height         Float
-  photoId        String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  photo          File?           @relation("LAYOUT_PHOTO", fields: [photoId], references: [id])
-  layoutSections LayoutSection[] @relation("LayoutSections")
-  truckBackSide  Truck?          @relation("TRUCK_BACK_SIDE")
-  truckLeftSide  Truck?          @relation("TRUCK_LEFT_SIDE")
-  truckRightSide Truck?          @relation("TRUCK_RIGHT_SIDE")
+  id              String          @id @default(uuid())
+  height          Float
+  photoId         String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  photo           File?           @relation("LAYOUT_PHOTO", fields: [photoId], references: [id])
+  layoutSections  LayoutSection[] @relation("LayoutSections")
+  trucksBackSide  Truck[]         @relation("TRUCK_BACK_SIDE") // SHARED: Many trucks can use this layout for back side
+  trucksLeftSide  Truck[]         @relation("TRUCK_LEFT_SIDE") // SHARED: Many trucks can use this layout for left side
+  trucksRightSide Truck[]         @relation("TRUCK_RIGHT_SIDE") // SHARED: Many trucks can use this layout for right side
 }
 
 model LayoutSection {
