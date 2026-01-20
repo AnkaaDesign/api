@@ -131,11 +131,15 @@ export class TaskService {
     );
 
     for (const fileId of fileIds) {
+      this.logger.log(`[convertFileIdsToArtworkIds] Processing fileId: ${fileId}`);
+
       // Find existing Artwork by fileId only (since fileId is unique in the new schema)
       // Artworks are now SHARED across tasks, so we don't filter by taskId
       let artwork = await prisma.artwork.findUnique({
         where: { fileId },
       });
+
+      this.logger.log(`[convertFileIdsToArtworkIds] Lookup result for ${fileId}: ${artwork ? `found (id: ${artwork.id})` : 'not found'}`);
 
       // Determine the status to use
       const requestedStatus = artworkStatuses?.[fileId];
@@ -3301,10 +3305,13 @@ export class TaskService {
             }
           }
 
-          // Upload artworks
+          // Upload artworks and create Artwork entities
           if (files.artworks && files.artworks.length > 0) {
             this.logger.log(`[batchUpdate] Uploading ${files.artworks.length} artwork files`);
             uploadedFileIds.artworks = [];
+            const uploadedArtworkFileIds: string[] = [];
+
+            // Step 1: Upload files and get File IDs
             for (const artworkFile of files.artworks) {
               const artworkRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
@@ -3317,8 +3324,24 @@ export class TaskService {
                   customerName,
                 },
               );
-              uploadedFileIds.artworks.push(artworkRecord.id);
+              uploadedArtworkFileIds.push(artworkRecord.id);
             }
+
+            // Step 2: Convert File IDs to Artwork entity IDs
+            // This creates Artwork entities that wrap the uploaded Files
+            this.logger.log(`[batchUpdate] Converting ${uploadedArtworkFileIds.length} File IDs to Artwork entity IDs`);
+            const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+              uploadedArtworkFileIds,
+              null, // taskId - null since these artworks will be connected to multiple tasks
+              null, // airbrushingId
+              undefined, // artworkStatuses - new uploads default to DRAFT
+              undefined, // userRole - not available in batch update
+              tx,
+            );
+
+            // Store Artwork entity IDs (not File IDs) for merging
+            uploadedFileIds.artworks = artworkEntityIds;
+            this.logger.log(`[batchUpdate] Created ${artworkEntityIds.length} Artwork entities for uploaded files`);
           }
 
           // Process cut files for batch update
@@ -3354,6 +3377,115 @@ export class TaskService {
                     delete cut._fileIndex; // Clean up the temporary field
                   }
                 });
+              }
+            }
+          }
+
+          // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
+          // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
+          this.logger.log('[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs');
+          for (const update of updatesWithChangeTracking) {
+            if (update.data.artworkIds && Array.isArray(update.data.artworkIds) && update.data.artworkIds.length > 0) {
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: Processing ${update.data.artworkIds.length} artwork IDs: ${JSON.stringify(update.data.artworkIds)}`,
+              );
+
+              // DEFENSIVE CHECK: Determine if these are File IDs or Artwork entity IDs
+              // Try to find them as Artwork entities first
+              const existingArtworks = await tx.artwork.findMany({
+                where: {
+                  id: { in: update.data.artworkIds },
+                },
+                select: { id: true, fileId: true },
+              });
+
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: Checked ${update.data.artworkIds.length} IDs as Artwork entities, found ${existingArtworks.length}`,
+              );
+
+              if (existingArtworks.length === update.data.artworkIds.length) {
+                // All IDs were found as Artwork entities - frontend sent Artwork entity IDs directly
+                this.logger.log(
+                  `[batchUpdate] Task ${update.id}: ✅ All ${existingArtworks.length} IDs are valid Artwork entity IDs (no conversion needed)`,
+                );
+                // Keep them as-is - they're valid
+              } else if (existingArtworks.length > 0) {
+                // PARTIAL MATCH - some are Artwork IDs, some might be File IDs
+                this.logger.warn(
+                  `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingArtworks.length}/${update.data.artworkIds.length} as Artwork entities`,
+                );
+                const foundIds = existingArtworks.map(a => a.id);
+                const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
+                this.logger.warn(
+                  `[batchUpdate] Task ${update.id}: Missing Artwork entity IDs: ${JSON.stringify(missingIds)}`,
+                );
+
+                // Try to convert missing IDs as File IDs
+                this.logger.log(
+                  `[batchUpdate] Task ${update.id}: Attempting to convert ${missingIds.length} missing IDs as File IDs`,
+                );
+                const convertedIds = await this.convertFileIdsToArtworkIds(
+                  missingIds,
+                  null,
+                  null,
+                  undefined,
+                  undefined,
+                  tx,
+                );
+
+                // Combine found Artwork IDs with newly converted ones
+                update.data.artworkIds = [...foundIds, ...convertedIds];
+                this.logger.log(
+                  `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.artworkIds.length} total`,
+                );
+              } else {
+                // Not all IDs were found as Artwork entities - they must be File IDs
+                this.logger.log(
+                  `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Artwork entity IDs (found ${existingArtworks.length} existing, converting ${update.data.artworkIds.length})`,
+                );
+
+                try {
+                  const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+                    update.data.artworkIds,
+                    null, // taskId - null since these are shared artworks
+                    null, // airbrushingId
+                    undefined, // artworkStatuses
+                    undefined, // userRole - not available in batch update
+                    tx,
+                  );
+
+                  if (!artworkEntityIds || artworkEntityIds.length === 0) {
+                    this.logger.error(
+                      `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.artworkIds)}`,
+                    );
+                    // Keep original IDs as fallback (might be Artwork entity IDs that we missed)
+                  } else {
+                    update.data.artworkIds = artworkEntityIds;
+                    this.logger.log(
+                      `[batchUpdate] Task ${update.id}: Successfully converted to ${artworkEntityIds.length} Artwork entity IDs: ${JSON.stringify(artworkEntityIds)}`,
+                    );
+                  }
+                } catch (conversionError) {
+                  this.logger.error(
+                    `[batchUpdate] Task ${update.id}: Conversion failed: ${conversionError.message}`,
+                  );
+                  this.logger.error(
+                    `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.artworkIds)}`,
+                  );
+                  // Try to verify if these IDs exist as Files
+                  const files = await tx.file.findMany({
+                    where: { id: { in: update.data.artworkIds } },
+                    select: { id: true },
+                  });
+                  this.logger.error(
+                    `[batchUpdate] Task ${update.id}: Found ${files.length} matching File records`,
+                  );
+                  throw new Error(
+                    `Failed to convert artwork IDs for task ${update.id}: ${conversionError.message}. ` +
+                    `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
+                    `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
+                  );
+                }
               }
             }
           }
@@ -3423,14 +3555,34 @@ export class TaskService {
             }
 
             if (uploadedFileIds.artworks && uploadedFileIds.artworks.length > 0) {
-              const currentArtworkIds = currentTask.artworks?.map(f => f.id) || [];
-              const mergedArtworkIds = [
-                ...new Set([...currentArtworkIds, ...uploadedFileIds.artworks]),
-              ];
-              update.data.artworkIds = mergedArtworkIds;
-              this.logger.log(
-                `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (total: ${mergedArtworkIds.length})`,
-              );
+              // Only merge uploaded artwork File IDs if artworkIds was NOT explicitly provided in the request
+              // If artworkIds is present, it means user wants to SET specific artworks (copy-from-task, bulk operations)
+              // If artworkIds is missing, it means user wants to ADD to existing artworks
+              const hasExplicitArtworkIds = update.data.artworkIds !== undefined;
+
+              if (!hasExplicitArtworkIds) {
+                // ADD mode: Merge uploaded files with current artworks
+                // Get current Artwork entity IDs and convert uploaded File IDs to match the same type
+                const currentArtworkFileIds = currentTask.artworks?.map(a => a.fileId).filter(Boolean) || [];
+                const mergedFileIds = [
+                  ...new Set([...currentArtworkFileIds, ...uploadedFileIds.artworks]),
+                ];
+                update.data.artworkIds = mergedFileIds;
+                this.logger.log(
+                  `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (merged with ${currentArtworkFileIds.length} existing, total: ${mergedFileIds.length} File IDs)`,
+                );
+              } else {
+                // SET/REPLACE mode: artworkIds was explicitly provided, so just add uploaded files to it
+                // The existing update.data.artworkIds contains the explicit list the user wants
+                const currentArtworkIds = Array.isArray(update.data.artworkIds) ? update.data.artworkIds : [];
+                const mergedIds = [
+                  ...new Set([...currentArtworkIds, ...uploadedFileIds.artworks]),
+                ];
+                update.data.artworkIds = mergedIds;
+                this.logger.log(
+                  `[batchUpdate] Artwork IDs explicitly provided (${currentArtworkIds.length}), adding ${uploadedFileIds.artworks.length} uploaded files (total: ${mergedIds.length})`,
+                );
+              }
             }
 
             // Process removals
@@ -3524,6 +3676,38 @@ export class TaskService {
             this.logger.log(
               `[batchUpdate] After merge and removals - update.data:`,
               JSON.stringify(update.data),
+            );
+          }
+        }
+
+        // FINAL VALIDATION: Verify all artwork IDs exist before attempting Prisma update
+        this.logger.log('[batchUpdate] Final validation: Verifying all artwork IDs exist');
+        for (const update of updatesWithChangeTracking) {
+          if (update.data.artworkIds && Array.isArray(update.data.artworkIds) && update.data.artworkIds.length > 0) {
+            const finalCheck = await tx.artwork.findMany({
+              where: {
+                id: { in: update.data.artworkIds },
+              },
+              select: { id: true },
+            });
+
+            if (finalCheck.length !== update.data.artworkIds.length) {
+              const foundIds = finalCheck.map(a => a.id);
+              const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
+              this.logger.error(
+                `[batchUpdate] ❌ VALIDATION FAILED for task ${update.id}: ` +
+                `Expected ${update.data.artworkIds.length} artwork entities, found ${finalCheck.length}. ` +
+                `Missing IDs: ${JSON.stringify(missingIds)}`,
+              );
+
+              throw new Error(
+                `Cannot update task ${update.id}: ${missingIds.length} artwork ID(s) don't exist in database. ` +
+                `Missing: ${missingIds.join(', ')}. These IDs were either deleted or never existed.`,
+              );
+            }
+
+            this.logger.log(
+              `[batchUpdate] ✅ Task ${update.id}: All ${update.data.artworkIds.length} artwork IDs validated successfully`,
             );
           }
         }

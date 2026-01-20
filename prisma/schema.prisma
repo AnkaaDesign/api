@@ -54,15 +54,15 @@ model Airbrushing {
 }
 
 model Artwork {
-  id             String        @id @default(uuid())
-  fileId         String        @unique // One artwork per file (shared across tasks)
-  status         ArtworkStatus @default(APPROVED)
-  airbrushingId  String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  file           File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  tasks          Task[]        @relation("TaskArtworks") // Many-to-many: shared across tasks
-  airbrushing    Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  id            String        @id @default(uuid())
+  fileId        String        @unique // One artwork per file (shared across tasks)
+  status        ArtworkStatus @default(APPROVED)
+  airbrushingId String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  file          File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tasks         Task[]        @relation("TaskArtworks") // Many-to-many: shared across tasks
+  airbrushing   Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
 
   @@index([fileId])
   @@index([airbrushingId])
@@ -1035,7 +1035,6 @@ model TaskPricing {
   total         Decimal           @db.Decimal(10, 2)
   expiresAt     DateTime
   status        TaskPricingStatus @default(DRAFT)
-  taskId        String            @unique
 
   // Payment Terms (simplified)
   paymentCondition  PaymentCondition?
@@ -1044,22 +1043,21 @@ model TaskPricing {
 
   // Guarantee Terms
   guaranteeYears      Int?
-  customGuaranteeText String?           @db.Text
+  customGuaranteeText String? @db.Text
 
   // Layout File
-  layoutFileId        String?
-  layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
+  layoutFileId String?
+  layoutFile   File?   @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
 
   // Customer Signature (uploaded by customer on public page)
   customerSignatureId String?
-  customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
+  customerSignature   File?   @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
 
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  task          Task              @relation("TASK_PRICING", fields: [taskId], references: [id], onDelete: Cascade)
-  items         TaskPricingItem[] @relation("PRICING_ITEMS")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  tasks     Task[]            @relation("TaskPricings") // Many-to-many: shared pricing across tasks
+  items     TaskPricingItem[] @relation("PRICING_ITEMS")
 
-  @@index([taskId])
   @@index([status])
   @@index([expiresAt])
   @@index([layoutFileId])
@@ -1133,7 +1131,7 @@ model Task {
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
-  pricing               TaskPricing?         @relation("TASK_PRICING")
+  pricings              TaskPricing[]        @relation("TaskPricings") // Many-to-many: shared pricing
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
   serviceOrders         ServiceOrder[]       @relation("SERVICE_ORDER_TASK")
@@ -2519,14 +2517,14 @@ enum DiscountType {
 }
 
 enum PaymentCondition {
-  CASH           // Single payment (À vista)
+  CASH // Single payment (À vista)
   INSTALLMENTS_2 // Down payment + 1 installment at 20 days
   INSTALLMENTS_3 // Down payment + 2 installments (20/40 days)
   INSTALLMENTS_4 // Down payment + 3 installments (20/40/60 days)
   INSTALLMENTS_5 // Down payment + 4 installments (20/40/60/80 days)
   INSTALLMENTS_6 // Down payment + 5 installments (20/40/60/80/100 days)
   INSTALLMENTS_7 // Down payment + 6 installments (20/40/60/80/100/120 days)
-  CUSTOM         // Custom payment terms
+  CUSTOM // Custom payment terms
 }
 
 enum PayrollDiscountType {

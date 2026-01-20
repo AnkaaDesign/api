@@ -209,7 +209,7 @@ export class TaskPricingService {
             total: data.total,
             expiresAt: data.expiresAt,
             status: data.status || TASK_PRICING_STATUS.DRAFT,
-            taskId: data.taskId,
+            // Tasks will be connected via many-to-many relationship separately if needed
             // Payment Terms (simplified)
             paymentCondition: data.paymentCondition || null,
             downPaymentDate: data.downPaymentDate || null,
@@ -226,7 +226,7 @@ export class TaskPricingService {
               })),
             },
           },
-          include: { items: true, task: true, layoutFile: true },
+          include: { items: true, tasks: true, layoutFile: true },
         });
 
         // Log change
@@ -327,7 +327,7 @@ export class TaskPricingService {
               },
             }),
           },
-          include: { items: true, task: true, layoutFile: true },
+          include: { items: true, tasks: true, layoutFile: true },
         });
 
         // Log change
@@ -508,7 +508,7 @@ export class TaskPricingService {
           items: true,
           layoutFile: true,
           customerSignature: true,
-          task: {
+          tasks: {
             include: {
               customer: true,
             },
@@ -589,7 +589,7 @@ export class TaskPricingService {
           items: true,
           layoutFile: true,
           customerSignature: true,
-          task: {
+          tasks: {
             include: {
               customer: true,
             },

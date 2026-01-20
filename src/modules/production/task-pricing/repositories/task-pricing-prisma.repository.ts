@@ -84,9 +84,7 @@ export class TaskPricingPrismaRepository
       ...(formData.layoutFileId && {
         layoutFile: { connect: { id: formData.layoutFileId } },
       }),
-      task: {
-        connect: { id: formData.taskId },
-      },
+      // Tasks will be connected separately via many-to-many relationship
     };
 
     // Handle items if provided
@@ -143,11 +141,11 @@ export class TaskPricingPrismaRepository
     const mappedInclude: Prisma.TaskPricingInclude = {};
 
     if (include.items !== undefined) mappedInclude.items = include.items;
-    if (include.task !== undefined) {
-      if (typeof include.task === 'boolean') {
-        mappedInclude.task = include.task;
+    if ((include as any).tasks !== undefined) {
+      if (typeof (include as any).tasks === 'boolean') {
+        mappedInclude.tasks = (include as any).tasks;
       } else {
-        mappedInclude.task = { include: include.task.include as any };
+        mappedInclude.tasks = { include: (include as any).tasks.include as any };
       }
     }
     if ((include as any).layoutFile !== undefined) mappedInclude.layoutFile = (include as any).layoutFile;
@@ -310,10 +308,11 @@ export class TaskPricingPrismaRepository
 
   /**
    * Find pricing by task ID (with items)
+   * Note: Now returns first pricing for the task (many-to-many relationship)
    */
   async findByTaskId(taskId: string): Promise<TaskPricing | null> {
-    const pricing = await this.prisma.taskPricing.findUnique({
-      where: { taskId },
+    const pricing = await this.prisma.taskPricing.findFirst({
+      where: { tasks: { some: { id: taskId } } },
       include: { items: true },
     });
 
@@ -326,7 +325,7 @@ export class TaskPricingPrismaRepository
   async findByStatus(status: string): Promise<TaskPricing[]> {
     const pricings = await this.prisma.taskPricing.findMany({
       where: { status: status as any },
-      include: { items: true, task: true },
+      include: { items: true, tasks: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -345,7 +344,7 @@ export class TaskPricingPrismaRepository
           in: [TASK_PRICING_STATUS.DRAFT, TASK_PRICING_STATUS.APPROVED],
         },
       },
-      include: { items: true, task: true },
+      include: { items: true, tasks: true },
     });
 
     return pricings.map(p => this.mapDatabaseEntityToEntity(p));
@@ -357,7 +356,7 @@ export class TaskPricingPrismaRepository
   async findApprovedByTaskId(taskId: string): Promise<TaskPricing | null> {
     const pricing = await this.prisma.taskPricing.findFirst({
       where: {
-        taskId,
+        tasks: { some: { id: taskId } },
         status: TASK_PRICING_STATUS.APPROVED,
       },
       include: { items: true },
