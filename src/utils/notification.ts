@@ -134,9 +134,9 @@ export function formatNotificationChannels(channels: NOTIFICATION_CHANNEL[]): st
   if (!channels || channels.length === 0) return 'Sem canais';
 
   const labels: Record<NOTIFICATION_CHANNEL, string> = {
-    [NOTIFICATION_CHANNEL.EMAIL]: 'E-mail',
-    [NOTIFICATION_CHANNEL.PUSH]: 'Push',
     [NOTIFICATION_CHANNEL.IN_APP]: 'No App',
+    [NOTIFICATION_CHANNEL.PUSH]: 'Push',
+    [NOTIFICATION_CHANNEL.EMAIL]: 'E-mail',
     [NOTIFICATION_CHANNEL.WHATSAPP]: 'WhatsApp',
   };
 

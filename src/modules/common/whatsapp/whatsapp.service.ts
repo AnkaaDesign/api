@@ -1,9 +1,10 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import { Client, LocalAuth, RemoteAuth, Message } from 'whatsapp-web.js';
 import * as qrcode from 'qrcode-terminal';
 import * as QRCode from 'qrcode';
 import { CacheService } from '../cache/cache.service';
+import { RedisStore } from './stores/redis-store';
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -31,6 +32,7 @@ export enum WhatsAppConnectionStatus {
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsAppService.name);
   private client: Client | null = null;
+  private redisStore: RedisStore | null = null;
   private isClientReady = false;
   private isInitializing = false;
   private currentQRCode: string | null = null;
@@ -41,12 +43,16 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private readonly QR_CODE_EXPIRY_MS = 60000; // 60 seconds
   private readonly CACHE_KEY_STATUS = 'whatsapp:status';
   private readonly CACHE_KEY_QR = 'whatsapp:qr';
+  private readonly SESSION_NAME = 'ankaa-whatsapp';
   private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheService: CacheService,
-  ) {}
+  ) {
+    // Initialize Redis store for session persistence
+    this.redisStore = new RedisStore(this.cacheService);
+  }
 
   /**
    * Setup handlers for graceful shutdown (removed to prevent blocking)
@@ -64,14 +70,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       const { stdout } = await Promise.race([
         execAsync(
           'ps aux | grep -E "chrome|chromium" | grep -E "wwebjs|puppeteer" | grep -v grep | awk \'{print $2}\' || true',
-          { timeout: 3000 }
+          { timeout: 3000 },
         ),
         new Promise<{ stdout: string; stderr: string }>((_, reject) =>
-          setTimeout(() => reject(new Error('Process check timeout')), 3000)
+          setTimeout(() => reject(new Error('Process check timeout')), 3000),
         ),
       ]);
 
-      const pids = stdout.trim().split('\n').filter(pid => pid && pid.trim());
+      const pids = stdout
+        .trim()
+        .split('\n')
+        .filter(pid => pid && pid.trim());
 
       if (pids.length > 0) {
         this.logger.warn(`Found ${pids.length} orphaned Chrome process(es), killing...`);
@@ -79,9 +88,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           try {
             await Promise.race([
               execAsync(`kill -9 ${pid}`),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Kill timeout')), 1000)
-              ),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Kill timeout')), 1000)),
             ]);
             this.logger.log(`Killed orphaned Chrome process: ${pid}`);
           } catch (error) {
@@ -180,13 +187,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           await new Promise(resolve => setTimeout(resolve, 500));
         })(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Cleanup timeout after 10 seconds')), 10000)
+          setTimeout(() => reject(new Error('Cleanup timeout after 10 seconds')), 10000),
         ),
       ]);
 
       this.logger.log('Pre-initialization cleanup completed');
     } catch (error) {
-      this.logger.warn(`Cleanup failed or timed out: ${error.message}. Continuing with initialization...`);
+      this.logger.warn(
+        `Cleanup failed or timed out: ${error.message}. Continuing with initialization...`,
+      );
       // Don't block initialization if cleanup fails
     }
   }
@@ -222,6 +231,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Initialize the WhatsApp client with all event handlers
+   * Uses RemoteAuth with Redis store for session persistence across deployments
    */
   async initializeClient(): Promise<void> {
     if (this.isInitializing) {
@@ -239,16 +249,45 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       await this.updateConnectionStatus(WhatsAppConnectionStatus.CONNECTING);
       this.logger.log('Creating new WhatsApp client instance...');
 
-      // Create client with LocalAuth strategy for session persistence
+      // Determine auth strategy based on environment
+      // Use RemoteAuth with Redis store for production (persistent sessions)
+      // Use LocalAuth for development (simpler setup)
+      const useRemoteAuth = process.env.WHATSAPP_USE_REMOTE_AUTH !== 'false';
+      const sessionPath = process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth';
+
+      let authStrategy;
+
+      if (useRemoteAuth && this.redisStore) {
+        this.logger.log('Using RemoteAuth with Redis store for session persistence');
+
+        // Check if session exists in Redis and restore it
+        const sessionExists = await this.redisStore.sessionExists({ session: this.SESSION_NAME });
+        if (sessionExists) {
+          this.logger.log('Found existing session in Redis, restoring...');
+          await this.redisStore.extract({ session: this.SESSION_NAME });
+        }
+
+        authStrategy = new RemoteAuth({
+          store: this.redisStore,
+          backupSyncIntervalMs: 60000, // Backup session every minute
+          clientId: this.SESSION_NAME,
+          dataPath: sessionPath,
+        });
+      } else {
+        this.logger.log('Using LocalAuth for session persistence');
+        authStrategy = new LocalAuth({
+          dataPath: sessionPath,
+        });
+      }
+
+      // Create client with the chosen auth strategy
       this.client = new Client({
-        authStrategy: new LocalAuth({
-          dataPath: process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth',
-        }),
-        // Use webVersionCache to avoid compatibility issues
-        // Using 'none' to let WhatsApp Web use its latest version
-        // This avoids markedUnread and other API compatibility issues
+        authStrategy,
+        // Use webVersionCache to avoid compatibility issues with Chrome versions
         webVersionCache: {
-          type: 'none',
+          type: 'remote',
+          remotePath:
+            'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
         },
         puppeteer: {
           headless: true,
@@ -288,7 +327,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           this.client = null;
         }
       } catch (destroyError) {
-        this.logger.error(`Failed to destroy client after initialization error: ${destroyError.message}`);
+        this.logger.error(
+          `Failed to destroy client after initialization error: ${destroyError.message}`,
+        );
       }
 
       // Perform cleanup after failure
@@ -451,9 +492,25 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug(`Loading: ${percent}% - ${message}`);
     });
 
-    // Remote session saved event
-    this.client.on('remote_session_saved', () => {
-      this.logger.log('Remote session saved successfully');
+    // Remote session saved event - backup session to Redis for persistence
+    this.client.on('remote_session_saved', async () => {
+      this.logger.log('Remote session saved event received');
+
+      // Save to Redis store if using RemoteAuth
+      if (this.redisStore && process.env.WHATSAPP_USE_REMOTE_AUTH !== 'false') {
+        try {
+          await this.redisStore.save({ session: this.SESSION_NAME });
+          this.logger.log('WhatsApp session backed up to Redis successfully');
+        } catch (error) {
+          this.logger.error(`Failed to backup session to Redis: ${error.message}`);
+        }
+      }
+
+      // Emit event for tracking
+      this.eventEmitter.emit('whatsapp.session.saved', {
+        sessionName: this.SESSION_NAME,
+        timestamp: new Date(),
+      });
     });
   }
 
@@ -527,7 +584,9 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
           this.logger.log(`Got WhatsApp ID for ${this.maskPhone(cleanPhone)}: ${whatsappId}`);
         }
       } catch (idError: any) {
-        this.logger.warn(`Could not get number ID for ${this.maskPhone(cleanPhone)}: ${idError.message}. Using chat ID format.`);
+        this.logger.warn(
+          `Could not get number ID for ${this.maskPhone(cleanPhone)}: ${idError.message}. Using chat ID format.`,
+        );
       }
 
       // Check if number exists on WhatsApp (with error handling for "No LID" errors)
@@ -826,17 +885,33 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Destroy the client instance
+   * Saves session to Redis before destroying for persistence
    */
   private async destroyClient(): Promise<void> {
     if (this.client) {
       try {
         this.logger.log('Destroying WhatsApp client instance...');
 
+        // Save session to Redis before destroying (for persistence)
+        if (
+          this.redisStore &&
+          this.isClientReady &&
+          process.env.WHATSAPP_USE_REMOTE_AUTH !== 'false'
+        ) {
+          try {
+            this.logger.log('Saving session to Redis before destroying...');
+            await this.redisStore.save({ session: this.SESSION_NAME });
+            this.logger.log('Session saved to Redis successfully');
+          } catch (saveError) {
+            this.logger.error(`Failed to save session before destroy: ${saveError.message}`);
+          }
+        }
+
         // Try to gracefully destroy the client
         await Promise.race([
           this.client.destroy(),
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Client destroy timeout')), 5000)
+            setTimeout(() => reject(new Error('Client destroy timeout')), 5000),
           ),
         ]);
 
@@ -860,6 +935,68 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.log('WhatsApp client cleanup completed');
       }
+    }
+  }
+
+  /**
+   * Force backup session to Redis
+   * Useful for manual backup before deployment
+   */
+  async backupSessionToRedis(): Promise<boolean> {
+    if (!this.redisStore) {
+      this.logger.warn('Redis store not initialized');
+      return false;
+    }
+
+    if (!this.isClientReady) {
+      this.logger.warn('Client is not ready, cannot backup session');
+      return false;
+    }
+
+    try {
+      this.logger.log('Manually backing up session to Redis...');
+      await this.redisStore.save({ session: this.SESSION_NAME });
+      this.logger.log('Session backup completed successfully');
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to backup session: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Check if session exists in Redis
+   */
+  async hasSessionInRedis(): Promise<boolean> {
+    if (!this.redisStore) {
+      return false;
+    }
+
+    try {
+      return await this.redisStore.sessionExists({ session: this.SESSION_NAME });
+    } catch (error) {
+      this.logger.error(`Failed to check session in Redis: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Delete session from Redis (for logout/reset)
+   */
+  async deleteSessionFromRedis(): Promise<boolean> {
+    if (!this.redisStore) {
+      this.logger.warn('Redis store not initialized');
+      return false;
+    }
+
+    try {
+      this.logger.log('Deleting session from Redis...');
+      await this.redisStore.delete({ session: this.SESSION_NAME });
+      this.logger.log('Session deleted from Redis successfully');
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to delete session from Redis: ${error.message}`);
+      return false;
     }
   }
 
