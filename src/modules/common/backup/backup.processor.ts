@@ -79,11 +79,38 @@ export class BackupProcessor {
       this.logger.log(
         `Backup completed successfully: ${backupId} (${this.formatBytes(stats.size)})`,
       );
+
+      // Auto-sync to Google Drive after successful backup
+      this.triggerGoogleDriveSync(backupId);
     } catch (error) {
       this.logger.error(`Backup failed: ${backupId} - ${error.message}`);
       await this.backupService.updateBackupStatus(backupId, 'failed', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Trigger Google Drive sync after backup completion
+   * Runs asynchronously in the background to not block the response
+   */
+  private triggerGoogleDriveSync(backupId: string): void {
+    const { exec } = require('child_process');
+
+    this.logger.log(`Triggering Google Drive sync after backup: ${backupId}`);
+
+    // Run sync in background (don't await)
+    exec(
+      '/home/kennedy/scripts/backup/gdrive-sync.sh full',
+      { timeout: 600000 }, // 10 minute timeout
+      (error: Error | null, stdout: string, stderr: string) => {
+        if (error) {
+          this.logger.error(`Google Drive sync failed: ${error.message}`);
+          if (stderr) this.logger.error(`Sync stderr: ${stderr}`);
+        } else {
+          this.logger.log(`Google Drive sync completed for backup: ${backupId}`);
+        }
+      },
+    );
   }
 
   private formatBytes(bytes: number): string {
