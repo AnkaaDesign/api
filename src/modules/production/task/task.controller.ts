@@ -14,6 +14,7 @@ import {
   UploadedFile,
   UploadedFiles,
   BadRequestException,
+  UsePipes,
 } from '@nestjs/common';
 import { validateIncludes } from '@modules/common/base/include-access-control';
 import { FileInterceptor, FilesInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -41,6 +42,7 @@ import {
   taskBulkPositionUpdateSchema,
   taskSwapPositionSchema,
 } from '../../../schemas/task';
+import { taskCopyFromSchema, type TaskCopyFromFormData } from '../../../schemas/task-copy';
 import {
   taskBulkArtsSchema,
   taskBulkDocumentsSchema,
@@ -564,6 +566,28 @@ export class TaskController {
       validateIncludes('Task', query.include);
     }
     return this.tasksService.findById(id, query.include, user.role);
+  }
+
+  @Put(':id/copy-from')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.DESIGNER)
+  @UsePipes(new ZodValidationPipe(taskCopyFromSchema))
+  async copyFromTask(
+    @Param('id') destinationTaskId: string,
+    @Body() data: TaskCopyFromFormData,
+    @UserId() userId: string,
+  ) {
+    const result = await this.tasksService.copyFromTask(
+      destinationTaskId,
+      data.sourceTaskId,
+      data.fields,
+      userId,
+    );
+
+    return {
+      success: true,
+      message: `Campos copiados com sucesso da tarefa ${data.sourceTaskId}`,
+      data: result,
+    };
   }
 
   @Put(':id')

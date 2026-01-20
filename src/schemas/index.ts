@@ -109,6 +109,7 @@ export {
 export * from './serviceOrder';
 export * from './supplier';
 export * from './task';
+export * from './task-copy';
 export * from './truck';
 export * from './layout';
 export * from './user';

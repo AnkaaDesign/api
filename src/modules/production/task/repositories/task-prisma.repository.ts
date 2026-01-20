@@ -33,7 +33,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
-  pricings: { include: { items: true, layoutFile: true } }, // Task pricings (many-to-many: shared pricing)
+  pricing: { include: { items: true, layoutFile: true } }, // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
   budgets: {
     select: {
       id: true,
@@ -139,7 +139,34 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
     },
     orderBy: { createdAt: 'desc' },
   },
-  truck: true,
+  truck: {
+    include: {
+      leftSideLayout: {
+        include: {
+          photo: true,
+          layoutSections: {
+            orderBy: { position: 'asc' },
+          },
+        },
+      },
+      rightSideLayout: {
+        include: {
+          photo: true,
+          layoutSections: {
+            orderBy: { position: 'asc' },
+          },
+        },
+      },
+      backSideLayout: {
+        include: {
+          photo: true,
+          layoutSections: {
+            orderBy: { position: 'asc' },
+          },
+        },
+      },
+    },
+  },
   airbrushings: {
     include: {
       receipts: {
@@ -333,7 +360,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds, // was fileIds - using correct property name
-      pricingIds,
+      pricingId,
       paintIds,
       serviceOrders,
       observation,
@@ -396,8 +423,8 @@ export class TaskPrismaRepository
     if (artworkIds && artworkIds.length > 0) {
       taskData.artworks = { connect: artworkIds.map(id => ({ id })) };
     }
-    if (pricingIds && pricingIds.length > 0) {
-      taskData.pricings = { connect: pricingIds.map(id => ({ id })) };
+    if (pricingId) {
+      taskData.pricing = { connect: { id: pricingId } };
     }
     if (paintIds && paintIds.length > 0) {
       taskData.logoPaints = { connect: paintIds.map(id => ({ id })) };
@@ -608,7 +635,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds, // was fileIds - using correct property name
-      pricingIds,
+      pricingId,
       paintIds,
       serviceOrders,
       observation,
@@ -689,8 +716,8 @@ export class TaskPrismaRepository
     if (artworkIds !== undefined) {
       updateData.artworks = { set: artworkIds.map(id => ({ id })) };
     }
-    if (pricingIds !== undefined) {
-      updateData.pricings = { set: pricingIds.map(id => ({ id })) };
+    if (pricingId !== undefined) {
+      updateData.pricing = pricingId ? { connect: { id: pricingId } } : { disconnect: true };
     }
     if (paintIds !== undefined) {
       updateData.logoPaints = { set: paintIds.map(id => ({ id })) };
@@ -997,9 +1024,6 @@ export class TaskPrismaRepository
         // Handle field name mappings for backwards compatibility
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = value;
-        } else if (key === 'pricing') {
-          // Map old 'pricing' field to new 'pricings' field for backwards compatibility
-          databaseInclude.pricings = value;
         } else if (key === 'serviceOrders') {
           // Keep the default include (with assignedTo) if value is true
           if (value === false) {
@@ -1021,9 +1045,6 @@ export class TaskPrismaRepository
         // Special handling for relations that need deep merging with defaults
         if (key === 'nfeReimbursements') {
           databaseInclude.invoiceReimbursements = processedValue;
-        } else if (key === 'pricing') {
-          // Map old 'pricing' field to new 'pricings' field for backwards compatibility
-          databaseInclude.pricings = processedValue;
         } else if (key === 'serviceOrders') {
           // Deep merge serviceOrders includes with defaults
           const existingValue = databaseInclude.serviceOrders;
@@ -1085,9 +1106,11 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      // Handle pricing creation for many-to-many relationship
+      // Handle pricing creation for one-to-many relationship
       const pricingData = (data as any).pricing;
       let createdPricingId: string | null = null;
+
+      console.log('[TaskRepository] createWithTransaction - pricing data:', JSON.stringify(pricingData, null, 2));
 
       if (
         pricingData &&
@@ -1145,8 +1168,8 @@ export class TaskPrismaRepository
 
       // Add pricing connection if created
       if (createdPricingId) {
-        createInput.pricings = {
-          connect: [{ id: createdPricingId }],
+        createInput.pricing = {
+          connect: { id: createdPricingId },
         };
       }
 
@@ -1275,11 +1298,18 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      // Handle pricing creation/update for many-to-many relationship
-      // Since pricing is now many-to-many, we create a new TaskPricing entity and connect it
+      // Handle pricing creation/update for one-to-many relationship
+      // We create a new TaskPricing entity and connect it via pricingId
       const pricingData = (data as any).pricing;
 
+      console.log('[TaskRepository] updateWithTransaction - pricing data:', JSON.stringify(pricingData, null, 2));
+
       if (pricingData !== undefined && pricingData !== null) {
+        console.log('[TaskRepository] Pricing data is not null/undefined');
+        console.log('[TaskRepository] Pricing data type:', typeof pricingData);
+        console.log('[TaskRepository] Pricing has items?', pricingData.items);
+        console.log('[TaskRepository] Items is array?', Array.isArray(pricingData.items));
+        console.log('[TaskRepository] Items length:', pricingData.items?.length);
         if (
           typeof pricingData === 'object' &&
           pricingData.items &&
@@ -1330,10 +1360,9 @@ export class TaskPrismaRepository
             },
           });
 
-          // Connect the new pricing to the task via many-to-many
-          // Replace existing pricings with the new one
-          updateInput.pricings = {
-            set: [{ id: newPricing.id }],
+          // Connect the new pricing to the task (one-to-many relationship)
+          updateInput.pricing = {
+            connect: { id: newPricing.id },
           };
         }
       }

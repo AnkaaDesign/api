@@ -98,6 +98,26 @@ export class ChangeLogService {
     // Convert ENTITY_TYPE to CHANGE_LOG_ENTITY_TYPE
     const changeLogEntityType = convertToChangeLogEntityType(entityType);
 
+    // Build metadata object
+    const metadata: Record<string, any> = {
+      timestamp: new Date().toISOString(),
+    };
+
+    // If oldValue and newValue are change objects (have 'from' and 'to' structure),
+    // include them in metadata for better querying
+    if (old && typeof old === 'object' && !Array.isArray(old)) {
+      // Check if it looks like a changes object (multiple fields with from/to structure)
+      const keys = Object.keys(old);
+      if (keys.length > 0) {
+        const firstKey = keys[0];
+        const firstValue = old[firstKey];
+        if (firstValue && typeof firstValue === 'object' && 'from' in firstValue && 'to' in firstValue) {
+          // This is a changes object, include it in metadata
+          Object.assign(metadata, old);
+        }
+      }
+    }
+
     const changeLogData: ChangeLogCreateFormData = {
       entityType: changeLogEntityType as string,
       entityId: id,
@@ -109,9 +129,7 @@ export class ChangeLogService {
       triggeredBy: trigger,
       triggeredById,
       userId: user,
-      metadata: {
-        timestamp: new Date().toISOString(),
-      },
+      metadata,
     };
 
     if (tx) {

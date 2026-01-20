@@ -32,6 +32,89 @@ export class LayoutService {
     return this.layoutRepository.findByTruckId(truckId);
   }
 
+  /**
+   * Find all layouts (for layout library/selection)
+   * Returns layouts with usage count and which trucks use them
+   */
+  async findAll(options?: {
+    includeUsage?: boolean;
+    includeSections?: boolean;
+  }): Promise<Array<Layout & { usageCount?: number }>> {
+    const layouts = await this.prisma.layout.findMany({
+      include: {
+        photo: true,
+        layoutSections: options?.includeSections ? {
+          orderBy: { position: 'asc' },
+        } : false,
+        ...(options?.includeUsage && {
+          trucksBackSide: { select: { id: true } },
+          trucksLeftSide: { select: { id: true } },
+          trucksRightSide: { select: { id: true } },
+        }),
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (options?.includeUsage) {
+      return layouts.map(layout => ({
+        ...layout,
+        usageCount:
+          ((layout as any).trucksBackSide?.length || 0) +
+          ((layout as any).trucksLeftSide?.length || 0) +
+          ((layout as any).trucksRightSide?.length || 0),
+      }));
+    }
+
+    return layouts;
+  }
+
+  /**
+   * Assign an existing layout to a truck side
+   * This is a simpler alternative to createOrUpdateTruckLayout when you just want to assign existing
+   */
+  async assignLayoutToTruck(
+    truckId: string,
+    side: 'left' | 'right' | 'back',
+    layoutId: string,
+    userId?: string,
+  ): Promise<void> {
+    // Verify layout exists
+    const layout = await this.findById(layoutId);
+    if (!layout) {
+      throw new NotFoundException(`Layout ${layoutId} não encontrado`);
+    }
+
+    // Verify truck exists
+    const truck = await this.prisma.truck.findUnique({ where: { id: truckId } });
+    if (!truck) {
+      throw new NotFoundException(`Caminhão ${truckId} não encontrado`);
+    }
+
+    const layoutFieldMap = {
+      left: 'leftSideLayoutId',
+      right: 'rightSideLayoutId',
+      back: 'backSideLayoutId',
+    };
+
+    await this.prisma.truck.update({
+      where: { id: truckId },
+      data: {
+        [layoutFieldMap[side]]: layoutId,
+      },
+    });
+
+    // Log the change
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.TRUCK,
+      entityId: truckId,
+      action: CHANGE_ACTION.UPDATE,
+      reason: `Layout ${layoutId} atribuído ao lado ${side} do caminhão`,
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: userId || null,
+      userId: userId || null,
+    });
+  }
+
   async create(data: LayoutCreateFormData, userId?: string): Promise<Layout> {
     const layout = await this.layoutRepository.create(data, userId);
 
@@ -72,11 +155,21 @@ export class LayoutService {
     return layout;
   }
 
-  async delete(id: string, userId?: string): Promise<void> {
+  async delete(id: string, userId?: string, force: boolean = false): Promise<void> {
     // Check if layout exists
     const existingLayout = await this.layoutRepository.findById(id);
     if (!existingLayout) {
       throw new NotFoundException('Layout não encontrado');
+    }
+
+    // Check if layout is being used by any trucks (SHARED RESOURCE PROTECTION)
+    const usageCount = await this.getLayoutUsageCount(id);
+    if (usageCount > 0 && !force) {
+      throw new Error(
+        `Este layout está sendo usado por ${usageCount} caminhão(ões). ` +
+        `Não é possível deletar um layout compartilhado. ` +
+        `Primeiro, remova o layout de todos os caminhões ou use force=true para deletar mesmo assim.`
+      );
     }
 
     await this.layoutRepository.delete(id, userId);
@@ -86,11 +179,70 @@ export class LayoutService {
       entityType: ENTITY_TYPE.LAYOUT,
       entityId: id,
       action: CHANGE_ACTION.DELETE,
-      reason: 'Layout deletado',
+      reason: force ? 'Layout deletado (forçado)' : 'Layout deletado',
       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
       triggeredById: userId || null,
       userId: userId || null,
     });
+  }
+
+  /**
+   * Get count of trucks using this layout
+   * Returns total count across all three sides (back, left, right)
+   */
+  async getLayoutUsageCount(layoutId: string): Promise<number> {
+    const [backCount, leftCount, rightCount] = await Promise.all([
+      this.prisma.truck.count({ where: { backSideLayoutId: layoutId } }),
+      this.prisma.truck.count({ where: { leftSideLayoutId: layoutId } }),
+      this.prisma.truck.count({ where: { rightSideLayoutId: layoutId } }),
+    ]);
+    return backCount + leftCount + rightCount;
+  }
+
+  /**
+   * Get count of trucks using this layout (within transaction)
+   * Returns total count across all three sides (back, left, right)
+   */
+  private async getLayoutUsageCountInTransaction(tx: any, layoutId: string): Promise<number> {
+    const [backCount, leftCount, rightCount] = await Promise.all([
+      tx.truck.count({ where: { backSideLayoutId: layoutId } }),
+      tx.truck.count({ where: { leftSideLayoutId: layoutId } }),
+      tx.truck.count({ where: { rightSideLayoutId: layoutId } }),
+    ]);
+    return backCount + leftCount + rightCount;
+  }
+
+  /**
+   * Get all trucks using this layout (detailed)
+   * Returns which trucks use this layout and on which sides
+   */
+  async getTrucksUsingLayout(layoutId: string): Promise<{
+    backSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
+    leftSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
+    rightSide: Array<{ truckId: string; taskId: string; plate: string | null }>;
+    totalCount: number;
+  }> {
+    const [backTrucks, leftTrucks, rightTrucks] = await Promise.all([
+      this.prisma.truck.findMany({
+        where: { backSideLayoutId: layoutId },
+        select: { id: true, taskId: true, plate: true },
+      }),
+      this.prisma.truck.findMany({
+        where: { leftSideLayoutId: layoutId },
+        select: { id: true, taskId: true, plate: true },
+      }),
+      this.prisma.truck.findMany({
+        where: { rightSideLayoutId: layoutId },
+        select: { id: true, taskId: true, plate: true },
+      }),
+    ]);
+
+    return {
+      backSide: backTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
+      leftSide: leftTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
+      rightSide: rightTrucks.map(t => ({ truckId: t.id, taskId: t.taskId, plate: t.plate })),
+      totalCount: backTrucks.length + leftTrucks.length + rightTrucks.length,
+    };
   }
 
   async createOrUpdateTruckLayout(
@@ -99,6 +251,7 @@ export class LayoutService {
     data: LayoutCreateFormData,
     userId?: string,
     photoFile?: Express.Multer.File,
+    existingLayoutId?: string, // NEW: Assign existing layout instead of creating new
   ): Promise<Layout> {
     this.logger.log('');
     this.logger.log('═══════════════════════════════════════════════════════════════');
@@ -195,32 +348,95 @@ export class LayoutService {
 
       let layout: Layout;
 
-      if (existingLayout) {
-        this.logger.log(`[BACKEND] ⚙️  REPLACE MODE - Existing layout found for ${side} side`);
-        this.logger.log(
-          `[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (delete-then-create approach)`,
-        );
+      // NEW LOGIC: Check if we should use an existing shared layout
+      if (existingLayoutId) {
+        this.logger.log(`[BACKEND] 🔗 SHARED LAYOUT MODE - Assigning existing layout ${existingLayoutId}`);
 
-        // First, disconnect the layout from the truck
-        await tx.truck.update({
-          where: { id: truckId },
-          data: {
-            [layoutField]: null,
+        // Verify the layout exists
+        const sharedLayout = await tx.layout.findUnique({
+          where: { id: existingLayoutId },
+          include: {
+            photo: true,
+            layoutSections: {
+              orderBy: { position: 'asc' },
+            },
           },
         });
-        this.logger.log(`[BACKEND] Layout disconnected from truck`);
 
-        // Delete old layout sections
-        await tx.layoutSection.deleteMany({
-          where: { layoutId: existingLayout.id },
-        });
-        this.logger.log(`[BACKEND] Old layout sections deleted`);
+        if (!sharedLayout) {
+          throw new NotFoundException(`Layout compartilhado ${existingLayoutId} não encontrado`);
+        }
 
-        // Delete the old layout
-        await tx.layout.delete({
-          where: { id: existingLayout.id },
+        // If there's an old layout, handle it
+        if (existingLayout && existingLayout.id !== existingLayoutId) {
+          // Check if old layout is used by other trucks
+          const oldLayoutUsageCount = await this.getLayoutUsageCountInTransaction(tx, existingLayout.id);
+          this.logger.log(`[BACKEND] Old layout ${existingLayout.id} is used by ${oldLayoutUsageCount} truck(s)`);
+
+          if (oldLayoutUsageCount === 1) {
+            // Only this truck uses it, safe to delete
+            this.logger.log(`[BACKEND] 🗑️  Deleting unused old layout ${existingLayout.id}`);
+            await tx.layoutSection.deleteMany({ where: { layoutId: existingLayout.id } });
+            await tx.layout.delete({ where: { id: existingLayout.id } });
+            this.logger.log(`[BACKEND] ✅ Old layout deleted`);
+          } else {
+            // Other trucks use it, just unlink
+            this.logger.log(`[BACKEND] ℹ️  Old layout is shared, keeping it (used by ${oldLayoutUsageCount} trucks)`);
+          }
+        }
+
+        // Link shared layout to this truck
+        await tx.truck.update({
+          where: { id: truckId },
+          data: { [layoutField]: existingLayoutId },
         });
-        this.logger.log(`[BACKEND] Old layout deleted successfully`);
+        this.logger.log(`[BACKEND] ✅ Shared layout ${existingLayoutId} linked to truck`);
+
+        layout = sharedLayout;
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TRUCK,
+          entityId: truckId,
+          action: CHANGE_ACTION.UPDATE,
+          reason: `Layout compartilhado atribuído ao lado ${side} do caminhão`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: userId || null,
+          userId: userId || null,
+          transaction: tx,
+        });
+      } else if (existingLayout) {
+        this.logger.log(`[BACKEND] ⚙️  REPLACE MODE - Existing layout found for ${side} side`);
+
+        // Check if existing layout is used by other trucks
+        const usageCount = await this.getLayoutUsageCountInTransaction(tx, existingLayout.id);
+        this.logger.log(`[BACKEND] Existing layout ${existingLayout.id} is used by ${usageCount} truck(s)`);
+
+        if (usageCount > 1) {
+          // Layout is shared! Don't delete it, just create a new one for this truck
+          this.logger.log(`[BACKEND] ⚠️  Layout is SHARED by ${usageCount} trucks - creating new layout instead of modifying shared one`);
+        } else {
+          // Only this truck uses it, safe to delete
+          this.logger.log(`[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (only used by this truck)`);
+
+          // First, disconnect the layout from the truck
+          await tx.truck.update({
+            where: { id: truckId },
+            data: { [layoutField]: null },
+          });
+          this.logger.log(`[BACKEND] Layout disconnected from truck`);
+
+          // Delete old layout sections
+          await tx.layoutSection.deleteMany({
+            where: { layoutId: existingLayout.id },
+          });
+          this.logger.log(`[BACKEND] Old layout sections deleted`);
+
+          // Delete the old layout
+          await tx.layout.delete({
+            where: { id: existingLayout.id },
+          });
+          this.logger.log(`[BACKEND] Old layout deleted successfully`);
+        }
 
         // Create new layout
         this.logger.log(`[BACKEND] 🆕 Creating new layout to replace old one`);
