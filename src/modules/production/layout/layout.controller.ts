@@ -32,6 +32,21 @@ import {
 export class LayoutController {
   constructor(private readonly layoutService: LayoutService) {}
 
+  // NEW: List all layouts (layout library)
+  @Get()
+  async findAll(@Query('includeUsage') includeUsage?: string, @Query('includeSections') includeSections?: string, @UserId() userId?: string) {
+    const layouts = await this.layoutService.findAll({
+      includeUsage: includeUsage === 'true',
+      includeSections: includeSections === 'true',
+    });
+
+    return {
+      success: true,
+      message: 'Layouts encontrados com sucesso',
+      data: layouts,
+    };
+  }
+
   @Get(':id')
   async findById(@Param('id') id: string, @Query() query: any, @UserId() userId: string) {
     const layout = await this.layoutService.findById(id, query.include);
@@ -48,6 +63,18 @@ export class LayoutController {
       success: true,
       message: 'Layout encontrado com sucesso',
       data: layout,
+    };
+  }
+
+  // NEW: Get layout usage details
+  @Get(':id/usage')
+  async getLayoutUsage(@Param('id') id: string, @UserId() userId: string) {
+    const usage = await this.layoutService.getTrucksUsingLayout(id);
+
+    return {
+      success: true,
+      message: 'Detalhes de uso do layout obtidos com sucesso',
+      data: usage,
     };
   }
 
@@ -100,12 +127,33 @@ export class LayoutController {
     };
   }
 
+  // NEW: Assign existing layout to truck
+  @Post(':id/assign-to-truck')
+  async assignLayoutToTruck(
+    @Param('id') layoutId: string,
+    @Body() data: { truckId: string; side: 'left' | 'right' | 'back' },
+    @UserId() userId: string,
+  ) {
+    await this.layoutService.assignLayoutToTruck(
+      data.truckId,
+      data.side,
+      layoutId,
+      userId,
+    );
+
+    return {
+      success: true,
+      message: `Layout atribuído ao lado ${data.side === 'left' ? 'esquerdo' : data.side === 'right' ? 'direito' : 'traseiro'} do caminhão com sucesso`,
+    };
+  }
+
   @Post('truck/:truckId/:side')
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
   async createOrUpdateTruckLayout(
     @Param('truckId') truckId: string,
     @Param('side') side: 'left' | 'right' | 'back',
     @Body(new ZodValidationPipe(layoutCreateSchema)) data: LayoutCreateFormData,
+    @Query('existingLayoutId') existingLayoutId: string | undefined, // NEW: Optional existing layout ID
     @UserId() userId: string,
     @UploadedFiles() files?: Record<string, Express.Multer.File[]>,
   ) {
@@ -118,6 +166,7 @@ export class LayoutController {
       data,
       userId,
       photoFile,
+      existingLayoutId, // NEW: Pass existing layout ID
     );
 
     return {

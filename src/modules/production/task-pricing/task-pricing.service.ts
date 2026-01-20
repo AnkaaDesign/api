@@ -164,11 +164,9 @@ export class TaskPricingService {
         throw new BadRequestException('Tarefa não encontrada.');
       }
 
-      // Check if task already has pricing
-      const existingPricing = await this.taskPricingRepository.findByTaskId(data.taskId);
-      if (existingPricing) {
-        throw new BadRequestException('Esta tarefa já possui um orçamento.');
-      }
+      // NOTE: Removed validation that prevented pricing reuse
+      // Pricing can now be shared across multiple tasks (one-to-many relationship)
+      // The task will be linked to pricing via task.pricingId field
 
       // Validate items exist
       if (!data.items || data.items.length === 0) {

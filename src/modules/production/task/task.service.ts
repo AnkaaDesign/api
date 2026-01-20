@@ -39,6 +39,8 @@ import {
   SECTOR_PRIVILEGES,
   SERVICE_ORDER_STATUS,
   SERVICE_ORDER_TYPE,
+  CUT_STATUS,
+  AIRBRUSHING_STATUS,
 } from '../../../constants/enums';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
@@ -52,6 +54,7 @@ import {
   TaskBatchCreateFormData,
   TaskBulkPositionUpdateFormData,
 } from '../../../schemas/task';
+import { COPYABLE_TASK_FIELDS, type CopyableTaskField } from '../../../schemas/task-copy';
 import {
   isValidTaskStatusTransition,
   getTaskStatusLabel,
@@ -940,6 +943,8 @@ export class TaskService {
             ...include,
             customer: true, // Always include customer for file path organization
             artworks: true, // Include for changelog tracking
+            baseFiles: true, // Include for changelog tracking
+            logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
             serviceOrders: true, // Include for services field changelog tracking
@@ -1506,6 +1511,8 @@ export class TaskService {
             ...include,
             customer: true, // Always include customer for file path organization
             artworks: true, // Include for changelog tracking
+            baseFiles: true, // Include for changelog tracking
+            logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: true, // Include for truck field changelog tracking
             serviceOrders: true, // Include for services field changelog tracking
@@ -2719,113 +2726,158 @@ export class TaskService {
         }
 
         // Track artworks array changes
-        // Note: The schema transforms artworkIds to fileIds, so we check both
-        const artworkIdsForChangelog = (data as any).artworkIds || (data as any).fileIds;
-        if (artworkIdsForChangelog) {
+        // CRITICAL: Only check if the request artworkIds are DIFFERENT from existing ones
+        // The frontend may send artworkIds even when not modifying them, so we need to compare
+        const requestedArtworkIds = (data as any).artworkIds || (data as any).fileIds;
+
+        if (requestedArtworkIds !== undefined) {
           const oldArtworks = existingTask.artworks || [];
-          const newArtworks = updatedTask?.artworks || [];
 
-          const oldArtworkIds = oldArtworks.map((f: any) => f.id);
-          const newArtworkIds = newArtworks.map((f: any) => f.id);
+          // Normalize existing artwork IDs to strings and sort
+          const oldArtworkIds = oldArtworks.map((f: any) => String(f.id)).sort();
 
-          const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(f.id));
-          const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(f.id));
+          // Normalize requested IDs to strings and sort
+          const requestedIds = requestedArtworkIds.map((id: any) => String(id)).sort();
 
-          // Log artwork changes with proper before/after values
-          if (addedArtworks.length > 0 || removedArtworks.length > 0) {
-            const changeDescription = [];
-            if (addedArtworks.length > 0) {
-              changeDescription.push(`${addedArtworks.length} arte(s) adicionada(s)`);
+          // Compare requested IDs with existing IDs - only proceed if different
+          const artworkIdsInRequestAreDifferent =
+            oldArtworkIds.length !== requestedIds.length ||
+            !oldArtworkIds.every((id, index) => id === requestedIds[index]);
+
+          // Only check DB state if the request indicates a change
+          if (artworkIdsInRequestAreDifferent) {
+            const newArtworks = updatedTask?.artworks || [];
+            const newArtworkIds = newArtworks.map((f: any) => String(f.id)).sort();
+
+            const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(String(f.id)));
+            const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(String(f.id)));
+
+            // Only log if there are actual additions or removals
+            if (addedArtworks.length > 0 || removedArtworks.length > 0) {
+              const changeDescription = [];
+              if (addedArtworks.length > 0) {
+                changeDescription.push(`${addedArtworks.length} arte(s) adicionada(s)`);
+              }
+              if (removedArtworks.length > 0) {
+                changeDescription.push(`${removedArtworks.length} arte(s) removida(s)`);
+              }
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'artworks',
+                oldValue: oldArtworks.length > 0 ? oldArtworks : null,
+                newValue: newArtworks.length > 0 ? newArtworks : null,
+                reason: changeDescription.join(', '),
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
             }
-            if (removedArtworks.length > 0) {
-              changeDescription.push(`${removedArtworks.length} arte(s) removida(s)`);
-            }
-
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'artworks',
-              oldValue: oldArtworks.length > 0 ? oldArtworks : null,
-              newValue: newArtworks.length > 0 ? newArtworks : null,
-              reason: changeDescription.join(', '),
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
           }
         }
 
         // Track baseFiles array changes
+        // CRITICAL: Only check if the request baseFileIds are DIFFERENT from existing ones
         if (data.baseFileIds !== undefined) {
           const oldBaseFiles = existingTask.baseFiles || [];
-          const newBaseFiles = updatedTask?.baseFiles || [];
 
-          const oldBaseFileIds = oldBaseFiles.map((f: any) => f.id);
-          const newBaseFileIds = newBaseFiles.map((f: any) => f.id);
+          // Normalize existing baseFile IDs to strings and sort
+          const oldBaseFileIds = oldBaseFiles.map((f: any) => String(f.id)).sort();
 
-          const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(f.id));
-          const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(f.id));
+          // Normalize requested IDs to strings and sort
+          const requestedIds = data.baseFileIds.map((id: any) => String(id)).sort();
 
-          // Log baseFiles changes with proper before/after values
-          if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
-            const changeDescription = [];
-            if (addedBaseFiles.length > 0) {
-              changeDescription.push(`${addedBaseFiles.length} arquivo(s) base adicionado(s)`);
+          // Compare requested IDs with existing IDs - only proceed if different
+          const baseFileIdsInRequestAreDifferent =
+            oldBaseFileIds.length !== requestedIds.length ||
+            !oldBaseFileIds.every((id, index) => id === requestedIds[index]);
+
+          // Only check DB state if the request indicates a change
+          if (baseFileIdsInRequestAreDifferent) {
+            const newBaseFiles = updatedTask?.baseFiles || [];
+            const newBaseFileIds = newBaseFiles.map((f: any) => String(f.id)).sort();
+
+            const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(String(f.id)));
+            const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(String(f.id)));
+
+            // Only log if there are actual additions or removals
+            if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
+              const changeDescription = [];
+              if (addedBaseFiles.length > 0) {
+                changeDescription.push(`${addedBaseFiles.length} arquivo(s) base adicionado(s)`);
+              }
+              if (removedBaseFiles.length > 0) {
+                changeDescription.push(`${removedBaseFiles.length} arquivo(s) base removido(s)`);
+              }
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'baseFiles',
+                oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
+                newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
+                reason: changeDescription.join(', '),
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
             }
-            if (removedBaseFiles.length > 0) {
-              changeDescription.push(`${removedBaseFiles.length} arquivo(s) base removido(s)`);
-            }
-
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'baseFiles',
-              oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
-              newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
-              reason: changeDescription.join(', '),
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
           }
         }
 
         // Track logoPaints array changes (paintIds)
+        // CRITICAL: Only check if the request paintIds are DIFFERENT from existing ones
         if (data.paintIds !== undefined) {
-          const oldPaintIds = existingTask.logoPaints?.map((p: any) => p.id) || [];
-          const newPaintIds = data.paintIds || [];
+          const oldLogoPaints = existingTask.logoPaints || [];
 
-          const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
-          const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+          // Normalize existing paint IDs to strings and sort
+          const oldPaintIds = oldLogoPaints.map((p: any) => String(p.id)).sort();
 
-          // Only log if there are actual changes
-          if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
-            // Create a single log entry showing complete before/after state
-            const changeReasons = [];
-            if (addedPaintIds.length > 0) {
-              changeReasons.push(`${addedPaintIds.length} tinta(s) adicionada(s)`);
+          // Normalize requested IDs to strings and sort
+          const requestedIds = data.paintIds.map((id: any) => String(id)).sort();
+
+          // Compare requested IDs with existing IDs - only proceed if different
+          const paintIdsInRequestAreDifferent =
+            oldPaintIds.length !== requestedIds.length ||
+            !oldPaintIds.every((id, index) => id === requestedIds[index]);
+
+          // Only check DB state if the request indicates a change
+          if (paintIdsInRequestAreDifferent) {
+            const newLogoPaints = updatedTask?.logoPaints || [];
+            const newPaintIds = newLogoPaints.map((p: any) => String(p.id)).sort();
+
+            const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
+            const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+
+            // Only log if there are actual additions or removals
+            if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
+              const changeReasons = [];
+              if (addedPaintIds.length > 0) {
+                changeReasons.push(`${addedPaintIds.length} tinta(s) adicionada(s)`);
+              }
+              if (removedPaintIds.length > 0) {
+                changeReasons.push(`${removedPaintIds.length} tinta(s) removida(s)`);
+              }
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'logoPaints',
+                oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
+                newValue: newPaintIds.length > 0 ? newPaintIds : null,
+                reason: changeReasons.join(', '),
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
             }
-            if (removedPaintIds.length > 0) {
-              changeReasons.push(`${removedPaintIds.length} tinta(s) removida(s)`);
-            }
-
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'logoPaints',
-              oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
-              newValue: newPaintIds.length > 0 ? newPaintIds : null,
-              reason: changeReasons.join(', '),
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
           }
         }
 
@@ -3859,26 +3911,34 @@ export class TaskService {
               const oldArtworks = existingTask.artworks || [];
               const newArtworks = updatedTask.artworks || [];
 
-              const oldArtworkIds = oldArtworks.map((f: any) => f.id);
-              const newArtworkIds = newArtworks.map((f: any) => f.id);
+              // Normalize IDs to strings and sort for consistent comparison
+              const oldArtworkIds = oldArtworks.map((f: any) => String(f.id)).sort();
+              const newArtworkIds = newArtworks.map((f: any) => String(f.id)).sort();
 
-              const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(f.id));
-              const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(f.id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldArtworkIds.length !== newArtworkIds.length ||
+                !oldArtworkIds.every((id, index) => id === newArtworkIds[index]);
 
-              if (addedArtworks.length > 0 || removedArtworks.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'artworks',
-                  oldValue: oldArtworks.length > 0 ? oldArtworks : null,
-                  newValue: newArtworks.length > 0 ? newArtworks : null,
-                  reason: `Artes atualizadas em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(String(f.id)));
+                const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(String(f.id)));
+
+                if (addedArtworks.length > 0 || removedArtworks.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'artworks',
+                    oldValue: oldArtworks.length > 0 ? oldArtworks : null,
+                    newValue: newArtworks.length > 0 ? newArtworks : null,
+                    reason: `Artes atualizadas em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
@@ -3887,26 +3947,34 @@ export class TaskService {
               const oldBaseFiles = existingTask.baseFiles || [];
               const newBaseFiles = updatedTask.baseFiles || [];
 
-              const oldBaseFileIds = oldBaseFiles.map((f: any) => f.id);
-              const newBaseFileIds = newBaseFiles.map((f: any) => f.id);
+              // Normalize IDs to strings and sort for consistent comparison
+              const oldBaseFileIds = oldBaseFiles.map((f: any) => String(f.id)).sort();
+              const newBaseFileIds = newBaseFiles.map((f: any) => String(f.id)).sort();
 
-              const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(f.id));
-              const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(f.id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldBaseFileIds.length !== newBaseFileIds.length ||
+                !oldBaseFileIds.every((id, index) => id === newBaseFileIds[index]);
 
-              if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'baseFiles',
-                  oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
-                  newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
-                  reason: `Arquivos base atualizados em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(String(f.id)));
+                const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(String(f.id)));
+
+                if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'baseFiles',
+                    oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
+                    newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
+                    reason: `Arquivos base atualizados em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
@@ -3915,26 +3983,34 @@ export class TaskService {
               const oldBudgets = existingTask.budgets || [];
               const newBudgets = updatedTask.budgets || [];
 
-              const oldBudgetIds = oldBudgets.map((f: any) => f.id);
-              const newBudgetIds = newBudgets.map((f: any) => f.id);
+              // Normalize IDs to strings and sort for consistent comparison
+              const oldBudgetIds = oldBudgets.map((f: any) => String(f.id)).sort();
+              const newBudgetIds = newBudgets.map((f: any) => String(f.id)).sort();
 
-              const addedBudgets = newBudgets.filter((f: any) => !oldBudgetIds.includes(f.id));
-              const removedBudgets = oldBudgets.filter((f: any) => !newBudgetIds.includes(f.id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldBudgetIds.length !== newBudgetIds.length ||
+                !oldBudgetIds.every((id, index) => id === newBudgetIds[index]);
 
-              if (addedBudgets.length > 0 || removedBudgets.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'budgets',
-                  oldValue: oldBudgets.length > 0 ? oldBudgets : null,
-                  newValue: newBudgets.length > 0 ? newBudgets : null,
-                  reason: `Orçamentos atualizados em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedBudgets = newBudgets.filter((f: any) => !oldBudgetIds.includes(String(f.id)));
+                const removedBudgets = oldBudgets.filter((f: any) => !newBudgetIds.includes(String(f.id)));
+
+                if (addedBudgets.length > 0 || removedBudgets.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'budgets',
+                    oldValue: oldBudgets.length > 0 ? oldBudgets : null,
+                    newValue: newBudgets.length > 0 ? newBudgets : null,
+                    reason: `Orçamentos atualizados em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
@@ -3943,26 +4019,34 @@ export class TaskService {
               const oldInvoices = existingTask.invoices || [];
               const newInvoices = updatedTask.invoices || [];
 
-              const oldInvoiceIds = oldInvoices.map((f: any) => f.id);
-              const newInvoiceIds = newInvoices.map((f: any) => f.id);
+              // Normalize IDs to strings and sort for consistent comparison
+              const oldInvoiceIds = oldInvoices.map((f: any) => String(f.id)).sort();
+              const newInvoiceIds = newInvoices.map((f: any) => String(f.id)).sort();
 
-              const addedInvoices = newInvoices.filter((f: any) => !oldInvoiceIds.includes(f.id));
-              const removedInvoices = oldInvoices.filter((f: any) => !newInvoiceIds.includes(f.id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldInvoiceIds.length !== newInvoiceIds.length ||
+                !oldInvoiceIds.every((id, index) => id === newInvoiceIds[index]);
 
-              if (addedInvoices.length > 0 || removedInvoices.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'invoices',
-                  oldValue: oldInvoices.length > 0 ? oldInvoices : null,
-                  newValue: newInvoices.length > 0 ? newInvoices : null,
-                  reason: `Notas fiscais atualizadas em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedInvoices = newInvoices.filter((f: any) => !oldInvoiceIds.includes(String(f.id)));
+                const removedInvoices = oldInvoices.filter((f: any) => !newInvoiceIds.includes(String(f.id)));
+
+                if (addedInvoices.length > 0 || removedInvoices.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'invoices',
+                    oldValue: oldInvoices.length > 0 ? oldInvoices : null,
+                    newValue: newInvoices.length > 0 ? newInvoices : null,
+                    reason: `Notas fiscais atualizadas em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
@@ -3971,51 +4055,66 @@ export class TaskService {
               const oldReceipts = existingTask.receipts || [];
               const newReceipts = updatedTask.receipts || [];
 
-              const oldReceiptIds = oldReceipts.map((f: any) => f.id);
-              const newReceiptIds = newReceipts.map((f: any) => f.id);
+              // Normalize IDs to strings and sort for consistent comparison
+              const oldReceiptIds = oldReceipts.map((f: any) => String(f.id)).sort();
+              const newReceiptIds = newReceipts.map((f: any) => String(f.id)).sort();
 
-              const addedReceipts = newReceipts.filter((f: any) => !oldReceiptIds.includes(f.id));
-              const removedReceipts = oldReceipts.filter((f: any) => !newReceiptIds.includes(f.id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldReceiptIds.length !== newReceiptIds.length ||
+                !oldReceiptIds.every((id, index) => id === newReceiptIds[index]);
 
-              if (addedReceipts.length > 0 || removedReceipts.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'receipts',
-                  oldValue: oldReceipts.length > 0 ? oldReceipts : null,
-                  newValue: newReceipts.length > 0 ? newReceipts : null,
-                  reason: `Comprovantes atualizados em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedReceipts = newReceipts.filter((f: any) => !oldReceiptIds.includes(String(f.id)));
+                const removedReceipts = oldReceipts.filter((f: any) => !newReceiptIds.includes(String(f.id)));
+
+                if (addedReceipts.length > 0 || removedReceipts.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'receipts',
+                    oldValue: oldReceipts.length > 0 ? oldReceipts : null,
+                    newValue: newReceipts.length > 0 ? newReceipts : null,
+                    reason: `Comprovantes atualizados em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
             // Track logoPaints changes
             if (updateData.paintIds !== undefined) {
-              const oldPaintIds = existingTask.logoPaints?.map((p: any) => p.id) || [];
-              const newPaintIds = updatedTask.logoPaints?.map((p: any) => p.id) || [];
+              const oldPaintIds = (existingTask.logoPaints?.map((p: any) => String(p.id)) || []).sort();
+              const newPaintIds = (updatedTask.logoPaints?.map((p: any) => String(p.id)) || []).sort();
 
-              const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
-              const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+              // Check if arrays are actually different
+              const idsChanged =
+                oldPaintIds.length !== newPaintIds.length ||
+                !oldPaintIds.every((id, index) => id === newPaintIds[index]);
 
-              if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
-                await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK,
-                  entityId: task.id,
-                  action: CHANGE_ACTION.UPDATE,
-                  field: 'logoPaints',
-                  oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
-                  newValue: newPaintIds.length > 0 ? newPaintIds : null,
-                  reason: `Tintas de logo atualizadas em operação de lote`,
-                  triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
-                  triggeredById: task.id,
-                  userId: userId || '',
-                  transaction: tx,
-                });
+              if (idsChanged) {
+                const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
+                const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+
+                if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'logoPaints',
+                    oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
+                    newValue: newPaintIds.length > 0 ? newPaintIds : null,
+                    reason: `Tintas de logo atualizadas em operação de lote`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                    triggeredById: task.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
               }
             }
 
@@ -5881,5 +5980,572 @@ export class TaskService {
     admins.forEach(admin => userIds.add(admin.id));
 
     return Array.from(userIds);
+  }
+
+  /**
+   * Copy fields from one task to another
+   *
+   * @param destinationTaskId - Task to copy fields to
+   * @param sourceTaskId - Task to copy fields from
+   * @param fields - Array of fields to copy
+   * @param userId - User performing the copy operation
+   * @returns Result object with success status, message, and details
+   */
+  async copyFromTask(
+    destinationTaskId: string,
+    sourceTaskId: string,
+    fields: CopyableTaskField[],
+    userId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    copiedFields: CopyableTaskField[];
+    details: Record<string, any>;
+  }> {
+    this.logger.log(
+      `[copyFromTask] Copying ${fields.length} field(s) from task ${sourceTaskId} to ${destinationTaskId}`,
+    );
+    this.logger.debug(`[copyFromTask] Requested fields: ${JSON.stringify(fields)}`);
+
+    // Expand 'all' field to individual fields
+    let fieldsToProcess = [...fields];
+    if (fields.includes('all')) {
+      fieldsToProcess = COPYABLE_TASK_FIELDS.filter(f => f !== 'all');
+      this.logger.log(`[copyFromTask] Expanded 'all' to ${fieldsToProcess.length} individual fields`);
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Fetch source task with all necessary relations
+        const sourceTask = await tx.task.findUnique({
+          where: { id: sourceTaskId },
+          include: {
+            truck: {
+              select: {
+                id: true,
+                category: true,
+                implementType: true,
+                spot: true,
+                // CRITICAL: Include layout IDs for copy functionality
+                backSideLayoutId: true,
+                leftSideLayoutId: true,
+                rightSideLayoutId: true,
+              },
+            },
+            observation: true,
+            artworks: { select: { id: true } },
+            budgets: { select: { id: true } },
+            invoices: { select: { id: true } },
+            receipts: { select: { id: true } },
+            reimbursements: { select: { id: true } },
+            invoiceReimbursements: { select: { id: true } },
+            baseFiles: { select: { id: true } },
+            logoPaints: { select: { id: true } },
+            cuts: {
+              select: {
+                fileId: true,
+                type: true,
+                origin: true,
+                reason: true,
+                parentCutId: true,
+              },
+            },
+            airbrushings: {
+              include: {
+                receipts: { select: { id: true } },
+                invoices: { select: { id: true } },
+                artworks: { select: { id: true } },
+              },
+            },
+            serviceOrders: { select: { id: true } },
+          },
+        });
+
+        if (!sourceTask) {
+          throw new NotFoundException(
+            `Tarefa de origem não encontrada (ID: ${sourceTaskId})`,
+          );
+        }
+
+        this.logger.debug(
+          `[copyFromTask] Source task loaded: ${sourceTask.name} (${sourceTask.id})`,
+        );
+        this.logger.debug(`[copyFromTask] Source has truck: ${!!sourceTask.truck}`);
+        this.logger.debug(`[copyFromTask] Source has cuts: ${sourceTask.cuts?.length || 0}`);
+        this.logger.debug(
+          `[copyFromTask] Source has airbrushings: ${sourceTask.airbrushings?.length || 0}`,
+        );
+        this.logger.debug(`[copyFromTask] 🔍 RAW SOURCE TASK DATES:`);
+        this.logger.debug(`[copyFromTask]   - term: ${JSON.stringify(sourceTask.term)}`);
+        this.logger.debug(`[copyFromTask]   - entryDate: ${JSON.stringify(sourceTask.entryDate)}`);
+        this.logger.debug(`[copyFromTask]   - forecastDate: ${JSON.stringify(sourceTask.forecastDate)}`);
+        this.logger.debug(`[copyFromTask]   - term type: ${typeof sourceTask.term}`);
+        this.logger.debug(`[copyFromTask]   - entryDate type: ${typeof sourceTask.entryDate}`);
+        this.logger.debug(`[copyFromTask]   - forecastDate type: ${typeof sourceTask.forecastDate}`);
+
+        // Fetch destination task
+        const destinationTask = await tx.task.findUnique({
+          where: { id: destinationTaskId },
+          select: { id: true, name: true },
+        });
+
+        if (!destinationTask) {
+          throw new NotFoundException(
+            `Tarefa de destino não encontrada (ID: ${destinationTaskId})`,
+          );
+        }
+
+        this.logger.debug(
+          `[copyFromTask] Destination task loaded: ${destinationTask.name} (${destinationTask.id})`,
+        );
+
+        // Prepare update data
+        const updateData: any = {};
+        const copiedFields: CopyableTaskField[] = [];
+        const details: Record<string, any> = {};
+
+        this.logger.log(
+          `[copyFromTask] Processing ${fieldsToProcess.length} fields...`,
+        );
+        this.logger.debug(`[copyFromTask] Fields to process: ${fieldsToProcess.join(', ')}`);
+        this.logger.debug(`[copyFromTask] Source task dates - term: ${sourceTask.term}, entryDate: ${sourceTask.entryDate}, forecastDate: ${sourceTask.forecastDate}`);
+
+        // Helper to check if field has data
+        const hasData = (value: any): boolean => {
+          if (value === null || value === undefined) return false;
+          if (Array.isArray(value)) return value.length > 0;
+          // Special handling for Date objects
+          if (value instanceof Date) return !isNaN(value.getTime());
+          if (typeof value === 'object') return Object.keys(value).length > 0;
+          return true;
+        };
+
+        // Process each field
+        for (const field of fieldsToProcess) {
+          switch (field) {
+            // ===== SIMPLE FIELDS =====
+            case 'name':
+              if (hasData(sourceTask.name)) {
+                updateData.name = sourceTask.name;
+                copiedFields.push(field);
+                details.name = sourceTask.name;
+              }
+              break;
+
+            case 'details':
+              if (hasData(sourceTask.details)) {
+                updateData.details = sourceTask.details;
+                copiedFields.push(field);
+                details.details = sourceTask.details;
+              }
+              break;
+
+            case 'term':
+              this.logger.debug(`[copyFromTask] term value: ${sourceTask.term}, hasData: ${hasData(sourceTask.term)}`);
+              if (hasData(sourceTask.term)) {
+                updateData.term = sourceTask.term;
+                copiedFields.push(field);
+                details.term = sourceTask.term;
+                this.logger.debug(`[copyFromTask] term copied: ${sourceTask.term}`);
+              } else {
+                this.logger.debug(`[copyFromTask] term NOT copied (no data)`);
+              }
+              break;
+
+            case 'entryDate':
+              this.logger.debug(`[copyFromTask] entryDate value: ${sourceTask.entryDate}, hasData: ${hasData(sourceTask.entryDate)}`);
+              if (hasData(sourceTask.entryDate)) {
+                updateData.entryDate = sourceTask.entryDate;
+                copiedFields.push(field);
+                details.entryDate = sourceTask.entryDate;
+                this.logger.debug(`[copyFromTask] entryDate copied: ${sourceTask.entryDate}`);
+              } else {
+                this.logger.debug(`[copyFromTask] entryDate NOT copied (no data)`);
+              }
+              break;
+
+            case 'forecastDate':
+              this.logger.debug(`[copyFromTask] forecastDate value: ${sourceTask.forecastDate}, hasData: ${hasData(sourceTask.forecastDate)}`);
+              if (hasData(sourceTask.forecastDate)) {
+                updateData.forecastDate = sourceTask.forecastDate;
+                copiedFields.push(field);
+                details.forecastDate = sourceTask.forecastDate;
+                this.logger.debug(`[copyFromTask] forecastDate copied: ${sourceTask.forecastDate}`);
+              } else {
+                this.logger.debug(`[copyFromTask] forecastDate NOT copied (no data)`);
+              }
+              break;
+
+            case 'commission':
+              if (hasData(sourceTask.commission)) {
+                updateData.commission = sourceTask.commission;
+                copiedFields.push(field);
+                details.commission = sourceTask.commission;
+              }
+              break;
+
+            case 'negotiatingWith':
+              if (hasData(sourceTask.negotiatingWith)) {
+                updateData.negotiatingWith = sourceTask.negotiatingWith;
+                copiedFields.push(field);
+                details.negotiatingWith = sourceTask.negotiatingWith;
+              }
+              break;
+
+            // ===== REFERENCES =====
+            case 'customerId':
+              if (hasData(sourceTask.customerId)) {
+                updateData.customerId = sourceTask.customerId;
+                copiedFields.push(field);
+                details.customerId = sourceTask.customerId;
+              }
+              break;
+
+            case 'invoiceToId':
+              if (hasData(sourceTask.invoiceToId)) {
+                updateData.invoiceToId = sourceTask.invoiceToId;
+                copiedFields.push(field);
+                details.invoiceToId = sourceTask.invoiceToId;
+              }
+              break;
+
+            case 'pricingId':
+              if (hasData(sourceTask.pricingId)) {
+                updateData.pricingId = sourceTask.pricingId;
+                copiedFields.push(field);
+                details.pricingId = sourceTask.pricingId;
+              }
+              break;
+
+            case 'paintId':
+              if (hasData(sourceTask.paintId)) {
+                updateData.paintId = sourceTask.paintId;
+                copiedFields.push(field);
+                details.paintId = sourceTask.paintId;
+              }
+              break;
+
+            // ===== SHARED FILE IDS =====
+            case 'artworkIds':
+              if (hasData(sourceTask.artworks)) {
+                const artworkIds = sourceTask.artworks.map(a => a.id);
+                updateData.artworks = {
+                  set: artworkIds.map(id => ({ id })),
+                };
+                copiedFields.push(field);
+                details.artworkIds = artworkIds;
+              }
+              break;
+
+            case 'baseFileIds':
+              if (hasData(sourceTask.baseFiles)) {
+                const baseFileIds = sourceTask.baseFiles.map(f => f.id);
+                updateData.baseFiles = {
+                  set: baseFileIds.map(id => ({ id })),
+                };
+                copiedFields.push(field);
+                details.baseFileIds = baseFileIds;
+              }
+              break;
+
+            case 'logoPaintIds':
+              if (hasData(sourceTask.logoPaints)) {
+                const logoPaintIds = sourceTask.logoPaints.map(p => p.id);
+                updateData.logoPaints = {
+                  set: logoPaintIds.map(id => ({ id })),
+                };
+                copiedFields.push(field);
+                details.logoPaintIds = logoPaintIds;
+              }
+              break;
+
+            // ===== INDIVIDUAL RESOURCES (Create New) =====
+            case 'cuts':
+              if (hasData(sourceTask.cuts)) {
+                // Create new cut records with PENDING status
+                const newCuts = await Promise.all(
+                  sourceTask.cuts.map(async (cut) => {
+                    return await tx.cut.create({
+                      data: {
+                        taskId: destinationTaskId,
+                        fileId: cut.fileId,
+                        type: cut.type,
+                        status: CUT_STATUS.PENDING,
+                        statusOrder: 1, // PENDING order
+                        origin: cut.origin,
+                        reason: cut.reason,
+                        parentCutId: cut.parentCutId,
+                      },
+                    });
+                  }),
+                );
+                copiedFields.push(field);
+                details.cuts = {
+                  count: newCuts.length,
+                  ids: newCuts.map(c => c.id),
+                };
+              }
+              break;
+
+            case 'airbrushings':
+              if (hasData(sourceTask.airbrushings)) {
+                // Create new airbrushing records with PENDING status
+                const newAirbrushings = await Promise.all(
+                  sourceTask.airbrushings.map(async (airbrushing) => {
+                    return await tx.airbrushing.create({
+                      data: {
+                        taskId: destinationTaskId,
+                        price: airbrushing.price,
+                        status: AIRBRUSHING_STATUS.PENDING,
+                        startDate: null,
+                        finishDate: null,
+                        // Connect shared files/artworks
+                        receipts: airbrushing.receipts?.length
+                          ? { connect: airbrushing.receipts.map(r => ({ id: r.id })) }
+                          : undefined,
+                        invoices: airbrushing.invoices?.length
+                          ? { connect: airbrushing.invoices.map(i => ({ id: i.id })) }
+                          : undefined,
+                        artworks: airbrushing.artworks?.length
+                          ? { connect: airbrushing.artworks.map(a => ({ id: a.id })) }
+                          : undefined,
+                      },
+                    });
+                  }),
+                );
+                copiedFields.push(field);
+                details.airbrushings = {
+                  count: newAirbrushings.length,
+                  ids: newAirbrushings.map(a => a.id),
+                };
+              }
+              break;
+
+            // ===== TRUCK =====
+            case 'truck':
+              if (hasData(sourceTask.truck)) {
+                // Check if destination already has a truck
+                const existingTruck = await tx.truck.findUnique({
+                  where: { taskId: destinationTaskId },
+                });
+
+                const truckData: any = {
+                  category: sourceTask.truck.category,
+                  implementType: sourceTask.truck.implementType,
+                  // Exclude plate, chassisNumber, and spot as per requirements
+                };
+
+                if (existingTruck) {
+                  await tx.truck.update({
+                    where: { taskId: destinationTaskId },
+                    data: truckData,
+                  });
+                } else {
+                  await tx.truck.create({
+                    data: {
+                      ...truckData,
+                      taskId: destinationTaskId,
+                    },
+                  });
+                }
+                copiedFields.push(field);
+                details.truck = truckData;
+              }
+              break;
+
+            // ===== LAYOUTS (Shared Resources) =====
+            case 'layouts':
+              if (hasData(sourceTask.truck)) {
+                const existingTruck = await tx.truck.findUnique({
+                  where: { taskId: destinationTaskId },
+                });
+
+                const layoutData: any = {
+                  backSideLayoutId: sourceTask.truck.backSideLayoutId,
+                  leftSideLayoutId: sourceTask.truck.leftSideLayoutId,
+                  rightSideLayoutId: sourceTask.truck.rightSideLayoutId,
+                };
+
+                if (existingTruck) {
+                  await tx.truck.update({
+                    where: { taskId: destinationTaskId },
+                    data: layoutData,
+                  });
+                } else {
+                  // Create truck with layouts if it doesn't exist
+                  await tx.truck.create({
+                    data: {
+                      ...layoutData,
+                      taskId: destinationTaskId,
+                    },
+                  });
+                }
+                copiedFields.push(field);
+                details.layouts = layoutData;
+              }
+              break;
+
+            // ===== OBSERVATION =====
+            case 'observation':
+              if (hasData(sourceTask.observation)) {
+                // Check if destination already has an observation
+                const existingObservation = await tx.observation.findUnique({
+                  where: { taskId: destinationTaskId },
+                });
+
+                const observationData = {
+                  description: sourceTask.observation.description,
+                };
+
+                if (existingObservation) {
+                  await tx.observation.update({
+                    where: { taskId: destinationTaskId },
+                    data: observationData,
+                  });
+                } else {
+                  await tx.observation.create({
+                    data: {
+                      ...observationData,
+                      taskId: destinationTaskId,
+                    },
+                  });
+                }
+                copiedFields.push(field);
+                details.observation = observationData;
+              }
+              break;
+
+            // ===== SERVICE ORDERS (Create New) =====
+            case 'serviceOrders':
+              if (hasData(sourceTask.serviceOrders)) {
+                // Fetch full service order details for copying
+                const fullServiceOrders = await tx.serviceOrder.findMany({
+                  where: {
+                    id: { in: sourceTask.serviceOrders.map(so => so.id) },
+                  },
+                  select: {
+                    description: true,
+                    type: true,
+                    observation: true,
+                    assignedToId: true,
+                  },
+                });
+
+                // Create new service order records with PENDING status
+                const newServiceOrders = await Promise.all(
+                  fullServiceOrders.map(async (so) => {
+                    return await tx.serviceOrder.create({
+                      data: {
+                        taskId: destinationTaskId,
+                        description: so.description,
+                        type: so.type,
+                        observation: so.observation,
+                        assignedToId: so.assignedToId,
+                        status: SERVICE_ORDER_STATUS.PENDING,
+                        statusOrder: 1, // PENDING order
+                        createdById: userId,
+                      },
+                    });
+                  }),
+                );
+                copiedFields.push(field);
+                details.serviceOrders = {
+                  count: newServiceOrders.length,
+                  ids: newServiceOrders.map(so => so.id),
+                };
+              }
+              break;
+
+            default:
+              this.logger.warn(`[copyFromTask] Unknown field: ${field}`);
+          }
+        }
+
+        this.logger.log(
+          `[copyFromTask] Finished processing fields. Copied ${copiedFields.length} field(s)`,
+        );
+        this.logger.debug(
+          `[copyFromTask] Copied fields: ${JSON.stringify(copiedFields)}`,
+        );
+        this.logger.debug(
+          `[copyFromTask] UpdateData keys: ${JSON.stringify(Object.keys(updateData))}`,
+        );
+
+        // Update the destination task with collected data
+        if (Object.keys(updateData).length > 0) {
+          this.logger.log(
+            `[copyFromTask] Updating task with ${Object.keys(updateData).length} field(s)`,
+          );
+          await tx.task.update({
+            where: { id: destinationTaskId },
+            data: updateData,
+          });
+          this.logger.log(`[copyFromTask] Task update successful`);
+        } else {
+          this.logger.log(`[copyFromTask] No fields to update via task.update()`);
+        }
+
+        // Create changelog entries for copied fields
+        if (copiedFields.length > 0) {
+          this.logger.debug(`[copyFromTask] Creating changelog entry...`);
+          this.logger.debug(`[copyFromTask] Copied fields: ${copiedFields.join(', ')}`);
+          this.logger.debug(`[copyFromTask] Details keys: ${Object.keys(details).join(', ')}`);
+
+          try {
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityId: destinationTaskId,
+              entityType: ENTITY_TYPE.TASK,
+              action: CHANGE_ACTION.UPDATE,
+              triggeredBy: CHANGE_TRIGGERED_BY.USER,
+              userId,
+              changes: {
+                copiedFrom: {
+                  from: null,
+                  to: sourceTaskId,
+                },
+                copiedFields: {
+                  from: [],
+                  to: copiedFields,
+                },
+                copiedDetails: {
+                  from: {},
+                  to: details,
+                },
+              },
+              reason: `Campos copiados da tarefa ${sourceTask.name || sourceTaskId}`,
+              transaction: tx,
+            });
+            this.logger.debug(`[copyFromTask] Changelog entry created successfully`);
+          } catch (changelogError) {
+            this.logger.error(`[copyFromTask] Error creating changelog:`, changelogError);
+            // Don't throw - changelog is not critical for the copy operation
+          }
+        }
+
+        return {
+          success: true,
+          message: `${copiedFields.length} campo(s) copiado(s) com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
+          copiedFields,
+          details,
+        };
+      });
+    } catch (error) {
+      this.logger.error(
+        `[copyFromTask] Error copying fields from task ${sourceTaskId} to ${destinationTaskId}:`,
+        error,
+      );
+
+      if (
+        error instanceof NotFoundException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(
+        `Erro ao copiar campos da tarefa: ${error.message}`,
+      );
+    }
   }
 }
