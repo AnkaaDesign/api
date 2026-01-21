@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
+import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import {
   OrderCreatedEvent,
   OrderStatusChangedEvent,
@@ -36,6 +37,7 @@ export class OrderListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly deepLinkService: DeepLinkService,
   ) {
     this.registerEventListeners();
   }
@@ -182,7 +184,10 @@ export class OrderListener {
 
       const title = `Novo Pedido Criado #${orderNumber}`;
       const body = `Um novo pedido foi criado para ${supplierName}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-      const actionUrl = `/inventory/orders/${order.id}`;
+
+      // Generate deep links for web and mobile
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+      const actionUrl = JSON.stringify(deepLinks);
 
       await this.createNotificationsForUsers(
         targetUsers,
@@ -257,7 +262,10 @@ export class OrderListener {
 
       const title = `Status do Pedido Alterado #${orderNumber}`;
       const body = `O pedido ${supplierName} mudou de status.\n\nDe: ${oldStatusLabel}\nPara: ${newStatusLabel}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-      const actionUrl = `/inventory/orders/${order.id}`;
+
+      // Generate deep links for web and mobile
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+      const actionUrl = JSON.stringify(deepLinks);
 
       await this.createNotificationsForUsers(targetUsers, title, body, actionUrl, importance);
     } catch (error) {
@@ -325,7 +333,9 @@ export class OrderListener {
         importance = NOTIFICATION_IMPORTANCE.HIGH;
       }
 
-      const actionUrl = `/inventory/orders/${order.id}`;
+      // Generate deep links for web and mobile
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+      const actionUrl = JSON.stringify(deepLinks);
 
       await this.createNotificationsForUsers(targetUsers, title, body, actionUrl, importance);
     } catch (error) {
@@ -374,7 +384,10 @@ export class OrderListener {
 
       const title = `Item Recebido - Pedido #${orderNumber}`;
       const body = `Item recebido do pedido ${supplierName}.\n\nItem: ${itemName}\nQuantidade recebida: ${event.quantity}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-      const actionUrl = `/inventory/orders/${order.id}`;
+
+      // Generate deep links for web and mobile
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+      const actionUrl = JSON.stringify(deepLinks);
 
       await this.createNotificationsForUsers(
         targetUsers,
@@ -428,7 +441,10 @@ export class OrderListener {
 
       const title = `Pedido Cancelado #${orderNumber}`;
       const body = `O pedido ${supplierName} foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-      const actionUrl = `/inventory/orders/${order.id}`;
+
+      // Generate deep links for web and mobile
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+      const actionUrl = JSON.stringify(deepLinks);
 
       await this.createNotificationsForUsers(
         targetUsers,

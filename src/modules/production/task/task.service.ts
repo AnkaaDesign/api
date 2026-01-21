@@ -62,6 +62,7 @@ import {
 } from '../../../utils';
 import {
   getServiceOrderUpdatesForTaskStatusChange,
+  getTaskUpdateForServiceOrderStatusChange,
   getServiceOrderStatusOrder,
 } from '../../../utils/task-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
@@ -1320,21 +1321,56 @@ export class TaskService {
 
         // Validate status transition if status is being updated
         if (data.status && (data.status as TASK_STATUS) !== (existingTask.status as TASK_STATUS)) {
-          if (
-            !isValidTaskStatusTransition(
-              existingTask.status as TASK_STATUS,
-              data.status as TASK_STATUS,
-            )
-          ) {
+          const fromStatus = existingTask.status as TASK_STATUS;
+          const toStatus = data.status as TASK_STATUS;
+
+          if (!isValidTaskStatusTransition(fromStatus, toStatus)) {
             throw new BadRequestException(
-              `Transição de status inválida: ${getTaskStatusLabel(existingTask.status as TASK_STATUS)} → ${getTaskStatusLabel(data.status as TASK_STATUS)}`,
+              `Transição de status inválida: ${getTaskStatusLabel(fromStatus)} → ${getTaskStatusLabel(toStatus)}`,
             );
+          }
+
+          // Additional validation for PREPARATION → IN_PRODUCTION
+          // This transition requires all ARTWORK service orders to be completed
+          if (fromStatus === TASK_STATUS.PREPARATION && toStatus === TASK_STATUS.IN_PRODUCTION) {
+            // Build the final state of artwork service orders by merging existing with updates
+            const existingArtworkSOs = existingTask.serviceOrders?.filter(
+              (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK
+            ) || [];
+
+            // If user is submitting service order updates, apply them to get final state
+            let finalArtworkSOs = existingArtworkSOs;
+            if (data.serviceOrders && Array.isArray(data.serviceOrders)) {
+              finalArtworkSOs = existingArtworkSOs.map(existingSO => {
+                const update = data.serviceOrders!.find((so: any) => so.id === existingSO.id);
+                if (update && update.status) {
+                  // User is updating this service order's status
+                  return { ...existingSO, status: update.status };
+                }
+                return existingSO;
+              });
+            }
+
+            if (finalArtworkSOs.length > 0) {
+              const incompleteArtworks = finalArtworkSOs.filter(
+                (so: any) => so.status !== SERVICE_ORDER_STATUS.COMPLETED
+              );
+
+              if (incompleteArtworks.length > 0) {
+                this.logger.warn(
+                  `[VALIDATION] User attempted PREPARATION → IN_PRODUCTION with ${incompleteArtworks.length} incomplete artwork(s). IDs: ${incompleteArtworks.map((so: any) => so.id).join(', ')}`
+                );
+                throw new BadRequestException(
+                  `Não é possível iniciar produção: ${incompleteArtworks.length} ordem(ns) de serviço de arte ainda não foi(ram) concluída(s). Complete todas as artes antes de iniciar a produção.`
+                );
+              }
+            }
           }
 
           // Auto-fill date requirements based on status transition
           // Instead of throwing an error, automatically set the required dates
           if (
-            (data.status as TASK_STATUS) === TASK_STATUS.IN_PRODUCTION &&
+            toStatus === TASK_STATUS.IN_PRODUCTION &&
             !existingTask.startedAt &&
             !data.startedAt
           ) {
@@ -1344,7 +1380,7 @@ export class TaskService {
             data.startedAt = new Date();
           }
           if (
-            (data.status as TASK_STATUS) === TASK_STATUS.COMPLETED &&
+            toStatus === TASK_STATUS.COMPLETED &&
             !existingTask.finishedAt &&
             !data.finishedAt
           ) {
@@ -1552,6 +1588,29 @@ export class TaskService {
                 if (serviceOrderData.observation !== undefined) updatePayload.observation = serviceOrderData.observation;
                 if (serviceOrderData.assignedToId !== undefined) updatePayload.assignedToId = serviceOrderData.assignedToId;
 
+                // Handle date clearing for status rollbacks
+                if (serviceOrderData.status !== undefined && serviceOrderData.status !== oldServiceOrder.status) {
+                  const oldStatus = oldServiceOrder.status as SERVICE_ORDER_STATUS;
+                  const newStatus = serviceOrderData.status as SERVICE_ORDER_STATUS;
+
+                  // If rolling back to PENDING, clear all progress dates
+                  if (newStatus === SERVICE_ORDER_STATUS.PENDING && oldStatus !== SERVICE_ORDER_STATUS.PENDING) {
+                    this.logger.log(`[Task Update] Clearing dates for SO ${serviceOrderData.id}: ${oldStatus} → PENDING`);
+                    updatePayload.startedById = null;
+                    updatePayload.startedAt = null;
+                    updatePayload.approvedById = null;
+                    updatePayload.approvedAt = null;
+                    updatePayload.completedById = null;
+                    updatePayload.finishedAt = null;
+                  }
+                  // If rolling back from COMPLETED to IN_PROGRESS, clear completion dates
+                  else if (newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS && oldStatus === SERVICE_ORDER_STATUS.COMPLETED) {
+                    this.logger.log(`[Task Update] Clearing completion dates for SO ${serviceOrderData.id}: COMPLETED → IN_PROGRESS`);
+                    updatePayload.completedById = null;
+                    updatePayload.finishedAt = null;
+                  }
+                }
+
                 // Only update if there are actual changes
                 if (Object.keys(updatePayload).length > 0) {
                   const updatedServiceOrder = await tx.serviceOrder.update({
@@ -1568,7 +1627,19 @@ export class TaskService {
                     entityId: serviceOrderData.id,
                     oldEntity: oldServiceOrder,
                     newEntity: updatedServiceOrder,
-                    fieldsToTrack: ['status', 'description', 'observation', 'type', 'assignedToId'],
+                    fieldsToTrack: [
+                      'status',
+                      'description',
+                      'observation',
+                      'type',
+                      'assignedToId',
+                      'startedAt',
+                      'startedById',
+                      'approvedAt',
+                      'approvedById',
+                      'finishedAt',
+                      'completedById',
+                    ],
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     transaction: tx,
@@ -1680,6 +1751,92 @@ export class TaskService {
           });
 
           this.logger.log(`[Task Update] After refetch, updatedTask.serviceOrders count: ${updatedTask?.serviceOrders?.length || 0}`);
+
+          // =====================================================================
+          // REVERSE SYNC: Service Order Status Changes → Task Status
+          // Check if any service order status changes should trigger task status changes
+          // This handles cases where service orders are updated via task edit form
+          // =====================================================================
+          if (data.serviceOrders && Array.isArray(data.serviceOrders) && data.serviceOrders.length > 0) {
+            this.logger.log(`[REVERSE SYNC] Checking if service order updates require task status change`);
+
+            // Check each service order that was updated
+            for (const serviceOrderData of data.serviceOrders) {
+              // Only check service orders with IDs (existing records that were updated)
+              if (serviceOrderData.id && serviceOrderData.status) {
+                // Find the old service order data from existingTask
+                const oldServiceOrder = existingTask.serviceOrders?.find(so => so.id === serviceOrderData.id);
+
+                if (oldServiceOrder && oldServiceOrder.status !== serviceOrderData.status) {
+                  // Service order status changed - check if task should update
+                  const taskUpdate = getTaskUpdateForServiceOrderStatusChange(
+                    updatedTask.serviceOrders || [],
+                    serviceOrderData.id,
+                    oldServiceOrder.status as SERVICE_ORDER_STATUS,
+                    serviceOrderData.status as SERVICE_ORDER_STATUS,
+                    updatedTask.status as TASK_STATUS,
+                  );
+
+                  if (taskUpdate && taskUpdate.shouldUpdate && taskUpdate.newTaskStatus) {
+                    this.logger.log(
+                      `[REVERSE SYNC] Service order ${serviceOrderData.id} status change (${oldServiceOrder.status} → ${serviceOrderData.status}) triggers task status change: ${updatedTask.status} → ${taskUpdate.newTaskStatus}`,
+                    );
+
+                    // Build task update data
+                    const taskUpdateData: any = {
+                      status: taskUpdate.newTaskStatus,
+                      statusOrder: getTaskStatusOrder(taskUpdate.newTaskStatus),
+                    };
+
+                    if (taskUpdate.setStartedAt) {
+                      taskUpdateData.startedAt = new Date();
+                    }
+                    if (taskUpdate.setFinishedAt) {
+                      taskUpdateData.finishedAt = new Date();
+                    }
+                    if (taskUpdate.clearStartedAt) {
+                      taskUpdateData.startedAt = null;
+                    }
+                    if (taskUpdate.clearFinishedAt) {
+                      taskUpdateData.finishedAt = null;
+                    }
+
+                    // Update task status
+                    updatedTask = await tx.task.update({
+                      where: { id },
+                      data: taskUpdateData,
+                      include: {
+                        ...include,
+                        customer: true,
+                        artworks: true,
+                        observation: { include: { files: true } },
+                        truck: true,
+                        serviceOrders: true,
+                      },
+                    }) as any;
+
+                    // Log the reverse sync in changelog
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: existingTask.status,
+                      newValue: taskUpdate.newTaskStatus,
+                      reason: taskUpdate.reason,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrderData.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    // Break after first status change (avoid multiple status changes in one update)
+                    break;
+                  }
+                }
+              }
+            }
+          }
 
           // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
           // This ensures the task workflow progresses automatically when all artwork approvals are complete

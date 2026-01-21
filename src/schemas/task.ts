@@ -1641,6 +1641,26 @@ export const taskCreateSchema = z
     cuts: z.array(cutCreateNestedSchema).optional(), // Support for multiple cuts
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
   })
+  // Auto-fill dates based on status changes (before validation)
+  .transform((data) => {
+    // Auto-fill startedAt when status is IN_PRODUCTION
+    if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
+      // If entryDate exists and is in the future, use entryDate, otherwise use current date
+      const now = new Date();
+      data.startedAt = data.entryDate && data.entryDate > now ? data.entryDate : now;
+    }
+    // Auto-fill finishedAt when status is COMPLETED
+    if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
+      const now = new Date();
+      data.finishedAt = now;
+      // Also auto-fill startedAt if not set (completing without starting)
+      if (!data.startedAt) {
+        // Use entryDate if it exists and is <= now, otherwise use now
+        data.startedAt = data.entryDate && data.entryDate <= now ? data.entryDate : now;
+      }
+    }
+    return data;
+  })
   .superRefine((data, ctx) => {
     // Require at least one of: customer, serialNumber, serialNumberFrom/To, plate, or name
     const hasCustomer = !!data.customerId;
@@ -1684,22 +1704,8 @@ export const taskCreateSchema = z
       });
     }
 
-    // Validate status-based requirements
-    if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de início é obrigatória para tarefas em produção',
-        path: ['startedAt'],
-      });
-    }
-
-    if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de conclusão é obrigatória para tarefas concluídas',
-        path: ['finishedAt'],
-      });
-    }
+    // Note: startedAt and finishedAt are now auto-filled by the transform above,
+    // so we no longer validate their presence based on status.
 
     // Validate serial number range fields
     const hasSerialNumberFrom = data.serialNumberFrom !== undefined;
@@ -1863,6 +1869,27 @@ export const taskUpdateSchema = z
     removeReimbursementIds: z.array(z.string().uuid()).optional(),
     removeReimbursementInvoiceIds: z.array(z.string().uuid()).optional(),
   })
+  // Auto-fill dates based on status changes (before validation)
+  // This ensures that when frontend sends status change without dates, backend auto-fills them
+  .transform((data) => {
+    // Auto-fill startedAt when status changes to IN_PRODUCTION
+    if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
+      // If entryDate exists and is in the future, use entryDate, otherwise use current date
+      const now = new Date();
+      data.startedAt = data.entryDate && data.entryDate > now ? data.entryDate : now;
+    }
+    // Auto-fill finishedAt when status changes to COMPLETED
+    if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
+      const now = new Date();
+      data.finishedAt = now;
+      // Also auto-fill startedAt if not set (completing without starting)
+      if (!data.startedAt) {
+        // Use entryDate if it exists and is <= now, otherwise use now
+        data.startedAt = data.entryDate && data.entryDate <= now ? data.entryDate : now;
+      }
+    }
+    return data;
+  })
   .superRefine((data, ctx) => {
     if (data.entryDate && data.term && data.term <= data.entryDate) {
       ctx.addIssue({
@@ -1888,22 +1915,9 @@ export const taskUpdateSchema = z
       });
     }
 
-    // Validate status-based requirements
-    if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de início é obrigatória para tarefas em produção',
-        path: ['startedAt'],
-      });
-    }
-
-    if (data.status === TASK_STATUS.COMPLETED && !data.finishedAt) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de conclusão é obrigatória para tarefas concluídas',
-        path: ['finishedAt'],
-      });
-    }
+    // Note: startedAt and finishedAt validation removed here because they are now auto-filled
+    // by the transform above. The backend service layer will handle setting these dates
+    // when status changes, so we don't need to enforce them at the schema level for updates.
   });
 
 // =====================
