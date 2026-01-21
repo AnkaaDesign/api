@@ -342,7 +342,6 @@ export const economicActivityQuerySchema = z.object({
 
 export const economicActivityGetByIdSchema = z.object({
   include: economicActivityIncludeSchema.optional(),
-  id: z.string().uuid('Atividade econômica inválida'),
 });
 
 // =====================
