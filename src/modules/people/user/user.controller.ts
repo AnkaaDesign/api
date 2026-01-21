@@ -76,6 +76,7 @@ export class UserController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
   )
   @ReadRateLimit()
   async findMany(
@@ -156,6 +157,7 @@ export class UserController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
   )
   @ReadRateLimit()
   async findById(

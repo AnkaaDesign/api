@@ -14,7 +14,6 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ServiceOrderService } from './service-order.service';
-import { ServiceService } from './service.service';
 import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, SERVICE_ORDER_STATUS } from '../../../constants/enums';
@@ -33,17 +32,6 @@ import type {
   ServiceOrderBatchDeleteResponse,
 } from '../../../types';
 import type {
-  ServiceCreateResponse,
-  ServiceGetUniqueResponse,
-  ServiceGetManyResponse,
-  ServiceUpdateResponse,
-  ServiceDeleteResponse,
-  ServiceBatchCreateResponse,
-  ServiceBatchUpdateResponse,
-  ServiceBatchDeleteResponse,
-} from '../../../types';
-
-import type {
   ServiceOrderGetManyFormData,
   ServiceOrderCreateFormData,
   ServiceOrderUpdateFormData,
@@ -53,16 +41,6 @@ import type {
   ServiceOrderQueryFormData,
   ServiceOrderBatchQueryFormData,
 } from '../../../schemas/serviceOrder';
-
-import type {
-  ServiceGetManyFormData,
-  ServiceCreateFormData,
-  ServiceUpdateFormData,
-  ServiceBatchCreateFormData,
-  ServiceBatchUpdateFormData,
-  ServiceBatchDeleteFormData,
-  ServiceQueryFormData,
-} from '../../../schemas/service';
 
 import {
   serviceOrderGetManySchema,
@@ -75,19 +53,32 @@ import {
   serviceOrderQuerySchema,
 } from '../../../schemas/serviceOrder';
 
-import {
-  serviceGetManySchema,
-  serviceQuerySchema,
-  serviceCreateSchema,
-  serviceUpdateSchema,
-  serviceBatchCreateSchema,
-  serviceBatchUpdateSchema,
-  serviceBatchDeleteSchema,
-} from '../../../schemas/service';
-
 @Controller('service-orders')
 export class ServiceOrderController {
   constructor(private readonly serviceOrderService: ServiceOrderService) {}
+
+  // Unique Descriptions endpoint (must come before dynamic routes)
+  @Get('descriptions')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getUniqueDescriptions(
+    @Query('type') type?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ): Promise<{ success: boolean; message: string; data: string[] }> {
+    const limitNumber = limit ? parseInt(limit, 10) : 50;
+    return this.serviceOrderService.getUniqueDescriptions(type, search, limitNumber);
+  }
 
   // Basic CRUD Operations
   @Get()
@@ -98,7 +89,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -114,6 +105,7 @@ export class ServiceOrderController {
   @Roles(
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION,
@@ -132,6 +124,7 @@ export class ServiceOrderController {
   @Roles(
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.PRODUCTION,
@@ -148,7 +141,7 @@ export class ServiceOrderController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   async batchUpdate(
     @Body(new ZodValidationPipe(serviceOrderBatchUpdateSchema))
     data: ServiceOrderBatchUpdateFormData,
@@ -160,7 +153,7 @@ export class ServiceOrderController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(serviceOrderBatchDeleteSchema))
@@ -179,6 +172,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
   )
@@ -207,7 +201,7 @@ export class ServiceOrderController {
     SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
-
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
@@ -223,6 +217,7 @@ export class ServiceOrderController {
   @Roles(
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.LOGISTIC,
@@ -244,7 +239,7 @@ export class ServiceOrderController {
   }
 
   @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @UserId() userId: string,
@@ -253,111 +248,5 @@ export class ServiceOrderController {
   }
 }
 
-@Controller('services')
-export class ServiceController {
-  constructor(private readonly serviceService: ServiceService) {}
-
-  // Basic CRUD Operations
-  @Get()
-  @Roles(
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.EXTERNAL,
-  )
-  async findMany(
-    @Query(new ZodQueryValidationPipe(serviceGetManySchema)) query: ServiceGetManyFormData,
-  ): Promise<ServiceGetManyResponse> {
-    return this.serviceService.findMany(query);
-  }
-
-  @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body(new ZodValidationPipe(serviceCreateSchema)) data: ServiceCreateFormData,
-    @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<ServiceCreateResponse> {
-    return this.serviceService.create(data, query.include, userId);
-  }
-
-  // Batch Operations
-  @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.CREATED)
-  async batchCreate(
-    @Body(new ZodValidationPipe(serviceBatchCreateSchema)) data: ServiceBatchCreateFormData,
-    @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<ServiceBatchCreateResponse<ServiceCreateFormData>> {
-    return this.serviceService.batchCreate(data, query.include, userId);
-  }
-
-  @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  async batchUpdate(
-    @Body(new ZodValidationPipe(serviceBatchUpdateSchema)) data: ServiceBatchUpdateFormData,
-    @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<ServiceBatchUpdateResponse<ServiceUpdateFormData>> {
-    return this.serviceService.batchUpdate(data, query.include, userId);
-  }
-
-  @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async batchDelete(
-    @Body(new ZodValidationPipe(serviceBatchDeleteSchema)) data: ServiceBatchDeleteFormData,
-    @UserId() userId: string,
-  ): Promise<ServiceBatchDeleteResponse> {
-    return this.serviceService.batchDelete(data, userId);
-  }
-
-  // Dynamic routes (must come after static routes)
-  @Get(':id')
-  @Roles(
-    SECTOR_PRIVILEGES.MAINTENANCE,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.LOGISTIC,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.PRODUCTION,
-
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.EXTERNAL,
-  )
-  async findById(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
-  ): Promise<ServiceGetUniqueResponse> {
-    return this.serviceService.findById(id, query.include);
-  }
-
-  @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(serviceUpdateSchema)) data: ServiceUpdateFormData,
-    @Query(new ZodQueryValidationPipe(serviceQuerySchema)) query: ServiceQueryFormData,
-    @UserId() userId: string,
-  ): Promise<ServiceUpdateResponse> {
-    return this.serviceService.update(id, data, query.include, userId);
-  }
-
-  @Delete(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<ServiceDeleteResponse> {
-    return this.serviceService.delete(id, userId);
-  }
-}
+// ServiceController removed - Service entity is no longer used
+// Service descriptions are now managed via enums in constants/service-descriptions.ts

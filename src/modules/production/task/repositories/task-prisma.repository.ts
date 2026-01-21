@@ -1157,7 +1157,9 @@ export class TaskPrismaRepository
             items: {
               create: pricingData.items.map((item: any) => ({
                 description: item.description,
+                observation: item.observation || null,
                 amount: Number(item.amount || 0),
+                shouldSync: item.shouldSync !== false, // Preserve shouldSync flag (default true)
               })),
             },
           },
@@ -1354,7 +1356,9 @@ export class TaskPrismaRepository
               items: {
                 create: pricingData.items.map((item: any) => ({
                   description: item.description,
+                  observation: item.observation || null,
                   amount: Number(item.amount || 0),
+                  shouldSync: item.shouldSync !== false, // Preserve shouldSync flag (default true)
                 })),
               },
             },

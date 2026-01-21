@@ -359,10 +359,16 @@ export const taskPricingGetManySchema = z
 // TaskPricingItem nested schema
 // Amount is optional and defaults to 0 (courtesy items)
 export const taskPricingItemCreateNestedSchema = z.object({
+  id: z.string().uuid().optional(), // For updating existing items
   description: z
     .string()
     .min(1, 'Descrição é obrigatória')
     .max(400, 'Máximo de 400 caracteres atingido'),
+  observation: z
+    .string()
+    .max(2000, 'Máximo de 2000 caracteres atingido')
+    .optional()
+    .nullable(),
   amount: z
     .number()
     .min(0, { message: 'Valor não pode ser negativo' })
@@ -370,6 +376,9 @@ export const taskPricingItemCreateNestedSchema = z.object({
     .nullable()
     .default(0)
     .transform(val => val ?? 0),
+  // Controls bidirectional sync with ServiceOrder
+  // When false, prevents auto-recreation of service orders from this pricing item
+  shouldSync: z.boolean().optional().default(true),
 });
 
 // TaskPricing nested schema for task create/update (matches Prisma TaskPricing model)

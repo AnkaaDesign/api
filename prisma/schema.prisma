@@ -980,17 +980,6 @@ model Sector {
   @@index([managerId])
 }
 
-model Service {
-  id          String           @id @default(uuid())
-  description String
-  type        ServiceOrderType @default(PRODUCTION)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-
-  @@unique([description, type])
-  @@index([type])
-}
-
 model ServiceOrder {
   id            String             @id @default(uuid())
   status        ServiceOrderStatus @default(PENDING)
@@ -1009,6 +998,9 @@ model ServiceOrder {
   startedAt     DateTime?
   approvedAt    DateTime?
   finishedAt    DateTime?
+  // Bidirectional sync control: when false, prevents auto-recreation from pricing items
+  // Set to false when user explicitly deletes this service order (the corresponding pricing item gets shouldSync=false)
+  shouldSync    Boolean            @default(true)
   assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
   task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
   createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
@@ -1067,10 +1059,14 @@ model TaskPricing {
 model TaskPricingItem {
   id          String      @id @default(uuid())
   description String      @db.Text
+  observation String?     @db.Text
   amount      Decimal     @db.Decimal(10, 2)
   pricingId   String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
+  // Bidirectional sync control: when false, prevents auto-recreation of service orders from this item
+  // Set to false when user explicitly deletes the corresponding service order
+  shouldSync  Boolean     @default(true)
   pricing     TaskPricing @relation("PRICING_ITEMS", fields: [pricingId], references: [id], onDelete: Cascade)
 
   @@index([pricingId])
