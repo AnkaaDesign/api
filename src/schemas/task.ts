@@ -777,9 +777,63 @@ const taskTransform = (data: any): any => {
 
   // Agenda display logic:
   // 1. CANCELLED tasks are never shown
-  // 2. COMPLETED tasks are only hidden if they have all 4 service order types AND all SOs are completed
+  // 2. COMPLETED tasks are only hidden if they have required service order types AND all SOs are completed
   // 3. All other tasks are shown
+  //
+  // Role-based behavior (5 service order types: PRODUCTION, FINANCIAL, COMMERCIAL, ARTWORK, LOGISTIC):
+  // - FINANCIAL users: Need PRODUCTION, COMMERCIAL, ARTWORK, FINANCIAL (exclude LOGISTIC)
+  // - LOGISTIC users: Need PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC (exclude FINANCIAL)
+  // - All other users (including ADMIN): Only need PRODUCTION, COMMERCIAL, ARTWORK (exclude both)
   if (data.shouldDisplayInAgenda === true) {
+    const excludeFinancial = data.agendaExcludeFinancial === true;
+    const excludeLogistic = data.agendaExcludeLogistic === true;
+
+    // Build the required service order types check based on role
+    // Base types that everyone needs
+    const requiredTypesCheck: any[] = [
+      { serviceOrders: { some: { type: 'PRODUCTION' } } },
+      { serviceOrders: { some: { type: 'COMMERCIAL' } } },
+      { serviceOrders: { some: { type: 'ARTWORK' } } },
+    ];
+
+    // Add FINANCIAL if not excluded
+    if (!excludeFinancial) {
+      requiredTypesCheck.push({ serviceOrders: { some: { type: 'FINANCIAL' } } });
+    }
+
+    // Add LOGISTIC if not excluded
+    if (!excludeLogistic) {
+      requiredTypesCheck.push({ serviceOrders: { some: { type: 'LOGISTIC' } } });
+    }
+
+    // Build the excluded types array for incomplete SO check
+    const excludedTypes: string[] = [];
+    if (excludeFinancial) excludedTypes.push('FINANCIAL');
+    if (excludeLogistic) excludedTypes.push('LOGISTIC');
+
+    // Build the incomplete service orders check based on role
+    const incompleteSOCheck =
+      excludedTypes.length > 0
+        ? {
+            // Check incomplete SOs excluding certain types
+            serviceOrders: {
+              some: {
+                AND: [
+                  { type: { notIn: excludedTypes } },
+                  { status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] } },
+                ],
+              },
+            },
+          }
+        : {
+            // Check all incomplete SOs (admin view)
+            serviceOrders: {
+              some: {
+                status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] },
+              },
+            },
+          };
+
     andConditions.push({
       AND: [
         // 1. Not cancelled
@@ -791,30 +845,21 @@ const taskTransform = (data: any): any => {
             { status: { not: 'COMPLETED' } },
             // OR completed but has no service orders at all
             { serviceOrders: { none: {} } },
-            // OR completed but missing at least one service order type
+            // OR completed but missing at least one required service order type
             {
               NOT: {
-                AND: [
-                  { serviceOrders: { some: { type: 'PRODUCTION' } } },
-                  { serviceOrders: { some: { type: 'FINANCIAL' } } },
-                  { serviceOrders: { some: { type: 'COMMERCIAL' } } },
-                  { serviceOrders: { some: { type: 'ARTWORK' } } },
-                ],
+                AND: requiredTypesCheck,
               },
             },
-            // OR has at least one incomplete service order (PENDING, IN_PROGRESS, or WAITING_APPROVE)
-            {
-              serviceOrders: {
-                some: {
-                  status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] },
-                },
-              },
-            },
+            // OR has at least one incomplete service order (role-aware)
+            incompleteSOCheck,
           ],
         },
       ],
     });
     delete data.shouldDisplayInAgenda;
+    delete data.agendaExcludeFinancial;
+    delete data.agendaExcludeLogistic;
   }
 
   if (data.hasAirbrushing === true) {
@@ -1232,6 +1277,8 @@ export const taskGetManySchema = z
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
     shouldDisplayInAgenda: z.boolean().optional(), // Agenda display logic: excludes CANCELLED and fully completed tasks
+    agendaExcludeFinancial: z.boolean().optional(), // When true, excludes FINANCIAL SO from agenda completion check
+    agendaExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from agenda completion check
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
@@ -1484,6 +1531,9 @@ const taskProductionServiceOrderCreateSchema = z.object({
   observation: z.string().nullable().optional(), // For rejection/approval notes
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
+  // Controls bidirectional sync with TaskPricingItem
+  // When false, prevents auto-recreation of pricing items from this service order
+  shouldSync: z.boolean().optional().default(true),
 });
 
 // Layout section schema

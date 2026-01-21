@@ -27,6 +27,8 @@ import {
   type LayoutCreateFormData,
   type LayoutUpdateFormData,
 } from '../../../schemas';
+import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 
 @Controller('layout')
 export class LayoutController {
@@ -34,6 +36,15 @@ export class LayoutController {
 
   // NEW: List all layouts (layout library)
   @Get()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async findAll(@Query('includeUsage') includeUsage?: string, @Query('includeSections') includeSections?: string, @UserId() userId?: string) {
     const layouts = await this.layoutService.findAll({
       includeUsage: includeUsage === 'true',
@@ -48,6 +59,15 @@ export class LayoutController {
   }
 
   @Get(':id')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async findById(@Param('id') id: string, @Query() query: any, @UserId() userId: string) {
     const layout = await this.layoutService.findById(id, query.include);
 
@@ -68,6 +88,15 @@ export class LayoutController {
 
   // NEW: Get layout usage details
   @Get(':id/usage')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async getLayoutUsage(@Param('id') id: string, @UserId() userId: string) {
     const usage = await this.layoutService.getTrucksUsingLayout(id);
 
@@ -79,6 +108,15 @@ export class LayoutController {
   }
 
   @Get('truck/:truckId')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async findByTruckId(@Param('truckId') truckId: string, @UserId() userId: string) {
     const layouts = await this.layoutService.findByTruckId(truckId);
 
@@ -90,6 +128,11 @@ export class LayoutController {
   }
 
   @Post()
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodValidationPipe(layoutCreateSchema))
   async create(@Body() data: LayoutCreateFormData, @UserId() userId: string) {
     const layout = await this.layoutService.create(data, userId);
@@ -102,6 +145,11 @@ export class LayoutController {
   }
 
   @Put(':id')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UsePipes(new ZodValidationPipe(layoutUpdateSchema))
   async update(
     @Param('id') id: string,
@@ -118,6 +166,11 @@ export class LayoutController {
   }
 
   @Delete(':id')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async delete(@Param('id') id: string, @UserId() userId: string) {
     await this.layoutService.delete(id, userId);
 
@@ -129,6 +182,11 @@ export class LayoutController {
 
   // NEW: Assign existing layout to truck
   @Post(':id/assign-to-truck')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async assignLayoutToTruck(
     @Param('id') layoutId: string,
     @Body() data: { truckId: string; side: 'left' | 'right' | 'back' },
@@ -148,6 +206,11 @@ export class LayoutController {
   }
 
   @Post('truck/:truckId/:side')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))
   async createOrUpdateTruckLayout(
     @Param('truckId') truckId: string,
@@ -177,6 +240,15 @@ export class LayoutController {
   }
 
   @Get(':id/svg')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async generateSVG(@Param('id') id: string, @Res() res: Response) {
     try {
       const svgContent = await this.layoutService.generateSVG(id);

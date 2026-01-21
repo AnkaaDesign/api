@@ -1,0 +1,401 @@
+/**
+ * Service Order Description Enums by Type
+ *
+ * These enums define the standardized service descriptions for each service order type.
+ * Used for both ServiceOrder and TaskPricingItem descriptions.
+ */
+
+import { SERVICE_ORDER_TYPE } from './enums';
+
+// =====================
+// PRODUCTION - Physical Work Actions (52 items including Outros)
+// =====================
+export const PRODUCTION_SERVICE_DESCRIPTIONS = [
+  // Pintura de Componentes
+  'PINTURA CAIXA DE COZINHA',
+  'PINTURA CAIXA DE FERRAMENTA',
+  'PINTURA DO PARACHOQUE',
+  'PINTURA DOS PARALAMAS',
+  'PINTURA PÉS MECÂNICO',
+  'PINTURA DAS RODAS',
+  'PINTURA DOS CUBOS DAS RODAS',
+  'PINTURA DO QUADRO LATERAL',
+  'PINTURA DO QUADRO FRONTAL',
+  'PINTURA DO QUADRO TRASEIRO',
+  'PINTURA DO CHASSIS',
+  'PINTURA DO TANQUE',
+  'PINTURA DO ESTRIBO',
+  'PINTURA DA GRADE',
+  'PINTURA DO RESERVATÓRIO',
+  // Logomarca
+  'LOGOMARCA PADRÃO',
+  'LOGOMARCA PARCIAL',
+  'LOGOMARCA PLATAFORMA',
+  'LOGOMARCA PORTAS TRASEIRAS',
+  'LOGOMARCA NO TETO',
+  // Pintura de Áreas
+  'PINTURA FROTA NO TETO',
+  'PINTURA PLACA NO TETO',
+  'PINTURA LATERAIS',
+  'PINTURA LATERAL',
+  'PINTURA PARCIAL',
+  'PINTURA FRONTAL',
+  'PINTURA TRASEIRA',
+  'PINTURA DO TETO',
+  'PINTURA GERAL',
+  'PINTURA CABINE',
+  // Adesivo
+  'ADESIVO CABINE',
+  'ADESIVO PORTAS TRASEIRA',
+  'ADESIVO LATERAL',
+  'ADESIVO PERSONALIZADO',
+  // Aerografia
+  'AEROGRAFIA',
+  'AEROGRAFIA PARCIAL',
+  // Carenagens e Frio
+  'PINTURA CARENAGENS FRIO',
+  'REPAROS CARENAGENS FRIO',
+  // Reparos
+  'REPAROS SUPERFICIAIS',
+  'REPAROS AMASSADOS',
+  // Faixas Refletivas
+  'TROCA DE FAIXAS REFLETIVAS',
+  'TROCA DE FAIXAS REFLETIVAS PARACHOQUE',
+  'FAIXA VEICULO LONGO TRASEIRA',
+  // Remoção
+  'REMOÇÃO LATERAL',
+  'REMOÇÃO LATERAIS',
+  'REMOÇÃO PARCIAL',
+  // Verniz
+  'VEDAÇÃO EXTERNA',
+  'VERNIZ LATERAL',
+  'VERNIZ LATERAIS',
+  'VERNIZ FRONTAL',
+  'VERNIZ TRASEIRA',
+  'VERNIZ PARCIAL',
+  // Plotagem
+  'PLOTAGEM LATERAL',
+  'PLOTAGEM PORTAS TRASEIRAS',
+  // Outros
+  'OUTROS',
+] as const;
+
+// =====================
+// COMMERCIAL - Sales Actions (52 items including Em Negociação + Outros)
+// =====================
+export const COMMERCIAL_SERVICE_DESCRIPTIONS = [
+  // Default for new tasks
+  'EM NEGOCIAÇÃO',
+  // Orçamento - Ações
+  'ELABORAR ORÇAMENTO',
+  'ENVIAR ORÇAMENTO',
+  'REENVIAR ORÇAMENTO',
+  'REVISAR ORÇAMENTO',
+  'AJUSTAR ORÇAMENTO',
+  'DETALHAR ORÇAMENTO',
+  'ORÇAMENTO URGENTE',
+  'ORÇAMENTO FROTA',
+  'ORÇAMENTO PARCIAL',
+  'ORÇAMENTO COMPLEMENTAR',
+  // Proposta e Negociação
+  'APRESENTAR PROPOSTA',
+  'NEGOCIAR VALOR',
+  'NEGOCIAR PRAZO',
+  'NEGOCIAR CONDIÇÕES',
+  'APLICAR DESCONTO',
+  'PROPOSTA ESPECIAL',
+  'CONTRAPROPOSTA',
+  'FECHAR NEGÓCIO',
+  // Comunicação com Cliente
+  'LIGAR PARA CLIENTE',
+  'RETORNAR LIGAÇÃO',
+  'ENVIAR WHATSAPP',
+  'ENVIAR EMAIL',
+  'RESPONDER CLIENTE',
+  'CONFIRMAR INTERESSE',
+  'ESCLARECER DÚVIDAS',
+  'INFORMAR PRAZO',
+  'INFORMAR STATUS',
+  'SOLICITAR FEEDBACK',
+  // Cadastro de Cliente
+  'CADASTRAR CLIENTE',
+  'ATUALIZAR CADASTRO CLIENTE',
+  'COMPLETAR DADOS CLIENTE',
+  'VALIDAR DADOS CLIENTE',
+  'SOLICITAR DOCUMENTOS CLIENTE',
+  'REGISTRAR CONTATO CLIENTE',
+  // Visitas e Reuniões
+  'AGENDAR VISITA',
+  'REALIZAR VISITA TÉCNICA',
+  'REUNIÃO COM CLIENTE',
+  'APRESENTAR CATÁLOGO',
+  'DEMONSTRAR SERVIÇOS',
+  'VISITA PÓS-SERVIÇO',
+  // Contratos e Documentos
+  'ENVIAR CONTRATO',
+  'COLETAR ASSINATURA',
+  'REGISTRAR APROVAÇÃO',
+  'FORMALIZAR PEDIDO',
+  'ENVIAR CONFIRMAÇÃO',
+  // Pós-venda e Fidelização
+  'PESQUISA SATISFAÇÃO',
+  'TRATAR RECLAMAÇÃO',
+  'OFERECER SERVIÇO ADICIONAL',
+  'PROGRAMA FIDELIDADE',
+  'SOLICITAR INDICAÇÃO',
+  // Outros
+  'OUTROS',
+] as const;
+
+// =====================
+// FINANCIAL - Billing Actions (51 items including Outros)
+// =====================
+export const FINANCIAL_SERVICE_DESCRIPTIONS = [
+  // Boletos
+  'GERAR BOLETO',
+  'ENVIAR BOLETO',
+  'REENVIAR BOLETO',
+  'GERAR SEGUNDA VIA BOLETO',
+  'BOLETO ENTRADA',
+  'BOLETO PARCELA',
+  'BOLETO SALDO',
+  'BOLETO AVULSO',
+  'CANCELAR BOLETO',
+  'AJUSTAR VENCIMENTO BOLETO',
+  // Pagamentos
+  'REGISTRAR PAGAMENTO',
+  'CONFIRMAR PAGAMENTO',
+  'REGISTRAR PAGAMENTO PIX',
+  'REGISTRAR PAGAMENTO CARTÃO',
+  'REGISTRAR PAGAMENTO DINHEIRO',
+  'REGISTRAR PAGAMENTO CHEQUE',
+  'COMPENSAR CHEQUE',
+  'REGISTRAR PAGAMENTO PARCIAL',
+  'BAIXAR TÍTULO',
+  'ESTORNAR PAGAMENTO',
+  // Notas Fiscais
+  'EMITIR NOTA FISCAL',
+  'ENVIAR NOTA FISCAL',
+  'CANCELAR NOTA FISCAL',
+  'CARTA CORREÇÃO NF',
+  'EMITIR NF COMPLEMENTAR',
+  'EMITIR NF SERVIÇO',
+  // Cobrança
+  'COBRAR CLIENTE',
+  'ENVIAR LEMBRETE PAGAMENTO',
+  'LIGAR COBRANÇA',
+  'ENVIAR WHATSAPP COBRANÇA',
+  'NEGOCIAR DÍVIDA',
+  'PARCELAR DÉBITO',
+  'RENEGOCIAR PRAZO',
+  'ACORDO PAGAMENTO',
+  // Cadastro de Cliente
+  'CADASTRAR CLIENTE FINANCEIRO',
+  'ATUALIZAR DADOS FINANCEIROS',
+  'REGISTRAR DADOS BANCÁRIOS',
+  'VALIDAR CNPJ CLIENTE',
+  'CONSULTAR CRÉDITO CLIENTE',
+  'ATUALIZAR LIMITE CRÉDITO',
+  // Comprovantes e Recibos
+  'GERAR RECIBO',
+  'ENVIAR COMPROVANTE',
+  'ENVIAR EXTRATO',
+  'EMITIR DECLARAÇÃO',
+  'CARTA QUITAÇÃO',
+  // Inadimplência
+  'REGISTRAR INADIMPLÊNCIA',
+  'PROTESTAR TÍTULO',
+  'NEGATIVAR CLIENTE',
+  'RETIRAR NEGATIVAÇÃO',
+  'ENCAMINHAR JURÍDICO',
+  // Outros
+  'OUTROS',
+] as const;
+
+// =====================
+// ARTWORK - Design Actions (51 items including Outros)
+// =====================
+export const ARTWORK_SERVICE_DESCRIPTIONS = [
+  // Layout com Medidas
+  'ELABORAR LAYOUT LATERAL',
+  'ELABORAR LAYOUT FRONTAL',
+  'ELABORAR LAYOUT TRASEIRA',
+  'ELABORAR LAYOUT TETO',
+  'ELABORAR LAYOUT PORTAS',
+  'ELABORAR LAYOUT CABINE',
+  'ELABORAR LAYOUT COMPLETO',
+  'TIRAR MEDIDAS VEÍCULO',
+  'CONFERIR MEDIDAS',
+  'AJUSTAR MEDIDAS LAYOUT',
+  'LAYOUT COM GABARITO',
+  'LAYOUT ESCALA REAL',
+  // Arte e Criação
+  'CRIAR ARTE PERSONALIZADA',
+  'CRIAR ARTE LOGOMARCA',
+  'CRIAR ARTE FROTA',
+  'VETORIZAR IMAGEM',
+  'DIGITALIZAR ARTE',
+  'REDESENHAR LOGOMARCA',
+  'ADAPTAR ARTE CLIENTE',
+  'MELHORAR RESOLUÇÃO ARTE',
+  'CONVERTER FORMATO ARQUIVO',
+  'PREPARAR ARTE FINAL',
+  // Revisões e Ajustes
+  'REVISAR LAYOUT',
+  'AJUSTAR CORES LAYOUT',
+  'AJUSTAR POSICIONAMENTO',
+  'AJUSTAR PROPORÇÕES',
+  'CORRIGIR LAYOUT',
+  'REFAZER LAYOUT',
+  'APLICAR ALTERAÇÕES CLIENTE',
+  'VERSÃO ALTERNATIVA LAYOUT',
+  // Aprovação - Ações
+  'ENVIAR LAYOUT APROVAÇÃO',
+  'REENVIAR LAYOUT APROVAÇÃO',
+  'REGISTRAR APROVAÇÃO ARTE',
+  'REGISTRAR REPROVAÇÃO ARTE',
+  'SOLICITAR FEEDBACK ARTE',
+  'APRESENTAR OPÇÕES CLIENTE',
+  // Gabaritos e Templates
+  'CRIAR GABARITO CORTE',
+  'AJUSTAR GABARITO',
+  'GABARITO VINIL',
+  'GABARITO ESTÊNCIL',
+  'GABARITO MÁSCARA',
+  'TESTAR GABARITO',
+  // Preparação para Produção
+  'PREPARAR ARQUIVO PLOTAGEM',
+  'SEPARAR CORES CORTE',
+  'ESPELHAR ARTE',
+  'AJUSTAR ESCALA IMPRESSÃO',
+  'GERAR ARQUIVO CORTE',
+  'ENVIAR PARA PLOTAGEM',
+  'CALCULAR METRAGEM MATERIAL',
+  'ESPECIFICAR MATERIAIS',
+  // Outros
+  'OUTROS',
+] as const;
+
+// =====================
+// LOGISTIC - Coordination Actions (51 items including Outros)
+// =====================
+export const LOGISTIC_SERVICE_DESCRIPTIONS = [
+  // Configuração de Tarefa
+  'CONFIGURAR TAREFA',
+  'CRIAR TAREFA',
+  'REAGENDAR TAREFA',
+  'CANCELAR TAREFA',
+  'PRIORIZAR TAREFA',
+  'DESPRIORITIZAR TAREFA',
+  'DUPLICAR TAREFA',
+  'VINCULAR TAREFAS',
+  // Agendamento
+  'AGENDAR ENTRADA',
+  'CONFIRMAR AGENDAMENTO',
+  'REAGENDAR ENTRADA',
+  'AGENDAR LIBERAÇÃO',
+  'DEFINIR PREVISÃO',
+  'AJUSTAR PREVISÃO',
+  'RESERVAR DATA',
+  'BLOQUEAR PERÍODO',
+  // Chegada e Recebimento
+  'REGISTRAR CHEGADA',
+  'RECEBER VEÍCULO',
+  'CHECKLIST ENTRADA',
+  'FOTOGRAFAR ENTRADA',
+  'REGISTRAR AVARIAS ENTRADA',
+  'CONFERIR DOCUMENTOS ENTRADA',
+  // Liberação e Saída
+  'LIBERAR VEÍCULO',
+  'CHECKLIST SAÍDA',
+  'FOTOGRAFAR SAÍDA',
+  'CONFERIR SERVIÇOS EXECUTADOS',
+  'TERMO RESPONSABILIDADE',
+  'ENTREGAR CHAVES',
+  // Barracão e Espaço
+  'ALOCAR VAGA',
+  'TRANSFERIR VAGA',
+  'LIBERAR VAGA',
+  'VERIFICAR DISPONIBILIDADE',
+  'RESERVAR ESPAÇO',
+  'ORGANIZAR FILA PRODUÇÃO',
+  // Comunicação com Cliente
+  'AVISAR CLIENTE CHEGADA',
+  'AVISAR CLIENTE LIBERAÇÃO',
+  'ENVIAR PREVISÃO CLIENTE',
+  'CONFIRMAR HORÁRIO CLIENTE',
+  'LIGAR PARA CLIENTE',
+  'ENVIAR WHATSAPP CLIENTE',
+  'ATUALIZAR CLIENTE STATUS',
+  'SOLICITAR RETIRADA',
+  // Cadastro de Cliente
+  'CADASTRAR CLIENTE LOGÍSTICA',
+  'ATUALIZAR DADOS CLIENTE',
+  'REGISTRAR CONTATO CLIENTE',
+  'VALIDAR ENDEREÇO CLIENTE',
+  // Coordenação Interna
+  'COBRAR SETOR PRODUÇÃO',
+  'VERIFICAR ANDAMENTO',
+  'REDISTRIBUIR TAREFA',
+  'ESCALAR PRIORIDADE',
+  // Outros
+  'OUTROS',
+] as const;
+
+// =====================
+// Type Definitions
+// =====================
+export type ProductionServiceDescription =
+  (typeof PRODUCTION_SERVICE_DESCRIPTIONS)[number];
+export type CommercialServiceDescription =
+  (typeof COMMERCIAL_SERVICE_DESCRIPTIONS)[number];
+export type FinancialServiceDescription =
+  (typeof FINANCIAL_SERVICE_DESCRIPTIONS)[number];
+export type ArtworkServiceDescription =
+  (typeof ARTWORK_SERVICE_DESCRIPTIONS)[number];
+export type LogisticServiceDescription =
+  (typeof LOGISTIC_SERVICE_DESCRIPTIONS)[number];
+
+// =====================
+// Helper to get descriptions by type
+// =====================
+export const SERVICE_DESCRIPTIONS_BY_TYPE: Record<
+  SERVICE_ORDER_TYPE,
+  readonly string[]
+> = {
+  [SERVICE_ORDER_TYPE.PRODUCTION]: PRODUCTION_SERVICE_DESCRIPTIONS,
+  [SERVICE_ORDER_TYPE.COMMERCIAL]: COMMERCIAL_SERVICE_DESCRIPTIONS,
+  [SERVICE_ORDER_TYPE.FINANCIAL]: FINANCIAL_SERVICE_DESCRIPTIONS,
+  [SERVICE_ORDER_TYPE.ARTWORK]: ARTWORK_SERVICE_DESCRIPTIONS,
+  [SERVICE_ORDER_TYPE.LOGISTIC]: LOGISTIC_SERVICE_DESCRIPTIONS,
+};
+
+/**
+ * Get service descriptions for a specific type
+ */
+export function getServiceDescriptionsByType(
+  type: SERVICE_ORDER_TYPE,
+): readonly string[] {
+  return SERVICE_DESCRIPTIONS_BY_TYPE[type] || [];
+}
+
+/**
+ * Check if a description is valid for a given type
+ */
+export function isValidServiceDescription(
+  type: SERVICE_ORDER_TYPE,
+  description: string,
+): boolean {
+  const descriptions = SERVICE_DESCRIPTIONS_BY_TYPE[type];
+  if (!descriptions) return false;
+  const normalizedDescription = description.toUpperCase().trim();
+  return descriptions.some((d) => d.toUpperCase() === normalizedDescription);
+}
+
+/**
+ * Default service order for new tasks (COMMERCIAL type with "EM NEGOCIAÇÃO")
+ */
+export const DEFAULT_TASK_SERVICE_ORDER = {
+  type: SERVICE_ORDER_TYPE.COMMERCIAL,
+  description: 'EM NEGOCIAÇÃO',
+} as const;

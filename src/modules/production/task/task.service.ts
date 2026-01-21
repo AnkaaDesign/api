@@ -65,6 +65,12 @@ import {
   getTaskUpdateForServiceOrderStatusChange,
   getServiceOrderStatusOrder,
 } from '../../../utils/task-service-order-sync';
+import {
+  getBidirectionalSyncActions,
+  combineServiceOrderToPricingDescription,
+  type SyncServiceOrder,
+  type SyncPricingItem,
+} from '../../../utils/task-pricing-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
@@ -1558,16 +1564,19 @@ export class TaskService {
 
         // Handle service orders explicitly if provided
         // FIX: Implement proper upsert logic - update existing service orders instead of always creating new ones
-        if (serviceOrdersData && Array.isArray(serviceOrdersData) && serviceOrdersData.length > 0) {
+        // NOTE: If serviceOrdersData is provided as an array (even empty), we process deletions
+        // If serviceOrdersData is undefined/null, service orders are not being modified
+        if (serviceOrdersData && Array.isArray(serviceOrdersData)) {
           this.logger.log(`[Task Update] Processing ${serviceOrdersData.length} service orders for task ${id}`);
           this.logger.log(`[Task Update] Service orders data (with observation): ${JSON.stringify(serviceOrdersData.map((so: any) => ({ id: so.id, description: so.description, type: so.type, observation: so.observation })))}`);
 
-          // Get all existing service orders for this task to handle duplicates
+          // Get all existing service orders for this task to handle duplicates and deletions
           const existingServiceOrders = await tx.serviceOrder.findMany({
             where: { taskId: id },
           });
           this.logger.log(`[Task Update] Found ${existingServiceOrders.length} existing service orders for task`);
 
+          // Process creates/updates for each service order in the submitted data
           for (const serviceOrderData of serviceOrdersData) {
             // Check if this is an existing service order (has an ID) or a new one
             if (serviceOrderData.id) {
@@ -1715,6 +1724,7 @@ export class TaskService {
                     observation: serviceOrderData.observation || null,
                     assignedToId: serviceOrderData.assignedToId || null,
                     createdById: userId || '',
+                    shouldSync: (serviceOrderData as any).shouldSync !== false, // Preserve shouldSync flag (default true)
                   },
                 });
 
@@ -1737,6 +1747,121 @@ export class TaskService {
               }
             }
           }
+
+          // =====================================================================
+          // DELETE SERVICE ORDERS: Remove service orders not in submitted list
+          // This runs even when serviceOrdersData is empty (to handle case where user deletes ALL service orders)
+          // If a service order existed before but is not in the current submission,
+          // the user has deleted it from the form, so we should delete it.
+          // =====================================================================
+          const submittedServiceOrderIds = new Set<string>();
+          const submittedDescriptionTypeKeys = new Set<string>();
+
+          for (const serviceOrderData of serviceOrdersData) {
+            if (serviceOrderData.id) {
+              submittedServiceOrderIds.add(serviceOrderData.id);
+            } else if (serviceOrderData.description) {
+              // For new items without ID, track by description+type to avoid deleting items that match
+              const key = `${(serviceOrderData.description || '').toLowerCase().trim()}|${serviceOrderData.type}`;
+              submittedDescriptionTypeKeys.add(key);
+            }
+          }
+
+          // CRITICAL DEBUG: Log deletion comparison data
+          this.logger.log(`[Task Update] 🔍 Deletion analysis:`);
+          this.logger.log(`[Task Update]   - Existing SO IDs: ${existingServiceOrders.map(so => so.id).join(', ')}`);
+          this.logger.log(`[Task Update]   - Submitted SO IDs: ${Array.from(submittedServiceOrderIds).join(', ') || 'none'}`);
+          this.logger.log(`[Task Update]   - Submitted desc+type keys: ${Array.from(submittedDescriptionTypeKeys).join(', ') || 'none'}`);
+          this.logger.log(`[Task Update]   - Existing SO descriptions: ${existingServiceOrders.map(so => `${so.description}|${so.type}`).join(', ')}`);
+
+          // Find service orders to delete (exist in DB but not in submission)
+          const serviceOrdersToDelete = existingServiceOrders.filter(existing => {
+            // If the existing SO's ID is in the submitted list, don't delete
+            if (submittedServiceOrderIds.has(existing.id)) {
+              this.logger.log(`[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - ID in submitted list`);
+              return false;
+            }
+            // If a new item was submitted with same description+type, don't delete
+            const existingKey = `${(existing.description || '').toLowerCase().trim()}|${existing.type}`;
+            if (submittedDescriptionTypeKeys.has(existingKey)) {
+              this.logger.log(`[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - desc+type matches submitted item`);
+              return false;
+            }
+            // This service order should be deleted
+            this.logger.log(`[Task Update]   ✗ DELETING SO ${existing.id} (${existing.description}) - not in submitted list`);
+            return true;
+          });
+
+          // Log deletion summary
+          this.logger.log(`[Task Update] 🗑️ Service orders to delete: ${serviceOrdersToDelete.length} of ${existingServiceOrders.length} total`);
+
+          // Delete the service orders
+          for (const soToDelete of serviceOrdersToDelete) {
+            this.logger.log(`[Task Update] Deleting service order ${soToDelete.id} (${soToDelete.type}: ${soToDelete.description})`);
+
+            await tx.serviceOrder.delete({
+              where: { id: soToDelete.id },
+            });
+
+            // Create changelog for service order deletion
+            await logEntityChange({
+              changeLogService: this.changeLogService,
+              entityType: ENTITY_TYPE.SERVICE_ORDER,
+              entityId: soToDelete.id,
+              action: CHANGE_ACTION.DELETE,
+              entity: soToDelete,
+              userId: userId || '',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              reason: 'Ordem de serviço removida via atualização de tarefa',
+              transaction: tx,
+            });
+
+            // CRITICAL FIX: Set shouldSync = false on corresponding pricing items
+            // This permanently prevents the sync from recreating this service order
+            if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
+              const normalizedDesc = soToDelete.description.toLowerCase().trim();
+
+              // Find matching pricing items by normalized description
+              const matchingPricingItems = await tx.taskPricingItem.findMany({
+                where: {
+                  pricing: {
+                    tasks: {
+                      some: { id: id }
+                    }
+                  }
+                }
+              });
+
+              for (const pricingItem of matchingPricingItems) {
+                const pricingNormalizedDesc = (pricingItem.description || '').toLowerCase().trim();
+                // Check if descriptions match (pricing item description may include observation suffix)
+                if (pricingNormalizedDesc === normalizedDesc || pricingNormalizedDesc.startsWith(normalizedDesc + ' - ')) {
+                  this.logger.log(`[Task Update] Setting shouldSync=false on pricing item ${pricingItem.id} (${pricingItem.description})`);
+                  await tx.taskPricingItem.update({
+                    where: { id: pricingItem.id },
+                    data: { shouldSync: false }
+                  });
+                }
+              }
+            }
+          }
+
+          if (serviceOrdersToDelete.length > 0) {
+            this.logger.log(`[Task Update] Deleted ${serviceOrdersToDelete.length} service orders`);
+          }
+
+          // CRITICAL FIX: Track deleted service order descriptions to prevent bidirectional sync from recreating them
+          // This Set is used later in the PRICING↔SO SYNC section to skip creating service orders
+          // that were explicitly deleted by the user
+          const deletedServiceOrderDescriptions = new Set(
+            serviceOrdersToDelete.map(so => (so.description || '').toLowerCase().trim())
+          );
+          if (deletedServiceOrderDescriptions.size > 0) {
+            this.logger.log(`[Task Update] Tracking ${deletedServiceOrderDescriptions.size} deleted SO descriptions to prevent sync recreation: ${Array.from(deletedServiceOrderDescriptions).join(', ')}`);
+          }
+
+          // Store in a variable accessible to the sync section
+          (data as any)._deletedServiceOrderDescriptions = deletedServiceOrderDescriptions;
 
           // Refetch the task with updated serviceOrders for changelog tracking
           updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
@@ -2043,6 +2168,226 @@ export class TaskService {
                 serviceOrders: true,
               },
             });
+          }
+        }
+
+        // =====================================================================
+        // BIDIRECTIONAL SYNC: Pricing Items ↔ Production Service Orders
+        // When pricing items or PRODUCTION service orders are added/updated,
+        // sync them bidirectionally:
+        // - PRODUCTION SO → Pricing Item (description + observation → item description)
+        // - Pricing Item → PRODUCTION SO (item description → SO description + observation)
+        // =====================================================================
+        if (
+          (data.serviceOrders && Array.isArray(data.serviceOrders) && data.serviceOrders.length > 0) ||
+          ((data as any).pricing?.items && Array.isArray((data as any).pricing.items) && (data as any).pricing.items.length > 0)
+        ) {
+          try {
+            // CRITICAL: Refetch task with pricing items to ensure we have the latest shouldSync values
+            // This is necessary because:
+            // 1. New pricing might have been created by the repository
+            // 2. shouldSync might have been set to false on pricing items when service orders were deleted
+            // 3. Previous refetches might not have included pricing items
+            const taskWithPricing = await tx.task.findUnique({
+              where: { id },
+              include: {
+                pricing: { include: { items: true } },
+                serviceOrders: true,
+              },
+            });
+
+            // Get current state of pricing and service orders from the fresh refetch
+            const currentPricing = taskWithPricing?.pricing;
+            const currentServiceOrders = taskWithPricing?.serviceOrders || [];
+
+            this.logger.log(`[PRICING↔SO SYNC] Refetched pricing items: ${currentPricing?.items?.length || 0}, service orders: ${currentServiceOrders.length}`);
+
+            // Only proceed if we have data to sync
+            if (currentPricing?.items || currentServiceOrders.length > 0) {
+              // Log ALL pricing items with their shouldSync values for debugging
+              this.logger.log(`[PRICING↔SO SYNC] ALL pricing items BEFORE filtering:`);
+              for (const item of (currentPricing?.items || [])) {
+                this.logger.log(`  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`);
+              }
+
+              // CRITICAL: Filter out pricing items with shouldSync = false
+              // These are items whose corresponding service orders were explicitly deleted
+              const syncEligiblePricingItems = (currentPricing?.items || []).filter((item: any) => item.shouldSync !== false);
+              const syncEligibleServiceOrders = currentServiceOrders.filter((so: any) => so.shouldSync !== false);
+
+              this.logger.log(`[PRICING↔SO SYNC] Filtering: ${(currentPricing?.items || []).length} total pricing items, ${syncEligiblePricingItems.length} eligible for sync`);
+              this.logger.log(`[PRICING↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`);
+
+              // Log which items were filtered out
+              const filteredOutItems = (currentPricing?.items || []).filter((item: any) => item.shouldSync === false);
+              if (filteredOutItems.length > 0) {
+                this.logger.log(`[PRICING↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`);
+                for (const item of filteredOutItems) {
+                  this.logger.log(`  - "${item.description}" (id: ${item.id})`);
+                }
+              }
+
+              const pricingItems: SyncPricingItem[] = syncEligiblePricingItems.map((item: any) => ({
+                id: item.id,
+                description: item.description,
+                amount: item.amount,
+              }));
+
+              const serviceOrders: SyncServiceOrder[] = syncEligibleServiceOrders.map((so: any) => ({
+                id: so.id,
+                description: so.description,
+                observation: so.observation,
+                type: so.type,
+              }));
+
+              // Get sync actions
+              const syncActions = getBidirectionalSyncActions(pricingItems, serviceOrders);
+
+              this.logger.log(
+                `[PRICING↔SO SYNC] Task ${id}: Found ${syncActions.pricingItemsToCreate.length} pricing items to create, ` +
+                `${syncActions.serviceOrdersToCreate.length} service orders to create`,
+              );
+
+              // Create missing pricing items from service orders
+              if (syncActions.pricingItemsToCreate.length > 0 && currentPricing?.id) {
+                for (const itemToCreate of syncActions.pricingItemsToCreate) {
+                  this.logger.log(
+                    `[PRICING↔SO SYNC] Creating pricing item: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
+                  );
+
+                  await tx.taskPricingItem.create({
+                    data: {
+                      pricingId: currentPricing.id,
+                      description: itemToCreate.description,
+                      observation: itemToCreate.observation || null,
+                      amount: itemToCreate.amount,
+                      shouldSync: true, // Items created by sync should participate in sync
+                    },
+                  });
+                }
+
+                // Recalculate pricing subtotal and total
+                const allItems = await tx.taskPricingItem.findMany({
+                  where: { pricingId: currentPricing.id },
+                });
+                const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+                await tx.taskPricing.update({
+                  where: { id: currentPricing.id },
+                  data: {
+                    subtotal: newSubtotal,
+                    total: newSubtotal, // Assuming no discount, adjust if needed
+                  },
+                });
+
+                this.logger.log(`[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`);
+              }
+
+              // Create missing service orders from pricing items
+              // CRITICAL FIX: Skip creating service orders that were explicitly deleted in this same request
+              const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as Set<string> | undefined;
+
+              if (syncActions.serviceOrdersToCreate.length > 0) {
+                for (const soToCreate of syncActions.serviceOrdersToCreate) {
+                  // Check if this description was explicitly deleted - if so, skip creating it
+                  const normalizedDesc = (soToCreate.description || '').toLowerCase().trim();
+                  if (deletedDescriptions?.has(normalizedDesc)) {
+                    this.logger.log(
+                      `[PRICING↔SO SYNC] SKIPPING service order creation for "${soToCreate.description}" - was explicitly deleted by user`,
+                    );
+                    continue; // Skip this one, user explicitly deleted it
+                  }
+
+                  this.logger.log(
+                    `[PRICING↔SO SYNC] Creating service order: description="${soToCreate.description}", observation="${soToCreate.observation || ''}"`,
+                  );
+
+                  const newServiceOrder = await tx.serviceOrder.create({
+                    data: {
+                      taskId: id,
+                      description: soToCreate.description,
+                      observation: soToCreate.observation,
+                      type: SERVICE_ORDER_TYPE.PRODUCTION,
+                      status: SERVICE_ORDER_STATUS.PENDING,
+                      statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                      createdById: userId || '',
+                      shouldSync: true, // Service orders created by sync should participate in sync
+                    },
+                  });
+
+                  // Log the creation
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.SERVICE_ORDER,
+                    entityId: newServiceOrder.id,
+                    action: CHANGE_ACTION.CREATE,
+                    reason: 'Ordem de serviço criada automaticamente a partir do item de precificação',
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
+                  this.logger.log(`[PRICING↔SO SYNC] Created service order ${newServiceOrder.id}`);
+                }
+              }
+
+              // Update service orders with new observations (if pricing item had extra text)
+              if (syncActions.serviceOrdersToUpdate.length > 0) {
+                for (const soToUpdate of syncActions.serviceOrdersToUpdate) {
+                  this.logger.log(
+                    `[PRICING↔SO SYNC] Updating service order ${soToUpdate.id} with observation="${soToUpdate.observation || ''}"`,
+                  );
+
+                  const oldSo = currentServiceOrders.find((so: any) => so.id === soToUpdate.id);
+
+                  await tx.serviceOrder.update({
+                    where: { id: soToUpdate.id },
+                    data: {
+                      observation: soToUpdate.observation,
+                    },
+                  });
+
+                  // Log the update
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.SERVICE_ORDER,
+                    entityId: soToUpdate.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'observation',
+                    oldValue: oldSo?.observation || null,
+                    newValue: soToUpdate.observation,
+                    reason: 'Observação atualizada automaticamente a partir do item de precificação',
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
+              }
+
+              // Refetch task if any sync actions were performed
+              if (
+                syncActions.pricingItemsToCreate.length > 0 ||
+                syncActions.serviceOrdersToCreate.length > 0 ||
+                syncActions.serviceOrdersToUpdate.length > 0
+              ) {
+                updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
+                  include: {
+                    ...include,
+                    customer: true,
+                    artworks: true,
+                    observation: { include: { files: true } },
+                    truck: true,
+                    serviceOrders: true,
+                    pricing: { include: { items: true } },
+                  },
+                });
+
+                this.logger.log(`[PRICING↔SO SYNC] Task refetched after sync. Pricing items: ${updatedTask?.pricing?.items?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`);
+              }
+            }
+          } catch (syncError) {
+            this.logger.error('[PRICING↔SO SYNC] Error during bidirectional sync:', syncError);
+            // Don't throw - sync errors shouldn't block the main update
           }
         }
 
@@ -6601,6 +6946,7 @@ export class TaskService {
                         status: SERVICE_ORDER_STATUS.PENDING,
                         statusOrder: 1, // PENDING order
                         createdById: userId,
+                        shouldSync: true, // Copied service orders should participate in sync
                       },
                     });
                   }),

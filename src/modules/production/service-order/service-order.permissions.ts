@@ -111,14 +111,14 @@ export function checkServiceOrderUpdatePermission(
       };
 
     case SERVICE_ORDER_TYPE.COMMERCIAL:
-      // COMMERCIAL can update COMMERCIAL service orders
-      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
+      // COMMERCIAL and FINANCIAL can update COMMERCIAL service orders
+      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL || userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
         return { canUpdate: true };
       }
       return {
         canUpdate: false,
         reason:
-          'Apenas usuários comerciais ou administradores podem atualizar ordens de serviço comerciais',
+          'Apenas usuários comerciais, financeiros ou administradores podem atualizar ordens de serviço comerciais',
       };
 
     case SERVICE_ORDER_TYPE.LOGISTIC:

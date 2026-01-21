@@ -18,6 +18,7 @@ import type { TaskPricing, TaskPricingIncludes, TaskPricingOrderBy } from './tas
 
 export interface TaskPricingItem extends BaseEntity {
   description: string;
+  observation?: string | null;
   amount: number;
   pricingId: string;
 

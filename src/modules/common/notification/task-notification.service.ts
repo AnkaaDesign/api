@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
+import { DeepLinkService, DeepLinkEntity } from './deep-link.service';
 import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL, TASK_STATUS } from '../../../constants';
 import type { Task } from '../../../types';
 
@@ -114,15 +115,16 @@ export class TaskNotificationService {
   constructor(
     private readonly preferenceService: NotificationPreferenceService,
     private readonly notificationService: NotificationService,
+    private readonly deepLinkService: DeepLinkService,
   ) {}
 
   /**
-   * Get the correct URL for a task based on its status
+   * Get the correct web URL for a task based on its status
    * - PREPARATION → /producao/agenda/detalhes/{id}
    * - WAITING_PRODUCTION or IN_PRODUCTION → /producao/cronograma/detalhes/{id}
    * - COMPLETED or CANCELLED → /producao/historico/detalhes/{id}
    */
-  private getTaskUrl(taskOrId: Task | string, status?: string): string {
+  private getTaskWebPath(taskOrId: Task | string, status?: string): string {
     const taskId = typeof taskOrId === 'string' ? taskOrId : taskOrId.id;
     const taskStatus = status || (typeof taskOrId === 'object' ? taskOrId.status : undefined);
 
@@ -139,6 +141,41 @@ export class TaskNotificationService {
         // Default to agenda for unknown status
         return `/producao/agenda/detalhes/${taskId}`;
     }
+  }
+
+  /**
+   * Generate notification metadata with proper deep links for a task
+   * Includes webUrl, mobileUrl, universalLink, entityType, and entityId
+   * This ensures mobile app can properly navigate to the task
+   */
+  private getTaskNotificationMetadata(taskOrId: Task | string, status?: string): {
+    actionUrl: string;
+    metadata: {
+      webUrl: string;
+      mobileUrl: string;
+      universalLink: string;
+      entityType: string;
+      entityId: string;
+    };
+  } {
+    const taskId = typeof taskOrId === 'string' ? taskOrId : taskOrId.id;
+
+    // Generate deep links using DeepLinkService
+    const deepLinks = this.deepLinkService.generateTaskLinks(taskId);
+
+    // Get the status-specific web path (for backward compatibility)
+    const webPath = this.getTaskWebPath(taskOrId, status);
+
+    return {
+      actionUrl: webPath, // Web path for backward compatibility
+      metadata: {
+        webUrl: deepLinks.web,              // Full web URL
+        mobileUrl: deepLinks.mobile,         // Mobile deep link (ankaadesign://task/UUID)
+        universalLink: deepLinks.universalLink || '', // Universal link
+        entityType: 'Task',                  // Entity type for mobile navigation
+        entityId: taskId,                    // Entity ID for mobile navigation
+      },
+    };
   }
 
   /**
@@ -236,17 +273,19 @@ export class TaskNotificationService {
           eventType,
         );
 
-        // Create notification
+        // Generate proper deep links and metadata for the task
+        const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(task);
+
+        // Create notification with proper deep links
         const notification = await this.notificationService.createNotification({
           type: NOTIFICATION_TYPE.TASK,
           title: `Alteração em tarefa: ${task.name}`,
           body: message,
           importance: this.determineFieldImportance(change.field),
           userId,
-          actionUrl: this.getTaskUrl(task),
+          actionUrl,
           metadata: {
-            entityType: 'Task',
-            entityId: task.id,
+            ...linkMetadata, // Include webUrl, mobileUrl, universalLink, entityType, entityId
             field: change.field,
             fieldLabel: change.fieldLabel,
             oldValue: change.formattedOldValue,
@@ -450,17 +489,22 @@ export class TaskNotificationService {
         'task.field.multiple', // Special event type for aggregated changes
       );
 
-      // Create aggregated notification
+      // Generate proper deep links and metadata for the task
+      const { actionUrl, metadata: linkMetadata } = this.getTaskNotificationMetadata(
+        aggregation.taskId,
+        aggregation.taskStatus,
+      );
+
+      // Create aggregated notification with proper deep links
       const notification = await this.notificationService.createNotification({
         type: NOTIFICATION_TYPE.TASK,
         title,
         body: message,
         importance: NOTIFICATION_IMPORTANCE.NORMAL,
         userId: aggregation.userId,
-        actionUrl: this.getTaskUrl(aggregation.taskId, aggregation.taskStatus),
+        actionUrl,
         metadata: {
-          entityType: 'Task',
-          entityId: aggregation.taskId,
+          ...linkMetadata, // Include webUrl, mobileUrl, universalLink, entityType, entityId
           aggregated: true,
           changeCount,
           changes: changeDetails,
