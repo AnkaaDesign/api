@@ -92,13 +92,16 @@ export class ItemListener {
     const deepLinks = this.deepLinkService.generateItemLinks(itemId);
 
     // Return actionUrl (web) and comprehensive metadata
+    // IMPORTANT: Include entityType and entityId for mobile app navigation
     return {
       actionUrl: deepLinks.web,  // Web URL for backward compatibility
       metadata: {
         webUrl: deepLinks.web,                  // Web route
         mobileUrl: deepLinks.mobile,            // Mobile app deep link (custom scheme)
         universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
-        itemId,                                 // For reference
+        entityType: 'Item',                     // Entity type for mobile navigation
+        entityId: itemId,                       // Entity ID for mobile navigation
+        itemId,                                 // For backward compatibility
       },
     };
   }

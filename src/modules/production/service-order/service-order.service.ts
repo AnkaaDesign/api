@@ -49,6 +49,14 @@ import {
   getTaskStatusOrder,
   isStatusRollback,
 } from '../../../utils/task-service-order-sync';
+import {
+  getServiceOrderToPricingSync,
+  type SyncPricingItem,
+} from '../../../utils/task-pricing-service-order-sync';
+import {
+  getServiceDescriptionsByType,
+  SERVICE_DESCRIPTIONS_BY_TYPE,
+} from '../../../constants/service-descriptions';
 
 @Injectable()
 export class ServiceOrderService {
@@ -60,6 +68,30 @@ export class ServiceOrderService {
     private readonly changeLogService: ChangeLogService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /**
+   * Convert a string to Title Case (first letter of each word capitalized)
+   * Handles Portuguese prepositions (de, da, do, das, dos, na, no, nas, nos, e, em)
+   */
+  private toTitleCase(str: string): string {
+    if (!str) return str;
+
+    // Portuguese prepositions that should stay lowercase (unless at the start)
+    const lowercaseWords = new Set(['de', 'da', 'do', 'das', 'dos', 'na', 'no', 'nas', 'nos', 'e', 'em', 'para', 'com']);
+
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map((word, index) => {
+        if (!word) return word;
+        // Keep prepositions lowercase unless it's the first word
+        if (index > 0 && lowercaseWords.has(word)) {
+          return word;
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      })
+      .join(' ');
+  }
 
   /**
    * Create a new service order
@@ -111,8 +143,10 @@ export class ServiceOrderService {
         const oldServices = taskWithServices?.serviceOrders || [];
 
         // Create the service order with createdById
+        // Convert description to Title Case for consistency
         const createData = {
           ...data,
+          description: this.toTitleCase(data.description),
           createdById: userId || '',
         };
 
@@ -168,6 +202,83 @@ export class ServiceOrderService {
           userId: userId || '',
           transaction: tx,
         });
+
+        // =====================================================================
+        // SYNC: Production Service Order → Task Pricing Item
+        // When a PRODUCTION service order is created, automatically create
+        // a corresponding pricing item (description + observation → item description)
+        // =====================================================================
+        if (created.type === SERVICE_ORDER_TYPE.PRODUCTION) {
+          try {
+            // Get task's pricing information
+            const taskWithPricing = await tx.task.findUnique({
+              where: { id: data.taskId },
+              include: {
+                pricing: {
+                  include: { items: true },
+                },
+              },
+            });
+
+            if (taskWithPricing?.pricing) {
+              const existingPricingItems: SyncPricingItem[] = (taskWithPricing.pricing.items || []).map((item: any) => ({
+                id: item.id,
+                description: item.description,
+                observation: item.observation,
+                amount: item.amount,
+              }));
+
+              // Check if we should create a pricing item
+              const syncResult = getServiceOrderToPricingSync(
+                {
+                  id: created.id,
+                  description: created.description,
+                  observation: created.observation,
+                  type: created.type,
+                },
+                existingPricingItems,
+              );
+
+              if (syncResult.shouldCreatePricingItem) {
+                this.logger.log(
+                  `[SO→PRICING SYNC] Creating pricing item: "${syncResult.pricingItemDescription}" for SO "${created.description}"`,
+                );
+
+                await tx.taskPricingItem.create({
+                  data: {
+                    pricingId: taskWithPricing.pricing.id,
+                    description: syncResult.pricingItemDescription,
+                    observation: syncResult.pricingItemObservation,
+                    amount: syncResult.pricingItemAmount,
+                  },
+                });
+
+                // Recalculate pricing subtotal and total
+                const allItems = await tx.taskPricingItem.findMany({
+                  where: { pricingId: taskWithPricing.pricing.id },
+                });
+                const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+                await tx.taskPricing.update({
+                  where: { id: taskWithPricing.pricing.id },
+                  data: {
+                    subtotal: newSubtotal,
+                    total: newSubtotal,
+                  },
+                });
+
+                this.logger.log(`[SO→PRICING SYNC] Pricing item created. New pricing subtotal: ${newSubtotal}`);
+              } else {
+                this.logger.log(`[SO→PRICING SYNC] Skipped: ${syncResult.reason}`);
+              }
+            } else {
+              this.logger.log(`[SO→PRICING SYNC] Skipped: Task ${data.taskId} has no pricing`);
+            }
+          } catch (syncError) {
+            this.logger.error('[SO→PRICING SYNC] Error during sync:', syncError);
+            // Don't throw - sync errors shouldn't block service order creation
+          }
+        }
 
         return created;
       });
@@ -268,7 +379,11 @@ export class ServiceOrderService {
         const oldData = serviceOrderExists;
 
         // Build the update data with automatic user tracking based on status changes
-        const updateData: any = { ...data };
+        // Convert description to Title Case if provided
+        const updateData: any = {
+          ...data,
+          ...(data.description && { description: this.toTitleCase(data.description) }),
+        };
 
         // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
         if (data.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
@@ -350,11 +465,13 @@ export class ServiceOrderService {
           transaction: tx,
         });
 
-        // Auto-start task when service order is started and task is waiting for production
+        // Auto-start task when PRODUCTION service order is started and task is waiting for production
         // This ensures the task workflow progresses automatically when work begins
+        // NOTE: Only PRODUCTION type service orders trigger task auto-start, not ARTWORK
         if (
           data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-          oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+          oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          updated.type === SERVICE_ORDER_TYPE.PRODUCTION
         ) {
           const task = await tx.task.findUnique({
             where: { id: updated.taskId },
@@ -965,6 +1082,55 @@ export class ServiceOrderService {
   }
 
   /**
+   * Get service order descriptions from enums
+   * Used for combobox in the task edit form
+   * Optionally filtered by type and search term
+   */
+  async getUniqueDescriptions(
+    type?: string,
+    search?: string,
+    limit: number = 50,
+  ): Promise<{ success: boolean; message: string; data: string[] }> {
+    try {
+      let descriptions: string[] = [];
+
+      // Get descriptions from enums based on type
+      if (type && SERVICE_DESCRIPTIONS_BY_TYPE[type as SERVICE_ORDER_TYPE]) {
+        descriptions = [...getServiceDescriptionsByType(type as SERVICE_ORDER_TYPE)];
+      } else {
+        // If no type specified, return all descriptions from all types
+        descriptions = Object.values(SERVICE_DESCRIPTIONS_BY_TYPE).flat();
+        // Remove duplicates (e.g., "OUTROS" appears in all types)
+        descriptions = [...new Set(descriptions)];
+      }
+
+      // Filter by search term if provided
+      if (search && search.trim()) {
+        const searchLower = search.trim().toLowerCase();
+        descriptions = descriptions.filter(d =>
+          d.toLowerCase().includes(searchLower)
+        );
+      }
+
+      // Sort alphabetically and apply limit
+      descriptions = descriptions
+        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+        .slice(0, limit);
+
+      return {
+        success: true,
+        message: 'Descrições carregadas com sucesso.',
+        data: descriptions,
+      };
+    } catch (error) {
+      this.logger.error('Erro ao buscar descrições:', error);
+      throw new InternalServerErrorException(
+        'Erro interno do servidor ao buscar descrições. Tente novamente.',
+      );
+    }
+  }
+
+  /**
    * Batch create service orders
    */
   async batchCreate(
@@ -1014,9 +1180,15 @@ export class ServiceOrderService {
       }
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+        // Convert all descriptions to Title Case
+        const serviceOrdersWithTitleCase = data.serviceOrders.map(so => ({
+          ...so,
+          description: this.toTitleCase(so.description),
+        }));
+
         const batchResult = await this.serviceOrderRepository.createManyWithTransaction(
           tx,
-          data.serviceOrders,
+          serviceOrdersWithTitleCase,
           { include },
         );
 
@@ -1165,7 +1337,11 @@ export class ServiceOrderService {
           return { id: item.id, data: item.data };
         }
 
-        const updateData: any = { ...item.data };
+        const updateData: any = {
+          ...item.data,
+          // Convert description to Title Case if provided
+          ...(item.data.description && { description: this.toTitleCase(item.data.description) }),
+        };
 
         // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
         if (updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
@@ -1252,10 +1428,12 @@ export class ServiceOrderService {
               transaction: tx,
             });
 
-            // Auto-start task when service order is started and task is waiting for production
+            // Auto-start task when PRODUCTION service order is started and task is waiting for production
+            // NOTE: Only PRODUCTION type service orders trigger task auto-start, not ARTWORK
             if (
               serviceOrder.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-              oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+              oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION
             ) {
               // Check if this task was already auto-started in this batch
               const alreadyStarted = tasksAutoStarted.some(t => t.taskId === serviceOrder.taskId);

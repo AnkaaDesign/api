@@ -950,6 +950,8 @@ export class NotificationQueueService {
 
       case NOTIFICATION_CHANNEL.PUSH:
         // For push notifications, we send to all user's registered devices
+        // Include notification metadata for mobile navigation (entityType, entityId, mobileUrl, etc.)
+        const notificationMetadata = notification.metadata as Record<string, any> || {};
         return await this.addPushJobForUser(
           job.notificationId,
           user.id,
@@ -957,7 +959,11 @@ export class NotificationQueueService {
           notification.body,
           {
             actionUrl: notification.actionUrl || undefined,
-            metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
+            metadata: {
+              ...notificationMetadata, // Include entityType, entityId, mobileUrl, webUrl, universalLink from notification
+              deliveryId: job.deliveryId,
+              attempts: job.attempts,
+            },
             priority: 'normal',
           },
         );
