@@ -15,13 +15,19 @@ export function mapTaskStatusToPrisma(status: TASK_STATUS | string): TaskStatus 
 
 /**
  * Check if task status transition is valid
+ * Note: Some transitions may require additional validation (e.g., artwork completion)
+ * which should be checked in the service layer
  */
 export function isValidTaskStatusTransition(
   fromStatus: TASK_STATUS,
   toStatus: TASK_STATUS,
 ): boolean {
   const validTransitions: Record<TASK_STATUS, TASK_STATUS[]> = {
-    [TASK_STATUS.PREPARATION]: [TASK_STATUS.WAITING_PRODUCTION, TASK_STATUS.CANCELLED],
+    [TASK_STATUS.PREPARATION]: [
+      TASK_STATUS.WAITING_PRODUCTION,
+      TASK_STATUS.IN_PRODUCTION, // Allow direct jump to production (service layer will validate artwork completion)
+      TASK_STATUS.CANCELLED,
+    ],
     [TASK_STATUS.WAITING_PRODUCTION]: [
       TASK_STATUS.IN_PRODUCTION,
       TASK_STATUS.PREPARATION,

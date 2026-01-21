@@ -309,6 +309,17 @@ export class ServiceOrderService {
           }
         }
 
+        // If going back to PENDING, clear all progress data (rollback to initial state)
+        if (data.status === SERVICE_ORDER_STATUS.PENDING && oldData.status !== SERVICE_ORDER_STATUS.PENDING) {
+          this.logger.log(`[SERVICE ORDER ROLLBACK] Clearing all dates for SO ${id}: ${oldData.status} → PENDING`);
+          updateData.startedById = null;
+          updateData.startedAt = null;
+          updateData.approvedById = null;
+          updateData.approvedAt = null;
+          updateData.completedById = null;
+          updateData.finishedAt = null;
+        }
+
         const updated = await this.serviceOrderRepository.updateWithTransaction(tx, id, updateData, {
           include,
         });
