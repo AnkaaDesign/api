@@ -1363,6 +1363,8 @@ model User {
   createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")
   messageTargets          MessageTarget[]              @relation("MESSAGE_TARGET_USER")
   messageViews            MessageView[]                @relation("MESSAGE_VIEW_USER")
+  backupSchedulesCreated  BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
+  backupSchedulesDeleted  BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2739,4 +2741,75 @@ enum MessageStatus {
   ACTIVE // Message currently active
   EXPIRED // Message past end date
   ARCHIVED // Message manually archived
+}
+
+// ============================================================================
+// BACKUP SCHEDULE PERSISTENCE
+// ============================================================================
+
+model BackupSchedule {
+  id               String   @id @default(uuid())
+  name             String
+  type             BackupType
+  description      String?
+  paths            String[] @default([])
+  cronExpression   String
+  enabled          Boolean  @default(true)
+  priority         BackupPriority @default(MEDIUM)
+  compressionLevel Int      @default(6)
+  encrypted        Boolean  @default(false)
+
+  // Auto-delete settings
+  autoDeleteEnabled   Boolean  @default(false)
+  autoDeleteRetention String?  // e.g., '1_day', '1_week', '1_month'
+
+  // Bull job tracking
+  bullJobId        String?  @unique // Reference to Bull queue job ID
+
+  // Execution tracking
+  lastRunAt        DateTime?
+  nextRunAt        DateTime?
+  lastStatus       BackupScheduleStatus @default(PENDING)
+  lastError        String?
+  runCount         Int      @default(0)
+  failureCount     Int      @default(0)
+
+  // Audit fields
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdById      String?
+
+  // Soft delete fields
+  deletedAt        DateTime?
+  deletedById      String?
+
+  createdBy        User?    @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedBy        User?    @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@index([enabled])
+  @@index([type])
+  @@index([nextRunAt])
+  @@index([createdById])
+  @@index([deletedAt])
+}
+
+enum BackupType {
+  DATABASE
+  FILES
+  SYSTEM
+  FULL
+}
+
+enum BackupPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum BackupScheduleStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
 }

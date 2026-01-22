@@ -60,6 +60,7 @@ import {
   isValidTaskStatusTransition,
   getTaskStatusLabel,
   getTaskStatusOrder,
+  generateBaseFileName,
 } from '../../../utils';
 import {
   getServiceOrderUpdatesForTaskStatusChange,
@@ -538,9 +539,43 @@ export class TaskService {
           }
 
           // Base files (files used as base for artwork design)
+          // Files are renamed to match task name with measures format
           if (files.baseFiles && files.baseFiles.length > 0) {
             const baseFileIds: string[] = [];
-            for (const baseFile of files.baseFiles) {
+
+            // Get task name for file renaming
+            const taskNameForFile = newTask.name || 'Tarefa';
+
+            // Construct task-like object with truck layout data for measures calculation
+            // The truck layouts come from the input data (truckData)
+            const taskWithTruck = {
+              truck: truckData
+                ? {
+                    leftSideLayout: truckData.leftSideLayout || null,
+                    rightSideLayout: truckData.rightSideLayout || null,
+                  }
+                : null,
+            };
+
+            for (let i = 0; i < files.baseFiles.length; i++) {
+              const baseFile = files.baseFiles[i];
+
+              // Generate new filename with task name and measures
+              // Pass file index (1-based) to add suffix for multiple files
+              const newFilename = generateBaseFileName(
+                taskNameForFile,
+                taskWithTruck,
+                baseFile.originalname,
+                i + 1, // 1-based index for file numbering
+              );
+
+              this.logger.log(
+                `[Task Create] Renaming base file from "${baseFile.originalname}" to "${newFilename}"`,
+              );
+
+              // Update the file's originalname before upload
+              baseFile.originalname = newFilename;
+
               const baseFileRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
                 baseFile,
@@ -946,6 +981,7 @@ export class TaskService {
       const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Get existing task - always include customer for file organization
         // Also include file relations for changelog tracking
+        // Include truck layouts with sections for file naming with measures
         const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
           include: {
             ...include,
@@ -954,7 +990,12 @@ export class TaskService {
             baseFiles: true, // Include for changelog tracking
             logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
-            truck: true, // Include for truck field changelog tracking
+            truck: {
+              include: {
+                leftSideLayout: { include: { layoutSections: true } },
+                rightSideLayout: { include: { layoutSections: true } },
+              },
+            }, // Include truck with layouts for file naming with measures
             serviceOrders: true, // Include for services field changelog tracking
           },
         });
@@ -2777,9 +2818,32 @@ export class TaskService {
             );
 
             // Upload new files and add their IDs
+            // Files are renamed to match task name with measures format
             if (files.baseFiles && files.baseFiles.length > 0) {
               this.logger.log(`[Task Update] Uploading ${files.baseFiles.length} new base files`);
-              for (const baseFile of files.baseFiles) {
+
+              // Get task name for file renaming (use updated name if provided, otherwise existing)
+              const taskNameForFile = data.name || existingTask.name || 'Tarefa';
+
+              for (let i = 0; i < files.baseFiles.length; i++) {
+                const baseFile = files.baseFiles[i];
+
+                // Generate new filename with task name and measures
+                // Pass file index (1-based) to add suffix for multiple files
+                const newFilename = generateBaseFileName(
+                  taskNameForFile,
+                  existingTask, // existingTask has truck with layouts for measures
+                  baseFile.originalname,
+                  i + 1, // 1-based index for file numbering
+                );
+
+                this.logger.log(
+                  `[Task Update] Renaming base file from "${baseFile.originalname}" to "${newFilename}"`,
+                );
+
+                // Update the file's originalname before upload
+                baseFile.originalname = newFilename;
+
                 const baseFileRecord = await this.fileService.createFromUploadWithTransaction(
                   tx,
                   baseFile,
