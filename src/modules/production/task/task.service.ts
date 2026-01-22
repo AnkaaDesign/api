@@ -11,6 +11,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileService } from '@modules/common/file/file.service';
 import type {
   Task,
+  ServiceOrder,
   TaskBatchCreateResponse,
   TaskBatchDeleteResponse,
   TaskBatchUpdateResponse,
@@ -1345,13 +1346,13 @@ export class TaskService {
             ) || [];
 
             // If user is submitting service order updates, apply them to get final state
-            let finalArtworkSOs = existingArtworkSOs;
+            let finalArtworkSOs: ServiceOrder[] = existingArtworkSOs;
             if (data.serviceOrders && Array.isArray(data.serviceOrders)) {
               finalArtworkSOs = existingArtworkSOs.map(existingSO => {
                 const update = data.serviceOrders!.find((so: any) => so.id === existingSO.id);
                 if (update && update.status) {
                   // User is updating this service order's status
-                  return { ...existingSO, status: update.status };
+                  return { ...existingSO, status: update.status as SERVICE_ORDER_STATUS };
                 }
                 return existingSO;
               });
