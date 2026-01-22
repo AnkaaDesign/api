@@ -170,7 +170,7 @@ export class CustomerController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   @UseInterceptors(FileInterceptor('logo', multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,

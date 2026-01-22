@@ -655,6 +655,76 @@ export class ServiceOrderService {
         }
 
         // =====================================================================
+        // ROLLBACK SYNC: ARTWORK Service Order Rollback → Task Status Rollback
+        // When an ARTWORK service order goes backwards from COMPLETED, check if task
+        // should rollback from WAITING_PRODUCTION to PREPARATION
+        // =====================================================================
+        if (
+          updated.type === SERVICE_ORDER_TYPE.ARTWORK &&
+          data.status &&
+          oldData.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          data.status !== SERVICE_ORDER_STATUS.COMPLETED
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true },
+          });
+
+          // Only rollback if task is currently in WAITING_PRODUCTION
+          if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
+            // Get all ARTWORK service orders to check if any are now incomplete
+            const artworkServiceOrders = await tx.serviceOrder.findMany({
+              where: {
+                taskId: updated.taskId,
+                type: SERVICE_ORDER_TYPE.ARTWORK,
+              },
+              select: { id: true, status: true },
+            });
+
+            // If any artwork SO is not completed, rollback task to PREPARATION
+            const allArtworkCompleted = artworkServiceOrders.every(
+              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (!allArtworkCompleted) {
+              this.logger.log(
+                `[ARTWORK ROLLBACK] Artwork service order ${id} rolled back from COMPLETED to ${data.status}, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
+              );
+
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.PREPARATION,
+                  statusOrder: 1, // PREPARATION statusOrder
+                },
+              });
+
+              // Log the rollback in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: TASK_STATUS.WAITING_PRODUCTION,
+                newValue: TASK_STATUS.PREPARATION,
+                reason: `Tarefa retornada para preparação quando ordem de serviço de arte "${updated.description}" foi reaberta`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskRolledBack = {
+                taskId: task.id,
+                oldStatus: TASK_STATUS.WAITING_PRODUCTION,
+                newStatus: TASK_STATUS.PREPARATION,
+              };
+            }
+          }
+        }
+
+        // =====================================================================
         // ROLLBACK SYNC: Service Order Status Rollback → Task Status Rollback
         // When a production service order goes backwards, sync task status accordingly
         // =====================================================================
@@ -1612,6 +1682,78 @@ export class ServiceOrderService {
                       taskId: task.id,
                       oldStatus: oldTaskStatus,
                       newStatus: TASK_STATUS.COMPLETED,
+                    });
+                  }
+                }
+              }
+            }
+
+            // =====================================================================
+            // ROLLBACK SYNC: ARTWORK Service Order Rollback → Task Status Rollback
+            // When an ARTWORK service order goes backwards from COMPLETED, check if task
+            // should rollback from WAITING_PRODUCTION to PREPARATION
+            // =====================================================================
+            if (
+              serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK &&
+              oldData.status === SERVICE_ORDER_STATUS.COMPLETED &&
+              serviceOrder.status !== SERVICE_ORDER_STATUS.COMPLETED
+            ) {
+              // Check if this task was already rolled back in this batch
+              const alreadyRolledBack = tasksRolledBack.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyRolledBack) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true },
+                });
+
+                // Only rollback if task is currently in WAITING_PRODUCTION
+                if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
+                  // Get all ARTWORK service orders to check if any are now incomplete
+                  const artworkServiceOrders = await tx.serviceOrder.findMany({
+                    where: {
+                      taskId: serviceOrder.taskId,
+                      type: SERVICE_ORDER_TYPE.ARTWORK,
+                    },
+                    select: { id: true, status: true },
+                  });
+
+                  // If any artwork SO is not completed, rollback task to PREPARATION
+                  const allArtworkCompleted = artworkServiceOrders.every(
+                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  );
+
+                  if (!allArtworkCompleted) {
+                    this.logger.log(
+                      `[ARTWORK ROLLBACK BATCH] Artwork service order ${serviceOrder.id} rolled back from COMPLETED to ${serviceOrder.status}, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
+                    );
+
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.PREPARATION,
+                        statusOrder: 1, // PREPARATION statusOrder
+                      },
+                    });
+
+                    // Log the rollback in changelog
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: TASK_STATUS.WAITING_PRODUCTION,
+                      newValue: TASK_STATUS.PREPARATION,
+                      reason: `Tarefa retornada para preparação quando ordem de serviço de arte "${serviceOrder.description}" foi reaberta (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksRolledBack.push({
+                      taskId: task.id,
+                      oldStatus: TASK_STATUS.WAITING_PRODUCTION,
+                      newStatus: TASK_STATUS.PREPARATION,
                     });
                   }
                 }

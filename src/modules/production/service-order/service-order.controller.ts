@@ -12,10 +12,12 @@ import {
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
+  UseGuards,
 } from '@nestjs/common';
 import { ServiceOrderService } from './service-order.service';
 import { UserId, User, UserPayload } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
+import { UUIDPathGuard } from '@modules/common/guards/uuid-path.guard';
 import { SECTOR_PRIVILEGES, SERVICE_ORDER_STATUS } from '../../../constants/enums';
 import {
   ZodValidationPipe,
@@ -168,6 +170,7 @@ export class ServiceOrderController {
   // =====================
 
   @Put(':id/status')
+  @UseGuards(UUIDPathGuard)
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.ADMIN,
@@ -194,6 +197,7 @@ export class ServiceOrderController {
 
   // Dynamic routes should come last
   @Get(':id')
+  @UseGuards(UUIDPathGuard)
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,
     SECTOR_PRIVILEGES.WAREHOUSE,
@@ -214,6 +218,7 @@ export class ServiceOrderController {
   }
 
   @Put(':id')
+  @UseGuards(UUIDPathGuard)
   @Roles(
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
@@ -239,6 +244,7 @@ export class ServiceOrderController {
   }
 
   @Delete(':id')
+  @UseGuards(UUIDPathGuard)
   @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
