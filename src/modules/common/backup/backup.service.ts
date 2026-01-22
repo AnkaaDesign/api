@@ -7,6 +7,8 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from 'eventemitter2';
+import { BackupScheduleRepository } from './backup-schedule.repository';
+import { BackupType, BackupPriority, BackupSchedule } from '@prisma/client';
 
 const execAsync = promisify(exec);
 
@@ -21,7 +23,6 @@ export interface BackupMetadata {
   paths?: string[];
   error?: string;
   priority?: 'low' | 'medium' | 'high' | 'critical';
-  raidAware?: boolean;
   compressionLevel?: number;
   encrypted?: boolean;
   autoDelete?: {
@@ -49,7 +50,6 @@ export interface CreateBackupDto {
     cron: string;
   };
   priority?: 'low' | 'medium' | 'high' | 'critical';
-  raidAware?: boolean;
   compressionLevel?: number;
   encrypted?: boolean;
   autoDelete?: {
@@ -73,6 +73,33 @@ export class BackupService implements OnModuleInit {
   private readonly backupBasePath = process.env.BACKUP_PATH || `${this.filesRoot}/Backup`;
   private readonly isDevelopment = process.env.NODE_ENV !== 'production';
   private readonly productionBasePath = '/home/kennedy/ankaa';
+
+  // Mutex for serializing metadata file access to prevent race conditions
+  private readonly metadataLocks = new Map<string, Promise<void>>();
+
+  /**
+   * Acquire a lock for a specific backup ID to prevent concurrent metadata operations
+   */
+  private async acquireMetadataLock(backupId: string): Promise<() => void> {
+    // Wait for any existing lock on this backup to complete
+    while (this.metadataLocks.has(backupId)) {
+      await this.metadataLocks.get(backupId);
+    }
+
+    // Create a new lock promise
+    let releaseLock: () => void;
+    const lockPromise = new Promise<void>(resolve => {
+      releaseLock = resolve;
+    });
+
+    this.metadataLocks.set(backupId, lockPromise);
+
+    // Return the release function
+    return () => {
+      this.metadataLocks.delete(backupId);
+      releaseLock!();
+    };
+  }
 
   // RAID-aware and priority-based backup paths (production only)
   private readonly criticalPaths = this.isDevelopment
@@ -110,6 +137,7 @@ export class BackupService implements OnModuleInit {
     @InjectQueue('backup-queue') private backupQueue: Queue,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
+    private backupScheduleRepository: BackupScheduleRepository,
   ) {
     this.ensureBackupDirectories();
   }
@@ -176,21 +204,28 @@ export class BackupService implements OnModuleInit {
 
     try {
       await fs.mkdir(backupFolderPath, { recursive: true });
-      // Set proper files storage permissions - production only
-      if (!this.isDevelopment) {
-        try {
-          await execAsync(`sudo chown -R www-data:www-data "${backupFolderPath}"`);
-          await execAsync(`sudo chmod -R 2775 "${backupFolderPath}"`);
-        } catch (permError) {
-          this.logger.warn(
-            `Could not set permissions on ${backupFolderPath}: ${permError.message}`,
-          );
-        }
-      }
+      // NOTE: Don't set www-data permissions here - it prevents the running user from writing.
+      // Permissions will be set AFTER backup files are created via setBackupPermissions()
       return backupFolderPath;
     } catch (error) {
       this.logger.error(`Failed to create backup directory ${backupFolderPath}: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Set final permissions on backup directory after files are created.
+   * Makes backup accessible to www-data for web server access.
+   * NOTE: This should be called AFTER metadata is saved to avoid permission issues.
+   */
+  async setBackupPermissions(backupPath: string): Promise<void> {
+    if (this.isDevelopment) return;
+
+    try {
+      await execAsync(`sudo chown -R www-data:www-data "${backupPath}"`);
+      await execAsync(`sudo chmod -R 2775 "${backupPath}"`);
+    } catch (permError) {
+      this.logger.warn(`Could not set permissions on ${backupPath}: ${permError.message}`);
     }
   }
 
@@ -220,7 +255,6 @@ export class BackupService implements OnModuleInit {
         description: createBackupDto.description,
         paths: createBackupDto.paths,
         priority: createBackupDto.priority,
-        raidAware: createBackupDto.raidAware,
         compressionLevel: createBackupDto.compressionLevel,
         encrypted: createBackupDto.encrypted,
         autoDelete: autoDeleteSettings,
@@ -294,16 +328,18 @@ export class BackupService implements OnModuleInit {
     try {
       const backups: BackupMetadata[] = [];
 
-      // Search in database, arquivos, and sistema directories
+      // Search in database, arquivos, sistema, and full directories
       const databasePath = path.join(this.backupBasePath, 'database');
       const arquivosPath = path.join(this.backupBasePath, 'arquivos');
       const sistemaPath = path.join(this.backupBasePath, 'sistema');
+      const fullPath = path.join(this.backupBasePath, 'full');
 
       const databaseFiles = await this.findAllMetadataFiles(databasePath);
       const arquivosFiles = await this.findAllMetadataFiles(arquivosPath);
       const sistemaFiles = await this.findAllMetadataFiles(sistemaPath);
+      const fullFiles = await this.findAllMetadataFiles(fullPath);
 
-      const allFiles = [...databaseFiles, ...arquivosFiles, ...sistemaFiles];
+      const allFiles = [...databaseFiles, ...arquivosFiles, ...sistemaFiles, ...fullFiles];
 
       for (const filePath of allFiles) {
         try {
@@ -337,11 +373,13 @@ export class BackupService implements OnModuleInit {
       const databasePath = path.join(this.backupBasePath, 'database');
       const arquivosPath = path.join(this.backupBasePath, 'arquivos');
       const sistemaPath = path.join(this.backupBasePath, 'sistema');
+      const fullPath = path.join(this.backupBasePath, 'full');
 
       const allMetadataFiles = await Promise.all([
         this.findAllMetadataFiles(databasePath),
         this.findAllMetadataFiles(arquivosPath),
         this.findAllMetadataFiles(sistemaPath),
+        this.findAllMetadataFiles(fullPath),
       ]);
 
       const flattenedFiles = allMetadataFiles.flat();
@@ -424,8 +462,15 @@ export class BackupService implements OnModuleInit {
           deleted = true;
           relativePath = backupInfo.relativePath;
         } catch (error) {
+          // If it's not a "not found" error, rethrow it - it's a real error (permissions, etc.)
+          if (error.code !== 'ENOENT') {
+            this.logger.error(
+              `Failed to delete backup directory: ${backupInfo.fullPath} - ${error.message}`,
+            );
+            throw new Error(`Failed to delete backup: ${error.message}`);
+          }
           this.logger.warn(
-            `Failed to delete backup directory: ${backupInfo.fullPath} - ${error.message}`,
+            `Backup directory not found at expected path: ${backupInfo.fullPath}`,
           );
         }
       } else {
@@ -478,10 +523,18 @@ export class BackupService implements OnModuleInit {
       // Delete from Google Drive asynchronously
       if (deleted) {
         this.deleteFromGoogleDrive(backupId);
+
+        // Emit deletion event so frontend can update
+        this.eventEmitter.emit('backup.deleted', {
+          backupId,
+          deletedAt: Date.now(),
+        });
+
+        this.logger.log(`Backup ${backupId} deleted successfully`);
       }
     } catch (error) {
       this.logger.error(`Failed to delete backup: ${error.message}`);
-      throw new InternalServerErrorException('Failed to delete backup');
+      throw new InternalServerErrorException(`Failed to delete backup: ${error.message}`);
     }
   }
 
@@ -505,6 +558,29 @@ export class BackupService implements OnModuleInit {
         }
       },
     );
+  }
+
+  /**
+   * Emit backup completion event for WebSocket notification
+   * Called by processor when backup completes successfully
+   */
+  emitBackupCompleted(backupId: string, size: number): void {
+    this.eventEmitter.emit('backup.completed', {
+      backupId,
+      status: 'completed',
+      size,
+      completedAt: Date.now(),
+    });
+
+    // Also emit final progress event to ensure all listeners are notified
+    this.eventEmitter.emit('backup.progress', {
+      backupId,
+      progress: 100,
+      completed: true,
+      timestamp: Date.now(),
+    });
+
+    this.logger.log(`Backup completion event emitted: ${backupId}`);
   }
 
   async restoreBackup(backupId: string, targetPath?: string): Promise<{ message: string }> {
@@ -582,6 +658,9 @@ export class BackupService implements OnModuleInit {
       let lastEmitTime = Date.now();
       const EMIT_INTERVAL = 500; // Emit every 500ms as requested
 
+      // CRITICAL: startTime must be declared BEFORE processOutput to avoid undefined reference
+      const startTime = Date.now();
+
       // Capture both stdout and stderr for verbose tar output
       const processOutput = (data: Buffer) => {
         const output = data.toString();
@@ -595,12 +674,19 @@ export class BackupService implements OnModuleInit {
         if (totalFilesOrBytes && totalFilesOrBytes > 0) {
           // If we're tracking bytes (for single file like database), use different calculation
           if (tarCommand.includes('.sql')) {
-            // For database backup, estimate based on compression ratio (usually 10-20% of original)
-            const estimatedCompressed = totalFilesOrBytes * 0.15;
-            progress = Math.min(
-              95,
-              Math.round(((filesProcessed * 10000) / estimatedCompressed) * 100),
-            );
+            // For database backup: tar processes quickly since it's a single file
+            // Progress is based on verbose output lines which may include compression stats
+            // Since it's essentially one file, we jump quickly through progress
+            if (filesProcessed >= 1) {
+              // Once we see the file being processed, we're past the dump phase
+              // Estimate progress based on time elapsed (compression takes varying time)
+              const elapsed = Date.now() - startTime;
+              // Assume most database backups complete within 30 seconds of compression
+              progress = Math.min(95, 50 + Math.round((elapsed / 30000) * 45));
+            } else {
+              // Still waiting for first output
+              progress = Math.min(45, lastProgress + 5);
+            }
           } else {
             // For multiple files, use file count
             progress = Math.min(95, Math.round((filesProcessed / totalFilesOrBytes) * 100));
@@ -641,8 +727,6 @@ export class BackupService implements OnModuleInit {
           });
         }
       };
-
-      const startTime = Date.now();
 
       // Listen to both stdout and stderr
       tarProcess.stdout.on('data', processOutput);
@@ -726,16 +810,24 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Update backup metadata with progress information
+   * Uses locking to prevent race conditions with other metadata operations
    */
   private async updateBackupProgress(backupId: string, progress: number): Promise<void> {
+    // Acquire lock to prevent race conditions with other metadata updates
+    const releaseLock = await this.acquireMetadataLock(backupId);
+
     try {
       const metadata = await this.getBackupById(backupId);
       if (metadata) {
         metadata['progress'] = progress;
-        await this.saveBackupMetadata(metadata);
+        // Call internal save without re-acquiring lock
+        await this.saveBackupMetadataInternal(metadata);
       }
     } catch (error) {
       // Silent fail - progress update is not critical
+      this.logger.debug(`Progress update failed for ${backupId}: ${error.message}`);
+    } finally {
+      releaseLock();
     }
   }
 
@@ -794,6 +886,8 @@ export class BackupService implements OnModuleInit {
       // Clean up temporary file
       await fs.unlink(tempSqlFile);
 
+      // NOTE: Permissions are set by processor AFTER metadata is saved
+
       this.logger.log(`Database backup completed: ${backupId}`);
       return finalBackupPath;
     } catch (error) {
@@ -847,6 +941,8 @@ export class BackupService implements OnModuleInit {
 
       await execAsync(tarCommand);
 
+      // NOTE: Permissions are set by processor AFTER metadata is saved
+
       this.logger.log(`files storage backup completed: ${backupId}`);
       return finalBackupPath;
     } catch (error) {
@@ -898,10 +994,16 @@ export class BackupService implements OnModuleInit {
       }
 
       const pathsStr = validPaths.join(' ');
-      const tarCommand = `tar -czf "${finalBackupPath}" ${pathsStr}`;
+      // System backups always need sudo for /etc, /var, etc. and --ignore-failed-read for resilience
+      const tarCommand = `sudo tar --ignore-failed-read -czf "${finalBackupPath}" ${pathsStr}`;
 
       this.logger.log(`Starting system backup for paths: ${pathsStr}`);
       await execAsync(tarCommand);
+
+      // Fix ownership after sudo tar (so the backup file is owned by the running user)
+      await execAsync(`sudo chown $(whoami):$(whoami) "${finalBackupPath}"`).catch(() => {});
+
+      // NOTE: Permissions are set by processor AFTER metadata is saved
 
       this.logger.log(`System backup completed: ${backupId}`);
       return finalBackupPath;
@@ -972,34 +1074,42 @@ export class BackupService implements OnModuleInit {
     }
   }
 
+  /**
+   * Internal save method without locking - called by methods that already hold the lock
+   */
+  private async saveBackupMetadataInternal(metadata: BackupMetadata): Promise<void> {
+    // Determine the type folder (files -> arquivos, system -> sistema)
+    let typeFolder: string = metadata.type;
+    if (metadata.type === 'files') typeFolder = 'arquivos';
+    if (metadata.type === 'system') typeFolder = 'sistema';
+
+    // Get the directory where the backup is stored (date-based + backup ID subfolder)
+    const dateBasedDir = this.getBackupDirectoryPath(typeFolder as any);
+    const backupDir = path.join(dateBasedDir, metadata.id);
+
+    // Ensure the directory exists
+    await fs.mkdir(backupDir, { recursive: true });
+
+    // Save metadata in the same directory as the backup
+    const metadataPath = path.join(backupDir, `${metadata.id}.json`);
+    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
+
+    // NOTE: Don't chown metadata files to www-data here - the running user needs
+    // to be able to update them as the backup progresses (pending -> in_progress -> completed)
+    // Metadata permissions will be set via setBackupPermissions() when the backup completes
+  }
+
   async saveBackupMetadata(metadata: BackupMetadata): Promise<void> {
+    // Acquire lock to prevent concurrent writes to the same metadata file
+    const releaseLock = await this.acquireMetadataLock(metadata.id);
+
     try {
-      // Determine the type folder (files -> arquivos, system -> sistema)
-      let typeFolder: string = metadata.type;
-      if (metadata.type === 'files') typeFolder = 'arquivos';
-      if (metadata.type === 'system') typeFolder = 'sistema';
-
-      // Get the directory where the backup is stored (date-based + backup ID subfolder)
-      const dateBasedDir = this.getBackupDirectoryPath(typeFolder as any);
-      const backupDir = path.join(dateBasedDir, metadata.id);
-
-      // Ensure the directory exists
-      await fs.mkdir(backupDir, { recursive: true });
-
-      // Save metadata in the same directory as the backup
-      const metadataPath = path.join(backupDir, `${metadata.id}.json`);
-      await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
-
-      // Set files storage permissions on metadata file
-      try {
-        await execAsync(`sudo chown www-data:www-data "${metadataPath}"`);
-        await execAsync(`sudo chmod 664 "${metadataPath}"`);
-      } catch (permError) {
-        this.logger.warn(`Could not set permissions on metadata: ${permError.message}`);
-      }
+      await this.saveBackupMetadataInternal(metadata);
     } catch (error) {
       this.logger.error(`Failed to save backup metadata: ${error.message}`);
       throw error;
+    } finally {
+      releaseLock();
     }
   }
 
@@ -1020,6 +1130,9 @@ export class BackupService implements OnModuleInit {
     status: BackupMetadata['status'],
     error?: string,
   ): Promise<void> {
+    // Acquire lock to prevent race conditions with progress updates
+    const releaseLock = await this.acquireMetadataLock(backupId);
+
     try {
       const metadata = await this.getBackupById(backupId);
       if (metadata) {
@@ -1027,26 +1140,41 @@ export class BackupService implements OnModuleInit {
         if (error) {
           metadata.error = error;
         }
-        await this.saveBackupMetadata(metadata);
+        await this.saveBackupMetadataInternal(metadata);
       }
     } catch (err) {
       this.logger.error(`Failed to update backup status: ${err.message}`);
+    } finally {
+      releaseLock();
     }
   }
 
-  async scheduleBackup(createBackupDto: CreateBackupDto): Promise<{ message: string }> {
+  async scheduleBackup(createBackupDto: CreateBackupDto, userId?: string): Promise<{ message: string; scheduleId: string }> {
     try {
       if (!createBackupDto.schedule?.enabled || !createBackupDto.schedule.cron) {
         throw new Error('Invalid schedule configuration');
       }
 
-      // Generate unique job name with timestamp to avoid conflicts
-      const timestamp = Date.now();
-      const jobName = `scheduled-backup-${createBackupDto.name}-${timestamp}`;
+      // First, persist to database for durability
+      const dbSchedule = await this.backupScheduleRepository.create({
+        name: createBackupDto.name,
+        type: this.mapDtoTypeToDb(createBackupDto.type),
+        description: createBackupDto.description,
+        paths: createBackupDto.paths,
+        cronExpression: createBackupDto.schedule.cron,
+        enabled: true,
+        priority: this.mapDtoPriorityToDb(createBackupDto.priority),
+        compressionLevel: createBackupDto.compressionLevel ?? 6,
+        encrypted: createBackupDto.encrypted ?? false,
+        autoDeleteEnabled: createBackupDto.autoDelete?.enabled ?? false,
+        autoDeleteRetention: createBackupDto.autoDelete?.retention,
+        createdById: userId,
+      });
+
+      // Generate unique job name using database ID for consistency
+      const jobName = `scheduled-backup-${createBackupDto.name}-${dbSchedule.id}`;
 
       // Add a cron job to the queue with unique identifier
-      // Use 'scheduled-backup' as job type (so processor can handle it)
-      // Pass job name as jobId for identification
       await this.backupQueue.add('scheduled-backup', createBackupDto, {
         jobId: jobName,
         repeat: { cron: createBackupDto.schedule.cron },
@@ -1054,8 +1182,15 @@ export class BackupService implements OnModuleInit {
         removeOnFail: 5,
       });
 
-      this.logger.log(`Backup scheduled: ${jobName} with cron: ${createBackupDto.schedule.cron}`);
-      return { message: 'Backup scheduled successfully' };
+      // Update database with Bull job ID and next run time
+      const nextRunAt = this.calculateNextRunTime(createBackupDto.schedule.cron);
+      await this.backupScheduleRepository.update(dbSchedule.id, {
+        bullJobId: jobName,
+        nextRunAt,
+      });
+
+      this.logger.log(`Backup scheduled: ${jobName} with cron: ${createBackupDto.schedule.cron} (DB ID: ${dbSchedule.id})`);
+      return { message: 'Backup scheduled successfully', scheduleId: dbSchedule.id };
     } catch (error) {
       this.logger.error(`Failed to schedule backup: ${error.message}`);
       throw new InternalServerErrorException('Failed to schedule backup');
@@ -1064,28 +1199,48 @@ export class BackupService implements OnModuleInit {
 
   async getScheduledBackups(): Promise<any[]> {
     try {
+      // Get schedules from database (primary source of truth)
+      const dbSchedules = await this.backupScheduleRepository.findAll();
+
+      // Get Bull queue jobs for enrichment
       const repeatableJobs = await this.backupQueue.getRepeatableJobs();
-      return repeatableJobs.map(job => {
-        // Extract the original name from job id pattern: scheduled-backup-{name}-{timestamp}
-        let extractedName = job.id || job.name;
-        if (extractedName && extractedName.startsWith('scheduled-backup-')) {
-          const namePart = extractedName.replace('scheduled-backup-', '');
-          // Remove timestamp suffix if present (last part after final dash)
-          const dashIndex = namePart.lastIndexOf('-');
-          if (dashIndex > 0 && /^\d+$/.test(namePart.substring(dashIndex + 1))) {
-            extractedName = namePart.substring(0, dashIndex);
-          } else {
-            extractedName = namePart;
-          }
-        }
+      const bullJobsMap = new Map(repeatableJobs.map(job => [job.id || job.key, job]));
+
+      // Map database schedules with Bull queue info
+      return dbSchedules.map(schedule => {
+        const bullJob = schedule.bullJobId ? bullJobsMap.get(schedule.bullJobId) : null;
 
         return {
-          id: job.id || job.key, // Use key as fallback if id is not available
-          name: extractedName,
-          cron: job.cron,
-          next: job.next,
-          jobName: job.name, // Keep job type for internal use
-          key: job.key, // Keep job key for deletion
+          id: schedule.id, // Database ID for API operations
+          bullJobId: schedule.bullJobId,
+          name: schedule.name,
+          type: this.mapDbTypeToDto(schedule.type),
+          description: schedule.description,
+          paths: schedule.paths,
+          cron: schedule.cronExpression,
+          enabled: schedule.enabled,
+          priority: this.mapDbPriorityToDto(schedule.priority),
+          compressionLevel: schedule.compressionLevel,
+          encrypted: schedule.encrypted,
+          autoDelete: schedule.autoDeleteEnabled
+            ? {
+                enabled: true,
+                retention: schedule.autoDeleteRetention,
+              }
+            : undefined,
+          // Execution stats
+          lastRunAt: schedule.lastRunAt,
+          nextRunAt: schedule.nextRunAt || (bullJob ? new Date(bullJob.next) : null),
+          lastStatus: schedule.lastStatus,
+          lastError: schedule.lastError,
+          runCount: schedule.runCount,
+          failureCount: schedule.failureCount,
+          // Timestamps
+          createdAt: schedule.createdAt,
+          updatedAt: schedule.updatedAt,
+          // Bull queue info (for legacy compatibility)
+          key: bullJob?.key,
+          jobName: bullJob?.name,
         };
       });
     } catch (error) {
@@ -1094,21 +1249,52 @@ export class BackupService implements OnModuleInit {
     }
   }
 
-  async removeScheduledBackup(jobId: string): Promise<void> {
+  async removeScheduledBackup(scheduleId: string, deletedById?: string): Promise<void> {
     try {
-      const repeatableJobs = await this.backupQueue.getRepeatableJobs();
+      // First, try to find in database (primary source)
+      const dbSchedule = await this.backupScheduleRepository.findById(scheduleId);
 
-      // Find job by id, key, or job name
-      const job = repeatableJobs.find(j => j.id === jobId || j.key === jobId || j.name === jobId);
+      if (dbSchedule) {
+        // Remove from Bull queue if exists
+        if (dbSchedule.bullJobId) {
+          const repeatableJobs = await this.backupQueue.getRepeatableJobs();
+          const job = repeatableJobs.find(
+            j => j.id === dbSchedule.bullJobId || j.key === dbSchedule.bullJobId,
+          );
+
+          if (job) {
+            await this.backupQueue.removeRepeatableByKey(job.key);
+            this.logger.log(`Bull job removed: ${job.key}`);
+          }
+        }
+
+        // Soft delete from database (keeps record for history)
+        await this.backupScheduleRepository.softDelete(dbSchedule.id, deletedById);
+        this.logger.log(`Scheduled backup soft-deleted: ${dbSchedule.name} (ID: ${dbSchedule.id})`);
+        return;
+      }
+
+      // Fallback: try to find by Bull job ID (for legacy schedules)
+      const repeatableJobs = await this.backupQueue.getRepeatableJobs();
+      const job = repeatableJobs.find(
+        j => j.id === scheduleId || j.key === scheduleId || j.name === scheduleId,
+      );
 
       if (job) {
         await this.backupQueue.removeRepeatableByKey(job.key);
-        this.logger.log(`Scheduled backup removed: ${job.name} (key: ${job.key})`);
-      } else {
-        this.logger.warn(`Scheduled backup not found with identifier: ${jobId}`);
-        throw new Error('Scheduled backup not found');
+        this.logger.log(`Legacy scheduled backup removed from Bull queue: ${job.name} (key: ${job.key})`);
+
+        // Also soft delete from database by Bull job ID
+        await this.backupScheduleRepository.softDeleteByBullJobId(job.id || job.key, deletedById);
+        return;
       }
+
+      this.logger.warn(`Scheduled backup not found with identifier: ${scheduleId}`);
+      throw new Error('Scheduled backup not found');
     } catch (error) {
+      if (error.message === 'Scheduled backup not found') {
+        throw error;
+      }
       this.logger.error(`Failed to remove scheduled backup: ${error.message}`);
       throw new InternalServerErrorException('Failed to remove scheduled backup');
     }
@@ -1143,16 +1329,59 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Check and delete expired backups
+   * Check and delete expired backups, and mark stuck in-progress backups as failed
    */
-  async cleanupExpiredBackups(): Promise<{ deletedCount: number; deletedBackups: string[] }> {
+  async cleanupExpiredBackups(): Promise<{
+    deletedCount: number;
+    deletedBackups: string[];
+    failedCount: number;
+    failedBackups: string[];
+  }> {
     const deletedBackups: string[] = [];
+    const failedBackups: string[] = [];
 
     try {
       const allBackups = await this.getBackups();
       const now = new Date();
 
+      // Maximum time a backup can be in progress (30 minutes)
+      const MAX_IN_PROGRESS_TIME_MS = 30 * 60 * 1000;
+
       for (const backup of allBackups) {
+        // Check for stuck in_progress backups
+        if (backup.status === 'in_progress') {
+          const createdAt = new Date(backup.createdAt);
+          const timeSinceCreation = now.getTime() - createdAt.getTime();
+
+          if (timeSinceCreation > MAX_IN_PROGRESS_TIME_MS) {
+            try {
+              // Mark as failed since it's been stuck for too long
+              await this.updateBackupStatus(
+                backup.id,
+                'failed',
+                'Backup timed out - stuck in progress for more than 30 minutes',
+              );
+              failedBackups.push(backup.id);
+              this.logger.warn(
+                `Marked stuck backup as failed: ${backup.id} (${backup.name}) - was in_progress for ${Math.round(timeSinceCreation / 60000)} minutes`,
+              );
+
+              // Emit event so frontend updates
+              this.eventEmitter.emit('backup.progress', {
+                backupId: backup.id,
+                progress: 0,
+                completed: false,
+                status: 'failed',
+                error: 'Timeout - backup took too long',
+              });
+            } catch (error) {
+              this.logger.error(
+                `Failed to mark stuck backup ${backup.id} as failed: ${error.message}`,
+              );
+            }
+          }
+        }
+
         // Check if backup has auto-delete enabled and is expired
         if (backup.autoDelete?.enabled && backup.autoDelete?.deleteAfter) {
           const deleteAfterDate = new Date(backup.autoDelete.deleteAfter);
@@ -1172,12 +1401,16 @@ export class BackupService implements OnModuleInit {
       return {
         deletedCount: deletedBackups.length,
         deletedBackups,
+        failedCount: failedBackups.length,
+        failedBackups,
       };
     } catch (error) {
       this.logger.error(`Failed during cleanup of expired backups: ${error.message}`);
       return {
         deletedCount: 0,
         deletedBackups: [],
+        failedCount: 0,
+        failedBackups: [],
       };
     }
   }
@@ -1197,34 +1430,193 @@ export class BackupService implements OnModuleInit {
     );
 
     this.logger.log('Backup cleanup cron job initialized');
+
+    // Recover scheduled backups from database
+    await this.recoverScheduledBackups();
   }
 
-  // RAID and System Health Methods
-
-  async checkRaidStatus(): Promise<{ healthy: boolean; details: string; degraded: boolean }> {
+  /**
+   * Recover scheduled backups from database on application startup
+   * This ensures schedules persist across Redis restarts
+   */
+  private async recoverScheduledBackups(): Promise<void> {
     try {
-      const { stdout } = await execAsync('cat /proc/mdstat');
+      const enabledSchedules = await this.backupScheduleRepository.findAllEnabled();
 
-      const healthy = stdout.includes('active') && !stdout.includes('[U_]');
-      const degraded =
-        stdout.includes('[U_]') || stdout.includes('recovery') || stdout.includes('resync');
+      if (enabledSchedules.length === 0) {
+        this.logger.log('No backup schedules to recover from database');
+        return;
+      }
 
-      const md0Line = stdout.split('\n').find(line => line.includes('md0')) || 'No RAID info';
+      this.logger.log(`Recovering ${enabledSchedules.length} backup schedules from database...`);
 
-      return {
-        healthy,
-        degraded,
-        details: md0Line,
-      };
+      // Get existing Bull repeatable jobs
+      const existingJobs = await this.backupQueue.getRepeatableJobs();
+      const existingJobIds = new Set(existingJobs.map(j => j.id || j.key));
+
+      let recovered = 0;
+      let skipped = 0;
+
+      for (const schedule of enabledSchedules) {
+        const jobId = `scheduled-backup-${schedule.name}-${schedule.id}`;
+
+        // Check if job already exists in Bull queue
+        if (schedule.bullJobId && existingJobIds.has(schedule.bullJobId)) {
+          this.logger.debug(`Schedule ${schedule.name} already exists in Bull queue, skipping`);
+          skipped++;
+          continue;
+        }
+
+        try {
+          // Convert database schedule to CreateBackupDto format
+          const createBackupDto: CreateBackupDto = {
+            name: schedule.name,
+            type: this.mapDbTypeToDto(schedule.type),
+            description: schedule.description || undefined,
+            paths: schedule.paths,
+            schedule: {
+              enabled: true,
+              cron: schedule.cronExpression,
+            },
+            priority: this.mapDbPriorityToDto(schedule.priority),
+            compressionLevel: schedule.compressionLevel,
+            encrypted: schedule.encrypted,
+            autoDelete: schedule.autoDeleteEnabled
+              ? {
+                  enabled: true,
+                  retention: schedule.autoDeleteRetention as any,
+                }
+              : undefined,
+          };
+
+          // Re-add to Bull queue
+          await this.backupQueue.add('scheduled-backup', createBackupDto, {
+            jobId,
+            repeat: { cron: schedule.cronExpression },
+            removeOnComplete: 10,
+            removeOnFail: 5,
+          });
+
+          // Update database with new Bull job ID
+          await this.backupScheduleRepository.updateBullJobId(schedule.id, jobId);
+
+          // Calculate next run time
+          const nextRunAt = this.calculateNextRunTime(schedule.cronExpression);
+          if (nextRunAt) {
+            await this.backupScheduleRepository.update(schedule.id, { nextRunAt });
+          }
+
+          recovered++;
+          this.logger.log(`Recovered schedule: ${schedule.name} (${schedule.cronExpression})`);
+        } catch (error) {
+          this.logger.error(`Failed to recover schedule ${schedule.name}: ${error.message}`);
+        }
+      }
+
+      this.logger.log(`Schedule recovery complete: ${recovered} recovered, ${skipped} skipped`);
     } catch (error) {
-      this.logger.warn(`Failed to check RAID status: ${error.message}`);
-      return {
-        healthy: false,
-        degraded: true,
-        details: 'Unable to read RAID status',
-      };
+      this.logger.error(`Failed to recover scheduled backups: ${error.message}`);
     }
   }
+
+  /**
+   * Calculate next run time from cron expression
+   * Uses simple estimation based on cron pattern
+   */
+  private calculateNextRunTime(cronExpression: string): Date | null {
+    try {
+      // Parse cron parts: minute hour dayOfMonth month dayOfWeek
+      const parts = cronExpression.trim().split(/\s+/);
+      if (parts.length < 5) {
+        this.logger.warn(`Invalid cron expression: ${cronExpression}`);
+        return null;
+      }
+
+      const [minute, hour] = parts;
+      const now = new Date();
+      const nextRun = new Date(now);
+
+      // Handle hour
+      if (hour !== '*') {
+        const targetHour = parseInt(hour, 10);
+        if (!isNaN(targetHour)) {
+          nextRun.setHours(targetHour, 0, 0, 0);
+        }
+      }
+
+      // Handle minute
+      if (minute !== '*') {
+        const targetMinute = parseInt(minute, 10);
+        if (!isNaN(targetMinute)) {
+          nextRun.setMinutes(targetMinute, 0, 0);
+        }
+      }
+
+      // If the calculated time is in the past, move to next day
+      if (nextRun <= now) {
+        nextRun.setDate(nextRun.getDate() + 1);
+      }
+
+      return nextRun;
+    } catch (error) {
+      this.logger.warn(`Failed to parse cron expression: ${cronExpression}`);
+      return null;
+    }
+  }
+
+  /**
+   * Map database BackupType to DTO type
+   */
+  private mapDbTypeToDto(dbType: BackupType): 'database' | 'files' | 'system' | 'full' {
+    const mapping: Record<BackupType, 'database' | 'files' | 'system' | 'full'> = {
+      DATABASE: 'database',
+      FILES: 'files',
+      SYSTEM: 'system',
+      FULL: 'full',
+    };
+    return mapping[dbType];
+  }
+
+  /**
+   * Map DTO type to database BackupType
+   */
+  private mapDtoTypeToDb(dtoType: string): BackupType {
+    const mapping: Record<string, BackupType> = {
+      database: BackupType.DATABASE,
+      files: BackupType.FILES,
+      system: BackupType.SYSTEM,
+      full: BackupType.FULL,
+    };
+    return mapping[dtoType] || BackupType.DATABASE;
+  }
+
+  /**
+   * Map database BackupPriority to DTO priority
+   */
+  private mapDbPriorityToDto(dbPriority: BackupPriority): 'low' | 'medium' | 'high' | 'critical' {
+    const mapping: Record<BackupPriority, 'low' | 'medium' | 'high' | 'critical'> = {
+      LOW: 'low',
+      MEDIUM: 'medium',
+      HIGH: 'high',
+      CRITICAL: 'critical',
+    };
+    return mapping[dbPriority];
+  }
+
+  /**
+   * Map DTO priority to database BackupPriority
+   */
+  private mapDtoPriorityToDb(dtoPriority?: string): BackupPriority {
+    const mapping: Record<string, BackupPriority> = {
+      low: BackupPriority.LOW,
+      medium: BackupPriority.MEDIUM,
+      high: BackupPriority.HIGH,
+      critical: BackupPriority.CRITICAL,
+    };
+    return mapping[dtoPriority || 'medium'] || BackupPriority.MEDIUM;
+  }
+
+  // System Health Methods
 
   async checkDiskSpace(): Promise<{
     available: string;
@@ -1300,240 +1692,7 @@ export class BackupService implements OnModuleInit {
     return { validPaths, invalidPaths };
   }
 
-  async performRaidAwareBackup(
-    backupId: string,
-    type: 'database' | 'files' | 'system' | 'full',
-    paths?: string[],
-    options?: {
-      priority?: 'low' | 'medium' | 'high' | 'critical';
-      compressionLevel?: number;
-      encrypted?: boolean;
-    },
-  ): Promise<string> {
-    const raidStatus = await this.checkRaidStatus();
-    const diskSpace = await this.checkDiskSpace();
-
-    this.logger.log(
-      `RAID Status: ${raidStatus.healthy ? 'Healthy' : 'Degraded'} - ${raidStatus.details}`,
-    );
-
-    // Adjust backup strategy based on RAID status
-    if (raidStatus.degraded) {
-      this.logger.warn('RAID is degraded - using conservative backup settings');
-      options = {
-        ...options,
-        compressionLevel: Math.min(options?.compressionLevel || 6, 3), // Lower compression for faster backup
-      };
-    }
-
-    // Check available disk space
-    const minimumSpaceGB = type === 'full' ? 5 : type === 'database' ? 1 : 2;
-    const minimumSpaceBytes = minimumSpaceGB * 1024 * 1024 * 1024;
-
-    if (diskSpace.availableBytes < minimumSpaceBytes) {
-      throw new Error(
-        `Insufficient disk space. Available: ${diskSpace.available}, Required: ${minimumSpaceGB}GB`,
-      );
-    }
-
-    // Perform backup based on type
-    switch (type) {
-      case 'database':
-        return await this.performEnhancedDatabaseBackup(backupId, options);
-      case 'files':
-        // Files backup = storage folders (use relative paths from /srv/files)
-        return await this.performFilesBackup(backupId, paths);
-      case 'system':
-        return await this.performSystemBackup(backupId, paths);
-      case 'full':
-        return await this.performEnhancedFullBackup(backupId, options);
-      default:
-        throw new Error(`Unknown backup type: ${type}`);
-    }
-  }
-
-  private async performEnhancedDatabaseBackup(
-    backupId: string,
-    options?: {
-      compressionLevel?: number;
-      encrypted?: boolean;
-    },
-  ): Promise<string> {
-    try {
-      const dbUrl = this.configService.get<string>('DATABASE_URL');
-      if (!dbUrl) {
-        throw new Error('DATABASE_URL not configured');
-      }
-
-      // Ensure date-based directory exists with backup ID subfolder
-      const backupDir = await this.ensureDateBasedDirectory('database', backupId);
-
-      const backupFileName = `${backupId}.tar.gz`;
-      const tempSqlFile = `/tmp/${backupId}.sql`;
-      const finalBackupPath = path.join(backupDir, backupFileName);
-
-      // Extract database connection details from URL
-      const url = new URL(dbUrl);
-      const dbName = url.pathname.substring(1);
-      const host = url.hostname;
-      const port = url.port || '5432';
-      const username = url.username;
-      const password = url.password;
-
-      // Set environment variables for PostgreSQL
-      const env = {
-        ...process.env,
-        PGPASSWORD: password,
-      };
-
-      this.logger.log(`Starting database backup for ${dbName} on ${host}:${port}`);
-
-      // Create PostgreSQL dump as plain SQL (not custom format)
-      const dumpOptions = [
-        '--verbose',
-        '--no-password',
-        '--format=plain',
-        '--no-privileges',
-        '--no-owner',
-      ];
-
-      const dumpCommand = `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbName} ${dumpOptions.join(' ')} -f ${tempSqlFile}`;
-      await execAsync(dumpCommand, { env });
-
-      // Gzip the SQL file
-      await execAsync(`gzip -f ${tempSqlFile}`);
-
-      // Tar the gzipped SQL file (without additional compression since it's already gzipped)
-      const compressCommand = `tar -cf ${finalBackupPath} -C /tmp ${backupId}.sql.gz`;
-      await execAsync(compressCommand);
-
-      // Encrypt if requested
-      if (options?.encrypted) {
-        const encryptedPath = `${finalBackupPath}.gpg`;
-        const encryptCommand = `gpg --cipher-algo AES256 --compress-algo 1 --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65536 --symmetric --output ${encryptedPath} ${finalBackupPath}`;
-        await execAsync(encryptCommand);
-        await fs.unlink(finalBackupPath); // Remove unencrypted version
-        await fs.rename(encryptedPath, finalBackupPath);
-      }
-
-      // Clean up temporary files
-      await fs.unlink(tempSqlFile).catch(() => {});
-      await fs.unlink(`${tempSqlFile}.gz`).catch(() => {});
-
-      this.logger.log(`Enhanced database backup completed: ${backupId}`);
-      return finalBackupPath;
-    } catch (error) {
-      this.logger.error(`Enhanced database backup failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  private async performEnhancedFilesBackup(
-    backupId: string,
-    paths: string[],
-    options?: {
-      compressionLevel?: number;
-      encrypted?: boolean;
-    },
-  ): Promise<string> {
-    try {
-      // Ensure date-based directory exists with backup ID subfolder (files type becomes 'arquivos')
-      const backupDir = await this.ensureDateBasedDirectory('arquivos', backupId);
-
-      const backupFileName = `${backupId}.tar.gz`;
-      const finalBackupPath = path.join(backupDir, backupFileName);
-
-      // Validate and filter paths
-      const { validPaths, invalidPaths } = await this.validateAndFilterPaths(paths);
-
-      if (invalidPaths.length > 0) {
-        this.logger.warn(`Skipping invalid paths: ${invalidPaths.join(', ')}`);
-      }
-
-      if (validPaths.length === 0) {
-        throw new Error('No valid paths found for backup');
-      }
-
-      this.logger.log(`Starting files backup for ${validPaths.length} paths`);
-
-      // Create exclude list for common unnecessary files
-      const excludePatterns = [
-        '--exclude=node_modules',
-        '--exclude=.git',
-        '--exclude=*.log',
-        '--exclude=*.tmp',
-        '--exclude=.cache',
-        '--exclude=dist',
-        '--exclude=build',
-      ];
-
-      // Create tar archive with compression and exclude patterns
-      const compressionLevel = options?.compressionLevel || 6;
-      const pathsStr = validPaths.map(p => `"${p}"`).join(' ');
-
-      const tarCommand = `tar ${excludePatterns.join(' ')} --use-compress-program="gzip -${compressionLevel}" -cf ${finalBackupPath} ${pathsStr}`;
-
-      await execAsync(tarCommand);
-
-      // Encrypt if requested
-      if (options?.encrypted) {
-        const encryptedPath = `${finalBackupPath}.gpg`;
-        const encryptCommand = `gpg --cipher-algo AES256 --compress-algo 1 --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65536 --symmetric --output ${encryptedPath} ${finalBackupPath}`;
-        await execAsync(encryptCommand);
-        await fs.unlink(finalBackupPath); // Remove unencrypted version
-        await fs.rename(encryptedPath, finalBackupPath);
-      }
-
-      this.logger.log(`Enhanced files backup completed: ${backupId}`);
-      return finalBackupPath;
-    } catch (error) {
-      this.logger.error(`Enhanced files backup failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  private async performEnhancedFullBackup(
-    backupId: string,
-    options?: {
-      compressionLevel?: number;
-      encrypted?: boolean;
-    },
-  ): Promise<string> {
-    try {
-      this.logger.log(`Starting enhanced full backup: ${backupId}`);
-
-      // Create database backup
-      const dbBackupPath = await this.performEnhancedDatabaseBackup(`${backupId}_db`, options);
-
-      // Create files backup for critical and high priority paths
-      const importantPaths = this.getPathsByPriority('high');
-      const filesBackupPath = await this.performEnhancedFilesBackup(
-        `${backupId}_files`,
-        importantPaths,
-        options,
-      );
-
-      // Combine both backups
-      const backupFileName = `${backupId}.tar.gz`;
-      const finalBackupPath = path.join(this.backupBasePath, 'files', backupFileName);
-
-      const combineCommand = `tar -czf ${finalBackupPath} -C ${path.dirname(dbBackupPath)} ${path.basename(dbBackupPath)} -C ${path.dirname(filesBackupPath)} ${path.basename(filesBackupPath)}`;
-      await execAsync(combineCommand);
-
-      // Clean up individual backup files
-      await fs.unlink(dbBackupPath);
-      await fs.unlink(filesBackupPath);
-
-      this.logger.log(`Enhanced full backup completed: ${backupId}`);
-      return finalBackupPath;
-    } catch (error) {
-      this.logger.error(`Enhanced full backup failed: ${error.message}`);
-      throw error;
-    }
-  }
-
   async getSystemHealthSummary(): Promise<{
-    raidStatus: { healthy: boolean; details: string; degraded: boolean };
     diskSpace: {
       available: string;
       used: string;
@@ -1550,7 +1709,6 @@ export class BackupService implements OnModuleInit {
     };
     recommendations: string[];
   }> {
-    const raidStatus = await this.checkRaidStatus();
     const diskSpace = await this.checkDiskSpace();
     const backups = await this.getBackups();
 
@@ -1566,12 +1724,6 @@ export class BackupService implements OnModuleInit {
 
     // Generate recommendations
     const recommendations: string[] = [];
-
-    if (!raidStatus.healthy) {
-      recommendations.push(
-        'URGENT: RAID array is degraded - consider immediate hardware attention',
-      );
-    }
 
     if (diskSpace.usagePercent > 80) {
       recommendations.push(
@@ -1605,7 +1757,6 @@ export class BackupService implements OnModuleInit {
     }
 
     return {
-      raidStatus,
       diskSpace,
       backupStats,
       recommendations,

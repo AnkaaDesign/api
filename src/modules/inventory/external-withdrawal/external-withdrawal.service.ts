@@ -633,57 +633,14 @@ export class ExternalWithdrawalService {
             }
 
             // Criar item da retirada
+            // Stock is NOT decreased here - only when the withdrawal is delivered (status change from PENDING)
+            // This allows cancelling/deleting withdrawals without affecting stock
             await this.externalWithdrawalItemRepository.createWithTransaction(tx, {
               externalWithdrawalId: newWithdrawal.id,
               itemId: validatedItem.itemId,
               withdrawedQuantity: validatedItem.withdrawedQuantity,
               price: validatedItem.price,
             });
-
-            // Always create OUTBOUND activity for external withdrawals
-            // The items are being taken out of stock regardless of whether they'll be returned
-            // When they're returned later, we'll create INBOUND activities
-
-            // Create activity directly through Prisma (bypassing ActivityService to avoid nested transactions)
-            // External withdrawals should NOT have a userId as they're for external people
-            await tx.activity.create({
-              data: {
-                itemId: validatedItem.itemId,
-                quantity: validatedItem.withdrawedQuantity,
-                operation: ACTIVITY_OPERATION.OUTBOUND,
-                reason: ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
-                reasonOrder: 6, // External withdrawal
-                userId: null, // No user - this is for external people
-              },
-            });
-
-            // Update item stock manually since we're using direct Prisma
-            const currentItem = await tx.item.findUnique({ where: { id: validatedItem.itemId } });
-            if (currentItem) {
-              const newQuantity = Math.max(
-                0,
-                currentItem.quantity - validatedItem.withdrawedQuantity,
-              );
-              await tx.item.update({
-                where: { id: validatedItem.itemId },
-                data: { quantity: newQuantity },
-              });
-
-              // Log the stock update
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.ITEM,
-                entityId: validatedItem.itemId,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'quantity',
-                oldValue: currentItem.quantity,
-                newValue: newQuantity,
-                reason: `Estoque atualizado - Retirada externa`,
-                triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL,
-                triggeredById: newWithdrawal.id,
-                transaction: tx,
-                userId: userId || null,
-              });
-            }
           }
         }
 
@@ -763,6 +720,76 @@ export class ExternalWithdrawalService {
           data,
           { include },
         );
+
+        // Handle OUTBOUND activity creation when status changes FROM PENDING to a delivered state
+        // This is when items actually leave the stock
+        if (data.status && existingWithdrawal.status !== data.status) {
+          const isDeliveredStatus =
+            data.status !== EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
+            data.status !== EXTERNAL_WITHDRAWAL_STATUS.CANCELLED;
+
+          if (
+            existingWithdrawal.status === EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
+            isDeliveredStatus
+          ) {
+            // Get withdrawal items for OUTBOUND creation
+            const withdrawalWithItemsForOutbound =
+              await this.externalWithdrawalRepository.findByIdWithTransaction(tx, id, {
+                include: { items: true },
+              });
+
+            if (
+              withdrawalWithItemsForOutbound?.items &&
+              withdrawalWithItemsForOutbound.items.length > 0
+            ) {
+              for (const item of withdrawalWithItemsForOutbound.items) {
+                // Create OUTBOUND activity - items are now leaving the stock
+                await tx.activity.create({
+                  data: {
+                    itemId: item.itemId,
+                    quantity: item.withdrawedQuantity,
+                    operation: ACTIVITY_OPERATION.OUTBOUND,
+                    reason: ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+                    reasonOrder: 6, // External withdrawal
+                    userId: null, // No user - this is for external people
+                  },
+                });
+
+                // Update item stock - decrease quantity
+                const currentItemForOutbound = await tx.item.findUnique({
+                  where: { id: item.itemId },
+                });
+
+                if (currentItemForOutbound) {
+                  const newQuantity = Math.max(
+                    0,
+                    currentItemForOutbound.quantity - item.withdrawedQuantity,
+                  );
+
+                  await tx.item.update({
+                    where: { id: item.itemId },
+                    data: { quantity: newQuantity },
+                  });
+
+                  // Log the stock update
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.ITEM,
+                    entityId: item.itemId,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'quantity',
+                    oldValue: currentItemForOutbound.quantity,
+                    newValue: newQuantity,
+                    reason: `Estoque atualizado - Retirada externa entregue`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL,
+                    triggeredById: id,
+                    transaction: tx,
+                    userId: userId || null,
+                  });
+                }
+              }
+            }
+          }
+        }
 
         // Handle stock return when status changes to FULLY_RETURNED or PARTIALLY_RETURNED
         console.log(`[UPDATE METHOD] Checking status change:`, {
@@ -952,40 +979,52 @@ export class ExternalWithdrawalService {
           throw new NotFoundException('Retirada externa não encontrada');
         }
 
-        // Restaurar quantidades de estoque para todos os itens
-        if (withdrawal.items && withdrawal.items.length > 0) {
+        // Only restore stock if the withdrawal was actually delivered (not PENDING or CANCELLED)
+        // If items were never delivered, stock was never decremented, so nothing to restore
+        const wasDelivered =
+          withdrawal.status !== EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
+          withdrawal.status !== EXTERNAL_WITHDRAWAL_STATUS.CANCELLED;
+
+        if (wasDelivered && withdrawal.items && withdrawal.items.length > 0) {
           for (const withdrawalItem of withdrawal.items) {
             const item = await tx.item.findUnique({ where: { id: withdrawalItem.itemId } });
             if (item) {
-              const newQuantity = item.quantity + withdrawalItem.withdrawedQuantity;
-              await tx.item.update({
-                where: { id: withdrawalItem.itemId },
-                data: { quantity: newQuantity },
-              });
+              // Calculate how much to restore: withdrawn quantity minus already returned quantity
+              // Some items may have already been returned (INBOUND created), so we only restore what's still out
+              const alreadyReturned = withdrawalItem.returnedQuantity || 0;
+              const quantityToRestore = withdrawalItem.withdrawedQuantity - alreadyReturned;
 
-              // Criar atividade para rastrear a restauração
-              await this.activityRepository.createWithTransaction(tx, {
-                itemId: withdrawalItem.itemId,
-                quantity: withdrawalItem.withdrawedQuantity,
-                operation: ACTIVITY_OPERATION.INBOUND,
-                reason: ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
-                userId: userId || null,
-              });
+              if (quantityToRestore > 0) {
+                const newQuantity = item.quantity + quantityToRestore;
+                await tx.item.update({
+                  where: { id: withdrawalItem.itemId },
+                  data: { quantity: newQuantity },
+                });
 
-              // Registrar restauração do estoque
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.ITEM,
-                entityId: withdrawalItem.itemId,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'quantity',
-                oldValue: item.quantity,
-                newValue: newQuantity,
-                reason: 'Estoque restaurado - Exclusão de retirada externa',
-                triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL_DELETE,
-                triggeredById: id,
-                transaction: tx,
-                userId: userId || null,
-              });
+                // Criar atividade para rastrear a restauração
+                await this.activityRepository.createWithTransaction(tx, {
+                  itemId: withdrawalItem.itemId,
+                  quantity: quantityToRestore,
+                  operation: ACTIVITY_OPERATION.INBOUND,
+                  reason: ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+                  userId: userId || null,
+                });
+
+                // Registrar restauração do estoque
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ITEM,
+                  entityId: withdrawalItem.itemId,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'quantity',
+                  oldValue: item.quantity,
+                  newValue: newQuantity,
+                  reason: 'Estoque restaurado - Exclusão de retirada externa',
+                  triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL_DELETE,
+                  triggeredById: id,
+                  transaction: tx,
+                  userId: userId || null,
+                });
+              }
             }
           }
         }
@@ -1519,6 +1558,68 @@ export class ExternalWithdrawalService {
           id,
           updateData,
         );
+
+        // Handle OUTBOUND activity creation when status changes FROM PENDING to a delivered state
+        // This is when items actually leave the stock
+        const isDeliveredStatus =
+          newStatus !== EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
+          newStatus !== EXTERNAL_WITHDRAWAL_STATUS.CANCELLED;
+
+        if (
+          existingWithdrawal.status === EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
+          isDeliveredStatus
+        ) {
+          // Get withdrawal items for OUTBOUND creation
+          const withdrawalWithItems =
+            await this.externalWithdrawalRepository.findByIdWithTransaction(tx, id, {
+              include: { items: true },
+            });
+
+          if (withdrawalWithItems?.items && withdrawalWithItems.items.length > 0) {
+            for (const item of withdrawalWithItems.items) {
+              // Create OUTBOUND activity - items are now leaving the stock
+              await tx.activity.create({
+                data: {
+                  itemId: item.itemId,
+                  quantity: item.withdrawedQuantity,
+                  operation: ACTIVITY_OPERATION.OUTBOUND,
+                  reason: ACTIVITY_REASON.EXTERNAL_WITHDRAWAL,
+                  reasonOrder: 6, // External withdrawal
+                  userId: null, // No user - this is for external people
+                },
+              });
+
+              // Update item stock - decrease quantity
+              const currentItem = await tx.item.findUnique({
+                where: { id: item.itemId },
+              });
+
+              if (currentItem) {
+                const newQuantity = Math.max(0, currentItem.quantity - item.withdrawedQuantity);
+
+                await tx.item.update({
+                  where: { id: item.itemId },
+                  data: { quantity: newQuantity },
+                });
+
+                // Log the stock update
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.ITEM,
+                  entityId: item.itemId,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'quantity',
+                  oldValue: currentItem.quantity,
+                  newValue: newQuantity,
+                  reason: `Estoque atualizado - Retirada externa entregue`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.EXTERNAL_WITHDRAWAL,
+                  triggeredById: id,
+                  transaction: tx,
+                  userId: userId || null,
+                });
+              }
+            }
+          }
+        }
 
         // Handle stock return when status changes to FULLY_RETURNED or PARTIALLY_RETURNED
         console.log(`[EXTERNAL_WITHDRAWAL_RETURN] Status update check:`, {

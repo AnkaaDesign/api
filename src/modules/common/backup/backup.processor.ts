@@ -2,6 +2,7 @@ import { Processor, Process } from '@nestjs/bull';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bull';
 import { BackupService, CreateBackupDto } from './backup.service';
+import { BackupScheduleRepository } from './backup-schedule.repository';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -9,11 +10,14 @@ import * as path from 'path';
 export class BackupProcessor {
   private readonly logger = new Logger(BackupProcessor.name);
 
-  constructor(private readonly backupService: BackupService) {}
+  constructor(
+    private readonly backupService: BackupService,
+    private readonly backupScheduleRepository: BackupScheduleRepository,
+  ) {}
 
   @Process('create-backup')
   async handleCreateBackup(job: Job<CreateBackupDto & { backupId: string }>) {
-    const { backupId, type, paths, priority, raidAware, compressionLevel, encrypted } = job.data;
+    const { backupId, type, paths, priority, compressionLevel, encrypted } = job.data;
 
     try {
       this.logger.log(`Starting backup: ${backupId} (type: ${type})`);
@@ -23,39 +27,30 @@ export class BackupProcessor {
 
       let backupPath: string;
 
-      // Use RAID-aware backup if enabled, otherwise fallback to legacy methods
-      if (raidAware) {
-        backupPath = await this.backupService.performRaidAwareBackup(backupId, type, paths, {
-          priority,
-          compressionLevel,
-          encrypted,
-        });
-      } else {
-        // Legacy backup methods for compatibility
-        switch (type) {
-          case 'database':
-            backupPath = await this.backupService.performDatabaseBackup(backupId);
-            break;
-          case 'files':
-            if (!paths || paths.length === 0) {
-              // If no paths specified for files backup, backup entire files storage directory
-              this.logger.log('No paths specified, performing full files storage backup');
-              backupPath = await this.backupService.performFilesBackup(backupId);
-            } else {
-              // Backup specific files storage directories
-              backupPath = await this.backupService.performFilesBackup(backupId, paths);
-            }
-            break;
-          case 'system':
-            // Backup system configuration files
-            backupPath = await this.backupService.performSystemBackup(backupId, paths);
-            break;
-          case 'full':
-            backupPath = await this.backupService.performFullBackup(backupId);
-            break;
-          default:
-            throw new Error(`Unknown backup type: ${type}`);
-        }
+      // Execute backup based on type
+      switch (type) {
+        case 'database':
+          backupPath = await this.backupService.performDatabaseBackup(backupId);
+          break;
+        case 'files':
+          if (!paths || paths.length === 0) {
+            // If no paths specified for files backup, backup entire files storage directory
+            this.logger.log('No paths specified, performing full files storage backup');
+            backupPath = await this.backupService.performFilesBackup(backupId);
+          } else {
+            // Backup specific files storage directories
+            backupPath = await this.backupService.performFilesBackup(backupId, paths);
+          }
+          break;
+        case 'system':
+          // Backup system configuration files
+          backupPath = await this.backupService.performSystemBackup(backupId, paths);
+          break;
+        case 'full':
+          backupPath = await this.backupService.performFullBackup(backupId);
+          break;
+        default:
+          throw new Error(`Unknown backup type: ${type}`);
       }
 
       // Get file size
@@ -71,10 +66,37 @@ export class BackupProcessor {
       metadata.status = 'completed';
       metadata.size = stats.size;
       metadata.priority = priority;
-      metadata.raidAware = raidAware;
       metadata.compressionLevel = compressionLevel;
       metadata.encrypted = encrypted;
-      await this.backupService.saveBackupMetadata(metadata);
+
+      // Save metadata with retries to ensure completion is recorded
+      let metadataSaved = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await this.backupService.saveBackupMetadata(metadata);
+          metadataSaved = true;
+          break;
+        } catch (saveError) {
+          this.logger.warn(
+            `Attempt ${attempt}/3 - Failed to save backup metadata: ${saveError.message}`,
+          );
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+
+      if (!metadataSaved) {
+        this.logger.error(`CRITICAL: Failed to save completed metadata for backup ${backupId}`);
+        throw new Error(`Failed to save backup metadata after 3 attempts`);
+      }
+
+      // Set final permissions AFTER metadata is saved (fixes permission denied issues)
+      const backupDir = path.dirname(backupPath);
+      await this.backupService.setBackupPermissions(backupDir);
+
+      // Emit completion event so frontend is notified immediately
+      this.backupService.emitBackupCompleted(backupId, stats.size);
 
       this.logger.log(
         `Backup completed successfully: ${backupId} (${this.formatBytes(stats.size)})`,
@@ -324,8 +346,21 @@ export class BackupProcessor {
 
   @Process('scheduled-backup')
   async handleScheduledBackup(job: Job<CreateBackupDto>) {
+    const jobId = job.opts?.jobId || job.id?.toString();
+
     try {
-      this.logger.log(`Processing scheduled backup: ${job.data.name}`);
+      this.logger.log(`Processing scheduled backup: ${job.data.name} (Job ID: ${jobId})`);
+
+      // Find the schedule in database by Bull job ID
+      let schedule = null;
+      if (jobId) {
+        schedule = await this.backupScheduleRepository.findByBullJobId(jobId);
+      }
+
+      // Mark schedule as running
+      if (schedule) {
+        await this.backupScheduleRepository.markRunning(schedule.id);
+      }
 
       // Create a new backup with a unique ID
       const scheduledBackupData = {
@@ -335,8 +370,33 @@ export class BackupProcessor {
 
       const result = await this.backupService.createBackup(scheduledBackupData);
       this.logger.log(`Scheduled backup queued: ${result.id}`);
+
+      // Record successful execution in database
+      if (schedule) {
+        // Calculate next run time based on cron
+        const nextRun = job.opts?.repeat?.every
+          ? new Date(Date.now() + job.opts.repeat.every)
+          : undefined;
+
+        await this.backupScheduleRepository.recordSuccess(schedule.id, nextRun);
+        this.logger.log(`Schedule ${schedule.name} execution recorded successfully`);
+      }
     } catch (error) {
       this.logger.error(`Scheduled backup failed: ${error.message}`);
+
+      // Record failure in database
+      if (jobId) {
+        try {
+          const schedule = await this.backupScheduleRepository.findByBullJobId(jobId);
+          if (schedule) {
+            await this.backupScheduleRepository.recordFailure(schedule.id, error.message);
+            this.logger.log(`Schedule ${schedule.name} failure recorded`);
+          }
+        } catch (dbError) {
+          this.logger.error(`Failed to record schedule failure: ${dbError.message}`);
+        }
+      }
+
       throw error;
     }
   }
@@ -344,20 +404,27 @@ export class BackupProcessor {
   @Process('cleanup-expired-backups')
   async handleCleanupExpiredBackups(job: Job) {
     try {
-      this.logger.log('Running cleanup for expired backups...');
+      this.logger.log('Running cleanup for expired/stuck backups...');
 
       const result = await this.backupService.cleanupExpiredBackups();
 
       if (result.deletedCount > 0) {
         this.logger.log(`Cleanup completed: ${result.deletedCount} expired backups deleted`);
         this.logger.log(`Deleted backup IDs: ${result.deletedBackups.join(', ')}`);
-      } else {
-        this.logger.log('Cleanup completed: No expired backups found');
+      }
+
+      if (result.failedCount > 0) {
+        this.logger.log(`Cleanup completed: ${result.failedCount} stuck backups marked as failed`);
+        this.logger.log(`Failed backup IDs: ${result.failedBackups.join(', ')}`);
+      }
+
+      if (result.deletedCount === 0 && result.failedCount === 0) {
+        this.logger.log('Cleanup completed: No expired or stuck backups found');
       }
 
       return result;
     } catch (error) {
-      this.logger.error(`Cleanup of expired backups failed: ${error.message}`);
+      this.logger.error(`Cleanup of expired/stuck backups failed: ${error.message}`);
       throw error;
     }
   }
