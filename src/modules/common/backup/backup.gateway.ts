@@ -19,7 +19,19 @@ import { OnEvent } from '@nestjs/event-emitter';
 @WebSocketGateway({
   namespace: 'backup-progress',
   cors: {
-    origin: '*',
+    origin:
+      process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
+        ? [
+            'https://ankaadesign.com.br',
+            'https://www.ankaadesign.com.br',
+            'https://staging.ankaadesign.com.br',
+            'http://ankaadesign.com.br',
+            'http://www.ankaadesign.com.br',
+            'http://staging.ankaadesign.com.br',
+            ...(process.env.CLIENT_HOST ? process.env.CLIENT_HOST.split(',').map(h => h.trim()) : []),
+            ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(h => h.trim()) : []),
+          ]
+        : true, // Allow all origins in development
     credentials: true,
   },
 })
@@ -136,5 +148,49 @@ export class BackupGateway implements OnGatewayInit, OnGatewayConnection, OnGate
       success: true,
       data: activeBackupIds,
     };
+  }
+
+  /**
+   * Listen to backup deleted events from EventEmitter
+   * and broadcast to all connected clients
+   */
+  @OnEvent('backup.deleted')
+  handleBackupDeleted(data: { backupId: string; deletedAt: number }) {
+    // Emit to all connected clients so they can refresh the backup list
+    this.server.emit('backup-deleted', data);
+
+    this.logger.log(`Backup deleted event broadcast: ${data.backupId}`);
+
+    // Clean up any subscriptions for this backup
+    this.activeBackups.delete(data.backupId);
+  }
+
+  /**
+   * Listen to backup completed events from EventEmitter
+   * and broadcast to all connected clients
+   */
+  @OnEvent('backup.completed')
+  handleBackupCompleted(data: {
+    backupId: string;
+    status: string;
+    size: number;
+    completedAt: number;
+  }) {
+    // Emit to all connected clients so they can refresh the backup list
+    this.server.emit('backup-completed', data);
+
+    const room = `backup-${data.backupId}`;
+    this.server.to(room).emit('progress', {
+      backupId: data.backupId,
+      progress: 100,
+      completed: true,
+      status: 'completed',
+      size: data.size,
+    });
+
+    this.logger.log(`Backup completed event broadcast: ${data.backupId}`);
+
+    // Clean up subscriptions for this backup
+    this.activeBackups.delete(data.backupId);
   }
 }

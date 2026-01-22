@@ -362,3 +362,100 @@ export function calculateTaskStats(tasks: Task[]) {
 export function getTaskObservationTypeLabel(type: TASK_OBSERVATION_TYPE): string {
   return TASK_OBSERVATION_TYPE_LABELS[type] || type;
 }
+
+/**
+ * Get task dimensions (width x height) from truck layout.
+ * Takes either left or right side layout (both sides have the same dimensions).
+ *
+ * @param task - The task object with truck and layout data
+ * @returns Object with width and height in meters, or null if no layout data exists
+ */
+export function getTaskDimensions(task: any): { width: number; height: number } | null {
+  if (!task?.truck) return null;
+
+  const { truck } = task;
+
+  // Try left side layout first, then right side (both have the same dimensions)
+  const layout = truck.leftSideLayout || truck.rightSideLayout;
+
+  if (!layout?.layoutSections || layout.layoutSections.length === 0) {
+    return null;
+  }
+
+  // Calculate total width by summing all section widths
+  const totalWidth = layout.layoutSections.reduce(
+    (sum: number, section: any) => sum + (section.width || 0),
+    0,
+  );
+
+  return {
+    width: totalWidth,
+    height: layout.height,
+  };
+}
+
+/**
+ * Formats the measures for display as "WxH" in centimeters.
+ * This format matches the task measure table column display.
+ *
+ * @param task - The task object with truck and layout data
+ * @returns Formatted string (e.g., "850x244") or empty string if no layout data
+ */
+export function formatTaskMeasures(task: any): string {
+  const dimensions = getTaskDimensions(task);
+
+  if (!dimensions) return '';
+
+  const widthCm = Math.round(dimensions.width * 100);
+  const heightCm = Math.round(dimensions.height * 100);
+
+  return `${widthCm}x${heightCm}`;
+}
+
+/**
+ * Generate a filename for base files using task name and measures.
+ * Format: "{TaskName} {measures}.{extension}" or "{TaskName}.{extension}" if no measures
+ *
+ * @param taskName - The task name
+ * @param task - The task object with truck and layout data (for measures)
+ * @param originalFilename - The original filename to extract extension from
+ * @param fileIndex - Optional index for multiple files (1-based)
+ * @returns Sanitized filename with task name and measures
+ */
+export function generateBaseFileName(
+  taskName: string,
+  task: any,
+  originalFilename: string,
+  fileIndex?: number,
+): string {
+  // Extract file extension from original filename
+  const extensionMatch = originalFilename.match(/\.([^.]+)$/);
+  const extension = extensionMatch ? extensionMatch[1].toLowerCase() : '';
+
+  // Sanitize task name (remove invalid characters for filenames)
+  const sanitizedName = taskName
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+    .replace(/\.+/g, '.')
+    .replace(/^\.+|\.+$/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/-+/g, '-')
+    .trim() || 'Tarefa';
+
+  // Get measures if available
+  const measures = formatTaskMeasures(task);
+
+  // Build filename parts
+  const parts: string[] = [sanitizedName];
+
+  if (measures) {
+    parts.push(measures);
+  }
+
+  if (fileIndex && fileIndex > 1) {
+    parts.push(`(${fileIndex})`);
+  }
+
+  // Combine parts and add extension
+  const baseName = parts.join(' ');
+  return extension ? `${baseName}.${extension}` : baseName;
+}

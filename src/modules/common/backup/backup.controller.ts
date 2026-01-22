@@ -24,6 +24,7 @@ import {
 } from '@nestjs/swagger';
 import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { UserId } from '@common/decorators/current-user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
 import { BackupService, BackupMetadata, CreateBackupDto } from './backup.service';
 import {
@@ -60,10 +61,6 @@ class CreateBackupRequestDto {
   @IsOptional()
   @IsEnum(['low', 'medium', 'high', 'critical'])
   priority?: 'low' | 'medium' | 'high' | 'critical';
-
-  @IsOptional()
-  @IsBoolean()
-  raidAware?: boolean;
 
   @IsOptional()
   @IsNumber()
@@ -321,10 +318,7 @@ export class BackupController {
   @HttpCode(HttpStatus.CREATED)
   async createBackup(@Body(ValidationPipe) createBackupDto: CreateBackupWithAutoDeleteDto) {
     try {
-      const result = await this.backupService.createBackup({
-        ...createBackupDto,
-        raidAware: true, // Always use RAID-aware backups by default
-      });
+      const result = await this.backupService.createBackup(createBackupDto);
 
       return {
         success: true,
@@ -492,7 +486,10 @@ export class BackupController {
     },
   })
   @HttpCode(HttpStatus.CREATED)
-  async scheduleBackup(@Body(ValidationPipe) scheduleBackupDto: ScheduleBackupDto) {
+  async scheduleBackup(
+    @Body(ValidationPipe) scheduleBackupDto: ScheduleBackupDto,
+    @UserId() userId?: string,
+  ) {
     try {
       const { enabled, cron, ...backupData } = scheduleBackupDto;
 
@@ -504,7 +501,7 @@ export class BackupController {
         },
       };
 
-      const result = await this.backupService.scheduleBackup(createBackupDto);
+      const result = await this.backupService.scheduleBackup(createBackupDto, userId);
 
       return {
         success: true,
@@ -536,9 +533,12 @@ export class BackupController {
     },
   })
   @HttpCode(HttpStatus.OK)
-  async removeScheduledBackup(@Param('id') id: string) {
+  async removeScheduledBackup(
+    @Param('id') id: string,
+    @UserId() userId?: string,
+  ) {
     try {
-      await this.backupService.removeScheduledBackup(id);
+      await this.backupService.removeScheduledBackup(id, userId);
 
       return {
         success: true,
