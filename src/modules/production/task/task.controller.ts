@@ -442,13 +442,19 @@ export class TaskController {
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getInPreparationTasks(
-    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @Query(new ZodQueryValidationPipe(taskGetManySchema)) query: TaskGetManyFormData,
     @UserId() userId: string,
   ): Promise<TaskGetManyResponse> {
     // Get tasks with status PREPARATION
+    // Default sort: forecastDate first, then serialNumber (identificador)
     return this.tasksService.findMany({
       ...query,
+      orderBy: query.orderBy || [
+        { forecastDate: 'asc' },
+        { serialNumber: 'asc' },
+      ],
       where: {
+        ...query.where,
         status: TASK_STATUS.PREPARATION,
       },
       include: {
