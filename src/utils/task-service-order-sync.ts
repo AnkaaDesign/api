@@ -36,6 +36,10 @@ export const TASK_TO_SERVICE_ORDER_STATUS_MAP: Record<TASK_STATUS, SERVICE_ORDER
 
 /**
  * Determines the expected Task status based on all production service orders
+ *
+ * IMPORTANT: CANCELLED service orders are excluded from status calculation.
+ * A task can be completed even if some production service orders are cancelled,
+ * as long as all remaining (non-cancelled) production service orders are completed.
  */
 export function determineTaskStatusFromServiceOrders(
   serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
@@ -48,12 +52,29 @@ export function determineTaskStatusFromServiceOrders(
     return null; // No production orders, can't determine status
   }
 
-  const allCompleted = productionOrders.every(so => so.status === SERVICE_ORDER_STATUS.COMPLETED);
-  const allPending = productionOrders.every(so => so.status === SERVICE_ORDER_STATUS.PENDING);
-  const anyInProgress = productionOrders.some(so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS);
-  const anyCompleted = productionOrders.some(so => so.status === SERVICE_ORDER_STATUS.COMPLETED);
+  // Filter out CANCELLED orders - they don't affect task completion status
+  // A task can be completed if all NON-CANCELLED production orders are completed
+  const activeProductionOrders = productionOrders.filter(
+    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+  );
 
-  // All completed → Task should be COMPLETED
+  // If all production orders are cancelled, don't change task status
+  if (activeProductionOrders.length === 0) {
+    return null;
+  }
+
+  const allCompleted = activeProductionOrders.every(
+    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+  const allPending = activeProductionOrders.every(so => so.status === SERVICE_ORDER_STATUS.PENDING);
+  const anyInProgress = activeProductionOrders.some(
+    so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS,
+  );
+  const anyCompleted = activeProductionOrders.some(
+    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+
+  // All active orders completed → Task should be COMPLETED
   if (allCompleted) {
     return TASK_STATUS.COMPLETED;
   }
@@ -304,26 +325,72 @@ export function getTaskUpdateForServiceOrderStatusChange(
     };
   }
 
-  // SO: ANY → COMPLETED (check if all production SOs are now complete)
+  // SO: ANY → COMPLETED (check if all active production SOs are now complete)
   if (
     newServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
     oldServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED
   ) {
-    const allCompleted = productionOrders.every(so => so.status === SERVICE_ORDER_STATUS.COMPLETED);
+    // Filter out CANCELLED orders - they don't affect task completion
+    const activeProductionOrders = productionOrders.filter(
+      so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    );
 
-    if (
-      allCompleted &&
-      (currentTaskStatus === TASK_STATUS.IN_PRODUCTION || currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION)
-    ) {
-      return {
-        shouldUpdate: true,
-        newTaskStatus: TASK_STATUS.COMPLETED,
-        setStartedAt: true, // Ensure startedAt is set
-        setFinishedAt: true,
-        clearStartedAt: false,
-        clearFinishedAt: false,
-        reason: `Tarefa concluída automaticamente quando todas as ${productionOrders.length} ordens de serviço de produção foram finalizadas`,
-      };
+    // Only check completion if there are active orders
+    if (activeProductionOrders.length > 0) {
+      const allCompleted = activeProductionOrders.every(
+        so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+      );
+
+      if (
+        allCompleted &&
+        (currentTaskStatus === TASK_STATUS.IN_PRODUCTION ||
+          currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION)
+      ) {
+        return {
+          shouldUpdate: true,
+          newTaskStatus: TASK_STATUS.COMPLETED,
+          setStartedAt: true, // Ensure startedAt is set
+          setFinishedAt: true,
+          clearStartedAt: false,
+          clearFinishedAt: false,
+          reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
+        };
+      }
+    }
+  }
+
+  // SO: ANY → CANCELLED (check if all remaining active production SOs are complete)
+  // When a service order is cancelled, check if all remaining active orders are completed
+  if (
+    newServiceOrderStatus === SERVICE_ORDER_STATUS.CANCELLED &&
+    oldServiceOrderStatus !== SERVICE_ORDER_STATUS.CANCELLED
+  ) {
+    // Filter out CANCELLED orders - they don't affect task completion
+    const activeProductionOrders = productionOrders.filter(
+      so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    );
+
+    // Only check completion if there are active orders remaining
+    if (activeProductionOrders.length > 0) {
+      const allCompleted = activeProductionOrders.every(
+        so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+      );
+
+      if (
+        allCompleted &&
+        (currentTaskStatus === TASK_STATUS.IN_PRODUCTION ||
+          currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION)
+      ) {
+        return {
+          shouldUpdate: true,
+          newTaskStatus: TASK_STATUS.COMPLETED,
+          setStartedAt: true, // Ensure startedAt is set
+          setFinishedAt: true,
+          clearStartedAt: false,
+          clearFinishedAt: false,
+          reason: `Tarefa concluída automaticamente quando ordem de serviço foi cancelada e todas as ${activeProductionOrders.length} ordens de serviço de produção restantes estão finalizadas`,
+        };
+      }
     }
   }
 
@@ -335,7 +402,14 @@ export function getTaskUpdateForServiceOrderStatusChange(
     oldServiceOrderStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
     newServiceOrderStatus === SERVICE_ORDER_STATUS.PENDING
   ) {
-    const allPending = productionOrders.every(so => so.status === SERVICE_ORDER_STATUS.PENDING);
+    // Filter out CANCELLED orders when checking for rollback
+    const activeProductionOrders = productionOrders.filter(
+      so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    );
+
+    const allPending = activeProductionOrders.every(
+      so => so.status === SERVICE_ORDER_STATUS.PENDING,
+    );
 
     if (allPending && currentTaskStatus === TASK_STATUS.IN_PRODUCTION) {
       return {
@@ -345,7 +419,7 @@ export function getTaskUpdateForServiceOrderStatusChange(
         setFinishedAt: false,
         clearStartedAt: true, // Clear start date on rollback
         clearFinishedAt: false,
-        reason: `Tarefa retornada para aguardando produção quando todas as ordens de serviço de produção retornaram para pendente`,
+        reason: `Tarefa retornada para aguardando produção quando todas as ordens de serviço de produção ativas retornaram para pendente`,
       };
     }
   }
@@ -374,8 +448,17 @@ export function getTaskUpdateForServiceOrderStatusChange(
     oldServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
     newServiceOrderStatus === SERVICE_ORDER_STATUS.PENDING
   ) {
-    const allPending = productionOrders.every(so => so.status === SERVICE_ORDER_STATUS.PENDING);
-    const anyInProgress = productionOrders.some(so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS);
+    // Filter out CANCELLED orders when checking for rollback
+    const activeProductionOrders = productionOrders.filter(
+      so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+    );
+
+    const allPending = activeProductionOrders.every(
+      so => so.status === SERVICE_ORDER_STATUS.PENDING,
+    );
+    const anyInProgress = activeProductionOrders.some(
+      so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS,
+    );
 
     if (currentTaskStatus === TASK_STATUS.COMPLETED) {
       if (allPending) {
@@ -386,7 +469,7 @@ export function getTaskUpdateForServiceOrderStatusChange(
           setFinishedAt: false,
           clearStartedAt: true,
           clearFinishedAt: true,
-          reason: `Tarefa retornada para aguardando produção quando todas as ordens de serviço de produção foram retornadas para pendente`,
+          reason: `Tarefa retornada para aguardando produção quando todas as ordens de serviço de produção ativas foram retornadas para pendente`,
         };
       } else if (!anyInProgress) {
         return {
