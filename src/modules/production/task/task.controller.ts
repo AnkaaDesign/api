@@ -222,6 +222,10 @@ export class TaskController {
         { name: 'artworks', maxCount: 10 },
         { name: 'baseFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
+        // Layout photos for bulk layout operations
+        { name: 'layoutPhotos.leftSide', maxCount: 1 },
+        { name: 'layoutPhotos.rightSide', maxCount: 1 },
+        { name: 'layoutPhotos.backSide', maxCount: 1 },
       ],
       multerConfig,
     ),
@@ -581,12 +585,14 @@ export class TaskController {
     @Param('id') destinationTaskId: string,
     @Body() data: TaskCopyFromFormData,
     @UserId() userId: string,
+    @User('role') userPrivilege: string,
   ) {
     const result = await this.tasksService.copyFromTask(
       destinationTaskId,
       data.sourceTaskId,
       data.fields,
       userId,
+      userPrivilege,
     );
 
     return {

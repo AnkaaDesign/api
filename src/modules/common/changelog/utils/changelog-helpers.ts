@@ -432,6 +432,29 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
 
   // Sector fields
   // privileges: "privilégios", // Duplicate - already defined in Position fields
+
+  // Task fields (for copy from task and batch operations)
+  term: 'prazo',
+  entryDate: 'data de entrada',
+  forecastDate: 'data prevista',
+  commission: 'comissão',
+  negotiatingWith: 'negociando com',
+  customerId: 'cliente',
+  invoiceToId: 'faturar para',
+  pricingId: 'orçamento',
+  artworkIds: 'artes',
+  artworks: 'artes',
+  baseFileIds: 'arquivos base',
+  baseFiles: 'arquivos base',
+  logoPaintIds: 'tintas de logo',
+  logoPaints: 'tintas de logo',
+  airbrushings: 'aerografias',
+  serviceOrders: 'ordens de serviço',
+  layouts: 'layouts',
+  observation: 'observação',
+  details: 'detalhes',
+  finishedAt: 'finalizado em',
+  priority: 'prioridade',
 };
 
 /**

@@ -97,7 +97,12 @@ export class CustomerController {
   }
 
   @Post('quick')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  )
   @HttpCode(HttpStatus.CREATED)
   async quickCreate(
     @Body(new ZodValidationPipe(customerQuickCreateSchema)) data: CustomerQuickCreateFormData,

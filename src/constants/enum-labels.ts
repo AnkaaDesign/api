@@ -1167,6 +1167,7 @@ export const CHANGE_ACTION_LABELS: Record<CHANGE_ACTION, string> = {
 export const CHANGE_TRIGGERED_BY_LABELS: Record<CHANGE_TRIGGERED_BY, string> = {
   [CHANGE_TRIGGERED_BY.TASK_CREATE]: 'Criação de Tarefa',
   [CHANGE_TRIGGERED_BY.TASK_UPDATE]: 'Atualização de Tarefa',
+  [CHANGE_TRIGGERED_BY.TASK_COPY_FROM_TASK]: 'Copiado de Outra Tarefa',
   [CHANGE_TRIGGERED_BY.ITEM_UPDATE]: 'Atualização de Item',
   [CHANGE_TRIGGERED_BY.USER_ACTION]: 'Ação do Usuário',
   [CHANGE_TRIGGERED_BY.BATCH_CREATE]: 'Criação em Lote',

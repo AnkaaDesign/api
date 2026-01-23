@@ -2,7 +2,7 @@ import { Logger } from '@nestjs/common';
 import { CacheService } from '../../cache/cache.service';
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import * as archiver from 'archiver';
+import archiver from 'archiver';
 import * as unzipper from 'unzipper';
 import { Readable } from 'stream';
 

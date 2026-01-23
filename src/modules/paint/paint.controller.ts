@@ -1128,6 +1128,8 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
   )
   @UsePipes(new ZodQueryValidationPipe(paintGetByIdSchema))
   async getPaintById(
