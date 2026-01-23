@@ -591,15 +591,20 @@ export class ServiceOrderService {
               select: { id: true, status: true },
             });
 
-            // Check if there's at least 1 production service order and ALL are COMPLETED
-            const hasProductionOrders = productionServiceOrders.length > 0;
-            const allProductionCompleted = productionServiceOrders.every(
+            // Filter out CANCELLED orders - they don't block task completion
+            const activeProductionOrders = productionServiceOrders.filter(
+              (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+            );
+
+            // Check if there's at least 1 active production service order and ALL are COMPLETED
+            const hasActiveProductionOrders = activeProductionOrders.length > 0;
+            const allActiveProductionCompleted = activeProductionOrders.every(
               (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
             );
 
-            if (hasProductionOrders && allProductionCompleted) {
+            if (hasActiveProductionOrders && allActiveProductionCompleted) {
               this.logger.log(
-                `[AUTO-COMPLETE TASK] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
+                `[AUTO-COMPLETE TASK] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
               );
 
               const oldTaskStatus = task.status as TASK_STATUS;
@@ -622,7 +627,85 @@ export class ServiceOrderService {
                 field: 'status',
                 oldValue: oldTaskStatus,
                 newValue: TASK_STATUS.COMPLETED,
-                reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas`,
+                reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskAutoCompleted = {
+                taskId: task.id,
+                oldStatus: oldTaskStatus,
+                newStatus: TASK_STATUS.COMPLETED,
+              };
+            }
+          }
+        }
+
+        // =====================================================================
+        // AUTO-COMPLETE TASK WHEN SERVICE ORDER IS CANCELLED
+        // When a PRODUCTION service order is cancelled, check if all remaining
+        // active (non-cancelled) production orders are completed - if so, complete the task
+        // =====================================================================
+        if (
+          data.status === SERVICE_ORDER_STATUS.CANCELLED &&
+          oldData.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+          updated.type === SERVICE_ORDER_TYPE.PRODUCTION
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true, startedAt: true, finishedAt: true },
+          });
+
+          // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
+          if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+            // Get all PRODUCTION service orders for this task
+            const productionServiceOrders = await tx.serviceOrder.findMany({
+              where: {
+                taskId: updated.taskId,
+                type: SERVICE_ORDER_TYPE.PRODUCTION,
+              },
+              select: { id: true, status: true },
+            });
+
+            // Filter out CANCELLED orders - they don't block task completion
+            const activeProductionOrders = productionServiceOrders.filter(
+              (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+            );
+
+            // Check if there's at least 1 active production service order and ALL are COMPLETED
+            const hasActiveProductionOrders = activeProductionOrders.length > 0;
+            const allActiveProductionCompleted = activeProductionOrders.every(
+              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (hasActiveProductionOrders && allActiveProductionCompleted) {
+              this.logger.log(
+                `[AUTO-COMPLETE TASK ON CANCEL] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id} (SO ${id} cancelled), transitioning to COMPLETED`,
+              );
+
+              const oldTaskStatus = task.status as TASK_STATUS;
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.COMPLETED,
+                  statusOrder: 4, // COMPLETED statusOrder
+                  finishedAt: task.finishedAt || new Date(),
+                  startedAt: task.startedAt || new Date(),
+                },
+              });
+
+              // Log the auto-complete in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: oldTaskStatus,
+                newValue: TASK_STATUS.COMPLETED,
+                reason: `Tarefa concluída automaticamente quando ordem de serviço foi cancelada e todas as ${activeProductionOrders.length} ordens de serviço de produção restantes estão finalizadas`,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
@@ -796,6 +879,123 @@ export class ServiceOrderService {
                 oldStatus: task.status as TASK_STATUS,
                 newStatus: taskUpdate.newTaskStatus as TASK_STATUS,
               };
+            }
+          }
+        }
+
+        // =====================================================================
+        // COMPREHENSIVE TASK STATUS SYNC (Catch-all)
+        // After all specific sync checks, verify the task status is correct
+        // based on all production service orders. This handles edge cases
+        // that might be missed by the specific conditions above.
+        // =====================================================================
+        if (
+          updated.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+          data.status &&
+          !taskAutoCompleted && // Don't re-check if already auto-completed
+          !taskRolledBack // Don't re-check if already rolled back
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true, startedAt: true, finishedAt: true },
+          });
+
+          if (task && task.status !== TASK_STATUS.PREPARATION && task.status !== TASK_STATUS.CANCELLED) {
+            // Get all service orders for this task
+            const allServiceOrders = await tx.serviceOrder.findMany({
+              where: { taskId: updated.taskId },
+              select: { id: true, status: true, type: true },
+            });
+
+            // Filter production service orders and exclude CANCELLED
+            const activeProductionOrders = allServiceOrders
+              .filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION)
+              .filter(so => so.status !== SERVICE_ORDER_STATUS.CANCELLED);
+
+            if (activeProductionOrders.length > 0) {
+              const allCompleted = activeProductionOrders.every(
+                so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              );
+              const allPending = activeProductionOrders.every(
+                so => so.status === SERVICE_ORDER_STATUS.PENDING
+              );
+              const anyInProgress = activeProductionOrders.some(
+                so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+              );
+              const anyCompleted = activeProductionOrders.some(
+                so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              );
+
+              let expectedStatus: TASK_STATUS | null = null;
+
+              if (allCompleted) {
+                expectedStatus = TASK_STATUS.COMPLETED;
+              } else if (anyInProgress || anyCompleted) {
+                expectedStatus = TASK_STATUS.IN_PRODUCTION;
+              } else if (allPending) {
+                expectedStatus = TASK_STATUS.WAITING_PRODUCTION;
+              }
+
+              // If expected status differs from current, update the task
+              if (expectedStatus && expectedStatus !== task.status) {
+                this.logger.log(
+                  `[COMPREHENSIVE SYNC] Task ${task.id} status mismatch: current=${task.status}, expected=${expectedStatus}. Updating...`,
+                );
+
+                const taskUpdateData: any = {
+                  status: expectedStatus,
+                  statusOrder: getTaskStatusOrder(expectedStatus),
+                };
+
+                // Handle dates based on status change
+                if (expectedStatus === TASK_STATUS.COMPLETED) {
+                  if (!task.finishedAt) taskUpdateData.finishedAt = new Date();
+                  if (!task.startedAt) taskUpdateData.startedAt = new Date();
+                } else if (expectedStatus === TASK_STATUS.IN_PRODUCTION) {
+                  if (task.status === TASK_STATUS.COMPLETED) {
+                    taskUpdateData.finishedAt = null; // Clear finish date on rollback
+                  }
+                  if (!task.startedAt) taskUpdateData.startedAt = new Date();
+                } else if (expectedStatus === TASK_STATUS.WAITING_PRODUCTION) {
+                  taskUpdateData.startedAt = null;
+                  taskUpdateData.finishedAt = null;
+                }
+
+                await tx.task.update({
+                  where: { id: task.id },
+                  data: taskUpdateData,
+                });
+
+                // Log the sync in changelog
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: task.status,
+                  newValue: expectedStatus,
+                  reason: `Status da tarefa sincronizado automaticamente com base nas ordens de serviço de produção`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+
+                // Track for event emission
+                if (expectedStatus === TASK_STATUS.COMPLETED) {
+                  taskAutoCompleted = {
+                    taskId: task.id,
+                    oldStatus: task.status as TASK_STATUS,
+                    newStatus: expectedStatus,
+                  };
+                } else {
+                  taskRolledBack = {
+                    taskId: task.id,
+                    oldStatus: task.status as TASK_STATUS,
+                    newStatus: expectedStatus,
+                  };
+                }
+              }
             }
           }
         }
@@ -1614,15 +1814,20 @@ export class ServiceOrderService {
                     select: { id: true, status: true },
                   });
 
-                  // Check if there's at least 1 production service order and ALL are COMPLETED
-                  const hasProductionOrders = productionServiceOrders.length > 0;
-                  const allProductionCompleted = productionServiceOrders.every(
+                  // Filter out CANCELLED orders - they don't block task completion
+                  const activeProductionOrders = productionServiceOrders.filter(
+                    (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+                  );
+
+                  // Check if there's at least 1 active production service order and ALL are COMPLETED
+                  const hasActiveProductionOrders = activeProductionOrders.length > 0;
+                  const allActiveProductionCompleted = activeProductionOrders.every(
                     (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
                   );
 
-                  if (hasProductionOrders && allProductionCompleted) {
+                  if (hasActiveProductionOrders && allActiveProductionCompleted) {
                     this.logger.log(
-                      `[AUTO-COMPLETE TASK BATCH] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
+                      `[AUTO-COMPLETE TASK BATCH] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
                     );
 
                     const oldTaskStatus = task.status as TASK_STATUS;
@@ -1643,7 +1848,87 @@ export class ServiceOrderService {
                       field: 'status',
                       oldValue: oldTaskStatus,
                       newValue: TASK_STATUS.COMPLETED,
-                      reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas (batch)`,
+                      reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksAutoCompleted.push({
+                      taskId: task.id,
+                      oldStatus: oldTaskStatus,
+                      newStatus: TASK_STATUS.COMPLETED,
+                    });
+                  }
+                }
+              }
+            }
+
+            // =====================================================================
+            // AUTO-COMPLETE TASK WHEN SERVICE ORDER IS CANCELLED (BATCH)
+            // When a PRODUCTION service order is cancelled, check if all remaining
+            // active (non-cancelled) production orders are completed - if so, complete the task
+            // =====================================================================
+            if (
+              serviceOrder.status === SERVICE_ORDER_STATUS.CANCELLED &&
+              oldData.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION
+            ) {
+              // Check if this task was already auto-completed in this batch
+              const alreadyCompleted = tasksAutoCompleted.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyCompleted) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true, startedAt: true, finishedAt: true },
+                });
+
+                // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
+                if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+                  // Get all PRODUCTION service orders for this task
+                  const productionServiceOrders = await tx.serviceOrder.findMany({
+                    where: {
+                      taskId: serviceOrder.taskId,
+                      type: SERVICE_ORDER_TYPE.PRODUCTION,
+                    },
+                    select: { id: true, status: true },
+                  });
+
+                  // Filter out CANCELLED orders - they don't block task completion
+                  const activeProductionOrders = productionServiceOrders.filter(
+                    (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+                  );
+
+                  // Check if there's at least 1 active production service order and ALL are COMPLETED
+                  const hasActiveProductionOrders = activeProductionOrders.length > 0;
+                  const allActiveProductionCompleted = activeProductionOrders.every(
+                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  );
+
+                  if (hasActiveProductionOrders && allActiveProductionCompleted) {
+                    this.logger.log(
+                      `[AUTO-COMPLETE TASK ON CANCEL BATCH] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id} (SO ${serviceOrder.id} cancelled), transitioning to COMPLETED`,
+                    );
+
+                    const oldTaskStatus = task.status as TASK_STATUS;
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.COMPLETED,
+                        statusOrder: 4, // COMPLETED statusOrder
+                        finishedAt: task.finishedAt || new Date(),
+                        startedAt: task.startedAt || new Date(),
+                      },
+                    });
+
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: oldTaskStatus,
+                      newValue: TASK_STATUS.COMPLETED,
+                      reason: `Tarefa concluída automaticamente quando ordem de serviço foi cancelada e todas as ${activeProductionOrders.length} ordens de serviço de produção restantes estão finalizadas (batch)`,
                       triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                       triggeredById: serviceOrder.id,
                       userId: userId || '',
@@ -1820,6 +2105,128 @@ export class ServiceOrderService {
                       oldStatus: task.status as TASK_STATUS,
                       newStatus: taskUpdate.newTaskStatus as TASK_STATUS,
                     });
+                  }
+                }
+              }
+            }
+
+            // =====================================================================
+            // COMPREHENSIVE TASK STATUS SYNC (Catch-all) - BATCH
+            // After all specific sync checks, verify the task status is correct
+            // based on all production service orders. This handles edge cases
+            // that might be missed by the specific conditions above.
+            // =====================================================================
+            if (
+              serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION &&
+              oldData.status !== serviceOrder.status // Only when status changed
+            ) {
+              // Check if this task was already handled by another sync block
+              const alreadyHandled =
+                tasksAutoCompleted.some(t => t.taskId === serviceOrder.taskId) ||
+                tasksRolledBack.some(t => t.taskId === serviceOrder.taskId);
+
+              if (!alreadyHandled) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true, startedAt: true, finishedAt: true },
+                });
+
+                if (task && task.status !== TASK_STATUS.PREPARATION && task.status !== TASK_STATUS.CANCELLED) {
+                  // Get all service orders for this task
+                  const allServiceOrders = await tx.serviceOrder.findMany({
+                    where: { taskId: serviceOrder.taskId },
+                    select: { id: true, status: true, type: true },
+                  });
+
+                  // Filter production service orders and exclude CANCELLED
+                  const activeProductionOrders = allServiceOrders
+                    .filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION)
+                    .filter(so => so.status !== SERVICE_ORDER_STATUS.CANCELLED);
+
+                  if (activeProductionOrders.length > 0) {
+                    const allCompleted = activeProductionOrders.every(
+                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                    );
+                    const allPending = activeProductionOrders.every(
+                      so => so.status === SERVICE_ORDER_STATUS.PENDING
+                    );
+                    const anyInProgress = activeProductionOrders.some(
+                      so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+                    );
+                    const anyCompleted = activeProductionOrders.some(
+                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                    );
+
+                    let expectedStatus: TASK_STATUS | null = null;
+
+                    if (allCompleted) {
+                      expectedStatus = TASK_STATUS.COMPLETED;
+                    } else if (anyInProgress || anyCompleted) {
+                      expectedStatus = TASK_STATUS.IN_PRODUCTION;
+                    } else if (allPending) {
+                      expectedStatus = TASK_STATUS.WAITING_PRODUCTION;
+                    }
+
+                    // If expected status differs from current, update the task
+                    if (expectedStatus && expectedStatus !== task.status) {
+                      this.logger.log(
+                        `[COMPREHENSIVE SYNC BATCH] Task ${task.id} status mismatch: current=${task.status}, expected=${expectedStatus}. Updating...`,
+                      );
+
+                      const taskUpdateData: any = {
+                        status: expectedStatus,
+                        statusOrder: getTaskStatusOrder(expectedStatus),
+                      };
+
+                      // Handle dates based on status change
+                      if (expectedStatus === TASK_STATUS.COMPLETED) {
+                        if (!task.finishedAt) taskUpdateData.finishedAt = new Date();
+                        if (!task.startedAt) taskUpdateData.startedAt = new Date();
+                      } else if (expectedStatus === TASK_STATUS.IN_PRODUCTION) {
+                        if (task.status === TASK_STATUS.COMPLETED) {
+                          taskUpdateData.finishedAt = null; // Clear finish date on rollback
+                        }
+                        if (!task.startedAt) taskUpdateData.startedAt = new Date();
+                      } else if (expectedStatus === TASK_STATUS.WAITING_PRODUCTION) {
+                        taskUpdateData.startedAt = null;
+                        taskUpdateData.finishedAt = null;
+                      }
+
+                      await tx.task.update({
+                        where: { id: task.id },
+                        data: taskUpdateData,
+                      });
+
+                      // Log the sync in changelog
+                      await this.changeLogService.logChange({
+                        entityType: ENTITY_TYPE.TASK,
+                        entityId: task.id,
+                        action: CHANGE_ACTION.UPDATE,
+                        field: 'status',
+                        oldValue: task.status,
+                        newValue: expectedStatus,
+                        reason: `Status da tarefa sincronizado automaticamente com base nas ordens de serviço de produção (batch)`,
+                        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                        triggeredById: serviceOrder.id,
+                        userId: userId || '',
+                        transaction: tx,
+                      });
+
+                      // Track for event emission
+                      if (expectedStatus === TASK_STATUS.COMPLETED) {
+                        tasksAutoCompleted.push({
+                          taskId: task.id,
+                          oldStatus: task.status as TASK_STATUS,
+                          newStatus: expectedStatus,
+                        });
+                      } else {
+                        tasksRolledBack.push({
+                          taskId: task.id,
+                          oldStatus: task.status as TASK_STATUS,
+                          newStatus: expectedStatus,
+                        });
+                      }
+                    }
                   }
                 }
               }

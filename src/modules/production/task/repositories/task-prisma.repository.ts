@@ -137,7 +137,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
         },
       },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { createdAt: 'asc' }, // Maintain creation order (oldest first)
   },
   truck: {
     include: {
