@@ -56,40 +56,16 @@ export class BackupProcessor {
       // Get file size
       const stats = await fs.stat(backupPath);
 
-      // Update metadata with completion info
-      const metadata = await this.backupService.getBackupById(backupId);
-      if (!metadata) {
-        this.logger.error(`CRITICAL: Metadata not found for backup ${backupId} after completion!`);
-        throw new Error(`Metadata not found for backup ${backupId}`);
-      }
+      // Calculate relative file path for database storage
+      const backupBasePath = process.env.BACKUP_PATH || '/srv/files/Backup';
+      const relativePath = backupPath.replace(backupBasePath + '/', '');
 
-      metadata.status = 'completed';
-      metadata.size = stats.size;
-      metadata.priority = priority;
-      metadata.compressionLevel = compressionLevel;
-      metadata.encrypted = encrypted;
-
-      // Save metadata with retries to ensure completion is recorded
-      let metadataSaved = false;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          await this.backupService.saveBackupMetadata(metadata);
-          metadataSaved = true;
-          break;
-        } catch (saveError) {
-          this.logger.warn(
-            `Attempt ${attempt}/3 - Failed to save backup metadata: ${saveError.message}`,
-          );
-          if (attempt < 3) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-          }
-        }
-      }
-
-      if (!metadataSaved) {
-        this.logger.error(`CRITICAL: Failed to save completed metadata for backup ${backupId}`);
-        throw new Error(`Failed to save backup metadata after 3 attempts`);
-      }
+      // Update backup completion in database
+      await this.backupService.updateBackupCompletion(
+        backupId,
+        BigInt(stats.size),
+        relativePath,
+      );
 
       // Set final permissions AFTER metadata is saved (fixes permission denied issues)
       const backupDir = path.dirname(backupPath);
@@ -257,8 +233,9 @@ export class BackupProcessor {
         await execAsync(extractCommand);
 
         // Set proper files storage permissions
+        // Files storage is owned by kennedy:ankaa per setup-server.sh
         try {
-          await execAsync(`sudo chown -R www-data:www-data "${filesRoot}"`);
+          await execAsync(`sudo chown -R kennedy:ankaa "${filesRoot}"`);
           await execAsync(`sudo chmod -R 2775 "${filesRoot}"`);
         } catch (permError) {
           this.logger.warn(`Could not set files storage permissions: ${permError.message}`);
@@ -354,7 +331,7 @@ export class BackupProcessor {
       // Find the schedule in database by Bull job ID
       let schedule = null;
       if (jobId) {
-        schedule = await this.backupScheduleRepository.findByBullJobId(jobId);
+        schedule = await this.backupScheduleRepository.findByBullJobId(String(jobId));
       }
 
       // Mark schedule as running
@@ -374,8 +351,9 @@ export class BackupProcessor {
       // Record successful execution in database
       if (schedule) {
         // Calculate next run time based on cron
-        const nextRun = job.opts?.repeat?.every
-          ? new Date(Date.now() + job.opts.repeat.every)
+        const repeatOpts = job.opts?.repeat as { every?: number } | undefined;
+        const nextRun = repeatOpts?.every
+          ? new Date(Date.now() + repeatOpts.every)
           : undefined;
 
         await this.backupScheduleRepository.recordSuccess(schedule.id, nextRun);
@@ -387,7 +365,7 @@ export class BackupProcessor {
       // Record failure in database
       if (jobId) {
         try {
-          const schedule = await this.backupScheduleRepository.findByBullJobId(jobId);
+          const schedule = await this.backupScheduleRepository.findByBullJobId(String(jobId));
           if (schedule) {
             await this.backupScheduleRepository.recordFailure(schedule.id, error.message);
             this.logger.log(`Schedule ${schedule.name} failure recorded`);

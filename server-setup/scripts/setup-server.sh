@@ -102,6 +102,16 @@ fi
 # Add kennedy to ankaa group
 usermod -aG ankaa kennedy
 
+# Cross-group memberships for file access
+# kennedy needs www-data group for backup file management
+usermod -aG www-data kennedy
+# www-data needs ankaa group for file storage access
+usermod -aG ankaa www-data
+
+echo -e "${GREEN}Group memberships configured:${NC}"
+echo "  - kennedy: $(groups kennedy)"
+echo "  - www-data: $(groups www-data)"
+
 # ===================================
 # 6. Create Directory Structure
 # ===================================
@@ -133,6 +143,17 @@ chown -R kennedy:ankaa /home/kennedy/backups
 chown -R kennedy:ankaa /srv/files
 chown -R kennedy:ankaa /var/log/ankaa
 chmod -R 2775 /srv/files
+
+# Special handling for Backup directory
+# Owned by kennedy:www-data so API can create/delete and nginx can read
+mkdir -p /srv/files/Backup/{database,arquivos,sistema,full}
+chown -R kennedy:www-data /srv/files/Backup
+chmod -R 2775 /srv/files/Backup
+
+echo -e "${GREEN}Backup directory configured:${NC}"
+echo "  - Path: /srv/files/Backup"
+echo "  - Owner: kennedy:www-data"
+echo "  - Mode: 2775 (setgid)"
 
 # ===================================
 # 7. Configure Firewall
@@ -198,9 +219,32 @@ systemctl enable nginx
 systemctl start nginx
 
 # ===================================
-# 10. Install Systemd Services
+# 10. Install Sudoers Configuration
 # ===================================
-echo -e "${BLUE}[10/10] Installing systemd services...${NC}"
+echo -e "${BLUE}[10/11] Installing sudoers configuration for backup operations...${NC}"
+
+SUDOERS_SRC="$SCRIPT_DIR/../sudoers"
+if [ -d "$SUDOERS_SRC" ]; then
+    # Install sudoers file for backup operations
+    if [ -f "$SUDOERS_SRC/ankaa-backup" ]; then
+        cp "$SUDOERS_SRC/ankaa-backup" /etc/sudoers.d/ankaa-backup
+        chmod 440 /etc/sudoers.d/ankaa-backup
+        # Validate sudoers file
+        if visudo -c -f /etc/sudoers.d/ankaa-backup; then
+            echo -e "${GREEN}Sudoers configuration installed successfully${NC}"
+        else
+            echo -e "${RED}Invalid sudoers file, removing...${NC}"
+            rm -f /etc/sudoers.d/ankaa-backup
+        fi
+    fi
+else
+    echo -e "${YELLOW}Sudoers configuration not found, skipping...${NC}"
+fi
+
+# ===================================
+# 11. Install Systemd Services
+# ===================================
+echo -e "${BLUE}[11/11] Installing systemd services...${NC}"
 
 SYSTEMD_SRC="$SCRIPT_DIR/../systemd"
 if [ -d "$SYSTEMD_SRC" ]; then

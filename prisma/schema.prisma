@@ -1365,6 +1365,8 @@ model User {
   messageViews            MessageView[]                @relation("MESSAGE_VIEW_USER")
   backupSchedulesCreated  BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
   backupSchedulesDeleted  BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
+  backupsCreated          Backup[]                     @relation("BACKUP_CREATOR")
+  backupsDeleted          Backup[]                     @relation("BACKUP_DELETER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2748,43 +2750,44 @@ enum MessageStatus {
 // ============================================================================
 
 model BackupSchedule {
-  id               String   @id @default(uuid())
+  id               String         @id @default(uuid())
   name             String
   type             BackupType
   description      String?
-  paths            String[] @default([])
+  paths            String[]       @default([])
   cronExpression   String
-  enabled          Boolean  @default(true)
+  enabled          Boolean        @default(true)
   priority         BackupPriority @default(MEDIUM)
-  compressionLevel Int      @default(6)
-  encrypted        Boolean  @default(false)
+  compressionLevel Int            @default(6)
+  encrypted        Boolean        @default(false)
 
   // Auto-delete settings
-  autoDeleteEnabled   Boolean  @default(false)
-  autoDeleteRetention String?  // e.g., '1_day', '1_week', '1_month'
+  autoDeleteEnabled   Boolean @default(false)
+  autoDeleteRetention String? // e.g., '1_day', '1_week', '1_month'
 
   // Bull job tracking
-  bullJobId        String?  @unique // Reference to Bull queue job ID
+  bullJobId String? @unique // Reference to Bull queue job ID
 
   // Execution tracking
-  lastRunAt        DateTime?
-  nextRunAt        DateTime?
-  lastStatus       BackupScheduleStatus @default(PENDING)
-  lastError        String?
-  runCount         Int      @default(0)
-  failureCount     Int      @default(0)
+  lastRunAt    DateTime?
+  nextRunAt    DateTime?
+  lastStatus   BackupScheduleStatus @default(PENDING)
+  lastError    String?
+  runCount     Int                  @default(0)
+  failureCount Int                  @default(0)
 
   // Audit fields
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  createdById      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
 
   // Soft delete fields
-  deletedAt        DateTime?
-  deletedById      String?
+  deletedAt   DateTime?
+  deletedById String?
 
-  createdBy        User?    @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
-  deletedBy        User?    @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
+  deletedBy User?    @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
+  backups   Backup[] // Backups created by this schedule
 
   @@index([enabled])
   @@index([type])
@@ -2812,4 +2815,76 @@ enum BackupScheduleStatus {
   RUNNING
   COMPLETED
   FAILED
+}
+
+// ============================================================================
+// BACKUP RECORDS (Persistent storage of backup metadata)
+// ============================================================================
+
+model Backup {
+  id               String         @id // Use the same ID as the file-based backup (backup_TIMESTAMP_RANDOM)
+  name             String
+  type             BackupType
+  description      String?
+  paths            String[]       @default([])
+  status           BackupStatus   @default(PENDING)
+  priority         BackupPriority @default(MEDIUM)
+  compressionLevel Int            @default(6)
+  encrypted        Boolean        @default(false)
+  size             BigInt         @default(0) // Size in bytes
+  progress         Int            @default(0) // Progress percentage (0-100)
+  error            String? // Error message if failed
+
+  // Auto-delete settings
+  autoDeleteEnabled   Boolean   @default(false)
+  autoDeleteRetention String? // e.g., '1_day', '1_week', '1_month'
+  autoDeleteAfter     DateTime? // Calculated date when backup should be deleted
+
+  // File storage
+  filePath String? // Relative path to backup base path (e.g., "database/2026/01/23/backup_xxx")
+
+  // Google Drive sync
+  gdriveFileId   String?          // Google Drive file ID after sync
+  gdriveStatus   GDriveSyncStatus @default(PENDING)
+  gdriveSyncedAt DateTime?        // Last sync timestamp
+
+  // Schedule reference (if created by a scheduled job)
+  scheduleId String?
+  schedule   BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  // Audit fields
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+  createdById String?
+  createdBy   User?     @relation("BACKUP_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
+
+  // Soft delete fields
+  deletedAt   DateTime?
+  deletedById String?
+  deletedBy   User?     @relation("BACKUP_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([autoDeleteAfter])
+  @@index([scheduleId])
+  @@index([createdById])
+  @@index([deletedAt])
+  @@index([gdriveStatus])
+}
+
+enum BackupStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum GDriveSyncStatus {
+  PENDING    // Not yet synced
+  SYNCING    // Currently syncing
+  SYNCED     // Successfully synced
+  FAILED     // Sync failed
+  DELETED    // Deleted from Google Drive
 }
