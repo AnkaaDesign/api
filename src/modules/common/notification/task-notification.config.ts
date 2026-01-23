@@ -135,6 +135,12 @@ export const FIELD_ALLOWED_ROLES: Record<string, SECTOR_PRIVILEGES[]> = {
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
   ],
+  baseFiles: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+  ],
 
   // NEGOTIATION events
   negotiatingWith: [
@@ -857,6 +863,44 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
           body: '{count} arte(s) removida(s) da tarefa "{taskName}" por {changedBy}.\n\nVerifique se ainda existem artes válidas para produção.',
         },
         whatsapp: '⚠️ {count} arte(s) removida(s) da tarefa #{serialNumber}.',
+      },
+    },
+  },
+  {
+    field: 'baseFiles',
+    label: 'Arquivos Base',
+    category: TaskFieldCategory.ARTWORK,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP],
+    enabled: true,
+    isFileArray: true,
+    messages: {
+      updated: {
+        inApp: 'Arquivos base atualizados',
+        push: 'Arquivos base atualizados',
+        email: {
+          subject: '📁 Arquivos Base - Tarefa #{serialNumber}',
+          body: 'Os arquivos base da tarefa "{taskName}" foram atualizados por {changedBy}.\n\nVerifique os novos arquivos.',
+        },
+        whatsapp: '📁 Arquivos base da tarefa #{serialNumber} atualizados.',
+      },
+      filesAdded: {
+        inApp: '{count} arquivo(s) base adicionado(s)',
+        push: 'Novo arquivo base',
+        email: {
+          subject: '📁 Novo arquivo base - Tarefa #{serialNumber}',
+          body: '{count} novo(s) arquivo(s) base adicionado(s) à tarefa "{taskName}" por {changedBy}.',
+        },
+        whatsapp: '📁 {count} arquivo(s) base adicionado(s) à tarefa #{serialNumber}.',
+      },
+      filesRemoved: {
+        inApp: '{count} arquivo(s) base removido(s)',
+        push: 'Arquivo base removido',
+        email: {
+          subject: '⚠️ Arquivo base removido - Tarefa #{serialNumber}',
+          body: '{count} arquivo(s) base removido(s) da tarefa "{taskName}" por {changedBy}.',
+        },
+        whatsapp: '⚠️ {count} arquivo(s) base removido(s) da tarefa #{serialNumber}.',
       },
     },
   },
