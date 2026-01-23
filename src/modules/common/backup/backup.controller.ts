@@ -365,21 +365,14 @@ export class BackupController {
   })
   @HttpCode(HttpStatus.OK)
   async restoreBackup(@Param('id') id: string, @Body() body?: { targetPath?: string }) {
-    try {
-      const result = await this.backupService.restoreBackup(id, body?.targetPath);
+    // Let exceptions propagate for proper error handling on the frontend
+    const result = await this.backupService.restoreBackup(id, body?.targetPath);
 
-      return {
-        success: true,
-        data: result,
-        message: 'Restauração de backup iniciada com sucesso',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        message: error.message || 'Falha ao restaurar backup',
-      };
-    }
+    return {
+      success: true,
+      data: result,
+      message: 'Restauração de backup iniciada com sucesso',
+    };
   }
 
   @Delete(':id')
@@ -397,23 +390,20 @@ export class BackupController {
       },
     },
   })
+  @ApiResponse({
+    status: 500,
+    description: 'Falha ao excluir backup',
+  })
   @HttpCode(HttpStatus.OK)
   async deleteBackup(@Param('id') id: string) {
-    try {
-      await this.backupService.deleteBackup(id);
+    // Let exceptions propagate - service throws InternalServerErrorException on failure
+    await this.backupService.deleteBackup(id);
 
-      return {
-        success: true,
-        data: null,
-        message: 'Backup excluído com sucesso',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        message: error.message || 'Falha ao excluir backup',
-      };
-    }
+    return {
+      success: true,
+      data: null,
+      message: 'Backup excluído com sucesso',
+    };
   }
 
   @Get('scheduled/list')
@@ -532,26 +522,23 @@ export class BackupController {
       },
     },
   })
+  @ApiResponse({
+    status: 500,
+    description: 'Falha ao remover backup agendado',
+  })
   @HttpCode(HttpStatus.OK)
   async removeScheduledBackup(
     @Param('id') id: string,
     @UserId() userId?: string,
   ) {
-    try {
-      await this.backupService.removeScheduledBackup(id, userId);
+    // Let exceptions propagate for proper error handling on the frontend
+    await this.backupService.removeScheduledBackup(id, userId);
 
-      return {
-        success: true,
-        data: null,
-        message: 'Backup agendado removido com sucesso',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        message: error.message || 'Falha ao remover backup agendado',
-      };
-    }
+    return {
+      success: true,
+      data: null,
+      message: 'Backup agendado removido com sucesso',
+    };
   }
 
   @Get('system/health/summary')
@@ -849,6 +836,43 @@ export class BackupController {
         message: error.message || 'Falha ao verificar backup',
       };
     }
+  }
+
+  @Get('history')
+  @ApiOperation({ summary: 'Get deleted backups history' })
+  @ApiResponse({
+    status: 200,
+    description: 'Deleted backups history',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'array',
+          items: { type: 'object' },
+        },
+      },
+    },
+  })
+  async getBackupHistory() {
+    const deletedBackups = await this.backupService.getDeletedBackups();
+    return {
+      success: true,
+      data: deletedBackups,
+    };
+  }
+
+  @Delete(':id/hard')
+  @ApiOperation({ summary: 'Permanently delete a backup (removes from history)' })
+  @ApiParam({ name: 'id', description: 'Backup ID' })
+  @ApiResponse({ status: 200, description: 'Backup permanently deleted' })
+  @HttpCode(HttpStatus.OK)
+  async hardDeleteBackup(@Param('id') id: string) {
+    await this.backupService.hardDeleteBackup(id);
+    return {
+      success: true,
+      message: 'Backup permanently deleted',
+    };
   }
 
   private formatBytes(bytes: number): string {
