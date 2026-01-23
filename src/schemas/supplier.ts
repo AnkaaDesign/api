@@ -733,7 +733,11 @@ export const supplierCreateSchema = z.object({
   fantasyName: fantasyNameSchema,
   cnpj: cnpjOptionalSchema,
   corporateName: corporateNameSchema,
-  email: emailSchema.nullable().optional(),
+  // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
+  email: z.preprocess(
+    val => (val === '' || val === null || val === undefined ? null : val),
+    emailSchema.nullable().optional()
+  ),
   streetType: z
     .enum([
       'STREET',
@@ -920,7 +924,11 @@ export const supplierUpdateSchema = z.object({
     ])
     .optional(),
   corporateName: corporateNameSchema.optional(),
-  email: emailSchema.nullable().optional(),
+  // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
+  email: z.preprocess(
+    val => (val === '' || val === null || val === undefined ? null : val),
+    emailSchema.nullable().optional()
+  ),
   streetType: z
     .enum([
       'STREET',

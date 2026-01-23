@@ -71,20 +71,23 @@ export const cleanCEP = cleanZipCode;
 
 /**
  * Cleans and normalizes email addresses
+ * Returns empty string for invalid/empty values (like other cleaners)
+ * Validation should be handled by validators, not cleaners
  */
 export const cleanEmail = (value: string): string => {
   if (!value || typeof value !== 'string') {
-    throw new Error('Email é obrigatório');
+    return '';
   }
 
   const cleaned = value.trim().toLowerCase();
 
   if (cleaned.length === 0) {
-    throw new Error('Email não pode ser vazio');
+    return '';
   }
 
+  // Truncate if too long (validation will catch this)
   if (cleaned.length > 254) {
-    throw new Error('Email muito longo');
+    return cleaned.substring(0, 254);
   }
 
   return cleaned;

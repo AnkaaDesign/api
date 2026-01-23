@@ -5,9 +5,10 @@ import { BackupController } from './backup.controller';
 import { BackupService } from './backup.service';
 import { BackupProcessor } from './backup.processor';
 import { BackupGateway } from './backup.gateway';
+import { BackupRepository } from './backup.repository';
 import { BackupScheduleRepository } from './backup-schedule.repository';
 import { UserModule } from '../../people/user/user.module';
-import { PrismaModule } from '../../../prisma/prisma.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { PrismaModule } from '../../../prisma/prisma.module';
     }),
   ],
   controllers: [BackupController],
-  providers: [BackupService, BackupProcessor, BackupGateway, BackupScheduleRepository],
-  exports: [BackupService, BackupScheduleRepository],
+  providers: [BackupService, BackupProcessor, BackupGateway, BackupRepository, BackupScheduleRepository],
+  exports: [BackupService, BackupRepository, BackupScheduleRepository],
 })
 export class BackupModule {}

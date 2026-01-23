@@ -7,8 +7,16 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from 'eventemitter2';
+import { BackupRepository } from './backup.repository';
 import { BackupScheduleRepository } from './backup-schedule.repository';
-import { BackupType, BackupPriority, BackupSchedule } from '@prisma/client';
+import {
+  BackupType,
+  BackupPriority,
+  BackupSchedule,
+  BackupStatus,
+  GDriveSyncStatus,
+  Backup,
+} from '@prisma/client';
 
 const execAsync = promisify(exec);
 
@@ -74,33 +82,6 @@ export class BackupService implements OnModuleInit {
   private readonly isDevelopment = process.env.NODE_ENV !== 'production';
   private readonly productionBasePath = '/home/kennedy/ankaa';
 
-  // Mutex for serializing metadata file access to prevent race conditions
-  private readonly metadataLocks = new Map<string, Promise<void>>();
-
-  /**
-   * Acquire a lock for a specific backup ID to prevent concurrent metadata operations
-   */
-  private async acquireMetadataLock(backupId: string): Promise<() => void> {
-    // Wait for any existing lock on this backup to complete
-    while (this.metadataLocks.has(backupId)) {
-      await this.metadataLocks.get(backupId);
-    }
-
-    // Create a new lock promise
-    let releaseLock: () => void;
-    const lockPromise = new Promise<void>(resolve => {
-      releaseLock = resolve;
-    });
-
-    this.metadataLocks.set(backupId, lockPromise);
-
-    // Return the release function
-    return () => {
-      this.metadataLocks.delete(backupId);
-      releaseLock!();
-    };
-  }
-
   // RAID-aware and priority-based backup paths (production only)
   private readonly criticalPaths = this.isDevelopment
     ? []
@@ -137,6 +118,7 @@ export class BackupService implements OnModuleInit {
     @InjectQueue('backup-queue') private backupQueue: Queue,
     private configService: ConfigService,
     private eventEmitter: EventEmitter2,
+    private backupRepository: BackupRepository,
     private backupScheduleRepository: BackupScheduleRepository,
   ) {
     this.ensureBackupDirectories();
@@ -175,13 +157,20 @@ export class BackupService implements OnModuleInit {
       for (const dir of baseDirectories) {
         const dirPath = path.join(this.backupBasePath, dir);
         await fs.mkdir(dirPath, { recursive: true });
-        // Set proper permissions for files storage (www-data:www-data, 2775) - production only
+        // Set proper permissions for files storage (kennedy:www-data, 2775) - production only
+        // kennedy (owner) can write/delete, www-data (group) can read for nginx
         if (!this.isDevelopment) {
           try {
-            await execAsync(`sudo chown www-data:www-data "${dirPath}"`);
-            await execAsync(`sudo chmod 2775 "${dirPath}"`);
+            await execAsync(`chown kennedy:www-data "${dirPath}"`);
+            await execAsync(`chmod 2775 "${dirPath}"`);
           } catch (permError) {
-            this.logger.warn(`Could not set permissions on ${dirPath}: ${permError.message}`);
+            // Fallback to sudo if needed
+            try {
+              await execAsync(`sudo chown kennedy:www-data "${dirPath}"`);
+              await execAsync(`sudo chmod 2775 "${dirPath}"`);
+            } catch (sudoError) {
+              this.logger.warn(`Could not set permissions on ${dirPath}: ${sudoError.message}`);
+            }
           }
         }
       }
@@ -215,52 +204,62 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Set final permissions on backup directory after files are created.
-   * Makes backup accessible to www-data for web server access.
+   * Makes backup accessible to www-data for web server access while keeping
+   * kennedy as owner for delete operations.
+   *
+   * Ownership: kennedy:www-data (owner can delete, group can read)
+   * Mode: 2775 (setgid for group inheritance)
+   *
    * NOTE: This should be called AFTER metadata is saved to avoid permission issues.
    */
   async setBackupPermissions(backupPath: string): Promise<void> {
     if (this.isDevelopment) return;
 
     try {
-      await execAsync(`sudo chown -R www-data:www-data "${backupPath}"`);
-      await execAsync(`sudo chmod -R 2775 "${backupPath}"`);
+      // Use kennedy:www-data ownership so:
+      // - kennedy (API user) can delete files without sudo
+      // - www-data (nginx) can read files via group permissions
+      await execAsync(`chown -R kennedy:www-data "${backupPath}"`);
+      await execAsync(`chmod -R 2775 "${backupPath}"`);
     } catch (permError) {
-      this.logger.warn(`Could not set permissions on ${backupPath}: ${permError.message}`);
+      // If chown fails (e.g., not owner), try with sudo as fallback
+      try {
+        await execAsync(`sudo chown -R kennedy:www-data "${backupPath}"`);
+        await execAsync(`sudo chmod -R 2775 "${backupPath}"`);
+      } catch (sudoError) {
+        this.logger.warn(`Could not set permissions on ${backupPath}: ${sudoError.message}`);
+      }
     }
   }
 
-  async createBackup(createBackupDto: CreateBackupDto): Promise<{ id: string; message: string }> {
+  async createBackup(
+    createBackupDto: CreateBackupDto,
+    userId?: string,
+  ): Promise<{ id: string; message: string }> {
     const backupId = `backup_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
     try {
       // Calculate auto-delete date if enabled
-      let autoDeleteSettings: BackupMetadata['autoDelete'] = undefined;
+      let autoDeleteAfter: Date | undefined = undefined;
       if (createBackupDto.autoDelete?.enabled) {
-        const deleteAfter = this.calculateDeleteAfterDate(createBackupDto.autoDelete.retention);
-        autoDeleteSettings = {
-          enabled: true,
-          retention: createBackupDto.autoDelete.retention,
-          deleteAfter: deleteAfter.toISOString(),
-        };
+        autoDeleteAfter = this.calculateDeleteAfterDate(createBackupDto.autoDelete.retention);
       }
 
-      // Create initial metadata
-      const metadata: BackupMetadata = {
+      // Create backup record in database
+      await this.backupRepository.create({
         id: backupId,
         name: createBackupDto.name,
-        type: createBackupDto.type,
-        size: 0,
-        createdAt: new Date().toISOString(),
-        status: 'pending',
+        type: this.mapDtoTypeToDb(createBackupDto.type),
         description: createBackupDto.description,
         paths: createBackupDto.paths,
-        priority: createBackupDto.priority,
+        priority: this.mapDtoPriorityToDb(createBackupDto.priority),
         compressionLevel: createBackupDto.compressionLevel,
         encrypted: createBackupDto.encrypted,
-        autoDelete: autoDeleteSettings,
-      };
-
-      await this.saveBackupMetadata(metadata);
+        autoDeleteEnabled: createBackupDto.autoDelete?.enabled ?? false,
+        autoDeleteRetention: createBackupDto.autoDelete?.retention,
+        autoDeleteAfter,
+        createdById: userId,
+      });
 
       // Queue the backup job
       await this.backupQueue.add(
@@ -291,250 +290,294 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Recursively search for all metadata JSON files in date-based directories
+   * Get all backups from database
+   * Returns backups in a format compatible with the frontend
    */
-  private async findAllMetadataFiles(basePath: string): Promise<string[]> {
-    const metadataFiles: string[] = [];
-
-    try {
-      const entries = await fs.readdir(basePath, { withFileTypes: true });
-
-      for (const entry of entries) {
-        const fullPath = path.join(basePath, entry.name);
-
-        if (entry.isDirectory()) {
-          // Recursively search subdirectories
-          const subFiles = await this.findAllMetadataFiles(fullPath);
-          metadataFiles.push(...subFiles);
-        } else if (
-          entry.isFile() &&
-          entry.name.endsWith('.json') &&
-          !entry.name.includes('latest.json')
-        ) {
-          metadataFiles.push(fullPath);
-        }
-      }
-    } catch (error) {
-      // Directory might not exist yet, just return empty array
-      if (error.code !== 'ENOENT') {
-        this.logger.warn(`Error reading directory ${basePath}: ${error.message}`);
-      }
-    }
-
-    return metadataFiles;
-  }
-
   async getBackups(): Promise<BackupMetadata[]> {
     try {
-      const backups: BackupMetadata[] = [];
-
-      // Search in database, arquivos, sistema, and full directories
-      const databasePath = path.join(this.backupBasePath, 'database');
-      const arquivosPath = path.join(this.backupBasePath, 'arquivos');
-      const sistemaPath = path.join(this.backupBasePath, 'sistema');
-      const fullPath = path.join(this.backupBasePath, 'full');
-
-      const databaseFiles = await this.findAllMetadataFiles(databasePath);
-      const arquivosFiles = await this.findAllMetadataFiles(arquivosPath);
-      const sistemaFiles = await this.findAllMetadataFiles(sistemaPath);
-      const fullFiles = await this.findAllMetadataFiles(fullPath);
-
-      const allFiles = [...databaseFiles, ...arquivosFiles, ...sistemaFiles, ...fullFiles];
-
-      for (const filePath of allFiles) {
-        try {
-          const content = await fs.readFile(filePath, 'utf-8');
-          const metadata = JSON.parse(content);
-
-          // Validate that this is a proper BackupMetadata object
-          if (this.isValidBackupMetadata(metadata)) {
-            backups.push(metadata);
-          } else {
-            this.logger.warn(`Skipping invalid backup metadata file: ${filePath}`);
-          }
-        } catch (error) {
-          this.logger.warn(`Failed to read backup metadata file: ${filePath}`);
-        }
-      }
-
-      // Sort by creation date (newest first)
-      return backups.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
+      const backups = await this.backupRepository.findAll();
+      return backups.map(backup => this.mapDbToMetadata(backup));
     } catch (error) {
       this.logger.error(`Failed to get backups: ${error.message}`);
       throw new InternalServerErrorException('Failed to retrieve backups');
     }
   }
 
+  /**
+   * Get deleted backups (history)
+   */
+  async getDeletedBackups(): Promise<BackupMetadata[]> {
+    try {
+      const backups = await this.backupRepository.findAllDeleted();
+      return backups.map(backup => this.mapDbToMetadata(backup));
+    } catch (error) {
+      this.logger.error(`Failed to get deleted backups: ${error.message}`);
+      throw new InternalServerErrorException('Failed to retrieve deleted backups');
+    }
+  }
+
+  /**
+   * Map database Backup to BackupMetadata format for frontend compatibility
+   */
+  private mapDbToMetadata(backup: Backup): BackupMetadata {
+    return {
+      id: backup.id,
+      name: backup.name,
+      type: this.mapDbTypeToDto(backup.type),
+      size: Number(backup.size),
+      createdAt: backup.createdAt.toISOString(),
+      status: backup.status.toLowerCase() as BackupMetadata['status'],
+      description: backup.description || undefined,
+      paths: backup.paths,
+      error: backup.error || undefined,
+      priority: this.mapDbPriorityToDto(backup.priority),
+      compressionLevel: backup.compressionLevel,
+      encrypted: backup.encrypted,
+      autoDelete: backup.autoDeleteEnabled
+        ? {
+            enabled: true,
+            retention: backup.autoDeleteRetention as BackupMetadata['autoDelete']['retention'],
+            deleteAfter: backup.autoDeleteAfter?.toISOString(),
+          }
+        : undefined,
+    };
+  }
+
   async getBackupById(backupId: string): Promise<BackupMetadata | null> {
     try {
-      // Search for metadata in all date-based directories
-      const databasePath = path.join(this.backupBasePath, 'database');
-      const arquivosPath = path.join(this.backupBasePath, 'arquivos');
-      const sistemaPath = path.join(this.backupBasePath, 'sistema');
-      const fullPath = path.join(this.backupBasePath, 'full');
-
-      const allMetadataFiles = await Promise.all([
-        this.findAllMetadataFiles(databasePath),
-        this.findAllMetadataFiles(arquivosPath),
-        this.findAllMetadataFiles(sistemaPath),
-        this.findAllMetadataFiles(fullPath),
-      ]);
-
-      const flattenedFiles = allMetadataFiles.flat();
-
-      // Find the metadata file with matching backupId
-      for (const filePath of flattenedFiles) {
-        if (filePath.endsWith(`${backupId}.json`)) {
-          const content = await fs.readFile(filePath, 'utf-8');
-          return JSON.parse(content);
-        }
-      }
-
-      // Metadata not found
-      return null;
-    } catch (error) {
-      if (error.code === 'ENOENT') {
+      const backup = await this.backupRepository.findById(backupId);
+      if (!backup) {
         return null;
       }
+      return this.mapDbToMetadata(backup);
+    } catch (error) {
       this.logger.error(`Failed to get backup metadata: ${error.message}`);
       throw new InternalServerErrorException('Failed to get backup metadata');
     }
   }
 
-  async deleteBackup(backupId: string): Promise<void> {
+  /**
+   * Get raw backup from database (for internal use)
+   */
+  async getBackupRecord(backupId: string): Promise<Backup | null> {
+    return this.backupRepository.findById(backupId);
+  }
+
+  /**
+   * Soft delete a backup (marks as deleted in database, deletes physical files)
+   * The backup record is preserved for history/audit purposes
+   */
+  async deleteBackup(backupId: string, userId?: string): Promise<void> {
     try {
-      const metadata = await this.getBackupById(backupId);
-      if (!metadata) {
+      const backup = await this.backupRepository.findById(backupId);
+      if (!backup) {
         throw new Error('Backup not found');
       }
 
-      // Try new folder structure first
-      let typeFolder: string = metadata.type;
-      if (metadata.type === 'files') typeFolder = 'arquivos';
-      if (metadata.type === 'system') typeFolder = 'sistema';
+      // Delete physical backup files
+      await this.deleteBackupFiles(backup);
 
-      let deleted = false;
-      let relativePath: string | null = null;
-
-      // Search for backup directory in all date-based paths
-      // The backup could be in any date folder, not just today's
-      const basePath = path.join(this.backupBasePath, typeFolder);
-
-      // Recursively search for the backup directory and get relative path
-      const findBackupDir = async (
-        searchPath: string,
-        relPath: string = '',
-      ): Promise<{ fullPath: string; relativePath: string } | null> => {
-        try {
-          const entries = await fs.readdir(searchPath, { withFileTypes: true });
-
-          for (const entry of entries) {
-            if (!entry.isDirectory()) continue;
-
-            const fullPath = path.join(searchPath, entry.name);
-            const currentRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
-
-            // If this directory is the backup ID, we found it
-            if (entry.name === backupId) {
-              return { fullPath, relativePath: `${typeFolder}/${currentRelPath}` };
-            }
-
-            // Otherwise, search recursively (for date folders like 2025/10/25)
-            const found = await findBackupDir(fullPath, currentRelPath);
-            if (found) return found;
-          }
-        } catch (error) {
-          // Directory not accessible, skip
-        }
-
-        return null;
-      };
-
-      const backupInfo = await findBackupDir(basePath);
-
-      // Try deleting from new structure (folder per backup)
-      if (backupInfo) {
-        try {
-          await fs.rm(backupInfo.fullPath, { recursive: true, force: true });
-          this.logger.log(`Backup deleted (new structure): ${backupId} at ${backupInfo.fullPath}`);
-          deleted = true;
-          relativePath = backupInfo.relativePath;
-        } catch (error) {
-          // If it's not a "not found" error, rethrow it - it's a real error (permissions, etc.)
-          if (error.code !== 'ENOENT') {
-            this.logger.error(
-              `Failed to delete backup directory: ${backupInfo.fullPath} - ${error.message}`,
-            );
-            throw new Error(`Failed to delete backup: ${error.message}`);
-          }
-          this.logger.warn(
-            `Backup directory not found at expected path: ${backupInfo.fullPath}`,
-          );
-        }
-      } else {
-        this.logger.warn(`New structure not found for ${backupId}, trying old flat structure...`);
-      }
-
-      // If not deleted yet, try old flat structure
-      if (!deleted) {
-        const backupFileName = `${backupId}.tar.gz`;
-        const oldBackupPath = path.join(this.backupBasePath, metadata.type, backupFileName);
-        const oldMetadataPath = path.join(this.backupBasePath, 'metadata', `${backupId}.json`);
-
-        let backupFileDeleted = false;
-        let metadataFileDeleted = false;
-
-        try {
-          await fs.unlink(oldBackupPath);
-          this.logger.log(`Deleted old backup file: ${oldBackupPath}`);
-          backupFileDeleted = true;
-          relativePath = `${metadata.type}/${backupFileName}`;
-        } catch (error) {
-          if (error.code !== 'ENOENT') {
-            this.logger.warn(`Failed to delete old backup file: ${oldBackupPath}`);
-            throw error;
-          }
-        }
-
-        try {
-          await fs.unlink(oldMetadataPath);
-          this.logger.log(`Deleted old metadata file: ${oldMetadataPath}`);
-          metadataFileDeleted = true;
-        } catch (error) {
-          if (error.code !== 'ENOENT') {
-            this.logger.warn(`Failed to delete old metadata file: ${oldMetadataPath}`);
-            throw error;
-          }
-        }
-
-        if (backupFileDeleted || metadataFileDeleted) {
-          this.logger.log(`Backup deleted (old structure): ${backupId}`);
-          deleted = true;
-        }
-      }
-
-      // If nothing was deleted, throw an error
-      if (!deleted) {
-        throw new Error(`Backup files not found for ${backupId}`);
-      }
+      // Soft delete in database (preserves history)
+      await this.backupRepository.softDelete(backupId, userId);
 
       // Delete from Google Drive asynchronously
-      if (deleted) {
-        this.deleteFromGoogleDrive(backupId);
+      this.deleteFromGoogleDrive(backupId);
 
-        // Emit deletion event so frontend can update
-        this.eventEmitter.emit('backup.deleted', {
-          backupId,
-          deletedAt: Date.now(),
-        });
+      // Emit deletion event so frontend can update
+      this.eventEmitter.emit('backup.deleted', {
+        backupId,
+        deletedAt: Date.now(),
+      });
 
-        this.logger.log(`Backup ${backupId} deleted successfully`);
-      }
+      this.logger.log(`Backup ${backupId} soft deleted successfully`);
     } catch (error) {
       this.logger.error(`Failed to delete backup: ${error.message}`);
       throw new InternalServerErrorException(`Failed to delete backup: ${error.message}`);
+    }
+  }
+
+  /**
+   * Hard delete a backup (permanently removes from database and files)
+   * Use with caution - this removes all history
+   */
+  async hardDeleteBackup(backupId: string): Promise<void> {
+    try {
+      const backup = await this.backupRepository.findById(backupId, true); // Include deleted
+      if (!backup) {
+        throw new Error('Backup not found');
+      }
+
+      // Delete physical backup files if they still exist
+      await this.deleteBackupFiles(backup);
+
+      // Hard delete from database
+      await this.backupRepository.hardDelete(backupId);
+
+      // Delete from Google Drive asynchronously
+      this.deleteFromGoogleDrive(backupId);
+
+      this.logger.log(`Backup ${backupId} permanently deleted`);
+    } catch (error) {
+      this.logger.error(`Failed to hard delete backup: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to hard delete backup: ${error.message}`);
+    }
+  }
+
+  /**
+   * Delete physical backup files from disk
+   */
+  private async deleteBackupFiles(backup: Backup): Promise<void> {
+    let typeFolder: string = this.mapDbTypeToDto(backup.type);
+    if (backup.type === BackupType.FILES) typeFolder = 'arquivos';
+    if (backup.type === BackupType.SYSTEM) typeFolder = 'sistema';
+
+    const basePath = path.join(this.backupBasePath, typeFolder);
+
+    // If we have a stored file path, use it directly
+    if (backup.filePath) {
+      const fullPath = path.join(this.backupBasePath, backup.filePath);
+      const dirPath = path.dirname(fullPath);
+      try {
+        await this.deleteBackupDirectory(dirPath, backup.id);
+        return;
+      } catch (error) {
+        this.logger.warn(`Could not delete using stored path: ${error.message}`);
+      }
+    }
+
+    // Otherwise, search for the backup directory
+    const backupInfo = await this.findBackupDir(basePath, backup.id);
+    if (backupInfo) {
+      await this.deleteBackupDirectory(backupInfo.fullPath, backup.id);
+    } else {
+      // Try old flat structure as fallback
+      const backupFileName = `${backup.id}.tar.gz`;
+      const oldBackupPath = path.join(basePath, backupFileName);
+      await this.deleteFileWithPermissions(oldBackupPath).catch(() => {});
+      this.logger.warn(`Backup files not found for ${backup.id}, may have been already deleted`);
+    }
+  }
+
+  /**
+   * Recursively search for the backup directory
+   */
+  private async findBackupDir(
+    searchPath: string,
+    backupId: string,
+    relPath: string = '',
+  ): Promise<{ fullPath: string; relativePath: string } | null> {
+    try {
+      const entries = await fs.readdir(searchPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const fullPath = path.join(searchPath, entry.name);
+        const currentRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
+
+        if (entry.name === backupId) {
+          return { fullPath, relativePath: currentRelPath };
+        }
+
+        const found = await this.findBackupDir(fullPath, backupId, currentRelPath);
+        if (found) return found;
+      }
+    } catch (error) {
+      // Directory not accessible, skip
+    }
+
+    return null;
+  }
+
+  /**
+   * Delete a backup directory with proper permissions handling.
+   * With correct ownership (kennedy:www-data), deletion should work without sudo.
+   * Sudo is only used as a fallback for legacy files owned by www-data.
+   */
+  private async deleteBackupDirectory(dirPath: string, backupId: string): Promise<boolean> {
+    try {
+      // First try normal deletion (should work if files are owned by kennedy)
+      await fs.rm(dirPath, { recursive: true, force: true });
+      this.logger.log(`Backup deleted (new structure): ${backupId} at ${dirPath}`);
+      return true;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        this.logger.warn(`Backup directory not found at expected path: ${dirPath}`);
+        return false;
+      }
+
+      // If permission denied in production, try to fix ownership first, then delete
+      if (error.code === 'EACCES' && !this.isDevelopment) {
+        this.logger.warn(`Permission denied for ${dirPath}, attempting to fix ownership...`);
+
+        try {
+          // First, try to change ownership to kennedy so we can delete
+          await execAsync(`sudo chown -R kennedy:www-data "${dirPath}"`);
+          // Now try deletion again
+          await fs.rm(dirPath, { recursive: true, force: true });
+          this.logger.log(`Backup deleted after fixing ownership: ${backupId} at ${dirPath}`);
+          return true;
+        } catch (chownError) {
+          // If chown fails, try direct sudo rm as last resort
+          this.logger.warn(`Ownership fix failed, trying sudo rm: ${chownError.message}`);
+          try {
+            await execAsync(`sudo rm -rf "${dirPath}"`, { timeout: 30000 });
+            this.logger.log(`Backup deleted with sudo rm: ${backupId} at ${dirPath}`);
+            return true;
+          } catch (sudoError) {
+            // Log detailed error for debugging
+            this.logger.error(`All deletion methods failed for ${dirPath}:`);
+            this.logger.error(`  Original error: ${error.message}`);
+            this.logger.error(`  Chown error: ${chownError.message}`);
+            this.logger.error(`  Sudo rm error: ${sudoError.message}`);
+            throw new Error(`Failed to delete backup: All methods exhausted. Check sudo permissions for user kennedy.`);
+          }
+        }
+      }
+
+      this.logger.error(`Failed to delete backup directory: ${dirPath} - ${error.message}`);
+      throw new Error(`Failed to delete backup: ${error.message}`);
+    }
+  }
+
+  /**
+   * Delete a single file with proper permissions handling.
+   * With correct ownership (kennedy:www-data), deletion should work without sudo.
+   */
+  private async deleteFileWithPermissions(filePath: string): Promise<boolean> {
+    try {
+      await fs.unlink(filePath);
+      this.logger.log(`Deleted file: ${filePath}`);
+      return true;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return false; // File doesn't exist, not an error
+      }
+
+      // If permission denied in production, try to fix ownership first
+      if (error.code === 'EACCES' && !this.isDevelopment) {
+        this.logger.warn(`Permission denied for ${filePath}, attempting to fix...`);
+        try {
+          // Try to change ownership first
+          await execAsync(`sudo chown kennedy:www-data "${filePath}"`);
+          await fs.unlink(filePath);
+          this.logger.log(`Deleted file after fixing ownership: ${filePath}`);
+          return true;
+        } catch (chownError) {
+          // Fall back to sudo rm
+          try {
+            await execAsync(`sudo rm -f "${filePath}"`, { timeout: 30000 });
+            this.logger.log(`Deleted file with sudo rm: ${filePath}`);
+            return true;
+          } catch (sudoError) {
+            this.logger.error(`All deletion methods failed for ${filePath}: ${sudoError.message}`);
+            throw new Error(`Permission denied - check sudo permissions for user kennedy`);
+          }
+        }
+      }
+
+      this.logger.warn(`Failed to delete file: ${filePath} - ${error.message}`);
+      throw error;
     }
   }
 
@@ -809,25 +852,14 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Update backup metadata with progress information
-   * Uses locking to prevent race conditions with other metadata operations
+   * Update backup progress in database
    */
   private async updateBackupProgress(backupId: string, progress: number): Promise<void> {
-    // Acquire lock to prevent race conditions with other metadata updates
-    const releaseLock = await this.acquireMetadataLock(backupId);
-
     try {
-      const metadata = await this.getBackupById(backupId);
-      if (metadata) {
-        metadata['progress'] = progress;
-        // Call internal save without re-acquiring lock
-        await this.saveBackupMetadataInternal(metadata);
-      }
+      await this.backupRepository.updateProgress(backupId, progress);
     } catch (error) {
       // Silent fail - progress update is not critical
       this.logger.debug(`Progress update failed for ${backupId}: ${error.message}`);
-    } finally {
-      releaseLock();
     }
   }
 
@@ -1075,54 +1107,35 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
-   * Internal save method without locking - called by methods that already hold the lock
+   * Update backup completion info in database
    */
-  private async saveBackupMetadataInternal(metadata: BackupMetadata): Promise<void> {
-    // Determine the type folder (files -> arquivos, system -> sistema)
-    let typeFolder: string = metadata.type;
-    if (metadata.type === 'files') typeFolder = 'arquivos';
-    if (metadata.type === 'system') typeFolder = 'sistema';
-
-    // Get the directory where the backup is stored (date-based + backup ID subfolder)
-    const dateBasedDir = this.getBackupDirectoryPath(typeFolder as any);
-    const backupDir = path.join(dateBasedDir, metadata.id);
-
-    // Ensure the directory exists
-    await fs.mkdir(backupDir, { recursive: true });
-
-    // Save metadata in the same directory as the backup
-    const metadataPath = path.join(backupDir, `${metadata.id}.json`);
-    await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2));
-
-    // NOTE: Don't chown metadata files to www-data here - the running user needs
-    // to be able to update them as the backup progresses (pending -> in_progress -> completed)
-    // Metadata permissions will be set via setBackupPermissions() when the backup completes
-  }
-
-  async saveBackupMetadata(metadata: BackupMetadata): Promise<void> {
-    // Acquire lock to prevent concurrent writes to the same metadata file
-    const releaseLock = await this.acquireMetadataLock(metadata.id);
-
+  async updateBackupCompletion(backupId: string, size: bigint, filePath: string): Promise<void> {
     try {
-      await this.saveBackupMetadataInternal(metadata);
+      await this.backupRepository.update(backupId, {
+        status: BackupStatus.COMPLETED,
+        size,
+        filePath,
+        completedAt: new Date(),
+      });
     } catch (error) {
-      this.logger.error(`Failed to save backup metadata: ${error.message}`);
+      this.logger.error(`Failed to update backup completion: ${error.message}`);
       throw error;
-    } finally {
-      releaseLock();
     }
   }
 
-  private isValidBackupMetadata(metadata: any): metadata is BackupMetadata {
-    return (
-      metadata &&
-      typeof metadata.id === 'string' &&
-      typeof metadata.name === 'string' &&
-      typeof metadata.createdAt === 'string' &&
-      ['database', 'files', 'system', 'full'].includes(metadata.type) &&
-      ['pending', 'in_progress', 'completed', 'failed'].includes(metadata.status) &&
-      typeof metadata.size === 'number'
-    );
+  /**
+   * Update Google Drive sync status
+   */
+  async updateGDriveStatus(
+    backupId: string,
+    status: GDriveSyncStatus,
+    fileId?: string,
+  ): Promise<void> {
+    try {
+      await this.backupRepository.updateGDriveStatus(backupId, status, fileId);
+    } catch (error) {
+      this.logger.error(`Failed to update GDrive status: ${error.message}`);
+    }
   }
 
   async updateBackupStatus(
@@ -1130,23 +1143,25 @@ export class BackupService implements OnModuleInit {
     status: BackupMetadata['status'],
     error?: string,
   ): Promise<void> {
-    // Acquire lock to prevent race conditions with progress updates
-    const releaseLock = await this.acquireMetadataLock(backupId);
-
     try {
-      const metadata = await this.getBackupById(backupId);
-      if (metadata) {
-        metadata.status = status;
-        if (error) {
-          metadata.error = error;
-        }
-        await this.saveBackupMetadataInternal(metadata);
-      }
+      const dbStatus = this.mapStatusToDb(status);
+      await this.backupRepository.updateStatus(backupId, dbStatus, error);
     } catch (err) {
       this.logger.error(`Failed to update backup status: ${err.message}`);
-    } finally {
-      releaseLock();
     }
+  }
+
+  /**
+   * Map string status to database enum
+   */
+  private mapStatusToDb(status: BackupMetadata['status']): BackupStatus {
+    const mapping: Record<string, BackupStatus> = {
+      pending: BackupStatus.PENDING,
+      in_progress: BackupStatus.IN_PROGRESS,
+      completed: BackupStatus.COMPLETED,
+      failed: BackupStatus.FAILED,
+    };
+    return mapping[status] || BackupStatus.PENDING;
   }
 
   async scheduleBackup(createBackupDto: CreateBackupDto, userId?: string): Promise<{ message: string; scheduleId: string }> {
@@ -1413,6 +1428,21 @@ export class BackupService implements OnModuleInit {
         failedBackups: [],
       };
     }
+  }
+
+  /**
+   * Get backup statistics from database
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    completed: number;
+    failed: number;
+    inProgress: number;
+    pending: number;
+    deleted: number;
+    totalSize: bigint;
+  }> {
+    return this.backupRepository.getStatistics();
   }
 
   /**

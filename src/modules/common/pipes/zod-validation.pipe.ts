@@ -57,9 +57,17 @@ export class ZodValidationPipe implements PipeTransform {
         throw new BadRequestException(errorResponse);
       }
 
+      // Log the actual error for debugging
+      console.error('[ZodValidationPipe] Non-ZodError caught:', {
+        errorType: error?.constructor?.name,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined,
+        value: value,
+      });
+
       throw new BadRequestException({
         message: 'Falha na validação dos dados enviados',
-        errors: ['Erro desconhecido durante a validação'],
+        errors: [error instanceof Error ? error.message : 'Erro desconhecido durante a validação'],
         statusCode: 400,
       } as ValidationErrorResponse);
     }
@@ -487,6 +495,11 @@ export class ZodValidationPipe implements PipeTransform {
     // Recursively fix nested objects and convert string values to proper types
     const fixed: any = {};
     for (const [key, value] of Object.entries(obj)) {
+      // Skip internal context field
+      if (key === '_context') {
+        continue;
+      }
+
       // Convert boolean strings to booleans (FormData sends "true"/"false" as strings)
       if (typeof value === 'string') {
         if (value === 'true') {
@@ -497,6 +510,15 @@ export class ZodValidationPipe implements PipeTransform {
           fixed[key] = false;
           continue;
         }
+
+        // CRITICAL: Convert empty strings to null for nullable fields
+        // FormData converts null values to empty strings, we need to convert back
+        // This handles: UUID fields (logoId), enum fields (streetType, state), etc.
+        if (value === '' && this.shouldConvertEmptyToNull(key)) {
+          fixed[key] = null;
+          continue;
+        }
+
         // Convert numeric strings to numbers for known numeric fields
         if (this.isNumericField(key) && this.isNumericString(value)) {
           const numValue = Number(value);
@@ -582,6 +604,70 @@ export class ZodValidationPipe implements PipeTransform {
       'rate',
     ];
     return numericFields.includes(fieldName);
+  }
+
+  /**
+   * Determines if an empty string should be converted to null
+   * This is necessary because FormData converts null values to empty strings
+   * We need to convert them back for proper Zod validation of nullable fields
+   */
+  private shouldConvertEmptyToNull(fieldName: string): boolean {
+    // Fields ending with 'Id' are typically UUIDs and should be null when empty
+    if (fieldName.endsWith('Id')) {
+      return true;
+    }
+
+    // Fields ending with 'Type' are typically enums and should be null when empty
+    if (fieldName.endsWith('Type')) {
+      return true;
+    }
+
+    // Specific enum fields that don't follow the naming convention
+    const enumFields = [
+      'state',
+      'status',
+      'role',
+      'sector',
+      'priority',
+      'category',
+      'method',
+      'frequency',
+      'dayOfWeek',
+      'position',
+      'streetType',
+    ];
+
+    // Fields that should be null when empty (optional nullable fields)
+    const nullableFields = [
+      'email',
+      'phone',
+      'cnpj',
+      'cpf',
+      'pis',
+      'cnh',
+      'zipCode',
+      'cep',
+      'address',
+      'addressNumber',
+      'addressComplement',
+      'neighborhood',
+      'city',
+      'country',
+      'site',
+      'pix',
+      'corporateName',
+      'fantasyName',
+      'observations',
+      'notes',
+      'description',
+      'complement',
+      'reference',
+      'representativeName',
+    ];
+
+    const lowerFieldName = fieldName.toLowerCase();
+    return enumFields.some(f => lowerFieldName === f.toLowerCase()) ||
+           nullableFields.some(f => lowerFieldName === f.toLowerCase());
   }
 
   protected isSerializedArray(obj: any): boolean {

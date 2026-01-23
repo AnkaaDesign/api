@@ -691,7 +691,11 @@ export const customerCreateSchema = z
       .optional()
       .refine(val => !val || val === '' || isValidCPF(val), { message: 'CPF inválido' }),
     corporateName: z.string().nullable().optional(),
-    email: emailSchema.nullable().optional(),
+    // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
+    email: z.preprocess(
+      val => (val === '' || val === null || val === undefined ? null : val),
+      emailSchema.nullable().optional()
+    ),
     streetType: z
       .enum([
         'STREET',
@@ -763,7 +767,11 @@ export const customerQuickCreateSchema = z
       .optional()
       .refine(val => !val || val === '' || isValidCNPJ(val), { message: 'CNPJ inválido' }),
     corporateName: z.string().nullable().optional(),
-    email: emailSchema.nullable().optional(),
+    // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
+    email: z.preprocess(
+      val => (val === '' || val === null || val === undefined ? null : val),
+      emailSchema.nullable().optional()
+    ),
     streetType: z
       .enum([
         'STREET',
@@ -823,7 +831,11 @@ export const customerUpdateSchema = z
       .optional()
       .refine(val => !val || val === '' || isValidCPF(val), { message: 'CPF inválido' }),
     corporateName: z.string().nullable().optional(),
-    email: emailSchema.nullable().optional(),
+    // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
+    email: z.preprocess(
+      val => (val === '' || val === null || val === undefined ? null : val),
+      emailSchema.nullable().optional()
+    ),
     streetType: z
       .enum([
         'STREET',
