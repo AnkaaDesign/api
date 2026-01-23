@@ -2316,21 +2316,27 @@ export class TaskService {
 
           // Auto-complete task when all PRODUCTION service orders are COMPLETED
           // This ensures task workflow progresses automatically when all production work is done
+          // IMPORTANT: CANCELLED service orders are excluded - they don't block task completion
           if (updatedTask && (updatedTask.status === TASK_STATUS.IN_PRODUCTION || updatedTask.status === TASK_STATUS.WAITING_PRODUCTION)) {
             // Get all PRODUCTION service orders for this task (from the refetched data)
             const productionServiceOrders = (updatedTask.serviceOrders || []).filter(
               (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION
             );
 
-            // Check if there's at least 1 production service order and ALL are COMPLETED
-            const hasProductionOrders = productionServiceOrders.length > 0;
-            const allProductionCompleted = productionServiceOrders.every(
+            // Filter out CANCELLED orders - they don't block task completion
+            const activeProductionOrders = productionServiceOrders.filter(
+              (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+            );
+
+            // Check if there's at least 1 active production service order and ALL are COMPLETED
+            const hasActiveProductionOrders = activeProductionOrders.length > 0;
+            const allActiveProductionCompleted = activeProductionOrders.every(
               (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED
             );
 
-            if (hasProductionOrders && allProductionCompleted) {
+            if (hasActiveProductionOrders && allActiveProductionCompleted) {
               this.logger.log(
-                `[AUTO-COMPLETE TASK] All ${productionServiceOrders.length} PRODUCTION service orders completed for task ${id}, transitioning to COMPLETED`,
+                `[AUTO-COMPLETE TASK] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${id}, transitioning to COMPLETED`,
               );
 
               // Update task status to COMPLETED
@@ -2360,7 +2366,7 @@ export class TaskService {
                 field: 'status',
                 oldValue: existingTask.status,
                 newValue: TASK_STATUS.COMPLETED,
-                reason: `Tarefa concluída automaticamente quando todas as ${productionServiceOrders.length} ordens de serviço de produção foram finalizadas`,
+                reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
@@ -5807,7 +5813,7 @@ export class TaskService {
           throw new BadRequestException('Data de conclusão é obrigatória para tarefas concluídas.');
         }
 
-        // Ensure finishedAt > startedAt
+        // Ensure finishedAt >= startedAt (allow same timestamp for instant completion)
         const startedAt = data.startedAt || existingTask?.startedAt;
         const finishedAt = data.finishedAt || existingTask?.finishedAt;
 
@@ -5815,8 +5821,8 @@ export class TaskService {
           const startDate = new Date(startedAt);
           const finishDate = new Date(finishedAt);
 
-          if (finishDate <= startDate) {
-            throw new BadRequestException('Data de conclusão deve ser posterior à data de início.');
+          if (finishDate < startDate) {
+            throw new BadRequestException('Data de conclusão deve ser posterior ou igual à data de início.');
           }
         }
       }
