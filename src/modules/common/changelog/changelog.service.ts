@@ -21,6 +21,7 @@ interface LogChangeParams {
   triggeredById: string | null;
   userId: string | null;
   transaction?: any;
+  metadata?: Record<string, any>;
 }
 
 @Injectable()

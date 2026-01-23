@@ -66,6 +66,7 @@ import {
   getServiceOrderUpdatesForTaskStatusChange,
   getTaskUpdateForServiceOrderStatusChange,
   getServiceOrderStatusOrder,
+  getTaskUpdateForArtworkServiceOrderStatusChange,
 } from '../../../utils/task-service-order-sync';
 import {
   getBidirectionalSyncActions,
@@ -986,7 +987,17 @@ export class TaskService {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
-            artworks: true, // Include for changelog tracking
+            artworks: {
+              include: {
+                file: {
+                  select: {
+                    id: true,
+                    filename: true,
+                    thumbnailUrl: true,
+                  },
+                },
+              },
+            }, // Include for changelog tracking with file info
             baseFiles: true, // Include for changelog tracking
             logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
@@ -1594,7 +1605,17 @@ export class TaskService {
           include: {
             ...include,
             customer: true, // Always include customer for file path organization
-            artworks: true, // Include for changelog tracking
+            artworks: {
+              include: {
+                file: {
+                  select: {
+                    id: true,
+                    filename: true,
+                    thumbnailUrl: true,
+                  },
+                },
+              },
+            }, // Include for changelog tracking with file info
             baseFiles: true, // Include for changelog tracking
             logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
@@ -1697,6 +1718,71 @@ export class TaskService {
                   });
 
                   this.logger.log(`[Task Update] Updated service order ${serviceOrderData.id} (${updatedServiceOrder.type})`);
+
+                  // =====================================================================
+                  // ARTWORK SYNC: Check if artwork status change should update task status
+                  // =====================================================================
+                  if (
+                    serviceOrderData.status !== undefined &&
+                    serviceOrderData.status !== oldServiceOrder.status &&
+                    updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+                  ) {
+                    // Get current task status
+                    const currentTask = await tx.task.findUnique({
+                      where: { id },
+                      select: { id: true, status: true },
+                    });
+
+                    if (currentTask) {
+                      // Get all service orders with their current statuses (including this update)
+                      const allServiceOrders = await tx.serviceOrder.findMany({
+                        where: { taskId: id },
+                        select: { id: true, status: true, type: true },
+                      });
+
+                      const artworkSyncResult = getTaskUpdateForArtworkServiceOrderStatusChange(
+                        allServiceOrders.map(so => ({
+                          id: so.id,
+                          status: so.status as SERVICE_ORDER_STATUS,
+                          type: so.type as SERVICE_ORDER_TYPE,
+                        })),
+                        updatedServiceOrder.id,
+                        oldServiceOrder.status as SERVICE_ORDER_STATUS,
+                        updatedServiceOrder.status as SERVICE_ORDER_STATUS,
+                        updatedServiceOrder.type as SERVICE_ORDER_TYPE,
+                        currentTask.status as TASK_STATUS,
+                      );
+
+                      if (artworkSyncResult?.shouldUpdate) {
+                        this.logger.log(
+                          `[ARTWORK→TASK SYNC] Artwork SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${artworkSyncResult.newTaskStatus}`,
+                        );
+
+                        await tx.task.update({
+                          where: { id },
+                          data: {
+                            status: artworkSyncResult.newTaskStatus,
+                            statusOrder: getTaskStatusOrder(artworkSyncResult.newTaskStatus),
+                          },
+                        });
+
+                        // Log the auto-transition in changelog
+                        await this.changeLogService.logChange({
+                          entityType: ENTITY_TYPE.TASK,
+                          entityId: id,
+                          action: CHANGE_ACTION.UPDATE,
+                          field: 'status',
+                          oldValue: currentTask.status,
+                          newValue: artworkSyncResult.newTaskStatus,
+                          reason: artworkSyncResult.reason,
+                          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                          triggeredById: updatedServiceOrder.id,
+                          userId: userId || '',
+                          transaction: tx,
+                        });
+                      }
+                    }
+                  }
                 } else {
                   // No changes, just add existing service order to the result
                   createdServiceOrders.push(oldServiceOrder);
@@ -1749,6 +1835,71 @@ export class TaskService {
                   });
 
                   this.logger.log(`[Task Update] Updated existing service order ${existingMatch.id} (matched by description+type)`);
+
+                  // =====================================================================
+                  // ARTWORK SYNC: Check if artwork status change should update task status
+                  // =====================================================================
+                  if (
+                    serviceOrderData.status !== undefined &&
+                    serviceOrderData.status !== existingMatch.status &&
+                    updatedServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+                  ) {
+                    // Get current task status
+                    const currentTask = await tx.task.findUnique({
+                      where: { id },
+                      select: { id: true, status: true },
+                    });
+
+                    if (currentTask) {
+                      // Get all service orders with their current statuses (including this update)
+                      const allServiceOrders = await tx.serviceOrder.findMany({
+                        where: { taskId: id },
+                        select: { id: true, status: true, type: true },
+                      });
+
+                      const artworkSyncResult = getTaskUpdateForArtworkServiceOrderStatusChange(
+                        allServiceOrders.map(so => ({
+                          id: so.id,
+                          status: so.status as SERVICE_ORDER_STATUS,
+                          type: so.type as SERVICE_ORDER_TYPE,
+                        })),
+                        updatedServiceOrder.id,
+                        existingMatch.status as SERVICE_ORDER_STATUS,
+                        updatedServiceOrder.status as SERVICE_ORDER_STATUS,
+                        updatedServiceOrder.type as SERVICE_ORDER_TYPE,
+                        currentTask.status as TASK_STATUS,
+                      );
+
+                      if (artworkSyncResult?.shouldUpdate) {
+                        this.logger.log(
+                          `[ARTWORK→TASK SYNC] Artwork SO ${updatedServiceOrder.id} status changed, updating task ${id}: ${currentTask.status} → ${artworkSyncResult.newTaskStatus}`,
+                        );
+
+                        await tx.task.update({
+                          where: { id },
+                          data: {
+                            status: artworkSyncResult.newTaskStatus,
+                            statusOrder: getTaskStatusOrder(artworkSyncResult.newTaskStatus),
+                          },
+                        });
+
+                        // Log the auto-transition in changelog
+                        await this.changeLogService.logChange({
+                          entityType: ENTITY_TYPE.TASK,
+                          entityId: id,
+                          action: CHANGE_ACTION.UPDATE,
+                          field: 'status',
+                          oldValue: currentTask.status,
+                          newValue: artworkSyncResult.newTaskStatus,
+                          reason: artworkSyncResult.reason,
+                          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                          triggeredById: updatedServiceOrder.id,
+                          userId: userId || '',
+                          transaction: tx,
+                        });
+                      }
+                    }
+                  }
                 } else {
                   createdServiceOrders.push(existingMatch);
                   this.logger.log(`[Task Update] No changes for existing service order ${existingMatch.id} (matched by description+type)`);
@@ -1786,6 +1937,49 @@ export class TaskService {
                 });
 
                 this.logger.log(`[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`);
+
+                // =====================================================================
+                // ARTWORK SYNC: Check if newly created artwork with COMPLETED status should update task
+                // =====================================================================
+                if (
+                  createdServiceOrder.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                  createdServiceOrder.status === SERVICE_ORDER_STATUS.COMPLETED
+                ) {
+                  // Get current task status
+                  const currentTask = await tx.task.findUnique({
+                    where: { id },
+                    select: { id: true, status: true },
+                  });
+
+                  if (currentTask && currentTask.status === TASK_STATUS.PREPARATION) {
+                    this.logger.log(
+                      `[ARTWORK→TASK SYNC] New artwork SO ${createdServiceOrder.id} created with COMPLETED status, updating task ${id}: PREPARATION → WAITING_PRODUCTION`,
+                    );
+
+                    await tx.task.update({
+                      where: { id },
+                      data: {
+                        status: TASK_STATUS.WAITING_PRODUCTION,
+                        statusOrder: getTaskStatusOrder(TASK_STATUS.WAITING_PRODUCTION),
+                      },
+                    });
+
+                    // Log the auto-transition in changelog
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: TASK_STATUS.PREPARATION,
+                      newValue: TASK_STATUS.WAITING_PRODUCTION,
+                      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte foi criada como concluída`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: createdServiceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+                  }
+                }
               }
             }
           }
@@ -1890,6 +2084,64 @@ export class TaskService {
 
           if (serviceOrdersToDelete.length > 0) {
             this.logger.log(`[Task Update] Deleted ${serviceOrdersToDelete.length} service orders`);
+
+            // =====================================================================
+            // ARTWORK SYNC: Check if deleting artwork SOs should rollback task status
+            // If task is in WAITING_PRODUCTION and no completed artworks remain, rollback to PREPARATION
+            // =====================================================================
+            const deletedArtworkSOs = serviceOrdersToDelete.filter(
+              so => so.type === SERVICE_ORDER_TYPE.ARTWORK && so.status === SERVICE_ORDER_STATUS.COMPLETED
+            );
+
+            if (deletedArtworkSOs.length > 0) {
+              // Get current task status
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                select: { id: true, status: true },
+              });
+
+              if (currentTask && currentTask.status === TASK_STATUS.WAITING_PRODUCTION) {
+                // Get remaining service orders (after deletions)
+                const remainingServiceOrders = await tx.serviceOrder.findMany({
+                  where: { taskId: id },
+                  select: { id: true, status: true, type: true },
+                });
+
+                // Check if any artwork SOs remain completed
+                const anyArtworkCompleted = remainingServiceOrders.some(
+                  so => so.type === SERVICE_ORDER_TYPE.ARTWORK && so.status === SERVICE_ORDER_STATUS.COMPLETED
+                );
+
+                if (!anyArtworkCompleted) {
+                  this.logger.log(
+                    `[ARTWORK→TASK SYNC] Completed artwork SOs deleted, no completed artworks remain, rolling back task ${id}: WAITING_PRODUCTION → PREPARATION`,
+                  );
+
+                  await tx.task.update({
+                    where: { id },
+                    data: {
+                      status: TASK_STATUS.PREPARATION,
+                      statusOrder: getTaskStatusOrder(TASK_STATUS.PREPARATION),
+                    },
+                  });
+
+                  // Log the rollback in changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: TASK_STATUS.WAITING_PRODUCTION,
+                    newValue: TASK_STATUS.PREPARATION,
+                    reason: `Tarefa retornada para preparação pois nenhuma ordem de serviço de arte permanece concluída`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: deletedArtworkSOs[0].id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+                }
+              }
+            }
           }
 
           // CRITICAL FIX: Track deleted service order descriptions to prevent bidirectional sync from recreating them
@@ -2220,10 +2472,20 @@ export class TaskService {
         // - PRODUCTION SO → Pricing Item (description + observation → item description)
         // - Pricing Item → PRODUCTION SO (item description → SO description + observation)
         // =====================================================================
-        if (
-          (data.serviceOrders && Array.isArray(data.serviceOrders) && data.serviceOrders.length > 0) ||
-          ((data as any).pricing?.items && Array.isArray((data as any).pricing.items) && (data as any).pricing.items.length > 0)
-        ) {
+        // CRITICAL: Only run sync if NEW items are being ADDED (items without IDs)
+        // This prevents the sync from running when the form just sends existing data back
+        // without any actual changes to pricing or service orders.
+        const hasNewServiceOrders = serviceOrdersData &&
+          Array.isArray(serviceOrdersData) &&
+          serviceOrdersData.length > 0 &&
+          serviceOrdersData.some((so: any) => !so.id); // NEW service orders have no ID
+
+        const hasNewPricingItems = (data as any).pricing?.items &&
+          Array.isArray((data as any).pricing.items) &&
+          (data as any).pricing.items.length > 0 &&
+          (data as any).pricing.items.some((item: any) => !item.id); // NEW pricing items have no ID
+
+        if (hasNewServiceOrders || hasNewPricingItems) {
           try {
             // CRITICAL: Refetch task with pricing items to ensure we have the latest shouldSync values
             // This is necessary because:
@@ -3018,7 +3280,17 @@ export class TaskService {
               data: fileUpdates,
               include: {
                 ...include,
-                artworks: true, // Include for changelog tracking
+                artworks: {
+                  include: {
+                    file: {
+                      select: {
+                        id: true,
+                        filename: true,
+                        thumbnailUrl: true,
+                      },
+                    },
+                  },
+                }, // Include for changelog tracking with file info
                 observation: { include: { files: true } }, // Include for changelog tracking
                 truck: true, // Include for truck field changelog tracking
               },
@@ -3048,6 +3320,7 @@ export class TaskService {
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
           // Note: chassisNumber and plate are now on Truck entity, not Task
+          // Note: pricingId is handled separately below with enriched data
         ];
 
         await trackAndLogFieldChanges({
@@ -3061,6 +3334,78 @@ export class TaskService {
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           transaction: tx,
         });
+
+        // Special handling for pricingId to include pricing details (budgetNumber, total, items)
+        if (hasValueChanged(existingTask.pricingId, updatedTask.pricingId)) {
+          let oldPricingDetails: any = null;
+          let newPricingDetails: any = null;
+
+          // Fetch old pricing details if it existed
+          if (existingTask.pricingId) {
+            const oldPricing = await tx.taskPricing.findUnique({
+              where: { id: existingTask.pricingId },
+              select: {
+                id: true,
+                budgetNumber: true,
+                total: true,
+                items: {
+                  select: {
+                    description: true,
+                    amount: true,
+                  },
+                },
+              },
+            });
+            if (oldPricing) {
+              oldPricingDetails = {
+                id: oldPricing.id,
+                budgetNumber: oldPricing.budgetNumber,
+                total: oldPricing.total,
+                items: oldPricing.items,
+              };
+            }
+          }
+
+          // Fetch new pricing details if exists
+          if (updatedTask.pricingId) {
+            const newPricing = await tx.taskPricing.findUnique({
+              where: { id: updatedTask.pricingId },
+              select: {
+                id: true,
+                budgetNumber: true,
+                total: true,
+                items: {
+                  select: {
+                    description: true,
+                    amount: true,
+                  },
+                },
+              },
+            });
+            if (newPricing) {
+              newPricingDetails = {
+                id: newPricing.id,
+                budgetNumber: newPricing.budgetNumber,
+                total: newPricing.total,
+                items: newPricing.items,
+              };
+            }
+          }
+
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: id,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'pricingId',
+            oldValue: oldPricingDetails,
+            newValue: newPricingDetails,
+            reason: 'Campo Orçamento atualizado',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: id,
+            userId: userId || '',
+            transaction: tx,
+          });
+        }
 
         // Emit field update events for important fields
         if (userId) {
@@ -3249,23 +3594,28 @@ export class TaskService {
         // NOTE: We skip creating TASK "services" changelog when service orders are only ADDED
         // because individual SERVICE_ORDER CREATE changelogs are already created above.
         // We only create this changelog when service orders are REMOVED to track deletions.
-        if (data.serviceOrders !== undefined) {
+        // CRITICAL: Only track if user explicitly sent serviceOrders data AND there were actual removals
+        if (data.serviceOrders !== undefined && Array.isArray(data.serviceOrders)) {
           const oldServices = existingTask.serviceOrders || [];
           const newServices = updatedTask?.serviceOrders || [];
 
           this.logger.log(`[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`);
           this.logger.log(`[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`);
 
-          // Check if any service orders were removed (by comparing IDs)
-          const oldServiceIds = new Set(oldServices.map((s: any) => s.id));
-          const newServiceIds = new Set(newServices.map((s: any) => s.id));
-          const removedServices = oldServices.filter((s: any) => !newServiceIds.has(s.id));
+          // Skip if both are empty - no point in tracking "nothing changed"
+          if (oldServices.length === 0 && newServices.length === 0) {
+            this.logger.log(`[Task Update Changelog] Skipping serviceOrders changelog - both old and new are empty`);
+          } else {
+            // Check if any service orders were removed (by comparing IDs)
+            const oldServiceIds = new Set(oldServices.map((s: any) => s.id));
+            const newServiceIds = new Set(newServices.map((s: any) => s.id));
+            const removedServices = oldServices.filter((s: any) => !newServiceIds.has(s.id));
 
-          this.logger.log(`[Task Update Changelog] Removed services count: ${removedServices.length}`);
+            this.logger.log(`[Task Update Changelog] Removed services count: ${removedServices.length}`);
 
-          // Only create TASK services changelog if service orders were REMOVED
-          // Service order ADDITIONS are already covered by individual SERVICE_ORDER CREATE changelogs
-          if (removedServices.length > 0) {
+            // Only create TASK services changelog if service orders were REMOVED
+            // Service order ADDITIONS are already covered by individual SERVICE_ORDER CREATE changelogs
+            if (removedServices.length > 0) {
             // Serialize services for changelog - store full data for rollback support
             const serializeServices = (services: any[]) => {
               return services.map((s: any) => ({
@@ -3289,6 +3639,7 @@ export class TaskService {
               userId: userId || '',
               transaction: tx,
             });
+            }
           }
         }
 
@@ -3755,12 +4106,32 @@ export class TaskService {
         // Store existing task states BEFORE updates for changelog comparison
         const existingTaskStates: Map<string, any> = new Map();
 
+        // Store field changes for event emission after transaction
+        const fieldChangesForEvents: Array<{
+          taskId: string;
+          task: any;
+          field: string;
+          oldValue: any;
+          newValue: any;
+          isFileArray: boolean;
+        }> = [];
+
         for (const update of data.tasks) {
           this.logger.log(`[batchUpdate] Processing task ${update.id}`);
           const existingTask = await this.tasksRepository.findByIdWithTransaction(tx, update.id, {
             include: {
               ...include,
-              artworks: true,
+              artworks: {
+                include: {
+                  file: {
+                    select: {
+                      id: true,
+                      filename: true,
+                      thumbnailUrl: true,
+                    },
+                  },
+                },
+              },
               budgets: true,
               invoices: true,
               receipts: true,
@@ -3997,6 +4368,56 @@ export class TaskService {
                   }
                 });
               }
+            }
+          }
+
+          // Process layout photo files for bulk layout operations
+          // Upload photos and inject photoId into truck data for all tasks
+          this.logger.log(`[batchUpdate] ===== LAYOUT PHOTO PROCESSING START =====`);
+          this.logger.log(`[batchUpdate] All file keys: ${Object.keys(files).join(', ')}`);
+          const uploadedLayoutPhotoIds: { leftSide?: string; rightSide?: string; backSide?: string } = {};
+          const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
+          this.logger.log(`[batchUpdate] Layout photo keys found: ${layoutPhotoKeys.length > 0 ? layoutPhotoKeys.join(', ') : 'NONE'}`);
+          if (layoutPhotoKeys.length > 0) {
+            this.logger.log(`[batchUpdate] Processing ${layoutPhotoKeys.length} layout photo files`);
+
+            for (const key of layoutPhotoKeys) {
+              const side = key.replace('layoutPhotos.', '') as 'leftSide' | 'rightSide' | 'backSide';
+              const photoFile = Array.isArray((files as any)[key])
+                ? (files as any)[key][0]
+                : (files as any)[key];
+
+              if (photoFile) {
+                this.logger.log(`[batchUpdate] Uploading layout photo for ${side}`);
+                const uploadedPhoto = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  photoFile,
+                  'layoutPhotos',
+                  userId,
+                  { entityType: 'LAYOUT', customerName },
+                );
+                uploadedLayoutPhotoIds[side] = uploadedPhoto.id;
+                this.logger.log(`[batchUpdate] Layout photo uploaded for ${side}: ${uploadedPhoto.id}`);
+              }
+            }
+
+            // Inject uploaded photo IDs into truck data for all tasks
+            if (Object.keys(uploadedLayoutPhotoIds).length > 0) {
+              for (const task of data.tasks) {
+                const truckData = (task.data as any)?.truck;
+                if (truckData) {
+                  if (uploadedLayoutPhotoIds.leftSide && truckData.leftSideLayout) {
+                    truckData.leftSideLayout.photoId = uploadedLayoutPhotoIds.leftSide;
+                  }
+                  if (uploadedLayoutPhotoIds.rightSide && truckData.rightSideLayout) {
+                    truckData.rightSideLayout.photoId = uploadedLayoutPhotoIds.rightSide;
+                  }
+                  if (uploadedLayoutPhotoIds.backSide && truckData.backSideLayout) {
+                    truckData.backSideLayout.photoId = uploadedLayoutPhotoIds.backSide;
+                  }
+                }
+              }
+              this.logger.log('[batchUpdate] Injected layout photo IDs into truck data for all tasks');
             }
           }
 
@@ -4458,7 +4879,17 @@ export class TaskService {
           // Fetch updated task with all relations for comparison
           const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, task.id, {
             include: {
-              artworks: true,
+              artworks: {
+                include: {
+                  file: {
+                    select: {
+                      id: true,
+                      filename: true,
+                      thumbnailUrl: true,
+                    },
+                  },
+                },
+              },
               baseFiles: true,
               budgets: true,
               invoices: true,
@@ -4499,11 +4930,21 @@ export class TaskService {
                     field: 'artworks',
                     oldValue: oldArtworks.length > 0 ? oldArtworks : null,
                     newValue: newArtworks.length > 0 ? newArtworks : null,
-                    reason: `Artes atualizadas em operação de lote`,
+                    reason: `Campo artes atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'artworks',
+                    oldValue: oldArtworks,
+                    newValue: newArtworks,
+                    isFileArray: true,
                   });
                 }
               }
@@ -4535,11 +4976,21 @@ export class TaskService {
                     field: 'baseFiles',
                     oldValue: oldBaseFiles.length > 0 ? oldBaseFiles : null,
                     newValue: newBaseFiles.length > 0 ? newBaseFiles : null,
-                    reason: `Arquivos base atualizados em operação de lote`,
+                    reason: `Campo arquivos base atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'baseFiles',
+                    oldValue: oldBaseFiles,
+                    newValue: newBaseFiles,
+                    isFileArray: true,
                   });
                 }
               }
@@ -4571,11 +5022,21 @@ export class TaskService {
                     field: 'budgets',
                     oldValue: oldBudgets.length > 0 ? oldBudgets : null,
                     newValue: newBudgets.length > 0 ? newBudgets : null,
-                    reason: `Orçamentos atualizados em operação de lote`,
+                    reason: `Campo orçamentos atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'budgets',
+                    oldValue: oldBudgets,
+                    newValue: newBudgets,
+                    isFileArray: true,
                   });
                 }
               }
@@ -4607,11 +5068,21 @@ export class TaskService {
                     field: 'invoices',
                     oldValue: oldInvoices.length > 0 ? oldInvoices : null,
                     newValue: newInvoices.length > 0 ? newInvoices : null,
-                    reason: `Notas fiscais atualizadas em operação de lote`,
+                    reason: `Campo notas fiscais atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'invoices',
+                    oldValue: oldInvoices,
+                    newValue: newInvoices,
+                    isFileArray: true,
                   });
                 }
               }
@@ -4643,11 +5114,21 @@ export class TaskService {
                     field: 'receipts',
                     oldValue: oldReceipts.length > 0 ? oldReceipts : null,
                     newValue: newReceipts.length > 0 ? newReceipts : null,
-                    reason: `Comprovantes atualizados em operação de lote`,
+                    reason: `Campo comprovantes atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'receipts',
+                    oldValue: oldReceipts,
+                    newValue: newReceipts,
+                    isFileArray: true,
                   });
                 }
               }
@@ -4675,11 +5156,21 @@ export class TaskService {
                     field: 'logoPaints',
                     oldValue: oldPaintIds.length > 0 ? oldPaintIds : null,
                     newValue: newPaintIds.length > 0 ? newPaintIds : null,
-                    reason: `Tintas de logo atualizadas em operação de lote`,
+                    reason: `Campo tintas de logo atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: 'logoPaints',
+                    oldValue: existingTask.logoPaints || [],
+                    newValue: updatedTask.logoPaints || [],
+                    isFileArray: true,
                   });
                 }
               }
@@ -4698,11 +5189,21 @@ export class TaskService {
                   field: 'paintId',
                   oldValue: oldPaintId,
                   newValue: newPaintId,
-                  reason: `Pintura geral atualizada em operação de lote`,
+                  reason: `Campo tinta atualizado`,
                   triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                   triggeredById: task.id,
                   userId: userId || '',
                   transaction: tx,
+                });
+
+                // Store for event emission
+                fieldChangesForEvents.push({
+                  taskId: task.id,
+                  task: updatedTask,
+                  field: 'paintId',
+                  oldValue: oldPaintId,
+                  newValue: newPaintId,
+                  isFileArray: false,
                 });
               }
             }
@@ -4720,11 +5221,21 @@ export class TaskService {
                   field: 'cuts',
                   oldValue: oldCuts.length > 0 ? oldCuts : null,
                   newValue: newCuts.length > 0 ? newCuts : null,
-                  reason: `Planos de corte atualizados em operação de lote`,
+                  reason: `Campo recortes atualizado`,
                   triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                   triggeredById: task.id,
                   userId: userId || '',
                   transaction: tx,
+                });
+
+                // Store for event emission
+                fieldChangesForEvents.push({
+                  taskId: task.id,
+                  task: updatedTask,
+                  field: 'cuts',
+                  oldValue: oldCuts,
+                  newValue: newCuts,
+                  isFileArray: false,
                 });
               }
             }
@@ -4743,6 +5254,7 @@ export class TaskService {
                 const newValue = updatedTask[field as keyof typeof updatedTask];
 
                 if (hasValueChanged(oldValue, newValue)) {
+                  const fieldLabel = translateFieldName(field);
                   await this.changeLogService.logChange({
                     entityType: ENTITY_TYPE.TASK,
                     entityId: task.id,
@@ -4750,11 +5262,21 @@ export class TaskService {
                     field: field,
                     oldValue: oldValue,
                     newValue: newValue,
-                    reason: `Campo ${field} atualizado em operação de lote`,
+                    reason: `Campo ${fieldLabel} atualizado`,
                     triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
                     triggeredById: task.id,
                     userId: userId || '',
                     transaction: tx,
+                  });
+
+                  // Store for event emission
+                  fieldChangesForEvents.push({
+                    taskId: task.id,
+                    task: updatedTask,
+                    field: field,
+                    oldValue: oldValue,
+                    newValue: newValue,
+                    isFileArray: false,
                   });
                 }
               }
@@ -4858,8 +5380,34 @@ export class TaskService {
         this.logger.log(
           `[batchUpdate] Transaction complete. Success: ${result.totalUpdated}, Failed: ${result.totalFailed}`,
         );
-        return result;
+        return { ...result, fieldChangesForEvents };
       });
+
+      // After transaction: Emit field change events for notifications
+      if (result.fieldChangesForEvents && result.fieldChangesForEvents.length > 0) {
+        this.logger.log(
+          `[batchUpdate] Emitting ${result.fieldChangesForEvents.length} field change event(s) for notifications`,
+        );
+
+        for (const change of result.fieldChangesForEvents) {
+          try {
+            // Emit task.field.changed event (handled by task.listener.ts for notifications)
+            this.eventEmitter.emit('task.field.changed', {
+              task: change.task,
+              field: change.field,
+              oldValue: change.oldValue,
+              newValue: change.newValue,
+              changedBy: userId,
+              isFileArray: change.isFileArray,
+            });
+
+            this.logger.debug(`[batchUpdate] Emitted task.field.changed for task ${change.taskId}, field: ${change.field}`);
+          } catch (eventError) {
+            this.logger.error(`[batchUpdate] Error emitting event for task ${change.taskId}, field ${change.field}:`, eventError);
+            // Don't throw - event emission is not critical
+          }
+        }
+      }
 
       this.logger.log('[batchUpdate] ========== BATCH UPDATE COMPLETED ==========');
       const successMessage =
@@ -5971,6 +6519,14 @@ export class TaskService {
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
 
+    // Store field changes for event emission after transaction
+    const fieldChangesForEvents: Array<{
+      taskId: string;
+      task: any;
+      oldValue: any[];
+      newValue: any[];
+    }> = [];
+
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Verify all tasks exist and user has permission
       const tasks = await tx.task.findMany({
@@ -6025,13 +6581,21 @@ export class TaskService {
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
             field: 'artworks',
-            oldValue: JSON.stringify(currentArtworkIds),
-            newValue: JSON.stringify(mergedArtworkIds),
-            reason: `Artes adicionadas em lote (${artworkIds.length} artes)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            oldValue: currentArtworkIds,
+            newValue: mergedArtworkIds,
+            reason: `Campo artes atualizado`,
+            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
             triggeredById: task.id,
             userId: userId || '',
             transaction: tx,
+          });
+
+          // Store for event emission
+          fieldChangesForEvents.push({
+            taskId: task.id,
+            task: currentTask,
+            oldValue: currentArtworkIds,
+            newValue: mergedArtworkIds,
           });
 
           successCount++;
@@ -6044,6 +6608,28 @@ export class TaskService {
         }
       }
     });
+
+    // After transaction: Emit field change events for notifications
+    if (fieldChangesForEvents.length > 0) {
+      this.logger.log(
+        `[bulkAddArtworks] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+      );
+
+      for (const change of fieldChangesForEvents) {
+        try {
+          this.eventEmitter.emit('task.field.changed', {
+            task: change.task,
+            field: 'artworks',
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            changedBy: userId,
+            isFileArray: true,
+          });
+        } catch (eventError) {
+          this.logger.error(`[bulkAddArtworks] Error emitting event for task ${change.taskId}:`, eventError);
+        }
+      }
+    }
 
     return {
       success: successCount,
@@ -6074,6 +6660,15 @@ export class TaskService {
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
+
+    // Store field changes for event emission after transaction
+    const fieldChangesForEvents: Array<{
+      taskId: string;
+      task: any;
+      field: string;
+      oldValue: any[];
+      newValue: any[];
+    }> = [];
 
     // Map document type to Prisma relation name
     const relationMap = {
@@ -6133,18 +6728,28 @@ export class TaskService {
           });
 
           // Log the change
+          const fieldLabel = translateFieldName(relationName);
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
             field: relationName,
-            oldValue: JSON.stringify(currentDocumentIds),
-            newValue: JSON.stringify(mergedDocumentIds),
-            reason: `Documentos (${documentType}) adicionados em lote (${documentIds.length} documentos)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            oldValue: currentDocumentIds,
+            newValue: mergedDocumentIds,
+            reason: `Campo ${fieldLabel} atualizado`,
+            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
             triggeredById: task.id,
             userId: userId || '',
             transaction: tx,
+          });
+
+          // Store for event emission
+          fieldChangesForEvents.push({
+            taskId: task.id,
+            task: currentTask,
+            field: relationName,
+            oldValue: currentDocumentIds,
+            newValue: mergedDocumentIds,
           });
 
           successCount++;
@@ -6157,6 +6762,28 @@ export class TaskService {
         }
       }
     });
+
+    // After transaction: Emit field change events for notifications
+    if (fieldChangesForEvents.length > 0) {
+      this.logger.log(
+        `[bulkAddDocuments] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+      );
+
+      for (const change of fieldChangesForEvents) {
+        try {
+          this.eventEmitter.emit('task.field.changed', {
+            task: change.task,
+            field: change.field,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            changedBy: userId,
+            isFileArray: true,
+          });
+        } catch (eventError) {
+          this.logger.error(`[bulkAddDocuments] Error emitting event for task ${change.taskId}:`, eventError);
+        }
+      }
+    }
 
     return {
       success: successCount,
@@ -6184,6 +6811,14 @@ export class TaskService {
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
+
+    // Store field changes for event emission after transaction
+    const fieldChangesForEvents: Array<{
+      taskId: string;
+      task: any;
+      oldValue: any[];
+      newValue: any[];
+    }> = [];
 
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Verify all tasks exist
@@ -6239,13 +6874,21 @@ export class TaskService {
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
             field: 'logoPaints',
-            oldValue: JSON.stringify(currentPaintIds),
-            newValue: JSON.stringify(mergedPaintIds),
-            reason: `Tintas adicionadas em lote (${paintIds.length} tintas)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            oldValue: currentPaintIds,
+            newValue: mergedPaintIds,
+            reason: `Campo tintas de logo atualizado`,
+            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
             triggeredById: task.id,
             userId: userId || '',
             transaction: tx,
+          });
+
+          // Store for event emission
+          fieldChangesForEvents.push({
+            taskId: task.id,
+            task: currentTask,
+            oldValue: currentPaintIds,
+            newValue: mergedPaintIds,
           });
 
           successCount++;
@@ -6258,6 +6901,28 @@ export class TaskService {
         }
       }
     });
+
+    // After transaction: Emit field change events for notifications
+    if (fieldChangesForEvents.length > 0) {
+      this.logger.log(
+        `[bulkAddPaints] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+      );
+
+      for (const change of fieldChangesForEvents) {
+        try {
+          this.eventEmitter.emit('task.field.changed', {
+            task: change.task,
+            field: 'logoPaints',
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            changedBy: userId,
+            isFileArray: false,
+          });
+        } catch (eventError) {
+          this.logger.error(`[bulkAddPaints] Error emitting event for task ${change.taskId}:`, eventError);
+        }
+      }
+    }
 
     return {
       success: successCount,
@@ -6291,6 +6956,14 @@ export class TaskService {
 
     const errors: Array<{ taskId: string; error: string }> = [];
     let successCount = 0;
+
+    // Store field changes for event emission after transaction
+    const fieldChangesForEvents: Array<{
+      taskId: string;
+      task: any;
+      oldValue: any[];
+      newValue: any[];
+    }> = [];
 
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Verify all tasks exist
@@ -6343,12 +7016,20 @@ export class TaskService {
             action: CHANGE_ACTION.UPDATE,
             field: 'cuts',
             oldValue: null,
-            newValue: JSON.stringify(createdCuts.map(c => c.id)),
-            reason: `Planos de corte adicionados em lote (${quantity} cortes)`,
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            newValue: createdCuts.map(c => c.id),
+            reason: `Campo recortes atualizado`,
+            triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
             triggeredById: task.id,
             userId: userId || '',
             transaction: tx,
+          });
+
+          // Store for event emission
+          fieldChangesForEvents.push({
+            taskId: task.id,
+            task,
+            oldValue: [],
+            newValue: createdCuts,
           });
 
           successCount++;
@@ -6361,6 +7042,28 @@ export class TaskService {
         }
       }
     });
+
+    // After transaction: Emit field change events for notifications
+    if (fieldChangesForEvents.length > 0) {
+      this.logger.log(
+        `[bulkAddCuttingPlans] Emitting ${fieldChangesForEvents.length} field change event(s) for notifications`,
+      );
+
+      for (const change of fieldChangesForEvents) {
+        try {
+          this.eventEmitter.emit('task.field.changed', {
+            task: change.task,
+            field: 'cuts',
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            changedBy: userId,
+            isFileArray: false,
+          });
+        } catch (eventError) {
+          this.logger.error(`[bulkAddCuttingPlans] Error emitting event for task ${change.taskId}:`, eventError);
+        }
+      }
+    }
 
     return {
       success: successCount,
@@ -6563,6 +7266,7 @@ export class TaskService {
     sourceTaskId: string,
     fields: CopyableTaskField[],
     userId: string,
+    userPrivilege?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -6573,16 +7277,27 @@ export class TaskService {
       `[copyFromTask] Copying ${fields.length} field(s) from task ${sourceTaskId} to ${destinationTaskId}`,
     );
     this.logger.debug(`[copyFromTask] Requested fields: ${JSON.stringify(fields)}`);
+    this.logger.debug(`[copyFromTask] User privilege: ${userPrivilege}`);
 
-    // Expand 'all' field to individual fields
-    let fieldsToProcess = [...fields];
-    if (fields.includes('all')) {
-      fieldsToProcess = COPYABLE_TASK_FIELDS.filter(f => f !== 'all');
-      this.logger.log(`[copyFromTask] Expanded 'all' to ${fieldsToProcess.length} individual fields`);
+    // Import permission filter function
+    const { expandAllFieldsForUser } = require('../../../schemas/task-copy');
+
+    // Expand 'all' to only fields user has permission to copy, and filter all fields by privilege
+    let fieldsToProcess: CopyableTaskField[] = expandAllFieldsForUser(fields, userPrivilege);
+    this.logger.log(`[copyFromTask] After privilege filtering: ${fieldsToProcess.length} fields for privilege ${userPrivilege}`);
+
+    // Ensure we have fields to process
+    if (fieldsToProcess.length === 0) {
+      return {
+        success: false,
+        message: 'Nenhum campo permitido para cópia com seu nível de privilégio',
+        copiedFields: [],
+        details: {},
+      };
     }
 
     try {
-      return await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const transactionResult = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Fetch source task with all necessary relations
         const sourceTask = await tx.task.findUnique({
           where: { id: sourceTaskId },
@@ -6597,16 +7312,68 @@ export class TaskService {
                 backSideLayoutId: true,
                 leftSideLayoutId: true,
                 rightSideLayoutId: true,
+                // Include layout details for dimensions
+                backSideLayout: {
+                  select: {
+                    id: true,
+                    height: true,
+                    layoutSections: {
+                      select: {
+                        width: true,
+                      }
+                    }
+                  }
+                },
+                leftSideLayout: {
+                  select: {
+                    id: true,
+                    height: true,
+                    layoutSections: {
+                      select: {
+                        width: true,
+                      }
+                    }
+                  }
+                },
+                rightSideLayout: {
+                  select: {
+                    id: true,
+                    height: true,
+                    layoutSections: {
+                      select: {
+                        width: true,
+                      }
+                    }
+                  }
+                },
               },
             },
             observation: true,
-            artworks: { select: { id: true } },
+            artworks: {
+              select: {
+                id: true,
+                fileId: true,
+                file: {
+                  select: {
+                    id: true,
+                    filename: true,
+                    thumbnailUrl: true,
+                  }
+                }
+              }
+            },
             budgets: { select: { id: true } },
             invoices: { select: { id: true } },
             receipts: { select: { id: true } },
             reimbursements: { select: { id: true } },
             invoiceReimbursements: { select: { id: true } },
-            baseFiles: { select: { id: true } },
+            baseFiles: {
+              select: {
+                id: true,
+                filename: true,
+                thumbnailUrl: true,
+              }
+            },
             logoPaints: { select: { id: true } },
             cuts: {
               select: {
@@ -6624,7 +7391,26 @@ export class TaskService {
                 artworks: { select: { id: true } },
               },
             },
-            serviceOrders: { select: { id: true } },
+            serviceOrders: {
+              select: {
+                id: true,
+                description: true,
+                type: true,
+              }
+            },
+            pricing: {
+              select: {
+                id: true,
+                budgetNumber: true,
+                total: true,
+                items: {
+                  select: {
+                    description: true,
+                    amount: true,
+                  },
+                },
+              }
+            },
           },
         });
 
@@ -6650,10 +7436,43 @@ export class TaskService {
         this.logger.debug(`[copyFromTask]   - entryDate type: ${typeof sourceTask.entryDate}`);
         this.logger.debug(`[copyFromTask]   - forecastDate type: ${typeof sourceTask.forecastDate}`);
 
-        // Fetch destination task
+        // Fetch destination task with all relations (for old value comparison in changelogs)
         const destinationTask = await tx.task.findUnique({
           where: { id: destinationTaskId },
-          select: { id: true, name: true },
+          include: {
+            truck: {
+              select: {
+                id: true,
+                category: true,
+                implementType: true,
+                spot: true,
+                backSideLayoutId: true,
+                leftSideLayoutId: true,
+                rightSideLayoutId: true,
+              },
+            },
+            observation: true,
+            artworks: { select: { id: true } },
+            baseFiles: { select: { id: true } },
+            logoPaints: { select: { id: true } },
+            cuts: { select: { id: true } },
+            airbrushings: { select: { id: true } },
+            serviceOrders: { select: { id: true } },
+            // Include pricing for enriched oldValue in changelog
+            pricing: {
+              select: {
+                id: true,
+                budgetNumber: true,
+                total: true,
+                items: {
+                  select: {
+                    description: true,
+                    amount: true,
+                  },
+                },
+              },
+            },
+          },
         });
 
         if (!destinationTask) {
@@ -6665,6 +7484,50 @@ export class TaskService {
         this.logger.debug(
           `[copyFromTask] Destination task loaded: ${destinationTask.name} (${destinationTask.id})`,
         );
+
+        // Store old values for changelog tracking
+        const oldValues: Record<string, any> = {
+          name: destinationTask.name,
+          details: destinationTask.details,
+          term: destinationTask.term,
+          entryDate: destinationTask.entryDate,
+          forecastDate: destinationTask.forecastDate,
+          commission: destinationTask.commission,
+          negotiatingWith: destinationTask.negotiatingWith,
+          customerId: destinationTask.customerId,
+          invoiceToId: destinationTask.invoiceToId,
+          // Store enriched pricing data for changelog display (not just UUID)
+          pricingId: destinationTask.pricing
+            ? {
+                id: destinationTask.pricing.id,
+                budgetNumber: destinationTask.pricing.budgetNumber,
+                total: destinationTask.pricing.total,
+                items: destinationTask.pricing.items || [],
+              }
+            : null,
+          paintId: destinationTask.paintId,
+          artworkIds: destinationTask.artworks?.map(a => a.id) || [],
+          baseFileIds: destinationTask.baseFiles?.map(f => f.id) || [],
+          logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
+          cuts: destinationTask.cuts?.length || 0,
+          airbrushings: destinationTask.airbrushings?.length || 0,
+          serviceOrders: destinationTask.serviceOrders?.length || 0,
+          implementType: destinationTask.truck?.implementType || null,
+          category: destinationTask.truck?.category || null,
+          layouts: {
+            backSideLayoutId: destinationTask.truck?.backSideLayoutId || null,
+            leftSideLayoutId: destinationTask.truck?.leftSideLayoutId || null,
+            rightSideLayoutId: destinationTask.truck?.rightSideLayoutId || null,
+          },
+          observation: destinationTask.observation?.description || null,
+        };
+
+        // Array to store field changes for events (emitted after transaction)
+        const fieldChangesForEvents: Array<{
+          field: string;
+          oldValue: any;
+          newValue: any;
+        }> = [];
 
         // Prepare update data
         const updateData: any = {};
@@ -6780,7 +7643,13 @@ export class TaskService {
               if (hasData(sourceTask.pricingId)) {
                 updateData.pricingId = sourceTask.pricingId;
                 copiedFields.push(field);
-                details.pricingId = sourceTask.pricingId;
+                // Store pricing info for changelog display
+                details.pricingId = {
+                  id: sourceTask.pricingId,
+                  budgetNumber: sourceTask.pricing?.budgetNumber || null,
+                  total: sourceTask.pricing?.total || null,
+                  items: sourceTask.pricing?.items || [],
+                };
               }
               break;
 
@@ -6800,7 +7669,13 @@ export class TaskService {
                   set: artworkIds.map(id => ({ id })),
                 };
                 copiedFields.push(field);
-                details.artworkIds = artworkIds;
+                // Store file info for changelog display
+                details.artworkIds = sourceTask.artworks.map(a => ({
+                  id: a.id,
+                  fileId: a.fileId,
+                  filename: a.file?.filename,
+                  thumbnailUrl: a.file?.thumbnailUrl,
+                }));
               }
               break;
 
@@ -6811,7 +7686,12 @@ export class TaskService {
                   set: baseFileIds.map(id => ({ id })),
                 };
                 copiedFields.push(field);
-                details.baseFileIds = baseFileIds;
+                // Store file info for changelog display
+                details.baseFileIds = sourceTask.baseFiles.map(f => ({
+                  id: f.id,
+                  filename: f.filename,
+                  thumbnailUrl: f.thumbnailUrl,
+                }));
               }
               break;
 
@@ -6888,35 +7768,53 @@ export class TaskService {
               }
               break;
 
-            // ===== TRUCK =====
-            case 'truck':
-              if (hasData(sourceTask.truck)) {
-                // Check if destination already has a truck
+            // ===== IMPLEMENT TYPE (Shared Reference) =====
+            case 'implementType':
+              if (hasData(sourceTask.truck?.implementType)) {
                 const existingTruck = await tx.truck.findUnique({
                   where: { taskId: destinationTaskId },
                 });
 
-                const truckData: any = {
-                  category: sourceTask.truck.category,
-                  implementType: sourceTask.truck.implementType,
-                  // Exclude plate, chassisNumber, and spot as per requirements
-                };
-
                 if (existingTruck) {
                   await tx.truck.update({
                     where: { taskId: destinationTaskId },
-                    data: truckData,
+                    data: { implementType: sourceTask.truck.implementType },
                   });
                 } else {
                   await tx.truck.create({
                     data: {
-                      ...truckData,
+                      implementType: sourceTask.truck.implementType,
                       taskId: destinationTaskId,
                     },
                   });
                 }
                 copiedFields.push(field);
-                details.truck = truckData;
+                details.implementType = sourceTask.truck.implementType;
+              }
+              break;
+
+            // ===== CATEGORY (Shared Reference) =====
+            case 'category':
+              if (hasData(sourceTask.truck?.category)) {
+                const existingTruck = await tx.truck.findUnique({
+                  where: { taskId: destinationTaskId },
+                });
+
+                if (existingTruck) {
+                  await tx.truck.update({
+                    where: { taskId: destinationTaskId },
+                    data: { category: sourceTask.truck.category },
+                  });
+                } else {
+                  await tx.truck.create({
+                    data: {
+                      category: sourceTask.truck.category,
+                      taskId: destinationTaskId,
+                    },
+                  });
+                }
+                copiedFields.push(field);
+                details.category = sourceTask.truck.category;
               }
               break;
 
@@ -6948,7 +7846,24 @@ export class TaskService {
                   });
                 }
                 copiedFields.push(field);
-                details.layouts = layoutData;
+
+                // Helper to calculate dimensions from layout
+                const getLayoutDimensions = (layout: any) => {
+                  if (!layout) return null;
+                  const height = layout.height ? Math.round(layout.height * 100) : 0;
+                  const totalWidth = layout.layoutSections
+                    ? layout.layoutSections.reduce((sum: number, s: any) => sum + (s.width || 0) * 100, 0)
+                    : 0;
+                  return { height, width: Math.round(totalWidth) };
+                };
+
+                // Store layout data with dimensions for changelog display
+                details.layouts = {
+                  ...layoutData,
+                  leftSideDimensions: getLayoutDimensions(sourceTask.truck.leftSideLayout),
+                  rightSideDimensions: getLayoutDimensions(sourceTask.truck.rightSideLayout),
+                  backSideDimensions: getLayoutDimensions(sourceTask.truck.backSideLayout),
+                };
               }
               break;
 
@@ -7017,9 +7932,14 @@ export class TaskService {
                   }),
                 );
                 copiedFields.push(field);
+                // Store full service order details for changelog display
                 details.serviceOrders = {
                   count: newServiceOrders.length,
                   ids: newServiceOrders.map(so => so.id),
+                  items: fullServiceOrders.map(so => ({
+                    description: so.description,
+                    type: so.type,
+                  })),
                 };
               }
               break;
@@ -7053,41 +7973,48 @@ export class TaskService {
           this.logger.log(`[copyFromTask] No fields to update via task.update()`);
         }
 
-        // Create changelog entries for copied fields
+        // Create INDIVIDUAL changelog entries for each copied field
         if (copiedFields.length > 0) {
-          this.logger.debug(`[copyFromTask] Creating changelog entry...`);
+          this.logger.debug(`[copyFromTask] Creating individual changelog entries...`);
           this.logger.debug(`[copyFromTask] Copied fields: ${copiedFields.join(', ')}`);
-          this.logger.debug(`[copyFromTask] Details keys: ${Object.keys(details).join(', ')}`);
 
-          try {
-            await logEntityChange({
-              changeLogService: this.changeLogService,
-              entityId: destinationTaskId,
-              entityType: ENTITY_TYPE.TASK,
-              action: CHANGE_ACTION.UPDATE,
-              triggeredBy: CHANGE_TRIGGERED_BY.USER,
-              userId,
-              changes: {
-                copiedFrom: {
-                  from: null,
-                  to: sourceTaskId,
+          for (const field of copiedFields) {
+            try {
+              const oldValue = oldValues[field];
+              const newValue = details[field];
+              const fieldLabel = translateFieldName(field);
+
+              // Create individual changelog entry for this field
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: destinationTaskId,
+                action: CHANGE_ACTION.UPDATE,
+                field,
+                oldValue,
+                newValue,
+                reason: `Campo ${fieldLabel} copiado da tarefa "${sourceTask.name || sourceTaskId}"`,
+                triggeredBy: CHANGE_TRIGGERED_BY.TASK_COPY_FROM_TASK,
+                triggeredById: sourceTaskId,
+                userId,
+                transaction: tx,
+                metadata: {
+                  sourceTaskId,
+                  sourceTaskName: sourceTask.name,
                 },
-                copiedFields: {
-                  from: [],
-                  to: copiedFields,
-                },
-                copiedDetails: {
-                  from: {},
-                  to: details,
-                },
-              },
-              reason: `Campos copiados da tarefa ${sourceTask.name || sourceTaskId}`,
-              transaction: tx,
-            });
-            this.logger.debug(`[copyFromTask] Changelog entry created successfully`);
-          } catch (changelogError) {
-            this.logger.error(`[copyFromTask] Error creating changelog:`, changelogError);
-            // Don't throw - changelog is not critical for the copy operation
+              });
+
+              // Track field change for event emission (after transaction)
+              fieldChangesForEvents.push({
+                field,
+                oldValue,
+                newValue,
+              });
+
+              this.logger.debug(`[copyFromTask] Changelog entry created for field: ${field}`);
+            } catch (changelogError) {
+              this.logger.error(`[copyFromTask] Error creating changelog for field ${field}:`, changelogError);
+              // Don't throw - changelog is not critical for the copy operation
+            }
           }
         }
 
@@ -7096,8 +8023,55 @@ export class TaskService {
           message: `${copiedFields.length} campo(s) copiado(s) com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
           copiedFields,
           details,
+          fieldChangesForEvents,
+          sourceTask: { id: sourceTask.id, name: sourceTask.name },
+          destinationTaskId,
         };
       });
+
+      // After transaction success: Emit field change events for notifications
+      // This triggers the notification system to send individual notifications per field
+      if (transactionResult.fieldChangesForEvents && transactionResult.fieldChangesForEvents.length > 0) {
+        this.logger.log(
+          `[copyFromTask] Emitting ${transactionResult.fieldChangesForEvents.length} field change event(s) for notifications`,
+        );
+
+        // Fetch the updated task for event emission
+        const updatedTask = await this.prisma.task.findUnique({
+          where: { id: destinationTaskId },
+          include: {
+            customer: { select: { id: true, fantasyName: true } },
+          },
+        });
+
+        if (updatedTask) {
+          for (const change of transactionResult.fieldChangesForEvents) {
+            try {
+              // Emit task.field.changed event (handled by task.listener.ts for notifications)
+              this.eventEmitter.emit('task.field.changed', {
+                task: updatedTask,
+                field: change.field,
+                oldValue: change.oldValue,
+                newValue: change.newValue,
+                changedBy: userId,
+                isFileArray: ['artworkIds', 'baseFileIds', 'logoPaintIds'].includes(change.field),
+              });
+
+              this.logger.debug(`[copyFromTask] Emitted task.field.changed event for field: ${change.field}`);
+            } catch (eventError) {
+              this.logger.error(`[copyFromTask] Error emitting event for field ${change.field}:`, eventError);
+              // Don't throw - event emission is not critical
+            }
+          }
+        }
+      }
+
+      return {
+        success: transactionResult.success,
+        message: transactionResult.message,
+        copiedFields: transactionResult.copiedFields,
+        details: transactionResult.details,
+      };
     } catch (error) {
       this.logger.error(
         `[copyFromTask] Error copying fields from task ${sourceTaskId} to ${destinationTaskId}:`,

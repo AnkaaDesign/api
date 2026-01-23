@@ -74,6 +74,7 @@ export class CutController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.WAREHOUSE,
   )
   async getMany(
     @Query(new ZodQueryValidationPipe(cutGetManySchema)) query: CutGetManyFormData,
@@ -148,6 +149,7 @@ export class CutController {
     SECTOR_PRIVILEGES.HUMAN_RESOURCES,
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.EXTERNAL,
+    SECTOR_PRIVILEGES.WAREHOUSE,
   )
   async getUnique(
     @Param('id', ParseUUIDPipe) id: string,

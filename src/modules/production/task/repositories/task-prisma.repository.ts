@@ -1301,7 +1301,8 @@ export class TaskPrismaRepository
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       // Handle pricing creation/update for one-to-many relationship
-      // We create a new TaskPricing entity and connect it via pricingId
+      // CRITICAL FIX: Only create NEW pricing if there are NEW items (items without IDs)
+      // If all items have IDs, it means the frontend is just sending existing data back - don't create new pricing
       const pricingData = (data as any).pricing;
 
       console.log('[TaskRepository] updateWithTransaction - pricing data:', JSON.stringify(pricingData, null, 2));
@@ -1312,62 +1313,77 @@ export class TaskPrismaRepository
         console.log('[TaskRepository] Pricing has items?', pricingData.items);
         console.log('[TaskRepository] Items is array?', Array.isArray(pricingData.items));
         console.log('[TaskRepository] Items length:', pricingData.items?.length);
+
         if (
           typeof pricingData === 'object' &&
           pricingData.items &&
           Array.isArray(pricingData.items) &&
           pricingData.items.length > 0
         ) {
-          // Calculate subtotal from items
-          const calculatedSubtotal = pricingData.items.reduce(
-            (sum: number, item: any) => sum + Number(item.amount || 0),
-            0,
-          );
-          const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
-          const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+          // CRITICAL: Check if there are NEW items (items without IDs)
+          // If all items have IDs, the frontend is just sending existing data back - skip creating new pricing
+          const hasNewItems = pricingData.items.some((item: any) => !item.id);
 
-          // Get next budget number
-          const maxBudgetNumber = await transaction.taskPricing.aggregate({
-            _max: { budgetNumber: true },
-          });
-          const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+          console.log('[TaskRepository] Has new pricing items (without IDs)?', hasNewItems);
+          console.log('[TaskRepository] Item IDs:', pricingData.items.map((item: any) => item.id || 'NEW'));
 
-          // Prepare layout file connection
-          const layoutFileConnect = pricingData.layoutFileId
-            ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
-            : {};
+          if (!hasNewItems) {
+            console.log('[TaskRepository] All pricing items have IDs - skipping pricing creation (existing data sent back)');
+            // Don't create new pricing - just skip this section
+          } else {
+            console.log('[TaskRepository] Found new pricing items - creating new pricing');
 
-          // Create new TaskPricing entity
-          const newPricing = await transaction.taskPricing.create({
-            data: {
-              budgetNumber: nextBudgetNumber,
-              subtotal,
-              total,
-              discountType: pricingData.discountType || 'NONE',
-              discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
-              expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
-              status: pricingData.status || 'DRAFT',
-              paymentCondition: pricingData.paymentCondition || null,
-              downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
-              customPaymentText: pricingData.customPaymentText || null,
-              guaranteeYears: pricingData.guaranteeYears || null,
-              customGuaranteeText: pricingData.customGuaranteeText || null,
-              ...layoutFileConnect,
-              items: {
-                create: pricingData.items.map((item: any) => ({
-                  description: item.description,
-                  observation: item.observation || null,
-                  amount: Number(item.amount || 0),
-                  shouldSync: item.shouldSync !== false, // Preserve shouldSync flag (default true)
-                })),
+            // Calculate subtotal from items
+            const calculatedSubtotal = pricingData.items.reduce(
+              (sum: number, item: any) => sum + Number(item.amount || 0),
+              0,
+            );
+            const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+            const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+
+            // Get next budget number
+            const maxBudgetNumber = await transaction.taskPricing.aggregate({
+              _max: { budgetNumber: true },
+            });
+            const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+            // Prepare layout file connection
+            const layoutFileConnect = pricingData.layoutFileId
+              ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
+              : {};
+
+            // Create new TaskPricing entity
+            const newPricing = await transaction.taskPricing.create({
+              data: {
+                budgetNumber: nextBudgetNumber,
+                subtotal,
+                total,
+                discountType: pricingData.discountType || 'NONE',
+                discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+                expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
+                status: pricingData.status || 'DRAFT',
+                paymentCondition: pricingData.paymentCondition || null,
+                downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+                customPaymentText: pricingData.customPaymentText || null,
+                guaranteeYears: pricingData.guaranteeYears || null,
+                customGuaranteeText: pricingData.customGuaranteeText || null,
+                ...layoutFileConnect,
+                items: {
+                  create: pricingData.items.map((item: any) => ({
+                    description: item.description,
+                    observation: item.observation || null,
+                    amount: Number(item.amount || 0),
+                    shouldSync: item.shouldSync !== false, // Preserve shouldSync flag (default true)
+                  })),
+                },
               },
-            },
-          });
+            });
 
-          // Connect the new pricing to the task (one-to-many relationship)
-          updateInput.pricing = {
-            connect: { id: newPricing.id },
-          };
+            // Connect the new pricing to the task (one-to-many relationship)
+            updateInput.pricing = {
+              connect: { id: newPricing.id },
+            };
+          }
         }
       }
 

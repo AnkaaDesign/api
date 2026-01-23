@@ -439,3 +439,85 @@ export function isTaskStatusRollback(oldStatus: TASK_STATUS, newStatus: TASK_STA
   const newOrder = getTaskStatusOrder(newStatus);
   return newOrder < oldOrder;
 }
+
+/**
+ * Determines if task status should be updated based on ARTWORK service order status change.
+ *
+ * This handles the PREPARATION → WAITING_PRODUCTION transition and its rollback:
+ * - When at least ONE artwork SO becomes COMPLETED → Task transitions to WAITING_PRODUCTION
+ * - When ALL artwork SOs are rolled back (none remain COMPLETED) → Task rolls back to PREPARATION
+ *
+ * @param allServiceOrders - All service orders for the task (with their current/updated statuses)
+ * @param changedServiceOrderId - The ID of the service order that changed
+ * @param oldServiceOrderStatus - The previous status of the changed service order
+ * @param newServiceOrderStatus - The new status of the changed service order
+ * @param serviceOrderType - The type of the changed service order
+ * @param currentTaskStatus - The current status of the task
+ * @returns Update info if task should be updated, null otherwise
+ */
+export function getTaskUpdateForArtworkServiceOrderStatusChange(
+  allServiceOrders: Array<{
+    id: string;
+    status: SERVICE_ORDER_STATUS;
+    type: SERVICE_ORDER_TYPE;
+  }>,
+  changedServiceOrderId: string,
+  oldServiceOrderStatus: SERVICE_ORDER_STATUS,
+  newServiceOrderStatus: SERVICE_ORDER_STATUS,
+  serviceOrderType: SERVICE_ORDER_TYPE,
+  currentTaskStatus: TASK_STATUS,
+): {
+  shouldUpdate: boolean;
+  newTaskStatus: TASK_STATUS;
+  reason: string;
+} | null {
+  // Only handle ARTWORK type service orders
+  if (serviceOrderType !== SERVICE_ORDER_TYPE.ARTWORK) {
+    return null;
+  }
+
+  // Update the array to reflect the new status for calculation
+  const updatedServiceOrders = allServiceOrders.map(so =>
+    so.id === changedServiceOrderId ? { ...so, status: newServiceOrderStatus } : so,
+  );
+
+  const artworkOrders = updatedServiceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+
+  // ===== FORWARD TRANSITION: PREPARATION → WAITING_PRODUCTION =====
+  // When an artwork SO becomes COMPLETED and task is in PREPARATION
+  if (
+    newServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
+    oldServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
+    currentTaskStatus === TASK_STATUS.PREPARATION
+  ) {
+    // One artwork becoming COMPLETED is enough to transition
+    return {
+      shouldUpdate: true,
+      newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
+      reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte foi concluída`,
+    };
+  }
+
+  // ===== BACKWARD TRANSITION: WAITING_PRODUCTION → PREPARATION =====
+  // When an artwork SO is rolled back from COMPLETED, check if task should rollback
+  if (
+    oldServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
+    newServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED &&
+    currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION
+  ) {
+    // Only rollback task if NO artwork SOs remain completed
+    const anyArtworkCompleted = artworkOrders.some(
+      so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+    );
+
+    if (!anyArtworkCompleted) {
+      return {
+        shouldUpdate: true,
+        newTaskStatus: TASK_STATUS.PREPARATION,
+        reason: `Tarefa retornada para preparação pois nenhuma ordem de serviço de arte permanece concluída`,
+      };
+    }
+  }
+
+  return null;
+}
