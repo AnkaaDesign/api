@@ -35,25 +35,32 @@ export class ServiceOrderListener {
 
   /**
    * Get notification metadata for a task including web and mobile deep links
-   * Returns actionUrl (web) and metadata with all link types for channel-specific routing
+   * Returns actionUrl as JSON string (for reliable mobile URL extraction) and metadata
+   *
+   * IMPORTANT: actionUrl is now a JSON string containing { web, mobile, universalLink }
+   * This ensures the mobile app can always extract the correct navigation URL,
+   * following the same pattern as order.listener.ts which works correctly.
    *
    * @param taskId - Task ID to generate links for
-   * @returns Object with actionUrl and metadata containing all link types
+   * @returns Object with actionUrl (JSON string) and metadata containing all link types
    */
   private getTaskNotificationMetadata(taskId: string): { actionUrl: string; metadata: any } {
-    // Generate status-agnostic web URL (default to agenda)
-    const webUrl = `/producao/agenda/detalhes/${taskId}`;
-
     // Generate deep links for mobile and universal linking
     const deepLinks = this.deepLinkService.generateTaskLinks(taskId);
 
+    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
+    // can extract mobileUrl directly via parseActionUrl().
+    // Previously this was a simple web path which caused mobileUrl to be empty.
     return {
-      actionUrl: webUrl,
+      actionUrl: JSON.stringify(deepLinks),
       metadata: {
-        webUrl,
+        webUrl: deepLinks.web,
         mobileUrl: deepLinks.mobile,
         universalLink: deepLinks.universalLink,
         taskId,
+        // Include entity info for mobile navigation fallback
+        entityType: 'Task',
+        entityId: taskId,
       },
     };
   }
