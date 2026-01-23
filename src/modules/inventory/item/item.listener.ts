@@ -83,18 +83,24 @@ export class ItemListener {
 
   /**
    * Generate item notification metadata with proper deep links
-   * Similar to task notification metadata pattern
+   *
+   * IMPORTANT: actionUrl is now a JSON string containing { web, mobile, universalLink }
+   * This ensures the mobile app can always extract the correct navigation URL,
+   * following the same pattern as order.listener.ts which works correctly.
+   *
    * @param itemId - The item identifier
-   * @returns Object with actionUrl and metadata containing all link types
+   * @returns Object with actionUrl (JSON string) and metadata containing all link types
    */
   private getItemNotificationMetadata(itemId: string): { actionUrl: string; metadata: any } {
     // Generate deep links for mobile and universal linking
     const deepLinks = this.deepLinkService.generateItemLinks(itemId);
 
-    // Return actionUrl (web) and comprehensive metadata
-    // IMPORTANT: Include entityType and entityId for mobile app navigation
+    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
+    // can extract mobileUrl directly via parseActionUrl().
+    // Previously this was a simple web URL which caused mobileUrl to be empty
+    // and the mobile app would open the web page instead of navigating in-app.
     return {
-      actionUrl: deepLinks.web,  // Web URL for backward compatibility
+      actionUrl: JSON.stringify(deepLinks),
       metadata: {
         webUrl: deepLinks.web,                  // Web route
         mobileUrl: deepLinks.mobile,            // Mobile app deep link (custom scheme)

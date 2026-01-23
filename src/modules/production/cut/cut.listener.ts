@@ -580,10 +580,21 @@ export class CutListener {
       ? `/producao/cronograma/detalhes/${task.id}`
       : '/producao/plotter';
 
+    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
+    // can extract mobileUrl directly via parseActionUrl().
+    // Generate deep links for mobile and universal linking when there's a task
+    const deepLinks = task
+      ? this.deepLinkService.generateTaskLinks(task.id)
+      : { web: webUrl, mobile: '', universalLink: '' };
+
     return {
-      actionUrl: webUrl,
+      actionUrl: JSON.stringify(deepLinks),
       metadata: {
         webUrl,
+        mobileUrl: deepLinks.mobile,
+        universalLink: deepLinks.universalLink,
+        entityType: task ? 'Task' : null,
+        entityId: task?.id || null,
         cut: {
           id: cut.id,
           taskId: task?.id || null,

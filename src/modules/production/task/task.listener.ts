@@ -1047,15 +1047,20 @@ export class TaskListener {
     // Generate deep links for mobile and universal linking
     const deepLinks = this.deepLinkService.generateTaskLinks(task.id);
 
-    // Return actionUrl (web) and comprehensive metadata
+    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
+    // can extract mobileUrl directly via parseActionUrl().
+    // Previously this was a simple web path which caused mobileUrl to be empty
+    // in push notifications, breaking mobile navigation.
     return {
-      actionUrl: webUrl,
+      actionUrl: JSON.stringify(deepLinks),
       metadata: {
-        webUrl,                        // Status-specific web route
+        webUrl,                        // Status-specific web route (for web app)
         mobileUrl: deepLinks.mobile,   // Mobile app deep link (custom scheme)
         universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
         taskId: task.id,               // For reference
         taskStatus: task.status,       // For reference
+        entityType: 'Task',            // For mobile navigation via entityType
+        entityId: task.id,             // For mobile navigation via entityId
       },
     };
   }
