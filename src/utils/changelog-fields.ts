@@ -209,6 +209,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     createdBy: 'Criado por',
     truck: 'Caminhão',
     artworks: 'Artes',
+    baseFiles: 'Arquivos Base',
     logoPaints: 'Tintas da Logomarca',
     paints: 'Tintas da Logomarca',
     commissions: 'Comissões',
@@ -881,6 +882,9 @@ export function formatFieldValue(
     if (entityType === CHANGE_LOG_ENTITY_TYPE.TASK) {
       if (field === 'artworks') {
         return `${value.length} ${value.length === 1 ? 'arte' : 'artes'}`;
+      }
+      if (field === 'baseFiles') {
+        return `${value.length} ${value.length === 1 ? 'arquivo base' : 'arquivos base'}`;
       }
       if (field === 'logoPaints' || field === 'paints') {
         return `${value.length} ${value.length === 1 ? 'tinta' : 'tintas'}`;
