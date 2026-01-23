@@ -516,8 +516,8 @@ export class ServiceOrderService {
           }
         }
 
-        // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
-        // This ensures the task workflow progresses automatically when all artwork approvals are complete
+        // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK service order is COMPLETED
+        // This ensures the task workflow progresses automatically when any artwork approval is complete
         if (
           data.status === SERVICE_ORDER_STATUS.COMPLETED &&
           oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
@@ -530,56 +530,41 @@ export class ServiceOrderService {
 
           // Only proceed if task is in PREPARATION status
           if (task && task.status === TASK_STATUS.PREPARATION) {
-            // Get all ARTWORK service orders for this task
-            const artworkServiceOrders = await tx.serviceOrder.findMany({
-              where: {
-                taskId: updated.taskId,
-                type: SERVICE_ORDER_TYPE.ARTWORK,
-              },
-              select: { id: true, status: true },
-            });
-
-            // Check if there's at least 1 artwork service order and ALL are COMPLETED
-            const hasArtworkOrders = artworkServiceOrders.length > 0;
-            const allArtworkCompleted = artworkServiceOrders.every(
-              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+            // Since this artwork service order just became COMPLETED, we can transition the task
+            // No need to check other artwork orders - one completed artwork is enough
+            this.logger.log(
+              `[AUTO-TRANSITION] ARTWORK service order ${id} completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
             );
 
-            if (hasArtworkOrders && allArtworkCompleted) {
-              this.logger.log(
-                `[AUTO-TRANSITION] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
-              );
+            await tx.task.update({
+              where: { id: task.id },
+              data: {
+                status: TASK_STATUS.WAITING_PRODUCTION,
+                statusOrder: 2, // WAITING_PRODUCTION statusOrder
+              },
+            });
 
-              await tx.task.update({
-                where: { id: task.id },
-                data: {
-                  status: TASK_STATUS.WAITING_PRODUCTION,
-                  statusOrder: 2, // WAITING_PRODUCTION statusOrder
-                },
-              });
+            // Log the auto-transition in changelog
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: task.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'status',
+              oldValue: TASK_STATUS.PREPARATION,
+              newValue: TASK_STATUS.WAITING_PRODUCTION,
+              reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte "${updated.description}" foi concluída`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
 
-              // Log the auto-transition in changelog
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: task.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'status',
-                oldValue: TASK_STATUS.PREPARATION,
-                newValue: TASK_STATUS.WAITING_PRODUCTION,
-                reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas`,
-                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-
-              // Track for event emission after transaction commits
-              taskAutoTransitionedToWaitingProduction = {
-                taskId: task.id,
-                oldStatus: TASK_STATUS.PREPARATION,
-                newStatus: TASK_STATUS.WAITING_PRODUCTION,
-              };
-            }
+            // Track for event emission after transaction commits
+            taskAutoTransitionedToWaitingProduction = {
+              taskId: task.id,
+              oldStatus: TASK_STATUS.PREPARATION,
+              newStatus: TASK_STATUS.WAITING_PRODUCTION,
+            };
           }
         }
 
@@ -658,6 +643,7 @@ export class ServiceOrderService {
         // ROLLBACK SYNC: ARTWORK Service Order Rollback → Task Status Rollback
         // When an ARTWORK service order goes backwards from COMPLETED, check if task
         // should rollback from WAITING_PRODUCTION to PREPARATION
+        // Only rollback if NO artwork service orders remain completed
         // =====================================================================
         if (
           updated.type === SERVICE_ORDER_TYPE.ARTWORK &&
@@ -672,7 +658,7 @@ export class ServiceOrderService {
 
           // Only rollback if task is currently in WAITING_PRODUCTION
           if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
-            // Get all ARTWORK service orders to check if any are now incomplete
+            // Get all ARTWORK service orders to check if any are still completed
             const artworkServiceOrders = await tx.serviceOrder.findMany({
               where: {
                 taskId: updated.taskId,
@@ -681,14 +667,15 @@ export class ServiceOrderService {
               select: { id: true, status: true },
             });
 
-            // If any artwork SO is not completed, rollback task to PREPARATION
-            const allArtworkCompleted = artworkServiceOrders.every(
+            // Only rollback task if NO artwork SOs remain completed
+            // If at least one artwork is still completed, keep task in WAITING_PRODUCTION
+            const anyArtworkCompleted = artworkServiceOrders.some(
               (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
             );
 
-            if (!allArtworkCompleted) {
+            if (!anyArtworkCompleted) {
               this.logger.log(
-                `[ARTWORK ROLLBACK] Artwork service order ${id} rolled back from COMPLETED to ${data.status}, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
+                `[ARTWORK ROLLBACK] Artwork service order ${id} rolled back from COMPLETED to ${data.status}, no artwork orders remain completed, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
               );
 
               await tx.task.update({
@@ -707,7 +694,7 @@ export class ServiceOrderService {
                 field: 'status',
                 oldValue: TASK_STATUS.WAITING_PRODUCTION,
                 newValue: TASK_STATUS.PREPARATION,
-                reason: `Tarefa retornada para preparação quando ordem de serviço de arte "${updated.description}" foi reaberta`,
+                reason: `Tarefa retornada para preparação pois nenhuma ordem de serviço de arte permanece concluída`,
                 triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                 triggeredById: id,
                 userId: userId || '',
@@ -1549,7 +1536,7 @@ export class ServiceOrderService {
               }
             }
 
-            // Auto-transition task from PREPARATION to WAITING_PRODUCTION when all ARTWORK service orders are COMPLETED
+            // Auto-transition task from PREPARATION to WAITING_PRODUCTION when at least one ARTWORK service order is COMPLETED
             if (
               serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED &&
               oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
@@ -1565,54 +1552,39 @@ export class ServiceOrderService {
 
                 // Only proceed if task is in PREPARATION status
                 if (task && task.status === TASK_STATUS.PREPARATION) {
-                  // Get all ARTWORK service orders for this task
-                  const artworkServiceOrders = await tx.serviceOrder.findMany({
-                    where: {
-                      taskId: serviceOrder.taskId,
-                      type: SERVICE_ORDER_TYPE.ARTWORK,
-                    },
-                    select: { id: true, status: true },
-                  });
-
-                  // Check if there's at least 1 artwork service order and ALL are COMPLETED
-                  const hasArtworkOrders = artworkServiceOrders.length > 0;
-                  const allArtworkCompleted = artworkServiceOrders.every(
-                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  // Since this artwork service order just became COMPLETED, we can transition the task
+                  // No need to check other artwork orders - one completed artwork is enough
+                  this.logger.log(
+                    `[AUTO-TRANSITION BATCH] ARTWORK service order ${serviceOrder.id} completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
                   );
 
-                  if (hasArtworkOrders && allArtworkCompleted) {
-                    this.logger.log(
-                      `[AUTO-TRANSITION BATCH] All ${artworkServiceOrders.length} ARTWORK service orders completed for task ${task.id}, transitioning PREPARATION → WAITING_PRODUCTION`,
-                    );
+                  await tx.task.update({
+                    where: { id: task.id },
+                    data: {
+                      status: TASK_STATUS.WAITING_PRODUCTION,
+                      statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                    },
+                  });
 
-                    await tx.task.update({
-                      where: { id: task.id },
-                      data: {
-                        status: TASK_STATUS.WAITING_PRODUCTION,
-                        statusOrder: 2, // WAITING_PRODUCTION statusOrder
-                      },
-                    });
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: TASK_STATUS.PREPARATION,
+                    newValue: TASK_STATUS.WAITING_PRODUCTION,
+                    reason: `Tarefa liberada automaticamente para produção quando ordem de serviço de arte "${serviceOrder.description}" foi concluída (batch)`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: serviceOrder.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
 
-                    await this.changeLogService.logChange({
-                      entityType: ENTITY_TYPE.TASK,
-                      entityId: task.id,
-                      action: CHANGE_ACTION.UPDATE,
-                      field: 'status',
-                      oldValue: TASK_STATUS.PREPARATION,
-                      newValue: TASK_STATUS.WAITING_PRODUCTION,
-                      reason: `Tarefa liberada automaticamente para produção quando todas as ${artworkServiceOrders.length} ordens de serviço de arte foram concluídas (batch)`,
-                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                      triggeredById: serviceOrder.id,
-                      userId: userId || '',
-                      transaction: tx,
-                    });
-
-                    tasksAutoTransitionedToWaitingProduction.push({
-                      taskId: task.id,
-                      oldStatus: TASK_STATUS.PREPARATION,
-                      newStatus: TASK_STATUS.WAITING_PRODUCTION,
-                    });
-                  }
+                  tasksAutoTransitionedToWaitingProduction.push({
+                    taskId: task.id,
+                    oldStatus: TASK_STATUS.PREPARATION,
+                    newStatus: TASK_STATUS.WAITING_PRODUCTION,
+                  });
                 }
               }
             }
@@ -1692,6 +1664,7 @@ export class ServiceOrderService {
             // ROLLBACK SYNC: ARTWORK Service Order Rollback → Task Status Rollback
             // When an ARTWORK service order goes backwards from COMPLETED, check if task
             // should rollback from WAITING_PRODUCTION to PREPARATION
+            // Only rollback if NO artwork service orders remain completed
             // =====================================================================
             if (
               serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK &&
@@ -1708,7 +1681,7 @@ export class ServiceOrderService {
 
                 // Only rollback if task is currently in WAITING_PRODUCTION
                 if (task && task.status === TASK_STATUS.WAITING_PRODUCTION) {
-                  // Get all ARTWORK service orders to check if any are now incomplete
+                  // Get all ARTWORK service orders to check if any are still completed
                   const artworkServiceOrders = await tx.serviceOrder.findMany({
                     where: {
                       taskId: serviceOrder.taskId,
@@ -1717,14 +1690,15 @@ export class ServiceOrderService {
                     select: { id: true, status: true },
                   });
 
-                  // If any artwork SO is not completed, rollback task to PREPARATION
-                  const allArtworkCompleted = artworkServiceOrders.every(
+                  // Only rollback task if NO artwork SOs remain completed
+                  // If at least one artwork is still completed, keep task in WAITING_PRODUCTION
+                  const anyArtworkCompleted = artworkServiceOrders.some(
                     (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
                   );
 
-                  if (!allArtworkCompleted) {
+                  if (!anyArtworkCompleted) {
                     this.logger.log(
-                      `[ARTWORK ROLLBACK BATCH] Artwork service order ${serviceOrder.id} rolled back from COMPLETED to ${serviceOrder.status}, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
+                      `[ARTWORK ROLLBACK BATCH] Artwork service order ${serviceOrder.id} rolled back from COMPLETED to ${serviceOrder.status}, no artwork orders remain completed, rolling back task ${task.id} from WAITING_PRODUCTION to PREPARATION`,
                     );
 
                     await tx.task.update({
@@ -1743,7 +1717,7 @@ export class ServiceOrderService {
                       field: 'status',
                       oldValue: TASK_STATUS.WAITING_PRODUCTION,
                       newValue: TASK_STATUS.PREPARATION,
-                      reason: `Tarefa retornada para preparação quando ordem de serviço de arte "${serviceOrder.description}" foi reaberta (batch)`,
+                      reason: `Tarefa retornada para preparação pois nenhuma ordem de serviço de arte permanece concluída (batch)`,
                       triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                       triggeredById: serviceOrder.id,
                       userId: userId || '',
