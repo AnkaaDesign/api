@@ -338,15 +338,63 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Send WhatsApp message
+   * Send WhatsApp message (text only)
    */
   async sendMessage(phone: string, message: string): Promise<boolean> {
+    return this.sendMessageWithOptions(phone, { text: message });
+  }
+
+  /**
+   * Send WhatsApp message with buttons
+   * Falls back to text-only if buttons are not supported
+   */
+  async sendMessageWithButtons(
+    phone: string,
+    text: string,
+    buttons: Array<{ buttonId: string; buttonText: { displayText: string }; type: number }>,
+    footer?: string,
+    fallbackText?: string,
+  ): Promise<boolean> {
+    try {
+      // Try sending with buttons first
+      await this.sendMessageWithOptions(phone, {
+        text,
+        footer: footer || 'Sistema Ankaa',
+        buttons: buttons.map(btn => ({
+          buttonId: btn.buttonId,
+          buttonText: { displayText: btn.buttonText.displayText },
+          type: btn.type,
+        })),
+        headerType: 1,
+      });
+      this.logger.log(`Message with buttons sent successfully to ${this.maskPhone(phone)}`);
+      return true;
+    } catch (error: any) {
+      this.logger.warn(`Failed to send button message, falling back to text: ${error.message}`);
+
+      // Fallback to text-only message
+      try {
+        const messageToSend = fallbackText || text;
+        await this.sendMessageWithOptions(phone, { text: messageToSend });
+        this.logger.log(`Fallback text message sent successfully to ${this.maskPhone(phone)}`);
+        return true;
+      } catch (fallbackError: any) {
+        this.logger.error(`Fallback message also failed: ${fallbackError.message}`);
+        throw fallbackError;
+      }
+    }
+  }
+
+  /**
+   * Internal method to send message with various options
+   */
+  private async sendMessageWithOptions(phone: string, content: any): Promise<boolean> {
     if (!this.clientReady || !this.sock) {
       throw new Error('WhatsApp client is not ready. Please check connection status.');
     }
 
-    if (!phone || !message) {
-      throw new Error('Phone number and message are required');
+    if (!phone) {
+      throw new Error('Phone number is required');
     }
 
     try {
@@ -366,14 +414,14 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Resolved JID: ${jid.split('@')[0]}@${jid.split('@')[1]} for phone ${this.maskPhone(cleanPhone)}`);
 
       // Send message to the resolved JID
-      await this.sock.sendMessage(jid, { text: message });
+      await this.sock.sendMessage(jid, content);
 
       this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}`);
 
       this.eventEmitter.emit('whatsapp.message_sent', {
         to: cleanPhone,
         jid: jid,
-        message,
+        content,
         timestamp: new Date(),
       });
 
