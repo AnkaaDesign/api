@@ -14,6 +14,7 @@ import { PushModule } from '../push/push.module';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
+import { WhatsAppMessageFormatterService } from './whatsapp/whatsapp-message-formatter.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 
 @Module({
@@ -56,6 +57,7 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     NotificationQueueMonitorService,
     NotificationQueueHealthIndicator,
     WhatsAppNotificationService,
+    WhatsAppMessageFormatterService,
     {
       provide: UserRepository,
       useClass: UserPrismaRepository,
