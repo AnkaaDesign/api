@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Process, Processor, OnQueueActive, OnQueueCompleted, OnQueueFailed } from '@nestjs/bull';
-import { Job } from 'bull';
+import { Job, Queue } from 'bull';
+import { InjectQueue } from '@nestjs/bull';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../mailer/services/email.service';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
@@ -56,11 +58,14 @@ export interface NotificationDeliveryResult {
  */
 @Processor('notification')
 @Injectable()
-export class NotificationQueueProcessor {
+export class NotificationQueueProcessor implements OnModuleInit {
   private readonly logger = new Logger(NotificationQueueProcessor.name);
 
   // Base URL for web application, loaded from environment
   private readonly webAppUrl: string;
+
+  // Flag to prevent multiple concurrent retry operations
+  private isRetryingFailedNotifications = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -68,8 +73,140 @@ export class NotificationQueueProcessor {
     private readonly whatsappNotificationService: WhatsAppNotificationService,
     private readonly pushService: PushService,
     private readonly configService: ConfigService,
+    @InjectQueue('notification') private readonly notificationQueue: Queue<NotificationJobData>,
   ) {
     this.webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'https://ankaadesign.com.br';
+  }
+
+  /**
+   * Initialize the processor
+   */
+  async onModuleInit() {
+    this.logger.log('NotificationQueueProcessor initialized');
+  }
+
+  /**
+   * Event handler for when WhatsApp client becomes ready
+   * Retries all failed WhatsApp notifications
+   */
+  @OnEvent('whatsapp.ready')
+  async onWhatsAppReady() {
+    this.logger.log('WhatsApp client is ready - checking for failed notifications to retry');
+    await this.retryFailedWhatsAppNotifications();
+  }
+
+  /**
+   * Retry all failed WhatsApp notifications
+   * Called when WhatsApp client becomes ready
+   */
+  async retryFailedWhatsAppNotifications(): Promise<void> {
+    if (this.isRetryingFailedNotifications) {
+      this.logger.log('Already retrying failed notifications, skipping...');
+      return;
+    }
+
+    this.isRetryingFailedNotifications = true;
+
+    try {
+      // Find all failed WhatsApp deliveries that are not permanently failed
+      const failedDeliveries = await this.prisma.notificationDelivery.findMany({
+        where: {
+          channel: 'WHATSAPP',
+          status: 'FAILED',
+          // Exclude permanently failed (those with retryCount >= 3 in metadata)
+          NOT: {
+            metadata: {
+              path: ['permanentlyFailed'],
+              equals: true,
+            },
+          },
+        },
+        include: {
+          notification: {
+            include: {
+              user: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: 50, // Limit to prevent overwhelming the queue
+      });
+
+      if (failedDeliveries.length === 0) {
+        this.logger.log('No failed WhatsApp notifications to retry');
+        return;
+      }
+
+      this.logger.log(`Found ${failedDeliveries.length} failed WhatsApp notifications to retry`);
+
+      let retriedCount = 0;
+
+      for (const delivery of failedDeliveries) {
+        try {
+          const notification = delivery.notification;
+          const user = notification.user;
+
+          if (!user || !user.phone) {
+            this.logger.warn(
+              `Cannot retry notification ${notification.id}: user or phone not available`,
+            );
+            continue;
+          }
+
+          // Reset delivery status to PENDING
+          await this.prisma.notificationDelivery.update({
+            where: { id: delivery.id },
+            data: {
+              status: 'PENDING',
+              errorMessage: null,
+              failedAt: null,
+              metadata: {
+                ...((delivery.metadata as any) || {}),
+                retryAfterReconnect: true,
+                retryAt: new Date().toISOString(),
+              },
+            },
+          });
+
+          // Add job to queue
+          const jobData: NotificationJobData = {
+            notificationId: notification.id,
+            channel: NOTIFICATION_CHANNEL.WHATSAPP,
+            userId: user.id,
+            recipientPhone: user.phone,
+            title: notification.title,
+            body: notification.body,
+            actionUrl: notification.actionUrl || undefined,
+            priority: 'high', // Use high priority for retries
+          };
+
+          await this.notificationQueue.add('send-whatsapp', jobData, {
+            attempts: 3,
+            backoff: {
+              type: 'exponential',
+              delay: 5000,
+            },
+            priority: 3, // High priority
+            jobId: `whatsapp-retry-${notification.id}-${Date.now()}`,
+          });
+
+          retriedCount++;
+          this.logger.log(`Re-queued WhatsApp notification ${notification.id} for user ${user.id}`);
+        } catch (error: any) {
+          this.logger.error(
+            `Failed to retry notification ${delivery.notificationId}: ${error.message}`,
+          );
+        }
+      }
+
+      this.logger.log(`Successfully re-queued ${retriedCount} WhatsApp notifications`);
+    } catch (error: any) {
+      this.logger.error(`Failed to retry failed WhatsApp notifications: ${error.message}`);
+    } finally {
+      this.isRetryingFailedNotifications = false;
+    }
   }
 
   /**

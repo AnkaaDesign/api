@@ -111,7 +111,7 @@ export class FilesStorageService {
     taskReimbursements: 'Reembolsos/Tarefas',
     taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
     cutFiles: 'Plotter',
-    taskBaseFiles: 'Projetos/Base',
+    taskBaseFiles: 'Arquivos Clientes',
 
     // Order folders
     orderBudgets: 'Orcamentos/Pedidos',
@@ -310,6 +310,13 @@ export class FilesStorageService {
       else if (fileContext === 'cutFiles' && customerName) {
         const sanitizedCustomerName = this.sanitizeFileName(customerName);
         folderPath = join(folderPath, sanitizedCustomerName);
+      }
+      // TASK BASE FILES: Add customer folder + Imagens/Documentos subfolder
+      else if (fileContext === 'taskBaseFiles' && customerName) {
+        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        const isImage = mimetype.startsWith('image/');
+        const subfolder = isImage ? 'Imagens' : 'Documentos';
+        folderPath = join(folderPath, sanitizedCustomerName, subfolder);
       }
       // AIRBRUSHING: Add customer folder
       else if (

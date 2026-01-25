@@ -78,7 +78,7 @@ export interface CreateBackupDto {
 export class BackupService implements OnModuleInit {
   private readonly logger = new Logger(BackupService.name);
   private readonly filesRoot = '/srv/files';
-  private readonly backupBasePath = process.env.BACKUP_PATH || `${this.filesRoot}/Backup`;
+  private readonly backupBasePath = process.env.BACKUP_PATH || '/mnt/backup';
   private readonly isDevelopment = process.env.NODE_ENV !== 'production';
   private readonly productionBasePath = '/home/kennedy/ankaa';
 
@@ -138,22 +138,39 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Get full backup directory path with date organization
-   * Example: /srv/files/Backup/database/2025/10/25/
+   * Example: /mnt/backup/banco-de-dados/2025/10/25/
+   *
+   * Folder naming convention (Portuguese):
+   * - database → banco-de-dados
+   * - files → arquivos
+   * - system → sistema
+   * - full → completo
    */
   private getBackupDirectoryPath(
-    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema',
+    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema' | 'banco-de-dados' | 'completo',
   ): string {
-    let typeFolder: string = type;
-    if (type === 'files') typeFolder = 'arquivos';
-    if (type === 'system') typeFolder = 'sistema';
+    // Map English type names to Portuguese folder names
+    const folderMapping: Record<string, string> = {
+      database: 'banco-de-dados',
+      files: 'arquivos',
+      system: 'sistema',
+      full: 'completo',
+      // Already Portuguese names pass through
+      arquivos: 'arquivos',
+      sistema: 'sistema',
+      'banco-de-dados': 'banco-de-dados',
+      completo: 'completo',
+    };
+
+    const typeFolder = folderMapping[type] || type;
     const datePath = this.getDateBasedPath();
     return path.join(this.backupBasePath, typeFolder, datePath);
   }
 
   private async ensureBackupDirectories(): Promise<void> {
     try {
-      // Create base directories
-      const baseDirectories = ['database', 'arquivos', 'sistema'];
+      // Create base directories (Portuguese naming convention)
+      const baseDirectories = ['banco-de-dados', 'arquivos', 'sistema', 'completo'];
       for (const dir of baseDirectories) {
         const dirPath = path.join(this.backupBasePath, dir);
         await fs.mkdir(dirPath, { recursive: true });
@@ -182,10 +199,10 @@ export class BackupService implements OnModuleInit {
 
   /**
    * Ensure date-based directory exists for a specific backup type
-   * Creates structure: /database/2025/10/25/backup_XXX/
+   * Creates structure: /banco-de-dados/2025/10/25/backup_XXX/
    */
   private async ensureDateBasedDirectory(
-    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema',
+    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema' | 'banco-de-dados' | 'completo',
     backupId: string,
   ): Promise<string> {
     const dateBasedPath = this.getBackupDirectoryPath(type);
@@ -427,9 +444,14 @@ export class BackupService implements OnModuleInit {
    * Delete physical backup files from disk
    */
   private async deleteBackupFiles(backup: Backup): Promise<void> {
-    let typeFolder: string = this.mapDbTypeToDto(backup.type);
-    if (backup.type === BackupType.FILES) typeFolder = 'arquivos';
-    if (backup.type === BackupType.SYSTEM) typeFolder = 'sistema';
+    // Map backup type to Portuguese folder name
+    const folderMapping: Record<BackupType, string> = {
+      [BackupType.DATABASE]: 'banco-de-dados',
+      [BackupType.FILES]: 'arquivos',
+      [BackupType.SYSTEM]: 'sistema',
+      [BackupType.FULL]: 'completo',
+    };
+    const typeFolder = folderMapping[backup.type] || this.mapDbTypeToDto(backup.type);
 
     const basePath = path.join(this.backupBasePath, typeFolder);
 
@@ -636,10 +658,14 @@ export class BackupService implements OnModuleInit {
       const backupFileName = `${backupId}.tar.gz`;
       let backupPath: string;
 
-      // Try new folder structure first
-      let typeFolder: string = metadata.type;
-      if (metadata.type === 'files') typeFolder = 'arquivos';
-      if (metadata.type === 'system') typeFolder = 'sistema';
+      // Try new folder structure first (Portuguese folder names)
+      const folderMapping: Record<string, string> = {
+        database: 'banco-de-dados',
+        files: 'arquivos',
+        system: 'sistema',
+        full: 'completo',
+      };
+      const typeFolder = folderMapping[metadata.type] || metadata.type;
       const dateBasedDir = this.getBackupDirectoryPath(typeFolder as any);
       const newBackupDir = path.join(dateBasedDir, backupId);
       const newBackupPath = path.join(newBackupDir, backupFileName);
@@ -1077,31 +1103,84 @@ export class BackupService implements OnModuleInit {
   }
 
   async performFullBackup(backupId: string): Promise<string> {
+    const intermediateDirs: string[] = [];
+
     try {
-      // Create database backup
-      const dbBackupPath = await this.performDatabaseBackup(`${backupId}_db`);
-
-      // Create files backup for important directories
-      const importantPaths = this.isDevelopment
-        ? ['./']
-        : [`${this.productionBasePath}`, '/var/www', '/etc/nginx'];
-      const filesBackupPath = await this.performFilesBackup(`${backupId}_files`, importantPaths);
-
-      // Combine both backups
+      // Ensure date-based directory exists for full backup
+      const backupDir = await this.ensureDateBasedDirectory('full', backupId);
       const backupFileName = `${backupId}.tar.gz`;
-      const finalBackupPath = path.join(this.backupBasePath, 'files', backupFileName);
+      const finalBackupPath = path.join(backupDir, backupFileName);
 
-      const combineCommand = `tar -czf ${finalBackupPath} -C ${path.dirname(dbBackupPath)} ${path.basename(dbBackupPath)} -C ${path.dirname(filesBackupPath)} ${path.basename(filesBackupPath)}`;
+      // Track created backup files for combining
+      const backupComponents: { path: string; name: string }[] = [];
+
+      // 1. Create database backup
+      this.logger.log(`Full backup [${backupId}]: Starting database backup...`);
+      const dbBackupPath = await this.performDatabaseBackup(`${backupId}_db`);
+      intermediateDirs.push(path.dirname(dbBackupPath));
+      backupComponents.push({
+        path: path.dirname(dbBackupPath),
+        name: path.basename(dbBackupPath),
+      });
+
+      // 2. Create files storage backup (all of /srv/files excluding Backup folder)
+      let filesBackupPath: string | null = null;
+      try {
+        const filesEntries = await fs.readdir(this.filesRoot);
+        const hasContent = filesEntries.some(
+          e => e !== 'Backup' && e !== 'Lixeira' && !e.startsWith('.'),
+        );
+
+        if (hasContent) {
+          this.logger.log(`Full backup [${backupId}]: Starting files storage backup...`);
+          filesBackupPath = await this.performFilesBackup(`${backupId}_files`);
+          intermediateDirs.push(path.dirname(filesBackupPath));
+          backupComponents.push({
+            path: path.dirname(filesBackupPath),
+            name: path.basename(filesBackupPath),
+          });
+        } else {
+          this.logger.log(`Full backup [${backupId}]: Files storage is empty, skipping...`);
+        }
+      } catch (filesError) {
+        this.logger.warn(
+          `Full backup [${backupId}]: Files storage not accessible, skipping: ${filesError.message}`,
+        );
+      }
+
+      // 3. Create system backup (nginx, ssl, app configs, etc.)
+      this.logger.log(`Full backup [${backupId}]: Starting system backup...`);
+      const systemBackupPath = await this.performSystemBackup(`${backupId}_system`);
+      intermediateDirs.push(path.dirname(systemBackupPath));
+      backupComponents.push({
+        path: path.dirname(systemBackupPath),
+        name: path.basename(systemBackupPath),
+      });
+
+      // 4. Combine all backups into one archive
+      this.logger.log(`Full backup [${backupId}]: Combining ${backupComponents.length} components...`);
+
+      // Build tar command dynamically
+      const tarParts = backupComponents.map(c => `-C "${c.path}" "${c.name}"`).join(' ');
+      const combineCommand = `tar -czf "${finalBackupPath}" ${tarParts}`;
       await execAsync(combineCommand);
 
-      // Clean up individual backup files
-      await fs.unlink(dbBackupPath);
-      await fs.unlink(filesBackupPath);
+      // 5. Clean up intermediate backup directories
+      this.logger.log(`Full backup [${backupId}]: Cleaning up intermediate files...`);
+      for (const dir of intermediateDirs) {
+        await fs.rm(dir, { recursive: true, force: true }).catch(err => {
+          this.logger.warn(`Failed to clean up ${dir}: ${err.message}`);
+        });
+      }
 
-      this.logger.log(`Full backup completed: ${backupId}`);
+      this.logger.log(`Full backup completed successfully: ${backupId}`);
       return finalBackupPath;
     } catch (error) {
+      // Clean up any intermediate files on failure
       this.logger.error(`Full backup failed: ${error.message}`);
+      for (const dir of intermediateDirs) {
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      }
       throw error;
     }
   }

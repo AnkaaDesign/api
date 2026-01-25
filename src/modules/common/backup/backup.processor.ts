@@ -57,7 +57,7 @@ export class BackupProcessor {
       const stats = await fs.stat(backupPath);
 
       // Calculate relative file path for database storage
-      const backupBasePath = process.env.BACKUP_PATH || '/srv/files/Backup';
+      const backupBasePath = process.env.BACKUP_PATH || '/mnt/backup';
       const relativePath = backupPath.replace(backupBasePath + '/', '');
 
       // Update backup completion in database
@@ -89,25 +89,33 @@ export class BackupProcessor {
 
   /**
    * Trigger Google Drive sync after backup completion
-   * Runs asynchronously in the background to not block the response
+   * Runs as a fully detached background process to handle large file uploads
+   * that may take hours (100GB+ files at ~2MB/s = 12+ hours)
    */
   private triggerGoogleDriveSync(backupId: string): void {
-    const { exec } = require('child_process');
+    const { spawn } = require('child_process');
 
     this.logger.log(`Triggering Google Drive sync after backup: ${backupId}`);
 
-    // Run sync in background (don't await)
-    exec(
-      '/home/kennedy/scripts/backup/gdrive-sync.sh full',
-      { timeout: 600000 }, // 10 minute timeout
-      (error: Error | null, stdout: string, stderr: string) => {
-        if (error) {
-          this.logger.error(`Google Drive sync failed: ${error.message}`);
-          if (stderr) this.logger.error(`Sync stderr: ${stderr}`);
-        } else {
-          this.logger.log(`Google Drive sync completed for backup: ${backupId}`);
-        }
-      },
+    // Use spawn with detached:true to create a fully independent process
+    // This ensures the sync continues even if:
+    // - The API server restarts
+    // - The backup job completes
+    // - Large files take hours to upload (100GB @ 2MB/s = 12+ hours)
+    const syncProcess = spawn('/home/kennedy/scripts/backup/gdrive-sync.sh', ['full'], {
+      detached: true, // Run independently from parent process
+      stdio: 'ignore', // Don't pipe stdio (allows full detachment)
+      env: { ...process.env }, // Inherit environment
+    });
+
+    // Unref allows the parent to exit without waiting for the child
+    syncProcess.unref();
+
+    this.logger.log(
+      `Google Drive sync started in background (PID: ${syncProcess.pid}) for backup: ${backupId}`,
+    );
+    this.logger.log(
+      `Monitor sync progress: tail -f /var/log/ankaa-gdrive-sync.log`,
     );
   }
 
