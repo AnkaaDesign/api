@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Inject,
   Logger,
   NotFoundException,
   InternalServerErrorException,
@@ -22,7 +23,7 @@ import { EmailService } from '../mailer/services/email.service';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationGatewayService } from './notification-gateway.service';
 import { PushService } from '../push/push.service';
-import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { BaileysWhatsAppService } from '../whatsapp/baileys-whatsapp.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationAggregationService } from './notification-aggregation.service';
 
@@ -72,7 +73,8 @@ export class NotificationDispatchService {
     private readonly gatewayService: NotificationGatewayService,
     private readonly emailService: EmailService,
     private readonly pushService: PushService,
-    private readonly whatsappService: WhatsAppService,
+    @Inject('WhatsAppService')
+    private readonly whatsappService: BaileysWhatsAppService,
     private readonly eventEmitter: EventEmitter2,
     private readonly filterService: NotificationFilterService,
     private readonly aggregationService: NotificationAggregationService,
@@ -109,6 +111,27 @@ export class NotificationDispatchService {
         this.logger.log(
           `Notification ${notificationId} is scheduled for ${notification.scheduledAt}, skipping dispatch`,
         );
+        return;
+      }
+
+      // 3.5. Check work hours restriction (7:30 - 18:00)
+      // Only apply to non-urgent notifications to allow critical alerts
+      if (
+        notification.importance !== 'URGENT' &&
+        !this.isWithinWorkHours()
+      ) {
+        const nextWorkHourStart = this.getNextWorkHourStart();
+        this.logger.warn(
+          `Notification ${notificationId} blocked - outside work hours (7:30-18:00). ` +
+          `Rescheduling for ${nextWorkHourStart.toISOString()}`,
+        );
+
+        // Reschedule for next work period
+        await this.prisma.notification.update({
+          where: { id: notificationId },
+          data: { scheduledAt: nextWorkHourStart },
+        });
+
         return;
       }
 
@@ -1201,5 +1224,65 @@ export class NotificationDispatchService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Check if current time is within work hours (7:30 - 18:00)
+   * Uses America/Sao_Paulo timezone
+   *
+   * @returns true if within work hours, false otherwise
+   */
+  private isWithinWorkHours(): boolean {
+    const now = new Date();
+
+    // Get current time in Sao Paulo timezone
+    const saoPauloTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const hours = saoPauloTime.getHours();
+    const minutes = saoPauloTime.getMinutes();
+
+    // Work hours: 7:30 (7.5) to 18:00 (18.0)
+    const currentTimeInHours = hours + minutes / 60;
+    const workStartHour = 7.5; // 7:30
+    const workEndHour = 18.0; // 18:00
+
+    const isWithinHours = currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
+
+    this.logger.debug(
+      `Work hours check: Current time ${hours}:${minutes.toString().padStart(2, '0')} ` +
+      `(${currentTimeInHours.toFixed(2)}h) - Within hours: ${isWithinHours}`,
+    );
+
+    return isWithinHours;
+  }
+
+  /**
+   * Calculate the next work hour start time (7:30 AM)
+   * If current time is before 7:30, returns today at 7:30
+   * If current time is after 7:30, returns tomorrow at 7:30
+   *
+   * @returns Date object for next 7:30 AM in Sao Paulo timezone
+   */
+  private getNextWorkHourStart(): Date {
+    const now = new Date();
+
+    // Get current time in Sao Paulo timezone
+    const saoPauloTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const hours = saoPauloTime.getHours();
+    const minutes = saoPauloTime.getMinutes();
+
+    // Create next 7:30 AM
+    const next730 = new Date(saoPauloTime);
+    next730.setHours(7, 30, 0, 0);
+
+    // If we're past 7:30 today (or exactly at/after 18:00), schedule for tomorrow
+    const currentTimeInHours = hours + minutes / 60;
+    if (currentTimeInHours >= 7.5) {
+      // Add one day
+      next730.setDate(next730.getDate() + 1);
+    }
+
+    this.logger.debug(`Next work hour start calculated as: ${next730.toISOString()}`);
+
+    return next730;
   }
 }

@@ -135,21 +135,9 @@ export class WhatsAppNotificationService {
       // 6. Check rate limiting
       await this.checkRateLimit();
 
-      // 7. Send the message
-      if (messageFormat.buttons && messageFormat.buttons.length > 0) {
-        // Send with buttons (will fallback to text if buttons fail)
-        await this.whatsappClient.sendMessageWithButtons(
-          phoneValidation.formatted!,
-          messageFormat.text,
-          messageFormat.buttons,
-          messageFormat.footer,
-          messageFormat.fallbackText,
-        );
-      } else {
-        // Send text-only message
-        const textToSend = messageFormat.fallbackText || messageFormat.text;
-        await this.whatsappClient.sendMessage(phoneValidation.formatted!, textToSend);
-      }
+      // 7. Send the message (text-only for now - buttons disabled until properly tested)
+      const textToSend = messageFormat.fallbackText || messageFormat.text;
+      await this.whatsappClient.sendMessage(phoneValidation.formatted!, textToSend);
 
       // 8. Track delivery status
       const deliveredAt = new Date();
@@ -241,11 +229,10 @@ export class WhatsAppNotificationService {
       const url = this.extractActionUrl(notification, metadata);
 
       // Build data object for formatter
+      // For specific formatters, include all metadata plus url
       const data = {
         ...metadata,
         url,
-        title: notification.title,
-        body: notification.body,
       };
 
       // Use specific formatter based on notification type
@@ -300,11 +287,13 @@ export class WhatsAppNotificationService {
       }
 
       // Fallback to generic formatter
+      // Pass only the original metadata, not the data object with title/body
       return this.formatter.formatGenericNotification({
         title: notification.title || 'Notificação',
         body: notification.body || '',
         url,
-        metadata: data,
+        metadata, // Pass original metadata only
+        importance: notification.importance as any,
       });
     } catch (error: any) {
       this.logger.error(`Error formatting WhatsApp message: ${error.message}`, error.stack);
@@ -349,8 +338,19 @@ export class WhatsAppNotificationService {
     // Build full URL if it's a relative path
     if (actionUrlToUse) {
       const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://app.ankaa.com.br';
-      if (!actionUrlToUse.startsWith('http') && !actionUrlToUse.includes('://')) {
-        actionUrlToUse = `${baseUrl}${actionUrlToUse}`;
+
+      // Check if URL is already complete (has protocol)
+      if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {
+        // If it looks like a domain (www.example.com), add https://
+        if (actionUrlToUse.startsWith('www.') || actionUrlToUse.includes('.com') || actionUrlToUse.includes('.br')) {
+          actionUrlToUse = `https://${actionUrlToUse}`;
+        }
+        // Otherwise, treat as relative path and prepend base URL
+        else if (!actionUrlToUse.startsWith('/')) {
+          actionUrlToUse = `${baseUrl}/${actionUrlToUse}`;
+        } else {
+          actionUrlToUse = `${baseUrl}${actionUrlToUse}`;
+        }
       }
     }
 

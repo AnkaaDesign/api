@@ -126,7 +126,7 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         defaultQueryTimeoutMs: 60000,
         markOnlineOnConnect: true,
         syncFullHistory: false,
-        generateHighQualityLinkPreview: true,
+        generateHighQualityLinkPreview: false, // Disable to prevent link-preview errors
       });
 
       // Register event handlers
@@ -413,15 +413,22 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       const jid = result.jid;
       this.logger.log(`Resolved JID: ${jid.split('@')[0]}@${jid.split('@')[1]} for phone ${this.maskPhone(cleanPhone)}`);
 
-      // Send message to the resolved JID
-      await this.sock.sendMessage(jid, content);
+      // Log the content being sent for debugging
+      this.logger.debug(`Sending message content: ${JSON.stringify(content).substring(0, 200)}`);
 
-      this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}`);
+      // Send message to the resolved JID with proper options
+      const sentMessage = await this.sock.sendMessage(jid, content, {
+        // Disable ephemeral messages
+        ephemeralExpiration: undefined,
+      });
+
+      this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}, message ID: ${sentMessage?.key?.id}`);
 
       this.eventEmitter.emit('whatsapp.message_sent', {
         to: cleanPhone,
         jid: jid,
         content,
+        messageId: sentMessage?.key?.id,
         timestamp: new Date(),
       });
 

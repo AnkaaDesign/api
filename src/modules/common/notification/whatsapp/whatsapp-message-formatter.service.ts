@@ -25,6 +25,7 @@ export interface WhatsAppMessageFormat {
  * - Clean, organized structure
  * - Professional tone
  * - Interactive buttons for actions (with text fallback)
+ * - Simple dividers that work across all devices
  */
 @Injectable()
 export class WhatsAppMessageFormatterService {
@@ -41,29 +42,36 @@ export class WhatsAppMessageFormatterService {
     dueDate?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🎯 *NOVA TAREFA CRIADA*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const lines: string[] = [];
 
-📋 *Tarefa*
-${data.taskName}
+    lines.push('🎯 *NOVA TAREFA CRIADA*');
+    lines.push('');
+    lines.push(`📋 *Tarefa:* ${data.taskName}`);
+    lines.push(`🏢 *Setor:* ${data.sectorName}`);
 
-🏢 *Setor*
-${data.sectorName}${data.customerName ? `\n\n👤 *Cliente*\n${data.customerName}` : ''}${data.serialNumber ? `\n\n🔢 *Série*\n${data.serialNumber}` : ''}${data.dueDate ? `\n\n📅 *Prazo*\n${data.dueDate}` : ''}
-    `.trim();
+    if (data.customerName) {
+      lines.push(`👤 *Cliente:* ${data.customerName}`);
+    }
+
+    if (data.serialNumber) {
+      lines.push(`🔢 *Serie:* ${data.serialNumber}`);
+    }
+
+    if (data.dueDate) {
+      lines.push(`📅 *Prazo:* ${data.dueDate}`);
+    }
+
+    if (data.url) {
+      lines.push('');
+      lines.push('🔗 *Ver detalhes:*');
+      lines.push(data.url);
+    }
+
+    const text = lines.join('\n');
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_task',
-          buttonText: { displayText: '📋 Ver Detalhes' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Ver detalhes: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -77,29 +85,18 @@ ${data.sectorName}${data.customerName ? `\n\n👤 *Cliente*\n${data.customerName
   }): WhatsAppMessageFormat {
     const statusEmoji = this.getStatusEmoji(data.newStatus);
 
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  ${statusEmoji} *STATUS ATUALIZADO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `${statusEmoji} *STATUS ATUALIZADO*
 
-📋 *Tarefa*
-${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
+📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-🔄 *Mudança de Status*
-${data.oldStatus} ➜ *${data.newStatus}*${data.changedBy ? `\n\n👤 *Alterado por*\n${data.changedBy}` : ''}
-    `.trim();
+🔄 *Status:* ${data.oldStatus} → *${data.newStatus}*${data.changedBy ? `\n👤 *Por:* ${data.changedBy}` : ''}
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_task',
-          buttonText: { displayText: '👁️ Acompanhar' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Acompanhar: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -111,35 +108,21 @@ ${data.oldStatus} ➜ *${data.newStatus}*${data.changedBy ? `\n\n👤 *Alterado 
     priority?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const urgencyLevel = data.daysRemaining <= 1 ? '🚨' : data.daysRemaining <= 3 ? '⚠️' : '⏰';
-    const urgencyText = data.daysRemaining <= 1 ? 'URGENTE' : data.daysRemaining <= 3 ? 'ATENÇÃO' : 'AVISO';
+    const urgencyEmoji = data.daysRemaining <= 1 ? '🚨' : data.daysRemaining <= 3 ? '⚠️' : '⏰';
 
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  ${urgencyLevel} *${urgencyText}: PRAZO PRÓXIMO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `${urgencyEmoji} *PRAZO SE APROXIMANDO*
 
-📋 *Tarefa*
-${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
+📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-⏰ *Prazo*
-${data.dueDate}
-_Faltam ${data.daysRemaining} dia${data.daysRemaining !== 1 ? 's' : ''}_${data.priority ? `\n\n🎯 *Prioridade*\n${this.getPriorityEmoji(data.priority)} ${data.priority}` : ''}
+⏰ *Prazo:* ${data.dueDate}
+_Faltam ${data.daysRemaining} dia${data.daysRemaining !== 1 ? 's' : ''}_${data.priority ? `\n🎯 *Prioridade:* ${this.getPriorityEmoji(data.priority)} ${data.priority}` : ''}
 
-${data.daysRemaining <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*' : ''}
-    `.trim();
+${data.daysRemaining <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*\n\n' : ''}🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_task',
-          buttonText: { displayText: '⚡ Ver Agora' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Ver tarefa: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -150,36 +133,24 @@ ${data.daysRemaining <= 1 ? '⚠️ *AÇÃO IMEDIATA NECESSÁRIA!*' : ''}
     serialNumber?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🚨 *TAREFA ATRASADA*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🚨 *TAREFA ATRASADA*
 
-⚠️ *Esta tarefa está atrasada!*
+⚠️ _Esta tarefa está atrasada!_
 
-📋 *Tarefa*
-${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
+📋 *Tarefa:* ${data.taskName}${data.serialNumber ? `\n🔢 *Série:* ${data.serialNumber}` : ''}
 
-📅 *Prazo Original*
-${data.dueDate}
+📅 *Prazo:* ${data.dueDate}
 
-🔴 *Atrasada há*
-*${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
+🔴 *Atrasada há ${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
 
 ⚡ *AÇÃO URGENTE NECESSÁRIA*
-    `.trim();
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'resolve_task',
-          buttonText: { displayText: '🔥 Resolver Agora' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Resolver: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -196,29 +167,18 @@ ${data.dueDate}
     createdBy?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  📦 *NOVO PEDIDO CRIADO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `📦 *NOVO PEDIDO CRIADO*
 
-🔖 *Pedido*
-#${data.orderNumber}
+🔖 *Pedido:* #${data.orderNumber}
 
-🏪 *Fornecedor*
-${data.supplierName}${data.totalValue ? `\n\n💰 *Valor Total*\n${data.totalValue}` : ''}${data.itemCount ? `\n\n📊 *Itens*\n${data.itemCount} item${data.itemCount !== 1 ? 'ns' : ''}` : ''}${data.expectedDate ? `\n\n📅 *Entrega Prevista*\n${data.expectedDate}` : ''}${data.createdBy ? `\n\n👤 *Criado por*\n${data.createdBy}` : ''}
-    `.trim();
+🏪 *Fornecedor:* ${data.supplierName}${data.totalValue ? `\n💰 *Valor:* ${data.totalValue}` : ''}${data.itemCount ? `\n📊 *Itens:* ${data.itemCount}` : ''}${data.expectedDate ? `\n📅 *Entrega:* ${data.expectedDate}` : ''}${data.createdBy ? `\n👤 *Por:* ${data.createdBy}` : ''}
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_order',
-          buttonText: { displayText: '📋 Ver Pedido' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Ver pedido: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -229,40 +189,26 @@ ${data.supplierName}${data.totalValue ? `\n\n💰 *Valor Total*\n${data.totalVal
     expectedDate: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🚨 *PEDIDO ATRASADO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🚨 *PEDIDO ATRASADO*
 
-⚠️ *Entrega não recebida no prazo!*
+⚠️ _Entrega não recebida no prazo!_
 
-🔖 *Pedido*
-#${data.orderNumber}
+🔖 *Pedido:* #${data.orderNumber}
 
-🏪 *Fornecedor*
-${data.supplierName}
+🏪 *Fornecedor:* ${data.supplierName}
 
-📅 *Entrega Esperada*
-${data.expectedDate}
+📅 *Entrega esperada:* ${data.expectedDate}
 
-🔴 *Atrasado há*
-*${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
+🔴 *Atrasado há ${data.daysOverdue} dia${data.daysOverdue !== 1 ? 's' : ''}*
 
-📞 *Ação necessária:*
-Contatar fornecedor para atualização
-    `.trim();
+📞 Contatar fornecedor para atualização
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_order',
-          buttonText: { displayText: '📱 Contatar' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Ver pedido: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -278,38 +224,22 @@ Contatar fornecedor para atualização
     categoryName?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  ⚠️ *ESTOQUE BAIXO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `⚠️ *ESTOQUE BAIXO*
 
-📦 *Item*
-${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
+📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
 
-📊 *Situação Atual*
-🟡 ${data.currentQuantity} ${data.unit || 'unidades'}
+📊 *Situação:*
+🟡 ${data.currentQuantity} ${data.unit || 'un'}
 📌 Ponto de reabastecimento: ${data.reorderPoint}
 
-💡 *Recomendação:*
-Considere fazer um novo pedido
-    `.trim();
+💡 _Recomenda-se fazer um novo pedido_
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'create_order',
-          buttonText: { displayText: '📦 Criar Pedido' },
-          type: 1,
-        },
-        {
-          buttonId: 'view_stock',
-          buttonText: { displayText: '📊 Ver Estoque' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Gerenciar estoque: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -320,34 +250,23 @@ Considere fazer um novo pedido
     categoryName?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🚨 *ESTOQUE CRÍTICO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🚨 *ESTOQUE CRÍTICO*
 
-⚠️ *Nível crítico atingido!*
+⚠️ _Nível crítico atingido!_
 
-📦 *Item*
-${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
+📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
 
-📊 *Quantidade Restante*
-🔴 *${data.currentQuantity} ${data.unit || 'unidades'}*
+📊 *Restante:*
+🔴 *${data.currentQuantity} ${data.unit || 'un'}*
 
-⚡ *AÇÃO URGENTE:*
-Reabastecimento necessário imediatamente!
-    `.trim();
+⚡ *REABASTECIMENTO URGENTE!*
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'urgent_order',
-          buttonText: { displayText: '🔥 Reabastecer Agora' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Reabastecer: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -357,33 +276,22 @@ Reabastecimento necessário imediatamente!
     lastMovement?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🚨 *ESTOQUE ESGOTADO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🚨 *ESTOQUE ESGOTADO*
 
 ⛔ *SEM ESTOQUE DISPONÍVEL*
 
-📦 *Item*
-${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}
+📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}${data.lastMovement ? `\n🕐 *Última movimentação:* ${data.lastMovement}` : ''}
 
-📊 *Situação*
-🔴 *0 unidades disponíveis*${data.lastMovement ? `\n\n🕐 *Última movimentação*\n${data.lastMovement}` : ''}
+📊 *Quantidade:* 🔴 *0 unidades*
 
 ⚡ *AÇÃO IMEDIATA NECESSÁRIA!*
-    `.trim();
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'restock_now',
-          buttonText: { displayText: '🚨 Reabastecer' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Reabastecer: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -399,42 +307,25 @@ ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryNam
     url: string;
   }): WhatsAppMessageFormat {
     const itemsList = data.items.slice(0, 5).map((item, index) =>
-      `${index + 1}. ${item.name}\n   📊 ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`
+      `${index + 1}. *${item.name}*\n   📊 ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`
     ).join('\n\n');
 
     const moreItems = data.totalItems > 5 ? `\n\n_...e mais ${data.totalItems - 5} item${data.totalItems - 5 !== 1 ? 'ns' : ''}_` : '';
 
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  📋 *ITENS PRECISAM REABASTECIMENTO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `📋 *ITENS PRECISAM REABASTECIMENTO*
 
 ⚠️ *${data.totalItems} item${data.totalItems !== 1 ? 'ns' : ''} abaixo do ponto de reabastecimento*
 
-📦 *Itens Prioritários:*
-
 ${itemsList}${moreItems}
 
-💡 *Ação Recomendada:*
-Criar pedido de compra para estes itens
-    `.trim();
+💡 _Criar pedido de compra para estes itens_
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'create_bulk_order',
-          buttonText: { displayText: '📦 Criar Pedido' },
-          type: 1,
-        },
-        {
-          buttonId: 'view_list',
-          buttonText: { displayText: '📋 Ver Lista' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Criar pedido: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -451,32 +342,20 @@ Criar pedido de compra para estes itens
     creatorName?: string;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🛠️ *NOVA ORDEM DE SERVIÇO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🛠️ *NOVA ORDEM DE SERVIÇO*
 
-📝 *Descrição*
-${data.serviceOrderDescription}
+📝 *Descrição:* ${data.serviceOrderDescription}
 
-📋 *Tarefa Vinculada*
-${data.taskName}
+📋 *Tarefa:* ${data.taskName}
 
-🏷️ *Tipo*
-${data.serviceOrderType}${data.assignedTo ? `\n\n👤 *Responsável*\n${data.assignedTo}` : ''}${data.dueDate ? `\n\n📅 *Prazo*\n${data.dueDate}` : ''}${data.creatorName ? `\n\n✏️ *Criado por*\n${data.creatorName}` : ''}
-    `.trim();
+🏷️ *Tipo:* ${data.serviceOrderType}${data.assignedTo ? `\n👤 *Responsável:* ${data.assignedTo}` : ''}${data.dueDate ? `\n📅 *Prazo:* ${data.dueDate}` : ''}${data.creatorName ? `\n✏️ *Criado por:* ${data.creatorName}` : ''}
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'start_work',
-          buttonText: { displayText: '▶️ Iniciar Trabalho' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Iniciar: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -490,32 +369,20 @@ ${data.serviceOrderType}${data.assignedTo ? `\n\n👤 *Responsável*\n${data.ass
   }): WhatsAppMessageFormat {
     const statusEmoji = this.getStatusEmoji(data.newStatus);
 
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  ${statusEmoji} *O.S. ATUALIZADA*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `${statusEmoji} *O.S. ATUALIZADA*
 
-📝 *Ordem de Serviço*
-${data.serviceOrderDescription}
+📝 *Ordem:* ${data.serviceOrderDescription}
 
-📋 *Tarefa*
-${data.taskName}
+📋 *Tarefa:* ${data.taskName}
 
-🔄 *Status*
-${data.oldStatus} ➜ *${data.newStatus}*${data.changedByName ? `\n\n👤 *Alterado por*\n${data.changedByName}` : ''}
-    `.trim();
+🔄 *Status:* ${data.oldStatus} → *${data.newStatus}*${data.changedByName ? `\n👤 *Por:* ${data.changedByName}` : ''}
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'view_os',
-          buttonText: { displayText: '👁️ Ver Detalhes' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Ver: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -526,37 +393,20 @@ ${data.oldStatus} ➜ *${data.newStatus}*${data.changedByName ? `\n\n👤 *Alter
     filesCount?: number;
     url: string;
   }): WhatsAppMessageFormat {
-    const text = `
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-  🎨 *ARTE AGUARDANDO APROVAÇÃO*
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    const text = `🎨 *ARTE AGUARDANDO APROVAÇÃO*
 
-📝 *Ordem de Serviço*
-${data.serviceOrderDescription}
+📝 *Ordem:* ${data.serviceOrderDescription}
 
-📋 *Tarefa*
-${data.taskName}${data.artistName ? `\n\n🎨 *Artista*\n${data.artistName}` : ''}${data.filesCount ? `\n\n📁 *Arquivos*\n${data.filesCount} arquivo${data.filesCount !== 1 ? 's' : ''}` : ''}
+📋 *Tarefa:* ${data.taskName}${data.artistName ? `\n🎨 *Artista:* ${data.artistName}` : ''}${data.filesCount ? `\n📁 *Arquivos:* ${data.filesCount}` : ''}
 
-✅ *Ação necessária:*
-Revisar e aprovar a arte
-    `.trim();
+✅ _Revisar e aprovar a arte_
+
+🔗 *Ver detalhes:*
+${data.url}`;
 
     return {
       text,
-      buttons: [
-        {
-          buttonId: 'approve_art',
-          buttonText: { displayText: '✅ Aprovar' },
-          type: 1,
-        },
-        {
-          buttonId: 'view_art',
-          buttonText: { displayText: '👁️ Visualizar' },
-          type: 1,
-        },
-      ],
-      footer: 'Sistema Ankaa',
-      fallbackText: `${text}\n\n🔗 Visualizar: ${data.url}`,
+      fallbackText: text,
     };
   }
 
@@ -604,6 +454,20 @@ Revisar e aprovar a arte
   }
 
   /**
+   * Get urgency icon based on importance level
+   */
+  private getUrgencyIcon(importance?: string): string {
+    const importanceMap: Record<string, string> = {
+      'URGENT': '🚨',
+      'HIGH': '🔴',
+      'MEDIUM': '🔔',
+      'LOW': 'ℹ️',
+    };
+
+    return importanceMap[importance?.toUpperCase() || 'MEDIUM'] || '🔔';
+  }
+
+  /**
    * Format generic notification with consistent structure
    */
   formatGenericNotification(data: {
@@ -611,36 +475,59 @@ Revisar e aprovar a arte
     body: string;
     url?: string;
     metadata?: Record<string, any>;
+    importance?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   }): WhatsAppMessageFormat {
-    const parts = [
-      `┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓`,
-      `  🔔 *${data.title.toUpperCase()}*`,
-      `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛`,
-      '',
-      data.body,
-    ];
+    // Build message line by line - simple and clean
+    const lines: string[] = [];
 
-    if (data.metadata) {
-      Object.entries(data.metadata).forEach(([key, value]) => {
-        if (value) {
-          parts.push('', `${this.getMetadataLabel(key)}: ${value}`);
-        }
-      });
+    // Get urgency icon based on importance
+    const urgencyIcon = this.getUrgencyIcon(data.importance);
+
+    // Add title with urgency icon
+    if (data.title) {
+      lines.push(`${urgencyIcon} *${data.title.toUpperCase()}*`);
+      lines.push('');
     }
 
-    const text = parts.join('\n').trim();
+    // Add body
+    if (data.body) {
+      lines.push(data.body);
+    }
+
+    // Add metadata fields (excluding title, body, and url)
+    if (data.metadata) {
+      const metadataLines: string[] = [];
+      Object.entries(data.metadata).forEach(([key, value]) => {
+        // Skip title, body, and url as they're handled separately
+        if (key === 'title' || key === 'body' || key === 'url') {
+          return;
+        }
+
+        // Only add non-empty values
+        if (value !== null && value !== undefined && value !== '') {
+          const label = this.getMetadataLabel(key);
+          metadataLines.push(`${label}: ${value}`);
+        }
+      });
+
+      if (metadataLines.length > 0) {
+        lines.push('');
+        lines.push(...metadataLines);
+      }
+    }
+
+    // Add URL at the end with action icon
+    if (data.url) {
+      lines.push('');
+      lines.push('🔗 *Ver mais:*');
+      lines.push(data.url);
+    }
+
+    const text = lines.join('\n');
 
     return {
       text,
-      buttons: data.url ? [
-        {
-          buttonId: 'view_details',
-          buttonText: { displayText: '👁️ Ver Mais' },
-          type: 1,
-        },
-      ] : undefined,
-      footer: 'Sistema Ankaa',
-      fallbackText: data.url ? `${text}\n\n🔗 Ver mais: ${data.url}` : text,
+      fallbackText: text,
     };
   }
 

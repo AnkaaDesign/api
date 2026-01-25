@@ -267,6 +267,7 @@ export const securityConfig = {
       'Origin',
       'x-request-id',
       'x-api-key',
+      'x-suppress-toast',
       'cache-control',
       // File upload headers
       'x-file-size',

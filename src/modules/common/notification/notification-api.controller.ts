@@ -476,6 +476,7 @@ export class NotificationAdminApiController {
     if (dto.targetSectors && dto.targetSectors.length > 0) {
       const users = await this.prisma.user.findMany({
         where: {
+          isActive: true,
           sector: {
             privileges: {
               in: dto.targetSectors as any,
