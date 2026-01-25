@@ -38,13 +38,17 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
   private currentQRCode: string | null = null;
   private qrCodeGeneratedAt: Date | null = null;
   private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10; // Increased for better recovery
   private readonly RECONNECT_DELAY = 5000; // 5 seconds
   private readonly QR_CODE_EXPIRY_MS = 60000; // 60 seconds
   private readonly CACHE_KEY_STATUS = 'whatsapp:status';
   private readonly CACHE_KEY_QR = 'whatsapp:qr';
   private readonly SESSION_NAME = 'ankaa-whatsapp';
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private sessionBackupInterval: NodeJS.Timeout | null = null;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private readonly SESSION_BACKUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  private readonly HEALTH_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
@@ -61,31 +65,53 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Kill orphaned Chrome/Chromium processes
+   * More aggressive approach - kills all Chrome processes related to WhatsApp
    */
   private async killOrphanedChromeProcesses(): Promise<void> {
     try {
       this.logger.log('Checking for orphaned Chrome processes...');
 
-      // Use timeout to prevent hanging
-      const { stdout } = await Promise.race([
-        execAsync(
-          'ps aux | grep -E "chrome|chromium" | grep -E "wwebjs|puppeteer" | grep -v grep | awk \'{print $2}\' || true',
-          { timeout: 3000 },
-        ),
-        new Promise<{ stdout: string; stderr: string }>((_, reject) =>
-          setTimeout(() => reject(new Error('Process check timeout')), 3000),
-        ),
-      ]);
+      // Use multiple patterns to find Chrome processes
+      const patterns = [
+        'ps aux | grep -E "chrome|chromium" | grep -E "wwebjs|puppeteer|RemoteAuth" | grep -v grep | awk \'{print $2}\' || true',
+        'ps aux | grep -E "chrome.*--user-data-dir.*wwebjs" | grep -v grep | awk \'{print $2}\' || true',
+        'lsof -t +D .wwebjs_auth 2>/dev/null || true',
+      ];
 
-      const pids = stdout
-        .trim()
-        .split('\n')
-        .filter(pid => pid && pid.trim());
+      const allPids = new Set<string>();
 
-      if (pids.length > 0) {
-        this.logger.warn(`Found ${pids.length} orphaned Chrome process(es), killing...`);
-        for (const pid of pids) {
+      for (const pattern of patterns) {
+        try {
+          const { stdout } = await Promise.race([
+            execAsync(pattern, { timeout: 3000 }),
+            new Promise<{ stdout: string; stderr: string }>((_, reject) =>
+              setTimeout(() => reject(new Error('Process check timeout')), 3000),
+            ),
+          ]);
+
+          const pids = stdout
+            .trim()
+            .split('\n')
+            .filter(pid => pid && pid.trim());
+
+          pids.forEach(pid => allPids.add(pid.trim()));
+        } catch (error) {
+          // Pattern might fail, continue with others
+        }
+      }
+
+      if (allPids.size > 0) {
+        this.logger.warn(`Found ${allPids.size} orphaned Chrome process(es), killing...`);
+        for (const pid of Array.from(allPids)) {
           try {
+            // First try SIGTERM, then SIGKILL
+            try {
+              await execAsync(`kill -15 ${pid}`, { timeout: 1000 });
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } catch {
+              // Ignore SIGTERM errors
+            }
+            // Force kill
             await Promise.race([
               execAsync(`kill -9 ${pid}`),
               new Promise((_, reject) => setTimeout(() => reject(new Error('Kill timeout')), 1000)),
@@ -95,6 +121,8 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             // Process might already be dead, ignore
           }
         }
+        // Wait for processes to fully terminate
+        await new Promise(resolve => setTimeout(resolve, 1000));
       } else {
         this.logger.log('No orphaned Chrome processes found');
       }
@@ -223,10 +251,117 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    */
   async onModuleDestroy() {
     this.logger.log('Destroying WhatsApp module...');
+
+    // Clear all intervals
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
+    if (this.sessionBackupInterval) {
+      clearInterval(this.sessionBackupInterval);
+      this.sessionBackupInterval = null;
+    }
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+
+    // Save session before destroying
+    await this.safeBackupSession();
     await this.destroyClient();
+  }
+
+  /**
+   * Start periodic session backup
+   * Ensures session is saved to Redis regularly
+   */
+  private startSessionBackupInterval(): void {
+    // Clear existing interval if any
+    if (this.sessionBackupInterval) {
+      clearInterval(this.sessionBackupInterval);
+    }
+
+    this.sessionBackupInterval = setInterval(async () => {
+      if (this.isClientReady) {
+        await this.safeBackupSession();
+      }
+    }, this.SESSION_BACKUP_INTERVAL_MS);
+
+    this.logger.log(`Session backup interval started (every ${this.SESSION_BACKUP_INTERVAL_MS / 1000}s)`);
+  }
+
+  /**
+   * Start health check interval
+   * Monitors client connection and triggers reconnection if needed
+   */
+  private startHealthCheckInterval(): void {
+    // Clear existing interval if any
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
+    this.healthCheckInterval = setInterval(async () => {
+      await this.performHealthCheck();
+    }, this.HEALTH_CHECK_INTERVAL_MS);
+
+    this.logger.log(`Health check interval started (every ${this.HEALTH_CHECK_INTERVAL_MS / 1000}s)`);
+  }
+
+  /**
+   * Perform health check on the WhatsApp client
+   */
+  private async performHealthCheck(): Promise<void> {
+    try {
+      // Skip if already initializing
+      if (this.isInitializing) {
+        return;
+      }
+
+      // If client is supposed to be ready but isn't actually functional
+      if (this.isClientReady && this.client) {
+        try {
+          // Try to get state as a health check
+          const state = await Promise.race([
+            this.client.getState(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Health check timeout')), 10000)
+            ),
+          ]);
+
+          if (!state || state === 'CONFLICT' || state === 'UNLAUNCHED') {
+            this.logger.warn(`WhatsApp client unhealthy (state: ${state}), triggering reconnection`);
+            this.isClientReady = false;
+            this.handleReconnection();
+          }
+        } catch (error: any) {
+          this.logger.warn(`Health check failed: ${error.message}. Marking as disconnected.`);
+          this.isClientReady = false;
+          await this.updateConnectionStatus(WhatsAppConnectionStatus.DISCONNECTED);
+          this.handleReconnection();
+        }
+      }
+    } catch (error: any) {
+      // Don't let health check errors crash the application
+      this.logger.error(`Health check error (non-fatal): ${error.message}`);
+    }
+  }
+
+  /**
+   * Safely backup session to Redis (won't throw)
+   */
+  private async safeBackupSession(): Promise<boolean> {
+    try {
+      if (!this.redisStore || !this.isClientReady) {
+        return false;
+      }
+
+      await this.redisStore.save({ session: this.SESSION_NAME });
+      this.logger.debug('Session backed up to Redis');
+      return true;
+    } catch (error: any) {
+      this.logger.warn(`Failed to backup session (non-fatal): ${error.message}`);
+      return false;
+    }
   }
 
   /**
@@ -261,10 +396,18 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         this.logger.log('Using RemoteAuth with Redis store for session persistence');
 
         // Check if session exists in Redis and restore it
-        const sessionExists = await this.redisStore.sessionExists({ session: this.SESSION_NAME });
-        if (sessionExists) {
-          this.logger.log('Found existing session in Redis, restoring...');
-          await this.redisStore.extract({ session: this.SESSION_NAME });
+        try {
+          const sessionExists = await this.redisStore.sessionExists({ session: this.SESSION_NAME });
+          if (sessionExists) {
+            this.logger.log('Found existing session in Redis, restoring...');
+            await this.redisStore.extract({ session: this.SESSION_NAME });
+            this.logger.log('Session restored from Redis successfully');
+          } else {
+            this.logger.log('No existing session in Redis, will need QR code scan');
+          }
+        } catch (restoreError: any) {
+          // Non-fatal - continue without restored session
+          this.logger.warn(`Failed to restore session from Redis (will need QR scan): ${restoreError.message}`);
         }
 
         authStrategy = new RemoteAuth({
@@ -402,7 +545,14 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       // Update connection status
       await this.updateConnectionStatus(WhatsAppConnectionStatus.READY);
 
-      // Emit event for notification tracking
+      // Start session backup and health check intervals
+      this.startSessionBackupInterval();
+      this.startHealthCheckInterval();
+
+      // Save session immediately after becoming ready
+      await this.safeBackupSession();
+
+      // Emit event for notification tracking (this also triggers retry of failed notifications)
       this.eventEmitter.emit('whatsapp.ready', { timestamp: new Date() });
     });
 
@@ -518,15 +668,29 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
    * Handle reconnection logic with exponential backoff
    */
   private handleReconnection(): void {
+    // Clear any existing reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
       this.logger.error(
-        `Maximum reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Manual intervention required.`,
+        `Maximum reconnection attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Will retry in 5 minutes.`,
       );
+      // After max attempts, wait 5 minutes and reset attempts to try again
+      this.reconnectTimeout = setTimeout(() => {
+        this.logger.log('Resetting reconnection attempts and trying again...');
+        this.reconnectAttempts = 0;
+        this.handleReconnection();
+      }, 5 * 60 * 1000); // 5 minutes
       return;
     }
 
     this.reconnectAttempts++;
-    const delay = this.RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1);
+    // Calculate delay with exponential backoff, capped at 2 minutes
+    const baseDelay = this.RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = Math.min(baseDelay, 2 * 60 * 1000); // Cap at 2 minutes
 
     this.logger.log(
       `Scheduling reconnection attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} in ${delay / 1000} seconds...`,
@@ -535,11 +699,15 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     this.reconnectTimeout = setTimeout(async () => {
       this.logger.log(`Attempting to reconnect (attempt ${this.reconnectAttempts})...`);
       try {
+        // Perform cleanup before reconnection
+        await this.performPreInitializationCleanup();
         await this.initializeClient();
-      } catch (error) {
+      } catch (error: any) {
         this.logger.error(
           `Reconnection attempt ${this.reconnectAttempts} failed: ${error.message}`,
         );
+        // Continue trying to reconnect
+        this.handleReconnection();
       }
     }, delay);
   }
@@ -570,62 +738,217 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     }
 
     try {
-      // Format phone number for WhatsApp (add @c.us suffix)
-      const chatId = `${cleanPhone}@c.us`;
+      // Normalize the phone number for Brazilian format
+      const normalizedPhone = this.normalizeBrazilianPhone(cleanPhone);
+      this.logger.log(`Sending message to ${this.maskPhone(cleanPhone)} (normalized: ${this.maskPhone(normalizedPhone)})`);
 
-      this.logger.log(`Sending message to ${this.maskPhone(cleanPhone)}`);
+      // Generate all possible phone number variants to try
+      const phoneVariants = this.generatePhoneVariants(cleanPhone);
+      this.logger.log(`Will try ${phoneVariants.length} phone variants: ${phoneVariants.map(v => v.replace('@c.us', '')).join(', ')}`);
 
-      // Try to get the number ID first to establish LID (fixes "No LID for user" errors)
-      let whatsappId = chatId;
+      // Check if WhatsApp has a different ID
+      // WhatsApp may return the old Brazilian format (without the 9 after area code)
+      // This is the SAME person, just registered with old format - we should use it
       try {
-        const numberId = await this.client.getNumberId(cleanPhone);
+        const numberId = await this.client.getNumberId(normalizedPhone);
         if (numberId) {
-          whatsappId = numberId._serialized;
-          this.logger.log(`Got WhatsApp ID for ${this.maskPhone(cleanPhone)}: ${whatsappId}`);
+          const returnedId = numberId._serialized;
+          const returnedNumber = returnedId.replace('@c.us', '');
+
+          if (returnedNumber === normalizedPhone) {
+            this.logger.debug(`WhatsApp confirmed number format: ${returnedId}`);
+          } else {
+            // Check if this is the old Brazilian format of the same number
+            // Old format: 554391402403 (12 digits)
+            // New format: 5543991402403 (13 digits)
+            const isOldBrazilianFormat = this.isOldBrazilianFormatOfSameNumber(normalizedPhone, returnedNumber);
+
+            if (isOldBrazilianFormat) {
+              // This is the same person, just registered with old format - USE IT
+              this.logger.log(
+                `WhatsApp returned old Brazilian format: ${returnedId} (same as ${normalizedPhone}). Using WhatsApp's ID.`
+              );
+              // Add WhatsApp's ID as the PRIMARY variant (it's what WhatsApp knows)
+              if (!phoneVariants.includes(returnedId)) {
+                phoneVariants.unshift(returnedId); // Add at beginning - try this first
+                this.logger.log(`Added WhatsApp's registered ID as primary variant: ${returnedId}`);
+              }
+            } else {
+              // Genuinely different number - don't use it
+              this.logger.warn(
+                `WhatsApp returned different ID: ${returnedId} (expected ${normalizedPhone}@c.us). ` +
+                `NOT using as fallback - would send to wrong person.`
+              );
+            }
+          }
         }
       } catch (idError: any) {
-        this.logger.warn(
-          `Could not get number ID for ${this.maskPhone(cleanPhone)}: ${idError.message}. Using chat ID format.`,
-        );
+        this.logger.debug(`Could not get number ID: ${idError.message}`);
       }
 
-      // Check if number exists on WhatsApp (with error handling for "No LID" errors)
-      try {
-        const isRegistered = await this.client.isRegisteredUser(whatsappId);
-        if (!isRegistered) {
-          throw new Error('Phone number is not registered on WhatsApp');
+      // Try each variant until one succeeds
+      let messageSent = false;
+      let lastError: Error | null = null;
+      let successfulVariant = '';
+
+      for (const variant of phoneVariants) {
+        if (messageSent) break;
+
+        this.logger.log(`Trying variant: ${variant}`);
+
+        // Try to verify registration (but don't fail if we can't)
+        try {
+          const isRegistered = await this.client.isRegisteredUser(variant);
+          if (!isRegistered) {
+            this.logger.debug(`Variant ${variant} not registered, skipping`);
+            continue;
+          }
+        } catch (checkError: any) {
+          // If check fails, still try to send
+          this.logger.debug(`Could not verify ${variant}: ${checkError.message}. Will try anyway.`);
         }
-      } catch (checkError: any) {
-        // If isRegisteredUser fails with "No LID" or other errors, log warning but try to send anyway
-        this.logger.warn(
-          `Could not verify registration for ${this.maskPhone(cleanPhone)}: ${checkError.message}. Will attempt to send anyway.`,
-        );
-      }
 
-      // Send message using the WhatsApp ID
-      // Wrap in try-catch to handle sendSeen errors that occur after message is actually sent
-      try {
-        await this.client.sendMessage(whatsappId, message);
-      } catch (sendError: any) {
-        // Check if this is a sendSeen/markedUnread error
-        // These errors occur AFTER the message is sent, during the "mark as seen" step
-        // The message was actually delivered successfully
-        const errorMsg = sendError.message || '';
-        const isSendSeenError = errorMsg.includes('markedUnread') ||
-                                errorMsg.includes('sendSeen') ||
-                                errorMsg.includes('Cannot read properties of undefined');
+        // Try to send message
+        try {
+          // First attempt: direct send
+          await this.client.sendMessage(variant, message);
+          messageSent = true;
+          successfulVariant = variant;
+          this.logger.log(`Message sent successfully using variant: ${variant}`);
+        } catch (sendError: any) {
+          const errorMsg = sendError.message || '';
 
-        if (isSendSeenError) {
-          this.logger.warn(
-            `Message to ${this.maskPhone(cleanPhone)} was sent but sendSeen failed (harmless): ${errorMsg}`,
-          );
-          // Continue as success - the message was actually sent
-        } else {
-          throw sendError;
+          // Check if this is a sendSeen/markedUnread error (message was actually sent)
+          const isSendSeenError = errorMsg.includes('markedUnread') ||
+                                  errorMsg.includes('sendSeen') ||
+                                  errorMsg.includes('Cannot read properties of undefined');
+
+          if (isSendSeenError) {
+            this.logger.warn(
+              `Message to ${variant} was sent but sendSeen failed (harmless): ${errorMsg}`,
+            );
+            messageSent = true;
+            successfulVariant = variant;
+          } else if (errorMsg.includes('No LID for user') || errorMsg.includes('Lid is missing')) {
+            // "No LID for user" error - need to force LID creation
+            // This is a known issue with whatsapp-web.js when sending to new contacts
+            // Reference: https://github.com/pedroslopez/whatsapp-web.js/issues/3834
+            this.logger.warn(`No LID for ${variant}, attempting to force LID creation...`);
+
+            try {
+              // Extract phone number from variant (remove @c.us suffix)
+              const phoneNumber = variant.replace('@c.us', '');
+
+              // Step 1: Try to force LID creation using WAWebContactSyncUtils
+              // This is the workaround from GitHub issue #3834
+              this.logger.log(`Attempting contact sync for ${phoneNumber}...`);
+
+              // Use pupPage.evaluate to run code in WhatsApp Web's browser context
+              // This accesses WhatsApp's internal Store objects to force LID creation
+              // Note: The function runs in browser context where 'window' exists
+              const syncResult = await (this.client as any).pupPage.evaluate(`
+                (async () => {
+                  try {
+                    const phone = "${phoneNumber}";
+
+                    // Method 1: Use findOrCreateLatestChat (from PR #3703)
+                    if (window.Store?.WidFactory?.createWid && window.Store?.FindOrCreateChat?.findOrCreateLatestChat) {
+                      const wid = window.Store.WidFactory.createWid(phone + "@c.us");
+                      const chatResult = await window.Store.FindOrCreateChat.findOrCreateLatestChat(wid);
+                      if (chatResult?.chat) {
+                        return { success: true, method: 'findOrCreateChat', chatId: chatResult.chat.id._serialized };
+                      }
+                    }
+
+                    // Method 2: Use contact sync utility (workaround from issue #3834)
+                    if (typeof window.require === 'function') {
+                      try {
+                        const ContactSyncUtils = window.require('WAWebContactSyncUtils');
+                        if (ContactSyncUtils?.constructUsyncDeltaQuery) {
+                          const actions = [{ type: 'add', phoneNumber: phone }];
+                          const query = ContactSyncUtils.constructUsyncDeltaQuery(actions);
+                          const result = await query.execute();
+                          if (result?.list?.[0]?.lid) {
+                            return { success: true, method: 'contactSync', lid: result.list[0].lid };
+                          }
+                        }
+                      } catch (reqErr) {
+                        // Module might not exist, continue
+                      }
+                    }
+
+                    return { success: false, error: 'No method succeeded' };
+                  } catch (e) {
+                    return { success: false, error: e.message || String(e) };
+                  }
+                })()
+              `);
+
+              this.logger.log(`Sync result: ${JSON.stringify(syncResult)}`);
+
+              if (syncResult?.success) {
+                // Try sending again after LID creation
+                const targetId = syncResult.lid ? `${syncResult.lid}@lid` : variant;
+                this.logger.log(`Retrying message send to ${targetId} after LID creation...`);
+
+                await this.client.sendMessage(variant, message);
+                messageSent = true;
+                successfulVariant = variant;
+                this.logger.log(`Message sent successfully after LID creation for ${variant}`);
+              } else {
+                // Step 2: Try getChatById with findOrCreateLatestChat
+                this.logger.warn(`Contact sync failed: ${syncResult?.error}. Trying getChatById...`);
+
+                try {
+                  const chat = await this.client.getChatById(variant);
+                  if (chat) {
+                    await chat.sendMessage(message);
+                    messageSent = true;
+                    successfulVariant = variant;
+                    this.logger.log(`Message sent successfully via chat object for ${variant}`);
+                  }
+                } catch (chatError: any) {
+                  // Step 3: Last resort - getContactById
+                  this.logger.warn(`getChatById failed: ${chatError.message}. Trying getContactById...`);
+
+                  const contact = await this.client.getContactById(variant);
+                  if (contact) {
+                    const contactChat = await contact.getChat();
+                    if (contactChat) {
+                      await contactChat.sendMessage(message);
+                      messageSent = true;
+                      successfulVariant = variant;
+                      this.logger.log(`Message sent successfully via contact chat for ${variant}`);
+                    }
+                  }
+                }
+              }
+            } catch (lidError: any) {
+              const lidErrorMsg = lidError.message || '';
+
+              // Check if message was actually sent despite the error
+              if (lidErrorMsg.includes('markedUnread') || lidErrorMsg.includes('sendSeen')) {
+                this.logger.warn(`Message sent but follow-up failed (harmless): ${lidErrorMsg}`);
+                messageSent = true;
+                successfulVariant = variant;
+              } else {
+                lastError = lidError;
+                this.logger.error(`Failed all LID approaches for ${variant}: ${lidErrorMsg}`);
+              }
+            }
+          } else {
+            lastError = sendError;
+            this.logger.warn(`Failed to send to ${variant}: ${errorMsg}`);
+          }
         }
       }
 
-      this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}`);
+      // If no variant worked, throw the last error
+      if (!messageSent) {
+        throw lastError || new Error(`Failed to send message to any phone variant for ${this.maskPhone(cleanPhone)}`);
+      }
+
+      this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)} via ${successfulVariant}`);
 
       // Emit event for notification tracking
       this.eventEmitter.emit('whatsapp.message_sent', {
@@ -998,6 +1321,170 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to delete session from Redis: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+   * Normalize Brazilian phone number to the current 9-digit mobile format
+   *
+   * Brazilian mobile numbers transitioned from 8 to 9 digits (adding a 9 after area code)
+   * This function ensures we always have the correct modern format.
+   *
+   * Examples:
+   * - 554391402403 (12 digits, old format) -> 5543991402403 (13 digits, new format)
+   * - 5543991402403 (13 digits, new format) -> 5543991402403 (unchanged)
+   * - 43991402403 (11 digits, local with 9) -> 5543991402403 (add country code)
+   * - 4391402403 (10 digits, local without 9) -> 5543991402403 (add country code + 9)
+   *
+   * @param phone Phone number in any format
+   * @returns Normalized phone number in 55 + area code + 9 + 8 digits format
+   */
+  private normalizeBrazilianPhone(phone: string): string {
+    // Remove all non-digit characters
+    let cleaned = phone.replace(/\D/g, '');
+
+    // If starts with +, it was already removed, but ensure no leading zeros
+    cleaned = cleaned.replace(/^0+/, '');
+
+    // Handle different lengths
+    // Full international format with 9: 5543991402403 (13 digits)
+    // Full international format without 9: 554391402403 (12 digits)
+    // National format with 9: 43991402403 (11 digits)
+    // National format without 9: 4391402403 (10 digits)
+    // Local format with 9: 991402403 (9 digits)
+    // Local format without 9: 91402403 (8 digits)
+
+    // If it's a Brazilian number (starts with 55)
+    if (cleaned.startsWith('55')) {
+      // Remove country code to analyze
+      const withoutCountry = cleaned.substring(2);
+
+      // Area code is 2 digits, mobile starts with 9
+      // withoutCountry should be: areaCode (2) + mobile (8 or 9)
+      if (withoutCountry.length === 10) {
+        // Old format: 4391402403 (area + 8 digits)
+        // Need to add 9 after area code
+        const areaCode = withoutCountry.substring(0, 2);
+        const number = withoutCountry.substring(2);
+        // Check if the number doesn't already start with 9
+        if (!number.startsWith('9')) {
+          cleaned = `55${areaCode}9${number}`;
+          this.logger.debug(`Normalized phone (added 9): ${this.maskPhone(phone)} -> ${this.maskPhone(cleaned)}`);
+        }
+      } else if (withoutCountry.length === 11) {
+        // New format: 43991402403 (area + 9 + 8 digits)
+        // Already correct
+      }
+    } else if (cleaned.length === 11) {
+      // National format with 9: 43991402403
+      cleaned = `55${cleaned}`;
+    } else if (cleaned.length === 10) {
+      // National format without 9: 4391402403
+      const areaCode = cleaned.substring(0, 2);
+      const number = cleaned.substring(2);
+      if (!number.startsWith('9')) {
+        cleaned = `55${areaCode}9${number}`;
+      } else {
+        cleaned = `55${cleaned}`;
+      }
+    } else if (cleaned.length === 9) {
+      // Local format with 9: 991402403
+      // We can't determine area code, return as-is with warning
+      this.logger.warn(`Phone number ${this.maskPhone(phone)} is too short - missing area code`);
+    } else if (cleaned.length === 8) {
+      // Local format without 9: 91402403
+      // We can't determine area code, return as-is with warning
+      this.logger.warn(`Phone number ${this.maskPhone(phone)} is too short - missing area code and 9`);
+    }
+
+    return cleaned;
+  }
+
+  /**
+   * Check if the returned number is the old Brazilian format of the same number
+   *
+   * Brazilian mobile numbers transitioned from 8 to 9 digits by adding a 9 after the area code.
+   * WhatsApp may have contacts registered with the old format.
+   *
+   * Example:
+   * - New format (normalized): 5543991402403 (55 + 43 + 9 + 91402403)
+   * - Old format (WhatsApp ID): 554391402403 (55 + 43 + 91402403)
+   *
+   * These are the SAME phone number, just different formats.
+   *
+   * @param normalizedPhone The normalized phone (new format with 9)
+   * @param returnedNumber The number WhatsApp returned
+   * @returns true if they represent the same Brazilian mobile number
+   */
+  private isOldBrazilianFormatOfSameNumber(normalizedPhone: string, returnedNumber: string): boolean {
+    // Both must be Brazilian numbers (start with 55)
+    if (!normalizedPhone.startsWith('55') || !returnedNumber.startsWith('55')) {
+      return false;
+    }
+
+    // Normalized should be 13 digits (55 + 2 area + 9 + 8 number)
+    // Returned should be 12 digits (55 + 2 area + 8 number)
+    if (normalizedPhone.length !== 13 || returnedNumber.length !== 12) {
+      return false;
+    }
+
+    // Extract parts
+    const normalizedAreaCode = normalizedPhone.substring(2, 4); // e.g., "43"
+    const normalizedNineDigit = normalizedPhone.substring(4, 5); // should be "9"
+    const normalizedLocalNumber = normalizedPhone.substring(5); // e.g., "91402403"
+
+    const returnedAreaCode = returnedNumber.substring(2, 4); // e.g., "43"
+    const returnedLocalNumber = returnedNumber.substring(4); // e.g., "91402403"
+
+    // Check if:
+    // 1. Area codes match
+    // 2. Normalized has the extra 9
+    // 3. Local numbers match
+    if (
+      normalizedAreaCode === returnedAreaCode &&
+      normalizedNineDigit === '9' &&
+      normalizedLocalNumber === returnedLocalNumber
+    ) {
+      this.logger.debug(
+        `Detected old Brazilian format: ${returnedNumber} is the same as ${normalizedPhone} (without the 9 prefix)`
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Generate phone number variants to try
+   * IMPORTANT: Only returns the normalized (correct) format to avoid sending to wrong numbers
+   *
+   * Brazilian numbers with 9-digit mobile format (e.g., 5543991402403) should ONLY be sent
+   * to that format. Falling back to old 8-digit format (e.g., 554391402403) would send
+   * to a DIFFERENT phone number, not the intended recipient.
+   */
+  private generatePhoneVariants(phone: string): string[] {
+    const cleaned = phone.replace(/\D/g, '');
+    const variants: string[] = [];
+    const seen = new Set<string>();
+
+    const addVariant = (num: string) => {
+      if (num && !seen.has(num)) {
+        seen.add(num);
+        variants.push(`${num}@c.us`);
+      }
+    };
+
+    // Primary: normalized format (ensures correct Brazilian 9-digit format)
+    const normalized = this.normalizeBrazilianPhone(cleaned);
+    addVariant(normalized);
+
+    // Secondary: original as provided (only if different from normalized)
+    addVariant(cleaned);
+
+    // NOTE: We intentionally do NOT add old format fallbacks
+    // Sending to 554391402403 instead of 5543991402403 would reach a DIFFERENT person
+    // It's better to fail than to send to the wrong number
+
+    return variants;
   }
 
   /**

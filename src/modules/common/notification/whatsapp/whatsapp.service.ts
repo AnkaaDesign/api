@@ -647,6 +647,20 @@ export class WhatsAppNotificationService {
       return false;
     }
 
+    // 2.5. LID errors - WhatsApp internal issue, should not retry
+    // This error occurs when WhatsApp doesn't have a Local ID mapping for the contact
+    // Retrying won't help - the user needs to open the chat manually in WhatsApp Web
+    if (
+      errorMessage.includes('No LID for user') ||
+      errorMessage.includes('Lid is missing') ||
+      errorMessage.includes('Failed to send message to any phone variant')
+    ) {
+      this.logger.error(
+        `WhatsApp LID error for delivery ${deliveryId}, will not retry: ${errorMessage}`,
+      );
+      return false;
+    }
+
     // 3. Rate limit errors - should retry after delay
     if (errorMessage.includes('rate limit')) {
       this.logger.warn(`Rate limit error for delivery ${deliveryId}, will retry: ${errorMessage}`);

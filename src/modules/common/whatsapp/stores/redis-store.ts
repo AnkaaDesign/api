@@ -132,18 +132,31 @@ export class RedisStore {
   }
 
   /**
+   * Normalize the session name by removing "RemoteAuth-" prefix if present
+   * This ensures consistent key naming regardless of how the session name is passed
+   */
+  private normalizeSessionName(session: string): string {
+    // Remove "RemoteAuth-" prefix if present to ensure consistent naming
+    return session.replace(/^RemoteAuth-/, '');
+  }
+
+  /**
    * Get the Redis key for a session
    */
   private getSessionKey(session: string): string {
-    return `${this.STORE_KEY_PREFIX}${session}`;
+    const normalizedSession = this.normalizeSessionName(session);
+    return `${this.STORE_KEY_PREFIX}${normalizedSession}`;
   }
 
   /**
    * Get the local file path for a session
+   * RemoteAuth uses the format: RemoteAuth-{clientId}
    */
   private getSessionPath(session: string): string {
     const basePath = process.env.WHATSAPP_SESSION_PATH || '.wwebjs_auth';
-    return path.join(basePath, `session-${session}`);
+    const normalizedSession = this.normalizeSessionName(session);
+    // RemoteAuth stores in RemoteAuth-{clientId} format
+    return path.join(basePath, `RemoteAuth-${normalizedSession}`);
   }
 
   /**
