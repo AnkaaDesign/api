@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
-import { WhatsAppService as WhatsAppClientService } from '../../whatsapp/whatsapp.service';
+import { BaileysWhatsAppService } from '../../whatsapp/baileys-whatsapp.service';
+import { WhatsAppMessageFormatterService, WhatsAppMessageFormat } from './whatsapp-message-formatter.service';
 import { User, Notification } from '../../../../types';
 import { NOTIFICATION_CHANNEL } from '../../../../constants';
 
@@ -62,9 +63,11 @@ export class WhatsAppNotificationService {
   private messageSentTimestamps: number[] = [];
 
   constructor(
-    private readonly whatsappClient: WhatsAppClientService,
+    @Inject('WhatsAppService')
+    private readonly whatsappClient: BaileysWhatsAppService,
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly formatter: WhatsAppMessageFormatterService,
   ) {}
 
   /**
@@ -127,13 +130,26 @@ export class WhatsAppNotificationService {
       }
 
       // 5. Format the notification message
-      const message = this.formatMessage(notification, user);
+      const messageFormat = this.formatMessage(notification, user);
 
       // 6. Check rate limiting
       await this.checkRateLimit();
 
       // 7. Send the message
-      await this.whatsappClient.sendMessage(phoneValidation.formatted!, message);
+      if (messageFormat.buttons && messageFormat.buttons.length > 0) {
+        // Send with buttons (will fallback to text if buttons fail)
+        await this.whatsappClient.sendMessageWithButtons(
+          phoneValidation.formatted!,
+          messageFormat.text,
+          messageFormat.buttons,
+          messageFormat.footer,
+          messageFormat.fallbackText,
+        );
+      } else {
+        // Send text-only message
+        const textToSend = messageFormat.fallbackText || messageFormat.text;
+        await this.whatsappClient.sendMessage(phoneValidation.formatted!, textToSend);
+      }
 
       // 8. Track delivery status
       const deliveredAt = new Date();
@@ -199,86 +215,125 @@ export class WhatsAppNotificationService {
 
   /**
    * Format notification as WhatsApp message
-   * Creates a well-formatted message suitable for WhatsApp
-   * Optimized for mobile viewing with clickable links
+   * Creates a beautiful, professional message using the formatter service
+   * Optimized for mobile viewing with clickable links and interactive buttons
    *
    * @param notification - The notification to format
    * @param user - The recipient user
-   * @returns Formatted message string
+   * @returns Formatted message with optional buttons
    */
-  formatMessage(notification: Notification, user: User): string {
-    // Build the message with proper formatting
-    const lines: string[] = [];
-
-    // Add title with emphasis (no greeting - straight to the point)
-    if (notification.title) {
-      lines.push(`*${notification.title}*`);
-      lines.push('');
-    }
-
-    // Add message body
-    if (notification.body) {
-      lines.push(notification.body);
-    }
-
-    // Add metadata if available (optional fields)
-    if (notification.metadata) {
-      try {
-        const metadata =
-          typeof notification.metadata === 'string'
-            ? JSON.parse(notification.metadata)
-            : notification.metadata;
-
-        // Add custom fields from metadata
-        if (metadata.description) {
-          lines.push('');
-          lines.push(`_${metadata.description}_`);
+  formatMessage(notification: Notification, user: User): WhatsAppMessageFormat {
+    try {
+      // Parse metadata
+      let metadata: any = {};
+      if (notification.metadata) {
+        try {
+          metadata =
+            typeof notification.metadata === 'string'
+              ? JSON.parse(notification.metadata)
+              : notification.metadata;
+        } catch (error) {
+          this.logger.warn(`Failed to parse notification metadata: ${error.message}`);
         }
-
-        if (metadata.dueDate) {
-          lines.push('');
-          lines.push(`*Prazo:* ${new Date(metadata.dueDate).toLocaleDateString('pt-BR')}`);
-        }
-
-        if (metadata.priority) {
-          const priorityEmoji = this.getPriorityEmoji(metadata.priority);
-          lines.push(`*Prioridade:* ${priorityEmoji} ${metadata.priority}`);
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to parse notification metadata: ${error.message}`);
       }
-    }
 
-    // Add action URL as a clickable link (full URL for mobile deep linking)
-    // Prefer universal link or mobile URL for WhatsApp (opens in mobile app)
+      // Get the action URL
+      const url = this.extractActionUrl(notification, metadata);
+
+      // Build data object for formatter
+      const data = {
+        ...metadata,
+        url,
+        title: notification.title,
+        body: notification.body,
+      };
+
+      // Use specific formatter based on notification type
+      // Convert to string to handle both enum and string types
+      const type = String(notification.type || '');
+
+      // Task notifications
+      if (type === 'task.created') {
+        return this.formatter.formatTaskCreated(data);
+      }
+      if (type === 'task.status' || type === 'task.status.changed') {
+        return this.formatter.formatTaskStatusChanged(data);
+      }
+      if (type === 'task.deadline' || type === 'task.deadline.approaching') {
+        return this.formatter.formatTaskDeadlineApproaching(data);
+      }
+      if (type === 'task.overdue') {
+        return this.formatter.formatTaskOverdue(data);
+      }
+
+      // Order notifications
+      if (type === 'order.created') {
+        return this.formatter.formatOrderCreated(data);
+      }
+      if (type === 'order.overdue') {
+        return this.formatter.formatOrderOverdue(data);
+      }
+
+      // Stock notifications
+      if (type === 'stock.low') {
+        return this.formatter.formatStockLow(data);
+      }
+      if (type === 'stock.critical') {
+        return this.formatter.formatStockCritical(data);
+      }
+      if (type === 'stock.out') {
+        return this.formatter.formatStockOut(data);
+      }
+      if (type === 'stock.reorder' || type === 'item.needing.order') {
+        return this.formatter.formatItemNeedingOrder(data);
+      }
+
+      // Service Order notifications
+      if (type === 'service-order.created' || type === 'serviceOrder.created') {
+        return this.formatter.formatServiceOrderCreated(data);
+      }
+      if (type === 'service-order.status.changed' || type === 'serviceOrder.status.changed') {
+        return this.formatter.formatServiceOrderStatusChanged(data);
+      }
+      if (type === 'service-order.artwork-waiting-approval' || type === 'serviceOrder.artworkWaitingApproval') {
+        return this.formatter.formatArtworkWaitingApproval(data);
+      }
+
+      // Fallback to generic formatter
+      return this.formatter.formatGenericNotification({
+        title: notification.title || 'Notificação',
+        body: notification.body || '',
+        url,
+        metadata: data,
+      });
+    } catch (error: any) {
+      this.logger.error(`Error formatting WhatsApp message: ${error.message}`, error.stack);
+
+      // Fallback to simple formatting if formatter fails
+      return this.formatSimpleMessage(notification, user);
+    }
+  }
+
+  /**
+   * Extract action URL from notification
+   * Handles various URL formats and sources
+   */
+  private extractActionUrl(notification: Notification, metadata: any): string {
     let actionUrlToUse = notification.actionUrl;
 
     // First, try to extract from metadata (preferred source)
-    if (notification.metadata) {
-      try {
-        const metadata =
-          typeof notification.metadata === 'string'
-            ? JSON.parse(notification.metadata)
-            : notification.metadata;
-
-        // Prefer universal link (HTTPS URL that opens mobile app) for WhatsApp
-        // Falls back to mobile deep link, then to web URL
-        if (metadata.universalLink) {
-          actionUrlToUse = metadata.universalLink;
-        } else if (metadata.mobileUrl) {
-          actionUrlToUse = metadata.mobileUrl;
-        }
-      } catch (error) {
-        this.logger.warn(`Failed to extract mobile URL from metadata: ${error.message}`);
-      }
+    if (metadata.universalLink) {
+      actionUrlToUse = metadata.universalLink;
+    } else if (metadata.mobileUrl) {
+      actionUrlToUse = metadata.mobileUrl;
+    } else if (metadata.url) {
+      actionUrlToUse = metadata.url;
     }
 
-    // If actionUrl is still a JSON string (from generateNotificationActionUrl), parse it
-    // This handles cases where metadata doesn't have universalLink but actionUrl is the JSON object
+    // If actionUrl is a JSON string, parse it
     if (actionUrlToUse && actionUrlToUse.startsWith('{')) {
       try {
         const parsedUrl = JSON.parse(actionUrlToUse);
-        // Prefer universal link for WhatsApp (works on both web and mobile)
         if (parsedUrl.universalLink) {
           actionUrlToUse = parsedUrl.universalLink;
         } else if (parsedUrl.mobile) {
@@ -291,22 +346,50 @@ export class WhatsAppNotificationService {
       }
     }
 
+    // Build full URL if it's a relative path
     if (actionUrlToUse) {
       const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://app.ankaa.com.br';
-      let fullUrl = actionUrlToUse;
-
-      // Build full URL if it's a relative path
       if (!actionUrlToUse.startsWith('http') && !actionUrlToUse.includes('://')) {
-        fullUrl = `${baseUrl}${actionUrlToUse}`;
+        actionUrlToUse = `${baseUrl}${actionUrlToUse}`;
       }
-
-      lines.push('');
-      lines.push(`🔗 ${fullUrl}`);
     }
 
-    // No footer - clean and simple message
+    return actionUrlToUse || '';
+  }
 
-    return lines.join('\n');
+  /**
+   * Simple message formatter - fallback when formatter service fails
+   */
+  private formatSimpleMessage(notification: Notification, user: User): WhatsAppMessageFormat {
+    const lines: string[] = [];
+
+    if (notification.title) {
+      lines.push(`*${notification.title}*`);
+      lines.push('');
+    }
+
+    if (notification.body) {
+      lines.push(notification.body);
+    }
+
+    // Extract URL
+    let metadata: any = {};
+    try {
+      metadata =
+        typeof notification.metadata === 'string'
+          ? JSON.parse(notification.metadata)
+          : notification.metadata || {};
+    } catch (error) {
+      // Ignore parsing errors
+    }
+
+    const url = this.extractActionUrl(notification, metadata);
+    const text = lines.join('\n');
+
+    return {
+      text,
+      fallbackText: url ? `${text}\n\n🔗 ${url}` : text,
+    };
   }
 
   /**
@@ -500,8 +583,8 @@ export class WhatsAppNotificationService {
         };
       }
 
-      // Format the chat ID
-      const chatId = `${phoneNumber}@c.us`;
+      // Format the chat ID (use @s.whatsapp.net for Baileys multi-device)
+      const chatId = `${phoneNumber}@s.whatsapp.net`;
 
       // Check if the number is registered on WhatsApp
       const client = (this.whatsappClient as any).client;
