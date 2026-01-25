@@ -48,6 +48,7 @@ import {
   NotificationAdminApiController,
 } from './notification-api.controller';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
+import { WhatsAppMessageFormatterService } from './whatsapp/whatsapp-message-formatter.service';
 import { UserRepository } from '@modules/people/user/repositories/user.repository';
 import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
 import { NotificationQueueModule } from './notification-queue.module';
@@ -109,6 +110,7 @@ import { MailerModule } from '../mailer/mailer.module';
     NotificationPreferenceInitService,
     NotificationDeliveryRepository,
     WhatsAppNotificationService,
+    WhatsAppMessageFormatterService,
     {
       provide: NotificationRepository,
       useClass: NotificationPrismaRepository,
@@ -142,6 +144,7 @@ import { MailerModule } from '../mailer/mailer.module';
     NotificationPreferenceInitService,
     NotificationDeliveryRepository,
     WhatsAppNotificationService,
+    WhatsAppMessageFormatterService,
   ],
 })
 export class NotificationModule {}
