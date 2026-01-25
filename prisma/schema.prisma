@@ -466,6 +466,9 @@ model Item {
   maxQuantity                    Float?
   reorderPoint                   Float?
   reorderQuantity                Float?
+  isManualMaxQuantity            Boolean                  @default(false)
+  isManualReorderPoint           Boolean                  @default(false)
+  lastAutoOrderDate              DateTime?
   boxQuantity                    Int?
   totalPrice                     Float?
   monthlyConsumption             Decimal                  @default(0) @db.Decimal(10, 2)

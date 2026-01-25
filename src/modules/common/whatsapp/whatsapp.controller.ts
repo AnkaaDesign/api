@@ -8,23 +8,29 @@ import {
   HttpStatus,
   BadRequestException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@constants';
-import { WhatsAppService } from './whatsapp.service';
+import { BaileysWhatsAppService } from './baileys-whatsapp.service';
 import { SendMessageDto } from './dto';
 
 /**
- * WhatsApp controller for managing WhatsApp Web client
+ * WhatsApp controller for managing Baileys WhatsApp client
  * All endpoints require ADMIN privileges
+ *
+ * Updated for Baileys migration - maintains backward compatibility with web app
  */
 @Controller('whatsapp')
 @UseGuards(AuthGuard)
 export class WhatsAppController {
   private readonly logger = new Logger(WhatsAppController.name);
 
-  constructor(private readonly whatsappService: WhatsAppService) {}
+  constructor(
+    @Inject('WhatsAppService')
+    private readonly whatsappService: BaileysWhatsAppService,
+  ) {}
 
   /**
    * Get WhatsApp client connection status (Basic)
@@ -35,20 +41,20 @@ export class WhatsAppController {
   @HttpCode(HttpStatus.OK)
   async getStatus() {
     try {
-      const status = this.whatsappService.getStatus();
+      const statusInfo = await this.whatsappService.getConnectionStatus();
 
       return {
         success: true,
         data: {
-          ready: status.ready,
-          initializing: status.initializing,
-          hasQRCode: status.hasQRCode,
-          reconnectAttempts: status.reconnectAttempts,
-          message: status.ready
+          ready: statusInfo.ready,
+          initializing: statusInfo.status === 'CONNECTING',
+          hasQRCode: statusInfo.hasQRCode,
+          reconnectAttempts: statusInfo.reconnectAttempts,
+          message: statusInfo.ready
             ? 'WhatsApp client is connected and ready'
-            : status.initializing
+            : statusInfo.status === 'CONNECTING'
               ? 'WhatsApp client is initializing...'
-              : status.hasQRCode
+              : statusInfo.hasQRCode
                 ? 'QR code is available for scanning'
                 : 'WhatsApp client is disconnected',
         },
@@ -76,11 +82,11 @@ export class WhatsAppController {
         data: {
           status: status.status,
           ready: status.ready,
-          initializing: status.initializing,
+          initializing: status.status === 'CONNECTING',
           hasQRCode: status.hasQRCode,
           qrCodeExpiry: status.qrCodeExpiry,
           reconnectAttempts: status.reconnectAttempts,
-          lastUpdated: status.lastUpdated,
+          lastUpdated: new Date(),
           message: this.getStatusMessage(status.status, status.ready),
         },
       };
@@ -99,7 +105,7 @@ export class WhatsAppController {
   @HttpCode(HttpStatus.OK)
   async isAuthenticated() {
     try {
-      const isAuthenticated = this.whatsappService.isAuthenticated();
+      const isAuthenticated = await this.whatsappService.isAuthenticated();
 
       return {
         success: true,
@@ -180,7 +186,7 @@ export class WhatsAppController {
 
   /**
    * Generate new QR code for WhatsApp authentication (Admin Only)
-   * This endpoint is specifically for admin access to generate QR codes
+   * This endpoint triggers reconnection which will generate a new QR code
    * @returns QR code data with expiration information
    */
   @Get('admin/qr-code')
@@ -188,7 +194,26 @@ export class WhatsAppController {
   @HttpCode(HttpStatus.OK)
   async generateQRCodeForAdmin() {
     try {
-      const qrData = await this.whatsappService.generateQRCode();
+      // Check if already connected
+      const status = await this.whatsappService.getConnectionStatus();
+
+      if (status.ready) {
+        // Already connected, need to disconnect first to get new QR
+        await this.whatsappService.disconnect();
+        // Wait a bit for disconnection to complete
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Reconnect to get new QR
+        await this.whatsappService.reconnect();
+        // Wait for QR to be generated
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+
+      // Get the QR code
+      const qrData = await this.whatsappService.getQRCode();
+
+      if (!qrData) {
+        throw new BadRequestException('QR code not yet generated. Please try again in a few seconds.');
+      }
 
       return {
         success: true,

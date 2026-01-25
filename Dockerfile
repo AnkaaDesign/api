@@ -22,7 +22,9 @@ ENV DEPLOYMENT_METHOD=${DEPLOYMENT_METHOD}
 ENV NODE_ENV=${NODE_ENV}
 
 # Install pnpm and build dependencies
-RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev git \
+# cairo-dev, jpeg-dev: Required for sharp image processing library
+# pango-dev, giflib-dev: Removed (not needed - only used for advanced Chrome/Puppeteer rendering)
+RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev git \
     && npm install -g pnpm@10
 
 WORKDIR /app
@@ -96,7 +98,9 @@ RUN echo "Build info generated:" && \
 FROM node:18-alpine AS production
 
 # Install dumb-init and runtime dependencies
-RUN apk add --no-cache dumb-init cairo jpeg pango giflib
+# cairo, jpeg: Required for sharp image processing at runtime
+# pango, giflib: Removed (not used by application)
+RUN apk add --no-cache dumb-init cairo jpeg
 
 # Create app user
 RUN addgroup -g 1001 -S nodejs && adduser -S nodeuser -u 1001

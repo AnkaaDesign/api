@@ -54,6 +54,7 @@ import {
   calculateBatchStockHealth,
   filterItemsByStockHealth,
   batchCalculateReorderPoints,
+  batchCalculateMaxQuantities,
   type ReorderPointUpdateResult,
   determineStockLevel,
 } from '../../../utils';
@@ -760,6 +761,21 @@ export class ItemService {
         const quantityDifference = isQuantityChanging
           ? itemData.quantity - existingItem.quantity
           : 0;
+
+        // Track manual overrides for maxQuantity and reorderPoint
+        // If user manually changes these values, mark them as manual
+        if (itemData.maxQuantity !== undefined && itemData.maxQuantity !== existingItem.maxQuantity) {
+          itemData.isManualMaxQuantity = true;
+          this.logger.log(`Item ${id}: maxQuantity manually set to ${itemData.maxQuantity}`);
+        }
+
+        if (itemData.reorderPoint !== undefined && itemData.reorderPoint !== existingItem.reorderPoint) {
+          itemData.isManualReorderPoint = true;
+          this.logger.log(`Item ${id}: reorderPoint manually set to ${itemData.reorderPoint}`);
+        }
+
+        // If user explicitly sets these flags to false, allow them to re-enable automatic mode
+        // This is already handled by the itemData object since the flags can be passed in the update
 
         // Atualizar o item
         const updatedItem = await this.itemRepository.updateWithTransaction(tx, id, itemData, {
@@ -2285,6 +2301,7 @@ export class ItemService {
           reorderPoint: true,
           estimatedLeadTime: true,
           quantity: true,
+          isManualReorderPoint: true,
         },
       });
 
@@ -2300,13 +2317,35 @@ export class ItemService {
         };
       }
 
-      // Get activities for all items in the lookback period
+      // Separate items with manual reorder points from automatic ones
+      const manualReorderItems = items.filter(item => item.isManualReorderPoint);
+      const autoReorderItems = items.filter(item => !item.isManualReorderPoint);
+
+      if (manualReorderItems.length > 0) {
+        this.logger.log(
+          `Preservando ponto de reposição manual para ${manualReorderItems.length} itens: ${manualReorderItems.map(i => i.name).join(', ')}`,
+        );
+      }
+
+      if (autoReorderItems.length === 0) {
+        return {
+          success: true,
+          message: 'Todos os itens ativos possuem pontos de reposição manuais',
+          data: {
+            totalAnalyzed: items.length,
+            totalUpdated: 0,
+            updates: [],
+          },
+        };
+      }
+
+      // Get activities for items with automatic reorder points in the lookback period
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
 
       const activities = (await this.prisma.activity.findMany({
         where: {
-          itemId: { in: items.map(item => item.id) },
+          itemId: { in: autoReorderItems.map(item => item.id) },
           createdAt: { gte: cutoffDate },
         },
         orderBy: { createdAt: 'desc' },
@@ -2320,9 +2359,9 @@ export class ItemService {
         activitiesByItem.set(activity.itemId, itemActivities);
       }
 
-      // Calculate reorder points for all items
+      // Calculate reorder points only for items with automatic reorder points
       const reorderPointUpdates = batchCalculateReorderPoints(
-        items as any,
+        autoReorderItems as any,
         activitiesByItem,
         lookbackDays,
       );
@@ -2408,6 +2447,7 @@ export class ItemService {
           reorderPoint: true,
           estimatedLeadTime: true,
           quantity: true,
+          isManualReorderPoint: true,
         },
       });
 
@@ -2454,6 +2494,230 @@ export class ItemService {
     } catch (error) {
       this.logger.error('Erro ao analisar pontos de reposição:', error);
       throw new InternalServerErrorException('Erro ao analisar pontos de reposição');
+    }
+  }
+
+  /**
+   * Automatically update maxQuantity based on consumption patterns
+   * This method can be called periodically via a cron job
+   */
+  async updateMaxQuantitiesBasedOnConsumption(
+    userId: string,
+    lookbackDays: number = 90,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      totalAnalyzed: number;
+      totalUpdated: number;
+      updates: import('@utils/stock-health').MaxQuantityUpdateResult[];
+    };
+  }> {
+    try {
+      // Get all active items
+      const items = await this.prisma.item.findMany({
+        where: {
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          maxQuantity: true,
+          estimatedLeadTime: true,
+          quantity: true,
+          isManualMaxQuantity: true,
+        },
+      });
+
+      if (items.length === 0) {
+        return {
+          success: true,
+          message: 'Nenhum item ativo encontrado para análise',
+          data: {
+            totalAnalyzed: 0,
+            totalUpdated: 0,
+            updates: [],
+          },
+        };
+      }
+
+      // Separate items with manual maxQuantity from automatic ones
+      const manualMaxItems = items.filter(item => item.isManualMaxQuantity);
+      const autoMaxItems = items.filter(item => !item.isManualMaxQuantity);
+
+      if (manualMaxItems.length > 0) {
+        this.logger.log(
+          `Preservando quantidade máxima manual para ${manualMaxItems.length} itens: ${manualMaxItems.map(i => i.name).join(', ')}`,
+        );
+      }
+
+      if (autoMaxItems.length === 0) {
+        return {
+          success: true,
+          message: 'Todos os itens ativos possuem quantidades máximas manuais',
+          data: {
+            totalAnalyzed: items.length,
+            totalUpdated: 0,
+            updates: [],
+          },
+        };
+      }
+
+      // Get activities for items with automatic maxQuantity in the lookback period
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
+
+      const activities = (await this.prisma.activity.findMany({
+        where: {
+          itemId: { in: autoMaxItems.map(item => item.id) },
+          createdAt: { gte: cutoffDate },
+        },
+        orderBy: { createdAt: 'desc' },
+      })) as any as import('@types').Activity[];
+
+      // Group activities by item
+      const activitiesByItem = new Map<string, typeof activities>();
+      for (const activity of activities) {
+        const itemActivities = activitiesByItem.get(activity.itemId) || [];
+        itemActivities.push(activity);
+        activitiesByItem.set(activity.itemId, itemActivities);
+      }
+
+      // Calculate maxQuantity only for items with automatic maxQuantity
+      const maxQuantityUpdates = batchCalculateMaxQuantities(
+        autoMaxItems as any,
+        activitiesByItem,
+        lookbackDays,
+      );
+
+      // Apply updates in a transaction
+      const updatedItems = await this.prisma.$transaction(async tx => {
+        const successfulUpdates: import('@utils/stock-health').MaxQuantityUpdateResult[] = [];
+
+        for (const update of maxQuantityUpdates) {
+          try {
+            // Update the item's maxQuantity
+            await tx.item.update({
+              where: { id: update.itemId },
+              data: { maxQuantity: update.newMaxQuantity },
+            });
+
+            // Log the change
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.ITEM,
+              entityId: update.itemId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'maxQuantity',
+              oldValue: update.previousMaxQuantity,
+              newValue: update.newMaxQuantity,
+              reason: `Quantidade máxima atualizada automaticamente. Consumo mensal: ${update.monthlyConsumption.toFixed(2)}, Tendência: ${update.consumptionTrend}`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+              triggeredById: update.itemId,
+              userId: userId || null,
+              transaction: tx,
+            });
+
+            successfulUpdates.push(update);
+          } catch (error) {
+            this.logger.error(
+              `Erro ao atualizar quantidade máxima para item ${update.itemId}:`,
+              error,
+            );
+          }
+        }
+
+        return successfulUpdates;
+      });
+
+      return {
+        success: true,
+        message: `Análise de quantidade máxima concluída. ${updatedItems.length} de ${items.length} itens atualizados.`,
+        data: {
+          totalAnalyzed: items.length,
+          totalUpdated: updatedItems.length,
+          updates: updatedItems,
+        },
+      };
+    } catch (error) {
+      this.logger.error('Erro ao atualizar quantidades máximas:', error);
+      throw new InternalServerErrorException(
+        'Erro ao atualizar quantidades máximas baseadas em consumo',
+      );
+    }
+  }
+
+  /**
+   * Get maxQuantity analysis for specific items
+   * Returns analysis without updating the database
+   */
+  async analyzeMaxQuantities(
+    itemIds: string[],
+    lookbackDays: number = 90,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: import('@utils/stock-health').MaxQuantityUpdateResult[];
+  }> {
+    try {
+      // Get specified items
+      const items = await this.prisma.item.findMany({
+        where: {
+          id: { in: itemIds },
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          maxQuantity: true,
+          estimatedLeadTime: true,
+          quantity: true,
+          isManualMaxQuantity: true,
+        },
+      });
+
+      if (items.length === 0) {
+        return {
+          success: true,
+          message: 'Nenhum item ativo encontrado para análise',
+          data: [],
+        };
+      }
+
+      // Get activities for specified items
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - lookbackDays);
+
+      const activities = (await this.prisma.activity.findMany({
+        where: {
+          itemId: { in: items.map(item => item.id) },
+          createdAt: { gte: cutoffDate },
+        },
+        orderBy: { createdAt: 'desc' },
+      })) as any as import('@types').Activity[];
+
+      // Group activities by item
+      const activitiesByItem = new Map<string, typeof activities>();
+      for (const activity of activities) {
+        const itemActivities = activitiesByItem.get(activity.itemId) || [];
+        itemActivities.push(activity);
+        activitiesByItem.set(activity.itemId, itemActivities);
+      }
+
+      // Calculate maxQuantity for specified items
+      const maxQuantityAnalysis = batchCalculateMaxQuantities(
+        items as any,
+        activitiesByItem,
+        lookbackDays,
+      );
+
+      return {
+        success: true,
+        message: `Análise de quantidade máxima concluída para ${maxQuantityAnalysis.length} itens`,
+        data: maxQuantityAnalysis,
+      };
+    } catch (error) {
+      this.logger.error('Erro ao analisar quantidades máximas:', error);
+      throw new InternalServerErrorException('Erro ao analisar quantidades máximas');
     }
   }
 

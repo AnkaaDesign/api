@@ -32,34 +32,37 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # API service (uncomment for production)
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   container_name: ankaa-api
-  #   ports:
-  #     - "3030:3030"
-  #   environment:
-  #     - NODE_ENV=${NODE_ENV}
-  #   env_file:
-  #     - .env
-  #   volumes:
-  #     - ./uploads:/app/uploads
-  #     - ./logs:/app/logs
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:3030/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-  #   restart: unless-stopped
-  #   networks:
-  #     - ankaa-network
+  # API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: ${NODE_ENV:-production}
+    container_name: ankaa-api
+    ports:
+      - "3030:3030"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+    env_file:
+      - .env
+    volumes:
+      - ./apps/api/uploads:/app/apps/api/uploads
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3030/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - ankaa-network
 
 volumes:
   postgres_data:
@@ -70,3 +73,5 @@ volumes:
 networks:
   ankaa-network:
     driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500

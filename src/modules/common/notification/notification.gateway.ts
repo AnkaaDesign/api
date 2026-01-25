@@ -471,7 +471,10 @@ export class NotificationGateway
    * @param notification - Notification data to send
    */
   async broadcastToAdmins(notification: any): Promise<void> {
-    const eventType = notification.type || 'notification:new';
+    // Support both 'type' and 'event' field names for flexibility
+    const eventType = notification.event || notification.type || 'notification:new';
+
+    this.logger.debug(`Broadcasting to admins: event="${notification.event}", type="${notification.type}", resolved="${eventType}"`);
 
     this.server.to('admin').emit(eventType, notification);
 

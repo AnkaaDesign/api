@@ -205,7 +205,13 @@ export class NotificationReminderSchedulerService {
       }
 
       // 6. Calculate reminder time
-      const remindAt = this.calculateReminderTime(interval);
+      let remindAt = this.calculateReminderTime(interval);
+
+      // 6.5. Validate work hours for non-urgent notifications
+      // If reminder would trigger outside work hours, adjust to next 7:30 AM
+      if (notification.importance !== 'URGENT') {
+        remindAt = this.adjustReminderForWorkHours(remindAt);
+      }
 
       // 7. Update SeenNotification with reminder time
       const updated = await (tx as any).seenNotification.update({
@@ -807,12 +813,17 @@ export class NotificationReminderSchedulerService {
   }
 
   /**
-   * Calculate tomorrow at 9 AM
+   * Calculate tomorrow at 9 AM (São Paulo timezone)
    */
   private calculateTomorrow(now: Date): Date {
-    const tomorrow = new Date(now);
+    // Get current time in São Paulo timezone
+    const saoPauloTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+
+    // Set to tomorrow at 9 AM
+    const tomorrow = new Date(saoPauloTime);
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(9, 0, 0, 0);
+
     return tomorrow;
   }
 
@@ -825,14 +836,19 @@ export class NotificationReminderSchedulerService {
   }
 
   /**
-   * Calculate next Monday at 9 AM
+   * Calculate next Monday at 9 AM (São Paulo timezone)
    */
   private calculateNextWeek(now: Date): Date {
-    const nextWeek = new Date(now);
+    // Get current time in São Paulo timezone
+    const saoPauloTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+
+    // Calculate next Monday
+    const nextWeek = new Date(saoPauloTime);
     const currentDay = nextWeek.getDay();
     const daysUntilMonday = currentDay === 0 ? 1 : 8 - currentDay;
     nextWeek.setDate(nextWeek.getDate() + daysUntilMonday);
     nextWeek.setHours(9, 0, 0, 0);
+
     return nextWeek;
   }
 
@@ -899,5 +915,53 @@ export class NotificationReminderSchedulerService {
     if (hours <= 6) return REMINDER_INTERVAL.THREE_HOURS;
     if (days <= 2) return REMINDER_INTERVAL.TOMORROW;
     return REMINDER_INTERVAL.NEXT_WEEK;
+  }
+
+  /**
+   * Adjust reminder time to respect work hours (7:30 AM - 6:00 PM)
+   * If reminder would trigger outside work hours, reschedule to next 7:30 AM
+   *
+   * @param reminderTime - The originally calculated reminder time
+   * @returns Adjusted reminder time within work hours
+   */
+  private adjustReminderForWorkHours(reminderTime: Date): Date {
+    // Get reminder time in São Paulo timezone
+    const saoPauloTime = new Date(
+      reminderTime.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }),
+    );
+    const hours = saoPauloTime.getHours();
+    const minutes = saoPauloTime.getMinutes();
+
+    // Work hours: 7:30 (7.5) to 18:00 (18.0)
+    const currentTimeInHours = hours + minutes / 60;
+    const workStartHour = 7.5; // 7:30
+    const workEndHour = 18.0; // 18:00
+
+    // Check if within work hours
+    const isWithinWorkHours = currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
+
+    if (isWithinWorkHours) {
+      // Already within work hours, return as-is
+      this.logger.debug(
+        `Reminder time ${reminderTime.toISOString()} is within work hours, no adjustment needed`,
+      );
+      return reminderTime;
+    }
+
+    // Outside work hours - calculate next 7:30 AM
+    const next730 = new Date(saoPauloTime);
+    next730.setHours(7, 30, 0, 0);
+
+    // If current time is past 7:30 today (or at/after 18:00), schedule for tomorrow
+    if (currentTimeInHours >= 7.5) {
+      next730.setDate(next730.getDate() + 1);
+    }
+
+    this.logger.log(
+      `Reminder time ${reminderTime.toISOString()} is outside work hours (${hours}:${minutes.toString().padStart(2, '0')}). ` +
+      `Adjusted to ${next730.toISOString()} (next 7:30 AM)`,
+    );
+
+    return next730;
   }
 }

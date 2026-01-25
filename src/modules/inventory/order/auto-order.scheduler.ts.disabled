@@ -1,0 +1,166 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { AutoOrderService } from './auto-order.service';
+import { NotificationService } from '@modules/common/notification/notification.service';
+import { NOTIFICATION_TYPE } from '@/constants/enums';
+
+@Injectable()
+export class AutoOrderScheduler {
+  private readonly logger = new Logger(AutoOrderScheduler.name);
+
+  constructor(
+    private readonly autoOrderService: AutoOrderService,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  /**
+   * Run auto-order analysis daily at 8 AM
+   * Checks for items that need ordering and sends notifications
+   *
+   * DISABLED: Needs to be updated to work with new grouped AutoOrderRecommendation structure
+   */
+  // @Cron(CronExpression.EVERY_DAY_AT_8AM)
+  async runDailyAutoOrderAnalysis() {
+    this.logger.log('Starting daily auto-order analysis...');
+
+    try {
+      const recommendations = await this.autoOrderService.analyzeItemsForAutoOrder(12);
+
+      if (recommendations.length === 0) {
+        this.logger.log('No auto-order recommendations found');
+        return;
+      }
+
+      // Count critical items
+      const criticalItems = recommendations.filter(
+        rec => rec.currentStock === 0 || rec.daysUntilStockout <= 7,
+      );
+
+      const emergencyOverrides = recommendations.filter(rec => rec.isEmergencyOverride);
+
+      this.logger.log(
+        `Found ${recommendations.length} auto-order recommendations ` +
+          `(${criticalItems.length} critical, ${emergencyOverrides.length} emergency overrides)`,
+      );
+
+      // Create notification for purchasing team
+      // Group by supplier for better organization
+      const bySupplier = new Map<string, typeof recommendations>();
+
+      for (const rec of recommendations) {
+        const key = rec.supplierId || 'no-supplier';
+        if (!bySupplier.has(key)) {
+          bySupplier.set(key, []);
+        }
+        bySupplier.get(key)!.push(rec);
+      }
+
+      // Create notification with summary
+      const supplierSummaries = Array.from(bySupplier.entries())
+        .map(([key, items]) => {
+          const supplierName = items[0].supplierName || 'Sem fornecedor';
+          const criticalCount = items.filter(
+            i => i.currentStock === 0 || i.daysUntilStockout <= 7,
+          ).length;
+          return `${supplierName}: ${items.length} item(ns)${criticalCount > 0 ? ` (${criticalCount} crítico(s))` : ''}`;
+        })
+        .join('\n');
+
+      const message =
+        `Análise automática de pedidos concluída.\n\n` +
+        `Total: ${recommendations.length} item(ns) precisam de reposição\n` +
+        `Críticos: ${criticalItems.length}\n` +
+        `Overrides de emergência: ${emergencyOverrides.length}\n\n` +
+        `Por fornecedor:\n${supplierSummaries}`;
+
+      await this.notificationService.create({
+        title: '🔔 Recomendações de Pedidos Automáticos',
+        message: message,
+        type: criticalItems.length > 0 ? NOTIFICATION_TYPE.WARNING : NOTIFICATION_TYPE.INFO,
+        priority:
+          criticalItems.length > 0 ? NOTIFICATION_PRIORITY.HIGH : NOTIFICATION_PRIORITY.MEDIUM,
+        link: '/inventory/orders/auto', // Link to auto-order page
+        metadata: {
+          totalRecommendations: recommendations.length,
+          criticalItems: criticalItems.length,
+          emergencyOverrides: emergencyOverrides.length,
+          supplierCount: bySupplier.size,
+        },
+      });
+
+      this.logger.log('Daily auto-order analysis completed successfully');
+    } catch (error) {
+      this.logger.error('Failed to run daily auto-order analysis:', error);
+
+      // Create error notification
+      await this.notificationService.create({
+        title: '❌ Erro na Análise de Pedidos Automáticos',
+        message: 'Falha ao executar análise diária de pedidos automáticos. Verifique os logs.',
+        type: NOTIFICATION_TYPE.ERROR,
+        priority: NOTIFICATION_PRIORITY.HIGH,
+        metadata: {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
+  /**
+   * Run critical stock check every 4 hours
+   * Only alerts for items with 0 stock or stockout within 3 days
+   *
+   * DISABLED: Needs to be updated to work with new grouped AutoOrderRecommendation structure
+   */
+  // @Cron(CronExpression.EVERY_4_HOURS)
+  async runCriticalStockCheck() {
+    this.logger.log('Starting critical stock check...');
+
+    try {
+      const recommendations = await this.autoOrderService.analyzeItemsForAutoOrder(6);
+
+      // Filter for only critical items
+      const criticalItems = recommendations.filter(
+        rec => rec.currentStock === 0 || rec.daysUntilStockout <= 3,
+      );
+
+      if (criticalItems.length === 0) {
+        this.logger.log('No critical stock issues found');
+        return;
+      }
+
+      this.logger.warn(`Found ${criticalItems.length} items with critical stock levels`);
+
+      // Create urgent notification
+      const itemList = criticalItems
+        .slice(0, 10) // Show max 10 items
+        .map(item => {
+          const stockStatus =
+            item.currentStock === 0
+              ? '🔴 SEM ESTOQUE'
+              : `⚠️ ${item.daysUntilStockout} dias até acabar`;
+          return `${item.itemName}: ${stockStatus}`;
+        })
+        .join('\n');
+
+      const moreItems =
+        criticalItems.length > 10 ? `\n... e mais ${criticalItems.length - 10} item(ns)` : '';
+
+      await this.notificationService.create({
+        title: '🚨 ALERTA: Estoque Crítico',
+        message:
+          `${criticalItems.length} item(ns) com estoque crítico!\n\n` +
+          `${itemList}${moreItems}\n\n` +
+          `Acesse a página de pedidos automáticos para criar pedidos.`,
+        type: NOTIFICATION_TYPE.ERROR,
+        priority: NOTIFICATION_PRIORITY.URGENT,
+        link: '/inventory/orders/auto?filter=critical',
+        metadata: {
+          criticalItems: criticalItems.length,
+          outOfStock: criticalItems.filter(i => i.currentStock === 0).length,
+        },
+      });
+    } catch (error) {
+      this.logger.error('Failed to run critical stock check:', error);
+    }
+  }
+}

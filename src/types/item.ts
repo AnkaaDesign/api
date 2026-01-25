@@ -74,6 +74,9 @@ export interface Item extends BaseEntity {
   maxQuantity: number | null;
   reorderPoint: number | null;
   reorderQuantity: number | null;
+  isManualMaxQuantity: boolean;
+  isManualReorderPoint: boolean;
+  lastAutoOrderDate: Date | null;
   boxQuantity: number | null;
   icms: number;
   ipi: number;

@@ -258,4 +258,38 @@ export class NotificationGatewayService {
       averageConnectionsPerUser: onlineUsers > 0 ? totalConnections / onlineUsers : 0,
     };
   }
+
+  /**
+   * Broadcast message to all admin users
+   * Used for system-level events like WhatsApp connection status
+   *
+   * @param data - Data object with event and data properties
+   *
+   * @example
+   * ```ts
+   * await this.gatewayService.broadcastToAdmin({
+   *   event: 'whatsapp:connected',
+   *   data: {
+   *     status: 'READY',
+   *     message: 'WhatsApp connected successfully',
+   *     timestamp: new Date(),
+   *   },
+   * });
+   * ```
+   */
+  async broadcastToAdmin(data: { event: string; data: any }): Promise<void> {
+    try {
+      // Ensure event field takes priority over any type field in data.data
+      const payload = {
+        ...data.data,
+        event: data.event,
+        type: undefined, // Remove type field to prevent conflicts
+      };
+
+      await this.notificationGateway.broadcastToAdmins(payload);
+    } catch (error) {
+      this.logger.error(`Failed to broadcast to admins: ${error.message}`);
+      throw error;
+    }
+  }
 }

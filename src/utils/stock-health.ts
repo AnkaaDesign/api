@@ -461,3 +461,110 @@ export function batchCalculateReorderPoints(
 
   return results;
 }
+
+/**
+ * Automatically calculates maxQuantity based on consumption patterns
+ * MaxQuantity represents the maximum stock level we want to maintain
+ */
+export function calculateMaxQuantity(
+  item: Item,
+  activities: Activity[],
+  lookbackDays: number = 90,
+): {
+  maxQuantity: number;
+  monthlyConsumption: number;
+  suggestedMax: number;
+  shouldUpdate: boolean;
+} {
+  // Calculate monthly consumption
+  const monthlyConsumption = calculateMonthlyConsumption(activities, lookbackDays);
+
+  // If no consumption, keep existing maxQuantity or set to 0
+  if (monthlyConsumption === 0) {
+    return {
+      maxQuantity: item.maxQuantity || 0,
+      monthlyConsumption: 0,
+      suggestedMax: 0,
+      shouldUpdate: false,
+    };
+  }
+
+  // Get lead time (default to 30 days if not specified)
+  const leadTime = item.estimatedLeadTime || 30;
+
+  // Get consumption trend
+  const trend = calculateConsumptionTrend(activities, lookbackDays);
+
+  // Calculate suggested max quantity using the existing formula
+  const { max: suggestedMax } = calculateSuggestedQuantities(
+    monthlyConsumption,
+    leadTime,
+    7, // safetyStockDays
+    trend,
+  );
+
+  // Determine if update is needed (>10% difference from current)
+  const currentMaxQuantity = item.maxQuantity || 0;
+  const percentageDifference =
+    currentMaxQuantity > 0
+      ? Math.abs((suggestedMax - currentMaxQuantity) / currentMaxQuantity)
+      : 1; // Always update if current is 0
+
+  const shouldUpdate = percentageDifference > 0.1;
+
+  return {
+    maxQuantity: suggestedMax,
+    monthlyConsumption,
+    suggestedMax,
+    shouldUpdate,
+  };
+}
+
+export interface MaxQuantityUpdateResult {
+  itemId: string;
+  itemName: string;
+  previousMaxQuantity: number | null;
+  newMaxQuantity: number;
+  monthlyConsumption: number;
+  consumptionTrend: 'increasing' | 'stable' | 'decreasing';
+  percentageChange: number;
+}
+
+/**
+ * Batch calculate maxQuantity for multiple items
+ * Returns items that need updating (>10% difference)
+ */
+export function batchCalculateMaxQuantities(
+  items: Item[],
+  activitiesByItem: Map<string, Activity[]>,
+  lookbackDays: number = 90,
+): MaxQuantityUpdateResult[] {
+  const results: MaxQuantityUpdateResult[] = [];
+
+  for (const item of items) {
+    const activities = activitiesByItem.get(item.id) || [];
+    const calculation = calculateMaxQuantity(item, activities, lookbackDays);
+
+    if (calculation.shouldUpdate) {
+      const previousMaxQuantity = item.maxQuantity || 0;
+      const percentageChange =
+        previousMaxQuantity > 0
+          ? ((calculation.maxQuantity - previousMaxQuantity) / previousMaxQuantity) * 100
+          : 100;
+
+      const trend = calculateConsumptionTrend(activities, lookbackDays);
+
+      results.push({
+        itemId: item.id,
+        itemName: item.name,
+        previousMaxQuantity: item.maxQuantity,
+        newMaxQuantity: calculation.maxQuantity,
+        monthlyConsumption: calculation.monthlyConsumption,
+        consumptionTrend: trend,
+        percentageChange,
+      });
+    }
+  }
+
+  return results;
+}
