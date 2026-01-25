@@ -467,6 +467,38 @@ export class ItemUnifiedController {
     return this.itemService.analyzeReorderPoints(body.itemIds, lookbackDays);
   }
 
+  @Post('max-quantities/update')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async updateMaxQuantities(
+    @UserId() userId: string,
+    @Query('lookbackDays') lookbackDays?: number,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: {
+      totalAnalyzed: number;
+      totalUpdated: number;
+      updates: any[];
+    };
+  }> {
+    return this.itemService.updateMaxQuantitiesBasedOnConsumption(userId, lookbackDays);
+  }
+
+  @Post('max-quantities/analyze')
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async analyzeMaxQuantities(
+    @Body() body: { itemIds: string[] },
+    @Query('lookbackDays') lookbackDays?: number,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: any[];
+  }> {
+    return this.itemService.analyzeMaxQuantities(body.itemIds, lookbackDays);
+  }
+
   @Post('recalculate-monthly-consumption')
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
   async recalculateAllItemsMonthlyConsumption(@UserId() userId: string): Promise<{

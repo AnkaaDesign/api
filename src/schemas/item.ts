@@ -645,6 +645,9 @@ export const itemOrderBySchema = z
         reorderPoint: orderByDirectionSchema.optional(),
         reorderQuantity: orderByDirectionSchema.optional(),
         boxQuantity: orderByDirectionSchema.optional(),
+        isManualMaxQuantity: orderByDirectionSchema.optional(),
+        isManualReorderPoint: orderByDirectionSchema.optional(),
+        lastAutoOrderDate: orderByDirectionSchema.optional(),
         icms: orderByDirectionSchema.optional(),
         ipi: orderByDirectionSchema.optional(),
         totalPrice: orderByDirectionSchema.optional(),
@@ -703,6 +706,9 @@ export const itemOrderBySchema = z
           reorderPoint: orderByDirectionSchema.optional(),
           reorderQuantity: orderByDirectionSchema.optional(),
           boxQuantity: orderByDirectionSchema.optional(),
+          isManualMaxQuantity: orderByDirectionSchema.optional(),
+          isManualReorderPoint: orderByDirectionSchema.optional(),
+          lastAutoOrderDate: orderByDirectionSchema.optional(),
           icms: orderByDirectionSchema.optional(),
           ipi: orderByDirectionSchema.optional(),
           totalPrice: orderByDirectionSchema.optional(),
@@ -894,6 +900,41 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
             gte: z.number().optional(),
             lt: z.number().optional(),
             lte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      isManualMaxQuantity: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
+          }),
+        ])
+        .optional(),
+
+      isManualReorderPoint: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
+          }),
+        ])
+        .optional(),
+
+      lastAutoOrderDate: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            lt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            gte: z.coerce.date().optional(),
           }),
         ])
         .optional(),
@@ -1896,6 +1937,9 @@ export const itemCreateSchemaBase = z.object({
     'Quantidade de reposição deve ser positiva',
   ),
   boxQuantity: z.number().int().nullable().optional(),
+  isManualMaxQuantity: z.boolean().default(false).optional(),
+  isManualReorderPoint: z.boolean().default(false).optional(),
+  lastAutoOrderDate: z.coerce.date().nullable().optional(),
   icms: z
     .number()
     .min(0, 'ICMS deve ser não-negativo')
@@ -2002,6 +2046,9 @@ export const itemUpdateSchemaBase = z.object({
     'Quantidade de reposição deve ser positiva',
   ),
   boxQuantity: z.number().int().nullable().optional(),
+  isManualMaxQuantity: z.boolean().optional(),
+  isManualReorderPoint: z.boolean().optional(),
+  lastAutoOrderDate: z.coerce.date().nullable().optional(),
   icms: z.number().min(0).max(100).optional(),
   ipi: z.number().min(0).max(100).optional(),
   monthlyConsumption: z.number().min(0, 'Consumo mensal deve ser não-negativo').optional(),
@@ -2303,6 +2350,9 @@ export const mapItemToFormData = createMapToFormDataHelper<Item, ItemUpdateFormD
   reorderPoint: item.reorderPoint || undefined,
   reorderQuantity: item.reorderQuantity || undefined,
   boxQuantity: item.boxQuantity || undefined,
+  isManualMaxQuantity: item.isManualMaxQuantity,
+  isManualReorderPoint: item.isManualReorderPoint,
+  lastAutoOrderDate: item.lastAutoOrderDate || undefined,
   icms: item.icms,
   ipi: item.ipi,
   monthlyConsumption: item.monthlyConsumption,
