@@ -535,6 +535,14 @@ export class TaskNotificationService {
    * @returns True if values are different
    */
   private hasValueChanged(oldValue: any, newValue: any, fieldName?: string): boolean {
+    // Commission field normalization: treat null/undefined as NO_COMMISSION
+    // This prevents false positive changes when both display as "Sem Comissão"
+    if (fieldName === 'commission') {
+      const normalizedOld = (oldValue === null || oldValue === undefined) ? 'NO_COMMISSION' : oldValue;
+      const normalizedNew = (newValue === null || newValue === undefined) ? 'NO_COMMISSION' : newValue;
+      return normalizedOld !== normalizedNew;
+    }
+
     // Handle null/undefined cases
     if (oldValue === undefined && newValue === undefined) return false;
     if (oldValue === null && newValue === null) return false;

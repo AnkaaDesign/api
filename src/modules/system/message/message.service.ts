@@ -287,12 +287,46 @@ export class MessageService {
       // Count total
       const total = await this.prisma.message.count({ where });
 
-      // Fetch data
-      const data = await this.prisma.message.findMany({
+      // Fetch data with relations for stats calculation
+      const messages = await this.prisma.message.findMany({
         where,
         orderBy: { [sortBy]: sortOrder },
         skip: offset,
         take: limit,
+        include: {
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          views: true,
+          targets: true,
+        },
+      });
+
+      // Get total active users count for messages targeting all users
+      const totalActiveUsers = await this.prisma.user.count({ where: { isActive: true } });
+
+      // Map messages to include stats
+      const data = messages.map((message) => {
+        const views = message.views || [];
+        const targets = message.targets || [];
+
+        const stats = {
+          views: views.length,
+          uniqueViews: new Set(views.map((v) => v.userId)).size,
+          targetUsers: targets.length > 0 ? targets.length : totalActiveUsers,
+          dismissals: views.filter((v) => v.dismissedAt !== null).length,
+        };
+
+        // Remove views and targets from response, keep only stats
+        const { views: _views, targets: _targets, ...messageWithoutRelations } = message;
+
+        return {
+          ...messageWithoutRelations,
+          stats,
+        };
       });
 
       return {
