@@ -131,6 +131,7 @@ export class LayoutController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodValidationPipe(layoutCreateSchema))
@@ -148,6 +149,7 @@ export class LayoutController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodValidationPipe(layoutUpdateSchema))
@@ -185,6 +187,7 @@ export class LayoutController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async assignLayoutToTruck(
@@ -209,6 +212,7 @@ export class LayoutController {
   @Roles(
     SECTOR_PRIVILEGES.PRODUCTION,
     SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'photo', maxCount: 1 }], multerConfig))

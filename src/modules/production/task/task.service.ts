@@ -3321,7 +3321,6 @@ export class TaskService {
           'forecastDate',
           'invoiceToId',
           'negotiatingWith',
-          'priority',
           'bonusDiscountId',
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
@@ -3463,7 +3462,7 @@ export class TaskService {
               }
 
               // Emit events for other important field changes
-              const importantFields = ['term', 'forecastDate', 'sectorId', 'priority', 'details'];
+              const importantFields = ['term', 'forecastDate', 'sectorId', 'details'];
 
               for (const field of importantFields) {
                 if (
@@ -5912,7 +5911,7 @@ export class TaskService {
         convertedValue = new Date(oldValue as string);
       }
       // Handle number fields
-      else if (['priority', 'statusOrder'].includes(fieldToRevert)) {
+      else if (['statusOrder'].includes(fieldToRevert)) {
         convertedValue = typeof oldValue === 'number' ? oldValue : parseInt(oldValue as string, 10);
       }
       // Handle enum fields (status, commission) - must not be empty string
