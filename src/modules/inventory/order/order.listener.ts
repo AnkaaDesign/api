@@ -182,8 +182,8 @@ export class OrderListener {
       const orderNumber = order.id.slice(-8).toUpperCase();
       const itemsSummary = this.generateOrderItemsSummary(order);
 
-      const title = `Novo Pedido Criado #${orderNumber}`;
-      const body = `Um novo pedido foi criado para ${supplierName}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
+      const title = '📦 Novo Pedido Criado';
+      const body = `Pedido #${orderNumber} criado para ${supplierName}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
 
       // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
@@ -260,8 +260,8 @@ export class OrderListener {
         importance = NOTIFICATION_IMPORTANCE.NORMAL;
       }
 
-      const title = `Status do Pedido Alterado #${orderNumber}`;
-      const body = `O pedido ${supplierName} mudou de status.\n\nDe: ${oldStatusLabel}\nPara: ${newStatusLabel}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
+      const title = '🔄 Status do Pedido Alterado';
+      const body = `Pedido #${orderNumber} (${supplierName}) mudou de "${oldStatusLabel}" para "${newStatusLabel}".\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
 
       // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
@@ -321,15 +321,15 @@ export class OrderListener {
         const daysUntil = Math.abs(event.daysOverdue);
         const daysText = daysUntil === 1 ? 'amanhã' : `em ${daysUntil} dias`;
 
-        title = `Pedido com Vencimento Próximo #${orderNumber}`;
-        body = `O pedido ${supplierName} vence ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, prepare-se para o recebimento.`;
+        title = '⏰ Pedido Vencendo';
+        body = `Pedido #${orderNumber} (${supplierName}) vence ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, prepare-se para o recebimento.`;
         importance = NOTIFICATION_IMPORTANCE.NORMAL;
       } else {
         // Overdue order
         const daysText = event.daysOverdue === 1 ? '1 dia' : `${event.daysOverdue} dias`;
 
-        title = `Pedido Atrasado #${orderNumber}`;
-        body = `O pedido ${supplierName} está atrasado há ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, verifique o status do pedido com o fornecedor.`;
+        title = '🚨 Pedido Atrasado';
+        body = `Pedido #${orderNumber} (${supplierName}) está atrasado há ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, verifique o status do pedido com o fornecedor.`;
         importance = NOTIFICATION_IMPORTANCE.HIGH;
       }
 
@@ -382,8 +382,8 @@ export class OrderListener {
         event.item.item?.name || event.item.temporaryItemDescription || 'Item desconhecido';
       const itemsSummary = this.generateOrderItemsSummary(order);
 
-      const title = `Item Recebido - Pedido #${orderNumber}`;
-      const body = `Item recebido do pedido ${supplierName}.\n\nItem: ${itemName}\nQuantidade recebida: ${event.quantity}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
+      const title = '📥 Item Recebido';
+      const body = `Item "${itemName}" recebido do pedido #${orderNumber} (${supplierName}).\n\nQuantidade recebida: ${event.quantity}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
 
       // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
@@ -439,8 +439,8 @@ export class OrderListener {
       const itemsSummary = this.generateOrderItemsSummary(order);
       const cancelledByName = event.cancelledBy.name || 'Usuário desconhecido';
 
-      const title = `Pedido Cancelado #${orderNumber}`;
-      const body = `O pedido ${supplierName} foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
+      const title = '❌ Pedido Cancelado';
+      const body = `Pedido #${orderNumber} (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
 
       // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);

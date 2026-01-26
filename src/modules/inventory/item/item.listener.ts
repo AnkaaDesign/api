@@ -204,7 +204,7 @@ export class ItemListener {
       }
 
       const itemDetails = this.formatItemDetails(item);
-      const title = `Estoque Baixo: ${item.name}`;
+      const title = '⚠️ Estoque Baixo';
       const body = `O item "${item.name}" está com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposição.`;
 
       // Generate proper notification metadata with web, mobile, and universal links
@@ -256,7 +256,7 @@ export class ItemListener {
         ? `\nFornecedor: ${item.supplier.fantasyName || item.supplier.corporateName}`
         : '';
 
-      const title = `Estoque Esgotado: ${item.name}`;
+      const title = '🚨 Estoque Esgotado';
       const body = `O item "${item.name}" está ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAção urgente necessária para repor o item.`;
 
       // Generate proper notification metadata with web, mobile, and universal links
@@ -313,7 +313,7 @@ export class ItemListener {
         ? `\nPrazo estimado de entrega: ${item.estimatedLeadTime} dias`
         : '';
 
-      const title = `Recompra Necessária: ${item.name}`;
+      const title = '🔄 Recompra Necessária';
       const body = `O item "${item.name}" requer recompra.${itemDetails}${supplierInfo}${leadTimeInfo}\n\nEstoque atual: ${event.currentQuantity} unidades\nQuantidade sugerida para pedido: ${event.reorderQuantity} unidades\n\nRealize o pedido de compra.`;
 
       // Generate proper notification metadata with web, mobile, and universal links
@@ -364,7 +364,7 @@ export class ItemListener {
       const itemDetails = this.formatItemDetails(item);
       const excess = event.currentQuantity - event.maxQuantity;
 
-      const title = `Excesso de Estoque: ${item.name}`;
+      const title = '📈 Excesso de Estoque';
       const body = `O item "${item.name}" está com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque máximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possíveis desperdícios ou ajuste o estoque máximo.`;
 
       // Generate proper notification metadata with web, mobile, and universal links

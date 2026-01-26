@@ -52,7 +52,8 @@ export async function trackAndLogFieldChanges({
     const newValue = newEntity[field];
 
     // Only log if the value actually changed
-    if (hasValueChanged(oldValue, newValue)) {
+    // Pass field name for field-specific normalization (e.g., commission: null vs NO_COMMISSION)
+    if (hasValueChanged(oldValue, newValue, field)) {
       const fieldNamePt = translateFieldName(field);
 
       // Extract relationship names for foreign key fields
@@ -198,7 +199,8 @@ export function trackFieldChanges(
     const newValue = newEntity?.[field];
 
     // Only track if the value actually changed
-    if (hasValueChanged(oldValue, newValue)) {
+    // Pass field name for field-specific normalization (e.g., commission: null vs NO_COMMISSION)
+    if (hasValueChanged(oldValue, newValue, field)) {
       changes[field] = {
         from: oldValue,
         to: newValue,

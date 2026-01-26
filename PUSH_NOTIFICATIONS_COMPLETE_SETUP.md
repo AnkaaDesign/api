@@ -2,11 +2,14 @@
 
 ## ✅ Implementation Complete
 
-I've implemented **Expo Push Service** - the industry standard for React Native/Expo apps. This is the **best and most common workflow** used in production.
+I've implemented **Expo Push Service** - the industry standard for React
+Native/Expo apps. This is the **best and most common workflow** used in
+production.
 
 ## Why Expo Push Service is the Best Choice
 
 ### ✅ Advantages:
+
 1. **Cross-platform** - Handles both iOS (APNS) and Android (FCM) automatically
 2. **Industry standard** - Used by thousands of production apps
 3. **Works with standalone builds** - Not just Expo Go
@@ -18,13 +21,16 @@ I've implemented **Expo Push Service** - the industry standard for React Native/
 ### What I Implemented:
 
 #### API Changes:
+
 1. ✅ **Installed** `expo-server-sdk`
 2. ✅ **Created** `ExpoPushService` - Handles Expo token notifications
-3. ✅ **Updated** `PushService` - Hybrid mode (supports both Expo and FCM tokens)
+3. ✅ **Updated** `PushService` - Hybrid mode (supports both Expo and FCM
+   tokens)
 4. ✅ **Updated** `PushModule` - Registered ExpoPushService
 5. ✅ **Smart routing** - Automatically detects token type and routes correctly
 
 #### Mobile App Status:
+
 - ✅ Already generates Expo tokens correctly
 - ✅ iOS APNS entitlements configured
 - ✅ Android FCM configured
@@ -34,6 +40,7 @@ I've implemented **Expo Push Service** - the industry standard for React Native/
 ## How It Works
 
 ### Token Flow:
+
 ```
 Mobile App (Android/iOS)
     ↓ (generates)
@@ -51,12 +58,14 @@ User's Device ✅
 ```
 
 ### For iOS:
+
 - Expo automatically uses APNS
 - Your entitlements file is already configured
 - Production APNS certificates handled by Expo
 - Works in standalone IPA builds
 
 ### For Android:
+
 - Expo automatically uses FCM
 - Your google-services.json is already configured
 - Works in standalone APK builds
@@ -75,6 +84,7 @@ EXPO_ACCESS_TOKEN=
 ```
 
 **Note:** The `EXPO_ACCESS_TOKEN` is **optional**:
+
 - **Without token**: 600 notifications/hour (free tier) - Good for most apps
 - **With token**: Higher limits + better rate limit management
 
@@ -116,16 +126,18 @@ The system is now ready! When a notification is sent:
 ## Testing Push Notifications
 
 ### Option 1: Send Test Notification from Your App
+
 Your app likely has an admin panel to send notifications. Just send one!
 
 ### Option 2: Use API Endpoint Directly
+
 ```bash
 # Get your user's push token first
-curl -X GET http://192.168.0.13:3030/notifications/device-tokens \
+curl -X GET http://192.168.10.161:3030/notifications/device-tokens \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
 # Send test notification (admin only)
-curl -X POST http://192.168.0.13:3030/notifications/test \
+curl -X POST http://192.168.10.161:3030/notifications/test \
   -H "Authorization: Bearer YOUR_ADMIN_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -136,19 +148,23 @@ curl -X POST http://192.168.0.13:3030/notifications/test \
 ```
 
 ### Option 3: Trigger from Code
-Your app likely sends notifications on events (new task, message, etc.). Just trigger that event!
+
+Your app likely sends notifications on events (new task, message, etc.). Just
+trigger that event!
 
 ## iOS Setup (Already Done! ✅)
 
 Your iOS app is already configured:
 
 ### ✅ Entitlements File:
+
 ```xml
 <key>aps-environment</key>
 <string>production</string>
 ```
 
 ### ✅ App.json:
+
 ```json
 "ios": {
   "bundleIdentifier": "com.ankaadesign.management"
@@ -156,6 +172,7 @@ Your iOS app is already configured:
 ```
 
 ### ✅ Expo Notifications Plugin:
+
 ```json
 "plugins": [
   ["expo-notifications", {
@@ -166,6 +183,7 @@ Your iOS app is already configured:
 ```
 
 **Everything is ready for iOS!** When you build the IPA, it will automatically:
+
 1. Generate Expo push tokens
 2. Register with APNS via Expo
 3. Receive notifications through APNS
@@ -175,11 +193,13 @@ Your iOS app is already configured:
 Your Android app is already configured:
 
 ### ✅ Google Services:
+
 ```json
 "project_id": "ankaa-design-management"
 ```
 
 ### ✅ Manifest:
+
 - Cleartext traffic enabled (for dev)
 - Notification permissions configured
 
@@ -188,18 +208,21 @@ Your Android app is already configured:
 ## How to Build iOS App with Push Notifications
 
 ### For Development (Testing):
+
 ```bash
 # Build development client
 eas build --profile development --platform ios
 ```
 
 ### For Production:
+
 ```bash
 # Build production IPA
 eas build --profile production --platform ios
 ```
 
 Expo will automatically:
+
 1. Generate production APNS certificates
 2. Configure push notification entitlements
 3. Sign the app properly for push notifications
@@ -207,6 +230,7 @@ Expo will automatically:
 ## Monitoring and Debugging
 
 ### Check Logs:
+
 Your API will now show detailed logs:
 
 ```
@@ -228,17 +252,23 @@ Your API will now show detailed logs:
 ### Common Issues and Solutions:
 
 #### Issue: "No active tokens found"
+
 **Solution:** User hasn't logged in on mobile or hasn't granted permissions
+
 - Check mobile app logs when user logs in
 - Verify permissions were granted
 
 #### Issue: "Invalid Expo push token format"
+
 **Solution:** Token format is wrong
+
 - Should start with `ExponentPushToken[`
 - Check mobile app is generating tokens correctly
 
 #### Issue: Notification not arriving
+
 **Solutions:**
+
 1. Check mobile app is in foreground/background (not killed)
 2. Verify network connectivity
 3. Check API logs for errors
@@ -248,16 +278,19 @@ Your API will now show detailed logs:
 ## Rate Limits
 
 ### Free Tier (No EXPO_ACCESS_TOKEN):
+
 - **600 notifications per hour**
 - Sufficient for most small-to-medium apps
 - Resets every hour
 
 ### With Access Token:
+
 - **Higher limits** based on your Expo account
 - Better rate limit management
 - Priority delivery
 
 ### To Upgrade:
+
 1. Go to https://expo.dev/accounts/[your-account]/settings/access-tokens
 2. Create new access token
 3. Add to `.env`: `EXPO_ACCESS_TOKEN=your_token_here`
@@ -308,6 +341,7 @@ Your API will now show detailed logs:
 ## Security Considerations
 
 ### ✅ Implemented:
+
 1. **Token validation** - Only valid Expo tokens accepted
 2. **User authentication** - Must be logged in to register token
 3. **Token deactivation** - Invalid tokens automatically deactivated
@@ -315,6 +349,7 @@ Your API will now show detailed logs:
 5. **HTTPS** - API should use HTTPS in production
 
 ### For Production:
+
 1. Use HTTPS for your API
 2. Keep JWT secrets secure
 3. Monitor notification logs
@@ -334,22 +369,21 @@ But for 99% of use cases, **Expo Push Service is perfect**.
 ## Summary
 
 ### What's Working Now:
-✅ API ready to send push notifications
-✅ Expo Push Service integrated
-✅ Hybrid system (Expo + FCM support)
-✅ iOS APNS configured
-✅ Android FCM configured
-✅ Mobile app ready (no changes needed)
-✅ Production-ready
-✅ Free tier (600/hour)
+
+✅ API ready to send push notifications ✅ Expo Push Service integrated ✅
+Hybrid system (Expo + FCM support) ✅ iOS APNS configured ✅ Android FCM
+configured ✅ Mobile app ready (no changes needed) ✅ Production-ready ✅ Free
+tier (600/hour)
 
 ### What You Need to Do:
+
 1. ✅ Restart API server
 2. ✅ Send test notification
 3. ✅ Verify it arrives on device
 4. ✅ (Optional) Add EXPO_ACCESS_TOKEN for higher limits
 
 ### iOS Build When Ready:
+
 ```bash
 eas build --profile production --platform ios
 ```
@@ -358,9 +392,11 @@ Everything will work automatically!
 
 ## Support and Resources
 
-- **Expo Push Notifications Docs**: https://docs.expo.dev/push-notifications/overview/
+- **Expo Push Notifications Docs**:
+  https://docs.expo.dev/push-notifications/overview/
 - **Expo Status Page**: https://status.expo.dev/
-- **Rate Limits**: https://docs.expo.dev/push-notifications/sending-notifications/#rate-limits
+- **Rate Limits**:
+  https://docs.expo.dev/push-notifications/sending-notifications/#rate-limits
 - **Troubleshooting**: https://docs.expo.dev/push-notifications/troubleshooting/
 
 ---
