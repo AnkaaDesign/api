@@ -136,8 +136,8 @@ export class ServiceOrderListener {
       for (const user of usersToNotify) {
         await this.notificationService.createNotification({
           userId: user.id,
-          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" criada por ${creatorName}`,
-          body: `Ordem de serviço "${serviceOrder.description}" foi criada para a tarefa "${taskIdentifier}" por ${creatorName} (Tipo: ${typeLabel})`,
+          title: '🆕 Nova Ordem de Serviço',
+          body: `"${serviceOrder.description}" criada para "${taskIdentifier}" por ${creatorName} (Tipo: ${typeLabel})`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
             NOTIFICATION_CHANNEL.IN_APP,
@@ -205,8 +205,8 @@ export class ServiceOrderListener {
       // 1. Notify the assigned user
       await this.notificationService.createNotification({
         userId: assignedToId,
-        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" atribuída a você`,
-        body: `Você foi atribuído à ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier}`,
+        title: '📋 Ordem de Serviço Atribuída',
+        body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" foi atribuída a você`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -254,8 +254,8 @@ export class ServiceOrderListener {
 
         await this.notificationService.createNotification({
           userId: admin.id,
-          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" atribuída a ${assignedUserName}`,
-          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi atribuída a ${assignedUserName}`,
+          title: '📋 Ordem de Serviço Atribuída',
+          body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" foi atribuída a ${assignedUserName}`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
             NOTIFICATION_CHANNEL.IN_APP,
@@ -350,8 +350,8 @@ export class ServiceOrderListener {
       // 1. Notify the creator
       await this.notificationService.createNotification({
         userId: creatorId,
-        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" concluída por ${completedByName}`,
-        body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} foi concluída por ${completedByName}`,
+        title: '✅ Ordem de Serviço Concluída',
+        body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída por ${completedByName}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -403,8 +403,8 @@ export class ServiceOrderListener {
 
         await this.notificationService.createNotification({
           userId: admin.id,
-          title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" concluída por ${completedByName}`,
-          body: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída por ${completedByName}`,
+          title: '✅ Ordem de Serviço Concluída',
+          body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" foi concluída por ${completedByName}`,
           type: NOTIFICATION_TYPE.SERVICE_ORDER,
           channel: [
             NOTIFICATION_CHANNEL.IN_APP,
@@ -478,8 +478,8 @@ export class ServiceOrderListener {
       // Create notification for all admins
       await this.notificationService.createNotification({
         userId: null, // Will target all admins via targetSectors
-        title: `Arte "${serviceOrder.description}" da tarefa "${taskIdentifier}" aguardando aprovação`,
-        body: `A ordem de serviço de arte "${serviceOrder.description}" da tarefa ${taskIdentifier} está aguardando aprovação`,
+        title: '🎨 Arte Aguardando Aprovação',
+        body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" está aguardando aprovação`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -578,17 +578,17 @@ export class ServiceOrderListener {
 
       // Determine importance and special handling based on status transition
       let importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      // Detailed title matching the user's expected format: "Ordem de serviço 'X' da tarefa 'Y' mudou de 'A' para 'B' por Z"
-      let title = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
-      let body = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
+      // Short title, detailed body
+      let title = '🔄 Ordem de Serviço Atualizada';
+      let body = `"${serviceOrder.description}" da tarefa "${taskIdentifier}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${changedByName}`;
 
       // Handle rejection case (going back to IN_PROGRESS from WAITING_APPROVE or COMPLETED)
       const isRejection = newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
         (oldStatus === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldStatus === SERVICE_ORDER_STATUS.COMPLETED);
 
       if (isRejection && serviceOrderWithUsers?.observation) {
-        title = `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}" reprovada por ${changedByName}`;
-        body = `Ordem de serviço "${serviceOrder.description}" foi reprovada por ${changedByName}. Motivo: ${serviceOrderWithUsers.observation}`;
+        title = '❌ Ordem de Serviço Reprovada';
+        body = `"${serviceOrder.description}" da tarefa "${taskIdentifier}" foi reprovada por ${changedByName}. Motivo: ${serviceOrderWithUsers.observation}`;
         importance = NOTIFICATION_IMPORTANCE.HIGH;
       } else if (newStatus === SERVICE_ORDER_STATUS.COMPLETED || newStatus === SERVICE_ORDER_STATUS.CANCELLED) {
         importance = NOTIFICATION_IMPORTANCE.HIGH;
@@ -773,8 +773,8 @@ export class ServiceOrderListener {
       // Notify the assigned user about the update
       await this.notificationService.createNotification({
         userId: assignedToId,
-        title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}": ${changesText} alterado(s) por ${changedByName}`,
-        body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} teve ${changesText} alterado(s) por ${changedByName}`,
+        title: '📝 Ordem de Serviço Atualizada',
+        body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" teve ${changesText} alterado(s) por ${changedByName}`,
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         channel: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -815,8 +815,8 @@ export class ServiceOrderListener {
         if (creator?.isActive) {
           await this.notificationService.createNotification({
             userId: serviceOrderWithCreator.createdById,
-            title: `Ordem de serviço "${serviceOrder.description}" da tarefa "${taskIdentifier}": ${changesText} alterado(s) por ${changedByName}`,
-            body: `A ordem de serviço "${serviceOrder.description}" da tarefa ${taskIdentifier} teve ${changesText} alterado(s) por ${changedByName}`,
+            title: '📝 Ordem de Serviço Atualizada',
+            body: `"${serviceOrder.description}" da tarefa "${taskIdentifier}" teve ${changesText} alterado(s) por ${changedByName}`,
             type: NOTIFICATION_TYPE.SERVICE_ORDER,
             channel: [
               NOTIFICATION_CHANNEL.IN_APP,

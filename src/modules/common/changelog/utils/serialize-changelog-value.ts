@@ -78,9 +78,16 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
 /**
  * Normalize value for comparison
  * Handles numeric strings, Prisma Decimals, and numbers to prevent false positives
+ * @param value - The value to normalize
+ * @param field - Optional field name for field-specific normalization
  */
-function normalizeValue(value: any): any {
+function normalizeValue(value: any, field?: string): any {
   if (value === null || value === undefined) {
+    // For commission field, treat null/undefined as NO_COMMISSION
+    // This prevents false positive changelogs when both display as "Sem Comissão"
+    if (field === 'commission') {
+      return 'NO_COMMISSION';
+    }
     return null;
   }
 
@@ -110,11 +117,14 @@ function normalizeValue(value: any): any {
 /**
  * Compare two values for changelog purposes
  * Returns true if values are different
+ * @param oldValue - The old value
+ * @param newValue - The new value
+ * @param field - Optional field name for field-specific normalization (e.g., 'commission')
  */
-export function hasValueChanged(oldValue: any, newValue: any): boolean {
+export function hasValueChanged(oldValue: any, newValue: any, field?: string): boolean {
   // Normalize both values before serialization to handle type coercion
-  const normalizedOld = normalizeValue(oldValue);
-  const normalizedNew = normalizeValue(newValue);
+  const normalizedOld = normalizeValue(oldValue, field);
+  const normalizedNew = normalizeValue(newValue, field);
 
   const serializedOld = serializeChangelogValue(normalizedOld);
   const serializedNew = serializeChangelogValue(normalizedNew);
