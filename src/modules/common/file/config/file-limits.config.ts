@@ -18,6 +18,10 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 arquivos de arte por tarefa',
   },
+  taskBaseFiles: {
+    maxFiles: 30,
+    description: 'Máximo de 30 arquivos base por tarefa',
+  },
   taskBudgets: {
     maxFiles: 10,
     description: 'Máximo de 10 orçamentos por tarefa',
