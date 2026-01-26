@@ -170,7 +170,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
   },
   [CHANGE_LOG_ENTITY_TYPE.TASK]: {
     title: 'Título',
-    priority: 'Prioridade',
     dueDate: 'Data de Vencimento',
     startedAt: 'Iniciado em',
     completedAt: 'Concluído em',
