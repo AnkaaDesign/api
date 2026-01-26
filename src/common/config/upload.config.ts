@@ -44,6 +44,23 @@ const FILE_SIGNATURES: Record<string, Buffer[]> = {
     Buffer.from([0x50, 0x4b, 0x03, 0x04]), // ZIP signature (DOCX is ZIP)
     Buffer.from([0x50, 0x4b, 0x05, 0x06]), // ZIP empty archive
   ],
+  'video/mp4': [
+    Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]), // ftyp
+    Buffer.from([0x00, 0x00, 0x00, 0x1c, 0x66, 0x74, 0x79, 0x70]), // ftyp variant
+    Buffer.from([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70]), // ftyp variant
+  ],
+  'video/quicktime': [
+    Buffer.from([0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74]), // ftypqt
+  ],
+  'video/webm': [
+    Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), // WebM/MKV
+  ],
+  'video/x-matroska': [
+    Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), // WebM/MKV
+  ],
+  'video/x-msvideo': [
+    Buffer.from([0x52, 0x49, 0x46, 0x46]), // RIFF (first 4 bytes, followed by AVI)
+  ],
 };
 
 /**
@@ -158,6 +175,11 @@ export function createUploadConfig(): MulterOptions {
     'text/plain',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'video/mp4',
+    'video/quicktime',      // .mov
+    'video/x-msvideo',      // .avi
+    'video/webm',
+    'video/x-matroska',     // .mkv
   ];
 
   // Ensure upload directory exists
