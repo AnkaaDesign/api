@@ -3,12 +3,24 @@
     "details": [
       {
         "appIDs": [
-          "TEAMID.com.ankaadesign.management"
+          "VDN4DBVKPJ.com.ankaadesign.management"
         ],
         "components": [
           {
-            "/": "/*",
-            "comment": "Match all paths"
+            "/": "/app/*",
+            "comment": "Match universal link paths starting with /app/"
+          },
+          {
+            "/": "/task/*",
+            "comment": "Match task deep links"
+          },
+          {
+            "/": "/order/*",
+            "comment": "Match order deep links"
+          },
+          {
+            "/": "/item/*",
+            "comment": "Match item deep links"
           }
         ]
       }
@@ -16,7 +28,7 @@
   },
   "webcredentials": {
     "apps": [
-      "TEAMID.com.ankaadesign.management"
+      "VDN4DBVKPJ.com.ankaadesign.management"
     ]
   }
 }
