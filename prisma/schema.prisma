@@ -124,6 +124,7 @@ model Bonus {
   payroll            Payroll?        @relation(fields: [payrollId], references: [id])
   user               User            @relation("UserBonus", fields: [userId], references: [id], onDelete: Cascade)
   bonusDiscounts     BonusDiscount[]
+  bonusExtras        BonusExtra[]
   users              User[]          @relation("BonusPeriodUsers")
   tasks              Task[]          @relation("BonusTasks")
 
@@ -187,6 +188,21 @@ model BonusDiscount {
   value            Decimal? @db.Decimal(10, 2)
   bonus            Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
   suspendedTasks   Task[]
+
+  @@index([bonusId])
+  @@index([calculationOrder])
+}
+
+model BonusExtra {
+  id               String   @id @default(uuid())
+  bonusId          String
+  percentage       Decimal? @db.Decimal(5, 2)
+  value            Decimal? @db.Decimal(10, 2)
+  reference        String
+  calculationOrder Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  bonus            Bonus    @relation(fields: [bonusId], references: [id], onDelete: Cascade)
 
   @@index([bonusId])
   @@index([calculationOrder])
@@ -348,6 +364,7 @@ model PpeDelivery {
 
 model PpeDeliverySchedule {
   id              String                 @id @default(uuid())
+  name            String                 @default("Agendamento de EPI")
   assignmentType  AssignmentType         @default(ALL)
   excludedUserIds String[]               @default([])
   includedUserIds String[]               @default([])
@@ -1069,6 +1086,7 @@ model TaskPricingItem {
   updatedAt   DateTime    @updatedAt
   // Bidirectional sync control: when false, prevents auto-recreation of service orders from this item
   // Set to false when user explicitly deletes the corresponding service order
+  position    Int         @default(0)
   shouldSync  Boolean     @default(true)
   pricing     TaskPricing @relation("PRICING_ITEMS", fields: [pricingId], references: [id], onDelete: Cascade)
 

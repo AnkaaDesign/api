@@ -92,6 +92,7 @@ export class PayrollService {
           include: {
             tasks: true,
             bonusDiscounts: true,
+            bonusExtras: true,
           },
         },
         discounts: {
@@ -171,6 +172,7 @@ export class PayrollService {
           include: {
             tasks: true,
             bonusDiscounts: true,
+            bonusExtras: true,
           },
         },
         discounts: {
@@ -536,7 +538,7 @@ export class PayrollService {
             },
           });
 
-          const bonusAmount = savedBonus ? Number(savedBonus.baseBonus) : 0;
+          const bonusAmount = savedBonus ? Number(savedBonus.netBonus) : 0;
 
           // Calculate complete payroll using CompletePayrollCalculatorService
           const calculation = await this.completeCalculator.calculateCompletePayroll({
@@ -691,6 +693,7 @@ export class PayrollService {
           include: {
             tasks: true,
             bonusDiscounts: true,
+            bonusExtras: true,
           },
         },
         position: true,
@@ -742,7 +745,7 @@ export class PayrollService {
 
       try {
         liveBonus = await this.bonusService.calculateLiveBonusForUser(userId, year, month);
-        bonusAmount = liveBonus?.baseBonus ? Number(liveBonus.baseBonus) : 0;
+        bonusAmount = liveBonus?.netBonus ? Number(liveBonus.netBonus) : 0;
         this.logger.log(`Live bonus calculated for user ${userId.slice(0, 8)}: R$ ${bonusAmount}`);
       } catch (error) {
         this.logger.warn(`Could not calculate live bonus for user ${userId}: ${error}`);
@@ -767,6 +770,7 @@ export class PayrollService {
           performanceLevel: performanceLevel,
           tasks: [],
           bonusDiscounts: [],
+          bonusExtras: [],
           isLive: true,
         };
       }
@@ -917,8 +921,8 @@ export class PayrollService {
               userId,
               year,
               month,
-              baseBonus: String(liveBonus.baseBonus || bonusAmount),
-              netBonus: String(liveBonus.netBonus || bonusAmount),
+              baseBonus: String(liveBonus.baseBonus ?? 0),
+              netBonus: String(liveBonus.netBonus ?? 0),
               weightedTasks: String(liveBonus.weightedTasks || 0),
               averageTaskPerUser: String(
                 liveBonus.averageTasksPerEmployee || liveBonus.averageTaskPerUser || 0,
@@ -1065,12 +1069,13 @@ export class PayrollService {
               year: currentPeriod.year,
               month: currentPeriod.month,
               baseBonus: String(liveBonus.baseBonus || 0),
-              netBonus: String(liveBonus.netBonus || liveBonus.baseBonus || 0),
+              netBonus: String(liveBonus.netBonus || 0),
               performanceLevel: liveBonus.performanceLevel,
               weightedTasks: String(liveBonus.weightedTasks || 0),
               averageTaskPerUser: String(liveBonus.averageTasksPerEmployee || 0),
               tasks: liveBonus.tasks || [],
-              bonusDiscounts: [],
+              bonusDiscounts: liveBonus.bonusDiscounts || [],
+              bonusExtras: liveBonus.bonusExtras || [],
               isLive: true,
             };
           } else if (isBonifiable) {
@@ -1088,6 +1093,7 @@ export class PayrollService {
               averageTaskPerUser: String(liveBonusData.averageTasksPerEmployee || 0),
               tasks: [],
               bonusDiscounts: [],
+              bonusExtras: [],
               isLive: true,
             };
           }
@@ -1134,7 +1140,7 @@ export class PayrollService {
             const user = placeholder.user;
             const baseRemuneration = user.position?.remunerations?.[0]?.value || 0;
             const liveBonus = liveBonusMap.get(placeholder.userId);
-            const bonusAmount = liveBonus?.baseBonus ? Number(liveBonus.baseBonus) : 0;
+            const bonusAmount = liveBonus?.netBonus ? Number(liveBonus.netBonus) : 0;
             const liveId = `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`;
 
             return {

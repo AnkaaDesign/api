@@ -103,6 +103,7 @@ export class PayrollController {
         include: {
           tasks: true,
           bonusDiscounts: true,
+          bonusExtras: true,
         },
       },
       discounts: true,
@@ -389,6 +390,7 @@ export class PayrollController {
         include: {
           tasks: true,
           bonusDiscounts: true,
+          bonusExtras: true,
         },
       },
       discounts: true,
@@ -450,6 +452,7 @@ export class PayrollController {
         include: {
           tasks: true,
           bonusDiscounts: true,
+          bonusExtras: true,
         },
       },
       discounts: true,

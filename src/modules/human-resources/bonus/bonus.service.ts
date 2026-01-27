@@ -14,6 +14,8 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { ExactBonusCalculationService } from './exact-bonus-calculation.service';
+import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
+import type { SecullumBonusAnalysis } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
 import {
   CHANGE_TRIGGERED_BY,
@@ -52,6 +54,12 @@ interface LiveBonusData {
   averageTasksPerEmployee: number;
   rawAverageTasksPerEmployee: number; // Average with suspended as 1.0
   isLive: true;
+  // Secullum bonus integration fields
+  bonusExtraPercentage?: number;
+  bonusExtraValue?: number;
+  absenceDiscountPercentage?: number;
+  absenceDiscountValue?: number;
+  secullumAnalysis?: SecullumBonusAnalysis;
 }
 
 interface LiveBonusCalculationResult {
@@ -146,6 +154,7 @@ export class BonusService {
     private readonly changeLogService: ChangeLogService,
     private readonly exactBonusCalculationService: ExactBonusCalculationService,
     private readonly bonusRepository: BonusRepository,
+    private readonly secullumBonusIntegrationService: SecullumBonusIntegrationService,
   ) {}
 
   // =====================
@@ -194,6 +203,18 @@ export class BonusService {
           },
         },
         bonusDiscounts: {
+          select: {
+            id: true,
+            percentage: true,
+            value: true,
+            reference: true,
+            calculationOrder: true,
+          },
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+        bonusExtras: {
           select: {
             id: true,
             percentage: true,
@@ -312,6 +333,11 @@ export class BonusService {
               calculationOrder: 'asc',
             },
           },
+          bonusExtras: {
+            orderBy: {
+              calculationOrder: 'asc',
+            },
+          },
           users: {
             select: {
               id: true,
@@ -384,11 +410,13 @@ export class BonusService {
       // Build "Tarefas Suspensas" discount if applicable
       const suspendedTasksDiscount = userLiveBonus?.suspendedTasksDiscount || 0;
       const bonusDiscounts: any[] = [];
+      const bonusExtras: any[] = [];
+      const liveBonusId = `live-${userId}-${year}-${month}`;
 
       if (suspendedTasksDiscount > 0 && liveData.totalSuspendedTasks > 0) {
         bonusDiscounts.push({
           id: `live-discount-suspended-${userId}-${year}-${month}`,
-          bonusId: `live-${userId}-${year}-${month}`,
+          bonusId: liveBonusId,
           reference: 'Tarefas Suspensas',
           value: suspendedTasksDiscount,
           percentage: null,
@@ -399,6 +427,42 @@ export class BonusService {
         });
       }
 
+      // Build Secullum-based extras and absence discounts
+      if (userLiveBonus?.secullumAnalysis) {
+        if (userLiveBonus.bonusExtraValue && userLiveBonus.bonusExtraValue > 0) {
+          bonusExtras.push({
+            id: `live-extra-ponto-${userId}-${year}-${month}`,
+            bonusId: liveBonusId,
+            reference: 'Assiduidade do Ponto Eletrônico',
+            percentage: userLiveBonus.bonusExtraPercentage,
+            value: userLiveBonus.bonusExtraValue,
+            calculationOrder: 1,
+          });
+        }
+        if (userLiveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
+          const tierLabel = userLiveBonus.secullumAnalysis.atestadoTierLabel;
+          bonusDiscounts.push({
+            id: `live-discount-atestado-${userId}-${year}-${month}`,
+            bonusId: liveBonusId,
+            reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+            percentage: userLiveBonus.secullumAnalysis.atestadoDiscountPercentage,
+            value: null,
+            calculationOrder: 2,
+          });
+        }
+        if (userLiveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
+          const tierLabel = userLiveBonus.secullumAnalysis.unjustifiedTierLabel;
+          bonusDiscounts.push({
+            id: `live-discount-unjustified-${userId}-${year}-${month}`,
+            bonusId: liveBonusId,
+            reference: tierLabel ? `Faltas - Sem Justificativa (${tierLabel})` : 'Faltas - Sem Justificativa',
+            percentage: userLiveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
+            value: null,
+            calculationOrder: 3,
+          });
+        }
+      }
+
       const liveBonus = {
         // Core bonus fields (same as database columns)
         id: `live-${userId}-${year}-${month}`,
@@ -407,9 +471,7 @@ export class BonusService {
         month,
         performanceLevel: userLiveBonus?.performanceLevel || user.performanceLevel || 0,
         baseBonus: userLiveBonus?.baseBonus || 0,
-        // Use nullish coalescing (??) to allow 0 as a valid value
-        // Only fall back to baseBonus if netBonus is null/undefined
-        netBonus: userLiveBonus?.netBonus ?? userLiveBonus?.baseBonus ?? 0,
+        netBonus: userLiveBonus?.netBonus ?? 0,
         weightedTasks: liveData.totalWeightedTasks,
         averageTaskPerUser: liveData.averageTasksPerEmployee,
         payrollId: null,
@@ -447,8 +509,11 @@ export class BonusService {
           sector: task.sector || null,
         })),
 
-        // BonusDiscounts relation - includes "Tarefas Suspensas" if applicable
+        // BonusDiscounts relation - includes "Tarefas Suspensas" and absence discounts
         bonusDiscounts,
+
+        // BonusExtras relation - includes "Ponto Eletrônico" if applicable
+        bonusExtras,
 
         // Users relation (all bonifiable users for this period)
         users: allEligibleUsers,
@@ -523,6 +588,18 @@ export class BonusService {
           },
         },
         bonusDiscounts: {
+          select: {
+            id: true,
+            percentage: true,
+            value: true,
+            reference: true,
+            calculationOrder: true,
+          },
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+        bonusExtras: {
           select: {
             id: true,
             percentage: true,
@@ -612,6 +689,11 @@ export class BonusService {
           },
         },
         bonusDiscounts: {
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
+        bonusExtras: {
           orderBy: {
             calculationOrder: 'asc',
           },
@@ -722,6 +804,7 @@ export class BonusService {
               },
             },
             bonusDiscounts: true,
+            bonusExtras: true,
             tasks: true,
           },
         });
@@ -948,11 +1031,14 @@ export class BonusService {
   ): Promise<any> {
     const client = transaction || this.prisma;
 
-    // Get the bonus with its discounts
+    // Get the bonus with its discounts and extras
     const bonus = await client.bonus.findUnique({
       where: { id: bonusId },
       include: {
         bonusDiscounts: {
+          orderBy: { calculationOrder: 'asc' },
+        },
+        bonusExtras: {
           orderBy: { calculationOrder: 'asc' },
         },
       },
@@ -963,7 +1049,18 @@ export class BonusService {
     }
 
     const baseBonus = Number(bonus.baseBonus);
-    let currentValue = baseBonus;
+
+    // Apply extras first: add to base
+    let totalExtras = 0;
+    for (const extra of bonus.bonusExtras) {
+      if (extra.value !== null) {
+        totalExtras += Number(extra.value);
+      } else if (extra.percentage !== null) {
+        totalExtras += baseBonus * (Number(extra.percentage) / 100);
+      }
+    }
+
+    let currentValue = baseBonus + totalExtras;
 
     // Apply discounts in order
     for (const discount of bonus.bonusDiscounts) {
@@ -996,12 +1093,15 @@ export class BonusService {
         bonusDiscounts: {
           orderBy: { calculationOrder: 'asc' },
         },
+        bonusExtras: {
+          orderBy: { calculationOrder: 'asc' },
+        },
         tasks: true,
       },
     });
 
     this.logger.debug(
-      `Recalculated netBonus for bonus ${bonusId}: baseBonus=${baseBonus}, netBonus=${netBonus} (${bonus.bonusDiscounts.length} discounts applied)`,
+      `Recalculated netBonus for bonus ${bonusId}: baseBonus=${baseBonus}, extras=${totalExtras.toFixed(2)}, netBonus=${netBonus} (${bonus.bonusExtras.length} extras, ${bonus.bonusDiscounts.length} discounts applied)`,
     );
 
     return updatedBonus;
@@ -1060,6 +1160,9 @@ export class BonusService {
         bonusDiscounts: {
           orderBy: { calculationOrder: 'asc' },
         },
+        bonusExtras: {
+          orderBy: { calculationOrder: 'asc' },
+        },
       },
     });
 
@@ -1077,7 +1180,18 @@ export class BonusService {
         await this.prisma.$transaction(async (tx: PrismaTransaction) => {
           for (const bonus of batch) {
             const baseBonus = Number(bonus.baseBonus);
-            let calculatedNetBonus = baseBonus;
+
+            // Apply extras first
+            let totalExtras = 0;
+            for (const extra of bonus.bonusExtras) {
+              if (extra.value !== null) {
+                totalExtras += Number(extra.value);
+              } else if (extra.percentage !== null) {
+                totalExtras += baseBonus * (Number(extra.percentage) / 100);
+              }
+            }
+
+            let calculatedNetBonus = baseBonus + totalExtras;
 
             // Apply discounts in order to calculate correct netBonus
             for (const discount of bonus.bonusDiscounts) {
@@ -1290,6 +1404,9 @@ export class BonusService {
           id: true,
           name: true,
           performanceLevel: true,
+          cpf: true,
+          pis: true,
+          payrollNumber: true,
           position: {
             select: {
               id: true,
@@ -1417,6 +1534,99 @@ export class BonusService {
           isLive: true as const,
         };
       });
+
+      // Secullum bonus integration: analyze time entries for extras and absence discounts
+      try {
+        const secullumAnalysisMap = await this.secullumBonusIntegrationService.analyzeAllUsers(
+          year,
+          month,
+          allBonifiableUsers.map(u => ({
+            id: u.id,
+            name: u.name,
+            cpf: u.cpf || undefined,
+            pis: u.pis || undefined,
+            payrollNumber: u.payrollNumber || undefined,
+          })),
+        );
+
+        // Enrich each bonus with Secullum analysis
+        for (const bonus of bonuses) {
+          const analysis = secullumAnalysisMap.get(bonus.userId);
+          if (analysis) {
+            const baseBonus = bonus.baseBonus;
+
+            // Extra: percentage applied to baseBonus
+            bonus.bonusExtraPercentage = analysis.extraPercentage;
+            bonus.bonusExtraValue = roundCurrency(baseBonus * analysis.extraPercentage / 100);
+
+            // Absence discount: combined percentage from atestado + unjustified
+            const totalAbsenceDiscountPercentage = Math.min(
+              100,
+              analysis.atestadoDiscountPercentage + analysis.unjustifiedDiscountPercentage,
+            );
+            bonus.absenceDiscountPercentage = totalAbsenceDiscountPercentage;
+
+            // Recalculate netBonus using canonical cascading logic:
+            // 1. Start with baseBonus + extras
+            let currentValue = baseBonus;
+
+            // Add extras (bonusExtraValue already calculated above)
+            const extras = bonus.bonusExtras || [];
+            let totalExtras = 0;
+            for (const extra of extras) {
+              if (extra.value !== null && extra.value !== undefined) {
+                totalExtras += Number(extra.value);
+              } else if (extra.percentage !== null && extra.percentage !== undefined) {
+                totalExtras += baseBonus * (Number(extra.percentage) / 100);
+              }
+            }
+            // Also add Secullum extra
+            totalExtras += bonus.bonusExtraValue;
+            currentValue += totalExtras;
+
+            // 2. Apply discounts in calculationOrder ASC (cascading)
+            const discounts = [...(bonus.bonusDiscounts || [])];
+
+            // Add suspended tasks discount as a fixed discount
+            if (bonus.suspendedTasksDiscount > 0) {
+              discounts.push({
+                value: bonus.suspendedTasksDiscount,
+                percentage: null,
+                calculationOrder: -2,
+              });
+            }
+
+            // Add absence discount as a percentage discount
+            if (totalAbsenceDiscountPercentage > 0) {
+              discounts.push({
+                value: null,
+                percentage: totalAbsenceDiscountPercentage,
+                calculationOrder: -1,
+              });
+            }
+
+            // Sort by calculationOrder and apply cascading
+            discounts.sort((a: any, b: any) => (a.calculationOrder || 0) - (b.calculationOrder || 0));
+            for (const discount of discounts) {
+              if (discount.percentage !== null && discount.percentage !== undefined) {
+                const discountAmount = currentValue * (Number(discount.percentage) / 100);
+                currentValue = Math.max(0, currentValue - discountAmount);
+              } else if (discount.value !== null && discount.value !== undefined) {
+                const discountAmount = Math.min(Number(discount.value), currentValue);
+                currentValue = Math.max(0, currentValue - discountAmount);
+              }
+            }
+
+            bonus.absenceDiscountValue = roundCurrency(baseBonus * totalAbsenceDiscountPercentage / 100);
+            bonus.netBonus = roundCurrency(currentValue);
+
+            bonus.secullumAnalysis = analysis;
+          }
+        }
+      } catch (error) {
+        this.logger.error('Secullum bonus integration failed, continuing without it:', error?.stack || error?.message || error);
+        // Don't fail the entire calculation if Secullum is unavailable
+      }
 
       return {
         year,
@@ -1587,23 +1797,77 @@ export class BonusService {
         }));
 
         if (savedBonus) {
-          // User has saved bonus - use it
-          // Position comes from payroll snapshot or user current (already added by findManyWithWhere)
-
-          // CRITICAL FIX: Ensure netBonus is properly set
-          // If netBonus is 0 or undefined in database but baseBonus > 0, calculate correct netBonus
+          // User has saved bonus - use it, but enrich with live Secullum analysis
           const savedBaseBonus = Number(savedBonus.baseBonus) || 0;
           let savedNetBonus = Number(savedBonus.netBonus) || 0;
 
-          // If netBonus is 0 but baseBonus > 0, calculate netBonus from discounts
-          // This handles legacy data where netBonus was not properly saved
-          if (savedNetBonus === 0 && savedBaseBonus > 0) {
-            // Apply discounts to baseBonus to calculate correct netBonus
-            const discounts = savedBonus.bonusDiscounts || [];
-            let calculatedNet = savedBaseBonus;
+          // Merge saved extras/discounts with live Secullum analysis
+          let mergedExtras = [...(savedBonus.bonusExtras || [])];
+          let mergedDiscounts = [...(savedBonus.bonusDiscounts || [])];
 
-            // Sort discounts by calculationOrder and apply
-            const sortedDiscounts = [...discounts].sort(
+          // If live Secullum analysis is available, replace/add Secullum-based items
+          if (liveBonus?.secullumAnalysis) {
+            // Remove any existing Secullum-generated items from saved data
+            mergedExtras = mergedExtras.filter((e: any) => e.reference !== 'Ponto Eletrônico' && e.reference !== 'Assiduidade do Ponto Eletrônico');
+            mergedDiscounts = mergedDiscounts.filter((d: any) =>
+              !String(d.reference || '').startsWith('Faltas - Atestado') &&
+              !String(d.reference || '').startsWith('Faltas - Sem Justificativa'),
+            );
+
+            const liveBonusId = savedBonus.id;
+
+            // Add live Secullum extras
+            if (liveBonus.bonusExtraValue && liveBonus.bonusExtraValue > 0) {
+              mergedExtras.push({
+                id: `live-extra-ponto-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: 'Assiduidade do Ponto Eletrônico',
+                percentage: liveBonus.bonusExtraPercentage,
+                value: liveBonus.bonusExtraValue,
+                calculationOrder: 1,
+              });
+            }
+
+            // Add live Secullum discounts
+            if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
+              const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
+              mergedDiscounts.push({
+                id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+                percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
+                value: null,
+                calculationOrder: 2,
+              });
+            }
+
+            if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
+              const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
+              mergedDiscounts.push({
+                id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: tierLabel ? `Faltas - Sem Justificativa (${tierLabel})` : 'Faltas - Sem Justificativa',
+                percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
+                value: null,
+                calculationOrder: 3,
+              });
+            }
+          }
+
+          // Recalculate netBonus from all extras and discounts
+          {
+            let totalExtras = 0;
+            for (const extra of mergedExtras) {
+              if (extra.value !== null && extra.value !== undefined) {
+                totalExtras += Number(extra.value);
+              } else if (extra.percentage !== null && extra.percentage !== undefined) {
+                totalExtras += savedBaseBonus * (Number(extra.percentage) / 100);
+              }
+            }
+
+            let calculatedNet = savedBaseBonus + totalExtras;
+
+            const sortedDiscounts = [...mergedDiscounts].sort(
               (a: any, b: any) => (a.calculationOrder || 0) - (b.calculationOrder || 0),
             );
 
@@ -1617,16 +1881,16 @@ export class BonusService {
               }
             }
 
-            // If no discounts exist, netBonus should equal baseBonus
-            savedNetBonus = discounts.length > 0 ? roundCurrency(calculatedNet) : savedBaseBonus;
+            const hasModifiers = mergedDiscounts.length > 0 || mergedExtras.length > 0;
+            savedNetBonus = hasModifiers ? roundCurrency(calculatedNet) : savedBaseBonus;
           }
 
           mergedBonuses.push({
             ...savedBonus,
-            // Override netBonus with correctly calculated value
             netBonus: savedNetBonus,
+            bonusExtras: mergedExtras,
+            bonusDiscounts: mergedDiscounts,
             users: savedBonus.users || allEligibleUserRefs,
-            // Ensure position is set (from payroll snapshot or user current)
             position:
               savedBonus.position ||
               savedBonus.payroll?.position ||
@@ -1640,11 +1904,13 @@ export class BonusService {
           // Build "Tarefas Suspensas" discount if applicable
           const suspendedTasksDiscount = liveBonus.suspendedTasksDiscount || 0;
           const liveBonusDiscounts: any[] = [];
+          const liveBonusExtras: any[] = [];
+          const liveBonusId = `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`;
 
           if (suspendedTasksDiscount > 0) {
             liveBonusDiscounts.push({
               id: `live-discount-suspended-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
-              bonusId: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+              bonusId: liveBonusId,
               reference: 'Tarefas Suspensas',
               value: suspendedTasksDiscount,
               percentage: null,
@@ -1652,16 +1918,51 @@ export class BonusService {
             });
           }
 
+          // Build Secullum-based extras and absence discounts for live view
+          if (liveBonus.secullumAnalysis) {
+            if (liveBonus.bonusExtraValue && liveBonus.bonusExtraValue > 0) {
+              liveBonusExtras.push({
+                id: `live-extra-ponto-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: 'Assiduidade do Ponto Eletrônico',
+                percentage: liveBonus.bonusExtraPercentage,
+                value: liveBonus.bonusExtraValue,
+                calculationOrder: 1,
+              });
+            }
+            if (liveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
+              const tierLabel = liveBonus.secullumAnalysis.atestadoTierLabel;
+              liveBonusDiscounts.push({
+                id: `live-discount-atestado-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
+                percentage: liveBonus.secullumAnalysis.atestadoDiscountPercentage,
+                value: null,
+                calculationOrder: 2,
+              });
+            }
+            if (liveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
+              const tierLabel = liveBonus.secullumAnalysis.unjustifiedTierLabel;
+              liveBonusDiscounts.push({
+                id: `live-discount-unjustified-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+                bonusId: liveBonusId,
+                reference: tierLabel ? `Faltas - Sem Justificativa (${tierLabel})` : 'Faltas - Sem Justificativa',
+                percentage: liveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
+                value: null,
+                calculationOrder: 3,
+              });
+            }
+          }
+
           mergedBonuses.push({
             // Core bonus fields (same as database columns)
-            id: `live-${user.id}-${currentPeriod.year}-${currentPeriod.month}`,
+            id: liveBonusId,
             userId: user.id,
             year: currentPeriod.year,
             month: currentPeriod.month,
             performanceLevel: liveBonus.performanceLevel,
             baseBonus: liveBonus.baseBonus,
-            // Use nullish coalescing (??) to allow 0 as valid value (e.g., performanceLevel=0)
-            netBonus: liveBonus.netBonus ?? liveBonus.baseBonus,
+            netBonus: liveBonus.netBonus ?? 0,
             weightedTasks: liveData.totalWeightedTasks,
             averageTaskPerUser: liveData.averageTasksPerEmployee,
             payrollId: null,
@@ -1683,6 +1984,7 @@ export class BonusService {
               sector: task.sector || null,
             })),
             bonusDiscounts: liveBonusDiscounts,
+            bonusExtras: liveBonusExtras,
             users: allEligibleUserRefs,
           });
         } else {
@@ -1710,6 +2012,7 @@ export class BonusService {
             position: user.position,
             tasks: [], // No tasks for performanceLevel = 0
             bonusDiscounts: [],
+            bonusExtras: [],
             users: allEligibleUserRefs,
           });
         }
@@ -1851,14 +2154,13 @@ export class BonusService {
               },
               include: {
                 bonusDiscounts: true,
+                bonusExtras: true,
               },
             });
 
             // Eligible users get calculated values, non-eligible get 0
             const baseBonus = isEligible ? eligibleBonus.baseBonus : 0;
-            // Use nullish coalescing (??) to allow 0 as valid value
-            // Only fall back to baseBonus if netBonus is null/undefined
-            const netBonus = isEligible ? (eligibleBonus.netBonus ?? eligibleBonus.baseBonus) : 0;
+            const netBonus = isEligible ? (eligibleBonus.netBonus ?? 0) : 0;
             const suspendedTasksDiscount = isEligible ? eligibleBonus.suspendedTasksDiscount : 0;
 
             // All users share the same period-level data
@@ -1887,11 +2189,21 @@ export class BonusService {
               });
               bonusId = existingBonus.id;
 
-              // Delete existing "Tarefas Suspensas" discount to recreate it
+              // Delete existing auto-generated discounts and extras to recreate them
               await tx.bonusDiscount.deleteMany({
                 where: {
                   bonusId: existingBonus.id,
-                  reference: 'Tarefas Suspensas',
+                  OR: [
+                    { reference: 'Tarefas Suspensas' },
+                    { reference: { startsWith: 'Faltas - Atestado' } },
+                    { reference: { startsWith: 'Faltas - Sem Justificativa' } },
+                  ],
+                },
+              });
+              await tx.bonusExtra.deleteMany({
+                where: {
+                  bonusId: existingBonus.id,
+                  reference: 'Assiduidade do Ponto Eletrônico',
                 },
               });
             } else {
@@ -1935,6 +2247,68 @@ export class BonusService {
               this.logger.debug(
                 `Created "Tarefas Suspensas" discount for user ${user.name}: R$ ${suspendedTasksDiscount.toFixed(2)} (${suspendedTaskIds.length} tasks)`,
               );
+            }
+
+            // Create Secullum-based extras and absence discounts
+            if (eligibleBonus?.secullumAnalysis) {
+              const analysis = eligibleBonus.secullumAnalysis;
+
+              // Create BonusExtra for electronic time stamps
+              if (eligibleBonus.bonusExtraValue && eligibleBonus.bonusExtraValue > 0) {
+                await tx.bonusExtra.create({
+                  data: {
+                    bonusId,
+                    reference: 'Assiduidade do Ponto Eletrônico',
+                    percentage: eligibleBonus.bonusExtraPercentage,
+                    value: eligibleBonus.bonusExtraValue,
+                    calculationOrder: 1,
+                  },
+                });
+                this.logger.debug(
+                  `Created "Ponto Eletrônico" extra for user ${user.name}: ${eligibleBonus.bonusExtraPercentage}% = R$ ${eligibleBonus.bonusExtraValue.toFixed(2)}`,
+                );
+              }
+
+              // Create absence discount for ATESTADO
+              if (analysis.atestadoDiscountPercentage > 0) {
+                const atestadoRef = analysis.atestadoTierLabel
+                  ? `Faltas - Atestado (${analysis.atestadoTierLabel})`
+                  : 'Faltas - Atestado';
+                await tx.bonusDiscount.create({
+                  data: {
+                    bonusId,
+                    reference: atestadoRef,
+                    percentage: analysis.atestadoDiscountPercentage,
+                    value: null,
+                    calculationOrder: 2,
+                  },
+                });
+                this.logger.debug(
+                  `Created "${atestadoRef}" discount for user ${user.name}: ${analysis.atestadoDiscountPercentage}% (${analysis.atestadoHours}h)`,
+                );
+              }
+
+              // Create absence discount for unjustified
+              if (analysis.unjustifiedDiscountPercentage > 0) {
+                const unjustifiedRef = analysis.unjustifiedTierLabel
+                  ? `Faltas - Sem Justificativa (${analysis.unjustifiedTierLabel})`
+                  : 'Faltas - Sem Justificativa';
+                await tx.bonusDiscount.create({
+                  data: {
+                    bonusId,
+                    reference: unjustifiedRef,
+                    percentage: analysis.unjustifiedDiscountPercentage,
+                    value: null,
+                    calculationOrder: 3,
+                  },
+                });
+                this.logger.debug(
+                  `Created "${unjustifiedRef}" discount for user ${user.name}: ${analysis.unjustifiedDiscountPercentage}% (${analysis.unjustifiedAbsenceHours}h)`,
+                );
+              }
+
+              // Recalculate netBonus with all extras and discounts
+              await this.recalculateNetBonus(bonusId, tx);
             }
 
             successCount++;

@@ -65,6 +65,7 @@ export const UPLOAD_CONFIG = {
     'video/x-msvideo',
     'video/webm',
     'video/x-ms-wmv',
+    'video/x-matroska',
 
     // CAD and specialized files
     'application/octet-stream', // For generic binary files
@@ -121,7 +122,6 @@ export const UPLOAD_CONFIG = {
     '.mp3': 'audio/mpeg',
     '.wav': 'audio/wav',
     '.ogg': 'audio/ogg',
-    '.webm': 'audio/webm',
     '.m4a': 'audio/mp4',
     '.aac': 'audio/aac',
 
@@ -132,6 +132,8 @@ export const UPLOAD_CONFIG = {
     '.mov': 'video/quicktime',
     '.avi': 'video/x-msvideo',
     '.wmv': 'video/x-ms-wmv',
+    '.webm': 'video/webm',
+    '.mkv': 'video/x-matroska',
 
     // EPS files
     '.eps': 'application/postscript',
@@ -152,14 +154,21 @@ export const fileFilter = (req: any, file: Express.Multer.File, callback: Functi
   }
 
   // Additional extension validation
+  // Allow mismatches within the same media category (e.g. .jpg file with image/png MIME)
+  // since users commonly rename files. Only reject if the extension maps to a completely
+  // different category (e.g. .pdf extension with image/png MIME).
   const ext = path.extname(file.originalname).toLowerCase();
   if (ext && UPLOAD_CONFIG.extensionToMimeType[ext]) {
     const expectedMimeType = UPLOAD_CONFIG.extensionToMimeType[ext];
     if (expectedMimeType !== file.mimetype) {
-      const error = new BadRequestException(
-        `Extensão do arquivo (${ext}) não corresponde ao tipo MIME (${file.mimetype})`,
-      );
-      return callback(error, false);
+      const expectedCategory = expectedMimeType.split('/')[0];
+      const actualCategory = file.mimetype.split('/')[0];
+      if (expectedCategory !== actualCategory) {
+        const error = new BadRequestException(
+          `Extensão do arquivo (${ext}) não corresponde ao tipo MIME (${file.mimetype})`,
+        );
+        return callback(error, false);
+      }
     }
   }
 

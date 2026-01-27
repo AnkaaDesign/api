@@ -5,7 +5,8 @@ import { Layout } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
-import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants/enums';
+import { NotificationService } from '@modules/common/notification/notification.service';
+import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY, NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL, SECTOR_PRIVILEGES } from '../../../constants/enums';
 import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../schemas';
 import { LayoutPrismaRepository } from './repositories/layout-prisma.repository';
 
@@ -18,6 +19,7 @@ export class LayoutService {
     private readonly layoutRepository: LayoutPrismaRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async findById(id: string, include?: any): Promise<Layout | null> {
@@ -277,7 +279,7 @@ export class LayoutService {
       },
     });
 
-    return await this.prisma.$transaction(async tx => {
+    const result = await this.prisma.$transaction(async tx => {
       this.logger.log('[BACKEND] Transaction started');
 
       // Get the truck
@@ -554,6 +556,13 @@ export class LayoutService {
 
       return layout;
     });
+
+    // Send notifications for layout change (outside transaction to not block it)
+    this.sendLayoutChangeNotifications(truckId, side, existingLayoutId ? 'assign' : 'update', userId).catch(err => {
+      this.logger.error('Error sending layout change notifications:', err);
+    });
+
+    return result;
   }
 
   async generateSVG(layoutId: string): Promise<string> {
@@ -646,5 +655,100 @@ export class LayoutService {
 </svg>`;
 
     return svgContent;
+  }
+
+  /**
+   * Send notifications to relevant users when a layout is created/updated via the standalone endpoint.
+   * Looks up the associated task from the truck to determine notification targets.
+   */
+  private async sendLayoutChangeNotifications(
+    truckId: string,
+    side: 'left' | 'right' | 'back',
+    action: 'update' | 'assign',
+    userId?: string,
+  ): Promise<void> {
+    const sideLabels: Record<string, string> = {
+      left: 'Lado Motorista',
+      right: 'Lado Sapo',
+      back: 'Traseira',
+    };
+    const sideLabel = sideLabels[side] || side;
+
+    // Find the task associated with this truck
+    const truck = await this.prisma.truck.findUnique({
+      where: { id: truckId },
+      select: {
+        taskId: true,
+        task: {
+          select: {
+            id: true,
+            name: true,
+            sectorId: true,
+            sector: {
+              select: { managerId: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!truck?.task) {
+      this.logger.warn(`[sendLayoutChangeNotifications] No task found for truck ${truckId}`);
+      return;
+    }
+
+    const task = truck.task;
+    const title = action === 'assign'
+      ? `Layout atribuído - ${sideLabel}`
+      : `Layout atualizado - ${sideLabel}`;
+    const message = `O layout do ${sideLabel} da tarefa "${task.name}" foi ${action === 'assign' ? 'atribuído' : 'atualizado'}.`;
+
+    // Collect target user IDs: sector manager + admin users
+    const targetUserIds = new Set<string>();
+
+    if (task.sector?.managerId) {
+      targetUserIds.add(task.sector.managerId);
+    }
+
+    // Get admin users
+    const admins = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        sector: {
+          privileges: SECTOR_PRIVILEGES.ADMIN,
+        },
+      },
+      select: { id: true },
+    });
+    admins.forEach(admin => targetUserIds.add(admin.id));
+
+    // Create notifications (skip the user who made the change)
+    for (const targetUserId of targetUserIds) {
+      if (targetUserId === userId) continue;
+
+      try {
+        await this.notificationService.createNotification({
+          type: NOTIFICATION_TYPE.TASK,
+          title,
+          body: message,
+          importance: NOTIFICATION_IMPORTANCE.NORMAL,
+          channel: [NOTIFICATION_CHANNEL.IN_APP],
+          userId: targetUserId,
+          relatedEntityId: task.id,
+          relatedEntityType: 'TASK',
+          metadata: {
+            taskId: task.id,
+            truckId,
+            side,
+            action,
+            entityType: 'LAYOUT',
+          },
+        });
+      } catch (err) {
+        this.logger.error(`[sendLayoutChangeNotifications] Failed to notify user ${targetUserId}:`, err);
+      }
+    }
+
+    this.logger.log(`[sendLayoutChangeNotifications] Sent ${targetUserIds.size} notification(s) for layout ${action} on ${sideLabel}`);
   }
 }

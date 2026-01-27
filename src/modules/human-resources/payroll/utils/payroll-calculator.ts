@@ -409,7 +409,7 @@ export class PayrollCalculatorService {
       // 6. Calculate deductions (no existing discounts for live calculation)
       const deductionResult = this.calculateDeductions(
         baseSalary,
-        bonusData.baseBonus,
+        bonusData.netBonus,
         0, // No absence days for live calculation
         workingDaysInMonth,
         [], // No existing discounts
@@ -419,15 +419,15 @@ export class PayrollCalculatorService {
       // 7. Calculate net salary
       const netSalary = this.calculateNetSalary(
         baseSalary,
-        bonusData.baseBonus,
+        bonusData.netBonus,
         deductionResult.totalDeductions,
       );
 
       // 8. Build complete calculation result
       const calculation: PayrollCalculationResult = {
         baseSalary,
-        bonusValue: bonusData.baseBonus,
-        grossSalary: roundCurrency(baseSalary + bonusData.baseBonus),
+        bonusValue: bonusData.netBonus,
+        grossSalary: roundCurrency(baseSalary + (bonusData.netBonus)),
         totalDeductions: deductionResult.totalDeductions,
         deductionBreakdown: deductionResult.deductionBreakdown,
         netSalary,
@@ -483,6 +483,7 @@ export class PayrollCalculatorService {
   ): Promise<{
     id: string;
     baseBonus: number;
+    netBonus: number;
     performanceLevel: number;
     weightedTaskCount: number;
     taskCount: number;
@@ -558,6 +559,7 @@ export class PayrollCalculatorService {
       return {
         id: `live-bonus-${userId}-${year}-${month}`,
         baseBonus: bonusValue,
+        netBonus: bonusValue, // Live calculation has no discounts/extras yet
         performanceLevel,
         weightedTaskCount: averageTasksPerUser,
         taskCount: allTasks.length,
@@ -569,6 +571,7 @@ export class PayrollCalculatorService {
       return {
         id: `live-bonus-${userId}-${year}-${month}`,
         baseBonus: 0,
+        netBonus: 0,
         performanceLevel: 0,
         weightedTaskCount: 0,
         taskCount: 0,
@@ -598,7 +601,7 @@ export class PayrollCalculatorService {
           data.period.month,
           data.period,
         );
-        bonusValue = liveBonusData.baseBonus;
+        bonusValue = liveBonusData.netBonus;
       }
 
       // Get working days

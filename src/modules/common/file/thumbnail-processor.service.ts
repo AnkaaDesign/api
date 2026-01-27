@@ -6,8 +6,6 @@ import { ThumbnailService } from './thumbnail.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { promises as fs } from 'fs';
 import { join } from 'path';
-const ffmpeg = require('fluent-ffmpeg');
-import { promisify } from 'util';
 
 @Processor('thumbnail-generation')
 @Injectable()
@@ -19,10 +17,7 @@ export class ThumbnailProcessorService {
   constructor(
     private readonly thumbnailService: ThumbnailService,
     private readonly prisma: PrismaService,
-  ) {
-    // Check for FFmpeg availability
-    this.checkFFmpegAvailability();
-  }
+  ) {}
 
   @Process({
     name: 'generate-thumbnail',
@@ -99,7 +94,7 @@ export class ThumbnailProcessorService {
   }
 
   /**
-   * Process video thumbnail generation using FFmpeg
+   * Process video thumbnail generation using ThumbnailService (FFmpeg + Sharp pipeline)
    */
   private async processVideoThumbnail(
     job: Job<ThumbnailJobData>,
@@ -107,79 +102,18 @@ export class ThumbnailProcessorService {
     fileId: string,
     options?: ThumbnailJobData['options'],
   ): Promise<any> {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const width = options?.width || 300;
-        const height = options?.height || 300;
-        const quality = options?.quality || 85;
+    await job.progress(30);
 
-        // Create thumbnail path
-        const uploadsDir = process.env.UPLOAD_DIR || './uploads';
-        const thumbnailDir = join(uploadsDir, 'thumbnails', `${width}x${height}`);
-        await fs.mkdir(thumbnailDir, { recursive: true });
-
-        const thumbnailPath = join(thumbnailDir, `${fileId}_${width}x${height}.jpg`);
-        const tempPath = join(thumbnailDir, `${fileId}_${width}x${height}_temp.jpg`);
-
-        await job.progress(30);
-
-        // Use FFmpeg to extract frame at 10% of video duration
-        ffmpeg(filePath)
-          .screenshots({
-            count: 1,
-            folder: thumbnailDir,
-            filename: `${fileId}_${width}x${height}_temp.jpg`,
-            size: `${width * 2}x${height * 2}`, // Higher resolution for better quality
-          })
-          .on('end', async () => {
-            try {
-              await job.progress(70);
-
-              // Use Sharp to optimize the extracted frame
-              const sharp = await import('sharp');
-              await (sharp as any)(tempPath)
-                .resize(width, height, {
-                  fit: (options?.fit as any) || 'contain',
-                  withoutEnlargement: true,
-                  background: { r: 0, g: 0, b: 0 },
-                })
-                .jpeg({ quality })
-                .toFile(thumbnailPath);
-
-              // Clean up temp file
-              try {
-                await fs.unlink(tempPath);
-              } catch (cleanupError) {
-                this.logger.warn(`Failed to cleanup temp file: ${tempPath}`);
-              }
-
-              await job.progress(85);
-
-              resolve({
-                success: true,
-                thumbnailPath,
-                thumbnailUrl: `/files/thumbnail/${fileId}`,
-              });
-            } catch (sharpError: any) {
-              this.logger.error(
-                `Sharp processing failed for video thumbnail: ${sharpError.message}`,
-              );
-              reject(new Error(`Video thumbnail post-processing failed: ${sharpError.message}`));
-            }
-          })
-          .on('error', (error: any) => {
-            this.logger.error(`FFmpeg error for video ${fileId}: ${error.message}`);
-            reject(new Error(`Video thumbnail extraction failed: ${error.message}`));
-          })
-          .on('progress', progress => {
-            // FFmpeg progress is reported as percentage
-            const jobProgress = 30 + (progress.percent || 0) * 0.4; // Map to 30-70% range
-            job.progress(Math.min(70, Math.max(30, jobProgress)));
-          });
-      } catch (error: any) {
-        reject(new Error(`Video thumbnail setup failed: ${error.message}`));
-      }
+    const result = await this.thumbnailService.generateThumbnail(filePath, 'video/mp4', fileId, {
+      width: options?.width || 300,
+      height: options?.height || 300,
+      quality: options?.quality || 85,
+      format: options?.format || 'webp',
+      fit: options?.fit || 'contain',
     });
+
+    await job.progress(80);
+    return result;
   }
 
   /**
@@ -323,52 +257,10 @@ export class ThumbnailProcessorService {
   }
 
   /**
-   * Check FFmpeg availability
-   */
-  private async checkFFmpegAvailability(): Promise<void> {
-    try {
-      const ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg';
-      ffmpeg.setFfmpegPath(ffmpegPath);
-
-      // Test FFmpeg by getting version
-      await new Promise<void>((resolve, reject) => {
-        ffmpeg().ffprobe((err, data) => {
-          if (err) {
-            reject(err);
-          } else {
-            this.logger.log(`FFmpeg available: ${data?.ffmpegVersion || 'version unknown'}`);
-            resolve();
-          }
-        });
-      });
-    } catch (error: any) {
-      this.logger.warn(
-        `FFmpeg not available: ${error.message}. Video thumbnail generation will be disabled.`,
-      );
-      this.logger.warn(
-        'To enable video thumbnails, install FFmpeg: brew install ffmpeg (macOS) or apt-get install ffmpeg (Ubuntu)',
-      );
-    }
-  }
-
-  /**
    * File type detection methods
    */
   private isVideoFile(mimetype: string): boolean {
-    return (
-      mimetype.startsWith('video/') ||
-      [
-        'video/mp4',
-        'video/avi',
-        'video/mov',
-        'video/wmv',
-        'video/flv',
-        'video/webm',
-        'video/mkv',
-        'video/m4v',
-        'video/3gp',
-      ].includes(mimetype.toLowerCase())
-    );
+    return mimetype.startsWith('video/');
   }
 
   private isImageFile(mimetype: string): boolean {

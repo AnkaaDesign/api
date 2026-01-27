@@ -32,6 +32,7 @@ interface BonusUpdateFormData {
 interface BonusInclude {
   user?: boolean;
   bonusDiscounts?: boolean;
+  bonusExtras?: boolean;
   payroll?: boolean;
   tasks?: boolean;
   users?: boolean;
@@ -80,6 +81,7 @@ interface Bonus {
   // Relations (populated based on query)
   user?: any;
   bonusDiscounts?: any[];
+  bonusExtras?: any[];
   payroll?: any;
   tasks?: any[];
   users?: any[];
