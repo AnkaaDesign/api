@@ -33,7 +33,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   invoiceTo: { select: { id: true, fantasyName: true, cnpj: true } },
-  pricing: { include: { items: true, layoutFile: true } }, // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
+  pricing: { include: { items: { orderBy: { position: 'asc' } }, layoutFile: true } }, // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
   budgets: {
     select: {
       id: true,

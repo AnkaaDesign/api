@@ -21,6 +21,66 @@
           {
             "/": "/item/*",
             "comment": "Match item deep links"
+          },
+          {
+            "/": "/service-order/*",
+            "comment": "Match service order deep links"
+          },
+          {
+            "/": "/user/*",
+            "comment": "Match user deep links"
+          },
+          {
+            "/": "/customer/*",
+            "comment": "Match customer deep links"
+          },
+          {
+            "/": "/supplier/*",
+            "comment": "Match supplier deep links"
+          },
+          {
+            "/": "/employee/*",
+            "comment": "Match employee deep links"
+          },
+          {
+            "/": "/borrow/*",
+            "comment": "Match borrow deep links"
+          },
+          {
+            "/": "/maintenance/*",
+            "comment": "Match maintenance deep links"
+          },
+          {
+            "/": "/notification/*",
+            "comment": "Match notification deep links"
+          },
+          {
+            "/": "/financial/*",
+            "comment": "Match financial deep links"
+          },
+          {
+            "/": "/producao/*/detalhes/*",
+            "comment": "Match production web URLs (tasks, service orders, etc.)"
+          },
+          {
+            "/": "/estoque/*/detalhes/*",
+            "comment": "Match inventory web URLs (orders, items, etc.)"
+          },
+          {
+            "/": "/recursos-humanos/*/detalhes/*",
+            "comment": "Match HR web URLs (employees, bonuses, etc.)"
+          },
+          {
+            "/": "/administracao/*/detalhes/*",
+            "comment": "Match administration web URLs (users, customers, etc.)"
+          },
+          {
+            "/": "/pintura/*/detalhes/*",
+            "comment": "Match painting web URLs (formulas, catalogs, etc.)"
+          },
+          {
+            "/": "/financeiro/*/detalhes/*",
+            "comment": "Match financial web URLs"
           }
         ]
       }

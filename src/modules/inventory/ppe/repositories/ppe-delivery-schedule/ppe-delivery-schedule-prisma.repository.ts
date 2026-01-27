@@ -71,8 +71,18 @@ export class PpeDeliverySchedulePrismaRepository
       assignmentType,
       excludedUserIds,
       includedUserIds,
+      // Strip fields that don't exist on the Prisma PpeDeliverySchedule model
+      // or are managed by the service layer (config IDs are set via relations)
+      userId: _userId,
+      categoryId: _categoryId,
       ...rest
     } = formData;
+
+    // For ONCE frequency, use specificDate as nextRun.
+    // For recurring, the service layer will calculate and set the proper nextRun after creation.
+    const nextRun = frequency === 'ONCE' && rest.specificDate
+      ? new Date(rest.specificDate)
+      : null;
 
     const createInput: Prisma.PpeDeliveryScheduleCreateInput = {
       ...rest,
@@ -84,7 +94,7 @@ export class PpeDeliverySchedulePrismaRepository
       assignmentType: (assignmentType || 'ALL') as AssignmentType,
       excludedUserIds: excludedUserIds || [],
       includedUserIds: includedUserIds || [],
-      nextRun: new Date(),
+      nextRun,
     };
 
     // Note: PpeDeliverySchedule doesn't have itemId, userId, or categoryId fields
@@ -106,6 +116,7 @@ export class PpeDeliverySchedulePrismaRepository
       assignmentType,
       excludedUserIds,
       includedUserIds,
+      // Strip fields not directly set on the Prisma model via update
       ...rest
     } = formData;
 
@@ -502,32 +513,67 @@ export class PpeDeliverySchedulePrismaRepository
       const now = new Date();
       const currentDate = schedule.nextRun || now;
 
+      const count = schedule.frequencyCount || 1;
+
       switch (schedule.frequency) {
-        case SCHEDULE_FREQUENCY.DAILY:
-          return new Date(currentDate.getTime() + schedule.frequencyCount * 24 * 60 * 60 * 1000);
-
-        case SCHEDULE_FREQUENCY.WEEKLY:
-          return new Date(
-            currentDate.getTime() + schedule.frequencyCount * 7 * 24 * 60 * 60 * 1000,
-          );
-
-        case SCHEDULE_FREQUENCY.MONTHLY:
-          const nextMonth = new Date(currentDate);
-          nextMonth.setMonth(nextMonth.getMonth() + schedule.frequencyCount);
-          return nextMonth;
-
-        case SCHEDULE_FREQUENCY.QUARTERLY:
-          const nextQuarter = new Date(currentDate);
-          nextQuarter.setMonth(nextQuarter.getMonth() + 3 * schedule.frequencyCount);
-          return nextQuarter;
-
-        case SCHEDULE_FREQUENCY.ANNUAL:
-          const nextYear = new Date(currentDate);
-          nextYear.setFullYear(nextYear.getFullYear() + schedule.frequencyCount);
-          return nextYear;
-
         case SCHEDULE_FREQUENCY.ONCE:
           return null; // One-time schedules don't have next occurrences
+
+        case SCHEDULE_FREQUENCY.DAILY:
+          return new Date(currentDate.getTime() + count * 24 * 60 * 60 * 1000);
+
+        case SCHEDULE_FREQUENCY.WEEKLY:
+          return new Date(currentDate.getTime() + count * 7 * 24 * 60 * 60 * 1000);
+
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
+          return new Date(currentDate.getTime() + count * 14 * 24 * 60 * 60 * 1000);
+
+        case SCHEDULE_FREQUENCY.MONTHLY: {
+          const nextMonth = new Date(currentDate);
+          nextMonth.setMonth(nextMonth.getMonth() + count);
+          return nextMonth;
+        }
+
+        case SCHEDULE_FREQUENCY.BIMONTHLY: {
+          const nextBimonth = new Date(currentDate);
+          nextBimonth.setMonth(nextBimonth.getMonth() + 2 * count);
+          return nextBimonth;
+        }
+
+        case SCHEDULE_FREQUENCY.QUARTERLY: {
+          const nextQuarter = new Date(currentDate);
+          nextQuarter.setMonth(nextQuarter.getMonth() + 3 * count);
+          return nextQuarter;
+        }
+
+        case SCHEDULE_FREQUENCY.TRIANNUAL: {
+          const nextTriannual = new Date(currentDate);
+          nextTriannual.setMonth(nextTriannual.getMonth() + 4 * count);
+          return nextTriannual;
+        }
+
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL: {
+          const nextQuadri = new Date(currentDate);
+          nextQuadri.setMonth(nextQuadri.getMonth() + 4 * count);
+          return nextQuadri;
+        }
+
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL: {
+          const nextSemiAnnual = new Date(currentDate);
+          nextSemiAnnual.setMonth(nextSemiAnnual.getMonth() + 6 * count);
+          return nextSemiAnnual;
+        }
+
+        case SCHEDULE_FREQUENCY.ANNUAL: {
+          const nextYear = new Date(currentDate);
+          nextYear.setFullYear(nextYear.getFullYear() + count);
+          return nextYear;
+        }
+
+        case SCHEDULE_FREQUENCY.CUSTOM: {
+          // Custom uses frequencyCount as days
+          return new Date(currentDate.getTime() + count * 24 * 60 * 60 * 1000);
+        }
 
         default:
           this.logger.warn(
@@ -618,9 +664,13 @@ export class PpeDeliverySchedulePrismaRepository
       const results = await client.ppeDeliverySchedule.findMany({
         where: {
           OR: [
-            // For ALL assignment type, user should not be in excludedUserIds
+            // For ALL assignment type, include all users
             {
               assignmentType: 'ALL',
+            },
+            // For ALL_EXCEPT assignment type, user should not be in excludedUserIds
+            {
+              assignmentType: 'ALL_EXCEPT',
               NOT: {
                 excludedUserIds: {
                   has: userId,

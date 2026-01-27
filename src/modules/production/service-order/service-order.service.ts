@@ -334,11 +334,13 @@ export class ServiceOrderService {
 
       // Check permissions before allowing update
       if (userId && userPrivilege) {
+        const isStatusChange = data.status !== undefined && data.status !== serviceOrderExists.status;
         assertCanUpdateServiceOrder(
           serviceOrderExists,
           userId,
           userPrivilege,
           data.status as SERVICE_ORDER_STATUS,
+          isStatusChange,
         );
       }
 

@@ -161,5 +161,10 @@
     "@system": "./dist/modules/system",
     "@integrations": "./dist/modules/integrations",
     "@human-resources": "./dist/modules/human-resources"
+  },
+  "pnpm": {
+    "overrides": {
+      "cron": "4.3.3"
+    }
   }
 }

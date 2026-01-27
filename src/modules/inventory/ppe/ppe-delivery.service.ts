@@ -443,19 +443,51 @@ export class PpeDeliveryService {
       // Check if delivery for this schedule already exists for the current period
       // Calculate days based on frequency
       let daysToCheck = 1;
-      if (schedule.frequency === SCHEDULE_FREQUENCY.DAILY) {
-        daysToCheck = 1;
-      } else if (schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY) {
-        daysToCheck = 7;
-      } else if (schedule.frequency === SCHEDULE_FREQUENCY.MONTHLY) {
-        daysToCheck = 30;
-      } else if (schedule.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
-        daysToCheck = 365;
+      switch (schedule.frequency) {
+        case SCHEDULE_FREQUENCY.ONCE:
+          daysToCheck = 36500; // Effectively infinite - once means only once ever
+          break;
+        case SCHEDULE_FREQUENCY.DAILY:
+          daysToCheck = 1;
+          break;
+        case SCHEDULE_FREQUENCY.WEEKLY:
+          daysToCheck = 7;
+          break;
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
+          daysToCheck = 14;
+          break;
+        case SCHEDULE_FREQUENCY.MONTHLY:
+          daysToCheck = 30;
+          break;
+        case SCHEDULE_FREQUENCY.BIMONTHLY:
+          daysToCheck = 60;
+          break;
+        case SCHEDULE_FREQUENCY.QUARTERLY:
+          daysToCheck = 90;
+          break;
+        case SCHEDULE_FREQUENCY.TRIANNUAL:
+          daysToCheck = 120;
+          break;
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+          daysToCheck = 120;
+          break;
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+          daysToCheck = 180;
+          break;
+        case SCHEDULE_FREQUENCY.ANNUAL:
+          daysToCheck = 365;
+          break;
+        case SCHEDULE_FREQUENCY.CUSTOM:
+          daysToCheck = (schedule.frequencyCount || 1);
+          break;
+        default:
+          daysToCheck = 30;
       }
 
       const existingDeliveryForSchedule = await transaction.ppeDelivery.findFirst({
         where: {
           ppeScheduleId: data.ppeScheduleId,
+          userId: data.userId,
           createdAt: {
             gte: new Date(new Date().setDate(new Date().getDate() - daysToCheck)),
           },
@@ -577,24 +609,58 @@ export class PpeDeliveryService {
     );
   }
 
-  private calculateNextScheduledDate(schedule: any, currentDate: Date = new Date()): Date {
+  private calculateNextScheduledDate(schedule: any, currentDate: Date = new Date()): Date | null {
     const nextDate = new Date(currentDate);
+    const count = schedule.frequencyCount || 1;
 
     switch (schedule.frequency) {
+      case SCHEDULE_FREQUENCY.ONCE:
+        // One-time schedules don't have a next occurrence
+        return null;
+
       case SCHEDULE_FREQUENCY.DAILY:
-        nextDate.setDate(nextDate.getDate() + (schedule.frequencyCount || 1));
+        nextDate.setDate(nextDate.getDate() + count);
         break;
 
       case SCHEDULE_FREQUENCY.WEEKLY:
-        nextDate.setDate(nextDate.getDate() + 7 * (schedule.frequencyCount || 1));
+        nextDate.setDate(nextDate.getDate() + 7 * count);
+        break;
+
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        nextDate.setDate(nextDate.getDate() + 14 * count);
         break;
 
       case SCHEDULE_FREQUENCY.MONTHLY:
-        nextDate.setMonth(nextDate.getMonth() + (schedule.frequencyCount || 1));
+        nextDate.setMonth(nextDate.getMonth() + count);
+        break;
+
+      case SCHEDULE_FREQUENCY.BIMONTHLY:
+        nextDate.setMonth(nextDate.getMonth() + 2 * count);
+        break;
+
+      case SCHEDULE_FREQUENCY.QUARTERLY:
+        nextDate.setMonth(nextDate.getMonth() + 3 * count);
+        break;
+
+      case SCHEDULE_FREQUENCY.TRIANNUAL:
+        nextDate.setMonth(nextDate.getMonth() + 4 * count);
+        break;
+
+      case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        nextDate.setMonth(nextDate.getMonth() + 4 * count);
+        break;
+
+      case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+        nextDate.setMonth(nextDate.getMonth() + 6 * count);
         break;
 
       case SCHEDULE_FREQUENCY.ANNUAL:
-        nextDate.setFullYear(nextDate.getFullYear() + (schedule.frequencyCount || 1));
+        nextDate.setFullYear(nextDate.getFullYear() + count);
+        break;
+
+      case SCHEDULE_FREQUENCY.CUSTOM:
+        // Custom frequency uses frequencyCount as days
+        nextDate.setDate(nextDate.getDate() + count);
         break;
 
       default:
@@ -642,11 +708,21 @@ export class PpeDeliveryService {
         return null;
       }
 
+      // Don't auto-create for one-time schedules
+      if (schedule.frequency === SCHEDULE_FREQUENCY.ONCE) {
+        return null;
+      }
+
       // Calculate next scheduled date
       const nextScheduledDate = this.calculateNextScheduledDate(
         schedule,
         finishedDelivery.actualDeliveryDate || new Date(),
       );
+
+      // If no next date (e.g., ONCE frequency), don't create
+      if (!nextScheduledDate) {
+        return null;
+      }
 
       // Create the new delivery instance
       const newDeliveryData: PpeDeliveryCreateFormData = {
@@ -905,6 +981,12 @@ export class PpeDeliveryService {
               break;
             case PPE_TYPE.MASK:
               sizeInfo = userWithSize.ppeSize.mask || undefined;
+              break;
+            case PPE_TYPE.GLOVES:
+              sizeInfo = userWithSize.ppeSize.gloves || undefined;
+              break;
+            case PPE_TYPE.RAIN_BOOTS:
+              sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
               break;
           }
         }
@@ -1258,6 +1340,12 @@ export class PpeDeliveryService {
           case PPE_TYPE.MASK:
             sizeInfo = userWithSize.ppeSize.mask || undefined;
             break;
+          case PPE_TYPE.GLOVES:
+            sizeInfo = userWithSize.ppeSize.gloves || undefined;
+            break;
+          case PPE_TYPE.RAIN_BOOTS:
+            sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
+            break;
         }
 
         // Note: Size validation removed - ppeSize field no longer in Item model
@@ -1412,6 +1500,12 @@ export class PpeDeliveryService {
           case PPE_TYPE.MASK:
             sizeInfo = userWithSize.ppeSize.mask || undefined;
             break;
+          case PPE_TYPE.GLOVES:
+            sizeInfo = userWithSize.ppeSize.gloves || undefined;
+            break;
+          case PPE_TYPE.RAIN_BOOTS:
+            sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
+            break;
         }
 
         // Note: Size validation removed - ppeSize field no longer in Item model
@@ -1540,9 +1634,8 @@ export class PpeDeliveryService {
         reviewedBy: data.reviewedBy,
         ppeScheduleId: data.ppeScheduleId,
         status: PPE_DELIVERY_STATUS.PENDING,
-        statusOrder: 1,
+        statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING],
         scheduledDate: new Date(),
-        actualDeliveryDate: new Date(),
       };
 
       // Use the standard create method to ensure size validation
@@ -1697,6 +1790,12 @@ export class PpeDeliveryService {
           break;
         case PPE_TYPE.MASK:
           userSize = user.ppeSize!.mask;
+          break;
+        case PPE_TYPE.GLOVES:
+          userSize = user.ppeSize!.gloves;
+          break;
+        case PPE_TYPE.RAIN_BOOTS:
+          userSize = user.ppeSize!.rainBoots;
           break;
       }
 
@@ -2146,6 +2245,12 @@ export class PpeDeliveryService {
                 break;
               case PPE_TYPE.MASK:
                 sizeInfo = delivery.user.ppeSize.mask || undefined;
+                break;
+              case PPE_TYPE.GLOVES:
+                sizeInfo = delivery.user.ppeSize.gloves || undefined;
+                break;
+              case PPE_TYPE.RAIN_BOOTS:
+                sizeInfo = delivery.user.ppeSize.rainBoots || undefined;
                 break;
             }
 

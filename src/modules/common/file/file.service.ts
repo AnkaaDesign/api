@@ -21,7 +21,7 @@ import {
   extractEssentialFields,
   getEssentialFields,
 } from '@modules/common/changelog/utils/changelog-helpers';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { environmentConfig } from '../../../common/config/environment.config';
 import { generateFileUrl, validateFileSize, UPLOAD_CONFIG } from './config/upload.config';
 import { validateFileLimit } from './config/file-limits.config';
@@ -209,9 +209,10 @@ export class FileService {
   }
 
   /**
-   * Serve file by ID with proper headers
+   * Serve file by ID with proper headers.
+   * Supports HTTP Range requests for video streaming/seeking.
    */
-  async serveFileById(id: string, res: Response): Promise<void> {
+  async serveFileById(id: string, res: Response, req?: Request): Promise<void> {
     try {
       const file = await this.fileRepository.findById(id);
 
@@ -223,9 +224,12 @@ export class FileService {
         throw new NotFoundException('Arquivo físico não encontrado no servidor.');
       }
 
-      // Set appropriate headers
+      const fileSize = file.size;
+      const isVideo = file.mimetype.startsWith('video/');
+      const rangeHeader = req?.headers?.range;
+
+      // Set common headers
       res.setHeader('Content-Type', file.mimetype);
-      res.setHeader('Content-Length', file.size);
       res.setHeader(
         'Content-Disposition',
         `inline; filename="${encodeURIComponent(file.filename)}"`,
@@ -234,11 +238,56 @@ export class FileService {
       res.setHeader('ETag', `"${file.id}"`);
       res.setHeader('Last-Modified', new Date(file.updatedAt).toUTCString());
 
-      // Add CORS headers for cross-origin image loading
+      // Add CORS headers for cross-origin loading
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-request-id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, x-request-id');
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+      // For video files, always advertise range request support
+      if (isVideo) {
+        res.setHeader('Accept-Ranges', 'bytes');
+      }
+
+      // Handle Range requests (important for video streaming/seeking)
+      if (isVideo && rangeHeader) {
+        const parts = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunkSize = end - start + 1;
+
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+        res.setHeader('Content-Length', chunkSize);
+        res.status(206); // Partial Content
+
+        // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
+        const useXAccelRedirect =
+          process.env.USE_X_ACCEL_REDIRECT === 'true' && process.env.NODE_ENV === 'production';
+
+        if (useXAccelRedirect) {
+          // For range requests with nginx, pass the range header through
+          // nginx will handle the range request natively
+          const nginxInternalPath = this.resolveNginxInternalPath(file.path);
+          res.setHeader('X-Accel-Redirect', nginxInternalPath);
+          res.end();
+        } else {
+          const { createReadStream } = await import('fs');
+          const fileStream = createReadStream(file.path, { start, end });
+
+          fileStream.on('error', (error: any) => {
+            this.logger.error(`Error streaming file ${file.id}:`, error);
+            if (!res.headersSent) {
+              res.status(500).send('Error streaming file');
+            }
+          });
+
+          fileStream.pipe(res);
+        }
+        return;
+      }
+
+      // Full file response (non-range)
+      res.setHeader('Content-Length', fileSize);
 
       // Check if we should use X-Accel-Redirect (nginx) or direct file streaming
       const useXAccelRedirect =
@@ -246,28 +295,7 @@ export class FileService {
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-        const filesRoot = process.env.FILES_ROOT || '/srv/files';
-        const uploadsDir = process.env.UPLOAD_DIR || './uploads';
-
-        let nginxInternalPath: string;
-
-        // Check if file is in files storage or local uploads
-        if (file.path.startsWith(filesRoot)) {
-          // Files storage: Map /srv/files/... to /internal-files/...
-          const relativePath = file.path.replace(filesRoot, '');
-          nginxInternalPath = `/internal-files${this.encodePathForNginx(relativePath)}`;
-        } else if (
-          file.path.startsWith(uploadsDir) ||
-          file.path.startsWith('./uploads') ||
-          file.path.startsWith('uploads')
-        ) {
-          // Local upload file: Map uploads/... to /internal-uploads/...
-          const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
-          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(relativePath)}`;
-        } else {
-          // Fallback: assume it's a relative path in uploads
-          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(file.path)}`;
-        }
+        const nginxInternalPath = this.resolveNginxInternalPath(file.path);
 
         // Set X-Accel-Redirect header - nginx will intercept and serve the file
         res.setHeader('X-Accel-Redirect', nginxInternalPath);
@@ -292,6 +320,28 @@ export class FileService {
         throw error;
       }
       throw new InternalServerErrorException('Erro ao servir arquivo.');
+    }
+  }
+
+  /**
+   * Resolve the nginx internal path for X-Accel-Redirect
+   */
+  private resolveNginxInternalPath(filePath: string): string {
+    const filesRoot = process.env.FILES_ROOT || '/srv/files';
+    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+
+    if (filePath.startsWith(filesRoot)) {
+      const relativePath = filePath.replace(filesRoot, '');
+      return `/internal-files${this.encodePathForNginx(relativePath)}`;
+    } else if (
+      filePath.startsWith(uploadsDir) ||
+      filePath.startsWith('./uploads') ||
+      filePath.startsWith('uploads')
+    ) {
+      const relativePath = filePath.replace(/^\.?\/?(uploads\/)/, '');
+      return `/internal-uploads/${this.encodePathForNginx(relativePath)}`;
+    } else {
+      return `/internal-uploads/${this.encodePathForNginx(filePath)}`;
     }
   }
 
@@ -615,6 +665,14 @@ export class FileService {
         'video/flv',
         'video/webm',
         'video/mkv',
+        'video/m4v',
+        'video/3gp',
+        'video/mpeg',
+        'video/quicktime',
+        'video/x-flv',
+        'video/x-matroska',
+        'video/x-msvideo',
+        'video/x-ms-wmv',
       ];
 
       this.logger.log(
@@ -1685,11 +1743,26 @@ export class FileService {
         'application/eps',
         'image/eps',
         'image/x-eps',
+        'video/mp4',
+        'video/avi',
+        'video/mov',
+        'video/wmv',
+        'video/flv',
+        'video/webm',
+        'video/mkv',
+        'video/m4v',
+        'video/3gp',
+        'video/mpeg',
+        'video/quicktime',
+        'video/x-flv',
+        'video/x-matroska',
+        'video/x-msvideo',
+        'video/x-ms-wmv',
       ];
 
       if (!supportedTypes.some(type => file.mimetype.toLowerCase() === type.toLowerCase())) {
         throw new BadRequestException(
-          'Thumbnail só pode ser gerado para imagens, PDFs e arquivos EPS.',
+          'Thumbnail só pode ser gerado para imagens, PDFs, arquivos EPS e vídeos.',
         );
       }
 
