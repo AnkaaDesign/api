@@ -7,8 +7,8 @@ import type { FilesFolderMapping } from '../services/files-storage.service';
 
 // Upload configuration
 export const UPLOAD_CONFIG = {
-  // Maximum file size (default: 100MB)
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB in bytes
+  // Maximum file size (default: 500MB)
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '524288000'), // 500MB in bytes
 
   // Upload directory (temporary staging before files storage)
   uploadDir: process.env.UPLOAD_DIR || './uploads',
@@ -200,8 +200,8 @@ export const multerConfig = {
   storage: storageConfig,
   fileFilter: fileFilter,
   limits: {
-    fileSize: UPLOAD_CONFIG.maxFileSize, // 100MB per file
-    files: 10, // Maximum 10 files at once
+    fileSize: UPLOAD_CONFIG.maxFileSize, // 500MB per file
+    files: 30, // Maximum 30 files at once
     fields: 100, // Maximum number of non-file fields
     fieldNameSize: 100, // Maximum field name size in bytes
     fieldSize: 1024 * 1024, // Maximum field value size: 1MB (for JSON strings)

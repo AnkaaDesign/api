@@ -1,4 +1,4 @@
-import { Injectable, Logger, InternalServerErrorException, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { exec, spawn } from 'child_process';
@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from 'eventemitter2';
 import { BackupRepository } from './backup.repository';
 import { BackupScheduleRepository } from './backup-schedule.repository';
+import { GDriveSyncService } from './gdrive-sync.service';
 import {
   BackupType,
   BackupPriority,
@@ -114,6 +115,8 @@ export class BackupService implements OnModuleInit {
     ? []
     : [`${this.productionBasePath}/node_modules`, `${this.productionBasePath}/.git`, '/tmp'];
 
+  private gdriveSyncService: GDriveSyncService | null = null;
+
   constructor(
     @InjectQueue('backup-queue') private backupQueue: Queue,
     private configService: ConfigService,
@@ -122,6 +125,13 @@ export class BackupService implements OnModuleInit {
     private backupScheduleRepository: BackupScheduleRepository,
   ) {
     this.ensureBackupDirectories();
+  }
+
+  /**
+   * Set GDriveSyncService reference (to avoid circular dependency)
+   */
+  setGDriveSyncService(service: GDriveSyncService): void {
+    this.gdriveSyncService = service;
   }
 
   /**
@@ -307,6 +317,50 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
+   * Register an external backup created by shell scripts
+   * This allows backups created outside the API to appear in the UI
+   */
+  async registerExternalBackup(
+    dto: {
+      name: string;
+      type: 'database' | 'files' | 'system' | 'full';
+      filePath: string;
+      size: number;
+      description?: string;
+      paths?: string[];
+    },
+    userId?: string,
+  ): Promise<{ id: string }> {
+    const backupId = `backup_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    try {
+      await this.backupRepository.create({
+        id: backupId,
+        name: dto.name,
+        type: this.mapDtoTypeToDb(dto.type),
+        description: dto.description,
+        paths: dto.paths || [],
+        filePath: dto.filePath,
+        createdById: userId,
+      });
+
+      // Update with size and mark as completed
+      await this.backupRepository.update(backupId, {
+        size: BigInt(dto.size),
+        status: BackupStatus.COMPLETED,
+        completedAt: new Date(),
+      });
+
+      this.logger.log(`External backup registered: ${backupId} (${dto.name})`);
+
+      return { id: backupId };
+    } catch (error) {
+      this.logger.error(`Failed to register external backup: ${error.message}`);
+      throw new InternalServerErrorException('Failed to register external backup');
+    }
+  }
+
+  /**
    * Get all backups from database
    * Returns backups in a format compatible with the frontend
    */
@@ -397,8 +451,18 @@ export class BackupService implements OnModuleInit {
       // Soft delete in database (preserves history)
       await this.backupRepository.softDelete(backupId, userId);
 
-      // Delete from Google Drive asynchronously
-      this.deleteFromGoogleDrive(backupId);
+      // Queue Google Drive deletion (replaces fire-and-forget)
+      if (this.gdriveSyncService) {
+        try {
+          await this.gdriveSyncService.queueDelete(backupId, backup.gdriveFileId || undefined);
+        } catch (syncError) {
+          this.logger.error(`Failed to queue GDrive delete: ${syncError.message}`);
+          // Don't throw - local delete succeeded
+        }
+      } else {
+        // Fallback to shell script if service not available
+        this.deleteFromGoogleDrive(backupId);
+      }
 
       // Emit deletion event so frontend can update
       this.eventEmitter.emit('backup.deleted', {
@@ -430,8 +494,16 @@ export class BackupService implements OnModuleInit {
       // Hard delete from database
       await this.backupRepository.hardDelete(backupId);
 
-      // Delete from Google Drive asynchronously
-      this.deleteFromGoogleDrive(backupId);
+      // Queue Google Drive deletion (replaces fire-and-forget)
+      if (this.gdriveSyncService) {
+        try {
+          await this.gdriveSyncService.queueDelete(backupId, backup.gdriveFileId || undefined);
+        } catch (syncError) {
+          this.logger.error(`Failed to queue GDrive delete: ${syncError.message}`);
+        }
+      } else {
+        this.deleteFromGoogleDrive(backupId);
+      }
 
       this.logger.log(`Backup ${backupId} permanently deleted`);
     } catch (error) {

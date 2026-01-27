@@ -27,6 +27,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserId } from '@common/decorators/current-user.decorator';
 import { SECTOR_PRIVILEGES } from '../../../constants';
 import { BackupService, BackupMetadata, CreateBackupDto } from './backup.service';
+import { GDriveSyncService } from './gdrive-sync.service';
 import {
   IsString,
   IsOptional,
@@ -117,13 +118,45 @@ class BackupQueryDto {
   limit?: string;
 }
 
+class RegisterExternalBackupDto {
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  @IsEnum(['database', 'files', 'system', 'full'])
+  type: 'database' | 'files' | 'system' | 'full';
+
+  @IsNotEmpty()
+  @IsString()
+  filePath: string;
+
+  @IsNumber()
+  size: number;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  paths?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  triggerGDriveSync?: boolean;
+}
+
 @ApiTags('Backup Management')
 @ApiBearerAuth()
 @Controller('backups')
 @UseGuards(AuthGuard)
 @Roles(SECTOR_PRIVILEGES.ADMIN)
 export class BackupController {
-  constructor(private readonly backupService: BackupService) {}
+  constructor(
+    private readonly backupService: BackupService,
+    private readonly gdriveSyncService: GDriveSyncService,
+  ) {}
 
   @Get()
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -406,6 +439,70 @@ export class BackupController {
     };
   }
 
+  @Post('register-external')
+  @ApiOperation({ summary: 'Register an external backup (created by shell scripts)' })
+  @ApiBody({
+    type: RegisterExternalBackupDto,
+    description: 'External backup registration data',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'External backup registered successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            gdriveJobId: { type: 'string' },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.CREATED)
+  async registerExternalBackup(
+    @Body(ValidationPipe) dto: RegisterExternalBackupDto,
+    @UserId() userId?: string,
+  ) {
+    try {
+      const result = await this.backupService.registerExternalBackup(dto, userId);
+
+      // Optionally trigger GDrive sync
+      let gdriveJobId: string | undefined;
+      if (dto.triggerGDriveSync) {
+        try {
+          const job = await this.gdriveSyncService.queueSync(
+            result.id,
+            dto.filePath,
+            dto.type,
+          );
+          gdriveJobId = job.id?.toString();
+        } catch (syncError) {
+          // Don't fail the registration if sync fails to queue
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          id: result.id,
+          gdriveJobId,
+        },
+        message: 'External backup registered successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.message || 'Failed to register external backup',
+      };
+    }
+  }
+
   @Get('scheduled/list')
   @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
   @Header('Pragma', 'no-cache')
@@ -674,7 +771,8 @@ export class BackupController {
 
       let diskSpace;
       try {
-        const { stdout } = await execAsync('df -h /home/kennedy/ankaa/backups | tail -1');
+        const backupPath = process.env.BACKUP_PATH || '/mnt/backup';
+        const { stdout } = await execAsync(`df -h ${backupPath} | tail -1`);
         const parts = stdout.trim().split(/\s+/);
         diskSpace = {
           available: parts[3],
@@ -788,7 +886,8 @@ export class BackupController {
       const execAsync = promisify(exec);
 
       const backupFileName = `${id}.tar.gz`;
-      const backupPath = path.join('/home/kennedy/ankaa/backups', metadata.type, backupFileName);
+      const backupBasePath = process.env.BACKUP_PATH || '/mnt/backup';
+      const backupPath = path.join(backupBasePath, metadata.type, backupFileName);
 
       // Check if file exists
       let fileExists = true;
@@ -873,6 +972,278 @@ export class BackupController {
       success: true,
       message: 'Backup permanently deleted',
     };
+  }
+
+  // ============ Google Drive Sync Endpoints ============
+
+  @Get('gdrive/status/:id')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @ApiOperation({ summary: 'Get Google Drive sync status for a backup' })
+  @ApiParam({ name: 'id', description: 'Backup ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'GDrive sync status',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            backupId: { type: 'string' },
+            status: { type: 'string', enum: ['PENDING', 'SYNCING', 'SYNCED', 'FAILED', 'DELETED'] },
+            gdriveFileId: { type: 'string' },
+            syncedAt: { type: 'string' },
+            error: { type: 'string' },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  async getGDriveSyncStatus(@Param('id') id: string) {
+    try {
+      const status = await this.gdriveSyncService.getSyncStatus(id);
+
+      if (!status) {
+        return {
+          success: false,
+          data: null,
+          message: 'Backup not found',
+        };
+      }
+
+      return {
+        success: true,
+        data: status,
+        message: 'GDrive sync status retrieved',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.message || 'Failed to get GDrive sync status',
+      };
+    }
+  }
+
+  @Post('gdrive/retry/:id')
+  @ApiOperation({ summary: 'Retry failed GDrive sync for a backup' })
+  @ApiParam({ name: 'id', description: 'Backup ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Sync retry queued',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            jobId: { type: 'string' },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async retryGDriveSync(@Param('id') id: string) {
+    try {
+      const job = await this.gdriveSyncService.retrySingleSync(id);
+
+      if (!job) {
+        return {
+          success: false,
+          data: null,
+          message: 'Backup not found or has no file path',
+        };
+      }
+
+      return {
+        success: true,
+        data: { jobId: job.id?.toString() },
+        message: 'GDrive sync retry queued',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.message || 'Failed to retry GDrive sync',
+      };
+    }
+  }
+
+  @Post('gdrive/retry-all-failed')
+  @ApiOperation({ summary: 'Retry all failed GDrive syncs' })
+  @ApiResponse({
+    status: 200,
+    description: 'All failed syncs retry queued',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            retriedCount: { type: 'number' },
+            backupIds: { type: 'array', items: { type: 'string' } },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  @HttpCode(HttpStatus.OK)
+  async retryAllFailedSyncs() {
+    try {
+      const result = await this.gdriveSyncService.retryFailedSyncs();
+
+      return {
+        success: true,
+        data: result,
+        message: `Retry queued for ${result.retriedCount} backups`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.message || 'Failed to retry failed syncs',
+      };
+    }
+  }
+
+  @Get('gdrive/stats')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @ApiOperation({ summary: 'Get GDrive sync statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'GDrive sync statistics',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            syncStats: {
+              type: 'object',
+              properties: {
+                pending: { type: 'number' },
+                syncing: { type: 'number' },
+                synced: { type: 'number' },
+                failed: { type: 'number' },
+              },
+            },
+            queueStats: {
+              type: 'object',
+              properties: {
+                waiting: { type: 'number' },
+                active: { type: 'number' },
+                completed: { type: 'number' },
+                failed: { type: 'number' },
+                delayed: { type: 'number' },
+              },
+            },
+            storageInfo: { type: 'object' },
+            connected: { type: 'boolean' },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  async getGDriveStats() {
+    try {
+      const [syncStats, queueStats, storageInfo, connectionStatus] = await Promise.all([
+        this.gdriveSyncService.getSyncStats(),
+        this.gdriveSyncService.getQueueStatus(),
+        this.gdriveSyncService.getStorageInfo(),
+        this.gdriveSyncService.checkConnection(),
+      ]);
+
+      return {
+        success: true,
+        data: {
+          syncStats,
+          queueStats,
+          storageInfo,
+          connected: connectionStatus.connected,
+          connectionError: connectionStatus.error,
+        },
+        message: 'GDrive stats retrieved',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        message: error.message || 'Failed to get GDrive stats',
+      };
+    }
+  }
+
+  @Get('gdrive/pending')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @ApiOperation({ summary: 'Get backups pending GDrive sync' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of backups pending sync',
+  })
+  async getPendingSyncs() {
+    try {
+      const pending = await this.gdriveSyncService.getPendingSyncs();
+
+      return {
+        success: true,
+        data: pending,
+        message: `${pending.length} backups pending sync`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: [],
+        message: error.message || 'Failed to get pending syncs',
+      };
+    }
+  }
+
+  @Get('gdrive/connection')
+  @Header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  @ApiOperation({ summary: 'Check Google Drive connection status' })
+  @ApiResponse({
+    status: 200,
+    description: 'Connection status',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        data: {
+          type: 'object',
+          properties: {
+            connected: { type: 'boolean' },
+            error: { type: 'string' },
+          },
+        },
+        message: { type: 'string' },
+      },
+    },
+  })
+  async checkGDriveConnection() {
+    try {
+      const status = await this.gdriveSyncService.checkConnection();
+
+      return {
+        success: true,
+        data: status,
+        message: status.connected ? 'Google Drive connected' : 'Google Drive not connected',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: { connected: false, error: error.message },
+        message: 'Failed to check connection',
+      };
+    }
   }
 
   private formatBytes(bytes: number): string {

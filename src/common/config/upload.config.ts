@@ -144,7 +144,7 @@ function checkDiskSpace(uploadPath: string, fileSize: number): void {
     // like 'check-disk-space' for more accurate disk space checking
 
     // For now, we'll just check if the file size is reasonable
-    const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '52428800'); // 50MB default
+    const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '524288000'); // 500MB default
     const availableSpace = maxFileSize * 10; // Assume we have at least 10x the max file size
 
     if (fileSize > availableSpace) {
@@ -165,7 +165,7 @@ function checkDiskSpace(uploadPath: string, fileSize: number): void {
  */
 export function createUploadConfig(): MulterOptions {
   const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-  const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '52428800'); // 50MB
+  const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '524288000'); // 500MB
   const allowedMimeTypes = [
     'image/jpeg',
     'image/png',
@@ -215,7 +215,7 @@ export function createUploadConfig(): MulterOptions {
 
     limits: {
       fileSize: maxFileSize,
-      files: 10, // Max 10 files per request
+      files: 30, // Max 30 files per request
       fields: 20, // Max form fields
       fieldNameSize: 100, // Max field name length
       fieldSize: 1024 * 1024, // 1MB max field value size

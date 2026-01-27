@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bull';
 import { BackupService, CreateBackupDto } from './backup.service';
 import { BackupScheduleRepository } from './backup-schedule.repository';
+import { GDriveSyncService } from './gdrive-sync.service';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -13,6 +14,7 @@ export class BackupProcessor {
   constructor(
     private readonly backupService: BackupService,
     private readonly backupScheduleRepository: BackupScheduleRepository,
+    private readonly gdriveSyncService: GDriveSyncService,
   ) {}
 
   @Process('create-backup')
@@ -78,45 +80,19 @@ export class BackupProcessor {
         `Backup completed successfully: ${backupId} (${this.formatBytes(stats.size)})`,
       );
 
-      // Auto-sync to Google Drive after successful backup
-      this.triggerGoogleDriveSync(backupId);
+      // Queue Google Drive sync job (replaces fire-and-forget shell script)
+      try {
+        await this.gdriveSyncService.queueSync(backupId, relativePath, type);
+        this.logger.log(`GDrive sync queued for backup: ${backupId}`);
+      } catch (syncError) {
+        this.logger.error(`Failed to queue GDrive sync: ${syncError.message}`);
+        // Don't throw - backup itself succeeded, sync failure shouldn't fail the job
+      }
     } catch (error) {
       this.logger.error(`Backup failed: ${backupId} - ${error.message}`);
       await this.backupService.updateBackupStatus(backupId, 'failed', error.message);
       throw error;
     }
-  }
-
-  /**
-   * Trigger Google Drive sync after backup completion
-   * Runs as a fully detached background process to handle large file uploads
-   * that may take hours (100GB+ files at ~2MB/s = 12+ hours)
-   */
-  private triggerGoogleDriveSync(backupId: string): void {
-    const { spawn } = require('child_process');
-
-    this.logger.log(`Triggering Google Drive sync after backup: ${backupId}`);
-
-    // Use spawn with detached:true to create a fully independent process
-    // This ensures the sync continues even if:
-    // - The API server restarts
-    // - The backup job completes
-    // - Large files take hours to upload (100GB @ 2MB/s = 12+ hours)
-    const syncProcess = spawn('/home/kennedy/scripts/backup/gdrive-sync.sh', ['full'], {
-      detached: true, // Run independently from parent process
-      stdio: 'ignore', // Don't pipe stdio (allows full detachment)
-      env: { ...process.env }, // Inherit environment
-    });
-
-    // Unref allows the parent to exit without waiting for the child
-    syncProcess.unref();
-
-    this.logger.log(
-      `Google Drive sync started in background (PID: ${syncProcess.pid}) for backup: ${backupId}`,
-    );
-    this.logger.log(
-      `Monitor sync progress: tail -f /var/log/ankaa-gdrive-sync.log`,
-    );
   }
 
   private formatBytes(bytes: number): string {
