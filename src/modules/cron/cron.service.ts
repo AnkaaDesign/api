@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { UserService } from '../people/user/user.service';
 import { OrderService } from '../inventory/order/order.service';
+import { PpeDeliveryScheduleService } from '../inventory/ppe/ppe-delivery-schedule.service';
 import { ORDER_STATUS } from '../../constants/enums';
 
 /**
@@ -20,6 +21,7 @@ export class CronService {
   constructor(
     private readonly userService: UserService,
     private readonly orderService: OrderService,
+    private readonly ppeDeliveryScheduleService: PpeDeliveryScheduleService,
   ) {}
 
   /**
@@ -177,6 +179,46 @@ export class CronService {
       // - Send alerts to administrators
       // - Create system notifications
       // - Retry the operation
+      throw error;
+    }
+  }
+
+  /**
+   * Process due PPE delivery schedules
+   * Runs daily at 7 AM (07:00)
+   *
+   * This cron job:
+   * - Finds all active PPE delivery schedules where nextRun <= now
+   * - Creates delivery batches for all assigned users
+   * - Recalculates nextRun for recurring schedules
+   * - Deactivates ONCE schedules after execution
+   */
+  @Cron('0 7 * * *')
+  async processDuePpeDeliverySchedules() {
+    this.logger.log('Starting PPE delivery schedule processing cron job...');
+
+    try {
+      const result = await this.ppeDeliveryScheduleService.processDueSchedules();
+
+      this.logger.log('PPE delivery schedule processing completed successfully.');
+      this.logger.log(
+        `Results: ${result.totalProcessed} schedules processed, ` +
+          `${result.totalDeliveriesCreated} deliveries created, ` +
+          `${result.errors.length} errors`,
+      );
+
+      if (result.errors.length > 0) {
+        this.logger.error(`Failed to process ${result.errors.length} PPE schedules`);
+        result.errors.forEach(error => {
+          this.logger.error(`Schedule ${error.scheduleId}: ${error.error}`);
+        });
+      }
+
+      if (result.totalProcessed === 0) {
+        this.logger.log('No PPE delivery schedules required processing');
+      }
+    } catch (error) {
+      this.logger.error('Failed to run PPE delivery schedule processing cron job', error);
       throw error;
     }
   }

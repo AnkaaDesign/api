@@ -46,8 +46,24 @@ export class BonusCronService {
 
       this.logger.log(`Finalizing bonuses and payrolls for period: ${year}/${month}`);
 
-      // Step 1: Generate payrolls for all active users
-      this.logger.log('Step 1: Generating payrolls for all active users...');
+      // Step 1: Calculate and save bonuses for all users FIRST
+      // This creates bonus records even for non-eligible users (with value 0)
+      // By running on the 6th (after the 5th grace period), all commission status
+      // corrections made between the 25th-5th are included in the saved calculations
+      // IMPORTANT: Bonuses must be saved BEFORE payrolls so payroll can reference netBonus
+      this.logger.log('Step 1: Calculating and saving bonuses...');
+      const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
+      this.logger.log(
+        `Bonus calculation completed. Success: ${bonusResult.totalSuccess}, Failed: ${bonusResult.totalFailed}`,
+      );
+
+      // Log warning if there were failures
+      if (bonusResult.totalFailed > 0) {
+        this.logger.error(`Failed to calculate bonuses for ${bonusResult.totalFailed} users`);
+      }
+
+      // Step 2: Generate payrolls for all active users (uses saved netBonus)
+      this.logger.log('Step 2: Generating payrolls for all active users...');
       const payrollResult = await this.payrollService.generateForMonth(
         parseInt(year),
         parseInt(month),
@@ -60,21 +76,6 @@ export class BonusCronService {
       // Log errors if any
       if (payrollResult.errors && payrollResult.errors.length > 0) {
         this.logger.error('Payroll generation errors:', payrollResult.errors);
-      }
-
-      // Step 2: Calculate and save bonuses for all users with payroll
-      // This creates bonus records even for non-eligible users (with value 0)
-      // By running on the 6th (after the 5th grace period), all commission status
-      // corrections made between the 25th-5th are included in the saved calculations
-      this.logger.log('Step 2: Calculating and saving bonuses...');
-      const bonusResult = await this.bonusService.calculateAndSaveBonuses(year, month, 'system');
-      this.logger.log(
-        `Bonus calculation completed. Success: ${bonusResult.totalSuccess}, Failed: ${bonusResult.totalFailed}`,
-      );
-
-      // Log warning if there were failures
-      if (bonusResult.totalFailed > 0) {
-        this.logger.error(`Failed to calculate bonuses for ${bonusResult.totalFailed} users`);
       }
 
       // Log success summary

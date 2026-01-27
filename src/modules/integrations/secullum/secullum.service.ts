@@ -1418,6 +1418,54 @@ export class SecullumService {
     }
   }
 
+  /**
+   * Fetch time entries for a specific Secullum employee ID.
+   * Uses the /Batidas/{id}/{startDate}/{endDate} endpoint which is confirmed working.
+   */
+  async getTimeEntriesBySecullumId(
+    secullumEmployeeId: number,
+    dataInicio: string,
+    dataFim: string,
+  ): Promise<any[]> {
+    const endpoint = `/Batidas/${secullumEmployeeId}/${dataInicio}/${dataFim}`;
+    const timeEntriesData = await this.makeAuthenticatedRequest<any>(
+      'GET',
+      endpoint,
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    // Handle various response formats from Secullum
+    let entries: any[] = [];
+    if (Array.isArray(timeEntriesData)) {
+      entries = timeEntriesData;
+    } else if (timeEntriesData?.lista && Array.isArray(timeEntriesData.lista)) {
+      entries = timeEntriesData.lista;
+    } else if (timeEntriesData?.data && Array.isArray(timeEntriesData.data)) {
+      entries = timeEntriesData.data;
+    }
+    return entries;
+  }
+
+  /**
+   * Fetch calculations for a specific Secullum employee ID.
+   * Uses the /Calculos/{id}/{startDate}/{endDate} endpoint.
+   * Returns column-based grid with Faltas, Atrasos, etc.
+   */
+  async getCalculationsBySecullumId(
+    secullumEmployeeId: number,
+    startDate: string,
+    endDate: string,
+  ): Promise<SecullumCalculationData | null> {
+    const response = await this.getCalculations({
+      employeeId: secullumEmployeeId.toString(),
+      startDate,
+      endDate,
+    });
+    return response.success ? response.data || null : null;
+  }
+
   // Secullum Requests Management - Solicitações de Ajuste de Ponto
   async getRequests(pendingOnly: boolean = false): Promise<SecullumRequestsResponse> {
     try {

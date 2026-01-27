@@ -90,9 +90,12 @@ export class TaskPricingPrismaRepository
     // Handle items if provided
     if (formData.items && formData.items.length > 0) {
       createInput.items = {
-        create: formData.items.map(item => ({
+        create: formData.items.map((item, index) => ({
           amount: item.amount || 0,
           description: item.description || '',
+          observation: item.observation || null,
+          shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+          position: index,
         })),
       };
     }
@@ -140,7 +143,9 @@ export class TaskPricingPrismaRepository
 
     const mappedInclude: Prisma.TaskPricingInclude = {};
 
-    if (include.items !== undefined) mappedInclude.items = include.items;
+    if (include.items !== undefined) {
+      mappedInclude.items = include.items === true ? { orderBy: { createdAt: 'asc' as const } } : include.items;
+    }
     if ((include as any).tasks !== undefined) {
       if (typeof (include as any).tasks === 'boolean') {
         mappedInclude.tasks = (include as any).tasks;
@@ -168,7 +173,7 @@ export class TaskPricingPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.TaskPricingInclude | undefined {
-    return { items: true };
+    return { items: { orderBy: { position: 'asc' } } };
   }
 
   // Create with transaction
@@ -313,7 +318,7 @@ export class TaskPricingPrismaRepository
   async findByTaskId(taskId: string): Promise<TaskPricing | null> {
     const pricing = await this.prisma.taskPricing.findFirst({
       where: { tasks: { some: { id: taskId } } },
-      include: { items: true },
+      include: { items: { orderBy: { position: 'asc' } } },
     });
 
     return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;
@@ -325,7 +330,7 @@ export class TaskPricingPrismaRepository
   async findByStatus(status: string): Promise<TaskPricing[]> {
     const pricings = await this.prisma.taskPricing.findMany({
       where: { status: status as any },
-      include: { items: true, tasks: true },
+      include: { items: { orderBy: { position: 'asc' } }, tasks: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -344,7 +349,7 @@ export class TaskPricingPrismaRepository
           in: [TASK_PRICING_STATUS.DRAFT, TASK_PRICING_STATUS.APPROVED],
         },
       },
-      include: { items: true, tasks: true },
+      include: { items: { orderBy: { position: 'asc' } }, tasks: true },
     });
 
     return pricings.map(p => this.mapDatabaseEntityToEntity(p));
@@ -359,7 +364,7 @@ export class TaskPricingPrismaRepository
         tasks: { some: { id: taskId } },
         status: TASK_PRICING_STATUS.APPROVED,
       },
-      include: { items: true },
+      include: { items: { orderBy: { position: 'asc' } } },
     });
 
     return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;

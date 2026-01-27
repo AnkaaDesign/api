@@ -1739,12 +1739,16 @@ export const taskCreateSchema = z
       });
     }
 
-    if (data.entryDate && data.startedAt && data.startedAt < data.entryDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de início deve ser posterior ou igual à data de entrada',
-        path: ['startedAt'],
-      });
+    if (data.entryDate && data.startedAt) {
+      const startDate = new Date(data.startedAt.getFullYear(), data.startedAt.getMonth(), data.startedAt.getDate());
+      const entryDateOnly = new Date(data.entryDate.getFullYear(), data.entryDate.getMonth(), data.entryDate.getDate());
+      if (startDate < entryDateOnly) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Data de início deve ser posterior ou igual à data de entrada',
+          path: ['startedAt'],
+        });
+      }
     }
 
     if (data.startedAt && data.finishedAt && data.finishedAt < data.startedAt) {
@@ -1950,12 +1954,16 @@ export const taskUpdateSchema = z
       });
     }
 
-    if (data.entryDate && data.startedAt && data.startedAt < data.entryDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Data de início deve ser posterior ou igual à data de entrada',
-        path: ['startedAt'],
-      });
+    if (data.entryDate && data.startedAt) {
+      const startDate = new Date(data.startedAt.getFullYear(), data.startedAt.getMonth(), data.startedAt.getDate());
+      const entryDateOnly = new Date(data.entryDate.getFullYear(), data.entryDate.getMonth(), data.entryDate.getDate());
+      if (startDate < entryDateOnly) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Data de início deve ser posterior ou igual à data de entrada',
+          path: ['startedAt'],
+        });
+      }
     }
 
     if (data.startedAt && data.finishedAt && data.finishedAt < data.startedAt) {

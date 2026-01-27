@@ -68,6 +68,15 @@ export const bonusIncludeSchema = z
         }),
       ])
       .optional(),
+    bonusExtras: z
+      .union([
+        z.boolean(),
+        z.object({
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+        }),
+      ])
+      .optional(),
     payroll: z.boolean().optional(),
   })
   .partial();

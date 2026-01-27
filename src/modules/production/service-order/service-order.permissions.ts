@@ -45,6 +45,7 @@ export function checkServiceOrderUpdatePermission(
   userId: string,
   userPrivilege: string,
   newStatus?: SERVICE_ORDER_STATUS,
+  isStatusChange?: boolean,
 ): ServiceOrderUpdatePermissionCheck {
   const isAdmin = userPrivilege === SECTOR_PRIVILEGES.ADMIN;
   const isAssignedUser = serviceOrder.assignedToId === userId;
@@ -81,6 +82,18 @@ export function checkServiceOrderUpdatePermission(
       reason:
         'Apenas o usuário responsável ou administradores podem atualizar esta ordem de serviço',
     };
+  }
+
+  // COMMERCIAL users can edit non-status fields (description, responsible, observation) on ALL service order types
+  // But they can only change status on COMMERCIAL service orders
+  if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL && serviceOrder.type !== SERVICE_ORDER_TYPE.COMMERCIAL) {
+    if (isStatusChange) {
+      return {
+        canUpdate: false,
+        reason: 'Usuários comerciais não podem alterar o status de ordens de serviço de outros setores',
+      };
+    }
+    return { canUpdate: true };
   }
 
   // Check permissions based on service order type (when NOT assigned)
@@ -166,8 +179,9 @@ export function assertCanUpdateServiceOrder(
   userId: string,
   userPrivilege: string,
   newStatus?: SERVICE_ORDER_STATUS,
+  isStatusChange?: boolean,
 ): void {
-  const check = checkServiceOrderUpdatePermission(serviceOrder, userId, userPrivilege, newStatus);
+  const check = checkServiceOrderUpdatePermission(serviceOrder, userId, userPrivilege, newStatus, isStatusChange);
 
   if (!check.canUpdate) {
     throw new ForbiddenException(

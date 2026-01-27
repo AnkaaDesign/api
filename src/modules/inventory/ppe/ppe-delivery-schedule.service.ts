@@ -60,8 +60,104 @@ export class PpeDeliveryScheduleService {
   // Validation methods
   private async validateEntity(): Promise<void> {
     // PpeDeliverySchedule has no unique fields to validate
-    // This method is added for consistency with other services
     return Promise.resolve();
+  }
+
+  /**
+   * Calculate the next run date based on schedule frequency and frequencyCount.
+   * Modeled after MaintenanceScheduleService.calculateNextRunDate().
+   * Returns null for ONCE and CUSTOM frequencies.
+   */
+  private calculateNextRunDate(schedule: any, fromDate?: Date | null): Date | null {
+    const baseDate = fromDate || new Date();
+    const nextRun = new Date(baseDate);
+    const interval = schedule.frequencyCount || 1;
+
+    switch (schedule.frequency) {
+      case SCHEDULE_FREQUENCY.ONCE:
+        return null;
+
+      case SCHEDULE_FREQUENCY.DAILY:
+        nextRun.setDate(nextRun.getDate() + interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.WEEKLY:
+        nextRun.setDate(nextRun.getDate() + 7 * interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        nextRun.setDate(nextRun.getDate() + 14 * interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.MONTHLY:
+        nextRun.setMonth(nextRun.getMonth() + interval);
+        if (schedule.dayOfMonth) {
+          const daysInMonth = new Date(nextRun.getFullYear(), nextRun.getMonth() + 1, 0).getDate();
+          nextRun.setDate(Math.min(schedule.dayOfMonth, daysInMonth));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.BIMONTHLY:
+        nextRun.setMonth(nextRun.getMonth() + 2 * interval);
+        if (schedule.dayOfMonth) {
+          const daysInMonth = new Date(nextRun.getFullYear(), nextRun.getMonth() + 1, 0).getDate();
+          nextRun.setDate(Math.min(schedule.dayOfMonth, daysInMonth));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.QUARTERLY:
+        nextRun.setMonth(nextRun.getMonth() + 3 * interval);
+        if (schedule.dayOfMonth) {
+          const daysInMonth = new Date(nextRun.getFullYear(), nextRun.getMonth() + 1, 0).getDate();
+          nextRun.setDate(Math.min(schedule.dayOfMonth, daysInMonth));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.TRIANNUAL:
+        nextRun.setMonth(nextRun.getMonth() + 4 * interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        nextRun.setMonth(nextRun.getMonth() + 4 * interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+        nextRun.setMonth(nextRun.getMonth() + 6 * interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.ANNUAL:
+        nextRun.setFullYear(nextRun.getFullYear() + interval);
+        break;
+
+      case SCHEDULE_FREQUENCY.CUSTOM:
+        // Custom uses frequencyCount as days
+        nextRun.setDate(nextRun.getDate() + interval);
+        break;
+
+      default:
+        return null;
+    }
+
+    // Normalize time to 08:00 (business hours start)
+    nextRun.setHours(8, 0, 0, 0);
+
+    return nextRun;
+  }
+
+  /**
+   * Get the lead time in days before `nextRun` when deliveries should be created.
+   * - Short frequencies (DAILY, WEEKLY, BIWEEKLY): 1 day before
+   * - All others (MONTHLY+, ONCE): 7 days before
+   */
+  private getLeadTimeDays(frequency: string): number {
+    switch (frequency) {
+      case SCHEDULE_FREQUENCY.DAILY:
+      case SCHEDULE_FREQUENCY.WEEKLY:
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        return 1;
+      default:
+        return 7;
+    }
   }
 
   /**
@@ -166,6 +262,12 @@ export class PpeDeliveryScheduleService {
           break;
         case PPE_TYPE.MASK:
           userSize = user.ppeSize.mask;
+          break;
+        case PPE_TYPE.GLOVES:
+          userSize = user.ppeSize.gloves;
+          break;
+        case PPE_TYPE.RAIN_BOOTS:
+          userSize = user.ppeSize.rainBoots;
           break;
       }
 
@@ -365,11 +467,21 @@ export class PpeDeliveryScheduleService {
         );
       }
 
-      // Validate unique constraints (even though there are none currently)
+      // Validate ONCE frequency requires specificDate
+      if (data.frequency === SCHEDULE_FREQUENCY.ONCE && !data.specificDate) {
+        throw new BadRequestException(
+          'Para frequência "Uma Vez", é necessário especificar a data.',
+        );
+      }
+
       await this.validateEntity();
 
       // Create the schedule
-      let ppeDeliverySchedule = await this.repository.create(data, { include });
+      let ppeDeliverySchedule = await this.repository.createWithTransaction(
+        transaction,
+        data,
+        { include },
+      );
 
       if (!ppeDeliverySchedule) {
         throw new BadRequestException('Erro ao criar agendamento de PPE');
@@ -386,11 +498,14 @@ export class PpeDeliveryScheduleService {
           where: { id: ppeDeliverySchedule.id },
           data: { weeklyConfigId: weeklyConfig.id },
         });
-        const updatedSchedule = await this.repository.findById(ppeDeliverySchedule.id, { include });
-        if (updatedSchedule) {
-          ppeDeliverySchedule = updatedSchedule;
-        }
-      } else if (data.frequency === SCHEDULE_FREQUENCY.MONTHLY) {
+      } else if (
+        data.frequency === SCHEDULE_FREQUENCY.MONTHLY ||
+        data.frequency === SCHEDULE_FREQUENCY.BIMONTHLY ||
+        data.frequency === SCHEDULE_FREQUENCY.QUARTERLY ||
+        data.frequency === SCHEDULE_FREQUENCY.TRIANNUAL ||
+        data.frequency === SCHEDULE_FREQUENCY.QUADRIMESTRAL ||
+        data.frequency === SCHEDULE_FREQUENCY.SEMI_ANNUAL
+      ) {
         const monthlyConfig = await transaction.monthlyScheduleConfig.create({
           data: {
             dayOfMonth: data.dayOfMonth || undefined,
@@ -402,10 +517,6 @@ export class PpeDeliveryScheduleService {
           where: { id: ppeDeliverySchedule.id },
           data: { monthlyConfigId: monthlyConfig.id },
         });
-        const updatedSchedule = await this.repository.findById(ppeDeliverySchedule.id, { include });
-        if (updatedSchedule) {
-          ppeDeliverySchedule = updatedSchedule;
-        }
       } else if (data.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
         const yearlyConfig = await transaction.yearlyScheduleConfig.create({
           data: {
@@ -419,83 +530,37 @@ export class PpeDeliveryScheduleService {
           where: { id: ppeDeliverySchedule.id },
           data: { yearlyConfigId: yearlyConfig.id },
         });
-        const updatedSchedule = await this.repository.findById(ppeDeliverySchedule.id, { include });
-        if (updatedSchedule) {
-          ppeDeliverySchedule = updatedSchedule;
-        }
       }
 
-      // NEW LOGIC: Create deliveries automatically based on assignment type and PPE types
-      try {
-        // Get the users who should receive PPE deliveries
-        const assignedUserIds = await this.getAssignedUsers(
-          data.assignmentType || ASSIGNMENT_TYPE.ALL,
-          data.excludedUserIds || [],
-          data.includedUserIds || [],
-          transaction,
-        );
-
-        if (assignedUserIds.length > 0) {
-          // Create deliveries for the assigned users with the specified PPE types
-          await this.createDeliveriesForSchedule(
-            ppeDeliverySchedule,
-            assignedUserIds,
-            data.ppeItems as { ppeType: PPE_TYPE; quantity: number }[],
-            transaction,
-            userId,
-          );
-
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
-            entityId: ppeDeliverySchedule.id,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'deliveries_auto_created',
-            oldValue: null,
-            newValue: {
-              userCount: assignedUserIds.length,
-              ppeTypes: data.ppeItems,
-              assignmentType: data.assignmentType,
-            },
-            reason: `${assignedUserIds.length} entregas de PPE criadas automaticamente para ${data.ppeItems.length} tipos de PPE`,
-            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-            triggeredById: ppeDeliverySchedule.id,
-            userId: userId || null,
-            transaction: transaction,
-          });
-        } else {
-          if (process.env.NODE_ENV !== 'production') {
-            console.warn(
-              `No users found for assignment type ${data.assignmentType} in schedule ${ppeDeliverySchedule.id}`,
+      // Deliveries are NOT created immediately on schedule creation.
+      // The cron job will create them based on lead time:
+      //   - Short frequencies (DAILY/WEEKLY/BIWEEKLY): 1 day before nextRun
+      //   - Longer frequencies (MONTHLY+, ONCE): 7 days before nextRun
+      //
+      // For ONCE: nextRun is already set to specificDate by the repository.
+      // For recurring: use user-provided nextRun or calculate the first target delivery date.
+      if (data.frequency !== SCHEDULE_FREQUENCY.ONCE) {
+        const firstNextRun = data.nextRun
+          ? new Date(data.nextRun)
+          : this.calculateNextRunDate(
+              { frequency: data.frequency, frequencyCount: data.frequencyCount || 1, dayOfMonth: data.dayOfMonth, dayOfWeek: data.dayOfWeek, month: data.month },
+              new Date(),
             );
-          }
-        }
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error(
-            `Error creating automatic deliveries for schedule ${ppeDeliverySchedule.id}:`,
-            error,
+        if (firstNextRun) {
+          await this.repository.updateWithTransaction(
+            transaction,
+            ppeDeliverySchedule.id,
+            { nextRun: firstNextRun },
           );
         }
-
-        // Log the error but don't fail the schedule creation
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
-          entityId: ppeDeliverySchedule.id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'auto_delivery_error',
-          oldValue: null,
-          newValue: {
-            error: error instanceof Error ? error.message : String(error),
-            assignmentType: data.assignmentType,
-            ppeTypes: data.ppeItems,
-          },
-          reason: 'Erro na criação automática das entregas de PPE',
-          triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-          triggeredById: ppeDeliverySchedule.id,
-          userId: userId || null,
-          transaction: transaction,
-        });
       }
+
+      // Re-fetch with latest state
+      const finalSchedule = await this.repository.findByIdWithTransaction(
+        transaction,
+        ppeDeliverySchedule.id,
+        { include },
+      );
 
       // Log entity creation
       await logEntityChange({
@@ -503,64 +568,73 @@ export class PpeDeliveryScheduleService {
         entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
         entityId: ppeDeliverySchedule.id,
         action: CHANGE_ACTION.CREATE,
-        entity: ppeDeliverySchedule,
+        entity: finalSchedule || ppeDeliverySchedule,
         reason: 'Agendamento de PPE criado',
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         userId: userId || null,
         transaction: transaction,
       });
 
-      // Track configuration creation based on frequency
-      if (data.frequency === SCHEDULE_FREQUENCY.WEEKLY && data.dayOfWeek) {
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
-          entityId: ppeDeliverySchedule.id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'weeklyConfiguration',
-          oldValue: null,
-          newValue: { dayOfWeek: data.dayOfWeek },
-          reason: `Configuração semanal criada: ${data.dayOfWeek}`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: ppeDeliverySchedule.id,
-          userId: userId || null,
-          transaction: transaction,
-        });
-      } else if (data.frequency === SCHEDULE_FREQUENCY.MONTHLY) {
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
-          entityId: ppeDeliverySchedule.id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'monthlyConfiguration',
-          oldValue: null,
-          newValue: { dayOfMonth: data.dayOfMonth, dayOfWeek: data.dayOfWeek },
-          reason: `Configuração mensal criada`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: ppeDeliverySchedule.id,
-          userId: userId || null,
-          transaction: transaction,
-        });
-      } else if (data.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
-        await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
-          entityId: ppeDeliverySchedule.id,
-          action: CHANGE_ACTION.UPDATE,
-          field: 'yearlyConfiguration',
-          oldValue: null,
-          newValue: { month: data.month, dayOfMonth: data.dayOfMonth, dayOfWeek: data.dayOfWeek },
-          reason: `Configuração anual criada`,
-          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: ppeDeliverySchedule.id,
-          userId: userId || null,
-          transaction: transaction,
-        });
+      const leadDays = this.getLeadTimeDays(data.frequency);
+
+      // Check if the first run is already within the lead time window.
+      // If so, create deliveries immediately instead of waiting for the cron job.
+      const effectiveSchedule = finalSchedule || ppeDeliverySchedule;
+      const effectiveNextRun = effectiveSchedule.nextRun
+        ? new Date(effectiveSchedule.nextRun)
+        : data.frequency === SCHEDULE_FREQUENCY.ONCE && data.specificDate
+          ? new Date(data.specificDate)
+          : null;
+
+      let immediateExecution = false;
+      if (effectiveNextRun) {
+        const now = new Date();
+        const preparationDate = new Date(now);
+        preparationDate.setDate(preparationDate.getDate() + leadDays);
+        if (effectiveNextRun <= preparationDate) {
+          immediateExecution = true;
+        }
       }
 
       return {
         success: true,
-        message: 'Agendamento de PPE criado com sucesso e entregas automáticas processadas.',
-        data: ppeDeliverySchedule,
+        scheduleId: effectiveSchedule.id,
+        immediateExecution,
+        leadDays,
+        message: data.frequency === SCHEDULE_FREQUENCY.ONCE
+          ? `Agendamento de PPE criado com sucesso. As entregas serão geradas ${leadDays} dia(s) antes da data agendada.`
+          : `Agendamento de PPE criado com sucesso. As entregas serão geradas ${leadDays} dia(s) antes de cada execução.`,
+        data: effectiveSchedule,
       };
     });
+
+    // If the first run is already within the lead time window, execute immediately
+    // (outside the creation transaction to avoid long-running transactions)
+    if (result.immediateExecution) {
+      try {
+        const execResult = await this.executeScheduleNow(result.scheduleId, userId);
+        return {
+          success: true,
+          message: `${result.message} Entregas criadas imediatamente pois a data já está dentro da janela de ${result.leadDays} dia(s).`,
+          data: result.data,
+          immediateDeliveries: execResult.data,
+        };
+      } catch (error) {
+        // Schedule was created successfully, just the immediate execution failed.
+        // The cron job will pick it up later.
+        return {
+          success: true,
+          message: `${result.message} Nota: a execução imediata falhou, o cron irá processar.`,
+          data: result.data,
+        };
+      }
+    }
+
+    return {
+      success: true,
+      message: result.message,
+      data: result.data,
+    };
   }
 
   async findById(
@@ -968,24 +1042,28 @@ export class PpeDeliveryScheduleService {
         );
       }
 
-      // For now, skip the nextRun calculation as per user request for basic CRUD only
+      // Calculate the next run date using the shared method
+      const now = new Date();
+      const nextRun = this.calculateNextRunDate(schedule, now);
+
       const updatedSchedule = await this.repository.updateWithTransaction(
         transaction,
         id,
         {
-          lastRun: new Date(),
+          lastRun: now,
+          nextRun: nextRun,
         },
         { include: undefined },
       );
 
-      // Track the lastRun field change
+      // Track the lastRun and nextRun field changes
       await trackAndLogFieldChanges({
         changeLogService: this.changeLogService,
         entityType: ENTITY_TYPE.PPE_DELIVERY_SCHEDULE,
         entityId: id,
         oldEntity: schedule,
         newEntity: updatedSchedule,
-        fieldsToTrack: ['lastRun'],
+        fieldsToTrack: ['lastRun', 'nextRun'],
         userId: userId || null,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         transaction: transaction,
@@ -1183,7 +1261,7 @@ export class PpeDeliveryScheduleService {
               ppeScheduleId: schedule.id,
               status: PPE_DELIVERY_STATUS.PENDING,
               statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING],
-              scheduledDate: new Date(), // Execute now
+              scheduledDate: schedule.nextRun || new Date(),
             };
 
             await this.ppeDeliveryService.create(deliveryData, undefined, userId);
@@ -1198,10 +1276,21 @@ export class PpeDeliveryScheduleService {
         }
       }
 
-      // Update schedule last run
-      await this.repository.update(scheduleId, {
-        lastRun: new Date(),
-      });
+      // Update schedule: set lastRun, calculate nextRun for recurring, deactivate ONCE
+      const now = new Date();
+      if (schedule.frequency === SCHEDULE_FREQUENCY.ONCE) {
+        await this.repository.updateWithTransaction(transaction, scheduleId, {
+          lastRun: now,
+          isActive: false,
+          nextRun: null as any,
+        });
+      } else {
+        const nextRunDate = this.calculateNextRunDate(schedule, now);
+        await this.repository.updateWithTransaction(transaction, scheduleId, {
+          lastRun: now,
+          ...(nextRunDate && { nextRun: nextRunDate }),
+        });
+      }
 
       // Log the manual execution
       await this.changeLogService.logChange({
@@ -1234,6 +1323,55 @@ export class PpeDeliveryScheduleService {
         },
       };
     });
+  }
+
+  /**
+   * Process schedules that are within their lead time window.
+   * Deliveries are created BEFORE the actual delivery date:
+   *   - DAILY / WEEKLY / BIWEEKLY: 1 day before nextRun
+   *   - All others (MONTHLY+, ONCE): 7 days before nextRun
+   *
+   * Called by the cron job daily at 7 AM.
+   */
+  async processDueSchedules(): Promise<{
+    totalProcessed: number;
+    totalDeliveriesCreated: number;
+    errors: Array<{ scheduleId: string; error: string }>;
+  }> {
+    const now = new Date();
+
+    // Query all active schedules where nextRun is within the max lead time (7 days from now)
+    const maxLeadDate = new Date(now);
+    maxLeadDate.setDate(maxLeadDate.getDate() + 7);
+
+    const candidateSchedules = await this.repository.findDueSchedules(maxLeadDate);
+
+    let totalProcessed = 0;
+    let totalDeliveriesCreated = 0;
+    const errors: Array<{ scheduleId: string; error: string }> = [];
+
+    for (const schedule of candidateSchedules) {
+      try {
+        // Check if this schedule is within its specific lead time window
+        const leadTimeDays = this.getLeadTimeDays(schedule.frequency);
+        const preparationDate = new Date(now);
+        preparationDate.setDate(preparationDate.getDate() + leadTimeDays);
+
+        // Only process if nextRun <= now + leadTimeDays (i.e., we're within the preparation window)
+        if (!schedule.nextRun || schedule.nextRun > preparationDate) {
+          continue; // Not yet time to prepare deliveries for this schedule
+        }
+
+        const result = await this.executeScheduleNow(schedule.id, 'system');
+        totalProcessed++;
+        totalDeliveriesCreated += result.data.deliveriesCreated;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        errors.push({ scheduleId: schedule.id, error: errorMsg });
+      }
+    }
+
+    return { totalProcessed, totalDeliveriesCreated, errors };
   }
 
   /**

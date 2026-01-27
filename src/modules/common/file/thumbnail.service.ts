@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { promises as fs } from 'fs';
 import { join, dirname, extname, basename } from 'path';
 const sharp = require('sharp');
+const ffmpeg = require('fluent-ffmpeg');
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
@@ -60,6 +61,7 @@ export class ThumbnailService {
     ghostscript: false,
     imagemagick: false,
     inkscape: false,
+    ffmpeg: false,
   };
 
   constructor(private readonly filesStorageService: FilesStorageService) {
@@ -105,6 +107,21 @@ export class ThumbnailService {
         'Inkscape não está disponível (opcional para melhor conversão EPS->SVG). Instale com: brew install inkscape',
       );
     }
+
+    try {
+      // Check FFmpeg
+      const ffmpegPath = THUMBNAIL_CONFIG.tools.ffmpegPath || 'ffmpeg';
+      await execAsync(`${ffmpegPath} -version`);
+      this.toolsAvailable.ffmpeg = true;
+      if (THUMBNAIL_CONFIG.tools.ffmpegPath) {
+        ffmpeg.setFfmpegPath(THUMBNAIL_CONFIG.tools.ffmpegPath);
+      }
+      this.logger.log('FFmpeg disponível');
+    } catch (e) {
+      this.logger.warn(
+        'FFmpeg não está instalado. Instale com: brew install ffmpeg (macOS) ou apt-get install ffmpeg (Ubuntu)',
+      );
+    }
   }
 
   /**
@@ -143,6 +160,8 @@ export class ThumbnailService {
 
       if (this.isImageFile(mimetype)) {
         return await this.generateImageThumbnail(filePath, fileId, options);
+      } else if (this.isVideoFile(mimetype)) {
+        return await this.generateVideoThumbnail(filePath, fileId, options);
       } else if (this.isPdfFile(mimetype)) {
         return await this.generatePdfThumbnail(filePath, fileId, options);
       } else if (this.isEpsFile(mimetype)) {
@@ -223,6 +242,166 @@ export class ThumbnailService {
         error: error.message || 'Erro ao processar imagem',
       };
     }
+  }
+
+  /**
+   * Generate thumbnail for video files using FFmpeg frame extraction
+   */
+  private async generateVideoThumbnail(
+    videoPath: string,
+    fileId: string,
+    options: ThumbnailOptions = {},
+  ): Promise<ThumbnailResult> {
+    try {
+      if (!this.toolsAvailable.ffmpeg) {
+        return {
+          success: false,
+          error: 'FFmpeg não está instalado. Instale com: brew install ffmpeg (macOS) ou apt-get install ffmpeg (Ubuntu)',
+        };
+      }
+
+      const finalOptions = { ...this.defaultOptions, ...options };
+      const thumbnailPath = await this.getThumbnailPath(videoPath, fileId, finalOptions);
+
+      this.logger.log(`Gerando thumbnail de vídeo: ${videoPath} -> ${thumbnailPath}`);
+
+      // Ensure the thumbnail directory exists
+      await fs.mkdir(dirname(thumbnailPath), { recursive: true });
+
+      // Temp path for the raw extracted frame (PNG for lossless intermediate)
+      const tempFramePath = thumbnailPath.replace(/\.\w+$/, '_temp_frame.png');
+
+      // Step 1: Get video duration to calculate the frame extraction timestamp
+      const duration = await this.getVideoDuration(videoPath);
+      const seekTime = this.calculateSeekTime(duration);
+
+      this.logger.log(
+        `Vídeo duration: ${duration}s, extracting frame at ${seekTime}s`,
+      );
+
+      // Step 2: Extract a single frame from the video using FFmpeg
+      await this.extractVideoFrame(videoPath, tempFramePath, seekTime, finalOptions);
+
+      // Verify temp frame was created
+      try {
+        const stats = await fs.stat(tempFramePath);
+        if (stats.size === 0) {
+          throw new Error('Frame extraído está vazio');
+        }
+      } catch (e: any) {
+        throw new Error(`Falha ao extrair frame do vídeo: ${e.message}`);
+      }
+
+      // Step 3: Convert extracted frame to optimized thumbnail with Sharp
+      await sharp(tempFramePath)
+        .resize(finalOptions.width, finalOptions.height, {
+          fit: finalOptions.fit as any,
+          withoutEnlargement: true,
+          background: { r: 0, g: 0, b: 0 },
+        })
+        .toFormat(finalOptions.format as any, {
+          quality: finalOptions.quality,
+          effort: 6,
+        })
+        .toFile(thumbnailPath);
+
+      // Clean up temp frame
+      try {
+        await fs.unlink(tempFramePath);
+      } catch (e) {
+        this.logger.warn(`Não foi possível remover frame temporário: ${tempFramePath}`);
+      }
+
+      const thumbnailUrl = this.generateThumbnailUrl(thumbnailPath, fileId);
+
+      this.logger.log(`Thumbnail de vídeo gerado com sucesso: ${thumbnailUrl}`);
+
+      return {
+        success: true,
+        thumbnailPath,
+        thumbnailUrl,
+      };
+    } catch (error: any) {
+      this.logger.error(`Falha ao gerar thumbnail de vídeo para ${videoPath}:`, error);
+      return {
+        success: false,
+        error: error.message || 'Erro ao processar vídeo',
+      };
+    }
+  }
+
+  /**
+   * Get video duration in seconds using FFprobe
+   */
+  private getVideoDuration(videoPath: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(videoPath, (err: any, metadata: any) => {
+        if (err) {
+          this.logger.warn(`FFprobe falhou para ${videoPath}: ${err.message}, usando duração padrão`);
+          // Return a default duration so we can still attempt frame extraction
+          resolve(10);
+          return;
+        }
+
+        const duration = metadata?.format?.duration;
+        if (duration && !isNaN(duration)) {
+          resolve(parseFloat(duration));
+        } else {
+          this.logger.warn(`Duração do vídeo não disponível para ${videoPath}, usando padrão`);
+          resolve(10);
+        }
+      });
+    });
+  }
+
+  /**
+   * Calculate the best timestamp to extract a frame from a video.
+   * Uses 10% of the duration (minimum 1s, maximum 10s) to avoid black intro frames.
+   */
+  private calculateSeekTime(duration: number): number {
+    if (duration <= 0) {
+      return 0;
+    }
+
+    // 10% into the video, clamped between 1s and 10s
+    const seekTime = duration * 0.1;
+    return Math.min(Math.max(seekTime, Math.min(1, duration)), Math.min(10, duration));
+  }
+
+  /**
+   * Extract a single frame from a video file using FFmpeg
+   */
+  private extractVideoFrame(
+    videoPath: string,
+    outputPath: string,
+    seekTime: number,
+    options: Required<ThumbnailOptions>,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Use a larger intermediate size for better quality after Sharp resize
+      const intermediateSize = `${options.width * 2}x${options.height * 2}`;
+
+      const timeout = setTimeout(() => {
+        reject(new Error('FFmpeg frame extraction timed out after 30 seconds'));
+      }, 30000);
+
+      ffmpeg(videoPath)
+        .seekInput(seekTime)
+        .frames(1)
+        .size(intermediateSize)
+        .outputOptions(['-q:v', '2']) // High quality output
+        .output(outputPath)
+        .on('end', () => {
+          clearTimeout(timeout);
+          resolve();
+        })
+        .on('error', (err: any) => {
+          clearTimeout(timeout);
+          this.logger.error(`FFmpeg frame extraction error: ${err.message}`);
+          reject(new Error(`FFmpeg frame extraction failed: ${err.message}`));
+        })
+        .run();
+    });
   }
 
   /**
@@ -886,6 +1065,16 @@ export class ThumbnailService {
       return this.thumbnailSizes[size as keyof ThumbnailSize];
     }
     return this.thumbnailSizes.medium;
+  }
+
+  /**
+   * Check if file is a video
+   */
+  private isVideoFile(mimetype: string): boolean {
+    return (
+      mimetype.startsWith('video/') ||
+      THUMBNAIL_CONFIG.supportedTypes.videos.includes(mimetype.toLowerCase())
+    );
   }
 
   /**

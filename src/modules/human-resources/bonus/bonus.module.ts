@@ -5,6 +5,7 @@ import { BonusController } from './bonus.controller';
 import { BonusService } from './bonus.service';
 import { ExactBonusCalculationService } from './exact-bonus-calculation.service';
 import { BonusDiscountService } from './bonus-discount.service';
+import { SecullumBonusIntegrationService } from './secullum-bonus-integration.service';
 import { BonusRepository } from './repositories/bonus/bonus.repository';
 import { BonusPrismaRepository } from './repositories/bonus/bonus-prisma.repository';
 import { BonusDiscountRepository } from './repositories/bonus-discount/bonus-discount.repository';
@@ -14,6 +15,7 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { SchedulerModule } from '@modules/common/scheduler/scheduler.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { PositionModule } from '@modules/people/position/position.module';
+import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
 
 @Module({
   imports: [
@@ -21,6 +23,7 @@ import { PositionModule } from '@modules/people/position/position.module';
     ChangeLogModule,
     UserModule,
     PositionModule,
+    SecullumModule,
     forwardRef(() => SchedulerModule),
   ],
   controllers: [BonusController],
@@ -28,6 +31,7 @@ import { PositionModule } from '@modules/people/position/position.module';
     BonusService,
     ExactBonusCalculationService,
     BonusDiscountService,
+    SecullumBonusIntegrationService,
     {
       provide: BonusRepository,
       useClass: BonusPrismaRepository,

@@ -8,6 +8,7 @@ import { BonusModule } from '../../human-resources/bonus/bonus.module';
 import { PayrollModule } from '../../human-resources/payroll/payroll.module';
 import { UserModule } from '../../people/user/user.module';
 import { OrderModule } from '../../inventory/order/order.module';
+import { PpeModule } from '../../inventory/ppe/ppe.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { OrderModule } from '../../inventory/order/order.module';
     forwardRef(() => PayrollModule),
     UserModule,
     OrderModule,
+    forwardRef(() => PpeModule),
   ],
   providers: [SchedulerService, BonusCronService, CronService],
   exports: [SchedulerService, BonusCronService, CronService],

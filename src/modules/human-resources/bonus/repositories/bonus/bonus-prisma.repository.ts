@@ -151,6 +151,19 @@ export class BonusPrismaRepository
           },
         },
       }),
+      ...(include.bonusExtras && {
+        bonusExtras: {
+          orderBy: { calculationOrder: 'asc' },
+          select: {
+            id: true,
+            percentage: true,
+            value: true,
+            reference: true,
+            calculationOrder: true,
+            createdAt: true,
+          },
+        },
+      }),
       ...(include.payroll && {
         payroll: {
           select: {

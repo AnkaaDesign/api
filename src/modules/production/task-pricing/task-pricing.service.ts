@@ -218,13 +218,16 @@ export class TaskPricingService {
             // Layout File
             layoutFileId: data.layoutFileId || null,
             items: {
-              create: data.items.map(item => ({
+              create: data.items.map((item, index) => ({
                 amount: item.amount || 0,
                 description: item.description || '',
+                observation: item.observation || null,
+                shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+                position: index,
               })),
             },
           },
-          include: { items: true, tasks: true, layoutFile: true },
+          include: { items: { orderBy: { position: 'asc' } }, tasks: true, layoutFile: true },
         });
 
         // Log change
@@ -263,7 +266,7 @@ export class TaskPricingService {
     userId: string,
   ): Promise<TaskPricingUpdateResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id, { include: { items: true } });
+      const existing = await this.taskPricingRepository.findById(id, { include: { items: { orderBy: { position: 'asc' } } } });
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -318,14 +321,17 @@ export class TaskPricingService {
             ...(data.items && {
               items: {
                 deleteMany: {},
-                create: data.items.map(item => ({
+                create: data.items.map((item, index) => ({
                   amount: item.amount || 0,
                   description: item.description || '',
+                  observation: item.observation || null,
+                  shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+                  position: index,
                 })),
               },
             }),
           },
-          include: { items: true, tasks: true, layoutFile: true },
+          include: { items: { orderBy: { position: 'asc' } }, tasks: true, layoutFile: true },
         });
 
         // Log change

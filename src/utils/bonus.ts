@@ -495,10 +495,10 @@ export function countBonusTasks(tasks?: any[]): number {
 
 export interface BonusDiscount {
   id: string;
-  reason: string;
+  reference: string;
   percentage?: number;
-  fixedValue?: number;
-  order: number;
+  value?: number;
+  calculationOrder: number;
 }
 
 /**
@@ -544,7 +544,7 @@ export function applyDiscounts(
   totalFixedDiscount: number;
   appliedDiscounts: Array<{
     id: string;
-    reason: string;
+    reference: string;
     type: 'percentage' | 'fixed';
     amount: number;
     valueAfterDiscount: number;
@@ -560,14 +560,14 @@ export function applyDiscounts(
   }
 
   // Sort discounts by order
-  const sortedDiscounts = [...discounts].sort((a, b) => a.order - b.order);
+  const sortedDiscounts = [...discounts].sort((a, b) => a.calculationOrder - b.calculationOrder);
 
   // Separate percentage and fixed discounts
   const percentageDiscounts = sortedDiscounts.filter(
     d => d.percentage !== undefined && d.percentage > 0,
   );
   const fixedDiscounts = sortedDiscounts.filter(
-    d => d.fixedValue !== undefined && d.fixedValue > 0,
+    d => d.value !== undefined && d.value > 0,
   );
 
   let currentValue = originalValue;
@@ -575,7 +575,7 @@ export function applyDiscounts(
   let totalFixedDiscount = 0;
   const appliedDiscounts: Array<{
     id: string;
-    reason: string;
+    reference: string;
     type: 'percentage' | 'fixed';
     amount: number;
     valueAfterDiscount: number;
@@ -590,7 +590,7 @@ export function applyDiscounts(
 
     appliedDiscounts.push({
       id: discount.id,
-      reason: discount.reason,
+      reason: discount.reference,
       type: 'percentage',
       amount: discountAmount,
       valueAfterDiscount: currentValue,
@@ -599,15 +599,15 @@ export function applyDiscounts(
 
   // Then apply fixed value discounts
   for (const discount of fixedDiscounts) {
-    const fixedValue = discount.fixedValue!;
+    const fixedVal = discount.value!;
     const previousValue = currentValue;
-    currentValue = applyFixedValueDiscount(currentValue, fixedValue);
+    currentValue = applyFixedValueDiscount(currentValue, fixedVal);
     const actualDiscount = previousValue - currentValue;
     totalFixedDiscount += actualDiscount;
 
     appliedDiscounts.push({
       id: discount.id,
-      reason: discount.reason,
+      reason: discount.reference,
       type: 'fixed',
       amount: actualDiscount,
       valueAfterDiscount: currentValue,
@@ -662,7 +662,7 @@ export function getDiscountBreakdown(
   finalValue: number;
   totalDiscountAmount: number;
   discounts: Array<{
-    reason: string;
+    reference: string;
     type: 'percentage' | 'fixed';
     displayValue: string;
     discountAmount: number;
@@ -675,7 +675,7 @@ export function getDiscountBreakdown(
     finalValue: result.finalValue,
     totalDiscountAmount: originalValue - result.finalValue,
     discounts: result.appliedDiscounts.map(d => ({
-      reason: d.reason,
+      reference: d.reference,
       type: d.type,
       displayValue:
         d.type === 'percentage'
@@ -697,12 +697,12 @@ export function validateDiscount(discount: Partial<BonusDiscount>): {
 } {
   const errors: string[] = [];
 
-  if (!discount.reason || discount.reason.trim().length === 0) {
+  if (!discount.reference || discount.reference.trim().length === 0) {
     errors.push('Motivo é obrigatório');
   }
 
   const hasPercentage = discount.percentage !== undefined && discount.percentage !== null;
-  const hasFixedValue = discount.fixedValue !== undefined && discount.fixedValue !== null;
+  const hasFixedValue = discount.value !== undefined && discount.value !== null;
 
   if (!hasPercentage && !hasFixedValue) {
     errors.push('Deve ter percentual ou valor fixo');
@@ -721,7 +721,7 @@ export function validateDiscount(discount: Partial<BonusDiscount>): {
     }
   }
 
-  if (hasFixedValue && discount.fixedValue! < 0) {
+  if (hasFixedValue && discount.value! < 0) {
     errors.push('Valor fixo não pode ser negativo');
   }
 
