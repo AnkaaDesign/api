@@ -6,6 +6,7 @@ import {
   BackupPriority,
   BackupStatus,
   GDriveSyncStatus,
+  GDriveDeleteStatus,
   Prisma,
 } from '@prisma/client';
 
@@ -318,6 +319,75 @@ export class BackupRepository {
     return this.prisma.backup.update({
       where: { id },
       data,
+    });
+  }
+
+  /**
+   * Update Google Drive delete status
+   */
+  async updateGDriveDeleteStatus(
+    id: string,
+    status: GDriveDeleteStatus,
+    error?: string,
+  ): Promise<Backup> {
+    const data: Prisma.BackupUpdateInput = {
+      gdriveDeleteStatus: status,
+    };
+
+    if (error) {
+      data.gdriveDeleteError = error;
+    }
+
+    if (status === GDriveDeleteStatus.FAILED) {
+      // Increment attempt counter
+      return this.prisma.backup.update({
+        where: { id },
+        data: {
+          ...data,
+          gdriveDeleteAttempts: { increment: 1 },
+        },
+      });
+    }
+
+    return this.prisma.backup.update({
+      where: { id },
+      data,
+    });
+  }
+
+  /**
+   * Mark backup as pending GDrive delete
+   */
+  async markPendingGDriveDelete(id: string): Promise<Backup> {
+    return this.prisma.backup.update({
+      where: { id },
+      data: {
+        gdriveDeleteStatus: GDriveDeleteStatus.PENDING,
+        gdriveDeleteError: null,
+      },
+    });
+  }
+
+  /**
+   * Find backups with pending or failed GDrive deletes
+   */
+  async findPendingOrFailedGDriveDeletes(): Promise<Backup[]> {
+    return this.prisma.backup.findMany({
+      where: {
+        gdriveDeleteStatus: {
+          in: [GDriveDeleteStatus.PENDING, GDriveDeleteStatus.FAILED],
+        },
+      },
+      orderBy: { deletedAt: 'asc' },
+    });
+  }
+
+  /**
+   * Find backup by file path
+   */
+  async findByFilePath(filePath: string): Promise<Backup | null> {
+    return this.prisma.backup.findFirst({
+      where: { filePath },
     });
   }
 

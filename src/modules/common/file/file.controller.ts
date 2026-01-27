@@ -102,7 +102,7 @@ export class FileController {
 
   @Post('upload/multiple')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(FilesInterceptor('files', 10, multerConfig)) // Limit to 10 files
+  @UseInterceptors(FilesInterceptor('files', 30, multerConfig)) // Limit to 30 files
   @FileOperationBypass() // Completely bypass ALL throttlers for file uploads
   async uploadMultipleFiles(
     @UploadedFiles() files: Express.Multer.File[],
