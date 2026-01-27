@@ -1313,8 +1313,9 @@ export class ServerService {
       // First check if smartctl is available
       const smartctlAvailable = await this.checkSmartctlAvailable();
       if (!smartctlAvailable) {
-        this.logger.warn('smartctl is not available on this system');
-        throw new Error('smartctl tool is not installed or not available');
+        this.logger.warn('smartctl is not available on this system, using lsblk fallback');
+        // Use lsblk fallback to get basic disk information
+        return await this.getBasicDiskInfo();
       }
 
       const devices = await this.getStorageDevices();
@@ -1323,7 +1324,64 @@ export class ServerService {
       return results.filter(result => result !== null);
     } catch (error) {
       this.logger.error('Failed to get SSD health data', error);
-      throw error;
+      // Try fallback before throwing
+      try {
+        return await this.getBasicDiskInfo();
+      } catch {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Fallback method to get basic disk information using lsblk
+   * when smartctl is not available
+   */
+  private async getBasicDiskInfo(): Promise<SsdHealthData[]> {
+    try {
+      const { stdout } = await execPromise(
+        'lsblk -d -b -o NAME,SIZE,MODEL,ROTA,TRAN,TYPE -J 2>/dev/null || lsblk -d -b -o NAME,SIZE,MODEL,ROTA,TYPE -J',
+      );
+
+      const data = JSON.parse(stdout);
+      const disks: SsdHealthData[] = [];
+
+      for (const device of data.blockdevices || []) {
+        // Skip loop devices, ram disks, etc
+        if (device.type !== 'disk' || device.name.startsWith('loop') || device.name.startsWith('ram')) {
+          continue;
+        }
+
+        const isRotational = device.rota === true || device.rota === '1' || device.rota === 1;
+        const sizeBytes = parseInt(device.size) || 0;
+        const sizeGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(1);
+
+        disks.push({
+          device: `/dev/${device.name}`,
+          model: device.model?.trim() || 'Unknown Model',
+          serialNumber: 'N/A (smartctl não instalado)',
+          capacity: `${sizeGB} GB`,
+          firmwareVersion: 'N/A',
+          interfaceType: device.tran?.toUpperCase() || (isRotational ? 'SATA' : 'NVMe/SATA'),
+          health: {
+            overall: 'UNKNOWN',
+            status: 'Instale smartmontools para dados SMART detalhados',
+          },
+          temperature: {
+            unit: 'C',
+          },
+          powerOn: {},
+          wearLevel: {},
+          errorCounts: {},
+          attributes: [],
+          lastUpdated: new Date(),
+        });
+      }
+
+      return disks;
+    } catch (error) {
+      this.logger.error('Failed to get basic disk info via lsblk', error);
+      return [];
     }
   }
 

@@ -7,6 +7,9 @@ import { BackupProcessor } from './backup.processor';
 import { BackupGateway } from './backup.gateway';
 import { BackupRepository } from './backup.repository';
 import { BackupScheduleRepository } from './backup-schedule.repository';
+import { GDriveSyncService } from './gdrive-sync.service';
+import { GDriveSyncProcessor } from './gdrive-sync.processor';
+import { RcloneService } from './rclone.service';
 import { UserModule } from '../../people/user/user.module';
 import { PrismaModule } from '../prisma/prisma.module';
 
@@ -18,9 +21,21 @@ import { PrismaModule } from '../prisma/prisma.module';
     BullModule.registerQueue({
       name: 'backup-queue',
     }),
+    BullModule.registerQueue({
+      name: 'gdrive-sync-queue',
+    }),
   ],
   controllers: [BackupController],
-  providers: [BackupService, BackupProcessor, BackupGateway, BackupRepository, BackupScheduleRepository],
-  exports: [BackupService, BackupRepository, BackupScheduleRepository],
+  providers: [
+    BackupService,
+    BackupProcessor,
+    BackupGateway,
+    BackupRepository,
+    BackupScheduleRepository,
+    GDriveSyncService,
+    GDriveSyncProcessor,
+    RcloneService,
+  ],
+  exports: [BackupService, BackupRepository, BackupScheduleRepository, GDriveSyncService, RcloneService],
 })
 export class BackupModule {}

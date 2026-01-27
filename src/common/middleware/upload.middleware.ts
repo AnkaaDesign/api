@@ -37,14 +37,14 @@ export function handleMulterError(error: any, req: Request, res: Response, next:
     switch (error.code) {
       case 'LIMIT_FILE_SIZE': {
         const maxSize = Math.round(
-          parseInt(process.env.MAX_FILE_SIZE || '52428800') / (1024 * 1024),
+          parseInt(process.env.MAX_FILE_SIZE || '524288000') / (1024 * 1024),
         );
         message = `Arquivo muito grande. Tamanho máximo permitido: ${maxSize}MB`;
         break;
       }
 
       case 'LIMIT_FILE_COUNT':
-        message = 'Muitos arquivos. Máximo de 10 arquivos por vez';
+        message = 'Muitos arquivos. Máximo de 30 arquivos por vez';
         break;
 
       case 'LIMIT_UNEXPECTED_FILE':

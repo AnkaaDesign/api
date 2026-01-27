@@ -86,6 +86,13 @@ export class OrderListener {
 
   /**
    * Create notifications for multiple users
+   * @param userIds - Target user IDs
+   * @param title - Notification title
+   * @param body - Notification body
+   * @param actionUrl - Deep link URLs (JSON string)
+   * @param importance - Notification importance level
+   * @param actorId - The user who triggered the action (will be excluded from recipients)
+   * @param additionalMetadata - Additional metadata to include in the notification
    */
   private async createNotificationsForUsers(
     userIds: string[],
@@ -93,18 +100,37 @@ export class OrderListener {
     body: string,
     actionUrl: string,
     importance: NOTIFICATION_IMPORTANCE = NOTIFICATION_IMPORTANCE.NORMAL,
+    actorId?: string,
+    additionalMetadata?: Record<string, any>,
   ): Promise<void> {
     try {
+      // Parse actionUrl to extract individual URLs for metadata
+      let parsedUrls: { web?: string; mobile?: string; universalLink?: string } = {};
+      try {
+        parsedUrls = JSON.parse(actionUrl);
+      } catch {
+        // If not JSON, use as-is
+        parsedUrls = { web: actionUrl };
+      }
+
       const notificationData = userIds.map(userId => ({
         userId,
         title,
         body,
-        type: NOTIFICATION_TYPE.ORDER, // Fixed: Using correct NOTIFICATION_TYPE for orders
+        type: NOTIFICATION_TYPE.ORDER,
         importance,
         actionUrl,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
+        metadata: {
+          actorId, // User who triggered the action (for self-action filtering)
+          webUrl: parsedUrls.web,
+          mobileUrl: parsedUrls.mobile,
+          universalLink: parsedUrls.universalLink,
+          entityType: 'Order',
+          ...additionalMetadata,
+        },
       }));
 
       if (notificationData.length > 0) {
@@ -195,6 +221,12 @@ export class OrderListener {
         body,
         actionUrl,
         NOTIFICATION_IMPORTANCE.NORMAL,
+        event.createdBy.id, // Actor ID - user who created the order (will be excluded)
+        {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+        },
       );
     } catch (error) {
       this.logger.error('Error handling order created event:', error);
@@ -267,7 +299,21 @@ export class OrderListener {
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
       const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(targetUsers, title, body, actionUrl, importance);
+      await this.createNotificationsForUsers(
+        targetUsers,
+        title,
+        body,
+        actionUrl,
+        importance,
+        event.changedBy.id, // Actor ID - user who changed the status (will be excluded)
+        {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          oldStatus: event.oldStatus,
+          newStatus: event.newStatus,
+        },
+      );
     } catch (error) {
       this.logger.error('Error handling order status changed event:', error);
     }
@@ -337,7 +383,20 @@ export class OrderListener {
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
       const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(targetUsers, title, body, actionUrl, importance);
+      await this.createNotificationsForUsers(
+        targetUsers,
+        title,
+        body,
+        actionUrl,
+        importance,
+        undefined, // No actor ID - this is a system-triggered notification
+        {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          daysOverdue: event.daysOverdue,
+        },
+      );
     } catch (error) {
       this.logger.error('Error handling order overdue event:', error);
     }
@@ -395,6 +454,14 @@ export class OrderListener {
         body,
         actionUrl,
         NOTIFICATION_IMPORTANCE.NORMAL,
+        undefined, // TODO: Add receivedBy to OrderItemReceivedEvent for proper actor filtering
+        {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          itemName,
+          quantity: event.quantity,
+        },
       );
     } catch (error) {
       this.logger.error('Error handling order item received event:', error);
@@ -452,6 +519,14 @@ export class OrderListener {
         body,
         actionUrl,
         NOTIFICATION_IMPORTANCE.HIGH,
+        event.cancelledBy.id, // Actor ID - user who cancelled the order (will be excluded)
+        {
+          orderId: order.id,
+          orderNumber,
+          supplierName,
+          cancelledByName,
+          reason: event.reason,
+        },
       );
     } catch (error) {
       this.logger.error('Error handling order cancelled event:', error);

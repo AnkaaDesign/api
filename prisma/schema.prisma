@@ -2853,6 +2853,11 @@ model Backup {
   gdriveStatus   GDriveSyncStatus @default(PENDING)
   gdriveSyncedAt DateTime?        // Last sync timestamp
 
+  // Google Drive delete tracking
+  gdriveDeleteStatus   GDriveDeleteStatus @default(NOT_NEEDED)
+  gdriveDeleteError    String?
+  gdriveDeleteAttempts Int @default(0)
+
   // Schedule reference (if created by a scheduled job)
   scheduleId String?
   schedule   BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
@@ -2892,4 +2897,11 @@ enum GDriveSyncStatus {
   SYNCED     // Successfully synced
   FAILED     // Sync failed
   DELETED    // Deleted from Google Drive
+}
+
+enum GDriveDeleteStatus {
+  NOT_NEEDED // File was never synced to GDrive
+  PENDING    // Delete queued
+  DELETED    // Successfully deleted from GDrive
+  FAILED     // Delete failed
 }

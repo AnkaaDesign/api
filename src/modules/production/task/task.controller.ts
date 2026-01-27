@@ -123,7 +123,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
-        { name: 'baseFiles', maxCount: 20 },
+        { name: 'baseFiles', maxCount: 30 },
         { name: 'cutFiles', maxCount: 20 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
@@ -220,7 +220,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
-        { name: 'baseFiles', maxCount: 20 },
+        { name: 'baseFiles', maxCount: 30 },
         { name: 'cutFiles', maxCount: 20 },
         // Layout photos for bulk layout operations
         { name: 'layoutPhotos.leftSide', maxCount: 1 },
@@ -338,7 +338,7 @@ export class TaskController {
   @Post('bulk/upload-files')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FilesInterceptor('files', 10, multerConfig))
+  @UseInterceptors(FilesInterceptor('files', 30, multerConfig))
   async bulkUploadFiles(
     @Body(new ZodValidationPipe(taskBulkFileUploadSchema)) data: TaskBulkFileUploadFormData,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -619,7 +619,7 @@ export class TaskController {
         { name: 'invoices', maxCount: 10 },
         { name: 'receipts', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
-        { name: 'baseFiles', maxCount: 20 },
+        { name: 'baseFiles', maxCount: 30 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Pricing layout file

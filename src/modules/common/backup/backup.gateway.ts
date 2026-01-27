@@ -193,4 +193,101 @@ export class BackupGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     // Clean up subscriptions for this backup
     this.activeBackups.delete(data.backupId);
   }
+
+  // ============ Google Drive Sync Events ============
+
+  /**
+   * Listen to GDrive sync started events
+   */
+  @OnEvent('gdrive.sync-started')
+  handleGDriveSyncStarted(data: { backupId: string }) {
+    this.server.emit('gdrive-sync-started', data);
+    this.logger.log(`GDrive sync started event broadcast: ${data.backupId}`);
+  }
+
+  /**
+   * Listen to GDrive sync progress events
+   */
+  @OnEvent('gdrive.sync-progress')
+  handleGDriveSyncProgress(data: {
+    backupId: string;
+    progress: number;
+    bytesTransferred: number;
+    totalBytes: number;
+    speed: string;
+    eta: string;
+  }) {
+    const room = `backup-${data.backupId}`;
+    this.server.to(room).emit('gdrive-sync-progress', data);
+
+    // Also emit to all clients for UI updates
+    this.server.emit('gdrive-sync-progress', data);
+
+    // Log significant milestones
+    if (data.progress % 25 === 0) {
+      this.logger.log(
+        `GDrive sync ${data.backupId}: ${data.progress}% (${data.speed}, ETA: ${data.eta})`,
+      );
+    }
+  }
+
+  /**
+   * Listen to GDrive sync completed events
+   */
+  @OnEvent('gdrive.sync-completed')
+  handleGDriveSyncCompleted(data: {
+    backupId: string;
+    gdriveFileId?: string;
+    bytesTransferred?: number;
+    duration: number;
+  }) {
+    this.server.emit('gdrive-sync-completed', data);
+
+    const room = `backup-${data.backupId}`;
+    this.server.to(room).emit('gdrive-sync-completed', data);
+
+    this.logger.log(`GDrive sync completed event broadcast: ${data.backupId}`);
+  }
+
+  /**
+   * Listen to GDrive sync failed events
+   */
+  @OnEvent('gdrive.sync-failed')
+  handleGDriveSyncFailed(data: {
+    backupId: string;
+    error: string;
+    attempt: number;
+    maxAttempts: number;
+  }) {
+    this.server.emit('gdrive-sync-failed', data);
+
+    const room = `backup-${data.backupId}`;
+    this.server.to(room).emit('gdrive-sync-failed', data);
+
+    this.logger.warn(
+      `GDrive sync failed event broadcast: ${data.backupId} (attempt ${data.attempt}/${data.maxAttempts})`,
+    );
+  }
+
+  /**
+   * Listen to GDrive delete completed events
+   */
+  @OnEvent('gdrive.delete-completed')
+  handleGDriveDeleteCompleted(data: { backupId: string }) {
+    this.server.emit('gdrive-delete-completed', data);
+    this.logger.log(`GDrive delete completed event broadcast: ${data.backupId}`);
+  }
+
+  /**
+   * Listen to GDrive delete failed events
+   */
+  @OnEvent('gdrive.delete-failed')
+  handleGDriveDeleteFailed(data: {
+    backupId: string;
+    error: string;
+    attempt: number;
+  }) {
+    this.server.emit('gdrive-delete-failed', data);
+    this.logger.warn(`GDrive delete failed event broadcast: ${data.backupId}`);
+  }
 }

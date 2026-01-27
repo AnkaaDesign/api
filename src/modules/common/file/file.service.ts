@@ -101,6 +101,18 @@ export class FileService {
   }
 
   /**
+   * Encode path segments for nginx X-Accel-Redirect
+   * This ensures special characters in filenames and directory names are properly URL-encoded
+   * while preserving the path structure (slashes remain unencoded)
+   */
+  private encodePathForNginx(path: string): string {
+    return path
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+  }
+
+  /**
    * Log file attachment/detachment to entities
    */
   private async logFileRelationshipChanges(
@@ -243,7 +255,7 @@ export class FileService {
         if (file.path.startsWith(filesRoot)) {
           // Files storage: Map /srv/files/... to /internal-files/...
           const relativePath = file.path.replace(filesRoot, '');
-          nginxInternalPath = `/internal-files${relativePath}`;
+          nginxInternalPath = `/internal-files${this.encodePathForNginx(relativePath)}`;
         } else if (
           file.path.startsWith(uploadsDir) ||
           file.path.startsWith('./uploads') ||
@@ -251,10 +263,10 @@ export class FileService {
         ) {
           // Local upload file: Map uploads/... to /internal-uploads/...
           const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
-          nginxInternalPath = `/internal-uploads/${relativePath}`;
+          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(relativePath)}`;
         } else {
           // Fallback: assume it's a relative path in uploads
-          nginxInternalPath = `/internal-uploads/${file.path}`;
+          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(file.path)}`;
         }
 
         // Set X-Accel-Redirect header - nginx will intercept and serve the file
@@ -324,7 +336,7 @@ export class FileService {
         if (file.path.startsWith(filesRoot)) {
           // Files storage: Map /srv/files/... to /internal-files/...
           const relativePath = file.path.replace(filesRoot, '');
-          nginxInternalPath = `/internal-files${relativePath}`;
+          nginxInternalPath = `/internal-files${this.encodePathForNginx(relativePath)}`;
         } else if (
           file.path.startsWith(uploadsDir) ||
           file.path.startsWith('./uploads') ||
@@ -332,10 +344,10 @@ export class FileService {
         ) {
           // Local upload file: Map uploads/... to /internal-uploads/...
           const relativePath = file.path.replace(/^\.?\/?(uploads\/)/, '');
-          nginxInternalPath = `/internal-uploads/${relativePath}`;
+          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(relativePath)}`;
         } else {
           // Fallback: assume it's a relative path in uploads
-          nginxInternalPath = `/internal-uploads/${file.path}`;
+          nginxInternalPath = `/internal-uploads/${this.encodePathForNginx(file.path)}`;
         }
 
         // Set X-Accel-Redirect header - nginx will intercept and serve the file
@@ -542,12 +554,12 @@ export class FileService {
 
         if (absolutePath.includes(thumbnailsDir) || absolutePath.includes('/Thumbnails/')) {
           const relativePath = absolutePath.replace(thumbnailsDir, '');
-          nginxInternalPath = `/internal-thumbnails${relativePath}`;
+          nginxInternalPath = `/internal-thumbnails${this.encodePathForNginx(relativePath)}`;
         } else {
           // Local: Map ./uploads/thumbnails/... to /internal-uploads/thumbnails/...
           const uploadsDir = resolve(environmentConfig.upload.uploadDir);
           const relativePath = absolutePath.replace(uploadsDir, '');
-          nginxInternalPath = `/internal-uploads${relativePath}`;
+          nginxInternalPath = `/internal-uploads${this.encodePathForNginx(relativePath)}`;
         }
 
         // Set X-Accel-Redirect header - nginx will intercept and serve the file

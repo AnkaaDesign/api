@@ -306,29 +306,44 @@ export class WhatsAppNotificationService {
   /**
    * Extract action URL from notification
    * Handles various URL formats and sources
+   *
+   * Priority for WhatsApp (to support "open in app if installed, otherwise web"):
+   * 1. universalLink (HTTPS URL that iOS/Android can intercept to open app)
+   * 2. webUrl (full web URL - fallback for browser)
+   * 3. web (from parsed JSON)
+   * 4. fallback construction from relative path
+   *
+   * Universal links (https://domain.com/app/...) work because:
+   * - If app is installed: iOS/Android intercepts and opens the app directly
+   * - If app is not installed: Opens in browser, which handles the redirect
    */
   private extractActionUrl(notification: Notification, metadata: any): string {
     let actionUrlToUse = notification.actionUrl;
 
-    // First, try to extract from metadata (preferred source)
+    // For WhatsApp, prefer universal links to support "open in app if installed"
+    // Universal links are HTTPS URLs that iOS/Android can intercept
+    // Priority: universalLink > webUrl > web (from JSON)
     if (metadata.universalLink) {
       actionUrlToUse = metadata.universalLink;
-    } else if (metadata.mobileUrl) {
-      actionUrlToUse = metadata.mobileUrl;
-    } else if (metadata.url) {
+    } else if (metadata.webUrl) {
+      actionUrlToUse = metadata.webUrl;
+    } else if (metadata.url && metadata.url.startsWith('http')) {
       actionUrlToUse = metadata.url;
     }
 
-    // If actionUrl is a JSON string, parse it
+    // If actionUrl is a JSON string, parse it and prefer universal link
     if (actionUrlToUse && actionUrlToUse.startsWith('{')) {
       try {
         const parsedUrl = JSON.parse(actionUrlToUse);
+        // For WhatsApp, prefer universal link (opens app if installed, otherwise web)
         if (parsedUrl.universalLink) {
           actionUrlToUse = parsedUrl.universalLink;
-        } else if (parsedUrl.mobile) {
-          actionUrlToUse = parsedUrl.mobile;
         } else if (parsedUrl.web) {
           actionUrlToUse = parsedUrl.web;
+        } else if (parsedUrl.mobile) {
+          // Mobile URLs (custom scheme) won't work in WhatsApp browser
+          // Skip and try to construct a web URL below
+          actionUrlToUse = null;
         }
       } catch (error) {
         this.logger.warn(`Failed to parse actionUrl as JSON: ${error.message}`);
@@ -337,12 +352,18 @@ export class WhatsAppNotificationService {
 
     // Build full URL if it's a relative path
     if (actionUrlToUse) {
-      const baseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'https://app.ankaa.com.br';
+      // Use WEB_APP_URL as the canonical base URL
+      const baseUrl = process.env.WEB_APP_URL || process.env.WEB_BASE_URL || 'https://ankaadesign.com.br';
 
       // Check if URL is already complete (has protocol)
       if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {
+        // Skip mobile scheme URLs - they won't work in WhatsApp
+        if (actionUrlToUse.startsWith('ankaadesign://') || actionUrlToUse.includes('://')) {
+          this.logger.warn(`Skipping non-HTTP URL for WhatsApp: ${actionUrlToUse}`);
+          return '';
+        }
         // If it looks like a domain (www.example.com), add https://
-        if (actionUrlToUse.startsWith('www.') || actionUrlToUse.includes('.com') || actionUrlToUse.includes('.br')) {
+        if (actionUrlToUse.startsWith('www.') || actionUrlToUse.match(/^[a-z0-9-]+\.(com|br|net|org)/i)) {
           actionUrlToUse = `https://${actionUrlToUse}`;
         }
         // Otherwise, treat as relative path and prepend base URL
