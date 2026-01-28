@@ -785,9 +785,9 @@ const taskTransform = (data: any): any => {
   // - FINANCIAL users: Need PRODUCTION, COMMERCIAL, ARTWORK, FINANCIAL (exclude LOGISTIC)
   // - LOGISTIC users: Need PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC (exclude FINANCIAL)
   // - All other users (including ADMIN): Only need PRODUCTION, COMMERCIAL, ARTWORK (exclude both)
-  if (data.shouldDisplayInAgenda === true) {
-    const excludeFinancial = data.agendaExcludeFinancial === true;
-    const excludeLogistic = data.agendaExcludeLogistic === true;
+  if (data.shouldDisplayInPreparation === true) {
+    const excludeFinancial = data.preparationExcludeFinancial === true;
+    const excludeLogistic = data.preparationExcludeLogistic === true;
 
     // Build the required service order types check based on role
     // Base types that everyone needs
@@ -858,9 +858,9 @@ const taskTransform = (data: any): any => {
         },
       ],
     });
-    delete data.shouldDisplayInAgenda;
-    delete data.agendaExcludeFinancial;
-    delete data.agendaExcludeLogistic;
+    delete data.shouldDisplayInPreparation;
+    delete data.preparationExcludeFinancial;
+    delete data.preparationExcludeLogistic;
   }
 
   if (data.hasAirbrushing === true) {
@@ -1277,9 +1277,9 @@ export const taskGetManySchema = z
     hasServices: z.boolean().optional(),
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
-    shouldDisplayInAgenda: z.boolean().optional(), // Agenda display logic: excludes CANCELLED and fully completed tasks
-    agendaExcludeFinancial: z.boolean().optional(), // When true, excludes FINANCIAL SO from agenda completion check
-    agendaExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from agenda completion check
+    shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
+    preparationExcludeFinancial: z.boolean().optional(), // When true, excludes FINANCIAL SO from preparation completion check
+    preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),

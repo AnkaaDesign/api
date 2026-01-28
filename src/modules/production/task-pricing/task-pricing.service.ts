@@ -131,8 +131,13 @@ export class TaskPricingService {
     try {
       const pricing = await this.taskPricingRepository.findByTaskId(taskId);
 
+      // Return null data when no pricing exists (not an error - task may not have pricing yet)
       if (!pricing) {
-        throw new NotFoundException(`Orçamento para tarefa ${taskId} não encontrado.`);
+        return {
+          success: true,
+          data: null,
+          message: 'Nenhum orçamento encontrado para esta tarefa.',
+        };
       }
 
       return {
@@ -142,7 +147,6 @@ export class TaskPricingService {
       };
     } catch (error: unknown) {
       this.logger.error(`Error finding pricing for task ${taskId}:`, error);
-      if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Erro ao carregar orçamento.');
     }
   }
