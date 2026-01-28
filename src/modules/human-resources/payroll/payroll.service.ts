@@ -694,7 +694,7 @@ export class PayrollService {
             tasks: true,
             bonusDiscounts: true,
             bonusExtras: true,
-          },
+          } as any, // Type assertion due to Prisma generated type limitations
         },
         position: true,
       });

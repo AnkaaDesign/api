@@ -60,6 +60,9 @@ interface LiveBonusData {
   absenceDiscountPercentage?: number;
   absenceDiscountValue?: number;
   secullumAnalysis?: SecullumBonusAnalysis;
+  // Relations for extras and discounts
+  bonusExtras?: any[];
+  bonusDiscounts?: any[];
 }
 
 interface LiveBonusCalculationResult {

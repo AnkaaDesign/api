@@ -430,7 +430,7 @@ export class PpeDeliveryScheduleService {
     include?: PpeDeliveryScheduleInclude,
     userId?: string,
   ): Promise<PpeDeliveryScheduleCreateResponse> {
-    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+    const result = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
       // Validate assignment type configuration
       if (
         data.assignmentType === ASSIGNMENT_TYPE.ALL_EXCEPT &&
@@ -618,7 +618,7 @@ export class PpeDeliveryScheduleService {
           message: `${result.message} Entregas criadas imediatamente pois a data já está dentro da janela de ${result.leadDays} dia(s).`,
           data: result.data,
           immediateDeliveries: execResult.data,
-        };
+        } as any; // Extended response with immediate deliveries
       } catch (error) {
         // Schedule was created successfully, just the immediate execution failed.
         // The cron job will pick it up later.

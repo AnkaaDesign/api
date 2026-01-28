@@ -590,7 +590,7 @@ export function applyDiscounts(
 
     appliedDiscounts.push({
       id: discount.id,
-      reason: discount.reference,
+      reference: discount.reference,
       type: 'percentage',
       amount: discountAmount,
       valueAfterDiscount: currentValue,
@@ -607,7 +607,7 @@ export function applyDiscounts(
 
     appliedDiscounts.push({
       id: discount.id,
-      reason: discount.reference,
+      reference: discount.reference,
       type: 'fixed',
       amount: actualDiscount,
       valueAfterDiscount: currentValue,
