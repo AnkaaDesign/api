@@ -939,6 +939,7 @@ export class UserService {
           'performanceLevel',
           'sectorId',
           'verified',
+          'isActive',
           'requirePasswordChange',
           'birth',
           'dismissedAt', // Track dismissal date changes
