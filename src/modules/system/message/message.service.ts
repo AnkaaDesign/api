@@ -37,7 +37,7 @@ export class MessageService {
     let blocksArray: any[];
 
     if (!contentBlocks) {
-      throw new BadRequestException('At least one content block is required');
+      throw new BadRequestException('É necessário pelo menos um bloco de conteúdo');
     }
 
     if (Array.isArray(contentBlocks)) {
@@ -53,19 +53,19 @@ export class MessageService {
           .sort((a, b) => parseInt(a) - parseInt(b))
           .map(key => contentBlocks[key]);
       } else {
-        throw new BadRequestException('Content blocks must be an array');
+        throw new BadRequestException('Os blocos de conteúdo devem ser um array');
       }
     } else {
-      throw new BadRequestException('Content blocks must be an array');
+      throw new BadRequestException('Os blocos de conteúdo devem ser um array');
     }
 
     if (blocksArray.length === 0) {
-      throw new BadRequestException('At least one content block is required');
+      throw new BadRequestException('É necessário pelo menos um bloco de conteúdo');
     }
 
     for (const block of blocksArray) {
       if (!block.id || !block.type) {
-        throw new BadRequestException('Each content block must have id and type');
+        throw new BadRequestException('Cada bloco de conteúdo deve ter id e tipo');
       }
       // Note: Different block types have different structures
       // - Text blocks (paragraph, heading, quote, callout): have 'content' field (array or string)
@@ -77,23 +77,23 @@ export class MessageService {
       if (['paragraph', 'heading1', 'heading2', 'heading3', 'quote', 'callout'].includes(block.type)) {
         // Content can be either array (rich text) or string (plain text) - both are valid
         if (!block.content) {
-          throw new BadRequestException(`Block type ${block.type} requires a content field`);
+          throw new BadRequestException(`O bloco do tipo ${block.type} requer um campo de conteúdo`);
         }
       } else if (block.type === 'image') {
         if (!block.url || typeof block.url !== 'string') {
-          throw new BadRequestException('Image blocks require a url field');
+          throw new BadRequestException('Blocos de imagem requerem um campo de URL');
         }
       } else if (block.type === 'button') {
         if (!block.text || !block.url) {
-          throw new BadRequestException('Button blocks require text and url fields');
+          throw new BadRequestException('Blocos de botão requerem campos de texto e URL');
         }
       } else if (block.type === 'list') {
         if (!block.items || !Array.isArray(block.items)) {
-          throw new BadRequestException('List blocks require an items array');
+          throw new BadRequestException('Blocos de lista requerem um array de itens');
         }
       } else if (!['divider', 'quote'].includes(block.type)) {
         // For unknown types, just log a warning but don't fail
-        this.logger.warn(`Unknown block type: ${block.type}`);
+        this.logger.warn(`Tipo de bloco desconhecido: ${block.type}`);
       }
     }
   }
@@ -106,7 +106,7 @@ export class MessageService {
       const start = new Date(data.startsAt);
       const end = new Date(data.endsAt);
       if (end <= start) {
-        throw new BadRequestException('endsAt must be after startsAt');
+        throw new BadRequestException('A data de término deve ser posterior à data de início');
       }
     }
   }
@@ -244,7 +244,7 @@ export class MessageService {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new InternalServerErrorException('Failed to create message');
+      throw new InternalServerErrorException('Falha ao criar mensagem');
     }
   }
 
@@ -337,7 +337,7 @@ export class MessageService {
       };
     } catch (error) {
       this.logger.error('Error fetching messages:', error);
-      throw new InternalServerErrorException('Failed to fetch messages');
+      throw new InternalServerErrorException('Falha ao buscar mensagens');
     }
   }
 
@@ -355,7 +355,7 @@ export class MessageService {
       });
 
       if (!message) {
-        throw new NotFoundException(`Message with ID ${id} not found`);
+        throw new NotFoundException(`Mensagem com ID ${id} não encontrada`);
       }
 
       return message;
@@ -364,7 +364,7 @@ export class MessageService {
         throw error;
       }
       this.logger.error('Error fetching message:', error);
-      throw new InternalServerErrorException('Failed to fetch message');
+      throw new InternalServerErrorException('Falha ao buscar mensagem');
     }
   }
 
@@ -467,7 +467,7 @@ export class MessageService {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new InternalServerErrorException('Failed to update message');
+      throw new InternalServerErrorException('Falha ao atualizar mensagem');
     }
   }
 
@@ -497,7 +497,7 @@ export class MessageService {
         throw error;
       }
       this.logger.error('Error deleting message:', error);
-      throw new InternalServerErrorException('Failed to delete message');
+      throw new InternalServerErrorException('Falha ao excluir mensagem');
     }
   }
 
@@ -578,7 +578,7 @@ export class MessageService {
       return filteredMessages;
     } catch (error) {
       this.logger.error('Error fetching unviewed messages:', error);
-      throw new InternalServerErrorException('Failed to fetch unviewed messages');
+      throw new InternalServerErrorException('Falha ao buscar mensagens não visualizadas');
     }
   }
 
@@ -596,13 +596,13 @@ export class MessageService {
       });
 
       if (!message) {
-        throw new NotFoundException(`Message with ID ${messageId} not found`);
+        throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
       const canView = await this.canUserViewMessage(message, userId, userRole);
 
       if (!canView) {
-        throw new ForbiddenException('You do not have permission to view this message');
+        throw new ForbiddenException('Você não tem permissão para visualizar esta mensagem');
       }
 
       // Check if already viewed
@@ -636,7 +636,7 @@ export class MessageService {
         throw error;
       }
       this.logger.error('Error marking message as viewed:', error);
-      throw new InternalServerErrorException('Failed to mark message as viewed');
+      throw new InternalServerErrorException('Falha ao marcar mensagem como visualizada');
     }
   }
 
@@ -654,13 +654,13 @@ export class MessageService {
       });
 
       if (!message) {
-        throw new NotFoundException(`Message with ID ${messageId} not found`);
+        throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
       const canView = await this.canUserViewMessage(message, userId, userRole);
 
       if (!canView) {
-        throw new ForbiddenException('You do not have permission to view this message');
+        throw new ForbiddenException('Você não tem permissão para visualizar esta mensagem');
       }
 
       // Check if already viewed
@@ -701,7 +701,7 @@ export class MessageService {
         throw error;
       }
       this.logger.error('Error dismissing message:', error);
-      throw new InternalServerErrorException('Failed to dismiss message');
+      throw new InternalServerErrorException('Falha ao dispensar mensagem');
     }
   }
 
@@ -724,7 +724,7 @@ export class MessageService {
       });
 
       if (!message) {
-        throw new NotFoundException(`Message with ID ${messageId} not found`);
+        throw new NotFoundException(`Mensagem com ID ${messageId} não encontrada`);
       }
 
       const totalViews = message.views?.length || 0;
@@ -755,7 +755,7 @@ export class MessageService {
         throw error;
       }
       this.logger.error('Error fetching message stats:', error);
-      throw new InternalServerErrorException('Failed to fetch message stats');
+      throw new InternalServerErrorException('Falha ao buscar estatísticas da mensagem');
     }
   }
 }

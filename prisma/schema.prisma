@@ -1021,6 +1021,8 @@ model ServiceOrder {
   // Bidirectional sync control: when false, prevents auto-recreation from pricing items
   // Set to false when user explicitly deletes this service order (the corresponding pricing item gets shouldSync=false)
   shouldSync    Boolean            @default(true)
+  // Position field to maintain user-defined order within each type group
+  position      Int                @default(0)
   assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
   task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
   createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
@@ -1031,6 +1033,7 @@ model ServiceOrder {
   @@index([taskId])
   @@index([statusOrder])
   @@index([type])
+  @@index([position])
   @@index([assignedToId])
   @@index([createdById])
   @@index([startedById])
@@ -2491,6 +2494,7 @@ enum NotificationActionType {
   TASK_CREATED
   TASK_UPDATED
   VIEW_ORDER
+  VIEW_SERVICE_ORDER
   VIEW_REPORT
   ACKNOWLEDGE
   DISMISS

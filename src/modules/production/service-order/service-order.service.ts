@@ -1439,10 +1439,11 @@ export class ServiceOrderService {
       }
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
-        // Convert all descriptions to Title Case
+        // Convert all descriptions to Title Case and add createdById
         const serviceOrdersWithTitleCase = data.serviceOrders.map(so => ({
           ...so,
           description: this.toTitleCase(so.description),
+          createdById: so.createdById || userId || '', // Use provided createdById or fallback to userId
         }));
 
         const batchResult = await this.serviceOrderRepository.createManyWithTransaction(

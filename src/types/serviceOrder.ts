@@ -22,6 +22,7 @@ export interface ServiceOrder extends BaseEntity {
   statusOrder: number; // 1=Pendente, 2=Em Andamento, 3=Aguardando Aprovação, 4=Concluído, 5=Cancelado
   description: string;
   observation: string | null;
+  position: number; // User-defined order within each type group
   taskId: string;
   assignedToId: string | null;
   startedById: string | null;
@@ -91,6 +92,7 @@ export interface ServiceOrderOrderBy {
   statusOrder?: ORDER_BY_DIRECTION;
   description?: ORDER_BY_DIRECTION;
   observation?: ORDER_BY_DIRECTION;
+  position?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
   assignedToId?: ORDER_BY_DIRECTION;
   startedById?: ORDER_BY_DIRECTION;

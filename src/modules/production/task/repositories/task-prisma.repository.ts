@@ -137,7 +137,10 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
         },
       },
     },
-    orderBy: { createdAt: 'asc' }, // Maintain creation order (oldest first)
+    orderBy: [
+      { type: 'asc' },      // Group by type first
+      { position: 'asc' },  // Then by user-defined position within each type
+    ],
   },
   truck: {
     include: {
@@ -447,16 +450,18 @@ export class TaskPrismaRepository
 
     // Handle services creation
     // Note: createdBy must be connected for Prisma's required relation
+    // Position is set based on array index to maintain user-defined order
     const creatorId = (extendedData as any).createdById;
     if (serviceOrders && serviceOrders.length > 0 && creatorId) {
       taskData.serviceOrders = {
-        create: serviceOrders.map(service => ({
+        create: serviceOrders.map((service, index) => ({
           status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
           statusOrder:
             service.statusOrder ||
             getServiceOrderStatusOrder(service.status || SERVICE_ORDER_STATUS.PENDING),
           type: (service.type || 'PRODUCTION') as any,
           description: service.description || '',
+          position: index, // Maintain order based on array index
           ...(service.assignedToId ? { assignedTo: { connect: { id: service.assignedToId } } } : {}),
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
@@ -749,18 +754,28 @@ export class TaskPrismaRepository
 
     // Handle services update - use upsert logic instead of deleteMany + create
     // FIX: Properly handle existing service orders to prevent duplication
+    // Position is set based on array index to maintain user-defined order within each type group
     if (serviceOrders !== undefined) {
 
       // Separate service orders into those with IDs (updates) and without IDs (creates)
-      const existingOrders = serviceOrders.filter((service: any) => service.id);
-      const newOrders = serviceOrders.filter((service: any) => !service.id);
+      // Keep track of original index for position
+      const existingOrdersWithIndex: { service: any; index: number }[] = [];
+      const newOrdersWithIndex: { service: any; index: number }[] = [];
+
+      serviceOrders.forEach((service: any, index: number) => {
+        if (service.id) {
+          existingOrdersWithIndex.push({ service, index });
+        } else {
+          newOrdersWithIndex.push({ service, index });
+        }
+      });
 
       // Build the update operations
       const serviceOrdersUpdate: any = {};
 
-      // Update existing service orders
-      if (existingOrders.length > 0) {
-        serviceOrdersUpdate.updateMany = existingOrders.map((service: any) => ({
+      // Update existing service orders with their new position
+      if (existingOrdersWithIndex.length > 0) {
+        serviceOrdersUpdate.updateMany = existingOrdersWithIndex.map(({ service, index }) => ({
           where: { id: service.id },
           data: {
             ...(service.status !== undefined && { status: mapServiceOrderStatusToPrisma(service.status) }),
@@ -771,13 +786,14 @@ export class TaskPrismaRepository
             ...(service.startedAt !== undefined && { startedAt: service.startedAt }),
             ...(service.finishedAt !== undefined && { finishedAt: service.finishedAt }),
             ...(service.assignedToId !== undefined && { assignedToId: service.assignedToId }),
+            position: index, // Update position to maintain user-defined order
           },
         }));
       }
 
       // Create new service orders only for items without an ID
-      if (newOrders.length > 0) {
-        serviceOrdersUpdate.create = newOrders.map((service: any) => {
+      if (newOrdersWithIndex.length > 0) {
+        serviceOrdersUpdate.create = newOrdersWithIndex.map(({ service, index }) => {
           const serviceData: any = {
             status: mapServiceOrderStatusToPrisma(service.status || SERVICE_ORDER_STATUS.PENDING),
             statusOrder:
@@ -786,6 +802,7 @@ export class TaskPrismaRepository
             type: service.type || 'PRODUCTION',
             description: service.description,
             observation: service.observation || null,
+            position: index, // Set position based on array index
             startedAt: service.startedAt || null,
             finishedAt: service.finishedAt || null,
             // Set createdBy to the user performing the update
@@ -1301,8 +1318,10 @@ export class TaskPrismaRepository
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
       // Handle pricing creation/update for one-to-many relationship
-      // CRITICAL FIX: Only create NEW pricing if there are NEW items (items without IDs)
-      // If all items have IDs, it means the frontend is just sending existing data back - don't create new pricing
+      // Logic:
+      // 1. If task has existing pricing -> UPDATE the pricing and recreate items with new values
+      // 2. If task has no pricing and there are new items (without IDs) -> CREATE new pricing
+      // 3. If task has no pricing and all items have IDs -> edge case, skip (shouldn't happen)
       const pricingData = (data as any).pricing;
 
       console.log('[TaskRepository] updateWithTransaction - pricing data:', JSON.stringify(pricingData, null, 2));
@@ -1320,26 +1339,73 @@ export class TaskPrismaRepository
           Array.isArray(pricingData.items) &&
           pricingData.items.length > 0
         ) {
-          // CRITICAL: Check if there are NEW items (items without IDs)
-          // If all items have IDs, the frontend is just sending existing data back - skip creating new pricing
+          // Check if there are NEW items (items without IDs)
           const hasNewItems = pricingData.items.some((item: any) => !item.id);
 
           console.log('[TaskRepository] Has new pricing items (without IDs)?', hasNewItems);
           console.log('[TaskRepository] Item IDs:', pricingData.items.map((item: any) => item.id || 'NEW'));
 
-          if (!hasNewItems) {
-            console.log('[TaskRepository] All pricing items have IDs - skipping pricing creation (existing data sent back)');
-            // Don't create new pricing - just skip this section
-          } else {
-            console.log('[TaskRepository] Found new pricing items - creating new pricing');
+          // Get the current task to check if it has existing pricing
+          const currentTask = await transaction.task.findUnique({
+            where: { id },
+            select: { pricingId: true },
+          });
 
-            // Calculate subtotal from items
-            const calculatedSubtotal = pricingData.items.reduce(
-              (sum: number, item: any) => sum + Number(item.amount || 0),
-              0,
-            );
-            const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
-            const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+          console.log('[TaskRepository] Current task pricingId:', currentTask?.pricingId);
+
+          // Calculate subtotal and total from items
+          const calculatedSubtotal = pricingData.items.reduce(
+            (sum: number, item: any) => sum + Number(item.amount || 0),
+            0,
+          );
+          const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+          const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+
+          if (currentTask?.pricingId) {
+            // Task has existing pricing - UPDATE it instead of creating new
+            console.log('[TaskRepository] Task has existing pricing - updating pricing:', currentTask.pricingId);
+
+            // Prepare layout file update
+            const layoutFileUpdate = pricingData.layoutFileId !== undefined
+              ? { layoutFileId: pricingData.layoutFileId }
+              : {};
+
+            // Update existing pricing: update header fields and recreate items
+            await transaction.taskPricing.update({
+              where: { id: currentTask.pricingId },
+              data: {
+                subtotal,
+                total,
+                discountType: pricingData.discountType || 'NONE',
+                discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+                expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : undefined,
+                status: pricingData.status || undefined,
+                paymentCondition: pricingData.paymentCondition !== undefined ? pricingData.paymentCondition : undefined,
+                downPaymentDate: pricingData.downPaymentDate !== undefined
+                  ? (pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null)
+                  : undefined,
+                customPaymentText: pricingData.customPaymentText !== undefined ? pricingData.customPaymentText : undefined,
+                guaranteeYears: pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
+                customGuaranteeText: pricingData.customGuaranteeText !== undefined ? pricingData.customGuaranteeText : undefined,
+                ...layoutFileUpdate,
+                // Delete all existing items and recreate with new values
+                items: {
+                  deleteMany: {},
+                  create: pricingData.items.map((item: any, index: number) => ({
+                    description: item.description,
+                    observation: item.observation || null,
+                    amount: Number(item.amount || 0),
+                    shouldSync: item.shouldSync !== false,
+                    position: index,
+                  })),
+                },
+              },
+            });
+
+            console.log('[TaskRepository] Successfully updated existing pricing with new item values');
+          } else if (hasNewItems) {
+            // No existing pricing and there are new items - CREATE new pricing
+            console.log('[TaskRepository] No existing pricing - creating new pricing');
 
             // Get next budget number
             const maxBudgetNumber = await transaction.taskPricing.aggregate({
@@ -1369,20 +1435,27 @@ export class TaskPrismaRepository
                 customGuaranteeText: pricingData.customGuaranteeText || null,
                 ...layoutFileConnect,
                 items: {
-                  create: pricingData.items.map((item: any) => ({
+                  create: pricingData.items.map((item: any, index: number) => ({
                     description: item.description,
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
-                    shouldSync: item.shouldSync !== false, // Preserve shouldSync flag (default true)
+                    shouldSync: item.shouldSync !== false,
+                    position: index,
                   })),
                 },
               },
             });
 
-            // Connect the new pricing to the task (one-to-many relationship)
+            // Connect the new pricing to the task
             updateInput.pricing = {
               connect: { id: newPricing.id },
             };
+
+            console.log('[TaskRepository] Created new pricing:', newPricing.id);
+          } else {
+            // No existing pricing and all items have IDs - this is an edge case
+            // The items have IDs but the task has no pricing - this shouldn't happen in normal flow
+            console.log('[TaskRepository] Warning: All items have IDs but task has no pricing - skipping');
           }
         }
       }
