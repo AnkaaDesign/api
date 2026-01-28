@@ -75,7 +75,13 @@ export interface TaskPricingIncludes {
     | {
         include?: TaskIncludes;
       };
-  items?: boolean;
+  items?:
+    | boolean
+    | {
+        orderBy?: {
+          position?: 'asc' | 'desc';
+        };
+      };
   layoutFile?: boolean;
   customerSignature?: boolean;
 }
