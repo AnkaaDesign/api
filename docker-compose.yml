@@ -2,7 +2,8 @@ services:
   postgres:
     image: 'postgres:17-alpine'
     container_name: ankaa-postgres
-    network_mode: host
+    ports:
+      - "5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -20,7 +21,8 @@ services:
   redis:
     image: 'redis:7-alpine'
     container_name: ankaa-redis
-    network_mode: host
+    ports:
+      - "6379:6379"
     command: redis-server --requirepass ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data

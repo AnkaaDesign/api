@@ -348,11 +348,26 @@ export class ItemService {
     }
 
     // Validate PPE fields if item is configured as PPE
-    if (data.ppeType !== undefined && data.ppeType !== null) {
-      // Validate PPE type is valid enum value
-      const validPpeTypes = Object.values(PPE_TYPE);
-      if (!validPpeTypes.includes(data.ppeType as any)) {
-        errors.push(`Tipo de PPE inválido. Valores válidos: ${validPpeTypes.join(', ')}`);
+    // For updates, we need to consider the existing item's ppeType if not in update data
+    let effectivePpeType = data.ppeType;
+    if ((effectivePpeType === undefined || effectivePpeType === null) && excludeId) {
+      // This is an update - check if existing item has ppeType
+      const existingItem = await prismaClient.item.findUnique({
+        where: { id: excludeId },
+        select: { ppeType: true },
+      });
+      if (existingItem?.ppeType) {
+        effectivePpeType = existingItem.ppeType;
+      }
+    }
+
+    if (effectivePpeType !== undefined && effectivePpeType !== null) {
+      // Validate PPE type is valid enum value (only if it's being set/changed)
+      if (data.ppeType !== undefined && data.ppeType !== null) {
+        const validPpeTypes = Object.values(PPE_TYPE);
+        if (!validPpeTypes.includes(data.ppeType as any)) {
+          errors.push(`Tipo de PPE inválido. Valores válidos: ${validPpeTypes.join(', ')}`);
+        }
       }
 
       // Validate PPE size is valid enum value
@@ -405,10 +420,14 @@ export class ItemService {
         }
       }
 
-      if (!hasPpeSize && !data.ppeSize) {
+      // Size is not required for OTHERS type
+      // Only validate on create (when data.ppeType is set) - for updates, existing data is preserved
+      if (data.ppeType && effectivePpeType !== 'OTHERS' && !hasPpeSize && !data.ppeSize) {
         errors.push('Tamanho é obrigatório para EPIs');
       }
-      if (!data.ppeDeliveryMode) {
+      // Delivery mode is not required for OTHERS type
+      // Only validate on create (when data.ppeType is set) - for updates, existing data is preserved
+      if (data.ppeType && effectivePpeType !== 'OTHERS' && !data.ppeDeliveryMode) {
         errors.push('Modo de entrega é obrigatório para EPIs');
       }
     } else {

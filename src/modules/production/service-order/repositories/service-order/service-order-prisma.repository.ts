@@ -59,6 +59,7 @@ export class ServiceOrderPrismaRepository
       statusOrder: databaseEntity.statusOrder,
       description: databaseEntity.description,
       observation: databaseEntity.observation,
+      position: databaseEntity.position,
       type: databaseEntity.type,
       taskId: databaseEntity.taskId,
       assignedToId: databaseEntity.assignedToId,
@@ -83,7 +84,18 @@ export class ServiceOrderPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: ServiceOrderCreateFormData,
   ): Prisma.ServiceOrderCreateInput {
-    const { taskId, status, type, createdById, ...rest } = formData as ServiceOrderCreateFormData & { createdById?: string };
+    // Extract relation IDs and fields that need special handling
+    const {
+      taskId,
+      status,
+      type,
+      createdById,
+      assignedToId,
+      startedById,
+      approvedById,
+      completedById,
+      ...rest
+    } = formData as ServiceOrderCreateFormData & { createdById?: string };
 
     // Validate required fields
     if (!formData.description) {
@@ -108,6 +120,11 @@ export class ServiceOrderPrismaRepository
       createdBy: {
         connect: { id: createdById },
       },
+      // Handle optional user relations - only connect if ID is provided and not null
+      ...(assignedToId && { assignedTo: { connect: { id: assignedToId } } }),
+      ...(startedById && { startedBy: { connect: { id: startedById } } }),
+      ...(approvedById && { approvedBy: { connect: { id: approvedById } } }),
+      ...(completedById && { completedBy: { connect: { id: completedById } } }),
     };
 
     return createInput;
@@ -248,7 +265,7 @@ export class ServiceOrderPrismaRepository
       }),
       transaction.serviceOrder.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || [{ type: 'asc' }, { position: 'asc' }],
         skip,
         take,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),

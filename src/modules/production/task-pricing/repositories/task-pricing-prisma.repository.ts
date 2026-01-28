@@ -144,7 +144,7 @@ export class TaskPricingPrismaRepository
     const mappedInclude: Prisma.TaskPricingInclude = {};
 
     if (include.items !== undefined) {
-      mappedInclude.items = include.items === true ? { orderBy: { createdAt: 'asc' as const } } : include.items;
+      mappedInclude.items = include.items === true ? { orderBy: { position: 'asc' as const } } : include.items;
     }
     if ((include as any).tasks !== undefined) {
       if (typeof (include as any).tasks === 'boolean') {
