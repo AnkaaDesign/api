@@ -537,8 +537,8 @@ export const serviceOrderCreateSchema = z.object({
     .nullable()
     .optional(),
   taskId: z.string().uuid('Tarefa inválida'),
-  createdById: z.string().uuid('ID do criador inválido'),
-  assignedToId: z.string().uuid('ID do colaborador inválido').optional(),
+  createdById: z.string().uuid('ID do criador inválido').optional(), // Optional - will be filled from userId in service
+  assignedToId: z.string().uuid('ID do colaborador inválido').nullable().optional(),
   startedById: z.string().uuid('ID do usuário que iniciou inválido').nullable().optional(),
   approvedById: z.string().uuid('ID do usuário que aprovou inválido').nullable().optional(),
   completedById: z.string().uuid('ID do usuário que concluiu inválido').nullable().optional(),
