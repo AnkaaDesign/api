@@ -1032,6 +1032,20 @@ export const itemWhereSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      // PPE Type field
+      ppeType: z
+        .union([
+          z.nativeEnum(PPE_TYPE),
+          z.null(),
+          z.object({
+            equals: z.union([z.nativeEnum(PPE_TYPE), z.null()]).optional(),
+            not: z.union([z.nativeEnum(PPE_TYPE), z.null()]).optional(),
+            in: z.array(z.nativeEnum(PPE_TYPE)).optional(),
+            notIn: z.array(z.nativeEnum(PPE_TYPE)).optional(),
+          }),
+        ])
+        .optional(),
+
       // ABC/XYZ Category fields
       abcCategory: z
         .union([
@@ -1227,6 +1241,9 @@ const itemFilters = {
   isActive: z.boolean().optional(),
   isPpe: z.boolean().optional(), // Backwards compatibility
   shouldAssignToUser: z.boolean().optional(),
+
+  // PPE type filter
+  ppeType: z.nativeEnum(PPE_TYPE).optional(),
   hasBarcode: z.boolean().optional(),
   hasSupplier: z.boolean().optional(),
   hasActivities: z.boolean().optional(),
@@ -1365,6 +1382,15 @@ const itemTransform = (data: any) => {
   } else if (data.where && data.where.isPpe === false) {
     andConditions.push({ category: { type: { not: ITEM_CATEGORY_TYPE.PPE } } });
     delete data.where.isPpe;
+  }
+
+  // ppeType filter - filter items by PPE type (e.g., OTHERS, SHIRT, PANTS, etc.)
+  if (data.ppeType) {
+    andConditions.push({ ppeType: data.ppeType });
+    delete data.ppeType;
+  } else if (data.where && data.where.ppeType) {
+    andConditions.push({ ppeType: data.where.ppeType });
+    delete data.where.ppeType;
   }
 
   // shouldAssignToUser filter

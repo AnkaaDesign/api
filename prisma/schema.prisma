@@ -325,6 +325,7 @@ model PpeSize {
   shirts    ShirtSize?
   boots     BootSize?
   pants     PantsSize?
+  shorts    PantsSize?
   sleeves   SleevesSize?
   mask      MaskSize?
   gloves    GlovesSize?
@@ -336,23 +337,32 @@ model PpeSize {
 }
 
 model PpeDelivery {
-  id                 String               @id @default(uuid())
-  userId             String
-  itemId             String
-  status             PpeDeliveryStatus    @default(PENDING)
-  statusOrder        Int                  @default(1)
-  quantity           Int
-  reason             String?
-  reviewedBy         String?
-  ppeScheduleId      String?
-  scheduledDate      DateTime?
-  actualDeliveryDate DateTime?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  item               Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
-  ppeSchedule        PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
-  reviewedByUser     User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id], onDelete: SetNull)
-  user               User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
+  id                       String               @id @default(uuid())
+  userId                   String
+  itemId                   String
+  status                   PpeDeliveryStatus    @default(PENDING)
+  statusOrder              Int                  @default(1)
+  quantity                 Int
+  reason                   String?
+  reviewedBy               String?
+  ppeScheduleId            String?
+  scheduledDate            DateTime?
+  actualDeliveryDate       DateTime?
+  // ClickSign integration fields
+  clicksignEnvelopeId      String?              // Envelope ID from ClickSign (API 3.0)
+  clicksignDocumentKey     String?              // Document key from ClickSign
+  clicksignRequestKey      String?              // Signature request key from ClickSign
+  clicksignSignerKey       String?              // Signer key from ClickSign
+  clicksignSignedAt        DateTime?            // When the document was signed
+  // Document storage (PDF before and after signature)
+  deliveryDocumentId       String?              // File ID for the delivery document (unsigned/signed)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  deliveryDocument         File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id], onDelete: SetNull)
+  item                     Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  ppeSchedule              PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
+  reviewedByUser           User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  user                     User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([itemId])
@@ -360,6 +370,7 @@ model PpeDelivery {
   @@index([scheduledDate])
   @@index([status, statusOrder])
   @@index([reviewedBy])
+  @@index([clicksignDocumentKey])
 }
 
 model PpeDeliverySchedule {
@@ -371,7 +382,6 @@ model PpeDeliverySchedule {
   frequency       ScheduleFrequency
   frequencyCount  Int                    @default(1)
   isActive        Boolean                @default(true)
-  ppeItems        Json
   specificDate    DateTime?
   dayOfMonth      Int?
   dayOfWeek       DayOfWeek?
@@ -386,6 +396,7 @@ model PpeDeliverySchedule {
   updatedAt       DateTime               @updatedAt
   autoOrders      Order[]                @relation("PPE_AUTO_ORDER")
   deliveries      PpeDelivery[]          @relation("PPE_DELIVERY_SCHEDULE")
+  items           PpeScheduleItem[]      @relation("PPE_SCHEDULE_ITEMS")
   monthlyConfig   MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
   weeklyConfig    WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
   yearlyConfig    YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
@@ -393,6 +404,26 @@ model PpeDeliverySchedule {
   @@index([nextRun])
   @@index([isActive])
   @@index([assignmentType])
+}
+
+// PPE Schedule Item - defines which PPE types and quantities are included in a schedule
+model PpeScheduleItem {
+  id         String              @id @default(uuid())
+  scheduleId String
+  ppeType    PpeType
+  quantity   Int                 @default(1)
+  itemId     String?             // Required when ppeType is OTHERS - references specific item
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  schedule   PpeDeliverySchedule @relation("PPE_SCHEDULE_ITEMS", fields: [scheduleId], references: [id], onDelete: Cascade)
+  item       Item?               @relation("PPE_SCHEDULE_ITEM_ITEM", fields: [itemId], references: [id], onDelete: SetNull)
+
+  // For non-OTHERS types: one entry per ppeType per schedule
+  // For OTHERS type: one entry per itemId per schedule
+  @@unique([scheduleId, ppeType, itemId])
+  @@index([scheduleId])
+  @@index([ppeType])
+  @@index([itemId])
 }
 
 model File {
@@ -436,6 +467,7 @@ model File {
   taskBaseFiles                           Task[]               @relation("TASK_BASE_FILES")
   pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
   pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
+  ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
 
   @@index([filename])
   @@index([originalName])
@@ -524,6 +556,7 @@ model Item {
   orderRules                     OrderRule[]
   formulaComponents              PaintFormulaComponent[]
   ppeDelivery                    PpeDelivery[]            @relation("PPE_DELIVERY_ITEM")
+  ppeScheduleItems               PpeScheduleItem[]        @relation("PPE_SCHEDULE_ITEM_ITEM")
   paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
   paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
   relatedItems                   Item[]                   @relation("RelatedItems")
@@ -1059,6 +1092,10 @@ model TaskPricing {
   // Guarantee Terms
   guaranteeYears      Int?
   customGuaranteeText String? @db.Text
+
+  // Custom Forecast - manual override for production days displayed in budget
+  // When set, this value is used instead of calculating from expiresAt
+  customForecastDays Int?
 
   // Layout File
   layoutFileId String?
@@ -1735,6 +1772,7 @@ enum CutOrigin {
 enum PpeType {
   SHIRT
   PANTS
+  SHORT
   BOOTS
   SLEEVES
   MASK
@@ -1846,6 +1884,9 @@ enum PpeDeliveryStatus {
   PENDING
   APPROVED
   DELIVERED
+  WAITING_SIGNATURE
+  COMPLETED
+  SIGNATURE_REJECTED
   REPROVED
   CANCELLED
 }
@@ -2927,3 +2968,4 @@ enum GDriveDeleteStatus {
   DELETED    // Successfully deleted from GDrive
   FAILED     // Delete failed
 }
+

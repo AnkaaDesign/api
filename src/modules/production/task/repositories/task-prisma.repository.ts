@@ -1170,6 +1170,7 @@ export class TaskPrismaRepository
             customPaymentText: pricingData.customPaymentText || null,
             guaranteeYears: pricingData.guaranteeYears || null,
             customGuaranteeText: pricingData.customGuaranteeText || null,
+            customForecastDays: pricingData.customForecastDays || null,
             ...layoutFileConnect,
             items: {
               create: pricingData.items.map((item: any) => ({
@@ -1387,6 +1388,7 @@ export class TaskPrismaRepository
                 customPaymentText: pricingData.customPaymentText !== undefined ? pricingData.customPaymentText : undefined,
                 guaranteeYears: pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
                 customGuaranteeText: pricingData.customGuaranteeText !== undefined ? pricingData.customGuaranteeText : undefined,
+                customForecastDays: pricingData.customForecastDays !== undefined ? pricingData.customForecastDays : undefined,
                 ...layoutFileUpdate,
                 // Delete all existing items and recreate with new values
                 items: {
@@ -1433,6 +1435,7 @@ export class TaskPrismaRepository
                 customPaymentText: pricingData.customPaymentText || null,
                 guaranteeYears: pricingData.guaranteeYears || null,
                 customGuaranteeText: pricingData.customGuaranteeText || null,
+                customForecastDays: pricingData.customForecastDays || null,
                 ...layoutFileConnect,
                 items: {
                   create: pricingData.items.map((item: any, index: number) => ({

@@ -176,8 +176,9 @@ export class PpeDeliveryPrismaRepository
     options?: CreateOptions<PpeDeliveryInclude>,
   ): Promise<PpeDelivery> {
     try {
-      // Validate stock availability before creating delivery
-      await this.validateStockAvailability(transaction, data.itemId, data.quantity);
+      // Note: Stock validation is done at the service level with warnings only.
+      // Strict validation happens when marking as DELIVERED, not during creation.
+      // This allows creating deliveries even with low stock (for planning purposes).
 
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
       const includeInput =

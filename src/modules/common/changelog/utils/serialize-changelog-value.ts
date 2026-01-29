@@ -76,8 +76,21 @@ export function serializeChangelogValue(value: any, seen = new WeakSet()): any {
 }
 
 /**
+ * Normalize a Date to date-only string (YYYY-MM-DD) for comparison
+ * This ensures dates are compared by calendar date, not exact timestamp
+ * Handles timezone issues by extracting UTC date components
+ */
+function normalizeDateToString(date: Date): string {
+  // Use UTC to avoid timezone shifts during comparison
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Normalize value for comparison
- * Handles numeric strings, Prisma Decimals, and numbers to prevent false positives
+ * Handles numeric strings, Prisma Decimals, dates, and numbers to prevent false positives
  * @param value - The value to normalize
  * @param field - Optional field name for field-specific normalization
  */
@@ -89,6 +102,23 @@ function normalizeValue(value: any, field?: string): any {
       return 'NO_COMMISSION';
     }
     return null;
+  }
+
+  // Handle Date objects - normalize to date-only string for comparison
+  // This prevents false positives when comparing dates with different time components
+  // e.g., "2024-02-01T00:00:00.000Z" vs "2024-02-01T03:00:00.000Z" should be equal
+  if (value instanceof Date) {
+    return normalizeDateToString(value);
+  }
+
+  // Handle ISO date strings - normalize to date-only format
+  if (typeof value === 'string') {
+    // Check if it looks like an ISO date string (contains T and ends with Z or timezone)
+    const isoDatePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+    if (isoDatePattern.test(value)) {
+      // Extract date part only (YYYY-MM-DD)
+      return value.split('T')[0];
+    }
   }
 
   // Handle Prisma Decimal objects - convert to number for comparison
