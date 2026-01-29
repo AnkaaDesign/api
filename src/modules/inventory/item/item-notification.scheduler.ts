@@ -268,18 +268,20 @@ export class ItemNotificationScheduler {
       );
 
       // Create batch notifications
+      // Use webPath (relative path) for actionUrl for backward compatibility
+      // This matches how task notifications work - actionUrl is relative, metadata.webUrl is full URL
       const notificationData = userIds.map(userId => ({
         userId,
         title,
         body,
         type: NOTIFICATION_TYPE.STOCK,
         importance,
-        actionUrl: deepLinks.web,  // Use web URL for backward compatibility
+        actionUrl: deepLinks.webPath,  // Use relative path for backward compatibility (like task notifications)
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
         metadata: {
-          webUrl: deepLinks.web,
+          webUrl: deepLinks.web,  // Full URL for platforms that need it
           mobileUrl: deepLinks.mobile,
           universalLink: deepLinks.universalLink,
         },

@@ -66,6 +66,11 @@ export const envSchema = z.object({
   // API URLs
   API_URL: z.string().url().optional(),
   CLIENT_HOST: z.string().optional(),
+
+  // ClickSign Digital Signature (API 3.0)
+  CLICKSIGN_API_URL: z.string().url().default('https://sandbox.clicksign.com/api/v3'),
+  CLICKSIGN_ACCESS_TOKEN: z.string().optional(),
+  CLICKSIGN_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

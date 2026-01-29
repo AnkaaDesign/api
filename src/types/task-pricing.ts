@@ -52,6 +52,9 @@ export interface TaskPricing extends BaseEntity {
   guaranteeYears: number | null;
   customGuaranteeText: string | null;
 
+  // Custom Forecast - manual override for production days displayed in budget
+  customForecastDays: number | null;
+
   // Layout File
   layoutFileId: string | null;
   layoutFile?: File;

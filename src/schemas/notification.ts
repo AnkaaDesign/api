@@ -663,8 +663,8 @@ const seenNotificationTransform = (data: any) => {
 export const notificationGetManySchema = z
   .object({
     page: z.coerce.number().int().min(0).default(1).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
-    take: z.coerce.number().int().positive().max(100).optional(),
+    limit: z.coerce.number().int().positive().max(200).default(20).optional(),
+    take: z.coerce.number().int().positive().max(200).optional(),
     skip: z.coerce.number().int().min(0).optional(),
     where: notificationWhereSchema.optional(),
     orderBy: notificationOrderBySchema.optional(),
@@ -688,8 +688,8 @@ export const notificationGetManySchema = z
 export const seenNotificationGetManySchema = z
   .object({
     page: z.coerce.number().int().min(0).default(1).optional(),
-    limit: z.coerce.number().int().positive().max(100).default(20).optional(),
-    take: z.coerce.number().int().positive().max(100).optional(),
+    limit: z.coerce.number().int().positive().max(200).default(20).optional(),
+    take: z.coerce.number().int().positive().max(200).optional(),
     skip: z.coerce.number().int().min(0).optional(),
     where: seenNotificationWhereSchema.optional(),
     orderBy: seenNotificationOrderBySchema.optional(),

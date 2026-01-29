@@ -278,9 +278,12 @@ export class AutoOrderService {
     const estimatedLeadTime = item.estimatedLeadTime || 30;
 
     // Calculate days until stockout
-    const daysUntilStockout = dailyConsumption > 0
+    // Cap at 999 days max to avoid meaningless large numbers when consumption is very low
+    const MAX_DAYS_DISPLAY = 999;
+    const rawDaysUntilStockout = dailyConsumption > 0
       ? Math.floor(currentStock / dailyConsumption)
-      : Infinity;
+      : MAX_DAYS_DISPLAY;
+    const daysUntilStockout = Math.min(rawDaysUntilStockout, MAX_DAYS_DISPLAY);
 
     // Check for active pending orders
     const hasActivePendingOrder = await this.hasActivePendingOrder(item.id);
@@ -602,8 +605,17 @@ export class AutoOrderService {
   }
 
   /**
-   * Add synchronization items to align reorder cycles across supplier items
-   * When ordering from a supplier, includes other items to sync their next reorder dates
+   * Add synchronization items to align reorder cycles across supplier items.
+   *
+   * The goal is to align future orders so all items from the same supplier
+   * will need their next order at the same time.
+   *
+   * Algorithm:
+   * 1. For critical items being ordered, calculate when they will need their NEXT order
+   *    (current stock + order quantity) / daily consumption = days until next reorder point
+   * 2. For other items from same supplier, calculate how much to order so they also
+   *    reach their reorder point at the same target date
+   * 3. This ensures all items are synchronized and will be ordered together in the future
    */
   private async addSynchronizationItems(
     recommendations: AutoOrderRecommendation[],
@@ -643,25 +655,31 @@ export class AutoOrderService {
         },
       });
 
-      // Calculate target reorder cycle (when we want all items to run out together)
-      // Use the maximum recommended months of stock from critical items
+      // Calculate the TARGET DATE for next order based on critical items
+      // After ordering, when will the critical items reach their reorder point again?
       const criticalItems = recommendation.items.filter(
         item => item.urgency === 'critical' || item.urgency === 'high'
       );
 
-      let targetMonthsOfStock = 2; // Default to 2 months
-      if (criticalItems.length > 0) {
-        // Calculate average months of stock for critical items
-        const monthsOfStock = criticalItems.map(item => {
-          const monthlyConsumption = item.monthlyConsumption;
-          if (monthlyConsumption === 0) return 2;
-          return item.recommendedOrderQuantity / monthlyConsumption;
+      // Calculate days until each critical item reaches reorder point AFTER receiving the order
+      const daysUntilNextReorderPoints = criticalItems
+        .filter(item => item.monthlyConsumption > 0)
+        .map(item => {
+          const dailyConsumption = item.monthlyConsumption / 30;
+          const stockAfterOrder = item.currentStock + item.recommendedOrderQuantity;
+          const reorderPoint = item.reorderPoint || 0;
+          // Days until stock drops to reorder point
+          return Math.floor((stockAfterOrder - reorderPoint) / dailyConsumption);
         });
-        targetMonthsOfStock = Math.max(...monthsOfStock, 2);
-      }
+
+      // Use the MINIMUM days as our target - we want all items to need ordering at the same time
+      // Use at least 30 days as minimum cycle
+      const targetDaysUntilNextOrder = daysUntilNextReorderPoints.length > 0
+        ? Math.max(Math.min(...daysUntilNextReorderPoints), 30)
+        : 60; // Default 60 days if no critical items with consumption
 
       this.logger.debug(
-        `Supplier ${recommendation.supplierName}: Target sync cycle = ${targetMonthsOfStock.toFixed(1)} months`
+        `Supplier ${recommendation.supplierName}: Target next order in ${targetDaysUntilNextOrder} days`
       );
 
       // IDs of items already in the recommendation
@@ -684,30 +702,47 @@ export class AutoOrderService {
           trendPercentage,
         } = this.calculateWeightedMonthlyConsumption(item.activities);
 
-        // Skip if no consumption
-        if (monthlyConsumption === 0) continue;
+        // Skip if no meaningful consumption
+        if (monthlyConsumption < 0.1) continue;
 
         const dailyConsumption = monthlyConsumption / 30;
         const currentStock = item.quantity;
-        const daysUntilStockout = dailyConsumption > 0
-          ? Math.floor(currentStock / dailyConsumption)
-          : Infinity;
+        const reorderPoint = item.reorderPoint || 0;
 
-        // Only sync items that won't run out too soon (within 30 days)
-        // We want to bring forward their next order, not create emergency orders
-        if (daysUntilStockout < 30) continue;
+        // Calculate current days until this item reaches its reorder point
+        const currentDaysUntilReorder = dailyConsumption > 0
+          ? Math.floor((currentStock - reorderPoint) / dailyConsumption)
+          : 999;
 
-        // Calculate quantity needed to last targetMonthsOfStock
-        const quantityForTargetCycle = monthlyConsumption * targetMonthsOfStock;
-        const syncQuantity = Math.max(0, quantityForTargetCycle - currentStock);
+        // If this item will already need ordering BEFORE the target date,
+        // it should already be in recommendations (skip to avoid duplicates)
+        if (currentDaysUntilReorder <= 0) continue;
 
-        // Only add if meaningful quantity (at least 10% of monthly consumption)
-        if (syncQuantity < monthlyConsumption * 0.1) continue;
+        // Calculate how much stock this item needs to also reach reorder point at targetDaysUntilNextOrder
+        // We want: (currentStock + syncQuantity - reorderPoint) / dailyConsumption = targetDaysUntilNextOrder
+        // So: syncQuantity = (targetDaysUntilNextOrder * dailyConsumption) + reorderPoint - currentStock
+        const stockNeededAtTargetDate = (targetDaysUntilNextOrder * dailyConsumption) + reorderPoint;
+        const syncQuantity = Math.ceil(stockNeededAtTargetDate - currentStock);
+
+        // Only sync if we need to ADD stock (positive quantity)
+        // If syncQuantity <= 0, the item already has enough stock to last beyond target date
+        if (syncQuantity <= 0) continue;
 
         // Cap at maxQuantity if defined
         const recommendedQuantity = item.maxQuantity
-          ? Math.min(syncQuantity, item.maxQuantity)
+          ? Math.min(syncQuantity, item.maxQuantity - currentStock)
           : syncQuantity;
+
+        // Skip if final quantity is not meaningful
+        if (recommendedQuantity < 1) continue;
+
+        // Calculate actual days until stockout for display
+        const daysUntilStockout = dailyConsumption > 0
+          ? Math.min(Math.floor(currentStock / dailyConsumption), 999)
+          : 999;
+
+        // Get latest price for cost calculation
+        const currentPrice = item.prices && item.prices[0] ? item.prices[0].value : 0;
 
         const syncItem: DemandAnalysis = {
           itemId: item.id,
@@ -719,18 +754,18 @@ export class AutoOrderService {
           daysUntilStockout,
           recommendedOrderQuantity: Math.ceil(recommendedQuantity),
           urgency: 'low',
-          reason: `Sincronização de ciclo: ordenar junto com outros ${criticalItems.length} item(ns) para próxima compra em ~${targetMonthsOfStock.toFixed(1)} meses`,
+          reason: `Sincronização de ciclo: ordenar junto com outros ${recommendation.items.length} item(ns) para alinhar próximo pedido em ~${targetDaysUntilNextOrder} dias`,
           supplierId: item.supplierId,
           supplierName: item.supplier?.fantasyName || null,
           categoryId: item.categoryId,
-          categoryName: null,
+          categoryName: item.category?.name || null,
           lastOrderDate: null,
           daysSinceLastOrder: null,
           hasActivePendingOrder: false,
           estimatedLeadTime: item.estimatedLeadTime || 30,
-          estimatedCost: 0,
-          reorderPoint: item.reorderPoint || 0,
-          maxQuantity: item.maxQuantity || Math.ceil(recommendedQuantity * 1.5),
+          estimatedCost: currentPrice * Math.ceil(recommendedQuantity),
+          reorderPoint,
+          maxQuantity: item.maxQuantity || null,
           isInSchedule: false,
           scheduleNextRun: null,
           isEmergencyOverride: false,
@@ -746,6 +781,9 @@ export class AutoOrderService {
       // Combine original items with sync items
       const allItems = [...recommendation.items, ...syncItems];
 
+      // Recalculate total estimated cost
+      const totalEstimatedCost = allItems.reduce((sum, item) => sum + (item.estimatedCost || 0), 0);
+
       // Recalculate urgency and consolidated reasons
       const urgency = allItems.reduce((max, item) => {
         const urgencyOrder = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -759,6 +797,7 @@ export class AutoOrderService {
       enhancedRecommendations.push({
         ...recommendation,
         items: allItems,
+        totalValue: totalEstimatedCost,
         urgency,
         consolidatedReasons,
       });

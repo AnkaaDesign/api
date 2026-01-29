@@ -161,7 +161,8 @@ export function getServiceOrderToPricingSync(
       observation || '',
     );
 
-    if (observationChanged && observation) {
+    if (observationChanged) {
+      // Allow both adding and clearing observations
       return {
         shouldCreatePricingItem: false,
         shouldUpdatePricingItem: true,
@@ -169,7 +170,9 @@ export function getServiceOrderToPricingSync(
         pricingItemDescription: description,
         pricingItemObservation: observation,
         pricingItemAmount: existingItem.amount || 0,
-        reason: 'Atualizando observação do item de precificação existente',
+        reason: observation
+          ? 'Atualizando observação do item de precificação existente'
+          : 'Removendo observação do item de precificação existente',
       };
     }
 
@@ -235,14 +238,17 @@ export function getPricingItemToServiceOrderSync(
       observation || '',
     );
 
-    if (observationChanged && observation) {
+    if (observationChanged) {
+      // Allow both adding and clearing observations
       return {
         shouldCreateServiceOrder: false,
         shouldUpdateServiceOrder: true,
         existingServiceOrderId: existingOrder.id,
         serviceOrderDescription: description,
         serviceOrderObservation: observation,
-        reason: 'Atualizando observação da ordem de serviço existente',
+        reason: observation
+          ? 'Atualizando observação da ordem de serviço existente'
+          : 'Removendo observação da ordem de serviço existente',
       };
     }
 

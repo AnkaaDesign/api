@@ -56,6 +56,7 @@ import {
   PpeApprovedEvent,
   PpeRejectedEvent,
   PpeDeliveredEvent,
+  PpeBatchDeliveredEvent,
 } from './ppe.events';
 
 @Injectable()
@@ -226,10 +227,14 @@ export class PpeDeliveryService {
         // For PPE sizes: numeric sizes (boots/pants) use value, letter sizes (shirts) use unit
         const itemSize = sizeMatch?.unit || (sizeMatch?.value ? String(sizeMatch.value) : null);
 
-        if (itemSize && userSize && itemSize !== userSize) {
+        // Normalize userSize by removing "SIZE_" prefix for comparison
+        // User sizes are stored as enums like "SIZE_38" but item sizes are "38"
+        const normalizedUserSize = userSize?.replace('SIZE_', '') || null;
+
+        if (itemSize && normalizedUserSize && itemSize !== normalizedUserSize) {
           if (process.env.NODE_ENV !== 'production') {
             console.warn(
-              `Warning: PPE size (${itemSize}) doesn't match user size (${userSize}) for ${userInfo.name}. Proceeding with delivery anyway.`,
+              `Warning: PPE size (${itemSize}) doesn't match user size (${normalizedUserSize}) for ${userInfo.name}. Proceeding with delivery anyway.`,
             );
           }
         }
@@ -267,6 +272,8 @@ export class PpeDeliveryService {
 
         const availableQuantity = item.quantity - totalPending - totalBorrowed;
 
+        // Note: Stock validation is done when marking as DELIVERED, not at creation time
+        // This allows creating deliveries even with low stock (for planning purposes)
         if (data.quantity !== undefined && availableQuantity < data.quantity) {
           const details: string[] = [];
           if (totalPending > 0) {
@@ -276,10 +283,12 @@ export class PpeDeliveryService {
             details.push(`${totalBorrowed} emprestado(s)`);
           }
 
-          throw new BadRequestException(
-            `Quantidade insuficiente em estoque. Disponível: ${availableQuantity}, Solicitado: ${data.quantity}. ` +
-              `Estoque total: ${item.quantity}${details.length > 0 ? ', ' + details.join(', ') : ''}`,
-          );
+          if (process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `Low stock warning: Disponível: ${availableQuantity}, Solicitado: ${data.quantity}. ` +
+                `Estoque total: ${item.quantity}${details.length > 0 ? ', ' + details.join(', ') : ''}. Proceeding with delivery creation.`,
+            );
+          }
         }
 
         // Warn if stock will be low
@@ -488,6 +497,7 @@ export class PpeDeliveryService {
         where: {
           ppeScheduleId: data.ppeScheduleId,
           userId: data.userId,
+          itemId: data.itemId, // Check for same item to allow multiple PPE types per schedule
           createdAt: {
             gte: new Date(new Date().setDate(new Date().getDate() - daysToCheck)),
           },
@@ -496,7 +506,7 @@ export class PpeDeliveryService {
 
       if (existingDeliveryForSchedule) {
         throw new BadRequestException(
-          `Já existe uma entrega recente para este agendamento (criada em ${existingDeliveryForSchedule.createdAt.toLocaleDateString('pt-BR')})`,
+          `Já existe uma entrega recente deste item para este agendamento (criada em ${existingDeliveryForSchedule.createdAt.toLocaleDateString('pt-BR')})`,
         );
       }
     }
@@ -520,12 +530,25 @@ export class PpeDeliveryService {
           [PPE_DELIVERY_STATUS.PENDING]: [
             PPE_DELIVERY_STATUS.APPROVED,
             PPE_DELIVERY_STATUS.REPROVED,
+            PPE_DELIVERY_STATUS.CANCELLED,
           ],
           [PPE_DELIVERY_STATUS.APPROVED]: [
             PPE_DELIVERY_STATUS.DELIVERED,
             PPE_DELIVERY_STATUS.REPROVED,
+            PPE_DELIVERY_STATUS.CANCELLED,
           ],
-          [PPE_DELIVERY_STATUS.DELIVERED]: [], // Final status - no further transitions
+          [PPE_DELIVERY_STATUS.DELIVERED]: [
+            PPE_DELIVERY_STATUS.WAITING_SIGNATURE, // After delivery, goes to waiting signature
+            PPE_DELIVERY_STATUS.APPROVED, // Allow reverting delivery if marked by mistake
+          ],
+          [PPE_DELIVERY_STATUS.WAITING_SIGNATURE]: [
+            PPE_DELIVERY_STATUS.COMPLETED, // After signing, goes to completed
+            PPE_DELIVERY_STATUS.SIGNATURE_REJECTED, // If signature is rejected
+          ],
+          [PPE_DELIVERY_STATUS.COMPLETED]: [], // Final status - no further transitions
+          [PPE_DELIVERY_STATUS.SIGNATURE_REJECTED]: [
+            PPE_DELIVERY_STATUS.WAITING_SIGNATURE, // Can retry signature
+          ],
           [PPE_DELIVERY_STATUS.REPROVED]: [], // Final status - no further transitions
           [PPE_DELIVERY_STATUS.CANCELLED]: [], // Final status - no further transitions
         };
@@ -997,6 +1020,37 @@ export class PpeDeliveryService {
         });
       }
 
+      // Handle stock restoration when reverting a delivery (actualDeliveryDate cleared)
+      if (oldPpeDelivery.actualDeliveryDate && data.actualDeliveryDate === null) {
+        // Restore stock directly - we update the item quantity and create an activity record
+        const item = await this.itemRepository.findById(oldPpeDelivery.itemId);
+        if (item) {
+          // Update item quantity directly
+          const newQuantity = item.quantity + oldPpeDelivery.quantity;
+          await transaction.item.update({
+            where: { id: oldPpeDelivery.itemId },
+            data: { quantity: newQuantity },
+          });
+
+          // Create activity record directly to avoid nested transaction issues
+          await transaction.activity.create({
+            data: {
+              itemId: oldPpeDelivery.itemId,
+              userId: oldPpeDelivery.userId,
+              quantity: oldPpeDelivery.quantity,
+              operation: ACTIVITY_OPERATION.INBOUND,
+              reason: ACTIVITY_REASON.RETURN,
+            },
+          });
+
+          if (process.env.NODE_ENV !== 'production') {
+            console.log(
+              `Estoque restaurado: ${oldPpeDelivery.quantity} unidades de ${item.name} devolvidas ao estoque (entrega revertida). Nova quantidade: ${newQuantity}`,
+            );
+          }
+        }
+      }
+
       // Handle stock adjustments if quantity changed on delivered items
       if (
         oldPpeDelivery.actualDeliveryDate &&
@@ -1278,7 +1332,7 @@ export class PpeDeliveryService {
     deliveryDate?: Date,
     userId?: string,
   ): Promise<PpeDeliveryUpdateResponse> {
-    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
       const oldDelivery = await this.repository.findById(id, {
         include: { item: true },
       });
@@ -1416,14 +1470,20 @@ export class PpeDeliveryService {
         console.error('Error emitting ppe.delivered event:', error);
       }
 
+      // Return data needed for signature workflow (will be called after transaction commits)
       return {
-        success: true,
-        message: nextDelivery
-          ? 'Entrega de PPE marcada como entregue com sucesso. Próxima entrega criada automaticamente.'
-          : 'Entrega de PPE marcada como entregue com sucesso.',
-        data: updatedDelivery,
+        updatedDelivery,
+        nextDelivery,
       };
     });
+
+    return {
+      success: true,
+      message: transactionResult.nextDelivery
+        ? 'Entrega de PPE marcada como entregue com sucesso. Próxima entrega criada automaticamente.'
+        : 'Entrega de PPE marcada como entregue com sucesso.',
+      data: transactionResult.updatedDelivery,
+    };
   }
 
   async finishDeliveryWithAutoSchedule(
@@ -1432,7 +1492,7 @@ export class PpeDeliveryService {
     deliveryDate?: Date,
     userId?: string,
   ): Promise<PpeDeliveryUpdateResponse> {
-    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
       const oldDelivery = await this.repository.findById(id, {
         include: { item: true, ppeSchedule: true },
       });
@@ -1566,13 +1626,18 @@ export class PpeDeliveryService {
       });
 
       return {
-        success: true,
-        message: nextDelivery
-          ? `Entrega de PPE finalizada com sucesso. Próxima entrega criada automaticamente para ${nextDelivery.scheduledDate?.toLocaleDateString('pt-BR')}.`
-          : 'Entrega de PPE finalizada com sucesso. Não foi possível criar automaticamente a próxima entrega.',
-        data: updatedDelivery,
+        updatedDelivery,
+        nextDelivery,
       };
     });
+
+    return {
+      success: true,
+      message: transactionResult.nextDelivery
+        ? `Entrega de PPE finalizada com sucesso. Próxima entrega criada automaticamente para ${transactionResult.nextDelivery.scheduledDate?.toLocaleDateString('pt-BR')}.`
+        : 'Entrega de PPE finalizada com sucesso. Não foi possível criar automaticamente a próxima entrega.',
+      data: transactionResult.updatedDelivery,
+    };
   }
 
   async createFromSchedule(
@@ -1620,9 +1685,11 @@ export class PpeDeliveryService {
         throw new NotFoundException('Item de PPE não encontrado.');
       }
 
+      // Note: Stock validation is done when marking as DELIVERED, not at creation time
+      // This allows creating deliveries even with low stock (for planning purposes)
       if (item.quantity < data.quantity) {
-        throw new BadRequestException(
-          `Quantidade insuficiente em estoque para o item ${item.name}. Disponível: ${item.quantity}, Necessário: ${data.quantity}`,
+        console.warn(
+          `Low stock warning for ${item.name}: Available ${item.quantity}, Requested ${data.quantity}. Proceeding with delivery creation.`,
         );
       }
 
@@ -2155,7 +2222,7 @@ export class PpeDeliveryService {
     failed: number;
     results: any[];
   }> {
-    return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
       const results: any[] = [];
       let successCount = 0;
       let failedCount = 0;
@@ -2296,18 +2363,14 @@ export class PpeDeliveryService {
             }
           }
 
-          // Log the change
+          // Log the change - only status transition for cleaner display
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.PPE_DELIVERY,
             entityId: deliveryId,
             action: CHANGE_ACTION.UPDATE,
             field: 'batch_mark_delivered',
-            oldValue: { status: delivery.status, actualDeliveryDate: null },
-            newValue: {
-              status: PPE_DELIVERY_STATUS.DELIVERED,
-              actualDeliveryDate,
-              reviewedBy: reviewedById,
-            },
+            oldValue: { status: delivery.status },
+            newValue: { status: PPE_DELIVERY_STATUS.DELIVERED },
             reason: 'Entrega marcada como entregue em lote',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: deliveryId,
@@ -2332,10 +2395,12 @@ export class PpeDeliveryService {
             console.error('Error emitting ppe.delivered event:', error);
           }
 
+          // Store for batch signature processing (will be done after transaction commits)
           results.push({
             id: deliveryId,
             success: true,
             data: updatedDelivery,
+            userId: updatedDelivery.userId,
           });
           successCount++;
         } catch (error) {
@@ -2352,8 +2417,37 @@ export class PpeDeliveryService {
         success: successCount,
         failed: failedCount,
         results,
+        reviewedByUser, // Include for batch event emission
       };
     });
+
+    // Emit batch delivered event for signature processing (after transaction commits)
+    const successfulDeliveryIds = transactionResult.results
+      .filter((r: any) => r.success)
+      .map((r: any) => r.id);
+
+    if (successfulDeliveryIds.length > 0 && transactionResult.reviewedByUser) {
+      try {
+        this.eventEmitter.emit(
+          'ppe.batch.delivered',
+          new PpeBatchDeliveredEvent(
+            successfulDeliveryIds,
+            transactionResult.reviewedByUser as any,
+          ),
+        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[PPE] Batch delivered event emitted for ${successfulDeliveryIds.length} deliveries`);
+        }
+      } catch (error) {
+        console.error('Error emitting ppe.batch.delivered event:', error);
+      }
+    }
+
+    return {
+      success: transactionResult.success,
+      failed: transactionResult.failed,
+      results: transactionResult.results,
+    };
   }
 
   async getDeliveryStatistics(userId?: string): Promise<{
@@ -2364,7 +2458,11 @@ export class PpeDeliveryService {
       pending: number;
       approved: number;
       delivered: number;
+      waitingSignature: number;
+      completed: number;
+      signatureRejected: number;
       reproved: number;
+      cancelled: number;
       overdue: number;
       scheduled: number;
       onDemand: number;
@@ -2375,31 +2473,55 @@ export class PpeDeliveryService {
 
     const baseWhere = userId ? { userId } : {};
 
-    const [total, pending, approved, delivered, reproved, overdue, scheduled, onDemand] =
-      await Promise.all([
-        this.prisma.ppeDelivery.count({ where: baseWhere }),
-        this.prisma.ppeDelivery.count({
-          where: { ...baseWhere, status: PPE_DELIVERY_STATUS.PENDING },
-        }),
-        this.prisma.ppeDelivery.count({
-          where: { ...baseWhere, status: PPE_DELIVERY_STATUS.APPROVED },
-        }),
-        this.prisma.ppeDelivery.count({
-          where: { ...baseWhere, status: PPE_DELIVERY_STATUS.DELIVERED },
-        }),
-        this.prisma.ppeDelivery.count({
-          where: { ...baseWhere, status: PPE_DELIVERY_STATUS.REPROVED },
-        }),
-        this.prisma.ppeDelivery.count({
-          where: {
-            ...baseWhere,
-            actualDeliveryDate: null,
-            scheduledDate: { lt: today },
-          },
-        }),
-        this.prisma.ppeDelivery.count({ where: { ...baseWhere, ppeScheduleId: { not: null } } }),
-        this.prisma.ppeDelivery.count({ where: { ...baseWhere, ppeScheduleId: null } }),
-      ]);
+    const [
+      total,
+      pending,
+      approved,
+      delivered,
+      waitingSignature,
+      completed,
+      signatureRejected,
+      reproved,
+      cancelled,
+      overdue,
+      scheduled,
+      onDemand,
+    ] = await Promise.all([
+      this.prisma.ppeDelivery.count({ where: baseWhere }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.PENDING },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.APPROVED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.DELIVERED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.WAITING_SIGNATURE },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.COMPLETED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.SIGNATURE_REJECTED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.REPROVED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: { ...baseWhere, status: PPE_DELIVERY_STATUS.CANCELLED },
+      }),
+      this.prisma.ppeDelivery.count({
+        where: {
+          ...baseWhere,
+          actualDeliveryDate: null,
+          scheduledDate: { lt: today },
+        },
+      }),
+      this.prisma.ppeDelivery.count({ where: { ...baseWhere, ppeScheduleId: { not: null } } }),
+      this.prisma.ppeDelivery.count({ where: { ...baseWhere, ppeScheduleId: null } }),
+    ]);
 
     return {
       success: true,
@@ -2409,11 +2531,16 @@ export class PpeDeliveryService {
         pending,
         approved,
         delivered,
+        waitingSignature,
+        completed,
+        signatureRejected,
         reproved,
+        cancelled,
         overdue,
         scheduled,
         onDemand,
       },
     };
   }
+
 }

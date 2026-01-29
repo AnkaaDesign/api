@@ -281,6 +281,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     delivery_completed: 'Entrega Concluída',
     batch_approval: 'Aprovação em Lote',
     batch_rejection: 'Rejeição em Lote',
+    batch_mark_delivered: 'Entrega em Lote',
     reschedule: 'Reagendamento',
     auto_creation_error: 'Erro na Criação Automática',
     auto_schedule_update: 'Atualização Automática do Agendamento',
@@ -326,7 +327,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     assignmentType: 'Tipo de Atribuição',
     excludedUserIds: 'Usuários Excluídos',
     includedUserIds: 'Usuários Incluídos',
-    ppeItems: 'Itens de EPI',
+    items: 'Itens de EPI', // PpeScheduleItem relation
+    ppeItems: 'Itens de EPI', // Legacy JSON field - for old changelog entries
     weeklyConfigId: 'Configuração Semanal',
     monthlyConfigId: 'Configuração Mensal',
     yearlyConfigId: 'Configuração Anual',
@@ -1341,6 +1343,7 @@ export function formatFieldValue(
     const ppeTypeLabels: Record<string, string> = {
       SHIRT: 'Camisa',
       PANTS: 'Calça',
+      SHORT: 'Bermuda',
       BOOTS: 'Bota',
       SLEEVES: 'Manga',
       MASK: 'Máscara',
@@ -1400,10 +1403,12 @@ export function formatFieldValue(
   }
 
   // Handle PPE items array (special handling for PPE schedule)
-  if (field === 'ppeItems' && Array.isArray(value)) {
+  // 'items' is the new relational field, 'ppeItems' is legacy JSON field for old changelog entries
+  if ((field === 'items' || field === 'ppeItems') && Array.isArray(value)) {
     const ppeTypeLabels: Record<string, string> = {
       SHIRT: 'Camisa',
       PANTS: 'Calça',
+      SHORT: 'Bermuda',
       BOOTS: 'Bota',
       SLEEVES: 'Manga',
       MASK: 'Máscara',
@@ -1418,11 +1423,16 @@ export function formatFieldValue(
       RESPIRATOR: 'Respirador',
       SAFETY_HARNESS: 'Cinto de Segurança',
       FACE_SHIELD: 'Protetor Facial',
+      OTHERS: 'Outros',
     };
 
     const formattedItems = value.map((item: Record<string, unknown>) => {
       if (typeof item === 'object' && item.ppeType) {
         const typeName = ppeTypeLabels[item.ppeType as string] || String(item.ppeType);
+        // For OTHERS type, include the item name if available
+        if (item.ppeType === 'OTHERS' && item.item && typeof item.item === 'object' && (item.item as any).name) {
+          return `${typeName}: ${(item.item as any).name} (${item.quantity} un)`;
+        }
         return `${typeName} (${item.quantity} un)`;
       }
       return JSON.stringify(item);
@@ -1813,6 +1823,24 @@ export function formatFieldValue(
       } else if ((value as any).action === 'REMOVE_COMPONENT') {
         return `Componente removido (${(value as any).ratio.toFixed(2)}%)`;
       }
+    }
+
+    // Special handling for batch_mark_delivered field in PPE_DELIVERY
+    if (field === 'batch_mark_delivered' && entityType === CHANGE_LOG_ENTITY_TYPE.PPE_DELIVERY) {
+      const obj = value as any;
+      const ppeDeliveryStatusLabels: Record<string, string> = {
+        PENDING: 'Pendente',
+        APPROVED: 'Aprovado',
+        DELIVERED: 'Entregue',
+        WAITING_SIGNATURE: 'Aguardando Assinatura',
+        COMPLETED: 'Concluído',
+        REPROVED: 'Reprovado',
+        SIGNATURE_REJECTED: 'Assinatura Rejeitada',
+        CANCELLED: 'Cancelado',
+      };
+
+      // Just return the status label - date and user are shown in changelog header
+      return ppeDeliveryStatusLabels[obj.status] || obj.status;
     }
 
     return JSON.stringify(value, null, 2);

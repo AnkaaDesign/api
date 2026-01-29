@@ -194,11 +194,11 @@ export class PpeDeliveryScheduleService {
         return allExceptUsers.map(user => user.id);
 
       case ASSIGNMENT_TYPE.SPECIFIC:
-        // Return only the specified users (validate they exist and are not dismissed)
+        // Return only the specified users - don't filter by status since these were explicitly selected
+        // (some users may be dismissed as CLT but still work as third-party contractors)
         const specificUsers = await tx.user.findMany({
           where: {
             id: { in: includedUserIds },
-            status: { not: USER_STATUS.DISMISSED },
           },
           select: { id: true },
         });
@@ -214,10 +214,14 @@ export class PpeDeliveryScheduleService {
    */
   private async findMatchingItemsForUser(
     userId: string,
-    ppeItems: { ppeType: PPE_TYPE; quantity: number }[],
+    ppeItems: { ppeType: PPE_TYPE; quantity: number; itemId?: string }[],
     transaction?: PrismaTransaction,
-  ): Promise<{ userId: string; itemId: string; quantity: number }[]> {
+  ): Promise<{
+    matches: { userId: string; itemId: string; quantity: number }[];
+    errors: string[];
+  }> {
     const tx = transaction || this.prisma;
+    const errors: string[] = [];
 
     // Get user with size information
     const user = await this.userRepository.findByIdWithTransaction(tx, userId, {
@@ -225,17 +229,7 @@ export class PpeDeliveryScheduleService {
     });
 
     if (!user) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn(`User ${userId} not found during PPE item matching`);
-      }
-      return [];
-    }
-
-    if (!user.ppeSize) {
-      if (process.env.NODE_ENV !== 'production') {
-        console.warn(`User ${userId} does not have PPE size configuration`);
-      }
-      return [];
+      return { matches: [], errors: [`Usuário ${userId} não encontrado`] };
     }
 
     const results: { userId: string; itemId: string; quantity: number }[] = [];
@@ -244,6 +238,43 @@ export class PpeDeliveryScheduleService {
     for (const ppeItem of ppeItems) {
       const ppeType = ppeItem.ppeType;
       const requestedQuantity = ppeItem.quantity;
+
+      // Handle OTHERS type with explicit itemId
+      if (ppeType === PPE_TYPE.OTHERS) {
+        if (!ppeItem.itemId) {
+          errors.push(`${user.name || userId}: Item não especificado para tipo "Outros"`);
+          continue;
+        }
+
+        // Verify the item exists and has stock
+        const item = await this.itemRepository.findByIdWithTransaction(tx, ppeItem.itemId);
+        if (!item) {
+          errors.push(`${user.name || userId}: Item ${ppeItem.itemId} não encontrado`);
+          continue;
+        }
+        if (!item.isActive) {
+          errors.push(`${user.name || userId}: Item "${item.name}" está inativo`);
+          continue;
+        }
+        if (item.quantity <= 0) {
+          errors.push(`${user.name || userId}: Item "${item.name}" sem estoque disponível`);
+          continue;
+        }
+
+        results.push({
+          userId: userId,
+          itemId: ppeItem.itemId,
+          quantity: requestedQuantity,
+        });
+        continue;
+      }
+
+      // For size-based PPE types, check if user has size configuration
+      if (!user.ppeSize) {
+        errors.push(`${user.name || userId}: Usuário não possui configuração de tamanhos de EPI`);
+        continue;
+      }
+
       let userSize: string | null = null;
 
       // Map PPE type to user size field
@@ -253,6 +284,9 @@ export class PpeDeliveryScheduleService {
           break;
         case PPE_TYPE.PANTS:
           userSize = user.ppeSize.pants;
+          break;
+        case PPE_TYPE.SHORT:
+          userSize = user.ppeSize.shorts;
           break;
         case PPE_TYPE.BOOTS:
           userSize = user.ppeSize.boots;
@@ -272,20 +306,37 @@ export class PpeDeliveryScheduleService {
       }
 
       if (!userSize) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(`User ${userId} does not have size configured for PPE type ${ppeType}`);
-        }
+        errors.push(`${user.name || userId}: Tamanho não configurado para ${ppeType}`);
         continue;
       }
 
-      // Convert PPE size string to numeric value for measures query
-      const numericSize = ppeSizeToNumeric(userSize);
+      // Determine if this is a letter size (P, M, G, GG, XG) or numeric size (SIZE_36, SIZE_38, etc.)
+      const letterSizes = ['P', 'M', 'G', 'GG', 'XG'];
+      const isLetterSize = letterSizes.includes(userSize);
 
-      if (!numericSize) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(`Invalid PPE size format: ${userSize} for user ${userId}`);
+      // Build the measures filter based on size type
+      let measuresFilter: any;
+      if (isLetterSize) {
+        // Letter sizes are stored in the unit field as MeasureUnit enum (P, M, G, GG, XG)
+        measuresFilter = {
+          some: {
+            measureType: 'SIZE',
+            unit: userSize, // e.g., unit: "M"
+          },
+        };
+      } else {
+        // Numeric sizes (SIZE_38) are stored in the value field as numbers
+        const numericSize = ppeSizeToNumeric(userSize);
+        if (!numericSize) {
+          errors.push(`${user.name || userId}: Formato de tamanho inválido "${userSize}" para ${ppeType}`);
+          continue;
         }
-        continue;
+        measuresFilter = {
+          some: {
+            measureType: 'SIZE',
+            value: numericSize, // e.g., value: 38
+          },
+        };
       }
 
       // Find items that match the PPE type and user size via measures
@@ -294,12 +345,7 @@ export class PpeDeliveryScheduleService {
           ppeType: ppeType,
           isActive: true,
           quantity: { gt: 0 }, // Only items with available stock
-          measures: {
-            some: {
-              measureType: 'SIZE',
-              value: numericSize, // PPE size stored as numeric value in measures
-            },
-          },
+          measures: measuresFilter,
         },
         include: {
           measures: {
@@ -317,15 +363,21 @@ export class PpeDeliveryScheduleService {
           quantity: requestedQuantity, // Use quantity specified in schedule
         });
       } else {
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(
-            `No matching items found for user ${userId} with PPE type ${ppeType} and size ${userSize}`,
-          );
-        }
+        errors.push(`${user.name || userId}: Nenhum item encontrado para ${ppeType} tamanho ${userSize} com estoque disponível`);
       }
     }
 
-    return results;
+    // Log results for debugging
+    if (results.length === 0 && errors.length > 0) {
+      console.log('[PPE Schedule] No matches found for user:', {
+        userId,
+        userName: user.name,
+        ppeItemsCount: ppeItems.length,
+        errors,
+      });
+    }
+
+    return { matches: results, errors };
   }
 
   /**
@@ -334,26 +386,28 @@ export class PpeDeliveryScheduleService {
   private async createDeliveriesForSchedule(
     schedule: any,
     userIds: string[],
-    ppeItems: { ppeType: PPE_TYPE; quantity: number }[],
+    ppeItems: { ppeType: PPE_TYPE; quantity: number; itemId?: string }[],
     transaction: PrismaTransaction,
     userId?: string,
   ): Promise<void> {
     const deliveriesToCreate: Array<{ userId: string; itemId: string; quantity: number }> = [];
+    const allErrors: string[] = [];
 
     // For each user, find matching items for each PPE type
     for (const assignedUserId of userIds) {
-      const userItemMatches = await this.findMatchingItemsForUser(
+      const { matches, errors } = await this.findMatchingItemsForUser(
         assignedUserId,
         ppeItems,
         transaction,
       );
-      deliveriesToCreate.push(...userItemMatches);
+      deliveriesToCreate.push(...matches);
+      allErrors.push(...errors);
     }
 
     if (deliveriesToCreate.length === 0) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn(
-          `No deliveries to create for schedule ${schedule.id} - no matching items found`,
+          `No deliveries to create for schedule ${schedule.id} - no matching items found. Errors: ${allErrors.join(', ')}`,
         );
       }
       return;
@@ -367,8 +421,9 @@ export class PpeDeliveryScheduleService {
           itemId: delivery.itemId,
           quantity: delivery.quantity,
           ppeScheduleId: schedule.id,
-          status: PPE_DELIVERY_STATUS.PENDING,
-          statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING],
+          // Deliveries created from schedules are automatically approved
+          status: PPE_DELIVERY_STATUS.APPROVED,
+          statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.APPROVED],
           scheduledDate: schedule.nextRun || new Date(),
         };
 
@@ -461,7 +516,7 @@ export class PpeDeliveryScheduleService {
       }
 
       // Validate PPE types are provided
-      if (!data.ppeItems || data.ppeItems.length === 0) {
+      if (!data.items || data.items.length === 0) {
         throw new BadRequestException(
           'Pelo menos um tipo de PPE deve ser especificado para o agendamento.',
         );
@@ -575,7 +630,13 @@ export class PpeDeliveryScheduleService {
         transaction: transaction,
       });
 
-      const leadDays = this.getLeadTimeDays(data.frequency);
+      // For INITIAL schedule creation, use the MAXIMUM lead time (7 days) to determine
+      // if immediate execution is needed. This ensures that any schedule with a first run
+      // within 7 days will create deliveries immediately, regardless of frequency.
+      // The frequency-specific lead times (1 day for DAILY/WEEKLY/BIWEEKLY) are only used
+      // by the cron job for subsequent/recurring executions.
+      const INITIAL_CREATION_LEAD_DAYS = 7;
+      const frequencyLeadDays = this.getLeadTimeDays(data.frequency);
 
       // Check if the first run is already within the lead time window.
       // If so, create deliveries immediately instead of waiting for the cron job.
@@ -590,44 +651,78 @@ export class PpeDeliveryScheduleService {
       if (effectiveNextRun) {
         const now = new Date();
         const preparationDate = new Date(now);
-        preparationDate.setDate(preparationDate.getDate() + leadDays);
+        // Use the maximum lead time for initial creation to ensure schedules
+        // with close first-run dates create deliveries immediately
+        preparationDate.setDate(preparationDate.getDate() + INITIAL_CREATION_LEAD_DAYS);
+
         if (effectiveNextRun <= preparationDate) {
           immediateExecution = true;
         }
+
+        // Debug logging for immediate execution calculation
+        console.log('[PPE Schedule Create] Immediate execution check:', {
+          effectiveNextRun: effectiveNextRun.toISOString(),
+          preparationDate: preparationDate.toISOString(),
+          now: now.toISOString(),
+          immediateExecution,
+          scheduleId: effectiveSchedule.id,
+          frequency: data.frequency,
+        });
+      } else {
+        console.log('[PPE Schedule Create] No effectiveNextRun, skipping immediate execution', {
+          scheduleId: effectiveSchedule.id,
+          frequency: data.frequency,
+          nextRun: effectiveSchedule.nextRun,
+          specificDate: data.specificDate,
+        });
       }
 
       return {
         success: true,
         scheduleId: effectiveSchedule.id,
         immediateExecution,
-        leadDays,
+        leadDays: frequencyLeadDays,
         message: data.frequency === SCHEDULE_FREQUENCY.ONCE
-          ? `Agendamento de PPE criado com sucesso. As entregas serão geradas ${leadDays} dia(s) antes da data agendada.`
-          : `Agendamento de PPE criado com sucesso. As entregas serão geradas ${leadDays} dia(s) antes de cada execução.`,
+          ? `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes da data agendada.`
+          : `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes de cada execução.`,
         data: effectiveSchedule,
       };
     });
 
     // If the first run is already within the lead time window, execute immediately
     // (outside the creation transaction to avoid long-running transactions)
+    // Skip active check since we want to create deliveries even for inactive schedules
+    // during initial creation (for ONCE schedules that will become inactive after execution)
     if (result.immediateExecution) {
+      console.log('[PPE Schedule Create] Executing schedule immediately...', { scheduleId: result.scheduleId });
       try {
-        const execResult = await this.executeScheduleNow(result.scheduleId, userId);
+        const execResult = await this.executeScheduleNow(result.scheduleId, userId, { skipActiveCheck: true });
+        console.log('[PPE Schedule Create] Immediate execution result:', {
+          scheduleId: result.scheduleId,
+          deliveriesCreated: execResult.data.deliveriesCreated,
+          userCount: execResult.data.userCount,
+          errorsCount: execResult.data.errors?.length || 0,
+          errors: execResult.data.errors,
+        });
         return {
           success: true,
-          message: `${result.message} Entregas criadas imediatamente pois a data já está dentro da janela de ${result.leadDays} dia(s).`,
+          message: `${result.message} Entregas criadas imediatamente pois a primeira data está próxima.`,
           data: result.data,
           immediateDeliveries: execResult.data,
         } as any; // Extended response with immediate deliveries
       } catch (error) {
         // Schedule was created successfully, just the immediate execution failed.
         // The cron job will pick it up later.
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[PPE Schedule Create] Immediate execution failed:', { scheduleId: result.scheduleId, error: errorMessage });
         return {
           success: true,
-          message: `${result.message} Nota: a execução imediata falhou, o cron irá processar.`,
+          message: `${result.message} Nota: a execução imediata falhou (${errorMessage}), o cron irá processar.`,
           data: result.data,
         };
       }
+    } else {
+      console.log('[PPE Schedule Create] Skipping immediate execution', { scheduleId: result.scheduleId, immediateExecution: result.immediateExecution });
     }
 
     return {
@@ -1184,10 +1279,15 @@ export class PpeDeliveryScheduleService {
 
   /**
    * Execute a schedule manually - create deliveries for all assigned users immediately
+   * @param scheduleId - The schedule ID to execute
+   * @param userId - The user performing the action
+   * @param options - Execution options
+   * @param options.skipActiveCheck - Skip the isActive check (used during initial creation)
    */
   async executeScheduleNow(
     scheduleId: string,
     userId?: string,
+    options?: { skipActiveCheck?: boolean },
   ): Promise<{
     success: boolean;
     message: string;
@@ -1199,11 +1299,16 @@ export class PpeDeliveryScheduleService {
     };
   }> {
     return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      // Get the schedule with all details
+      // Get the schedule with all details including PPE items
       const schedule = await this.repository.findById(scheduleId, {
         include: {
           user: true,
           category: true,
+          items: {
+            include: {
+              item: true, // Include the item details for OTHERS type
+            },
+          },
         },
       });
 
@@ -1213,16 +1318,16 @@ export class PpeDeliveryScheduleService {
         );
       }
 
-      if (!schedule.isActive) {
+      if (!schedule.isActive && !options?.skipActiveCheck) {
         throw new BadRequestException(
           'O agendamento de PPE está inativo e não pode ser executado.',
         );
       }
 
       if (
-        !schedule.ppeItems ||
-        !Array.isArray(schedule.ppeItems) ||
-        schedule.ppeItems.length === 0
+        !schedule.items ||
+        !Array.isArray(schedule.items) ||
+        schedule.items.length === 0
       ) {
         throw new BadRequestException('O agendamento não possui itens de PPE configurados.');
       }
@@ -1245,12 +1350,30 @@ export class PpeDeliveryScheduleService {
       const errors: string[] = [];
 
       // Create deliveries for each assigned user and PPE type combination
+
+      // Log schedule items for debugging
+      console.log('[PPE Schedule Execute] Schedule items:', {
+        scheduleId: schedule.id,
+        itemsCount: schedule.items?.length || 0,
+        items: schedule.items?.map(item => ({
+          ppeType: item.ppeType,
+          quantity: item.quantity,
+          itemId: item.itemId,
+        })),
+      });
+
       for (const assignedUserId of assignedUserIds) {
-        const userItemMatches = await this.findMatchingItemsForUser(
+        const { matches: userItemMatches, errors: matchErrors } = await this.findMatchingItemsForUser(
           assignedUserId,
-          schedule.ppeItems as { ppeType: PPE_TYPE; quantity: number }[],
+          schedule.items as { ppeType: PPE_TYPE; quantity: number; itemId?: string }[],
           transaction,
         );
+
+        // Collect any matching errors (missing sizes, no items in stock, etc.)
+        if (matchErrors.length > 0) {
+          console.log(`[PPE Schedule] Matching errors for user ${assignedUserId}:`, matchErrors);
+        }
+        errors.push(...matchErrors);
 
         for (const match of userItemMatches) {
           try {
@@ -1259,8 +1382,9 @@ export class PpeDeliveryScheduleService {
               itemId: match.itemId,
               quantity: match.quantity,
               ppeScheduleId: schedule.id,
-              status: PPE_DELIVERY_STATUS.PENDING,
-              statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.PENDING],
+              // Deliveries created from schedules are automatically approved
+              status: PPE_DELIVERY_STATUS.APPROVED,
+              statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.APPROVED],
               scheduledDate: schedule.nextRun || new Date(),
             };
 
@@ -1302,7 +1426,7 @@ export class PpeDeliveryScheduleService {
         newValue: {
           deliveriesCreated,
           userCount: assignedUserIds.length,
-          ppeTypes: schedule.ppeItems?.map(item => item.ppeType) || [],
+          ppeTypes: schedule.items?.map(item => item.ppeType) || [],
           errorCount: errors.length,
         },
         reason: `Execução manual do agendamento - ${deliveriesCreated} entregas criadas`,
@@ -1318,7 +1442,7 @@ export class PpeDeliveryScheduleService {
         data: {
           deliveriesCreated,
           userCount: assignedUserIds.length,
-          ppeTypes: schedule.ppeItems?.map(item => item.ppeType) || [],
+          ppeTypes: schedule.items?.map(item => item.ppeType) || [],
           ...(errors.length > 0 && { errors }),
         },
       };
@@ -1393,6 +1517,11 @@ export class PpeDeliveryScheduleService {
   }> {
     const schedule = await this.repository.findById(scheduleId, {
       include: {
+        items: {
+          include: {
+            item: true,
+          },
+        },
         deliveries: {
           include: {
             user: true,
@@ -1427,7 +1556,7 @@ export class PpeDeliveryScheduleService {
         deliveredCount,
         lastExecuted: schedule.lastRun || undefined,
         nextRun: schedule.nextRun || undefined,
-        ppeTypes: schedule.ppeItems?.map(item => item.ppeType) || [],
+        ppeTypes: schedule.items?.map(item => item.ppeType) || [],
         assignmentType: schedule.assignmentType || ASSIGNMENT_TYPE.ALL,
       },
     };

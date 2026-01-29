@@ -63,7 +63,7 @@ export class PpeDeliverySchedulePrismaRepository
     formData: PpeDeliveryScheduleCreateFormData,
   ): Prisma.PpeDeliveryScheduleCreateInput {
     const {
-      ppeItems,
+      items,
       frequency,
       dayOfWeek,
       month,
@@ -86,7 +86,14 @@ export class PpeDeliverySchedulePrismaRepository
 
     const createInput: Prisma.PpeDeliveryScheduleCreateInput = {
       ...rest,
-      ppeItems: (ppeItems || []) as Prisma.InputJsonValue, // This is a JSON field storing array of {ppeType: PpeType, quantity: number}
+      // Create nested PpeScheduleItem records for the items relation
+      items: items && items.length > 0 ? {
+        create: items.map(item => ({
+          ppeType: item.ppeType as PpeType,
+          quantity: item.quantity,
+          itemId: item.itemId || null,
+        })),
+      } : undefined,
       frequency: frequency as ScheduleFrequency,
       dayOfWeek: dayOfWeek as DayOfWeek | null | undefined,
       month: month as Month | null | undefined,
@@ -99,7 +106,7 @@ export class PpeDeliverySchedulePrismaRepository
 
     // Note: PpeDeliverySchedule doesn't have itemId, userId, or categoryId fields
     // The model uses assignmentType with includedUserIds/excludedUserIds for user assignment
-    // PPE types and quantities are stored in the ppeItems JSON field
+    // PPE types and quantities are stored in the items relation (PpeScheduleItem)
 
     return createInput;
   }
@@ -108,7 +115,7 @@ export class PpeDeliverySchedulePrismaRepository
     formData: PpeDeliveryScheduleUpdateFormData,
   ): Prisma.PpeDeliveryScheduleUpdateInput {
     const {
-      ppeItems,
+      items,
       frequency,
       dayOfWeek,
       month,
@@ -124,9 +131,16 @@ export class PpeDeliverySchedulePrismaRepository
       ...rest,
     };
 
-    if (ppeItems !== undefined) {
-      // For JSON fields in Prisma, we need to ensure the value is properly typed
-      updateInput.ppeItems = ppeItems as Prisma.InputJsonValue;
+    // Handle items relation - delete all existing and create new ones
+    if (items !== undefined) {
+      updateInput.items = {
+        deleteMany: {}, // Delete all existing items
+        create: items.map(item => ({
+          ppeType: item.ppeType as PpeType,
+          quantity: item.quantity,
+          itemId: item.itemId || null,
+        })),
+      };
     }
     if (frequency !== undefined) {
       updateInput.frequency = frequency as ScheduleFrequency;
@@ -162,6 +176,7 @@ export class PpeDeliverySchedulePrismaRepository
     // - weeklyConfig, monthlyConfig, yearlyConfig (schedule configs)
     // - deliveries (PpeDelivery[])
     // - autoOrders (Order[])
+    // - items (PpeScheduleItem[])
     const validInclude: any = {};
 
     // Only include valid relations
@@ -170,9 +185,10 @@ export class PpeDeliverySchedulePrismaRepository
     if ('yearlyConfig' in include) validInclude.yearlyConfig = include.yearlyConfig;
     if ('deliveries' in include) validInclude.deliveries = include.deliveries;
     if ('autoOrders' in include) validInclude.autoOrders = include.autoOrders;
+    if ('items' in include) validInclude.items = include.items;
 
     // Note: 'item', 'user', and 'category' are not valid relations on PpeDeliverySchedule
-    // PPE types are stored in the ppeItems JSON field
+    // PPE types are stored in the items relation (PpeScheduleItem)
     // User assignment is handled via assignmentType with includedUserIds/excludedUserIds
 
     return Object.keys(validInclude).length > 0 ? validInclude : undefined;
@@ -216,6 +232,17 @@ export class PpeDeliverySchedulePrismaRepository
       weeklyConfig: true,
       monthlyConfig: true,
       yearlyConfig: true,
+      // Include PPE schedule items with their related item (for OTHERS type)
+      items: {
+        include: {
+          item: true,
+        },
+        orderBy: [
+          {
+            ppeType: 'asc',
+          },
+        ],
+      },
       deliveries: {
         include: {
           item: true,
@@ -615,10 +642,9 @@ export class PpeDeliverySchedulePrismaRepository
       const client = tx || this.prisma;
       const results = await client.ppeDeliverySchedule.findMany({
         where: {
-          ppeItems: {
-            path: ['$'],
-            array_contains: {
-              ppeType: ppeType,
+          items: {
+            some: {
+              ppeType: ppeType as PpeType,
             },
           },
         },
@@ -638,14 +664,11 @@ export class PpeDeliverySchedulePrismaRepository
       const client = tx || this.prisma;
       const results = await client.ppeDeliverySchedule.findMany({
         where: {
-          OR: ppeTypes.map(ppeType => ({
-            ppeItems: {
-              path: ['$'],
-              array_contains: {
-                ppeType: ppeType,
-              },
+          items: {
+            some: {
+              ppeType: { in: ppeTypes as PpeType[] },
             },
-          })),
+          },
         },
         include: this.getDefaultInclude(),
         orderBy: [{ nextRun: 'asc' }],
@@ -703,7 +726,7 @@ export class PpeDeliverySchedulePrismaRepository
   ): Promise<PpeDeliverySchedule[]> {
     // Note: PpeDeliverySchedule doesn't have a categoryId field
     // This method is required by the interface but returns empty array
-    // PPE types are stored in the ppeItems JSON field instead
+    // PPE types are stored in the items relation (PpeScheduleItem) instead
     this.logger.warn(
       `findByCategoryId called but PpeDeliverySchedule doesn't have categoryId field`,
     );

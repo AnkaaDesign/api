@@ -406,6 +406,12 @@ export const ppeSizeCreateSchema = z.object({
     })
     .nullable()
     .optional(),
+  shorts: z
+    .nativeEnum(PANTS_SIZE, {
+      errorMap: () => ({ message: 'Tamanho da bermuda inválido' }),
+    })
+    .nullable()
+    .optional(),
   sleeves: z
     .nativeEnum(SLEEVES_SIZE, {
       errorMap: () => ({ message: 'Tamanho da manga inválido' }),
@@ -449,6 +455,12 @@ export const ppeSizeUpdateSchema = z.object({
   pants: z
     .nativeEnum(PANTS_SIZE, {
       errorMap: () => ({ message: 'Tamanho da calça inválido' }),
+    })
+    .nullable()
+    .optional(),
+  shorts: z
+    .nativeEnum(PANTS_SIZE, {
+      errorMap: () => ({ message: 'Tamanho da bermuda inválido' }),
     })
     .nullable()
     .optional(),
@@ -1249,6 +1261,18 @@ export const ppeDeliveryScheduleIncludeSchema = z
         }),
       ])
       .optional(),
+    items: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              item: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
   .partial();
 
@@ -1567,28 +1591,49 @@ export const ppeDeliveryScheduleGetManySchema = z
   .transform(ppeDeliveryScheduleTransform);
 
 // PPE Item Schema for schedules
-export const ppeScheduleItemSchema = z.object({
-  ppeType: z.nativeEnum(PPE_TYPE, {
-    errorMap: () => ({ message: 'Tipo de PPE inválido' }),
-  }),
-  quantity: z
-    .number()
-    .positive('Quantidade deve ser positiva')
-    .int('Quantidade deve ser um número inteiro'),
-});
+export const ppeScheduleItemSchema = z
+  .object({
+    ppeType: z.nativeEnum(PPE_TYPE, {
+      errorMap: () => ({ message: 'Tipo de PPE inválido' }),
+    }),
+    quantity: z
+      .number()
+      .positive('Quantidade deve ser positiva')
+      .int('Quantidade deve ser um número inteiro'),
+    itemId: z.string().uuid('Item inválido').optional(),
+  })
+  .refine(
+    data => {
+      // itemId is required when ppeType is OTHERS
+      if (data.ppeType === PPE_TYPE.OTHERS) {
+        return !!data.itemId;
+      }
+      return true;
+    },
+    { message: 'Item é obrigatório para o tipo "Outros"', path: ['itemId'] },
+  );
 
 // CRUD Schemas
 export const ppeDeliveryScheduleCreateSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo'),
-  ppeItems: z
+  items: z
     .array(ppeScheduleItemSchema)
     .min(1, 'Pelo menos um item de PPE deve ser especificado')
     .refine(
       items => {
-        const types = items.map(item => item.ppeType);
-        return new Set(types).size === types.length;
+        // For non-OTHERS types, each type can only appear once
+        const nonOthersTypes = items.filter(item => item.ppeType !== PPE_TYPE.OTHERS).map(item => item.ppeType);
+        if (new Set(nonOthersTypes).size !== nonOthersTypes.length) {
+          return false;
+        }
+        // For OTHERS type, each itemId can only appear once
+        const othersItemIds = items.filter(item => item.ppeType === PPE_TYPE.OTHERS).map(item => item.itemId);
+        if (new Set(othersItemIds).size !== othersItemIds.length) {
+          return false;
+        }
+        return true;
       },
-      { message: 'Cada tipo de PPE pode aparecer apenas uma vez' },
+      { message: 'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)' },
     ),
   userId: z.string().uuid('Usuário inválido').nullable().optional(),
   categoryId: z.string().uuid('Categoria inválida').nullable().optional(),
@@ -1624,15 +1669,24 @@ export const ppeDeliveryScheduleCreateSchema = z.object({
 
 export const ppeDeliveryScheduleUpdateSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo').optional(),
-  ppeItems: z
+  items: z
     .array(ppeScheduleItemSchema)
     .min(1, 'Pelo menos um item de PPE deve ser especificado')
     .refine(
       items => {
-        const types = items.map(item => item.ppeType);
-        return new Set(types).size === types.length;
+        // For non-OTHERS types, each type can only appear once
+        const nonOthersTypes = items.filter(item => item.ppeType !== PPE_TYPE.OTHERS).map(item => item.ppeType);
+        if (new Set(nonOthersTypes).size !== nonOthersTypes.length) {
+          return false;
+        }
+        // For OTHERS type, each itemId can only appear once
+        const othersItemIds = items.filter(item => item.ppeType === PPE_TYPE.OTHERS).map(item => item.itemId);
+        if (new Set(othersItemIds).size !== othersItemIds.length) {
+          return false;
+        }
+        return true;
       },
-      { message: 'Cada tipo de PPE pode aparecer apenas uma vez' },
+      { message: 'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)' },
     )
     .optional(),
   assignmentType: z
@@ -1771,6 +1825,7 @@ export const mapPpeSizeToFormData = createMapToFormDataHelper<PpeSize, PpeSizeUp
     shirts: ppeSize.shirts,
     boots: ppeSize.boots,
     pants: ppeSize.pants,
+    shorts: ppeSize.shorts,
     sleeves: ppeSize.sleeves,
     mask: ppeSize.mask,
   }),

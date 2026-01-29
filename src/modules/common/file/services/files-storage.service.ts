@@ -50,6 +50,7 @@ export interface FilesFolderMapping {
 
   // Entity-specific folders - User
   userAvatar: string;
+  signedPpeDocuments: string;
 
   // Entity-specific folders - Other
   observations: string;
@@ -140,6 +141,7 @@ export class FilesStorageService {
 
     // User folders
     userAvatar: 'Colaboradores',
+    signedPpeDocuments: 'Colaboradores/Documentos',
 
     // Other entity folders
     observations: 'Observacoes',
@@ -356,6 +358,11 @@ export class FilesStorageService {
       }
       // USER AVATAR: Add user folder
       else if (fileContext === 'userAvatar' && userName) {
+        const sanitizedUserName = this.sanitizeFileName(userName);
+        folderPath = join(folderPath, sanitizedUserName);
+      }
+      // SIGNED PPE DOCUMENTS: Add user folder
+      else if (fileContext === 'signedPpeDocuments' && userName) {
         const sanitizedUserName = this.sanitizeFileName(userName);
         folderPath = join(folderPath, sanitizedUserName);
       }

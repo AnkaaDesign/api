@@ -1,13 +1,15 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationService } from '@modules/common/notification/notification.service';
 import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { PpeSignatureService } from './ppe-signature.service';
 import {
   PpeRequestedEvent,
   PpeApprovedEvent,
   PpeRejectedEvent,
   PpeDeliveredEvent,
+  PpeBatchDeliveredEvent,
 } from './ppe.events';
 import {
   NOTIFICATION_TYPE,
@@ -39,6 +41,8 @@ export class PpeListener {
     private readonly notificationService: NotificationService,
     private readonly preferenceService: NotificationPreferenceService,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => PpeSignatureService))
+    private readonly ppeSignatureService: PpeSignatureService,
   ) {
     this.logger.log('========================================');
     this.logger.log('[PPE LISTENER] Initializing PPE Event Listener');
@@ -56,6 +60,9 @@ export class PpeListener {
 
     this.eventEmitter.on('ppe.delivered', this.handlePpeDelivered.bind(this));
     this.logger.log('[PPE LISTENER] ✅ Registered: ppe.delivered');
+
+    this.eventEmitter.on('ppe.batch.delivered', this.handlePpeBatchDelivered.bind(this));
+    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.batch.delivered');
 
     this.logger.log('[PPE LISTENER] All event handlers registered successfully');
     this.logger.log('========================================');
@@ -373,8 +380,72 @@ export class PpeListener {
       this.logger.log(`[PPE EVENT]   ✅ Created: ${notificationsCreated}`);
       this.logger.log(`[PPE EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
       this.logger.log('========================================');
+
+      // Note: Signature workflow is handled by the batch event (ppe.batch.delivered)
+      // to avoid duplicate signature requests
     } catch (error) {
       this.logger.error('[PPE EVENT] ❌ Error handling PPE delivered event:', error.message);
+    }
+  }
+
+  /**
+   * Handle PPE batch delivered event
+   * Initiates signature workflow for multiple deliveries (grouped by user)
+   */
+  private async handlePpeBatchDelivered(event: PpeBatchDeliveredEvent): Promise<void> {
+    this.logger.log('========================================');
+    this.logger.log('[PPE EVENT] PPE batch delivered event received');
+    this.logger.log(`[PPE EVENT] Delivery IDs: ${event.deliveryIds.join(', ')}`);
+    this.logger.log(`[PPE EVENT] Total: ${event.deliveryIds.length} deliveries`);
+    this.logger.log('========================================');
+
+    try {
+      // Initiate signature for batch (will be grouped by user automatically)
+      await this.initiateSignatureForDeliveries(event.deliveryIds);
+
+      this.logger.log('========================================');
+      this.logger.log('[PPE EVENT] PPE batch delivered processed successfully');
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error('[PPE EVENT] ❌ Error handling PPE batch delivered event:', error.message);
+    }
+  }
+
+  /**
+   * Initiate signature workflow for delivered PPE(s)
+   * Groups deliveries by user and creates one signature request per user
+   */
+  private async initiateSignatureForDeliveries(deliveryIds: string[]): Promise<void> {
+    if (!this.ppeSignatureService.isClickSignAvailable()) {
+      this.logger.log('[PPE EVENT] ClickSign not configured - skipping signature workflow');
+      return;
+    }
+
+    try {
+      this.logger.log(`[PPE EVENT] Initiating signature workflow for ${deliveryIds.length} deliveries`);
+
+      const result = await this.ppeSignatureService.initiateSignatureForDeliveries({
+        deliveryIds,
+      });
+
+      if (result.success) {
+        this.logger.log('[PPE EVENT] ✅ Signature workflow initiated successfully');
+        for (const r of result.results) {
+          if (r.signatureResult) {
+            this.logger.log(`[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`);
+          }
+        }
+      } else {
+        this.logger.warn('[PPE EVENT] ⚠️ Some signature initiations failed');
+        for (const r of result.results) {
+          if (r.error) {
+            this.logger.warn(`[PPE EVENT]   - User ${r.userId}: ${r.error}`);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error('[PPE EVENT] ❌ Error initiating signature workflow:', error);
+      // Don't throw - signature is not critical for delivery
     }
   }
 

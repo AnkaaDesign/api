@@ -142,7 +142,10 @@ async function bootstrap() {
     // Capture raw body for webhook signature verification
     // This must be done BEFORE any JSON parsing
     app.use((req: any, res, next) => {
-      if (req.url === '/deployments/webhook' && req.method === 'POST') {
+      const isWebhookRoute =
+        (req.url === '/deployments/webhook' && req.method === 'POST');
+
+      if (isWebhookRoute) {
         let data = '';
         req.setEncoding('utf8');
         req.on('data', (chunk: string) => {
@@ -150,7 +153,11 @@ async function bootstrap() {
         });
         req.on('end', () => {
           req.rawBody = Buffer.from(data, 'utf8');
-          req.body = JSON.parse(data);
+          try {
+            req.body = JSON.parse(data);
+          } catch {
+            req.body = {};
+          }
           next();
         });
       } else {

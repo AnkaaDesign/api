@@ -60,6 +60,7 @@ export function isValidSizeForPpeType(size: PPE_SIZE, ppeType: PPE_TYPE): boolea
       return [PPE_SIZE.P, PPE_SIZE.M, PPE_SIZE.G].includes(size);
 
     case PPE_TYPE.PANTS:
+    case PPE_TYPE.SHORT:
     case PPE_TYPE.BOOTS:
       return NUMERIC_SIZES.includes(size);
 
@@ -105,6 +106,7 @@ export function getValidSizesForPpeType(ppeType: PPE_TYPE): PPE_SIZE[] {
       return [PPE_SIZE.P, PPE_SIZE.M, PPE_SIZE.G];
 
     case PPE_TYPE.PANTS:
+    case PPE_TYPE.SHORT:
     case PPE_TYPE.BOOTS:
       return [...NUMERIC_SIZES];
 
@@ -193,6 +195,7 @@ export function formatPpeSizeDisplay(size: PpeSize): string {
 
   if (size.shirts) parts.push(`Camisa: ${size.shirts}`);
   if (size.pants) parts.push(`Calça: ${size.pants}`);
+  if (size.shorts) parts.push(`Bermuda: ${size.shorts}`);
   if (size.boots) parts.push(`Bota: ${size.boots}`);
   if (size.sleeves) parts.push(`Manga: ${size.sleeves}`);
 
@@ -306,6 +309,9 @@ export function getPpeDeliveryStatusColor(status: PPE_DELIVERY_STATUS): string {
     [PPE_DELIVERY_STATUS.DELIVERED]: 'green',
     [PPE_DELIVERY_STATUS.REPROVED]: 'red',
     [PPE_DELIVERY_STATUS.CANCELLED]: 'gray',
+    [PPE_DELIVERY_STATUS.WAITING_SIGNATURE]: 'orange',
+    [PPE_DELIVERY_STATUS.COMPLETED]: 'green',
+    [PPE_DELIVERY_STATUS.SIGNATURE_REJECTED]: 'red',
   };
   return colors[status] || 'gray';
 }
@@ -393,7 +399,7 @@ export function formatPpeScheduleSummary(schedule: PpeDeliverySchedule): string 
   const frequency = getPpeFrequencyLabel(schedule.frequency);
   const status = schedule.isActive ? 'Ativo' : 'Inativo';
   const ppeTypes =
-    schedule.ppeItems?.map(item => `${item.ppeType} (${item.quantity}x)`).join(', ') ||
+    schedule.items?.map(item => `${item.ppeType} (${item.quantity}x)`).join(', ') ||
     'Não especificado';
 
   const assignmentTypeLabels = {
@@ -419,6 +425,9 @@ export function groupDeliveriesByStatus(
     [PPE_DELIVERY_STATUS.DELIVERED]: [],
     [PPE_DELIVERY_STATUS.REPROVED]: [],
     [PPE_DELIVERY_STATUS.CANCELLED]: [],
+    [PPE_DELIVERY_STATUS.WAITING_SIGNATURE]: [],
+    [PPE_DELIVERY_STATUS.COMPLETED]: [],
+    [PPE_DELIVERY_STATUS.SIGNATURE_REJECTED]: [],
   };
 
   deliveries.forEach(delivery => {
@@ -573,6 +582,8 @@ export function getPpeSizeByType(ppeSize: PpeSize, ppeType: PPE_TYPE): string | 
       return ppeSize.shirts;
     case PPE_TYPE.PANTS:
       return ppeSize.pants;
+    case PPE_TYPE.SHORT:
+      return ppeSize.shorts;
     case PPE_TYPE.BOOTS:
       return ppeSize.boots;
     case PPE_TYPE.SLEEVES:

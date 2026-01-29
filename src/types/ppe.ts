@@ -39,6 +39,7 @@ export interface PpeSize extends BaseEntity {
   shirts: SHIRT_SIZE | null;
   boots: BOOT_SIZE | null;
   pants: PANTS_SIZE | null;
+  shorts: PANTS_SIZE | null;
   sleeves: SLEEVES_SIZE | null;
   mask: MASK_SIZE | null;
   gloves: GLOVES_SIZE | null;
@@ -77,20 +78,33 @@ export interface PpeDelivery extends BaseEntity {
 // - ppeDeliveryMode: SCHEDULED, ON_DEMAND, BOTH
 // - ppeStandardQuantity: Standard quantity per delivery
 
-// PPE Schedule Item for schedules with quantities per type
-export interface PpeScheduleItem {
+// PPE Schedule Item - database entity for PPE types in a schedule
+export interface PpeScheduleItem extends BaseEntity {
+  scheduleId: string;
   ppeType: PPE_TYPE;
   quantity: number;
+  itemId: string | null; // Required when ppeType is OTHERS - references specific item
+
+  // Relations (optional, populated based on query)
+  schedule?: PpeDeliverySchedule;
+  item?: Item;
+}
+
+// Input type for creating/updating PPE schedule items (without id/timestamps)
+export interface PpeScheduleItemInput {
+  ppeType: PPE_TYPE;
+  quantity: number;
+  itemId?: string; // Required when ppeType is OTHERS
 }
 
 export interface PpeDeliverySchedule extends BaseEntity {
+  name: string;
   assignmentType: ASSIGNMENT_TYPE;
   excludedUserIds: string[];
   includedUserIds: string[];
   frequency: SCHEDULE_FREQUENCY;
   frequencyCount: number;
   isActive: boolean;
-  ppeItems: PpeScheduleItem[];
   specificDate: Date | null;
   dayOfMonth: number | null;
   dayOfWeek: WEEK_DAY | null;
@@ -104,6 +118,7 @@ export interface PpeDeliverySchedule extends BaseEntity {
   lastRun: Date | null;
 
   // Relations (optional, populated based on query)
+  items?: PpeScheduleItem[];
   deliveries?: PpeDelivery[];
   autoOrders?: Order[];
 }
@@ -454,7 +469,12 @@ export interface PpeDeliveryScheduleWhere {
         notIn?: number[];
       };
   isActive?: boolean | { equals?: boolean; not?: boolean };
-  ppeItems?: any; // JSON field - supports complex JSON queries
+  // items relation - query by PPE types in the schedule
+  items?: {
+    some?: { ppeType?: PPE_TYPE | { in?: PPE_TYPE[] } };
+    none?: { ppeType?: PPE_TYPE | { in?: PPE_TYPE[] } };
+    every?: { ppeType?: PPE_TYPE | { in?: PPE_TYPE[] } };
+  };
   dayOfMonth?:
     | number
     | {
