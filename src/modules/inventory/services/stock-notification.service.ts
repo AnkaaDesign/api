@@ -341,6 +341,8 @@ export class StockNotificationService {
     const deepLinks = this.deepLinkService.generateItemLinks(metadata.itemId);
 
     // Create notification for each target user
+    // Use webPath (relative path) for actionUrl for backward compatibility
+    // This matches how task notifications work - actionUrl is relative, metadata.webUrl is full URL
     for (const user of targetUsers) {
       try {
         await this.notificationService.createNotification(
@@ -355,10 +357,10 @@ export class StockNotificationService {
             ],
             importance: this.getImportance(metadata.eventType),
             actionType: metadata.eventType,
-            actionUrl: deepLinks.web,  // Web URL for backward compatibility
+            actionUrl: deepLinks.webPath,  // Use relative path for backward compatibility (like task notifications)
             metadata: {
               ...(metadata as any),
-              webUrl: deepLinks.web,                  // Web route
+              webUrl: deepLinks.web,                  // Full web URL for platforms that need it
               mobileUrl: deepLinks.mobile,            // Mobile app deep link
               universalLink: deepLinks.universalLink, // Universal link for mobile
             },

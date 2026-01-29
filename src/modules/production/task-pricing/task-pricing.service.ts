@@ -519,6 +519,9 @@ export class TaskPricingService {
           tasks: {
             include: {
               customer: true,
+              truck: true,
+              // Note: negotiatingWith is a Json scalar field, not a relation
+              // It's automatically included in the task data
             },
           },
         },
@@ -536,9 +539,13 @@ export class TaskPricingService {
         );
       }
 
+      // Transform tasks array to single task for frontend compatibility
+      const { tasks, ...pricingData } = pricing;
+      const task = tasks && tasks.length > 0 ? tasks[0] : null;
+
       return {
         success: true,
-        data: pricing as any,
+        data: { ...pricingData, task } as any,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {

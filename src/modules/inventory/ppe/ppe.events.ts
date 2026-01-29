@@ -67,3 +67,14 @@ export class PpeStatusChangedEvent {
     public readonly changedBy: User,
   ) {}
 }
+
+/**
+ * Event emitted when multiple PPE deliveries are marked as delivered in batch
+ * Used to trigger batch signature workflow (one signature per user)
+ */
+export class PpeBatchDeliveredEvent {
+  constructor(
+    public readonly deliveryIds: string[],
+    public readonly deliveredBy: User,
+  ) {}
+}

@@ -2540,6 +2540,7 @@ export class TaskService {
               const pricingItems: SyncPricingItem[] = syncEligiblePricingItems.map((item: any) => ({
                 id: item.id,
                 description: item.description,
+                observation: item.observation,
                 amount: item.amount,
               }));
 
@@ -5730,24 +5731,29 @@ export class TaskService {
    * Validate field-level access for COMMERCIAL sector
    * Commercial can access: agenda, cronograma, history, customer, garages, observation, airbrushing, paint basic catalogue
    * Commercial can create and update tasks
-   * Commercial CANNOT edit: layout (truck layouts), financial (budgets, invoices, receipts, NFEs), cut plan (cuts)
+   * Commercial CAN edit: truck (plate, chassisNumber, category, implementType, spot, layouts), base files
+   * Commercial CANNOT edit: financial (budgets, invoices, receipts, NFEs), cut plan (cuts)
    */
   private validateCommercialSectorAccess(data: TaskUpdateFormData): void {
     const disallowedFields = [
-      'truck', // Cannot edit truck/layouts
       'budgetIds', // Cannot edit financial documents
       'nfeIds', // Cannot edit financial documents
       'receiptIds', // Cannot edit financial documents
       'cuts', // Cannot edit cut plans
     ];
 
-    const attemptedFields = Object.keys(data);
-    const blockedFields = attemptedFields.filter(field => disallowedFields.includes(field));
+    // Only block fields that have actual values (not empty arrays or undefined)
+    // The frontend may send empty arrays to clear files, which should be allowed
+    const blockedFields = disallowedFields.filter(field => {
+      const value = (data as any)[field];
+      // Block only if field exists and has actual content
+      return value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0);
+    });
 
     if (blockedFields.length > 0) {
       throw new BadRequestException(
         `Setor Comercial não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
-          `Campos bloqueados: layout (caminhão), financeiro (orçamentos, NFEs, recibos), plano de corte.`,
+          `Campos bloqueados: financeiro (orçamentos, NFEs, recibos), plano de corte.`,
       );
     }
   }

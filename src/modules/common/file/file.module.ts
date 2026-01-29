@@ -66,7 +66,7 @@ if (!existsSync(uploadDir)) {
       useClass: FilePrismaRepository,
     },
   ],
-  exports: [FileService, FileRepository, FolderRenameService],
+  exports: [FileService, FileRepository, FolderRenameService, FilesStorageModule],
 })
 export class FileModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

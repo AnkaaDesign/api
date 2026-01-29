@@ -798,6 +798,75 @@ export class NotificationPreferenceService {
       },
 
       // ============================================
+      // PPE SIGNATURE NOTIFICATIONS
+      // ============================================
+
+      // Assinatura Solicitada (Signature Requested) - MANDATORY for employee
+      {
+        type: NOTIFICATION_TYPE.PPE,
+        eventType: 'signature_requested',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+      },
+
+      // Assinatura Concluída (Signature Completed) - Notify admins/HR
+      {
+        type: NOTIFICATION_TYPE.PPE,
+        eventType: 'signature_completed',
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
+        mandatoryChannels: [],
+      },
+
+      // Assinatura Rejeitada (Signature Rejected) - MANDATORY for admins/HR
+      {
+        type: NOTIFICATION_TYPE.PPE,
+        eventType: 'signature_rejected',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+      },
+
+      // Erro de Processamento de Assinatura (Signature Processing Failed) - MANDATORY for admins
+      {
+        type: NOTIFICATION_TYPE.PPE,
+        eventType: 'signature_failed',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.EMAIL,
+        ],
+      },
+
+      // Lembrete de Assinatura Pendente (Pending Signature Reminder)
+      {
+        type: NOTIFICATION_TYPE.PPE,
+        eventType: 'signature_reminder',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+        ],
+      },
+
+      // ============================================
       // VACATION NOTIFICATIONS (OPTIONAL)
       // ============================================
 
