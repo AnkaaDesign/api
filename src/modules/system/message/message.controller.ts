@@ -139,6 +139,34 @@ export class MessageController {
   }
 
   /**
+   * Get all messages for current user (including viewed/dismissed)
+   * This allows users to review messages they've already seen
+   */
+  @Get('my-messages')
+  @ApiOperation({
+    summary: 'Get all messages for current user',
+    description: 'Retrieve all messages targeted to the current user, including viewed and dismissed ones',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Messages retrieved successfully',
+  })
+  async getMyMessages(
+    @UserId() userId: string,
+    @User() user: UserPayload,
+  ) {
+    const messages = await this.messageService.getAllForUser(userId, user.role);
+    return {
+      success: true,
+      data: messages,
+      meta: {
+        count: messages.length,
+      },
+      message: 'Mensagens recuperadas com sucesso',
+    };
+  }
+
+  /**
    * Get message by ID (Admin only)
    */
   @Get(':id')

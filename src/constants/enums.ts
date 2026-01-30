@@ -493,6 +493,7 @@ export enum PANTS_SIZE {
   SIZE_44 = 'SIZE_44',
   SIZE_46 = 'SIZE_46',
   SIZE_48 = 'SIZE_48',
+  SIZE_50 = 'SIZE_50',
 }
 
 export enum SHIRT_SIZE {
@@ -588,6 +589,7 @@ export enum PPE_SIZE {
   SIZE_46 = 'SIZE_46',
   SIZE_47 = 'SIZE_47',
   SIZE_48 = 'SIZE_48',
+  SIZE_50 = 'SIZE_50',
 }
 
 // Alias for Prisma compatibility
@@ -671,6 +673,7 @@ export enum MEASURE_UNIT {
   SIZE_46 = 'SIZE_46',
   SIZE_47 = 'SIZE_47',
   SIZE_48 = 'SIZE_48',
+  SIZE_50 = 'SIZE_50',
 }
 
 export enum MEASURE_TYPE {
@@ -807,8 +810,9 @@ export enum TRUCK_CATEGORY {
  * Defines the type of body or implement mounted on the truck
  */
 export enum IMPLEMENT_TYPE {
-  CORRUGATED = 'CORRUGATED', // Corrugado - Corrugated body
-  INSULATED = 'INSULATED', // Isoplastic - Insulated/refrigerated body
+  DRY_CARGO = 'DRY_CARGO', // Carga Seca - Dry cargo body
+  REFRIGERATED = 'REFRIGERATED', // Refrigerado - Refrigerated body
+  INSULATED = 'INSULATED', // Isoplastic - Insulated body
   CURTAIN_SIDE = 'CURTAIN_SIDE', // Sider - Curtain-side body
   TANK = 'TANK', // Tanque - Tank truck
   FLATBED = 'FLATBED', // Carroceria - Open flatbed/stake body

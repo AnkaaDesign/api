@@ -83,31 +83,45 @@ export interface ClickSignNotificationResponse {
   };
 }
 
-// Webhook Event Types (API 3.0)
+// Webhook Event Types (ClickSign)
+// Based on official documentation: https://developers.clicksign.com/docs/evento-sign
 export interface ClickSignWebhookEvent {
-  event: string;
-  envelope: {
-    id: string;
-    status: string;
-    metadata: Record<string, any>;
+  event: {
+    name: string; // 'sign', 'document_closed', 'auto_close', 'refusal', 'cancel', etc.
+    data?: {
+      account?: { key: string };
+      signer?: {
+        key: string;
+        email: string;
+        name: string;
+        phone_number?: string;
+        sign_as?: string;
+        auths?: string[];
+        url?: string;
+      };
+      secret_hmac?: string | null;
+    };
+    occurred_at?: string;
   };
+  // Document object containing key, downloads, metadata
   document?: {
     key: string;
+    filename?: string;
+    status?: string;
+    auto_close?: boolean;
+    finished_at?: string;
+    metadata?: Record<string, any>;
     downloads?: {
-      original_file_url: string;
-      signed_file_url: string;
+      original_file_url?: string;
+      signed_file_url?: string;
+      ziped_file_url?: string;
     };
+    signers?: Array<{
+      key: string;
+      email: string;
+      name: string;
+    }>;
   };
-  signer?: {
-    email: string;
-    name: string;
-  };
-  requirement?: {
-    id: string;
-    action: string;
-    status: string;
-  };
-  occurred_at: string;
 }
 
 // Service Input Types
@@ -120,6 +134,7 @@ export interface CreateDocumentInput {
   envelopeId: string;
   pdfBuffer: Buffer;
   filename: string;
+  metadata?: Record<string, any>;
 }
 
 export interface CreateSignerInput {
@@ -211,11 +226,15 @@ export class ClickSignService {
             auto_close: true,
             remind_interval: '3', // String: 1, 2, 3, 7, or 14 days
             block_after_refusal: false,
+            // Store delivery IDs in metadata for webhook retrieval
+            metadata: {
+              delivery_ids: input.deliveryIds.join(','),
+            },
           },
         },
       });
 
-      this.logger.log(`Envelope created: ${response.data.data.id}`);
+      this.logger.log(`Envelope created: ${response.data.data.id} with ${input.deliveryIds.length} delivery IDs`);
       return response.data.data;
     } catch (error) {
       this.handleApiError(error, 'createEnvelope');
@@ -225,6 +244,7 @@ export class ClickSignService {
 
   /**
    * Step 2: Upload a document to the envelope
+   * Includes metadata with delivery IDs for webhook retrieval
    */
   async uploadDocument(input: CreateDocumentInput): Promise<ClickSignDocument> {
     if (!this.isConfigured) {
@@ -234,13 +254,20 @@ export class ClickSignService {
     try {
       const base64Content = input.pdfBuffer.toString('base64');
 
+      const attributes: any = {
+        filename: input.filename,
+        content_base64: `data:application/pdf;base64,${base64Content}`,
+      };
+
+      // Add metadata if provided (includes delivery_ids for webhook retrieval)
+      if (input.metadata) {
+        attributes.metadata = input.metadata;
+      }
+
       const response = await this.client.post(`/envelopes/${input.envelopeId}/documents`, {
         data: {
           type: 'documents',
-          attributes: {
-            filename: input.filename,
-            content_base64: `data:application/pdf;base64,${base64Content}`,
-          },
+          attributes,
         },
       });
 
@@ -254,6 +281,7 @@ export class ClickSignService {
 
   /**
    * Step 3: Add a signer to the envelope
+   * Configures WhatsApp as the notification channel if phone number is provided
    */
   async addSigner(input: CreateSignerInput): Promise<ClickSignSigner> {
     if (!this.isConfigured) {
@@ -261,18 +289,40 @@ export class ClickSignService {
     }
 
     try {
+      // Configure notification channel - using email for testing
+      // TODO: Change back to WhatsApp for production: const notificationChannel = input.phoneNumber ? 'whatsapp' : 'email';
+      const notificationChannel = 'email';
+
+      const signerAttributes: any = {
+        name: input.name,
+        email: input.email,
+        has_documentation: false, // Don't ask for CPF/birthday - simplest flow
+        // Configure notification preferences
+        communicate_events: {
+          document_signed: notificationChannel,
+          signature_request: notificationChannel,
+          signature_reminder: notificationChannel,
+        },
+      };
+
+      // Add phone number for WhatsApp notifications (Brazilian format: 55XXXXXXXXXXX)
+      if (input.phoneNumber) {
+        // Ensure phone is in international format
+        let formattedPhone = input.phoneNumber.replace(/\D/g, '');
+        if (!formattedPhone.startsWith('55')) {
+          formattedPhone = '55' + formattedPhone;
+        }
+        signerAttributes.phone_number = formattedPhone;
+      }
+
       const response = await this.client.post(`/envelopes/${input.envelopeId}/signers`, {
         data: {
           type: 'signers',
-          attributes: {
-            name: input.name,
-            email: input.email,
-            has_documentation: false, // Don't ask for CPF/birthday - simplest flow
-          },
+          attributes: signerAttributes,
         },
       });
 
-      this.logger.log(`Signer added to envelope ${input.envelopeId}: ${response.data.data.id}`);
+      this.logger.log(`Signer added to envelope ${input.envelopeId}: ${response.data.data.id} (notifications via ${notificationChannel})`);
       return response.data.data;
     } catch (error) {
       this.handleApiError(error, 'addSigner');
@@ -445,19 +495,12 @@ export class ClickSignService {
 
   /**
    * Get signer's signature URL (for direct access)
+   * Note: In API v3, the URL is typically sent via email only
    */
   async getSignerUrl(envelopeId: string, signerId: string): Promise<string> {
-    if (!this.isConfigured) {
-      throw new Error('ClickSign não está configurado. Verifique CLICKSIGN_ACCESS_TOKEN.');
-    }
-
-    try {
-      const response = await this.client.get(`/envelopes/${envelopeId}/signers/${signerId}`);
-      return response.data.data.attributes.url || '';
-    } catch (error) {
-      this.handleApiError(error, 'getSignerUrl');
-      throw error;
-    }
+    // API v3 doesn't provide direct signing URL - return empty
+    // The URL will be captured from the requirement response if available
+    return '';
   }
 
   /**
@@ -482,11 +525,14 @@ export class ClickSignService {
       deliveryIds,
     });
 
-    // Step 2: Upload document
+    // Step 2: Upload document with delivery IDs in metadata for webhook retrieval
     const document = await this.uploadDocument({
       envelopeId: envelope.id,
       pdfBuffer,
       filename,
+      metadata: {
+        delivery_ids: deliveryIds.join(','),
+      },
     });
 
     // Step 3: Add signer
@@ -498,13 +544,15 @@ export class ClickSignService {
       phoneNumber: signer.phoneNumber,
     });
 
-    // Step 4: Create requirement with email authentication (simplest)
+    // Step 4: Create requirement - using email for testing
+    // TODO: Change back to WhatsApp for production: const authMethod = signer.phoneNumber ? 'whatsapp' : 'email';
+    const authMethod = 'email';
     const requirement = await this.createRequirement({
       envelopeId: envelope.id,
       documentId: document.id,
       signerId: clicksignSigner.id,
       action: 'sign',
-      authMethod: 'email', // Simplest - signer just clicks email link
+      authMethod,
     });
 
     // Step 5: Activate envelope
@@ -512,9 +560,6 @@ export class ClickSignService {
 
     // Step 6: Send notification to all signers
     await this.sendNotification(envelope.id);
-
-    // Get the signer URL for direct access
-    const signatureUrl = await this.getSignerUrl(envelope.id, clicksignSigner.id);
 
     this.logger.log(`Signature initiated successfully. Envelope: ${envelope.id}, Document: ${document.id}`);
 
@@ -525,7 +570,7 @@ export class ClickSignService {
       signerId: clicksignSigner.id,
       signerKey: clicksignSigner.attributes.key,
       requirementId: requirement.id,
-      signatureUrl,
+      signatureUrl: '', // URL is sent via email by ClickSign
     };
   }
 
@@ -558,39 +603,100 @@ export class ClickSignService {
 
   /**
    * Parse webhook event from ClickSign
+   * Payload structure: { event: { name: string, data: {...}, occurred_at: string }, document: {...} }
    */
   parseWebhookEvent(body: any): ClickSignWebhookEvent {
-    if (!body.event || !body.envelope) {
-      throw new Error('Invalid webhook payload: missing event or envelope');
+    if (!body.event?.name) {
+      throw new Error('Invalid webhook payload: missing event.name');
     }
     return body as ClickSignWebhookEvent;
   }
 
   /**
-   * Check if event indicates signature completion
+   * Get the event name from webhook payload
+   */
+  getEventName(event: ClickSignWebhookEvent): string {
+    return event.event.name;
+  }
+
+  /**
+   * Check if event indicates signature completion (document ready for download)
    */
   isSignatureCompletedEvent(event: ClickSignWebhookEvent): boolean {
-    // 'requirement_fulfilled' when a signer completes their action
-    // 'envelope_finished' when all requirements are complete
-    return event.event === 'requirement_fulfilled' || event.event === 'envelope_finished';
+    const eventName = event.event.name;
+    // 'document_closed' - signed PDF is ready for download (MAIN completion event)
+    // 'auto_close' - document finalized automatically after last signature
+    return eventName === 'document_closed' || eventName === 'auto_close';
   }
 
   /**
-   * Check if all signatures are complete (envelope finished)
+   * Check if all signatures are complete (document finished)
    */
-  isEnvelopeFinished(event: ClickSignWebhookEvent): boolean {
-    return event.event === 'envelope_finished' || event.envelope.status === 'finished';
+  isDocumentFinished(event: ClickSignWebhookEvent): boolean {
+    const eventName = event.event.name;
+    return eventName === 'document_closed' ||
+           eventName === 'auto_close' ||
+           event.document?.status === 'closed';
   }
 
   /**
-   * Extract delivery IDs from webhook event
+   * Check if event indicates signature refusal
+   */
+  isRefusalEvent(event: ClickSignWebhookEvent): boolean {
+    const eventName = event.event.name;
+    return eventName === 'refusal' ||
+           eventName === 'acceptance_term_refused' ||
+           eventName === 'cancel';
+  }
+
+  /**
+   * Check if event indicates WhatsApp delivery error
+   */
+  isWhatsAppErrorEvent(event: ClickSignWebhookEvent): boolean {
+    const eventName = event.event.name;
+    return eventName === 'acceptance_term_error' ||
+           eventName === 'acceptance_term_expired' ||
+           eventName === 'attempts_by_whatsapp_exceeded';
+  }
+
+  /**
+   * Check if event is a sign event (individual signature)
+   */
+  isSignEvent(event: ClickSignWebhookEvent): boolean {
+    return event.event.name === 'sign';
+  }
+
+  /**
+   * Extract delivery IDs from webhook event (stored in document metadata)
    */
   getDeliveryIdsFromEvent(event: ClickSignWebhookEvent): string[] {
-    const deliveryIdsStr = event.envelope.metadata?.delivery_ids;
+    const deliveryIdsStr = event.document?.metadata?.delivery_ids;
     if (!deliveryIdsStr) {
       return [];
     }
     return deliveryIdsStr.split(',').filter((id: string) => id.trim());
+  }
+
+  /**
+   * Get document key from webhook event
+   */
+  getDocumentKeyFromEvent(event: ClickSignWebhookEvent): string | undefined {
+    return event.document?.key;
+  }
+
+  /**
+   * Get signed document URL from webhook event
+   */
+  getSignedDocumentUrl(event: ClickSignWebhookEvent): string | undefined {
+    return event.document?.downloads?.signed_file_url;
+  }
+
+  /**
+   * Get event timestamp
+   */
+  getEventTimestamp(event: ClickSignWebhookEvent): Date {
+    const timestamp = event.event.occurred_at || event.document?.finished_at;
+    return timestamp ? new Date(timestamp) : new Date();
   }
 
   /**

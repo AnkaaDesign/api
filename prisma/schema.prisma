@@ -1277,7 +1277,7 @@ model Truck {
   plate             String?        @unique
   chassisNumber     String?
   category          TruckCategory? // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
-  implementType     ImplementType? // Type of body/implement (corrugated, insulated, curtain-side, tank, flatbed)
+  implementType     ImplementType? // Type of body/implement (dry-cargo, refrigerated, insulated, curtain-side, tank, flatbed)
   spot              TRUCK_SPOT? // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
   taskId            String         @unique
   createdAt         DateTime       @default(now())
@@ -1803,6 +1803,7 @@ enum PantsSize {
   SIZE_44
   SIZE_46
   SIZE_48
+  SIZE_50
 }
 
 enum BootSize {
@@ -2322,8 +2323,9 @@ enum TruckCategory {
 
 // Truck body/implement types
 enum ImplementType {
-  CORRUGATED // Corrugado - Corrugated body
-  INSULATED // Isoplastic - Insulated/refrigerated body
+  DRY_CARGO // Carga Seca - Dry cargo body
+  REFRIGERATED // Refrigerado - Refrigerated body
+  INSULATED // Isoplastic - Insulated body
   CURTAIN_SIDE // Sider - Curtain-side body
   TANK // Tanque - Tank truck
   FLATBED // Carroceria - Open flatbed/stake body

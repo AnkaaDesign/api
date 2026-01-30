@@ -306,6 +306,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     userId: 'Funcionário',
     shirts: 'Tamanho de Camisa',
     pants: 'Tamanho de Calça',
+    shorts: 'Tamanho de Bermuda',
     boots: 'Tamanho de Bota',
     sleeves: 'Tamanho de Manga',
     mask: 'Tamanho de Máscara',
@@ -738,6 +739,18 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'user.position.name': 'Cargo do Funcionário',
     'user.sector.name': 'Setor do Funcionário',
   },
+  [CHANGE_LOG_ENTITY_TYPE.TRUCK]: {
+    plate: 'Placa',
+    chassisNumber: 'Número do Chassi',
+    category: 'Categoria',
+    implementType: 'Tipo de Implemento',
+    spot: 'Localização',
+    manufacturer: 'Fabricante',
+    model: 'Modelo',
+    year: 'Ano',
+    color: 'Cor',
+    notes: 'Observações',
+  },
   // Add more entity-specific mappings as needed
 };
 
@@ -979,7 +992,7 @@ export function formatFieldValue(
   // Handle truck category
   if (
     (field === 'truck.category' || field === 'category') &&
-    entityType === CHANGE_LOG_ENTITY_TYPE.TASK &&
+    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
     typeof value === 'string'
   ) {
     return TRUCK_CATEGORY_LABELS[value as keyof typeof TRUCK_CATEGORY_LABELS] || value;
@@ -988,10 +1001,15 @@ export function formatFieldValue(
   // Handle truck implement type
   if (
     (field === 'truck.implementType' || field === 'implementType') &&
-    entityType === CHANGE_LOG_ENTITY_TYPE.TASK &&
+    (entityType === CHANGE_LOG_ENTITY_TYPE.TASK || entityType === CHANGE_LOG_ENTITY_TYPE.TRUCK) &&
     typeof value === 'string'
   ) {
-    return IMPLEMENT_TYPE_LABELS[value as keyof typeof IMPLEMENT_TYPE_LABELS] || value;
+    // Include legacy CORRUGATED value for old changelog records
+    const implementTypeLabelsWithLegacy: Record<string, string> = {
+      ...IMPLEMENT_TYPE_LABELS,
+      CORRUGATED: 'Baú (Legado)', // Legacy value - migrated to REFRIGERATED
+    };
+    return implementTypeLabelsWithLegacy[value] || value;
   }
 
   // Handle maintenance status
@@ -1367,6 +1385,7 @@ export function formatFieldValue(
     (field === 'size' ||
       field === 'shirts' ||
       field === 'pants' ||
+      field === 'shorts' ||
       field === 'boots' ||
       field === 'sleeves' ||
       field === 'mask' ||
