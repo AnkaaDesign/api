@@ -14,7 +14,7 @@ import {
   nullableDate,
 } from './common';
 import type { User } from '@types';
-import { USER_STATUS, VERIFICATION_TYPE } from '@constants';
+import { USER_STATUS, VERIFICATION_TYPE, SECTOR_PRIVILEGES } from '@constants';
 
 // =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
@@ -752,6 +752,9 @@ const userFilters = {
       max: z.number().optional(),
     })
     .optional(),
+  // Sector privilege filters - filter users by their sector's privilege level
+  excludeSectorPrivileges: z.array(z.nativeEnum(SECTOR_PRIVILEGES)).optional(),
+  includeSectorPrivileges: z.array(z.nativeEnum(SECTOR_PRIVILEGES)).optional(),
 };
 
 // =====================
@@ -915,6 +918,27 @@ const userTransform = (data: any) => {
       andConditions.push({ performanceLevel: levelCondition });
     }
     delete data.performanceLevelRange;
+  }
+
+  // Handle excludeSectorPrivileges filter - exclude users whose sector has specific privileges
+  if (data.excludeSectorPrivileges && Array.isArray(data.excludeSectorPrivileges) && data.excludeSectorPrivileges.length > 0) {
+    andConditions.push({
+      OR: [
+        // Include users with no sector
+        { sectorId: null },
+        // Include users whose sector privilege is NOT in the excluded list
+        { sector: { is: { privileges: { notIn: data.excludeSectorPrivileges } } } },
+      ],
+    });
+    delete data.excludeSectorPrivileges;
+  }
+
+  // Handle includeSectorPrivileges filter - only include users whose sector has specific privileges
+  if (data.includeSectorPrivileges && Array.isArray(data.includeSectorPrivileges) && data.includeSectorPrivileges.length > 0) {
+    andConditions.push({
+      sector: { is: { privileges: { in: data.includeSectorPrivileges } } },
+    });
+    delete data.includeSectorPrivileges;
   }
 
   // Handle date filters
