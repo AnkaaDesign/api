@@ -357,7 +357,7 @@ export class ItemService {
         select: { ppeType: true },
       });
       if (existingItem?.ppeType) {
-        effectivePpeType = existingItem.ppeType;
+        effectivePpeType = existingItem.ppeType as PPE_TYPE;
       }
     }
 
@@ -421,13 +421,30 @@ export class ItemService {
       }
 
       // Size is not required for OTHERS type
-      // Only validate on create (when data.ppeType is set) - for updates, existing data is preserved
-      if (data.ppeType && effectivePpeType !== 'OTHERS' && !hasPpeSize && !data.ppeSize) {
+      // For updates, check if existing item has the required field
+      let existingHasPpeSize = false;
+      let existingHasPpeDeliveryMode = false;
+      if (excludeId) {
+        const existingItem = await prismaClient.item.findUnique({
+          where: { id: excludeId },
+          select: { ppeDeliveryMode: true, measures: true },
+        });
+        if (existingItem) {
+          // PPE size for items is stored in measures array with measureType: 'SIZE'
+          existingHasPpeSize = (existingItem.measures as any[])?.some(
+            (m: any) => m.measureType === 'SIZE' && (m.value || m.unit),
+          );
+          existingHasPpeDeliveryMode = !!existingItem.ppeDeliveryMode;
+        }
+      }
+
+      // Only validate on create (when data.ppeType is set and no existing data)
+      // Note: data.ppeSize is for legacy compatibility but size is stored in measures array
+      if (data.ppeType && effectivePpeType !== 'OTHERS' && !hasPpeSize && !existingHasPpeSize) {
         errors.push('Tamanho é obrigatório para EPIs');
       }
       // Delivery mode is not required for OTHERS type
-      // Only validate on create (when data.ppeType is set) - for updates, existing data is preserved
-      if (data.ppeType && effectivePpeType !== 'OTHERS' && !data.ppeDeliveryMode) {
+      if (data.ppeType && effectivePpeType !== 'OTHERS' && !data.ppeDeliveryMode && !existingHasPpeDeliveryMode) {
         errors.push('Modo de entrega é obrigatório para EPIs');
       }
     } else {

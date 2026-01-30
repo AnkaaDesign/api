@@ -1003,6 +1003,7 @@ export class UserService {
             { field: 'shirts', label: 'Tamanho de camisetas' },
             { field: 'boots', label: 'Tamanho de botas' },
             { field: 'pants', label: 'Tamanho de calças' },
+            { field: 'shorts', label: 'Tamanho de bermudas' },
             { field: 'sleeves', label: 'Tamanho de mangas' },
             { field: 'mask', label: 'Tamanho de máscara' },
             { field: 'gloves', label: 'Tamanho de luvas' },

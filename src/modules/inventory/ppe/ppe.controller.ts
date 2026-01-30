@@ -719,6 +719,7 @@ export class PpeController {
       documentKey?: string;
       signedAt?: Date;
       documentUrl?: string;
+      signatureUrl?: string;
     };
   }> {
     const data = await this.ppeSignatureService.getSignatureStatus(id);

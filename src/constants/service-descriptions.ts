@@ -228,6 +228,7 @@ export const LOGISTIC_SERVICE_DESCRIPTIONS = [
   'Conferir Documentos Entrada',
   'Conferir Serviços Executados',
   'Configurar Tarefa',
+  'Conseguir Amostra Fisica da Cor',
   'Criar Tarefa',
   'Definir Previsão',
   'Desprioritizar Tarefa',

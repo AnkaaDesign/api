@@ -115,26 +115,32 @@ export async function logEntityChange({
   userId,
   triggeredBy = CHANGE_TRIGGERED_BY.USER_ACTION,
   transaction,
+  field,
+  oldValue: providedOldValue,
+  newValue: providedNewValue,
 }: LogEntityChangeParams): Promise<void> {
   // Support both old naming (entity/oldEntity) and new naming (newData/oldData)
   const actualOldData = oldData || oldEntity;
   const actualNewData = newData || entity;
 
-  // For CREATE: newValue = entity, oldValue = null
-  // For DELETE: newValue = null, oldValue = entity
-  // For UPDATE: newValue = updated entity, oldValue = old entity or changes object
-
+  // If field-level values are provided, use them directly
   let oldValue: any;
   let newValue: any;
 
-  if (action === CHANGE_ACTION.CREATE) {
+  if (field && (providedOldValue !== undefined || providedNewValue !== undefined)) {
+    // Field-level change tracking
+    oldValue = providedOldValue;
+    newValue = providedNewValue;
+  } else if (action === CHANGE_ACTION.CREATE) {
+    // For CREATE: newValue = entity, oldValue = null
     oldValue = null;
     newValue = actualNewData;
   } else if (action === CHANGE_ACTION.DELETE) {
+    // For DELETE: newValue = null, oldValue = entity
     oldValue = actualOldData;
     newValue = null;
   } else if (action === CHANGE_ACTION.UPDATE) {
-    // For updates, if changes object is provided, use it; otherwise use full entities
+    // For UPDATE: newValue = updated entity, oldValue = old entity or changes object
     oldValue = changes || actualOldData;
     newValue = changes || actualNewData;
   } else {
@@ -149,7 +155,7 @@ export async function logEntityChange({
     entityType: entityType,
     entityId,
     action,
-    field: null,
+    field: field || null,
     oldValue,
     newValue,
     reason: finalReason,

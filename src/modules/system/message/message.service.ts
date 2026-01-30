@@ -349,8 +349,23 @@ export class MessageService {
       const message = await this.prisma.message.findUnique({
         where: { id },
         include: {
-          targets: true,
+          targets: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
           views: true,
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
 
@@ -702,6 +717,89 @@ export class MessageService {
       }
       this.logger.error('Error dismissing message:', error);
       throw new InternalServerErrorException('Falha ao dispensar mensagem');
+    }
+  }
+
+  /**
+   * Get all messages for current user (including viewed/dismissed)
+   * This allows users to review messages they've already seen
+   */
+  async getAllForUser(userId: string, userRole: string): Promise<Message[]> {
+    try {
+      this.logger.log(`[getAllForUser] Called with userId=${userId}, userRole=${userRole}`);
+
+      const now = new Date();
+
+      // Find all active messages within date range
+      const allMessages = await this.prisma.message.findMany({
+        where: {
+          status: 'ACTIVE',
+          publishedAt: { not: null },
+          OR: [
+            { startDate: null },
+            { startDate: { lte: now } },
+          ],
+          AND: [
+            {
+              OR: [
+                { endDate: null },
+                { endDate: { gte: now } },
+              ],
+            },
+          ],
+        },
+        include: {
+          targets: true,
+          views: {
+            where: {
+              userId: userId,
+            },
+          },
+        },
+        orderBy: [
+          { createdAt: 'desc' },
+        ],
+      });
+
+      this.logger.log(`[getAllForUser] Query returned ${allMessages.length} messages`);
+
+      // Filter by targeting rules
+      const filteredMessages: (Message & { viewedAt?: Date | null; dismissedAt?: Date | null })[] = [];
+      for (const message of allMessages) {
+        const canView = await this.canUserViewMessage(message, userId, userRole);
+        if (canView) {
+          // Get view info for this message
+          const userView = message.views?.[0];
+
+          // Create a clean message object with view status
+          const messageWithViewStatus = {
+            id: message.id,
+            title: message.title,
+            content: message.content,
+            status: message.status,
+            statusOrder: message.statusOrder,
+            startDate: message.startDate,
+            endDate: message.endDate,
+            createdById: message.createdById,
+            metadata: message.metadata,
+            isDismissible: message.isDismissible,
+            requiresView: message.requiresView,
+            createdAt: message.createdAt,
+            updatedAt: message.updatedAt,
+            publishedAt: message.publishedAt,
+            archivedAt: message.archivedAt,
+            viewedAt: userView?.viewedAt || null,
+            dismissedAt: userView?.dismissedAt || null,
+          };
+          filteredMessages.push(messageWithViewStatus as Message & { viewedAt?: Date | null; dismissedAt?: Date | null });
+        }
+      }
+
+      this.logger.log(`[getAllForUser] Returning ${filteredMessages.length} filtered messages`);
+      return filteredMessages;
+    } catch (error) {
+      this.logger.error('Error fetching all messages for user:', error);
+      throw new InternalServerErrorException('Falha ao buscar mensagens');
     }
   }
 

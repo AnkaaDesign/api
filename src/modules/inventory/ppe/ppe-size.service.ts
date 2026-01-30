@@ -162,6 +162,7 @@ export class PpeSizeService {
         const fieldsToTrack = [
           'shirts',
           'pants',
+          'shorts',
           'boots',
           'sleeves',
           'mask',
