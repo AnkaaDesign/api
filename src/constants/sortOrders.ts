@@ -236,9 +236,9 @@ export const BATCH_OPERATION_STATUS_ORDER: Record<string, number> = {
 
 export const BORROW_STATUS_ORDER: Record<string, number> = {
   [BORROW_STATUS.ACTIVE]: 1,
-  [BORROW_STATUS.RETURNED]: 2,
-  [BORROW_STATUS.LOST]: 3,
-  [BORROW_STATUS.OVERDUE]: 4,
+  [BORROW_STATUS.OVERDUE]: 2,
+  [BORROW_STATUS.RETURNED]: 3,
+  [BORROW_STATUS.LOST]: 4,
 };
 
 export const EXTERNAL_WITHDRAWAL_STATUS_ORDER: Record<string, number> = {
@@ -560,6 +560,8 @@ export const PAINT_FINISH_ORDER: Record<string, number> = {
   [PAINT_FINISH.SOLID]: 1,
   [PAINT_FINISH.METALLIC]: 2,
   [PAINT_FINISH.PEARL]: 3,
+  [PAINT_FINISH.MATTE]: 4,
+  [PAINT_FINISH.SATIN]: 5,
 };
 
 export const TRUCK_MANUFACTURER_ORDER: Record<string, number> = {
@@ -702,6 +704,7 @@ export const PPE_TYPE_ORDER: Record<string, number> = {
   [PPE_TYPE.MASK]: 6,
   [PPE_TYPE.GLOVES]: 7,
   [PPE_TYPE.RAIN_BOOTS]: 8,
+  [PPE_TYPE.OTHERS]: 9,
 };
 
 export const PPE_SIZE_TYPE_ORDER: Record<string, number> = {

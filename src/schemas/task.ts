@@ -1517,7 +1517,7 @@ const taskProductionServiceOrderCreateSchema = z.object({
       errorMap: () => ({ message: 'status inválido' }),
     })
     .default(SERVICE_ORDER_STATUS.PENDING),
-  statusOrder: z.number().int().min(1).max(4).default(1).optional(),
+  statusOrder: z.number().int().min(1).max(5).default(1).optional(),
   type: z
     .enum(Object.values(SERVICE_ORDER_TYPE) as [string, ...string[]], {
       errorMap: () => ({ message: 'tipo inválido' }),
