@@ -376,3 +376,76 @@ export const formatPhoneForSms = (phone: string, defaultDDD: string = '43'): str
   }
   return `+55${normalized}`;
 };
+
+/**
+ * Portuguese prepositions and articles that should remain lowercase in Title Case
+ * These are common connecting words in Brazilian Portuguese
+ */
+const PORTUGUESE_LOWERCASE_WORDS = new Set([
+  "de", "da", "do", "das", "dos",  // of, from
+  "e",                              // and
+  "em", "na", "no", "nas", "nos",  // in, on, at
+  "para", "pra",                   // for, to
+  "por", "pela", "pelo",           // by, through
+  "com",                           // with
+  "sem",                           // without
+  "a", "o", "as", "os",            // the (articles)
+  "um", "uma", "uns", "umas",      // a/an (articles)
+  "ao", "aos", "à", "às",          // contractions
+]);
+
+/**
+ * Brazilian company suffixes that should remain uppercase
+ */
+const COMPANY_SUFFIXES = new Set([
+  "ltda", "ltda.",                 // Limitada
+  "eireli",                        // Empresa Individual de Responsabilidade Limitada
+  "s/a", "s.a.", "s.a",            // Sociedade Anônima
+  "cia", "cia.",                   // Companhia
+  "mei",                           // Microempreendedor Individual
+  "ss",                            // Sociedade Simples
+]);
+
+/**
+ * Convert a string to Title Case (capitalize first letter of each word)
+ * Keeps Portuguese prepositions and articles lowercase (except at the start)
+ * Words with 2-3 characters become entirely uppercase (except prepositions)
+ * Company suffixes (LTDA, EIRELI, S/A, etc.) remain uppercase
+ * Example: "pintura de cabine" -> "Pintura de Cabine"
+ * Example: "TROCA DA LONA DO CAMINHAO" -> "Troca da Lona do Caminhão"
+ * Example: "AZUL FIRENZE" -> "Azul Firenze"
+ * Example: "Tp Transportes" -> "TP Transportes"
+ * Example: "Tmr Transportes" -> "TMR Transportes"
+ * Example: "TRF Logistic" -> "TRF Logistic"
+ * Example: "empresa abc ltda" -> "Empresa Abc LTDA"
+ * Example: "comercio eireli" -> "Comercio EIRELI"
+ */
+export const toTitleCase = (str: string): string => {
+  if (!str) return "";
+  return str
+    .split(" ")
+    .map((word, index) => {
+      if (word.length === 0) return word;
+
+      const lowerWord = word.toLowerCase();
+
+      // Keep Portuguese prepositions/articles lowercase (except first word)
+      if (index > 0 && PORTUGUESE_LOWERCASE_WORDS.has(lowerWord)) {
+        return lowerWord;
+      }
+
+      // Keep company suffixes uppercase
+      if (COMPANY_SUFFIXES.has(lowerWord)) {
+        return word.toUpperCase();
+      }
+
+      // Words with 2-3 characters become entirely uppercase (likely acronyms/abbreviations)
+      if (word.length >= 2 && word.length <= 3) {
+        return word.toUpperCase();
+      }
+
+      // Capitalize first letter, lowercase the rest
+      return lowerWord.charAt(0).toUpperCase() + lowerWord.slice(1);
+    })
+    .join(" ");
+};
