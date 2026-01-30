@@ -611,7 +611,8 @@ if ((field === "category" || field === "truck.category") && typeof value === "st
 // Handle truck implement type
 if ((field === "implementType" || field === "truck.implementType") && typeof value === "string") {
   const implementTypeLabels: Record<string, string> = {
-    CORRUGATED: "Corrugado",
+    DRY_CARGO: "Carga Seca",
+    REFRIGERATED: "Refrigerado",
     INSULATED: "Isoplastic",
     CURTAIN_SIDE: "Sider",
     TANK: "Tanque",

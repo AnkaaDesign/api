@@ -9,6 +9,7 @@ import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { EventEmitterModule } from '@modules/common/event-emitter/event-emitter.module';
 import { FileModule } from '@modules/common/file/file.module';
 import { ClickSignModule } from '@modules/integrations/clicksign/clicksign.module';
+import { WhatsAppModule } from '@modules/common/whatsapp/whatsapp.module';
 
 // Controllers
 import { PpeController } from './ppe.controller';
@@ -42,6 +43,7 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     ActivityModule,
     EventEmitterModule,
     FileModule,
+    WhatsAppModule,
     forwardRef(() => ClickSignModule), // Handle circular dependency
   ],
   controllers: [PpeController],

@@ -1183,7 +1183,7 @@ export class TaskService {
                       entity: updatedTruck,
                       userId: userId || '',
                       triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                      reason: `Campo ${field} atualizado`,
+                      reason: `Caminhão atualizado`,
                       field,
                       oldValue,
                       newValue,

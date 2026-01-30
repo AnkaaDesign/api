@@ -993,6 +993,7 @@ const ppeSizeCreateNestedSchema = z.object({
   shirts: z.string().nullish(),
   boots: z.string().nullish(),
   pants: z.string().nullish(),
+  shorts: z.string().nullish(),
   sleeves: z.string().nullish(),
   mask: z.string().nullish(),
   gloves: z.string().nullish(),

@@ -32,9 +32,13 @@ export class ClickSignController {
   /**
    * Handle ClickSign webhook events
    *
-   * Events we care about:
-   * - requirement_fulfilled: A signer completed their action
-   * - envelope_finished: All requirements are complete, document is fully signed
+   * Events we handle:
+   * - sign: Individual signature completed
+   * - document_closed: Signed PDF ready for download (main completion event)
+   * - auto_close: Document finalized automatically after last signature
+   * - refusal: Document refused by signer
+   * - cancel: Document cancelled
+   * - acceptance_term_*: WhatsApp acceptance events
    */
   @Post()
   @Public()
@@ -58,16 +62,31 @@ export class ClickSignController {
 
       // Parse the event
       const event = this.clickSignService.parseWebhookEvent(body);
-      this.logger.log(`Webhook event: ${event.event} for envelope ${event.envelope.id}`);
+      const eventName = this.clickSignService.getEventName(event);
+      const documentKey = this.clickSignService.getDocumentKeyFromEvent(event);
+      this.logger.log(`Webhook event: ${eventName} for document ${documentKey || 'unknown'}`);
 
-      // Handle signature completion events
+      // Handle signature completion events (document_closed, auto_close)
       if (this.clickSignService.isSignatureCompletedEvent(event)) {
         await this.handleSignatureCompleted(event);
+      }
+      // Handle refusal events
+      else if (this.clickSignService.isRefusalEvent(event)) {
+        await this.handleSignatureRefused(event);
+      }
+      // Handle WhatsApp errors
+      else if (this.clickSignService.isWhatsAppErrorEvent(event)) {
+        this.logger.warn(`WhatsApp error event: ${eventName} for document ${documentKey}`);
+        // Could notify admin or retry via email
+      }
+      // Log sign events for tracking
+      else if (this.clickSignService.isSignEvent(event)) {
+        this.logger.log(`Signature completed by ${event.event.data?.signer?.name || 'unknown'} for document ${documentKey}`);
       }
 
       return {
         received: true,
-        message: `Event ${event.event} processed successfully`,
+        message: `Event ${eventName} processed successfully`,
       };
     } catch (error) {
       this.logger.error(`Error processing webhook: ${error}`);
@@ -82,35 +101,58 @@ export class ClickSignController {
   }
 
   /**
-   * Handle signature completion
+   * Handle signature completion (document_closed or auto_close events)
    */
   private async handleSignatureCompleted(event: ClickSignWebhookEvent): Promise<void> {
+    const documentKey = this.clickSignService.getDocumentKeyFromEvent(event);
     const deliveryIds = this.clickSignService.getDeliveryIdsFromEvent(event);
 
-    if (deliveryIds.length === 0) {
-      this.logger.warn('No delivery IDs found in webhook metadata');
+    if (!documentKey) {
+      this.logger.warn('No document key found in webhook payload');
       return;
     }
 
-    this.logger.log(`Processing signature completion for ${deliveryIds.length} deliveries`);
-
-    // Only process when envelope is fully finished (all signers completed)
-    if (!this.clickSignService.isEnvelopeFinished(event)) {
-      this.logger.log('Envelope not yet finished - waiting for all signatures');
-      return;
-    }
+    this.logger.log(`Processing signature completion for document ${documentKey} (${deliveryIds.length} deliveries from metadata)`);
 
     // Get signed document URL
-    const signedDocUrl = event.document?.downloads?.signed_file_url;
+    const signedDocUrl = this.clickSignService.getSignedDocumentUrl(event);
+    const signedAt = this.clickSignService.getEventTimestamp(event);
 
     await this.ppeSignatureService.handleSignatureCompletion({
-      envelopeId: event.envelope.id,
-      documentKey: event.document?.key || '',
-      signedAt: new Date(event.occurred_at),
+      envelopeId: '', // Not used in document-based lookup
+      documentKey,
+      signedAt,
       signedDocumentUrl: signedDocUrl,
     });
 
-    this.logger.log(`Signature completion processed for deliveries: ${deliveryIds.join(', ')}`);
+    this.logger.log(`Signature completion processed for document: ${documentKey}`);
+  }
+
+  /**
+   * Handle signature refusal (refusal, cancel, acceptance_term_refused events)
+   */
+  private async handleSignatureRefused(event: ClickSignWebhookEvent): Promise<void> {
+    const documentKey = this.clickSignService.getDocumentKeyFromEvent(event);
+    const eventName = this.clickSignService.getEventName(event);
+
+    if (!documentKey) {
+      this.logger.warn('No document key found in refusal webhook payload');
+      return;
+    }
+
+    this.logger.log(`Processing signature refusal (${eventName}) for document ${documentKey}`);
+
+    // Find deliveries by document key and reject them
+    try {
+      // Get signer info if available
+      const signerName = event.event.data?.signer?.name || 'Signatário';
+      const reason = `Documento recusado por ${signerName} (${eventName})`;
+
+      await this.ppeSignatureService.handleSignatureRefusal(documentKey, reason);
+      this.logger.log(`Signature refusal processed for document: ${documentKey}`);
+    } catch (error) {
+      this.logger.error(`Error processing signature refusal: ${error}`);
+    }
   }
 
   /**

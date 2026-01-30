@@ -13,15 +13,16 @@
  * - Download and save signed document
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ClickSignService, SignatureResult } from '@modules/integrations/clicksign/clicksign.service';
+import { BaileysWhatsAppService } from '@modules/common/whatsapp/baileys-whatsapp.service';
 import { PpeDocumentService } from './ppe-document.service';
 import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import { v4 as uuidv4 } from 'uuid';
 import { writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 
 export interface InitiateSignatureInput {
   deliveryIds: string[];
@@ -54,8 +55,16 @@ export class PpeSignatureService {
     private readonly configService: ConfigService,
     private readonly clickSignService: ClickSignService,
     private readonly ppeDocumentService: PpeDocumentService,
+    @Inject('WhatsAppService')
+    private readonly whatsappService: BaileysWhatsAppService,
   ) {
-    this.filesRoot = this.configService.get<string>('FILES_ROOT') || './uploads/files';
+    // File storage root - use UPLOAD_DIR for development, FILES_ROOT for production
+    const uploadDir = this.configService.get<string>('UPLOAD_DIR');
+    const filesRoot = this.configService.get<string>('FILES_ROOT');
+    const isDev = this.configService.get<string>('NODE_ENV') === 'development';
+
+    // In development, use uploads folder; in production, use /srv/files
+    this.filesRoot = isDev ? (uploadDir || './uploads') : (filesRoot || '/srv/files');
   }
 
   /**
@@ -183,7 +192,7 @@ export class PpeSignatureService {
     const filename = this.generateFilename(group.userName, group.deliveryIds);
     const savedFile = await this.savePdfToStorage(pdfBuffer, filename, group.deliveryIds[0]);
 
-    // Step 3: Send to ClickSign
+    // Step 3: Send to ClickSign - sends notification directly to user's email
     const signatureResult = await this.clickSignService.initiateSignature(
       pdfBuffer,
       filename,
@@ -212,7 +221,43 @@ export class PpeSignatureService {
 
     this.logger.log(`Signature initiated for ${group.deliveryIds.length} deliveries. Envelope: ${signatureResult.envelopeId}`);
 
+    // Step 5: Send WhatsApp notification to user about pending signature
+    await this.sendSignatureRequestWhatsApp(group);
+
     return signatureResult;
+  }
+
+  /**
+   * Send WhatsApp notification to user about pending signature
+   */
+  private async sendSignatureRequestWhatsApp(group: BatchDeliveryGroup): Promise<void> {
+    if (!group.userPhone) {
+      this.logger.warn(`User ${group.userName} has no phone number for WhatsApp notification`);
+      return;
+    }
+
+    try {
+      const itemCount = group.deliveryIds.length;
+      const itemText = itemCount === 1 ? '1 item de EPI' : `${itemCount} itens de EPI`;
+
+      const message = `Olá ${group.userName}! 👋
+
+Você recebeu ${itemText} e precisa assinar o termo de entrega digitalmente.
+
+📋 *Assinatura Digital de EPI*
+
+Você receberá uma mensagem da ClickSign neste mesmo número com o link para assinatura.
+
+⏰ Por favor, assine o documento o mais breve possível.
+
+_Ankaa Design - Sistema de Gestão_`;
+
+      await this.whatsappService.sendMessage(group.userPhone, message);
+      this.logger.log(`WhatsApp notification sent to ${group.userName} (${group.userPhone})`);
+    } catch (error) {
+      this.logger.error(`Failed to send WhatsApp notification to ${group.userName}: ${error}`);
+      // Don't throw - WhatsApp notification is not critical
+    }
   }
 
   /**
@@ -274,10 +319,54 @@ export class PpeSignatureService {
 
     this.logger.log(`Signature completion processed. ${deliveryIds.length} deliveries marked as COMPLETED`);
 
+    // Send WhatsApp notification to user about completed signature
+    await this.sendSignatureCompletedWhatsApp(deliveries);
+
     return {
       success: true,
       updatedDeliveries: deliveryIds,
     };
+  }
+
+  /**
+   * Send WhatsApp notification to user about completed signature
+   */
+  private async sendSignatureCompletedWhatsApp(deliveries: any[]): Promise<void> {
+    if (deliveries.length === 0) return;
+
+    // Get user from first delivery
+    const delivery = await this.prisma.ppeDelivery.findUnique({
+      where: { id: deliveries[0].id },
+      include: { user: true },
+    });
+
+    if (!delivery?.user?.phone) {
+      this.logger.warn(`User has no phone number for WhatsApp completion notification`);
+      return;
+    }
+
+    try {
+      const itemCount = deliveries.length;
+      const itemText = itemCount === 1 ? '1 item de EPI' : `${itemCount} itens de EPI`;
+
+      const message = `✅ *Assinatura Concluída!*
+
+Olá ${delivery.user.name}!
+
+Sua assinatura do termo de entrega de ${itemText} foi registrada com sucesso.
+
+📄 O documento assinado está arquivado em nosso sistema.
+
+Obrigado pela colaboração!
+
+_Ankaa Design - Sistema de Gestão_`;
+
+      await this.whatsappService.sendMessage(delivery.user.phone, message);
+      this.logger.log(`WhatsApp completion notification sent to ${delivery.user.name}`);
+    } catch (error) {
+      this.logger.error(`Failed to send WhatsApp completion notification: ${error}`);
+      // Don't throw - WhatsApp notification is not critical
+    }
   }
 
   /**
@@ -318,6 +407,61 @@ export class PpeSignatureService {
     });
 
     this.logger.log(`Manually completed signature for ${deliveryIds.length} deliveries`);
+  }
+
+  /**
+   * Handle signature refusal from webhook (by document key)
+   */
+  async handleSignatureRefusal(documentKey: string, reason: string): Promise<void> {
+    this.logger.log(`Processing signature refusal for document: ${documentKey}`);
+
+    // Find all deliveries with this document key
+    const deliveries = await this.prisma.ppeDelivery.findMany({
+      where: {
+        clicksignDocumentKey: documentKey,
+        status: PPE_DELIVERY_STATUS.WAITING_SIGNATURE,
+      },
+      include: { user: true },
+    });
+
+    if (deliveries.length === 0) {
+      this.logger.warn(`No deliveries found for document key: ${documentKey}`);
+      return;
+    }
+
+    const deliveryIds = deliveries.map(d => d.id);
+
+    await this.prisma.ppeDelivery.updateMany({
+      where: { id: { in: deliveryIds } },
+      data: {
+        status: PPE_DELIVERY_STATUS.SIGNATURE_REJECTED,
+        statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.SIGNATURE_REJECTED],
+        reason,
+      },
+    });
+
+    this.logger.log(`Signature refusal processed. ${deliveryIds.length} deliveries marked as SIGNATURE_REJECTED`);
+
+    // Send WhatsApp notification to user about rejection
+    if (deliveries[0]?.user?.phone) {
+      try {
+        const message = `⚠️ *Assinatura Recusada*
+
+Olá ${deliveries[0].user.name}!
+
+O documento de entrega de EPI foi recusado.
+
+Motivo: ${reason}
+
+Entre em contato com o setor responsável para mais informações.
+
+_Ankaa Design - Sistema de Gestão_`;
+
+        await this.whatsappService.sendMessage(deliveries[0].user.phone, message);
+      } catch (error) {
+        this.logger.error(`Failed to send WhatsApp rejection notification: ${error}`);
+      }
+    }
   }
 
   /**
@@ -411,11 +555,11 @@ export class PpeSignatureService {
     filename: string,
     deliveryId: string,
   ): Promise<{ id: string; path: string }> {
-    // Create directory structure: files/ppe-documents/YYYY/MM/
+    // Create directory structure: /srv/files/Colaboradores/EPI's/YYYY/MM/
     const now = new Date();
     const year = now.getFullYear().toString();
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const relativePath = join('ppe-documents', year, month);
+    const relativePath = join("Colaboradores", "EPI's", year, month);
     const absoluteDir = join(this.filesRoot, relativePath);
 
     // Ensure directory exists
@@ -474,6 +618,7 @@ export class PpeSignatureService {
     documentKey?: string;
     signedAt?: Date;
     documentUrl?: string;
+    signatureUrl?: string;
   }> {
     const delivery = await this.prisma.ppeDelivery.findUnique({
       where: { id: deliveryId },
@@ -486,6 +631,23 @@ export class PpeSignatureService {
       throw new NotFoundException('Entrega não encontrada');
     }
 
+    // Get signature URL if delivery is waiting for signature
+    let signatureUrl: string | undefined;
+    if (
+      delivery.status === PPE_DELIVERY_STATUS.WAITING_SIGNATURE &&
+      delivery.clicksignEnvelopeId &&
+      delivery.clicksignSignerKey
+    ) {
+      try {
+        signatureUrl = await this.clickSignService.getSignerUrl(
+          delivery.clicksignEnvelopeId,
+          delivery.clicksignSignerKey,
+        );
+      } catch (error) {
+        this.logger.warn(`Could not get signature URL: ${error}`);
+      }
+    }
+
     return {
       status: delivery.status,
       documentKey: delivery.clicksignDocumentKey || undefined,
@@ -493,6 +655,7 @@ export class PpeSignatureService {
       documentUrl: delivery.deliveryDocument
         ? `/files/${delivery.deliveryDocument.id}`
         : undefined,
+      signatureUrl,
     };
   }
 }

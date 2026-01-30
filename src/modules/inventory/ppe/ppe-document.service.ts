@@ -465,7 +465,8 @@ export class PpeDocumentService {
            .lineWidth(0.5)
            .stroke();
 
-        y += SPACING.SECTION_GAP;
+        // Extra spacing between table and declaration
+        y += SPACING.SECTION_GAP + 20;
 
         // ========== DECLARATION ==========
         doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
@@ -473,7 +474,7 @@ export class PpeDocumentService {
         y += SPACING.SUBSECTION_GAP;
 
         doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.text);
-        const declaration = `Declaro ter recebido gratuitamente os EPIs acima relacionados, comprometendo-me a: usar exclusivamente para a finalidade destinada; responsabilizar-me pela guarda, conservação e higienização; comunicar ao empregador qualquer alteração que torne os EPIs impróprios para uso; cumprir as determinações sobre o uso adequado.`;
+        const declaration = `Eu, ${data.employeeName}, declaro ter recebido gratuitamente os Equipamentos de Proteção Individual (EPIs) acima relacionados, comprometendo-me a: usar exclusivamente para a finalidade destinada; responsabilizar-me pela guarda, conservação e higienização; comunicar ao empregador qualquer alteração que torne os EPIs impróprios para uso; cumprir as determinações sobre o uso adequado.`;
 
         // Calculate actual text height for proper spacing
         const declarationHeight = doc.heightOfString(declaration, { width: contentWidth, align: 'justify' });
@@ -483,31 +484,29 @@ export class PpeDocumentService {
         const warningText = 'Estou ciente de que o não cumprimento das normas de uso dos EPIs poderá resultar em sanções disciplinares previstas na legislação trabalhista.';
         const warningHeight = doc.heightOfString(warningText, { width: contentWidth, align: 'justify' });
         doc.text(warningText, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
-        y += warningHeight;
 
-        // ========== SIGNATURE AREA ==========
-        y += 50; // Generous space before signature
+        // ========== FOOTER (fixed at bottom of page) ==========
+        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
+
+        // ========== SIGNATURE AREA (positioned above footer) ==========
+        // Place signature 100pt above the footer line
+        const sigY = footerY - 100;
 
         // Signature line
         const sigLineWidth = 280;
         const sigLineX = (LAYOUT.pageWidth - sigLineWidth) / 2;
 
-        doc.moveTo(sigLineX, y)
-           .lineTo(sigLineX + sigLineWidth, y)
+        doc.moveTo(sigLineX, sigY)
+           .lineTo(sigLineX + sigLineWidth, sigY)
            .strokeColor(COLORS.text)
            .lineWidth(0.5)
            .stroke();
 
-        y += 8;
         doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.text);
-        doc.text(data.employeeName, sigLineX, y, { width: sigLineWidth, align: 'center' });
+        doc.text(data.employeeName, sigLineX, sigY + 8, { width: sigLineWidth, align: 'center' });
 
-        y += 14;
         doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
-        doc.text('Assinatura do Colaborador', sigLineX, y, { width: sigLineWidth, align: 'center' });
-
-        // ========== FOOTER (fixed at bottom of page) ==========
-        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
+        doc.text('Assinatura do Colaborador', sigLineX, sigY + 22, { width: sigLineWidth, align: 'center' });
 
         // Footer line
         const footerGradient = doc.linearGradient(LAYOUT.marginLeft, footerY, LAYOUT.marginLeft + contentWidth, footerY);

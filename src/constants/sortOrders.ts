@@ -1074,6 +1074,7 @@ export const MEASURE_UNIT_ORDER: Record<MEASURE_UNIT, number> = {
   [MEASURE_UNIT.SIZE_46]: 56,
   [MEASURE_UNIT.SIZE_47]: 57,
   [MEASURE_UNIT.SIZE_48]: 58,
+  [MEASURE_UNIT.SIZE_50]: 59,
 };
 
 export const MEASURE_TYPE_ORDER: Record<MEASURE_TYPE, number> = {

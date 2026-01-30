@@ -406,6 +406,11 @@ export const UNIT_CONVERSION_FACTORS: Record<
     factor: 1,
     category: MEASURE_CATEGORIES.COUNT,
   },
+  [MEASURE_UNIT.SIZE_50]: {
+    baseUnit: MEASURE_UNIT.SIZE_50,
+    factor: 1,
+    category: MEASURE_CATEGORIES.COUNT,
+  },
 };
 
 // =====================
