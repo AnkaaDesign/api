@@ -199,6 +199,37 @@ export class ClickSignService {
       this.logger.debug(`ClickSign API Request: ${config.method?.toUpperCase()} ${this.apiUrl}${config.url}`);
       return config;
     });
+
+    // Add retry logic for rate limiting (429) with exponential backoff
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const config = error.config;
+
+        // Only retry on 429 (rate limit) errors
+        if (error.response?.status === 429 && !config._retryCount) {
+          config._retryCount = 0;
+        }
+
+        if (error.response?.status === 429 && config._retryCount < 5) {
+          config._retryCount += 1;
+          const delay = 5000 * Math.pow(2, config._retryCount - 1); // 5s, 10s, 20s, 40s, 80s
+          this.logger.warn(`Rate limited (429). Retry ${config._retryCount}/5 after ${delay}ms...`);
+
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return this.client.request(config);
+        }
+
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  /**
+   * Helper to add delay between API calls to avoid rate limiting
+   */
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -361,6 +392,9 @@ export class ClickSignService {
 
       this.logger.log(`Agreement requirement created: ${agreeResponse.data.data.id}`);
 
+      // Add delay between requirement calls to avoid rate limiting
+      await this.delay(3000);
+
       // Second requirement: Authentication via email (simplest method)
       const authResponse = await this.client.post(`/envelopes/${input.envelopeId}/requirements`, {
         data: {
@@ -476,20 +510,90 @@ export class ClickSignService {
 
   /**
    * Download the signed document
+   * Handles both full URLs and relative paths from ClickSign API
    */
   async downloadSignedDocument(signedFileUrl: string): Promise<Buffer> {
     try {
-      const response = await axios.get(signedFileUrl, {
+      // Determine if URL is relative or absolute
+      let downloadUrl = signedFileUrl;
+
+      // If it's a relative path, construct the full URL
+      // ClickSign API v3 may return relative paths like /2023/03/13/file.pdf
+      if (signedFileUrl.startsWith('/')) {
+        // Use the production ClickSign domain for downloads
+        const baseUrl = this.apiUrl.includes('sandbox')
+          ? 'https://sandbox.clicksign.com'
+          : 'https://app.clicksign.com';
+        downloadUrl = `${baseUrl}${signedFileUrl}`;
+        this.logger.debug(`Constructed download URL: ${downloadUrl}`);
+      }
+
+      this.logger.log(`Downloading signed document from: ${downloadUrl}`);
+
+      // Check if URL is a pre-signed S3 URL (contains X-Amz-Signature)
+      // Pre-signed URLs should NOT have Authorization header - they have auth in query params
+      const isPreSignedS3Url = downloadUrl.includes('X-Amz-Signature') ||
+                               downloadUrl.includes('amazonaws.com');
+
+      const headers: Record<string, string> = {};
+      if (!isPreSignedS3Url) {
+        // Only add Authorization for non-S3 URLs (ClickSign API endpoints)
+        headers.Authorization = this.accessToken || '';
+      }
+
+      const response = await axios.get(downloadUrl, {
         responseType: 'arraybuffer',
-        headers: {
-          Authorization: this.accessToken,
-        },
+        headers,
+        timeout: 60000, // 60 seconds for large files
       });
 
+      this.logger.log(`Downloaded signed document: ${response.data.byteLength} bytes`);
       return Buffer.from(response.data);
     } catch (error) {
       this.handleApiError(error, 'downloadSignedDocument');
       throw error;
+    }
+  }
+
+  /**
+   * Fetch signed document URL from API
+   * Use this when the webhook doesn't include the download URL
+   * Returns fresh pre-signed URL (valid for ~5 minutes)
+   */
+  async fetchSignedDocumentUrl(envelopeId: string, documentId: string): Promise<string | null> {
+    try {
+      this.logger.log(`Fetching signed document URL for envelope ${envelopeId}, document ${documentId}`);
+      const document = await this.getDocument(envelopeId, documentId);
+
+      // Log the full document structure for debugging
+      this.logger.debug(`Document API response: ${JSON.stringify(document, null, 2)}`);
+
+      // Try multiple possible paths for the signed URL based on API version
+      // API v3 uses links.files.signed, older versions use attributes.downloads.signed_file_url
+      const signedUrl = (document as any).links?.files?.signed
+        || document.attributes?.downloads?.signed_file_url
+        || (document as any).downloads?.signed_file_url
+        || (document as any).signed_file_url;
+
+      if (signedUrl) {
+        this.logger.log(`Retrieved signed document URL: ${signedUrl.substring(0, 80)}...`);
+        return signedUrl;
+      }
+
+      // Log available paths for debugging
+      const links = (document as any).links;
+      if (links?.files) {
+        this.logger.warn(`No signed URL found. Available files: ${JSON.stringify(Object.keys(links.files))}`);
+      } else {
+        this.logger.warn(`No signed_file_url found in document response. Available keys: ${JSON.stringify(Object.keys(document))}`);
+        if (document.attributes) {
+          this.logger.warn(`Document attributes keys: ${JSON.stringify(Object.keys(document.attributes))}`);
+        }
+      }
+      return null;
+    } catch (error) {
+      this.logger.error(`Error fetching signed document URL: ${error}`);
+      return null;
     }
   }
 
@@ -525,6 +629,9 @@ export class ClickSignService {
       deliveryIds,
     });
 
+    // Add delay between API calls to avoid rate limiting
+    await this.delay(3000);
+
     // Step 2: Upload document with delivery IDs in metadata for webhook retrieval
     const document = await this.uploadDocument({
       envelopeId: envelope.id,
@@ -535,6 +642,8 @@ export class ClickSignService {
       },
     });
 
+    await this.delay(3000);
+
     // Step 3: Add signer
     const clicksignSigner = await this.addSigner({
       envelopeId: envelope.id,
@@ -543,6 +652,8 @@ export class ClickSignService {
       cpf: signer.cpf,
       phoneNumber: signer.phoneNumber,
     });
+
+    await this.delay(3000);
 
     // Step 4: Create requirement - using email for testing
     // TODO: Change back to WhatsApp for production: const authMethod = signer.phoneNumber ? 'whatsapp' : 'email';
@@ -555,8 +666,12 @@ export class ClickSignService {
       authMethod,
     });
 
+    await this.delay(3000);
+
     // Step 5: Activate envelope
     await this.activateEnvelope(envelope.id);
+
+    await this.delay(3000);
 
     // Step 6: Send notification to all signers
     await this.sendNotification(envelope.id);
@@ -566,7 +681,7 @@ export class ClickSignService {
     return {
       envelopeId: envelope.id,
       documentId: document.id,
-      documentKey: document.attributes.key,
+      documentKey: document.id, // API v3 uses document.id as the key (no attributes.key)
       signerId: clicksignSigner.id,
       signerKey: clicksignSigner.attributes.key,
       requirementId: requirement.id,

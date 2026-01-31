@@ -11,7 +11,12 @@
       "Bash(git reset:*)",
       "Bash(npx tsx:*)",
       "Bash(git restore:*)",
-      "Bash(git stash drop:*)"
+      "Bash(git stash drop:*)",
+      "Bash(journalctl:*)",
+      "Bash(systemctl status:*)",
+      "Bash(pm2 list:*)",
+      "WebSearch",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

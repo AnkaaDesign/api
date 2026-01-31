@@ -188,9 +188,9 @@ export class PpeSignatureService {
       pdfBuffer = await this.ppeDocumentService.generateBatchDeliveryDocument(group.deliveryIds);
     }
 
-    // Step 2: Save PDF to file storage
+    // Step 2: Save PDF to file storage with user-specific path
     const filename = this.generateFilename(group.userName, group.deliveryIds);
-    const savedFile = await this.savePdfToStorage(pdfBuffer, filename, group.deliveryIds[0]);
+    const savedFile = await this.savePdfToStorage(pdfBuffer, filename, group.userName, group.deliveryIds[0]);
 
     // Step 3: Send to ClickSign - sends notification directly to user's email
     const signatureResult = await this.clickSignService.initiateSignature(
@@ -246,11 +246,9 @@ Você recebeu ${itemText} e precisa assinar o termo de entrega digitalmente.
 
 📋 *Assinatura Digital de EPI*
 
-Você receberá uma mensagem da ClickSign neste mesmo número com o link para assinatura.
+Você receberá um e-mail da ClickSign com o link para assinatura.
 
-⏰ Por favor, assine o documento o mais breve possível.
-
-_Ankaa Design - Sistema de Gestão_`;
+⏰ Por favor, assine o documento o mais breve possível.`;
 
       await this.whatsappService.sendMessage(group.userPhone, message);
       this.logger.log(`WhatsApp notification sent to ${group.userName} (${group.userPhone})`);
@@ -262,6 +260,15 @@ _Ankaa Design - Sistema de Gestão_`;
 
   /**
    * Handle signature completion webhook
+   * Idempotent - safe to call multiple times for same document
+   *
+   * Flow:
+   * 1. Find deliveries by document key
+   * 2. Get signed document URL (from webhook or fetch from API)
+   * 3. Download signed PDF
+   * 4. Save signed PDF and replace original
+   * 5. Update delivery status to COMPLETED
+   * 6. Send WhatsApp notification
    */
   async handleSignatureCompletion(input: SignatureCompletionInput): Promise<{
     success: boolean;
@@ -269,7 +276,7 @@ _Ankaa Design - Sistema de Gestão_`;
   }> {
     this.logger.log(`Processing signature completion for document: ${input.documentKey}`);
 
-    // Find all deliveries with this document key
+    // Find all deliveries with this document key that are WAITING_SIGNATURE
     const deliveries = await this.prisma.ppeDelivery.findMany({
       where: {
         clicksignDocumentKey: input.documentKey,
@@ -277,45 +284,123 @@ _Ankaa Design - Sistema de Gestão_`;
       },
       include: {
         deliveryDocument: true,
+        user: true,
       },
     });
 
+    // If no deliveries found in WAITING_SIGNATURE status, check if already completed
     if (deliveries.length === 0) {
+      const alreadyCompleted = await this.prisma.ppeDelivery.findMany({
+        where: {
+          clicksignDocumentKey: input.documentKey,
+          status: PPE_DELIVERY_STATUS.COMPLETED,
+        },
+        include: {
+          deliveryDocument: true,
+          user: true,
+        },
+      });
+
+      if (alreadyCompleted.length > 0) {
+        // Check if we still need to download the signed document
+        // This handles the case where auto_close fires before signed PDF is ready,
+        // but document_closed fires later with the signed PDF available
+        const needsSignedDoc = alreadyCompleted.some(d =>
+          !d.deliveryDocument?.filename?.includes('_assinado')
+        );
+
+        if (needsSignedDoc && input.signedDocumentUrl) {
+          this.logger.log(`Document ${input.documentKey} already completed but signed PDF not yet downloaded - attempting download`);
+          await this.downloadAndSaveSignedDocument(
+            input.signedDocumentUrl,
+            alreadyCompleted,
+          );
+          return { success: true, updatedDeliveries: [] };
+        }
+
+        // Also try fetching from API if URL not in webhook
+        if (needsSignedDoc && alreadyCompleted[0].clicksignEnvelopeId) {
+          const signedUrl = await this.clickSignService.fetchSignedDocumentUrl(
+            alreadyCompleted[0].clicksignEnvelopeId,
+            input.documentKey,
+          );
+          if (signedUrl) {
+            this.logger.log(`Fetched signed URL for already-completed document - downloading`);
+            await this.downloadAndSaveSignedDocument(signedUrl, alreadyCompleted);
+            return { success: true, updatedDeliveries: [] };
+          }
+        }
+
+        this.logger.log(`Document ${input.documentKey} already completed - ignoring duplicate webhook`);
+        return { success: true, updatedDeliveries: [] };
+      }
+
       this.logger.warn(`No deliveries found for document key: ${input.documentKey}`);
       return { success: false, updatedDeliveries: [] };
     }
 
     const deliveryIds = deliveries.map(d => d.id);
+    const userName = deliveries[0].user?.name || 'Unknown';
+    const envelopeId = deliveries[0].clicksignEnvelopeId;
 
-    // Download and save signed document if URL provided
+    // Download and save signed document, replacing the original
     let signedFileId: string | null = null;
-    if (input.signedDocumentUrl) {
-      try {
-        const signedPdfBuffer = await this.clickSignService.downloadSignedDocument(input.signedDocumentUrl);
-        const signedFilename = `signed_${deliveries[0].deliveryDocument?.filename || 'termo_epi.pdf'}`;
-        const savedSignedFile = await this.savePdfToStorage(signedPdfBuffer, signedFilename, deliveryIds[0]);
-        signedFileId = savedSignedFile.id;
+    const oldDocumentId = deliveries[0].deliveryDocumentId;
 
-        // Delete old unsigned document if exists
-        if (deliveries[0].deliveryDocumentId) {
-          await this.deleteOldFile(deliveries[0].deliveryDocumentId);
-        }
+    // Get signed document URL - from webhook or fetch from API
+    let signedDocumentUrl = input.signedDocumentUrl;
+
+    // If URL not in webhook, fetch it from ClickSign API
+    // This is necessary because auto_close webhook may not include download URLs
+    if (!signedDocumentUrl && envelopeId && this.clickSignService.isAvailable()) {
+      this.logger.log(`Signed URL not in webhook, fetching from ClickSign API...`);
+      signedDocumentUrl = await this.clickSignService.fetchSignedDocumentUrl(
+        envelopeId,
+        input.documentKey,
+      );
+    }
+
+    if (signedDocumentUrl) {
+      try {
+        this.logger.log(`Downloading signed document from: ${signedDocumentUrl}`);
+        const signedPdfBuffer = await this.clickSignService.downloadSignedDocument(signedDocumentUrl);
+
+        // Use same filename as original but with _assinado suffix
+        const originalFilename = deliveries[0].deliveryDocument?.filename || 'termo_epi.pdf';
+        const signedFilename = originalFilename.replace('.pdf', '_assinado.pdf');
+
+        const savedSignedFile = await this.savePdfToStorage(
+          signedPdfBuffer,
+          signedFilename,
+          userName,
+          deliveryIds[0]
+        );
+        signedFileId = savedSignedFile.id;
+        this.logger.log(`Signed document saved: ${savedSignedFile.path}`);
       } catch (error) {
         this.logger.error(`Error downloading signed document: ${error}`);
         // Continue with completion even if download fails
       }
+    } else {
+      this.logger.warn(`No signed document URL available - signed PDF will not be downloaded`);
     }
 
-    // Update all deliveries to COMPLETED
+    // Update all deliveries to COMPLETED with signed document
     await this.prisma.ppeDelivery.updateMany({
       where: { id: { in: deliveryIds } },
       data: {
         status: PPE_DELIVERY_STATUS.COMPLETED,
         statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.COMPLETED],
         clicksignSignedAt: input.signedAt,
+        // Replace document with signed version if available
         ...(signedFileId && { deliveryDocumentId: signedFileId }),
       },
     });
+
+    // Delete old unsigned document if we have a new signed one
+    if (signedFileId && oldDocumentId && oldDocumentId !== signedFileId) {
+      await this.deleteOldFile(oldDocumentId);
+    }
 
     this.logger.log(`Signature completion processed. ${deliveryIds.length} deliveries marked as COMPLETED`);
 
@@ -329,18 +414,59 @@ _Ankaa Design - Sistema de Gestão_`;
   }
 
   /**
+   * Download and save signed document for already-completed deliveries
+   * Used when document_closed webhook arrives after auto_close already marked as complete
+   */
+  private async downloadAndSaveSignedDocument(
+    signedDocumentUrl: string,
+    deliveries: any[],
+  ): Promise<void> {
+    try {
+      const userName = deliveries[0].user?.name || 'Unknown';
+      const oldDocumentId = deliveries[0].deliveryDocumentId;
+      const deliveryIds = deliveries.map(d => d.id);
+
+      this.logger.log(`Downloading signed document for completed delivery: ${signedDocumentUrl.substring(0, 80)}...`);
+      const signedPdfBuffer = await this.clickSignService.downloadSignedDocument(signedDocumentUrl);
+
+      // Use same filename as original but with _assinado suffix
+      const originalFilename = deliveries[0].deliveryDocument?.filename || 'termo_epi.pdf';
+      const signedFilename = originalFilename.replace('.pdf', '_assinado.pdf');
+
+      const savedSignedFile = await this.savePdfToStorage(
+        signedPdfBuffer,
+        signedFilename,
+        userName,
+        deliveryIds[0]
+      );
+
+      // Update deliveries with signed document reference
+      await this.prisma.ppeDelivery.updateMany({
+        where: { id: { in: deliveryIds } },
+        data: {
+          deliveryDocumentId: savedSignedFile.id,
+        },
+      });
+
+      this.logger.log(`Signed document saved and linked: ${savedSignedFile.path}`);
+
+      // Delete old unsigned document
+      if (oldDocumentId && oldDocumentId !== savedSignedFile.id) {
+        await this.deleteOldFile(oldDocumentId);
+      }
+    } catch (error) {
+      this.logger.error(`Error downloading signed document for completed delivery: ${error}`);
+    }
+  }
+
+  /**
    * Send WhatsApp notification to user about completed signature
    */
   private async sendSignatureCompletedWhatsApp(deliveries: any[]): Promise<void> {
     if (deliveries.length === 0) return;
 
-    // Get user from first delivery
-    const delivery = await this.prisma.ppeDelivery.findUnique({
-      where: { id: deliveries[0].id },
-      include: { user: true },
-    });
-
-    if (!delivery?.user?.phone) {
+    const user = deliveries[0].user;
+    if (!user?.phone) {
       this.logger.warn(`User has no phone number for WhatsApp completion notification`);
       return;
     }
@@ -351,18 +477,16 @@ _Ankaa Design - Sistema de Gestão_`;
 
       const message = `✅ *Assinatura Concluída!*
 
-Olá ${delivery.user.name}!
+Olá ${user.name}!
 
 Sua assinatura do termo de entrega de ${itemText} foi registrada com sucesso.
 
 📄 O documento assinado está arquivado em nosso sistema.
 
-Obrigado pela colaboração!
+Obrigado pela colaboração!`;
 
-_Ankaa Design - Sistema de Gestão_`;
-
-      await this.whatsappService.sendMessage(delivery.user.phone, message);
-      this.logger.log(`WhatsApp completion notification sent to ${delivery.user.name}`);
+      await this.whatsappService.sendMessage(user.phone, message);
+      this.logger.log(`WhatsApp completion notification sent to ${user.name}`);
     } catch (error) {
       this.logger.error(`Failed to send WhatsApp completion notification: ${error}`);
       // Don't throw - WhatsApp notification is not critical
@@ -453,9 +577,7 @@ O documento de entrega de EPI foi recusado.
 
 Motivo: ${reason}
 
-Entre em contato com o setor responsável para mais informações.
-
-_Ankaa Design - Sistema de Gestão_`;
+Entre em contato com o setor responsável para mais informações.`;
 
         await this.whatsappService.sendMessage(deliveries[0].user.phone, message);
       } catch (error) {
@@ -548,18 +670,34 @@ _Ankaa Design - Sistema de Gestão_`;
   }
 
   /**
+   * Sanitize user name for use in file path
+   */
+  private sanitizeUserNameForPath(userName: string): string {
+    return userName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Remove special chars except spaces
+      .trim()
+      .replace(/\s+/g, ' '); // Normalize spaces
+  }
+
+  /**
    * Save PDF buffer to file storage and create database record
+   * Path structure: /srv/files/Colaboradores/[User Name]/EPI's/YY/MM/
    */
   private async savePdfToStorage(
     pdfBuffer: Buffer,
     filename: string,
+    userName: string,
     deliveryId: string,
   ): Promise<{ id: string; path: string }> {
-    // Create directory structure: /srv/files/Colaboradores/EPI's/YYYY/MM/
+    // Create directory structure: /srv/files/Colaboradores/[User Name]/EPI's/YY/MM/
     const now = new Date();
-    const year = now.getFullYear().toString();
+    const year = now.getFullYear().toString().slice(-2); // Last 2 digits (YY)
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
-    const relativePath = join("Colaboradores", "EPI's", year, month);
+    const sanitizedUserName = this.sanitizeUserNameForPath(userName);
+
+    const relativePath = join("Colaboradores", sanitizedUserName, "EPI's", year, month);
     const absoluteDir = join(this.filesRoot, relativePath);
 
     // Ensure directory exists
@@ -600,9 +738,10 @@ _Ankaa Design - Sistema de Gestão_`;
         const absolutePath = join(this.filesRoot, file.path);
         if (existsSync(absolutePath)) {
           unlinkSync(absolutePath);
+          this.logger.log(`Deleted old file from disk: ${file.path}`);
         }
         await this.prisma.file.delete({ where: { id: fileId } });
-        this.logger.log(`Deleted old file: ${file.path}`);
+        this.logger.log(`Deleted old file record: ${fileId}`);
       }
     } catch (error) {
       this.logger.error(`Error deleting old file ${fileId}: ${error}`);
