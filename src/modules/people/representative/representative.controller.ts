@@ -4,6 +4,7 @@ import {
   Post,
   Put,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -52,11 +53,29 @@ export class RepresentativeController {
     return await this.service.findMany(query);
   }
 
+  @Get('check-phone')
+  @UseGuards(AuthGuard)
+  async checkPhoneAvailability(
+    @Query('phone') phone: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return await this.service.checkPhoneAvailability(phone, excludeId);
+  }
+
+  @Get('check-email')
+  @UseGuards(AuthGuard)
+  async checkEmailAvailability(
+    @Query('email') email: string,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return await this.service.checkEmailAvailability(email, excludeId);
+  }
+
   @Get(':id')
   @UseGuards(AuthGuard)
   async findById(@Param('id') id: string) {
     return await this.service.findById(id, {
-      include: { customer: true, tasks: true },
+      include: { customer: { include: { logo: true } }, tasks: true },
     });
   }
 
@@ -94,6 +113,39 @@ export class RepresentativeController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string) {
     await this.service.delete(id);
+  }
+
+  @Patch(':id/toggle-active')
+  @UseGuards(AuthGuard)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async toggleActive(@Param('id') id: string) {
+    return await this.service.toggleActive(id);
+  }
+
+  @Post('batch')
+  @UseGuards(AuthGuard)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async batchCreate(
+    @Body() data: { representatives: RepresentativeCreateFormData[] },
+  ) {
+    return await this.service.batchCreate(data.representatives);
+  }
+
+  @Put('batch')
+  @UseGuards(AuthGuard)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async batchUpdate(
+    @Body() data: { updates: Array<{ id: string; data: RepresentativeUpdateFormData }> },
+  ) {
+    return await this.service.batchUpdate(data.updates);
+  }
+
+  @Delete('batch')
+  @UseGuards(AuthGuard)
+  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async batchDelete(@Body() data: { ids: string[] }) {
+    await this.service.batchDelete(data.ids);
   }
 
   @Post('login')

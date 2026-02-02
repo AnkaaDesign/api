@@ -49,25 +49,15 @@ ALTER TABLE "_TaskRepresentatives" ADD CONSTRAINT "_TaskRepresentatives_A_fkey" 
 -- AddForeignKey
 ALTER TABLE "_TaskRepresentatives" ADD CONSTRAINT "_TaskRepresentatives_B_fkey" FOREIGN KEY ("B") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Add REPRESENTATIVE to existing enums
+-- Add REPRESENTATIVE to ChangeLogEntityType enum
 DO $$
 BEGIN
-    -- Add to ENTITY_TYPE enum if it doesn't exist
     IF NOT EXISTS (
         SELECT 1 FROM pg_enum
         WHERE enumlabel = 'REPRESENTATIVE'
-        AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'ENTITY_TYPE')
+        AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'ChangeLogEntityType')
     ) THEN
-        ALTER TYPE "ENTITY_TYPE" ADD VALUE 'REPRESENTATIVE';
-    END IF;
-
-    -- Add to CHANGE_LOG_ENTITY_TYPE enum if it doesn't exist
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_enum
-        WHERE enumlabel = 'REPRESENTATIVE'
-        AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'CHANGE_LOG_ENTITY_TYPE')
-    ) THEN
-        ALTER TYPE "CHANGE_LOG_ENTITY_TYPE" ADD VALUE 'REPRESENTATIVE';
+        ALTER TYPE "ChangeLogEntityType" ADD VALUE 'REPRESENTATIVE';
     END IF;
 END $$;
 

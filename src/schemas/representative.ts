@@ -14,18 +14,18 @@ export const representativeCreateSchema = z.object({
   email: z.string().email('Email inválido').optional(), // Optional for contact-only representatives
   phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
   password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(), // Optional if no system access needed
-  customerId: z.string().uuid('ID do cliente inválido'),
+  customerId: z.string().uuid('ID do cliente inválido').optional().nullable(), // Optional - can create representative without customer
   role: representativeRoleSchema,
   isActive: z.boolean().optional().default(true),
 });
 
 export const representativeUpdateSchema = z.object({
   name: z.string().min(3).optional(),
-  email: z.string().email().optional(),
+  email: z.string().email().optional().nullable(),
   phone: z.string().regex(/^\d{10,11}$/).optional(),
   role: representativeRoleSchema.optional(),
   isActive: z.boolean().optional(),
-  customerId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional().nullable(),
 });
 
 export const representativeLoginSchema = z.object({
@@ -71,11 +71,25 @@ export const representativeWhereSchema = z.object({
 });
 
 export const representativeGetManySchema = z.object({
-  skip: z.number().optional(),
-  take: z.number().optional(),
+  skip: z.coerce.number().optional(),
+  take: z.coerce.number().optional(),
+  page: z.coerce.number().optional(),
+  pageSize: z.coerce.number().optional(),
+  search: z.string().optional(),
   where: representativeWhereSchema.optional(),
   orderBy: representativeOrderBySchema.optional(),
   include: representativeIncludeSchema.optional(),
+  // Direct filters (commonly used by frontend)
+  customerId: z.string().uuid().optional(),
+  role: representativeRoleSchema.optional(),
+  isActive: z.preprocess(
+    (val) => {
+      if (val === 'true') return true;
+      if (val === 'false') return false;
+      return val;
+    },
+    z.boolean().optional()
+  ),
 });
 
 // Type exports
