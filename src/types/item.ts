@@ -136,6 +136,317 @@ export interface Item extends BaseEntity {
 }
 
 // =====================
+// Select Types for Partial Data Retrieval
+// =====================
+
+/**
+ * Minimal Item type - Contains only essential fields for lists
+ * Use this when displaying items in lists or dropdowns where full details aren't needed
+ */
+export type ItemMinimal = Pick<
+  Item,
+  'id' | 'name' | 'quantity' | 'price' | 'isActive' | 'createdAt' | 'updatedAt'
+>;
+
+/**
+ * Item with basic details - Includes commonly used fields for standard views
+ * Use this for most list views where some additional context is helpful
+ */
+export type ItemBasic = Pick<
+  Item,
+  | 'id'
+  | 'name'
+  | 'uniCode'
+  | 'quantity'
+  | 'maxQuantity'
+  | 'reorderPoint'
+  | 'price'
+  | 'isActive'
+  | 'brandId'
+  | 'categoryId'
+  | 'supplierId'
+  | 'monthlyConsumption'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+/**
+ * Item with inventory details - Includes stock management fields
+ * Use this for inventory reports and stock analysis
+ */
+export type ItemInventory = Pick<
+  Item,
+  | 'id'
+  | 'name'
+  | 'uniCode'
+  | 'quantity'
+  | 'maxQuantity'
+  | 'reorderPoint'
+  | 'reorderQuantity'
+  | 'isManualMaxQuantity'
+  | 'isManualReorderPoint'
+  | 'lastAutoOrderDate'
+  | 'monthlyConsumption'
+  | 'monthlyConsumptionTrendPercent'
+  | 'abcCategory'
+  | 'xyzCategory'
+  | 'estimatedLeadTime'
+  | 'isActive'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+/**
+ * Item with PPE details - Includes PPE-specific fields
+ * Use this for PPE management and delivery scheduling
+ */
+export type ItemPPE = Pick<
+  Item,
+  | 'id'
+  | 'name'
+  | 'quantity'
+  | 'ppeType'
+  | 'ppeCA'
+  | 'ppeDeliveryMode'
+  | 'ppeStandardQuantity'
+  | 'categoryId'
+  | 'isActive'
+  | 'createdAt'
+  | 'updatedAt'
+>;
+
+/**
+ * Complete Item with all fields
+ * This is the same as the full Item interface
+ */
+export type ItemDetailed = Item;
+
+/**
+ * ItemBrand minimal type
+ */
+export type ItemBrandMinimal = Pick<ItemBrand, 'id' | 'name' | 'createdAt' | 'updatedAt'>;
+
+/**
+ * ItemCategory minimal type
+ */
+export type ItemCategoryMinimal = Pick<
+  ItemCategory,
+  'id' | 'name' | 'type' | 'typeOrder' | 'createdAt' | 'updatedAt'
+>;
+
+// =====================
+// Select Field Specifications
+// =====================
+
+/**
+ * Select fields for Item queries
+ * Use these with Prisma select to retrieve partial data
+ */
+export interface ItemSelect {
+  // Base fields
+  id?: boolean;
+  createdAt?: boolean;
+  updatedAt?: boolean;
+
+  // Core fields
+  name?: boolean;
+  uniCode?: boolean;
+  quantity?: boolean;
+  maxQuantity?: boolean;
+  reorderPoint?: boolean;
+  reorderQuantity?: boolean;
+  isManualMaxQuantity?: boolean;
+  isManualReorderPoint?: boolean;
+  lastAutoOrderDate?: boolean;
+  boxQuantity?: boolean;
+  icms?: boolean;
+  ipi?: boolean;
+  totalPrice?: boolean;
+  monthlyConsumption?: boolean;
+  monthlyConsumptionTrendPercent?: boolean;
+  barcodes?: boolean;
+  shouldAssignToUser?: boolean;
+  isActive?: boolean;
+
+  // Category fields
+  abcCategory?: boolean;
+  abcCategoryOrder?: boolean;
+  xyzCategory?: boolean;
+  xyzCategoryOrder?: boolean;
+
+  // PPE fields
+  ppeType?: boolean;
+  ppeCA?: boolean;
+  ppeDeliveryMode?: boolean;
+  ppeStandardQuantity?: boolean;
+
+  // Foreign keys
+  brandId?: boolean;
+  categoryId?: boolean;
+  supplierId?: boolean;
+  estimatedLeadTime?: boolean;
+
+  // Relations
+  brand?: boolean | { select?: ItemBrandSelect };
+  category?: boolean | { select?: ItemCategorySelect };
+  supplier?: boolean;
+  prices?: boolean | { select?: { id?: boolean; value?: boolean; createdAt?: boolean } };
+  measures?: boolean;
+  activities?: boolean;
+  borrows?: boolean;
+  orderItems?: boolean;
+  ppeDeliveries?: boolean;
+  ppeSchedules?: boolean;
+  relatedItems?: boolean | { select?: ItemSelect };
+  relatedTo?: boolean | { select?: ItemSelect };
+
+  // Count
+  _count?: boolean | { select?: { activities?: boolean; borrows?: boolean; orderItems?: boolean } };
+}
+
+export interface ItemBrandSelect {
+  id?: boolean;
+  name?: boolean;
+  createdAt?: boolean;
+  updatedAt?: boolean;
+  items?: boolean | { select?: ItemSelect };
+  _count?: boolean | { select?: { items?: boolean } };
+}
+
+export interface ItemCategorySelect {
+  id?: boolean;
+  name?: boolean;
+  description?: boolean;
+  type?: boolean;
+  typeOrder?: boolean;
+  createdAt?: boolean;
+  updatedAt?: boolean;
+  items?: boolean | { select?: ItemSelect };
+  _count?: boolean | { select?: { items?: boolean } };
+}
+
+// =====================
+// Predefined Select Presets
+// =====================
+
+/**
+ * Predefined select presets for common use cases
+ */
+export const ItemSelectPresets = {
+  /**
+   * Minimal fields for dropdowns and simple lists
+   */
+  minimal: {
+    id: true,
+    name: true,
+    quantity: true,
+    isActive: true,
+    createdAt: true,
+    updatedAt: true,
+    prices: {
+      select: {
+        id: true,
+        value: true,
+      },
+      take: 1,
+      orderBy: {
+        createdAt: 'desc' as const,
+      },
+    },
+  } satisfies ItemSelect,
+
+  /**
+   * Basic fields for standard list views
+   */
+  basic: {
+    id: true,
+    name: true,
+    uniCode: true,
+    quantity: true,
+    maxQuantity: true,
+    reorderPoint: true,
+    isActive: true,
+    brandId: true,
+    categoryId: true,
+    supplierId: true,
+    monthlyConsumption: true,
+    createdAt: true,
+    updatedAt: true,
+    prices: {
+      select: {
+        id: true,
+        value: true,
+      },
+      take: 1,
+      orderBy: {
+        createdAt: 'desc' as const,
+      },
+    },
+  } satisfies ItemSelect,
+
+  /**
+   * Inventory management fields
+   */
+  inventory: {
+    id: true,
+    name: true,
+    uniCode: true,
+    quantity: true,
+    maxQuantity: true,
+    reorderPoint: true,
+    reorderQuantity: true,
+    isManualMaxQuantity: true,
+    isManualReorderPoint: true,
+    lastAutoOrderDate: true,
+    monthlyConsumption: true,
+    monthlyConsumptionTrendPercent: true,
+    abcCategory: true,
+    xyzCategory: true,
+    estimatedLeadTime: true,
+    isActive: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies ItemSelect,
+
+  /**
+   * PPE-specific fields
+   */
+  ppe: {
+    id: true,
+    name: true,
+    quantity: true,
+    ppeType: true,
+    ppeCA: true,
+    ppeDeliveryMode: true,
+    ppeStandardQuantity: true,
+    categoryId: true,
+    isActive: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies ItemSelect,
+} as const;
+
+export const ItemBrandSelectPresets = {
+  minimal: {
+    id: true,
+    name: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies ItemBrandSelect,
+} as const;
+
+export const ItemCategorySelectPresets = {
+  minimal: {
+    id: true,
+    name: true,
+    type: true,
+    typeOrder: true,
+    createdAt: true,
+    updatedAt: true,
+  } satisfies ItemCategorySelect,
+} as const;
+
+// =====================
 // Include Types
 // =====================
 
@@ -144,6 +455,7 @@ export interface ItemBrandIncludes {
     | boolean
     | {
         include?: ItemIncludes;
+        select?: ItemSelect;
       };
 }
 
@@ -152,6 +464,7 @@ export interface ItemCategoryIncludes {
     | boolean
     | {
         include?: ItemIncludes;
+        select?: ItemSelect;
       };
 }
 
@@ -160,11 +473,13 @@ export interface ItemIncludes {
     | boolean
     | {
         include?: ItemBrandIncludes;
+        select?: ItemBrandSelect;
       };
   category?:
     | boolean
     | {
         include?: ItemCategoryIncludes;
+        select?: ItemCategorySelect;
       };
   supplier?:
     | boolean
@@ -175,6 +490,7 @@ export interface ItemIncludes {
     | boolean
     | {
         include?: MonetaryValueIncludes;
+        select?: { id?: boolean; value?: boolean; createdAt?: boolean };
       };
   measures?:
     | boolean
@@ -210,11 +526,13 @@ export interface ItemIncludes {
     | boolean
     | {
         include?: ItemIncludes;
+        select?: ItemSelect;
       };
   relatedTo?:
     | boolean
     | {
         include?: ItemIncludes;
+        select?: ItemSelect;
       };
 }
 
@@ -697,6 +1015,7 @@ export interface ItemCategoryDeleteResponse extends BaseDeleteResponse {}
 export interface ItemGetManyParams {
   where?: ItemWhere;
   include?: ItemIncludes;
+  select?: ItemSelect;
   orderBy?: ItemOrderBy | ItemOrderBy[];
   skip?: number;
   take?: number;
@@ -705,11 +1024,13 @@ export interface ItemGetManyParams {
 
 export interface ItemGetByIdParams {
   include?: ItemIncludes;
+  select?: ItemSelect;
 }
 
 export interface ItemBrandGetManyParams {
   where?: ItemBrandWhere;
   include?: ItemBrandIncludes;
+  select?: ItemBrandSelect;
   orderBy?: ItemBrandOrderBy | ItemBrandOrderBy[];
   skip?: number;
   take?: number;
@@ -718,11 +1039,13 @@ export interface ItemBrandGetManyParams {
 
 export interface ItemBrandGetByIdParams {
   include?: ItemBrandIncludes;
+  select?: ItemBrandSelect;
 }
 
 export interface ItemCategoryGetManyParams {
   where?: ItemCategoryWhere;
   include?: ItemCategoryIncludes;
+  select?: ItemCategorySelect;
   orderBy?: ItemCategoryOrderBy | ItemCategoryOrderBy[];
   skip?: number;
   take?: number;
@@ -731,6 +1054,7 @@ export interface ItemCategoryGetManyParams {
 
 export interface ItemCategoryGetByIdParams {
   include?: ItemCategoryIncludes;
+  select?: ItemCategorySelect;
 }
 
 // =====================

@@ -181,6 +181,204 @@ export class BorrowPrismaRepository
     };
   }
 
+  /**
+   * Get optimized select for table/list views
+   * Returns minimal data needed for displaying borrows in tables
+   */
+  protected getSelectForTable(): Prisma.BorrowSelect {
+    return {
+      id: true,
+      quantity: true,
+      status: true,
+      returnedAt: true,
+      createdAt: true,
+      item: {
+        select: {
+          id: true,
+          name: true,
+          uniCode: true,
+          quantity: true,
+          brand: {
+            select: {
+              name: true,
+            },
+          },
+          category: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          position: {
+            select: {
+              name: true,
+            },
+          },
+          sector: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  /**
+   * Get optimized select for form views
+   * Returns fields needed for editing/creating borrows
+   */
+  protected getSelectForForm(): Prisma.BorrowSelect {
+    return {
+      id: true,
+      itemId: true,
+      userId: true,
+      quantity: true,
+      status: true,
+      statusOrder: true,
+      returnedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      item: {
+        select: {
+          id: true,
+          name: true,
+          uniCode: true,
+          quantity: true,
+          brand: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          status: true,
+          sectorId: true,
+          positionId: true,
+          position: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          sector: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  /**
+   * Get optimized select for detail views
+   * Returns complete data with full relations
+   */
+  protected getSelectForDetail(): Prisma.BorrowSelect {
+    return {
+      id: true,
+      itemId: true,
+      userId: true,
+      quantity: true,
+      status: true,
+      statusOrder: true,
+      returnedAt: true,
+      createdAt: true,
+      updatedAt: true,
+      item: {
+        select: {
+          id: true,
+          name: true,
+          uniCode: true,
+          quantity: true,
+          brandId: true,
+          categoryId: true,
+          supplierId: true,
+          createdAt: true,
+          updatedAt: true,
+          brand: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          category: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          supplier: {
+            select: {
+              id: true,
+              fantasyName: true,
+            },
+          },
+        },
+      },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          status: true,
+          sectorId: true,
+          positionId: true,
+          createdAt: true,
+          updatedAt: true,
+          position: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          sector: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  /**
+   * Determines which select/include to use based on options
+   * Priority: custom select > custom include > default include (for backward compatibility)
+   */
+  protected resolveSelectOrInclude(
+    options?: { select?: any; include?: any },
+  ): { select?: Prisma.BorrowSelect; include?: Prisma.BorrowInclude } {
+    if (options?.select) {
+      return { select: options.select as Prisma.BorrowSelect };
+    }
+    if (options?.include) {
+      return { include: this.mapIncludeToDatabaseInclude(options.include) };
+    }
+    // Default to include for backward compatibility
+    return { include: this.getDefaultInclude() };
+  }
+
   // WithTransaction method implementations
   async createWithTransaction(
     transaction: PrismaTransaction,
@@ -189,12 +387,11 @@ export class BorrowPrismaRepository
   ): Promise<Borrow> {
     try {
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const selectOrInclude = this.resolveSelectOrInclude(options);
 
       const result = await transaction.borrow.create({
         data: createInput,
-        include: includeInput,
+        ...selectOrInclude,
       });
 
       return this.mapDatabaseEntityToEntity(result);
@@ -210,12 +407,11 @@ export class BorrowPrismaRepository
     options?: CreateOptions<BorrowInclude>,
   ): Promise<Borrow | null> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const selectOrInclude = this.resolveSelectOrInclude(options);
 
       const result = await transaction.borrow.findUnique({
         where: { id },
-        include: includeInput,
+        ...selectOrInclude,
       });
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
@@ -231,12 +427,11 @@ export class BorrowPrismaRepository
     options?: CreateOptions<BorrowInclude>,
   ): Promise<Borrow[]> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const selectOrInclude = this.resolveSelectOrInclude(options);
 
       const results = await transaction.borrow.findMany({
         where: { id: { in: ids } },
-        include: includeInput,
+        ...selectOrInclude,
       });
 
       return results.map(result => this.mapDatabaseEntityToEntity(result));
@@ -250,10 +445,11 @@ export class BorrowPrismaRepository
     transaction: PrismaTransaction,
     options?: FindManyOptions<BorrowOrderBy, BorrowWhere, BorrowInclude>,
   ): Promise<FindManyResult<Borrow>> {
-    const { where, orderBy, page = 1, take = 20, include } = options || {};
+    const { where, orderBy, page = 1, take = 20, include, select } = options || {};
     const skip = Math.max(0, (page - 1) * take);
 
     const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { createdAt: 'desc' };
+    const selectOrInclude = this.resolveSelectOrInclude({ select, include });
 
     const [total, borrows] = await Promise.all([
       transaction.borrow.count({
@@ -264,7 +460,7 @@ export class BorrowPrismaRepository
         orderBy: prismaOrderBy,
         skip,
         take,
-        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        ...selectOrInclude,
       }),
     ]);
 
@@ -282,13 +478,12 @@ export class BorrowPrismaRepository
   ): Promise<Borrow> {
     try {
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const selectOrInclude = this.resolveSelectOrInclude(options);
 
       const result = await transaction.borrow.update({
         where: { id },
         data: updateInput,
-        include: includeInput,
+        ...selectOrInclude,
       });
 
       return this.mapDatabaseEntityToEntity(result);
@@ -300,12 +495,23 @@ export class BorrowPrismaRepository
 
   async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Borrow> {
     try {
+      // Use minimal select for delete operations - only need the core fields
       const result = await transaction.borrow.delete({
         where: { id },
-        include: this.getDefaultInclude(),
+        select: {
+          id: true,
+          itemId: true,
+          userId: true,
+          quantity: true,
+          status: true,
+          statusOrder: true,
+          returnedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
 
-      return this.mapDatabaseEntityToEntity(result);
+      return this.mapDatabaseEntityToEntity(result as any);
     } catch (error) {
       this.logError(`deletar empréstimo ${id}`, error);
       throw error;
@@ -324,15 +530,16 @@ export class BorrowPrismaRepository
 
   async findUnreturnedByItem(itemId: string): Promise<Borrow[]> {
     try {
+      // Use optimized select for table view - this is typically used in list views
       const results = await this.prisma.borrow.findMany({
         where: {
           itemId,
           returnedAt: null,
         },
-        include: this.getDefaultInclude(),
+        select: this.getSelectForTable(),
       });
 
-      return results.map(result => this.mapDatabaseEntityToEntity(result));
+      return results.map(result => this.mapDatabaseEntityToEntity(result as any));
     } catch (error) {
       this.logError(`buscar empréstimos não devolvidos do item ${itemId}`, error);
       throw error;
@@ -356,5 +563,75 @@ export class BorrowPrismaRepository
       this.logError(`calcular quantidade total não devolvida do item ${itemId}`, error);
       throw error;
     }
+  }
+
+  // =====================
+  // Optimized Query Methods
+  // =====================
+
+  /**
+   * Find borrows optimized for table view
+   * Uses minimal select to improve performance for list views
+   */
+  async findManyForTable(
+    options?: FindManyOptions<BorrowOrderBy, BorrowWhere, BorrowInclude>,
+  ): Promise<FindManyResult<Borrow>> {
+    return this.findManyWithTransaction(this.prisma, {
+      ...options,
+      select: this.getSelectForTable() as any,
+    });
+  }
+
+  /**
+   * Find borrows optimized for form view
+   * Includes all fields needed for editing
+   */
+  async findManyForForm(
+    options?: FindManyOptions<BorrowOrderBy, BorrowWhere, BorrowInclude>,
+  ): Promise<FindManyResult<Borrow>> {
+    return this.findManyWithTransaction(this.prisma, {
+      ...options,
+      select: this.getSelectForForm() as any,
+    });
+  }
+
+  /**
+   * Find borrows optimized for detail view
+   * Includes complete data with all relations
+   */
+  async findManyForDetail(
+    options?: FindManyOptions<BorrowOrderBy, BorrowWhere, BorrowInclude>,
+  ): Promise<FindManyResult<Borrow>> {
+    return this.findManyWithTransaction(this.prisma, {
+      ...options,
+      select: this.getSelectForDetail() as any,
+    });
+  }
+
+  /**
+   * Find borrow by ID optimized for table view
+   */
+  async findByIdForTable(id: string): Promise<Borrow | null> {
+    return this.findByIdWithTransaction(this.prisma, id, {
+      select: this.getSelectForTable() as any,
+    });
+  }
+
+  /**
+   * Find borrow by ID optimized for form view
+   */
+  async findByIdForForm(id: string): Promise<Borrow | null> {
+    return this.findByIdWithTransaction(this.prisma, id, {
+      select: this.getSelectForForm() as any,
+    });
+  }
+
+  /**
+   * Find borrow by ID optimized for detail view
+   */
+  async findByIdForDetail(id: string): Promise<Borrow | null> {
+    return this.findByIdWithTransaction(this.prisma, id, {
+      select: this.getSelectForDetail() as any,
+    });
   }
 }

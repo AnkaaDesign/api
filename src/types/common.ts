@@ -164,25 +164,29 @@ export interface UpdateData<T> {
   data: T;
 }
 
-export interface FindManyOptions<OrderBy = any, Where = any, Include = any> {
+export interface FindManyOptions<OrderBy = any, Where = any, Include = any, Select = any> {
   skip?: number;
   page?: number;
   take?: number;
   orderBy?: OrderBy;
   where?: Where;
   include?: Include;
+  select?: Select;
 }
 
-export interface CreateOptions<Include = any> {
+export interface CreateOptions<Include = any, Select = any> {
   include?: Include;
+  select?: Select;
 }
 
-export interface UpdateOptions<Include = any> {
+export interface UpdateOptions<Include = any, Select = any> {
   include?: Include;
+  select?: Select;
 }
 
-export interface CreateManyOptions<Include = any> {
+export interface CreateManyOptions<Include = any, Select = any> {
   include?: Include;
+  select?: Select;
 }
 
 export interface UpdateManyOptions<Include = any> {

@@ -356,6 +356,252 @@ export class ItemPrismaRepository
     };
   }
 
+  /**
+   * Get optimized select for list views (comboboxes, tables, etc.)
+   * Only includes essential fields to minimize data transfer
+   */
+  protected getListSelect(): Prisma.ItemSelect {
+    return {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      isActive: true,
+      brandId: true,
+      categoryId: true,
+      supplierId: true,
+      createdAt: true,
+      updatedAt: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+        },
+      },
+      prices: {
+        select: {
+          id: true,
+          value: true,
+          updatedAt: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+        take: 1,
+      },
+    };
+  }
+
+  /**
+   * Get minimal select for comboboxes
+   * Only includes id and name fields
+   */
+  protected getComboboxSelect(): Prisma.ItemSelect {
+    return {
+      id: true,
+      name: true,
+      uniCode: true,
+      isActive: true,
+    };
+  }
+
+  /**
+   * Get optimized select for form views
+   * Includes all fields needed for editing
+   */
+  protected getFormSelect(): Prisma.ItemSelect {
+    return {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      maxQuantity: true,
+      reorderPoint: true,
+      reorderQuantity: true,
+      boxQuantity: true,
+      isManualMaxQuantity: true,
+      isManualReorderPoint: true,
+      lastAutoOrderDate: true,
+      icms: true,
+      ipi: true,
+      totalPrice: true,
+      monthlyConsumption: true,
+      monthlyConsumptionTrendPercent: true,
+      barcodes: true,
+      shouldAssignToUser: true,
+      abcCategory: true,
+      abcCategoryOrder: true,
+      xyzCategory: true,
+      xyzCategoryOrder: true,
+      brandId: true,
+      categoryId: true,
+      supplierId: true,
+      estimatedLeadTime: true,
+      isActive: true,
+      ppeType: true,
+      ppeCA: true,
+      ppeDeliveryMode: true,
+      ppeStandardQuantity: true,
+      createdAt: true,
+      updatedAt: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+        },
+      },
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+          corporateName: true,
+        },
+      },
+      prices: {
+        select: {
+          id: true,
+          value: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+        take: 5,
+      },
+      measures: {
+        select: {
+          id: true,
+          value: true,
+          unit: true,
+          measureType: true,
+        },
+      },
+    };
+  }
+
+  /**
+   * Get optimized select for detail views
+   * Includes comprehensive data for viewing item details
+   */
+  protected getDetailSelect(): Prisma.ItemSelect {
+    return {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      maxQuantity: true,
+      reorderPoint: true,
+      reorderQuantity: true,
+      boxQuantity: true,
+      isManualMaxQuantity: true,
+      isManualReorderPoint: true,
+      lastAutoOrderDate: true,
+      icms: true,
+      ipi: true,
+      totalPrice: true,
+      monthlyConsumption: true,
+      monthlyConsumptionTrendPercent: true,
+      barcodes: true,
+      shouldAssignToUser: true,
+      abcCategory: true,
+      abcCategoryOrder: true,
+      xyzCategory: true,
+      xyzCategoryOrder: true,
+      brandId: true,
+      categoryId: true,
+      supplierId: true,
+      estimatedLeadTime: true,
+      isActive: true,
+      ppeType: true,
+      ppeCA: true,
+      ppeDeliveryMode: true,
+      ppeStandardQuantity: true,
+      createdAt: true,
+      updatedAt: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          typeOrder: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+          corporateName: true,
+          cnpj: true,
+          email: true,
+          phones: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      prices: {
+        select: {
+          id: true,
+          value: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+        take: 10,
+      },
+      measures: {
+        select: {
+          id: true,
+          value: true,
+          unit: true,
+          measureType: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
+      _count: {
+        select: {
+          activities: true,
+          borrows: true,
+          orderItems: true,
+          ppeDelivery: true,
+        },
+      },
+    };
+  }
+
   // WithTransaction method implementations
 
   async createWithTransaction(
@@ -408,8 +654,21 @@ export class ItemPrismaRepository
     options?: CreateOptions<ItemInclude>,
   ): Promise<Item | null> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const result = await transaction.item.findUnique({
+          where: { id },
+          select: this.getFormSelect(),
+        });
+
+        return result ? this.mapDatabaseEntityToEntity(result) : null;
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const result = await transaction.item.findUnique({
@@ -430,8 +689,21 @@ export class ItemPrismaRepository
     options?: CreateOptions<ItemInclude>,
   ): Promise<Item[]> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const results = await transaction.item.findMany({
+          where: { id: { in: ids } },
+          select: this.getListSelect(),
+        });
+
+        return results.map(result => this.mapDatabaseEntityToEntity(result));
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const results = await transaction.item.findMany({
@@ -479,6 +751,31 @@ export class ItemPrismaRepository
     // Use normal Prisma sorting for totalPrice and other fields
     const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };
 
+    // If no custom include is provided, use optimized select instead
+    // This significantly reduces data transfer
+    const useOptimizedSelect = !include || Object.keys(include).length === 0;
+
+    if (useOptimizedSelect) {
+      const [total, items] = await Promise.all([
+        transaction.item.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.item.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: prismaOrderBy,
+          skip,
+          take,
+          select: this.getListSelect(),
+        }),
+      ]);
+
+      return {
+        data: items.map(item => this.mapDatabaseEntityToEntity(item)),
+        meta: this.calculatePagination(total, page, take),
+      };
+    }
+
+    // Use include when custom include is provided (backward compatibility)
     const defaultInclude = this.getDefaultInclude();
     const mappedInclude = this.mapIncludeToDatabaseInclude(include);
     const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
@@ -701,8 +998,25 @@ export class ItemPrismaRepository
 
   async findByBarcode(barcode: string, options?: { include?: ItemInclude }): Promise<Item | null> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const result = await this.prisma.item.findFirst({
+          where: {
+            barcodes: {
+              has: barcode,
+            },
+          },
+          select: this.getFormSelect(),
+        });
+
+        return result ? this.mapDatabaseEntityToEntity(result) : null;
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const result = await this.prisma.item.findFirst({
@@ -727,8 +1041,25 @@ export class ItemPrismaRepository
     options?: { include?: ItemInclude },
   ): Promise<Item | null> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const result = await transaction.item.findFirst({
+          where: {
+            barcodes: {
+              has: barcode,
+            },
+          },
+          select: this.getFormSelect(),
+        });
+
+        return result ? this.mapDatabaseEntityToEntity(result) : null;
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const result = await transaction.item.findFirst({
@@ -749,8 +1080,21 @@ export class ItemPrismaRepository
 
   async findByName(name: string, options?: { include?: ItemInclude }): Promise<Item | null> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const result = await this.prisma.item.findFirst({
+          where: { name },
+          select: this.getFormSelect(),
+        });
+
+        return result ? this.mapDatabaseEntityToEntity(result) : null;
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const result = await this.prisma.item.findFirst({
@@ -771,8 +1115,21 @@ export class ItemPrismaRepository
     options?: { include?: ItemInclude },
   ): Promise<Item | null> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const result = await transaction.item.findFirst({
+          where: { name },
+          select: this.getFormSelect(),
+        });
+
+        return result ? this.mapDatabaseEntityToEntity(result) : null;
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const result = await transaction.item.findFirst({
@@ -789,8 +1146,21 @@ export class ItemPrismaRepository
 
   async findByIds(ids: string[], options?: { include?: ItemInclude }): Promise<Item[]> {
     try {
+      // If no custom include is provided, use optimized select
+      const useOptimizedSelect = !options?.include || Object.keys(options.include).length === 0;
+
+      if (useOptimizedSelect) {
+        const results = await this.prisma.item.findMany({
+          where: { id: { in: ids } },
+          select: this.getListSelect(),
+        });
+
+        return results.map(result => this.mapDatabaseEntityToEntity(result));
+      }
+
+      // Use include when custom include is provided (backward compatibility)
       const defaultInclude = this.getDefaultInclude();
-      const mappedInclude = this.mapIncludeToDatabaseInclude(options?.include);
+      const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
       const includeInput = mappedInclude ? { ...defaultInclude, ...mappedInclude } : defaultInclude;
 
       const results = await this.prisma.item.findMany({
@@ -803,5 +1173,198 @@ export class ItemPrismaRepository
       this.logError('buscar itens por IDs', error, { ids });
       throw error;
     }
+  }
+
+  // =====================
+  // Optimized Query Methods
+  // =====================
+
+  /**
+   * Find many items with list-optimized select
+   * Use this for table views and lists where you need basic item info
+   * @returns Items with minimal fields for list display
+   */
+  async findManyForList(
+    options?: FindManyOptions<ItemOrderBy, ItemWhere, ItemInclude>,
+  ): Promise<FindManyResult<Item>> {
+    const {
+      where,
+      orderBy,
+      page = 1,
+      take = 20,
+    } = options || {};
+    const skip = Math.max(0, (page - 1) * take);
+
+    // Check if price sorting is requested
+    const hasPriceSort = this.hasPriceSorting(orderBy);
+
+    if (hasPriceSort) {
+      // Use the existing price sort logic for in-memory sorting
+      return this.findManyWithPriceSortOptimized(options, this.getListSelect());
+    }
+
+    const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };
+    const prismaWhere = this.mapWhereToDatabaseWhere(where);
+
+    const [total, items] = await Promise.all([
+      this.prisma.item.count({ where: prismaWhere }),
+      this.prisma.item.findMany({
+        where: prismaWhere,
+        orderBy: prismaOrderBy,
+        skip,
+        take,
+        select: this.getListSelect(),
+      }),
+    ]);
+
+    return {
+      data: items.map(item => this.mapDatabaseEntityToEntity(item)),
+      meta: this.calculatePagination(total, page, take),
+    };
+  }
+
+  /**
+   * Find many items for combobox/dropdown
+   * Returns only id and name fields
+   * @returns Minimal item data for comboboxes
+   */
+  async findManyForCombobox(
+    options?: FindManyOptions<ItemOrderBy, ItemWhere, ItemInclude>,
+  ): Promise<FindManyResult<Item>> {
+    const {
+      where,
+      orderBy,
+      page = 1,
+      take = 100,
+    } = options || {};
+    const skip = Math.max(0, (page - 1) * take);
+
+    const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };
+    const prismaWhere = this.mapWhereToDatabaseWhere(where);
+
+    const [total, items] = await Promise.all([
+      this.prisma.item.count({ where: prismaWhere }),
+      this.prisma.item.findMany({
+        where: prismaWhere,
+        orderBy: prismaOrderBy,
+        skip,
+        take,
+        select: this.getComboboxSelect(),
+      }),
+    ]);
+
+    return {
+      data: items.map(item => this.mapDatabaseEntityToEntity(item)),
+      meta: this.calculatePagination(total, page, take),
+    };
+  }
+
+  /**
+   * Find item by ID with form-optimized select
+   * Use this when loading items for editing
+   * @returns Item with all fields needed for forms
+   */
+  async findByIdForForm(id: string): Promise<Item | null> {
+    try {
+      const result = await this.prisma.item.findUnique({
+        where: { id },
+        select: this.getFormSelect(),
+      });
+
+      return result ? this.mapDatabaseEntityToEntity(result) : null;
+    } catch (error) {
+      this.logError(`buscar item por ID para formulário ${id}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find item by ID with detail-optimized select
+   * Use this for detail/view pages
+   * @returns Item with comprehensive data for viewing
+   */
+  async findByIdForDetail(id: string): Promise<Item | null> {
+    try {
+      const result = await this.prisma.item.findUnique({
+        where: { id },
+        select: this.getDetailSelect(),
+      });
+
+      return result ? this.mapDatabaseEntityToEntity(result) : null;
+    } catch (error) {
+      this.logError(`buscar item por ID para detalhes ${id}`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find items by IDs with list-optimized select
+   * Use this for bulk operations where you need basic item info
+   * @returns Items with minimal fields for list display
+   */
+  async findByIdsForList(ids: string[]): Promise<Item[]> {
+    try {
+      const results = await this.prisma.item.findMany({
+        where: { id: { in: ids } },
+        select: this.getListSelect(),
+      });
+
+      return results.map(result => this.mapDatabaseEntityToEntity(result));
+    } catch (error) {
+      this.logError('buscar itens por IDs para lista', error, { ids });
+      throw error;
+    }
+  }
+
+  /**
+   * Find items by IDs for combobox
+   * Returns only essential fields
+   * @returns Minimal item data
+   */
+  async findByIdsForCombobox(ids: string[]): Promise<Item[]> {
+    try {
+      const results = await this.prisma.item.findMany({
+        where: { id: { in: ids } },
+        select: this.getComboboxSelect(),
+      });
+
+      return results.map(result => this.mapDatabaseEntityToEntity(result));
+    } catch (error) {
+      this.logError('buscar itens por IDs para combobox', error, { ids });
+      throw error;
+    }
+  }
+
+  /**
+   * Helper method for price sorting with custom select
+   */
+  private async findManyWithPriceSortOptimized(
+    options: FindManyOptions<ItemOrderBy, ItemWhere, ItemInclude> | undefined,
+    customSelect: Prisma.ItemSelect,
+  ): Promise<FindManyResult<Item>> {
+    const { where, orderBy, page = 1, take = 20 } = options || {};
+    const skip = Math.max(0, (page - 1) * take);
+
+    const prismaWhere = this.mapWhereToDatabaseWhere(where);
+
+    // Get all items that match the filter first (without sorting)
+    const [total, allFilteredItems] = await Promise.all([
+      this.prisma.item.count({ where: prismaWhere }),
+      this.prisma.item.findMany({
+        where: prismaWhere,
+        select: customSelect,
+      }),
+    ]);
+
+    // Sort items in memory based on the orderBy criteria
+    const sortedItems = this.sortItemsByPrice(allFilteredItems, orderBy);
+
+    // Apply pagination to the sorted results
+    const paginatedItems = sortedItems.slice(skip, skip + take);
+
+    return {
+      data: paginatedItems.map(item => this.mapDatabaseEntityToEntity(item)),
+      meta: this.calculatePagination(total, page, take),
+    };
   }
 }

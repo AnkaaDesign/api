@@ -333,18 +333,22 @@ export class UserPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: CreateOptions<UserInclude>,
+    options?: CreateOptions<UserInclude> & { select?: any },
   ): Promise<User | null> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const useSelect = options?.select && Object.keys(options.select).length > 0;
 
       const result = await transaction.user.findUnique({
         where: { id },
-        include: includeInput,
+        ...(useSelect
+          ? { select: options.select }
+          : { include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() }
+        ),
       });
 
-      return result ? this.mapDatabaseEntityToEntity(result) : null;
+      return result
+        ? (useSelect ? result as any : this.mapDatabaseEntityToEntity(result))
+        : null;
     } catch (error) {
       this.logError(`buscar usuário por ID ${id}`, error);
       throw error;
@@ -354,18 +358,22 @@ export class UserPrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: CreateOptions<UserInclude>,
+    options?: CreateOptions<UserInclude> & { select?: any },
   ): Promise<User[]> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const useSelect = options?.select && Object.keys(options.select).length > 0;
 
       const results = await transaction.user.findMany({
         where: { id: { in: ids } },
-        include: includeInput,
+        ...(useSelect
+          ? { select: options.select }
+          : { include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() }
+        ),
       });
 
-      return results.map(result => this.mapDatabaseEntityToEntity(result));
+      return useSelect
+        ? results as any[]
+        : results.map(result => this.mapDatabaseEntityToEntity(result));
     } catch (error) {
       this.logError('buscar usuários por IDs', error, { ids });
       throw error;
@@ -388,8 +396,15 @@ export class UserPrismaRepository
       page = 1,
       take = 20,
       include,
-    } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      select,
+    } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+      take?: number;
+      select?: any;
+    };
     const skip = Math.max(0, (page - 1) * take);
+
+    // Determine whether to use select or include
+    const useSelect = select && Object.keys(select).length > 0;
 
     const [total, users] = await Promise.all([
       transaction.user.count({
@@ -400,12 +415,17 @@ export class UserPrismaRepository
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
         skip,
         take,
-        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        ...(useSelect
+          ? { select }
+          : { include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude() }
+        ),
       }),
     ]);
 
     return {
-      data: users.map(user => this.mapDatabaseEntityToEntity(user)),
+      data: useSelect
+        ? users as any[] // When using select, return as-is without mapping
+        : users.map(user => this.mapDatabaseEntityToEntity(user)),
       meta: this.calculatePagination(total, page, take),
     };
   }
@@ -515,6 +535,308 @@ export class UserPrismaRepository
       return result ? this.mapDatabaseEntityToEntity(result) : null;
     } catch (error) {
       this.logError(`buscar usuário por número de folha ${payrollNumber}`, error);
+      throw error;
+    }
+  }
+
+  // =====================
+  // Optimized Query Methods for Comboboxes
+  // =====================
+
+  /**
+   * Find users for comboboxes with minimal data (id, name only)
+   * This is the most optimized query for simple dropdowns
+   */
+  async findManyMinimal(
+    options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
+    tx?: PrismaTransaction,
+  ): Promise<FindManyResult<{ id: string; name: string }>> {
+    try {
+      const transaction = tx || this.prisma;
+      const optionsWithTake = options
+        ? { ...options, take: (options as any).limit || options.take }
+        : {};
+
+      const {
+        where,
+        orderBy,
+        page = 1,
+        take = 20,
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      const skip = Math.max(0, (page - 1) * take);
+
+      const [total, users] = await Promise.all([
+        transaction.user.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.user.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select: {
+            id: true,
+            name: true,
+          },
+        }),
+      ]);
+
+      return {
+        data: users,
+        meta: this.calculatePagination(total, page, take),
+      };
+    } catch (error) {
+      this.logError('buscar usuários (minimal)', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find users with sector information (id, name, sector)
+   * Optimized for comboboxes that need to display sector
+   */
+  async findManyWithSector(
+    options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
+    tx?: PrismaTransaction,
+  ): Promise<FindManyResult<{ id: string; name: string; sector: { id: string; name: string } | null }>> {
+    try {
+      const transaction = tx || this.prisma;
+      const optionsWithTake = options
+        ? { ...options, take: (options as any).limit || options.take }
+        : {};
+
+      const {
+        where,
+        orderBy,
+        page = 1,
+        take = 20,
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      const skip = Math.max(0, (page - 1) * take);
+
+      const [total, users] = await Promise.all([
+        transaction.user.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.user.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select: {
+            id: true,
+            name: true,
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      return {
+        data: users,
+        meta: this.calculatePagination(total, page, take),
+      };
+    } catch (error) {
+      this.logError('buscar usuários com setor', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find users with position information (id, name, position)
+   * Optimized for comboboxes that need to display position
+   */
+  async findManyWithPosition(
+    options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
+    tx?: PrismaTransaction,
+  ): Promise<FindManyResult<{ id: string; name: string; position: { id: string; name: string } | null }>> {
+    try {
+      const transaction = tx || this.prisma;
+      const optionsWithTake = options
+        ? { ...options, take: (options as any).limit || options.take }
+        : {};
+
+      const {
+        where,
+        orderBy,
+        page = 1,
+        take = 20,
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      const skip = Math.max(0, (page - 1) * take);
+
+      const [total, users] = await Promise.all([
+        transaction.user.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.user.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select: {
+            id: true,
+            name: true,
+            position: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      return {
+        data: users,
+        meta: this.calculatePagination(total, page, take),
+      };
+    } catch (error) {
+      this.logError('buscar usuários com cargo', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find users with both sector and position (id, name, sector, position)
+   * Optimized for comboboxes that need to display both
+   */
+  async findManyWithSectorAndPosition(
+    options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
+    tx?: PrismaTransaction,
+  ): Promise<FindManyResult<{
+    id: string;
+    name: string;
+    sector: { id: string; name: string } | null;
+    position: { id: string; name: string } | null;
+  }>> {
+    try {
+      const transaction = tx || this.prisma;
+      const optionsWithTake = options
+        ? { ...options, take: (options as any).limit || options.take }
+        : {};
+
+      const {
+        where,
+        orderBy,
+        page = 1,
+        take = 20,
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      const skip = Math.max(0, (page - 1) * take);
+
+      const [total, users] = await Promise.all([
+        transaction.user.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.user.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select: {
+            id: true,
+            name: true,
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            position: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      return {
+        data: users,
+        meta: this.calculatePagination(total, page, take),
+      };
+    } catch (error) {
+      this.logError('buscar usuários com setor e cargo', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find users for list views with basic information
+   * Includes: id, name, email, phone, status, isActive, avatarId, payrollNumber, sector, position
+   */
+  async findManyForList(
+    options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
+    tx?: PrismaTransaction,
+  ): Promise<FindManyResult<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    status: string;
+    isActive: boolean;
+    avatarId: string | null;
+    payrollNumber: number | null;
+    sector: { id: string; name: string } | null;
+    position: { id: string; name: string } | null;
+  }>> {
+    try {
+      const transaction = tx || this.prisma;
+      const optionsWithTake = options
+        ? { ...options, take: (options as any).limit || options.take }
+        : {};
+
+      const {
+        where,
+        orderBy,
+        page = 1,
+        take = 20,
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      const skip = Math.max(0, (page - 1) * take);
+
+      const [total, users] = await Promise.all([
+        transaction.user.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.user.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            status: true,
+            isActive: true,
+            avatarId: true,
+            payrollNumber: true,
+            sector: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            position: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        }),
+      ]);
+
+      return {
+        data: users,
+        meta: this.calculatePagination(total, page, take),
+      };
+    } catch (error) {
+      this.logError('buscar usuários para listagem', error);
       throw error;
     }
   }

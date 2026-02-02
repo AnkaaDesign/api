@@ -9,6 +9,7 @@ import {
   ActivityInclude,
   ActivityOrderBy,
   ActivityWhere,
+  ActivitySelect,
 } from '../../../../schemas/activity';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
 import { ActivityRepository } from './activity.repository';
@@ -21,6 +22,181 @@ import {
   ActivityReason,
 } from '@prisma/client';
 import { getActivityReasonOrder } from '../../../../utils';
+
+// Default select for table view - optimized for list display
+const DEFAULT_ACTIVITY_SELECT_TABLE: Prisma.ActivitySelect = {
+  id: true,
+  quantity: true,
+  operation: true,
+  reason: true,
+  reasonOrder: true,
+  createdAt: true,
+  userId: true,
+  itemId: true,
+  orderId: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+};
+
+// Default select for form view - fields needed for editing
+const DEFAULT_ACTIVITY_SELECT_FORM: Prisma.ActivitySelect = {
+  id: true,
+  quantity: true,
+  operation: true,
+  userId: true,
+  itemId: true,
+  orderId: true,
+  orderItemId: true,
+  reason: true,
+  reasonOrder: true,
+  createdAt: true,
+  updatedAt: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+    },
+  },
+};
+
+// Default select for detail view - comprehensive fields
+const DEFAULT_ACTIVITY_SELECT_DETAIL: Prisma.ActivitySelect = {
+  id: true,
+  quantity: true,
+  operation: true,
+  userId: true,
+  itemId: true,
+  orderId: true,
+  orderItemId: true,
+  reason: true,
+  reasonOrder: true,
+  createdAt: true,
+  updatedAt: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      maxQuantity: true,
+      reorderPoint: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+          corporateName: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      position: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      sector: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  order: {
+    select: {
+      id: true,
+      description: true,
+      status: true,
+      forecast: true,
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+        },
+      },
+    },
+  },
+  orderItem: {
+    select: {
+      id: true,
+      orderedQuantity: true,
+      receivedQuantity: true,
+      price: true,
+    },
+  },
+};
+
+// Default include for backward compatibility
+const DEFAULT_ACTIVITY_INCLUDE: Prisma.ActivityInclude = {
+  item: {
+    include: {
+      prices: true,
+      supplier: true,
+      category: true,
+      brand: true,
+    },
+  },
+  user: {
+    include: {
+      position: true,
+      sector: true,
+    },
+  },
+  order: true,
+  orderItem: true,
+};
 
 @Injectable()
 export class ActivityPrismaRepository
@@ -113,6 +289,29 @@ export class ActivityPrismaRepository
     return updateInput;
   }
 
+  /**
+   * Maps select parameter to Prisma select
+   * Handles nested select options for relations
+   */
+  protected mapSelectToDatabaseSelect(
+    select?: ActivitySelect,
+  ): Prisma.ActivitySelect | undefined {
+    if (!select) return undefined;
+
+    const mappedSelect: any = {};
+
+    for (const [key, value] of Object.entries(select)) {
+      if (typeof value === 'boolean') {
+        mappedSelect[key] = value;
+      } else if (typeof value === 'object' && value !== null) {
+        // Handle nested select/include for relations
+        mappedSelect[key] = value;
+      }
+    }
+
+    return mappedSelect as Prisma.ActivitySelect;
+  }
+
   protected mapIncludeToDatabaseInclude(
     include?: ActivityInclude,
   ): Prisma.ActivityInclude | undefined {
@@ -186,40 +385,69 @@ export class ActivityPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.ActivityInclude {
-    return {
-      item: {
-        include: {
-          prices: true,
-          supplier: true,
-          category: true,
-          brand: true,
-        },
-      },
-      user: {
-        include: {
-          position: true,
-          sector: true,
-        },
-      },
-      order: true,
-      orderItem: true,
-    };
+    return DEFAULT_ACTIVITY_INCLUDE;
+  }
+
+  /**
+   * Gets the default select for table view
+   * Used for optimized list queries
+   */
+  protected getDefaultSelectTable(): Prisma.ActivitySelect {
+    return DEFAULT_ACTIVITY_SELECT_TABLE;
+  }
+
+  /**
+   * Gets the default select for form view
+   * Used for form editing queries
+   */
+  protected getDefaultSelectForm(): Prisma.ActivitySelect {
+    return DEFAULT_ACTIVITY_SELECT_FORM;
+  }
+
+  /**
+   * Gets the default select for detail view
+   * Used for detailed display queries
+   */
+  protected getDefaultSelectDetail(): Prisma.ActivitySelect {
+    return DEFAULT_ACTIVITY_SELECT_DETAIL;
+  }
+
+  /**
+   * Determines which query options to use based on select/include parameters
+   * Prioritizes select over include for better performance
+   * Falls back to include for backward compatibility
+   */
+  protected getQueryOptions(options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect }): {
+    select?: Prisma.ActivitySelect;
+    include?: Prisma.ActivityInclude;
+  } {
+    // If select is provided, use it (higher priority)
+    if (options?.select) {
+      return { select: this.mapSelectToDatabaseSelect(options.select) };
+    }
+
+    // If include is provided, use it (backward compatibility)
+    if (options?.include) {
+      return { include: this.mapIncludeToDatabaseInclude(options.include) };
+    }
+
+    // Default: use include for backward compatibility
+    return { include: this.getDefaultInclude() };
   }
 
   // WithTransaction method implementations
   async createWithTransaction(
     transaction: PrismaTransaction,
     data: ActivityCreateFormData,
-    options?: CreateOptions<ActivityInclude>,
+    options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect },
   ): Promise<Activity> {
     try {
       const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const queryOptions = this.getQueryOptions(options);
 
       const result = await transaction.activity.create({
         data: createInput,
-        include: includeInput,
+        ...queryOptions,
       });
 
       return this.mapDatabaseEntityToEntity(result);
@@ -232,15 +460,14 @@ export class ActivityPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: CreateOptions<ActivityInclude>,
+    options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect },
   ): Promise<Activity | null> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const queryOptions = this.getQueryOptions(options);
 
       const result = await transaction.activity.findUnique({
         where: { id },
-        include: includeInput,
+        ...queryOptions,
       });
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
@@ -253,15 +480,14 @@ export class ActivityPrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: CreateOptions<ActivityInclude>,
+    options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect },
   ): Promise<Activity[]> {
     try {
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const queryOptions = this.getQueryOptions(options);
 
       const results = await transaction.activity.findMany({
         where: { id: { in: ids } },
-        include: includeInput,
+        ...queryOptions,
       });
 
       return results.map(result => this.mapDatabaseEntityToEntity(result));
@@ -273,15 +499,20 @@ export class ActivityPrismaRepository
 
   async findManyWithTransaction(
     transaction: PrismaTransaction,
-    options?: FindManyOptions<ActivityOrderBy, ActivityWhere, ActivityInclude>,
+    options?: FindManyOptions<ActivityOrderBy, ActivityWhere, ActivityInclude> & {
+      select?: ActivitySelect;
+    },
   ): Promise<FindManyResult<Activity>> {
     // Map 'limit' to 'take' for compatibility with schema
     const optionsWithTake = options
       ? { ...options, take: (options as any).limit || options.take }
       : {};
 
-    const { where, orderBy, page = 1, take = 20, include } = optionsWithTake as any;
+    const { where, orderBy, page = 1, take = 20, include, select } = optionsWithTake as any;
     const skip = Math.max(0, (page - 1) * take);
+
+    // Determine query options - prioritize select over include
+    const queryOptions = this.getQueryOptions({ include, select });
 
     const [total, activities] = await Promise.all([
       transaction.activity.count({
@@ -292,7 +523,7 @@ export class ActivityPrismaRepository
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
         skip,
         take,
-        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        ...queryOptions,
       } as any),
     ]);
 
@@ -306,17 +537,16 @@ export class ActivityPrismaRepository
     transaction: PrismaTransaction,
     id: string,
     data: ActivityUpdateFormData,
-    options?: UpdateOptions<ActivityInclude>,
+    options?: UpdateOptions<ActivityInclude> & { select?: ActivitySelect },
   ): Promise<Activity> {
     try {
       const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
-      const includeInput =
-        this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
+      const queryOptions = this.getQueryOptions(options);
 
       const result = await transaction.activity.update({
         where: { id },
         data: updateInput,
-        include: includeInput,
+        ...queryOptions,
       });
 
       return this.mapDatabaseEntityToEntity(result);
@@ -328,9 +558,22 @@ export class ActivityPrismaRepository
 
   async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<Activity> {
     try {
+      // Use minimal select for delete operations
       const result = await transaction.activity.delete({
         where: { id },
-        include: this.getDefaultInclude(),
+        select: {
+          id: true,
+          quantity: true,
+          operation: true,
+          reason: true,
+          createdAt: true,
+          itemId: true,
+          userId: true,
+          orderId: true,
+          orderItemId: true,
+          reasonOrder: true,
+          updatedAt: true,
+        },
       });
 
       return this.mapDatabaseEntityToEntity(result);

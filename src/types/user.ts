@@ -126,6 +126,116 @@ export interface User extends BaseEntity {
 }
 
 // =====================
+// Select Types for Flexible Field Selection
+// =====================
+
+/**
+ * User select type for Prisma-style field selection
+ * Allows selecting specific fields instead of fetching all
+ */
+export interface UserSelect {
+  // Base fields
+  id?: boolean;
+  createdAt?: boolean;
+  updatedAt?: boolean;
+
+  // Identity fields
+  email?: boolean;
+  name?: boolean;
+  avatarId?: boolean;
+  phone?: boolean;
+
+  // Status fields
+  status?: boolean;
+  statusOrder?: boolean;
+  isActive?: boolean;
+  verified?: boolean;
+
+  // Employment fields
+  positionId?: boolean;
+  sectorId?: boolean;
+  payrollNumber?: boolean;
+
+  // Personal information
+  pis?: boolean;
+  cpf?: boolean;
+  birth?: boolean;
+  performanceLevel?: boolean;
+
+  // Address fields
+  address?: boolean;
+  addressNumber?: boolean;
+  addressComplement?: boolean;
+  neighborhood?: boolean;
+  city?: boolean;
+  state?: boolean;
+  zipCode?: boolean;
+  site?: boolean;
+
+  // Status timestamps
+  effectedAt?: boolean;
+  exp1StartAt?: boolean;
+  exp1EndAt?: boolean;
+  exp2StartAt?: boolean;
+  exp2EndAt?: boolean;
+  dismissedAt?: boolean;
+
+  // Authentication fields
+  password?: boolean;
+  verificationCode?: boolean;
+  verificationExpiresAt?: boolean;
+  verificationType?: boolean;
+  requirePasswordChange?: boolean;
+  lastLoginAt?: boolean;
+  sessionToken?: boolean;
+  preferenceId?: boolean;
+
+  // Relations (use include for full relations)
+  avatar?: boolean;
+  ppeSize?: boolean;
+  preference?: boolean;
+  position?: boolean;
+  sector?: boolean;
+  managedSector?: boolean;
+  activities?: boolean;
+  borrows?: boolean;
+  notifications?: boolean;
+  tasks?: boolean;
+  vacations?: boolean;
+  bonuses?: boolean;
+  warningsCollaborator?: boolean;
+  warningsSupervisor?: boolean;
+  warningsWitness?: boolean;
+  ppeDeliveries?: boolean;
+  ppeDeliveriesApproved?: boolean;
+  ppeSchedules?: boolean;
+  changeLogs?: boolean;
+  seenNotification?: boolean;
+  createdTasks?: boolean;
+
+  // Count
+  _count?: boolean | {
+    select?: {
+      activities?: boolean;
+      vacations?: boolean;
+      bonuses?: boolean;
+      tasks?: boolean;
+      createdTasks?: boolean;
+      workOrders?: boolean;
+      orders?: boolean;
+      suppliers?: boolean;
+      items?: boolean;
+      maintenances?: boolean;
+      productionBatches?: boolean;
+      parkingRecords?: boolean;
+      files?: boolean;
+      changeLogs?: boolean;
+      seenNotification?: boolean;
+    };
+  };
+}
+
+// =====================
 // Include Types
 // =====================
 
@@ -231,7 +341,201 @@ export interface UserIncludes {
     | {
         include?: TaskIncludes;
       };
+  _count?:
+    | boolean
+    | {
+        select?: {
+          activities?: boolean;
+          vacations?: boolean;
+          bonuses?: boolean;
+          tasks?: boolean;
+          createdTasks?: boolean;
+          workOrders?: boolean;
+          orders?: boolean;
+          suppliers?: boolean;
+          items?: boolean;
+          maintenances?: boolean;
+          productionBatches?: boolean;
+          parkingRecords?: boolean;
+          files?: boolean;
+          changeLogs?: boolean;
+          seenNotification?: boolean;
+        };
+      };
 }
+
+// =====================
+// Specialized User Types
+// =====================
+
+/**
+ * Minimal user type for comboboxes and dropdowns
+ * Only includes essential fields for display
+ */
+export interface UserMinimal {
+  id: string;
+  name: string;
+  email?: string | null;
+  avatarId?: string | null;
+  status?: USER_STATUS;
+  isActive?: boolean;
+}
+
+/**
+ * User type with position for display in lists
+ */
+export interface UserWithPosition extends UserMinimal {
+  position?: {
+    id: string;
+    name: string;
+    hierarchy?: number | null;
+  } | null;
+  positionId?: string | null;
+}
+
+/**
+ * User type with sector for display in lists
+ */
+export interface UserWithSector extends UserMinimal {
+  sector?: {
+    id: string;
+    name: string;
+  } | null;
+  sectorId?: string | null;
+}
+
+/**
+ * User type with basic employment information
+ */
+export interface UserWithEmployment extends UserMinimal {
+  position?: {
+    id: string;
+    name: string;
+    hierarchy?: number | null;
+  } | null;
+  sector?: {
+    id: string;
+    name: string;
+  } | null;
+  positionId?: string | null;
+  sectorId?: string | null;
+  payrollNumber?: number | null;
+  status: USER_STATUS;
+  isActive: boolean;
+}
+
+/**
+ * Detailed user type with all common relations
+ */
+export interface UserDetailed extends User {
+  position?: Position;
+  sector?: Sector;
+  managedSector?: Sector;
+  avatar?: File;
+  ppeSize?: PpeSize;
+}
+
+// =====================
+// Select Helpers
+// =====================
+
+/**
+ * Predefined select configurations for common use cases
+ */
+export const UserSelectPresets = {
+  /**
+   * Minimal fields for comboboxes
+   */
+  minimal: {
+    id: true,
+    name: true,
+    email: true,
+    avatarId: true,
+    status: true,
+    isActive: true,
+  } as const,
+
+  /**
+   * Fields for list display with position
+   */
+  withPosition: {
+    id: true,
+    name: true,
+    email: true,
+    avatarId: true,
+    status: true,
+    isActive: true,
+    positionId: true,
+    position: true,
+  } as const,
+
+  /**
+   * Fields for list display with sector
+   */
+  withSector: {
+    id: true,
+    name: true,
+    email: true,
+    avatarId: true,
+    status: true,
+    isActive: true,
+    sectorId: true,
+    sector: true,
+  } as const,
+
+  /**
+   * Fields for employment information
+   */
+  employment: {
+    id: true,
+    name: true,
+    email: true,
+    avatarId: true,
+    status: true,
+    isActive: true,
+    positionId: true,
+    sectorId: true,
+    payrollNumber: true,
+    position: true,
+    sector: true,
+  } as const,
+
+  /**
+   * All basic fields without relations
+   */
+  basic: {
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    email: true,
+    name: true,
+    avatarId: true,
+    status: true,
+    statusOrder: true,
+    isActive: true,
+    phone: true,
+    positionId: true,
+    preferenceId: true,
+    pis: true,
+    cpf: true,
+    verified: true,
+    birth: true,
+    performanceLevel: true,
+    sectorId: true,
+    payrollNumber: true,
+    effectedAt: true,
+    exp1StartAt: true,
+    exp1EndAt: true,
+    exp2StartAt: true,
+    exp2EndAt: true,
+    dismissedAt: true,
+  } as const,
+} as const;
+
+/**
+ * Type helper to extract user type from select configuration
+ */
+export type UserFromSelect<S extends UserSelect> = Pick<User, Extract<keyof User, keyof S>>;
 
 // =====================
 // Order By Types
@@ -284,6 +588,13 @@ export interface UserCreateResponse extends BaseCreateResponse<User> {}
 export interface UserUpdateResponse extends BaseUpdateResponse<User> {}
 export interface UserDeleteResponse extends BaseDeleteResponse {}
 export interface UserMergeResponse extends BaseMergeResponse<User> {}
+
+// Specialized response types
+export interface UserMinimalGetManyResponse extends BaseGetManyResponse<UserMinimal> {}
+export interface UserWithPositionGetManyResponse extends BaseGetManyResponse<UserWithPosition> {}
+export interface UserWithSectorGetManyResponse extends BaseGetManyResponse<UserWithSector> {}
+export interface UserWithEmploymentGetManyResponse extends BaseGetManyResponse<UserWithEmployment> {}
+export interface UserDetailedGetUniqueResponse extends BaseGetUniqueResponse<UserDetailed> {}
 
 // =====================
 // Batch Operation Responses

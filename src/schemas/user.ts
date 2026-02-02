@@ -17,6 +17,454 @@ import type { User } from '@types';
 import { USER_STATUS, VERIFICATION_TYPE, SECTOR_PRIVILEGES } from '@constants';
 
 // =====================
+// Select Schema for Partial Field Selection
+// =====================
+
+// Base select schema - allows selecting individual User fields
+export const userSelectSchema = z
+  .object({
+    // Scalar fields
+    id: z.boolean().optional(),
+    email: z.boolean().optional(),
+    name: z.boolean().optional(),
+    avatarId: z.boolean().optional(),
+    status: z.boolean().optional(),
+    statusOrder: z.boolean().optional(),
+    phone: z.boolean().optional(),
+    positionId: z.boolean().optional(),
+    pis: z.boolean().optional(),
+    cpf: z.boolean().optional(),
+    verified: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    payrollNumber: z.boolean().optional(),
+    birth: z.boolean().optional(),
+    effectedAt: z.boolean().optional(),
+    exp1StartAt: z.boolean().optional(),
+    exp1EndAt: z.boolean().optional(),
+    exp2StartAt: z.boolean().optional(),
+    exp2EndAt: z.boolean().optional(),
+    dismissedAt: z.boolean().optional(),
+    performanceLevel: z.boolean().optional(),
+    sectorId: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+    password: z.boolean().optional(),
+    verificationCode: z.boolean().optional(),
+    verificationExpiresAt: z.boolean().optional(),
+    verificationType: z.boolean().optional(),
+    requirePasswordChange: z.boolean().optional(),
+    lastLoginAt: z.boolean().optional(),
+    sessionToken: z.boolean().optional(),
+    address: z.boolean().optional(),
+    addressNumber: z.boolean().optional(),
+    addressComplement: z.boolean().optional(),
+    neighborhood: z.boolean().optional(),
+    city: z.boolean().optional(),
+    state: z.boolean().optional(),
+    zipCode: z.boolean().optional(),
+
+    // Relations - can be true or nested select/include
+    avatar: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    ppeSize: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    preference: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    position: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    sector: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    managedSector: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    activities: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    borrows: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    notifications: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    tasks: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    vacations: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    commissions: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    warningsCollaborator: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    warningsSupervisor: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    warningsWitness: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    ppeDeliveries: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    ppeDeliveriesApproved: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    ppeSchedules: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    changeLogs: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    seenNotification: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.record(z.boolean()).optional(),
+        }),
+      ])
+      .optional(),
+  })
+  .partial();
+
+// =====================
+// Predefined Select Patterns for Common Use Cases
+// =====================
+
+// Minimal select for comboboxes - just id and name
+export const userSelectMinimal = {
+  id: true,
+  name: true,
+} as const;
+
+// Select for comboboxes with sector - id, name, sector
+export const userSelectWithSector = {
+  id: true,
+  name: true,
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
+
+// Select for comboboxes with position - id, name, position
+export const userSelectWithPosition = {
+  id: true,
+  name: true,
+  position: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
+
+// Select for comboboxes with sector and position - id, name, sector, position
+export const userSelectWithSectorAndPosition = {
+  id: true,
+  name: true,
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  position: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
+
+// Select for user lists - includes basic info and status
+export const userSelectForList = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  status: true,
+  isActive: true,
+  avatarId: true,
+  payrollNumber: true,
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  position: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
+
+// Select for user profile - includes most fields except sensitive data
+export const userSelectForProfile = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  status: true,
+  statusOrder: true,
+  isActive: true,
+  verified: true,
+  avatarId: true,
+  payrollNumber: true,
+  cpf: true,
+  pis: true,
+  birth: true,
+  effectedAt: true,
+  exp1StartAt: true,
+  exp1EndAt: true,
+  exp2StartAt: true,
+  exp2EndAt: true,
+  dismissedAt: true,
+  performanceLevel: true,
+  address: true,
+  addressNumber: true,
+  addressComplement: true,
+  neighborhood: true,
+  city: true,
+  state: true,
+  zipCode: true,
+  createdAt: true,
+  updatedAt: true,
+  sector: {
+    select: {
+      id: true,
+      name: true,
+      privileges: true,
+    },
+  },
+  position: {
+    select: {
+      id: true,
+      name: true,
+      hierarchy: true,
+      remuneration: true,
+    },
+  },
+  ppeSize: true,
+  preference: true,
+  _count: {
+    select: {
+      tasks: true,
+      activities: true,
+      vacations: true,
+      commissions: true,
+    },
+  },
+} as const;
+
+// Select for authentication - includes only necessary auth fields
+export const userSelectForAuth = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  password: true,
+  status: true,
+  verified: true,
+  verificationCode: true,
+  verificationExpiresAt: true,
+  verificationType: true,
+  requirePasswordChange: true,
+  sessionToken: true,
+  isActive: true,
+  sectorId: true,
+  positionId: true,
+} as const;
+
+// =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
@@ -984,6 +1432,7 @@ export const userGetManySchema = z
     where: userWhereSchema.optional(),
     orderBy: userOrderBySchema.optional(),
     include: userIncludeSchema.optional(),
+    select: userSelectSchema.optional(),
 
     // Convenience filters
     ...userFilters,
@@ -1316,9 +1765,10 @@ export const userMergeSchema = z.object({
   conflictResolutions: z.record(z.any()).optional(),
 });
 
-// Query schema for include parameter
+// Query schema for include/select parameters
 export const userQuerySchema = z.object({
   include: userIncludeSchema.optional(),
+  select: userSelectSchema.optional(),
 });
 
 // =====================
@@ -1327,6 +1777,7 @@ export const userQuerySchema = z.object({
 
 export const userGetByIdSchema = z.object({
   include: userIncludeSchema.optional(),
+  select: userSelectSchema.optional(),
 });
 
 // =====================
@@ -1346,6 +1797,7 @@ export type UserBatchDeleteFormData = z.infer<typeof userBatchDeleteSchema>;
 export type UserMergeFormData = z.infer<typeof userMergeSchema>;
 
 export type UserInclude = z.infer<typeof userIncludeSchema>;
+export type UserSelect = z.infer<typeof userSelectSchema>;
 export type UserOrderBy = z.infer<typeof userOrderBySchema>;
 export type UserWhere = z.infer<typeof userWhereSchema>;
 
