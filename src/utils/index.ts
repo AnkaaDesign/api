@@ -24,6 +24,7 @@ export * from './favorites';
 export * from './favorite-pages';
 // export * from "./page-icons"; // Frontend-only utility, uses @tabler/icons-react
 export * from './file';
+export * from './include-helpers';
 export * from './file-relationship';
 // Browser-only modules - these contain DOM API usage and should not be used server-side
 // The modules themselves have environment checks, but for server safety, consider importing directly
@@ -76,6 +77,8 @@ export * from './stock-level';
 export * from './storage';
 export * from './supplier';
 export * from './task';
+export * from './task-service-order-sync';
+export * from './task-pricing-service-order-sync';
 export * from './truck';
 export * from './uiStateEnumGetters';
 export * from './user';

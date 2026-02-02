@@ -1,0 +1,17 @@
+# Test reports
+reports/*.json
+reports/*.html
+
+# Keep the reports directory but ignore generated files
+!reports/.gitkeep
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Test cache
+.cache/
+
+# Temporary files
+*.log
+*.tmp

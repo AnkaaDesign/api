@@ -11,6 +11,7 @@ import { SecullumCalculationData } from '@modules/integrations/secullum/dto';
 interface DayAnalysis {
   date: string;
   isWorkingDay: boolean;
+  isHoliday: boolean; // NEW: Track if day is a holiday
   hasAllFourStamps: boolean;
   allStampsElectronic: boolean;
   isAtestado: boolean;
@@ -34,9 +35,10 @@ interface DayAnalysis {
 
 export interface SecullumBonusAnalysis {
   userId: string;
-  totalWorkingDays: number;
+  totalWorkingDays: number; // Working days in period (excluding holidays and weekends)
   daysWithFullElectronicStamps: number;
-  extraPercentage: number;
+  incorrectlyStampedDays: number; // NEW: Days without correct stamps (working days - correct days)
+  extraPercentage: number; // NEW LOGIC: totalWorkingDays - incorrectlyStampedDays
   atestadoHours: number;
   unjustifiedAbsenceHours: number;
   atestadoDiscountPercentage: number;
@@ -45,6 +47,7 @@ export interface SecullumBonusAnalysis {
   unjustifiedTierLabel: string;
   losesExtra: boolean;
   dailyBreakdown: DayAnalysis[];
+  holidaysCount: number; // NEW: Number of holidays in period
   // Secullum calculated totals (from /Calculos endpoint)
   secullumFaltasTotal: string | null;
   secullumAtrasosTotal: string | null;
@@ -99,9 +102,13 @@ export class SecullumBonusIntegrationService {
       return results;
     }
 
+    // Fetch holidays for the period from Secullum
+    const holidays = await this.getHolidaysForPeriod(periodStart, periodEnd);
+    this.logger.log(`Loaded ${holidays.length} holidays for period ${startDate} to ${endDate}`);
+
     for (const user of users) {
       try {
-        const analysis = await this.analyzeUser(user, startDate, endDate, secullumEmployees);
+        const analysis = await this.analyzeUser(user, startDate, endDate, secullumEmployees, holidays);
         if (analysis) {
           results.set(user.id, analysis);
         }
@@ -117,6 +124,38 @@ export class SecullumBonusIntegrationService {
   }
 
   /**
+   * Fetch holidays for the bonus period from Secullum API.
+   */
+  private async getHolidaysForPeriod(startDate: Date, endDate: Date): Promise<Date[]> {
+    const holidays: Date[] = [];
+    const startYear = startDate.getFullYear();
+    const endYear = endDate.getFullYear();
+
+    // Fetch holidays for each year in the period (handles year transitions)
+    for (let year = startYear; year <= endYear; year++) {
+      try {
+        const response = await this.secullumService.getHolidays({ year });
+
+        if (response.success && Array.isArray(response.data)) {
+          for (const holiday of response.data) {
+            const holidayDate = new Date(holiday.Data);
+
+            // Only include holidays within the bonus period
+            if (holidayDate >= startDate && holidayDate <= endDate) {
+              holidays.push(holidayDate);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn(`Failed to fetch holidays for year ${year}: ${error?.message || error}`);
+        // Continue with other years - don't fail entire calculation
+      }
+    }
+
+    return holidays;
+  }
+
+  /**
    * Analyze a single user's time entries.
    */
   private async analyzeUser(
@@ -124,6 +163,7 @@ export class SecullumBonusIntegrationService {
     startDate: string,
     endDate: string,
     secullumEmployees?: any[],
+    holidays: Date[] = [],
   ): Promise<SecullumBonusAnalysis | null> {
     // Match user to Secullum employee
     let secullumEmployeeId: number | null = null;
@@ -202,9 +242,10 @@ export class SecullumBonusIntegrationService {
     let manualUnjustifiedHours = 0;
 
     for (const entry of entries) {
-      const dayAnalysis = this.analyzeDay(entry);
+      const dayAnalysis = this.analyzeDay(entry, holidays);
       dailyBreakdown.push(dayAnalysis);
 
+      // Only count working days (Mon-Fri, excluding holidays)
       if (dayAnalysis.isWorkingDay) {
         totalWorkingDays++;
 
@@ -245,12 +286,17 @@ export class SecullumBonusIntegrationService {
     const losesExtraFromUnjustified = totalUnjustifiedAbsenceHours > 0;
     const losesExtra = losesExtraFromAtestado || losesExtraFromUnjustified;
 
-    // Extra percentage: 1% per qualifying day, but 0 if loses extra
-    const extraPercentage = losesExtra ? 0 : daysWithFullElectronicStamps * 1;
+    // NEW REVERSED LOGIC: Start with total working days %, subtract 1% for each incorrectly stamped day
+    // Incorrectly stamped days = working days without all 4 electronic stamps
+    const incorrectlyStampedDays = totalWorkingDays - daysWithFullElectronicStamps;
+
+    // Extra percentage: Start with working days %, lose 1% per incorrect day, but 0 if loses extra completely
+    const extraPercentage = losesExtra ? 0 : Math.max(0, totalWorkingDays - incorrectlyStampedDays);
 
     this.logger.log(
-      `User ${user.name}: workingDays=${totalWorkingDays}, electronicDays=${daysWithFullElectronicStamps}, ` +
-      `extraPct=${extraPercentage}%, atestadoH=${totalAtestadoHours}, unjustifiedH=${totalUnjustifiedAbsenceHours}, ` +
+      `User ${user.name}: workingDays=${totalWorkingDays}, holidays=${holidays.length}, electronicDays=${daysWithFullElectronicStamps}, ` +
+      `incorrectDays=${incorrectlyStampedDays}, extraPct=${extraPercentage}% (reversed logic), ` +
+      `atestadoH=${totalAtestadoHours}, unjustifiedH=${totalUnjustifiedAbsenceHours}, ` +
       `atestadoDiscount=${atestadoDiscountPercentage}% (${atestadoTierLabel}), unjustifiedDiscount=${unjustifiedDiscountPercentage}% (${unjustifiedTierLabel}), losesExtra=${losesExtra}`,
     );
 
@@ -258,6 +304,7 @@ export class SecullumBonusIntegrationService {
       userId: user.id,
       totalWorkingDays,
       daysWithFullElectronicStamps,
+      incorrectlyStampedDays,
       extraPercentage,
       atestadoHours: totalAtestadoHours,
       unjustifiedAbsenceHours: totalUnjustifiedAbsenceHours,
@@ -267,6 +314,7 @@ export class SecullumBonusIntegrationService {
       unjustifiedTierLabel,
       losesExtra,
       dailyBreakdown,
+      holidaysCount: holidays.length,
       secullumFaltasTotal: faltasTotal,
       secullumAtrasosTotal: atrasosTotal,
     };
@@ -352,7 +400,7 @@ export class SecullumBonusIntegrationService {
   /**
    * Analyze a single day's time entry from Secullum Batidas response.
    */
-  private analyzeDay(entry: any): DayAnalysis {
+  private analyzeDay(entry: any, holidays: Date[] = []): DayAnalysis {
     const date = entry.Data || entry.data || '';
     const tipoDoDia = entry.TipoDoDia ?? entry.tipoDoDia;
 
@@ -386,7 +434,16 @@ export class SecullumBonusIntegrationService {
       f => f && typeof f === 'string' && f.toUpperCase().includes('FÉRIAS'),
     );
 
-    const isWorkingDay = this.isWorkingDay(tipoDoDia, date) && !isFerias;
+    // Check if this day is a holiday
+    const entryDate = new Date(date);
+    const isHoliday = holidays.some(holiday =>
+      holiday.getFullYear() === entryDate.getFullYear() &&
+      holiday.getMonth() === entryDate.getMonth() &&
+      holiday.getDate() === entryDate.getDate()
+    );
+
+    // Working day = Monday-Friday, not a holiday, not vacation
+    const isWorkingDay = this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday;
 
     const hasAllFourStamps = isValidStamp(entrada1) && isValidStamp(saida1) && isValidStamp(entrada2) && isValidStamp(saida2) && !isAtestado;
 
@@ -427,6 +484,7 @@ export class SecullumBonusIntegrationService {
     return {
       date,
       isWorkingDay,
+      isHoliday,
       hasAllFourStamps,
       allStampsElectronic,
       isAtestado,

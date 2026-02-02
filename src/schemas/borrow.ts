@@ -12,6 +12,146 @@ import type { Borrow } from '@types';
 import { BORROW_STATUS } from '@constants';
 
 // =====================
+// Select Schema Based on Prisma Schema
+// =====================
+
+export const borrowSelectSchema = z
+  .object({
+    id: z.boolean().optional(),
+    itemId: z.boolean().optional(),
+    userId: z.boolean().optional(),
+    quantity: z.boolean().optional(),
+    status: z.boolean().optional(),
+    statusOrder: z.boolean().optional(),
+    returnedAt: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+    // Relations
+    item: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              uniCode: z.boolean().optional(),
+              quantity: z.boolean().optional(),
+              isActive: z.boolean().optional(),
+              isPpe: z.boolean().optional(),
+              brandId: z.boolean().optional(),
+              categoryId: z.boolean().optional(),
+              supplierId: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              // Nested relations in select
+              brand: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              category: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              supplier: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        fantasyName: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    user: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              email: z.boolean().optional(),
+              status: z.boolean().optional(),
+              sectorId: z.boolean().optional(),
+              positionId: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+              // Nested relations in select
+              position: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              sector: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        name: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              item: z.boolean().optional(),
+              user: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+  })
+  .partial();
+
+// =====================
 // Include Schema Based on Prisma Schema
 // =====================
 
@@ -74,6 +214,188 @@ export const borrowIncludeSchema = z
       .optional(),
   })
   .partial();
+
+// =====================
+// Optimized Select Schemas for Different Views
+// =====================
+
+/**
+ * Minimal select for table views - only essential fields
+ * Use when displaying lists/tables of borrows
+ */
+export const borrowSelectTableSchema = borrowSelectSchema.parse({
+  id: true,
+  quantity: true,
+  status: true,
+  returnedAt: true,
+  createdAt: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      brand: {
+        select: {
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      position: {
+        select: {
+          name: true,
+        },
+      },
+      sector: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  },
+});
+
+/**
+ * Standard select for form views - common fields for editing
+ * Use when displaying borrow forms
+ */
+export const borrowSelectFormSchema = borrowSelectSchema.parse({
+  id: true,
+  itemId: true,
+  userId: true,
+  quantity: true,
+  status: true,
+  statusOrder: true,
+  returnedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      isPpe: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      status: true,
+      sectorId: true,
+      positionId: true,
+      position: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      sector: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+});
+
+/**
+ * Complete select for detail views - all fields with full relations
+ * Use when displaying full borrow details
+ */
+export const borrowSelectDetailSchema = borrowSelectSchema.parse({
+  id: true,
+  itemId: true,
+  userId: true,
+  quantity: true,
+  status: true,
+  statusOrder: true,
+  returnedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  item: {
+    select: {
+      id: true,
+      name: true,
+      uniCode: true,
+      quantity: true,
+      isActive: true,
+      isPpe: true,
+      brandId: true,
+      categoryId: true,
+      supplierId: true,
+      createdAt: true,
+      updatedAt: true,
+      brand: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      category: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      supplier: {
+        select: {
+          id: true,
+          fantasyName: true,
+        },
+      },
+    },
+  },
+  user: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      status: true,
+      sectorId: true,
+      positionId: true,
+      createdAt: true,
+      updatedAt: true,
+      position: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      sector: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+});
 
 // =====================
 // OrderBy Schema
@@ -533,6 +855,7 @@ export const borrowGetManySchema = z
     where: borrowWhereSchema.optional(),
     orderBy: borrowOrderBySchema.optional(),
     include: borrowIncludeSchema.optional(),
+    select: borrowSelectSchema.optional(),
 
     // Convenience filters
     ...borrowFilters,
@@ -557,7 +880,17 @@ export const borrowGetManySchema = z
       })
       .optional(),
   })
-  .transform(borrowTransform);
+  .transform(borrowTransform)
+  .refine(
+    data => {
+      // Validate that select and include are not used together
+      return !(data.select && data.include);
+    },
+    {
+      message: 'Cannot use both select and include at the same time',
+      path: ['select'],
+    },
+  );
 
 // =====================
 // CRUD Schemas
@@ -656,18 +989,42 @@ export const borrowBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
-// Query schema for include parameter
-export const borrowQuerySchema = z.object({
-  include: borrowIncludeSchema.optional(),
-});
+// Query schema for include/select parameters
+export const borrowQuerySchema = z
+  .object({
+    include: borrowIncludeSchema.optional(),
+    select: borrowSelectSchema.optional(),
+  })
+  .refine(
+    data => {
+      // Validate that select and include are not used together
+      return !(data.select && data.include);
+    },
+    {
+      message: 'Cannot use both select and include at the same time',
+      path: ['select'],
+    },
+  );
 
 // =====================
 // GetById Schema
 // =====================
 
-export const borrowGetByIdSchema = z.object({
-  include: borrowIncludeSchema.optional(),
-});
+export const borrowGetByIdSchema = z
+  .object({
+    include: borrowIncludeSchema.optional(),
+    select: borrowSelectSchema.optional(),
+  })
+  .refine(
+    data => {
+      // Validate that select and include are not used together
+      return !(data.select && data.include);
+    },
+    {
+      message: 'Cannot use both select and include at the same time',
+      path: ['select'],
+    },
+  );
 
 // =====================
 // Inferred Types
@@ -684,9 +1041,15 @@ export type BorrowBatchCreateFormData = z.infer<typeof borrowBatchCreateSchema>;
 export type BorrowBatchUpdateFormData = z.infer<typeof borrowBatchUpdateSchema>;
 export type BorrowBatchDeleteFormData = z.infer<typeof borrowBatchDeleteSchema>;
 
+export type BorrowSelect = z.infer<typeof borrowSelectSchema>;
 export type BorrowInclude = z.infer<typeof borrowIncludeSchema>;
 export type BorrowOrderBy = z.infer<typeof borrowOrderBySchema>;
 export type BorrowWhere = z.infer<typeof borrowWhereSchema>;
+
+// Optimized select types for different views
+export type BorrowSelectTable = typeof borrowSelectTableSchema;
+export type BorrowSelectForm = typeof borrowSelectFormSchema;
+export type BorrowSelectDetail = typeof borrowSelectDetailSchema;
 
 // =====================
 // Helper Functions
@@ -702,3 +1065,49 @@ export const mapBorrowToFormData = createMapToFormDataHelper<Borrow, BorrowUpdat
     returnedAt: borrow.returnedAt,
   }),
 );
+
+/**
+ * Get optimized select for table view
+ * Returns only fields needed for displaying borrows in a table/list
+ */
+export const getBorrowTableSelect = () => borrowSelectTableSchema;
+
+/**
+ * Get optimized select for form view
+ * Returns fields needed for editing/creating borrows
+ */
+export const getBorrowFormSelect = () => borrowSelectFormSchema;
+
+/**
+ * Get optimized select for detail view
+ * Returns all fields with full relation data for detailed views
+ */
+export const getBorrowDetailSelect = () => borrowSelectDetailSchema;
+
+/**
+ * Helper to build custom select with only specified fields
+ * @param fields - Array of field names to select
+ * @returns Select object with specified fields set to true
+ */
+export const buildBorrowSelect = (fields: (keyof z.infer<typeof borrowSelectSchema>)[]) => {
+  return fields.reduce(
+    (acc, field) => {
+      acc[field] = true;
+      return acc;
+    },
+    {} as Record<string, boolean>,
+  );
+};
+
+/**
+ * Merge custom fields into a base select schema
+ * @param baseSelect - Base select schema (table, form, or detail)
+ * @param additionalFields - Additional fields to include
+ * @returns Merged select object
+ */
+export const mergeBorrowSelect = (
+  baseSelect: Partial<z.infer<typeof borrowSelectSchema>>,
+  additionalFields: Partial<z.infer<typeof borrowSelectSchema>>,
+) => {
+  return { ...baseSelect, ...additionalFields };
+};

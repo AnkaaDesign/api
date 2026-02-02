@@ -55,14 +55,14 @@ model Airbrushing {
 
 model Artwork {
   id            String        @id @default(uuid())
-  fileId        String        @unique // One artwork per file (shared across tasks)
+  fileId        String        @unique
   status        ArtworkStatus @default(APPROVED)
   airbrushingId String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
-  file          File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  tasks         Task[]        @relation("TaskArtworks") // Many-to-many: shared across tasks
   airbrushing   Airbrushing?  @relation(fields: [airbrushingId], references: [id], onDelete: Cascade)
+  file          File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tasks         Task[]        @relation("TaskArtworks")
 
   @@index([fileId])
   @@index([airbrushingId])
@@ -146,7 +146,6 @@ model Payroll {
   workingDaysInMonth      Int?
   workedDaysInMonth       Int?
   absenceHours            Decimal           @default(0) @db.Decimal(10, 2)
-  // Earnings breakdown
   overtime50Hours         Decimal?          @db.Decimal(10, 2)
   overtime50Amount        Decimal?          @db.Decimal(10, 2)
   overtime100Hours        Decimal?          @db.Decimal(10, 2)
@@ -155,7 +154,6 @@ model Payroll {
   nightDifferentialAmount Decimal?          @db.Decimal(10, 2)
   dsrAmount               Decimal?          @db.Decimal(10, 2)
   dsrDays                 Int?
-  // Totals
   grossSalary             Decimal?          @db.Decimal(10, 2)
   inssBase                Decimal?          @db.Decimal(10, 2)
   inssAmount              Decimal?          @db.Decimal(10, 2)
@@ -167,7 +165,7 @@ model Payroll {
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   bonus                   Bonus?
-  position                Position?         @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  position                Position?         @relation(fields: [positionId], references: [id])
   user                    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   discounts               PayrollDiscount[]
 
@@ -218,13 +216,13 @@ model PayrollDiscount {
   isActive       Boolean             @default(true)
   taxYear        Int?
   taxTableId     String?
-  taxTable       TaxTable?           @relation(fields: [taxTableId], references: [id], onDelete: SetNull)
   expirationDate DateTime?
   baseValue      Decimal?            @db.Decimal(10, 2)
   payrollId      String
-  payroll        Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
+  payroll        Payroll             @relation(fields: [payrollId], references: [id], onDelete: Cascade)
+  taxTable       TaxTable?           @relation(fields: [taxTableId], references: [id])
 
   @@index([payrollId])
   @@index([discountType])
@@ -240,14 +238,14 @@ model TaxTable {
   effectiveFrom     DateTime
   effectiveTo       DateTime?
   calculationMethod TaxCalculationMethod @default(PROGRESSIVE)
-  description       String?              @db.Text
+  description       String?
   legalReference    String?
   isActive          Boolean              @default(true)
   settings          Json?
-  brackets          TaxBracket[]
-  discounts         PayrollDiscount[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
+  discounts         PayrollDiscount[]
+  brackets          TaxBracket[]
 
   @@unique([taxType, year, isActive])
   @@index([taxType, year])
@@ -258,7 +256,6 @@ model TaxTable {
 model TaxBracket {
   id           String   @id @default(uuid())
   taxTableId   String
-  taxTable     TaxTable @relation(fields: [taxTableId], references: [id], onDelete: Cascade)
   bracketOrder Int
   minValue     Decimal  @db.Decimal(10, 2)
   maxValue     Decimal? @db.Decimal(10, 2)
@@ -267,6 +264,7 @@ model TaxBracket {
   description  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  taxTable     TaxTable @relation(fields: [taxTableId], references: [id], onDelete: Cascade)
 
   @@unique([taxTableId, bracketOrder])
   @@index([taxTableId])
@@ -308,10 +306,11 @@ model Customer {
   economicActivityId String?
   registrationStatus RegistrationStatus?
   streetType         StreetType?
-  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id], onDelete: SetNull)
-  logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id], onDelete: SetNull)
+  economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
+  logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]              @relation("TaskCustomer")
   invoiceTasks       Task[]              @relation("TaskInvoiceTo")
+  representatives    Representative[]    @relation("CustomerRepresentatives")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -325,7 +324,6 @@ model PpeSize {
   shirts    ShirtSize?
   boots     BootSize?
   pants     PantsSize?
-  shorts    PantsSize?
   sleeves   SleevesSize?
   mask      MaskSize?
   gloves    GlovesSize?
@@ -333,6 +331,7 @@ model PpeSize {
   userId    String         @unique
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+  shorts    PantsSize?
   user      User           @relation("USER_PPE_SIZE", fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -348,21 +347,25 @@ model PpeDelivery {
   ppeScheduleId            String?
   scheduledDate            DateTime?
   actualDeliveryDate       DateTime?
-  // ClickSign integration fields
-  clicksignEnvelopeId      String?              // Envelope ID from ClickSign (API 3.0)
-  clicksignDocumentKey     String?              // Document key from ClickSign
-  clicksignRequestKey      String?              // Signature request key from ClickSign
-  clicksignSignerKey       String?              // Signer key from ClickSign
-  clicksignSignedAt        DateTime?            // When the document was signed
-  // Document storage (PDF before and after signature)
-  deliveryDocumentId       String?              // File ID for the delivery document (unsigned/signed)
   createdAt                DateTime             @default(now())
   updatedAt                DateTime             @updatedAt
-  deliveryDocument         File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id], onDelete: SetNull)
+  clicksignEnvelopeId      String?
+  clicksignDocumentKey     String?
+  clicksignRequestKey      String?
+  clicksignSignerKey       String?
+  clicksignSignedAt        DateTime?
+  deliveryDocumentId       String?
+  signatureMethod          String?
+  signatureTermsAcceptedAt DateTime?
+  signatureDeviceInfo      Json?
+  signatureIpAddress       String?
+  signatureBatchId         String?
+  deliveryDocument         File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
   item                     Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
   ppeSchedule              PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
-  reviewedByUser           User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedByUser           User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
   user                     User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
+  SignatureAuditLog        SignatureAuditLog[]
 
   @@index([userId])
   @@index([itemId])
@@ -371,11 +374,11 @@ model PpeDelivery {
   @@index([status, statusOrder])
   @@index([reviewedBy])
   @@index([clicksignDocumentKey])
+  @@index([signatureBatchId])
 }
 
 model PpeDeliverySchedule {
   id              String                 @id @default(uuid())
-  name            String                 @default("Agendamento de EPI")
   assignmentType  AssignmentType         @default(ALL)
   excludedUserIds String[]               @default([])
   includedUserIds String[]               @default([])
@@ -394,32 +397,30 @@ model PpeDeliverySchedule {
   lastRun         DateTime?
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
+  name            String                 @default("Agendamento de EPI")
   autoOrders      Order[]                @relation("PPE_AUTO_ORDER")
   deliveries      PpeDelivery[]          @relation("PPE_DELIVERY_SCHEDULE")
-  items           PpeScheduleItem[]      @relation("PPE_SCHEDULE_ITEMS")
   monthlyConfig   MonthlyScheduleConfig? @relation(fields: [monthlyConfigId], references: [id])
   weeklyConfig    WeeklyScheduleConfig?  @relation(fields: [weeklyConfigId], references: [id])
   yearlyConfig    YearlyScheduleConfig?  @relation(fields: [yearlyConfigId], references: [id])
+  items           PpeScheduleItem[]      @relation("PPE_SCHEDULE_ITEMS")
 
   @@index([nextRun])
   @@index([isActive])
   @@index([assignmentType])
 }
 
-// PPE Schedule Item - defines which PPE types and quantities are included in a schedule
 model PpeScheduleItem {
   id         String              @id @default(uuid())
   scheduleId String
   ppeType    PpeType
   quantity   Int                 @default(1)
-  itemId     String?             // Required when ppeType is OTHERS - references specific item
+  itemId     String?
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
+  item       Item?               @relation("PPE_SCHEDULE_ITEM_ITEM", fields: [itemId], references: [id])
   schedule   PpeDeliverySchedule @relation("PPE_SCHEDULE_ITEMS", fields: [scheduleId], references: [id], onDelete: Cascade)
-  item       Item?               @relation("PPE_SCHEDULE_ITEM_ITEM", fields: [itemId], references: [id], onDelete: SetNull)
 
-  // For non-OTHERS types: one entry per ppeType per schedule
-  // For OTHERS type: one entry per itemId per schedule
   @@unique([scheduleId, ppeType, itemId])
   @@index([scheduleId])
   @@index([ppeType])
@@ -436,11 +437,14 @@ model File {
   thumbnailUrl                            String?
   createdAt                               DateTime             @default(now())
   updatedAt                               DateTime             @updatedAt
-  artworks                                Artwork[]
+  artworks                                Artwork?
   customerLogo                            Customer[]           @relation("CUSTOMER_LOGO")
   taskCuts                                Cut[]                @relation("TASK_CUTS")
   layoutPhotos                            Layout[]             @relation("LAYOUT_PHOTO")
+  ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
+  pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
+  pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
   userAvatar                              User[]               @relation("USER_AVATAR")
   thumbnailJob                            ThumbnailJob?
   airbrushingBudgets                      Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
@@ -459,15 +463,12 @@ model File {
   orderInvoiceReimbursements              Order[]              @relation("ORDER_INVOICE_REIMBURSEMENTS")
   orderReceipts                           Order[]              @relation("ORDER_RECEIPTS")
   orderReimbursements                     Order[]              @relation("ORDER_REIMBURSEMENTS")
+  taskBaseFiles                           Task[]               @relation("TASK_BASE_FILES")
   taskBudgets                             Task[]               @relation("TASK_BUDGETS")
   taskInvoices                            Task[]               @relation("TASK_INVOICES")
   taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
-  taskBaseFiles                           Task[]               @relation("TASK_BASE_FILES")
-  pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
-  pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
-  ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
 
   @@index([filename])
   @@index([originalName])
@@ -515,9 +516,6 @@ model Item {
   maxQuantity                    Float?
   reorderPoint                   Float?
   reorderQuantity                Float?
-  isManualMaxQuantity            Boolean                  @default(false)
-  isManualReorderPoint           Boolean                  @default(false)
-  lastAutoOrderDate              DateTime?
   boxQuantity                    Int?
   totalPrice                     Float?
   monthlyConsumption             Decimal                  @default(0) @db.Decimal(10, 2)
@@ -541,6 +539,9 @@ model Item {
   updatedAt                      DateTime                 @updatedAt
   icms                           Float                    @default(0)
   ipi                            Float                    @default(0)
+  isManualMaxQuantity            Boolean                  @default(false)
+  isManualReorderPoint           Boolean                  @default(false)
+  lastAutoOrderDate              DateTime?
   activities                     Activity[]               @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
   externalWithdrawalItems        ExternalWithdrawalItem[]
@@ -559,8 +560,8 @@ model Item {
   ppeScheduleItems               PpeScheduleItem[]        @relation("PPE_SCHEDULE_ITEM_ITEM")
   paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
   paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
-  relatedItems                   Item[]                   @relation("RelatedItems")
-  relatedTo                      Item[]                   @relation("RelatedItems")
+  Item_A                         Item[]                   @relation("RelatedItems")
+  Item_B                         Item[]                   @relation("RelatedItems")
 
   @@index([shouldAssignToUser])
   @@index([categoryId, brandId])
@@ -571,6 +572,9 @@ model Item {
   @@index([xyzCategory, xyzCategoryOrder])
   @@index([ppeType])
   @@index([categoryId, ppeType])
+  @@index([isManualMaxQuantity])
+  @@index([isManualReorderPoint])
+  @@index([lastAutoOrderDate])
 }
 
 model WeeklyScheduleConfig {
@@ -895,15 +899,15 @@ model Paint {
   code             String?
   paintBrandId     String?
   colorOrder       Int                @default(0)
-  colorPreview     String? // Paint preview image URL (WebP)
+  colorPreview     String?
   paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
   paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
   formulas         PaintFormula[]
   groundPaintFor   PaintGround[]      @relation("GROUND_PAINT_FOR")
   paintGrounds     PaintGround[]      @relation("PAINT_REQUIRES_GROUND")
   generalPaintings Task[]             @relation("TASK_GENERAL_PAINTING")
-  relatedPaints    Paint[]            @relation("RelatedPaints")
-  relatedTo        Paint[]            @relation("RelatedPaints")
+  Paint_A          Paint[]            @relation("RelatedPaints")
+  Paint_B          Paint[]            @relation("RelatedPaints")
   logoTasks        Task[]             @relation("TASK_LOGO_PAINT")
 
   @@index([name])
@@ -1026,8 +1030,8 @@ model Sector {
   managerId  String?          @unique
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
-  tasks      Task[]
   manager    User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
+  tasks      Task[]
   users      User[]
 
   @@index([managerId])
@@ -1039,7 +1043,7 @@ model ServiceOrder {
   statusOrder   Int                @default(1)
   description   String
   type          ServiceOrderType   @default(PRODUCTION)
-  observation   String?            @db.Text
+  observation   String?
   assignedToId  String?
   taskId        String
   createdById   String
@@ -1051,17 +1055,14 @@ model ServiceOrder {
   startedAt     DateTime?
   approvedAt    DateTime?
   finishedAt    DateTime?
-  // Bidirectional sync control: when false, prevents auto-recreation from pricing items
-  // Set to false when user explicitly deletes this service order (the corresponding pricing item gets shouldSync=false)
   shouldSync    Boolean            @default(true)
-  // Position field to maintain user-defined order within each type group
   position      Int                @default(0)
-  assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id], onDelete: SetNull)
-  task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  approvedBy    User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id])
+  assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
+  completedBy   User?              @relation("SERVICE_ORDER_COMPLETED_BY", fields: [completedById], references: [id])
   createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
-  startedBy     User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id], onDelete: SetNull)
-  approvedBy    User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id], onDelete: SetNull)
-  completedBy   User?              @relation("SERVICE_ORDER_COMPLETED_BY", fields: [completedById], references: [id], onDelete: SetNull)
+  startedBy     User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id])
+  task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([statusOrder])
@@ -1075,40 +1076,28 @@ model ServiceOrder {
 }
 
 model TaskPricing {
-  id            String            @id @default(uuid())
-  budgetNumber  Int               @unique // Auto-generated sequential number for display
-  subtotal      Decimal           @db.Decimal(10, 2)
-  discountType  DiscountType      @default(NONE)
-  discountValue Decimal?          @db.Decimal(10, 2)
-  total         Decimal           @db.Decimal(10, 2)
-  expiresAt     DateTime
-  status        TaskPricingStatus @default(DRAFT)
-
-  // Payment Terms (simplified)
-  paymentCondition  PaymentCondition?
-  downPaymentDate   DateTime?
-  customPaymentText String?           @db.Text
-
-  // Guarantee Terms
+  id                  String            @id @default(uuid())
+  subtotal            Decimal           @db.Decimal(10, 2)
+  discountType        DiscountType      @default(NONE)
+  discountValue       Decimal?          @db.Decimal(10, 2)
+  total               Decimal           @db.Decimal(10, 2)
+  expiresAt           DateTime
+  status              TaskPricingStatus @default(DRAFT)
+  paymentCondition    PaymentCondition?
+  downPaymentDate     DateTime?
+  customPaymentText   String?
   guaranteeYears      Int?
-  customGuaranteeText String? @db.Text
-
-  // Custom Forecast - manual override for production days displayed in budget
-  // When set, this value is used instead of calculating from expiresAt
-  customForecastDays Int?
-
-  // Layout File
-  layoutFileId String?
-  layoutFile   File?   @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
-
-  // Customer Signature (uploaded by customer on public page)
+  customGuaranteeText String?
+  layoutFileId        String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  budgetNumber        Int               @unique
   customerSignatureId String?
-  customerSignature   File?   @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
-
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  tasks     Task[]            @relation("TASK_PRICING") // One-to-many: one pricing can be shared across multiple tasks
-  items     TaskPricingItem[] @relation("PRICING_ITEMS")
+  customForecastDays  Int?
+  tasks               Task[]            @relation("TASK_PRICING")
+  customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
+  layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
+  items               TaskPricingItem[] @relation("PRICING_ITEMS")
 
   @@index([status])
   @@index([expiresAt])
@@ -1118,16 +1107,14 @@ model TaskPricing {
 
 model TaskPricingItem {
   id          String      @id @default(uuid())
-  description String      @db.Text
-  observation String?     @db.Text
+  description String
   amount      Decimal     @db.Decimal(10, 2)
   pricingId   String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
-  // Bidirectional sync control: when false, prevents auto-recreation of service orders from this item
-  // Set to false when user explicitly deletes the corresponding service order
-  position    Int         @default(0)
+  observation String?
   shouldSync  Boolean     @default(true)
+  position    Int         @default(0)
   pricing     TaskPricing @relation("PRICING_ITEMS", fields: [pricingId], references: [id], onDelete: Cascade)
 
   @@index([pricingId])
@@ -1157,7 +1144,7 @@ model Supplier {
   items             Item[]      @relation("ITEM_SUPPLIER")
   orders            Order[]     @relation("ORDER_SUPPLIER")
   orderRules        OrderRule[]
-  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id], onDelete: SetNull)
+  logo              File?       @relation("SUPPLIER_LOGO", fields: [logoId], references: [id])
 
   @@index([fantasyName])
   @@index([cnpj])
@@ -1176,20 +1163,19 @@ model Task {
   term                  DateTime?
   startedAt             DateTime?
   finishedAt            DateTime?
-  forecastDate          DateTime? // Forecast date when truck will be available from customer
+  forecastDate          DateTime?
   paintId               String?
   customerId            String?
-  invoiceToId           String? // Customer to invoice (can be different from customerId)
+  invoiceToId           String?
   sectorId              String?
   commission            CommissionStatus?
-  negotiatingWith       Json? // Contact person negotiating the task: { name: string, phone: string }
+  negotiatingWith       Json?
   createdById           String?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
-  pricingId             String? // One-to-many: one task has one pricing, but pricing can be shared across tasks
+  pricingId             String?
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
-  pricing               TaskPricing?         @relation("TASK_PRICING", fields: [pricingId], references: [id])
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
   serviceOrders         ServiceOrder[]       @relation("SERVICE_ORDER_TASK")
@@ -1198,20 +1184,22 @@ model Task {
   customer              Customer?            @relation("TaskCustomer", fields: [customerId], references: [id])
   invoiceTo             Customer?            @relation("TaskInvoiceTo", fields: [invoiceToId], references: [id])
   generalPainting       Paint?               @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
+  pricing               TaskPricing?         @relation("TASK_PRICING", fields: [pricingId], references: [id])
   sector                Sector?              @relation(fields: [sectorId], references: [id])
+  fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
   bonuses               Bonus[]              @relation("BonusTasks")
-  relatedTasks          Task[]               @relation("RelatedTasks")
-  relatedTo             Task[]               @relation("RelatedTasks")
+  Task_A                Task[]               @relation("RelatedTasks")
+  Task_B                Task[]               @relation("RelatedTasks")
+  baseFiles             File[]               @relation("TASK_BASE_FILES")
   budgets               File[]               @relation("TASK_BUDGETS")
-  artworks              Artwork[]            @relation("TaskArtworks") // Many-to-many: shared artworks
   invoices              File[]               @relation("TASK_INVOICES")
   invoiceReimbursements File[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")
   receipts              File[]               @relation("TASK_RECEIPTS")
   reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
-  baseFiles             File[]               @relation("TASK_BASE_FILES")
-  fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
+  artworks              Artwork[]            @relation("TaskArtworks")
+  representatives       Representative[]     @relation("TaskRepresentatives")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1227,17 +1215,17 @@ model Task {
 model TaskFieldChangeLog {
   id           String   @id @default(uuid())
   taskId       String
-  field        String // Field name (e.g., 'status', 'term', 'artworks')
-  oldValue     Json? // Previous value
-  newValue     Json? // New value
-  changedBy    String // User ID who made the change
+  field        String
+  oldValue     Json?
+  newValue     Json?
+  changedBy    String
   changedAt    DateTime @default(now())
-  isFileArray  Boolean  @default(false) // Whether this is a file array field
-  filesAdded   Int      @default(0) // Number of files added (for file arrays)
-  filesRemoved Int      @default(0) // Number of files removed (for file arrays)
-  metadata     Json? // Additional context (e.g., file details)
-  task         Task     @relation("TASK_FIELD_CHANGE_LOGS", fields: [taskId], references: [id], onDelete: Cascade)
+  isFileArray  Boolean  @default(false)
+  filesAdded   Int      @default(0)
+  filesRemoved Int      @default(0)
+  metadata     Json?
   user         User     @relation("TASK_FIELD_CHANGE_USER", fields: [changedBy], references: [id])
+  task         Task     @relation("TASK_FIELD_CHANGE_LOGS", fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@index([field])
@@ -1276,15 +1264,15 @@ model Truck {
   id                String         @id @default(uuid())
   plate             String?        @unique
   chassisNumber     String?
-  category          TruckCategory? // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
-  implementType     ImplementType? // Type of body/implement (dry-cargo, refrigerated, insulated, curtain-side, tank, flatbed)
-  spot              TRUCK_SPOT? // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
+  category          TruckCategory?
+  implementType     ImplementType?
+  spot              TRUCK_SPOT?
   taskId            String         @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
-  backSideLayoutId  String? // Foreign key to shared Layout (NO LONGER @unique)
-  leftSideLayoutId  String? // Foreign key to shared Layout (NO LONGER @unique)
-  rightSideLayoutId String? // Foreign key to shared Layout (NO LONGER @unique)
+  backSideLayoutId  String?
+  leftSideLayoutId  String?
+  rightSideLayoutId String?
   backSideLayout    Layout?        @relation("TRUCK_BACK_SIDE", fields: [backSideLayoutId], references: [id])
   leftSideLayout    Layout?        @relation("TRUCK_LEFT_SIDE", fields: [leftSideLayoutId], references: [id])
   rightSideLayout   Layout?        @relation("TRUCK_RIGHT_SIDE", fields: [rightSideLayoutId], references: [id])
@@ -1292,9 +1280,9 @@ model Truck {
 
   @@index([spot])
   @@index([plate])
-  @@index([backSideLayoutId]) // Index for finding all trucks using a layout
-  @@index([leftSideLayoutId]) // Index for finding all trucks using a layout
-  @@index([rightSideLayoutId]) // Index for finding all trucks using a layout
+  @@index([backSideLayoutId])
+  @@index([leftSideLayoutId])
+  @@index([rightSideLayoutId])
 }
 
 model Layout {
@@ -1305,9 +1293,9 @@ model Layout {
   updatedAt       DateTime        @updatedAt
   photo           File?           @relation("LAYOUT_PHOTO", fields: [photoId], references: [id])
   layoutSections  LayoutSection[] @relation("LayoutSections")
-  trucksBackSide  Truck[]         @relation("TRUCK_BACK_SIDE") // SHARED: Many trucks can use this layout for back side
-  trucksLeftSide  Truck[]         @relation("TRUCK_LEFT_SIDE") // SHARED: Many trucks can use this layout for left side
-  trucksRightSide Truck[]         @relation("TRUCK_RIGHT_SIDE") // SHARED: Many trucks can use this layout for right side
+  trucksBackSide  Truck[]         @relation("TRUCK_BACK_SIDE")
+  trucksLeftSide  Truck[]         @relation("TRUCK_LEFT_SIDE")
+  trucksRightSide Truck[]         @relation("TRUCK_RIGHT_SIDE")
 }
 
 model LayoutSection {
@@ -1315,7 +1303,7 @@ model LayoutSection {
   layoutId   String
   width      Float
   isDoor     Boolean  @default(false)
-  doorHeight Float? // Height of the door from bottom of layout to top of door opening (in meters)
+  doorHeight Float?
   position   Int
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -1323,11 +1311,6 @@ model LayoutSection {
 
   @@index([layoutId, position])
 }
-
-// Garage model removed - garages are now static configuration
-// See: api/src/constants/garage.ts and shared types for static garage definitions
-// 3 Garages: B1 (20x30m), B2 (18.5x30.5m), B3 (20x40m)
-// Each has 3 lanes (F1, F2, F3) with 3 spots (V1, V2, V3) each
 
 model SecullumToken {
   id           String   @id @default(uuid())
@@ -1392,42 +1375,43 @@ model User {
   dependentsCount         Int                          @default(0)
   hasSimplifiedDeduction  Boolean                      @default(true)
   activities              Activity[]                   @relation("ACTIVITY_USER")
+  backupsCreated          Backup[]                     @relation("BACKUP_CREATOR")
+  backupsDeleted          Backup[]                     @relation("BACKUP_DELETER")
+  backupSchedulesCreated  BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
+  backupSchedulesDeleted  BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
   bonuses                 Bonus[]                      @relation("UserBonus")
   borrows                 Borrow[]                     @relation("USER_BORROW")
   changeLogs              ChangeLog[]                  @relation("CHANGELOG_USER")
-  taskFieldChangeLogs     TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
+  deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
+  createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")
+  messageTargets          MessageTarget[]              @relation("MESSAGE_TARGET_USER")
+  messageViews            MessageView[]                @relation("MESSAGE_VIEW_USER")
   notifications           Notification[]               @relation("NOTIFICATION_CREATED_BY")
   payrolls                Payroll[]
   ppeDeliveriesReviewed   PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
   ppeDeliveries           PpeDelivery[]                @relation("PPE_DELIVERY_USER")
   ppeSize                 PpeSize?                     @relation("USER_PPE_SIZE")
   preference              Preferences?                 @relation("USER_PREFERENCES")
-  seenNotification        SeenNotification[]
-  createdTasks            Task[]                       @relation("TASK_CREATED_BY")
-  avatar                  File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
   managedSector           Sector?                      @relation("SECTOR_MANAGER")
+  seenNotification        SeenNotification[]
+  approvedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
+  assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
+  completedServiceOrders  ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
+  createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
+  startedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
+  SignatureAuditLog       SignatureAuditLog[]
+  createdTasks            Task[]                       @relation("TASK_CREATED_BY")
+  taskFieldChangeLogs     TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
+  avatar                  File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
   position                Position?                    @relation("USER_POSITION", fields: [positionId], references: [id])
   sector                  Sector?                      @relation(fields: [sectorId], references: [id])
+  notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
   vacations               Vacation[]
   warningsCollaborator    Warning[]                    @relation("COLLABORATOR_WARNING")
   warningsSupervisor      Warning[]                    @relation("SUPERVISOR_WARNING")
   deployments             Deployment[]                 @relation("DEPLOYMENT_USER")
   bonusesInPeriod         Bonus[]                      @relation("BonusPeriodUsers")
   warningsWitness         Warning[]                    @relation("WITNESS_WARNING")
-  assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
-  createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
-  startedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
-  approvedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
-  completedServiceOrders  ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
-  notificationPreferences UserNotificationPreference[] @relation("USER_NOTIFICATION_PREFERENCES")
-  deviceTokens            DeviceToken[]                @relation("USER_DEVICE_TOKENS")
-  createdMessages         Message[]                    @relation("MESSAGE_CREATED_BY")
-  messageTargets          MessageTarget[]              @relation("MESSAGE_TARGET_USER")
-  messageViews            MessageView[]                @relation("MESSAGE_VIEW_USER")
-  backupSchedulesCreated  BackupSchedule[]             @relation("BACKUP_SCHEDULE_CREATOR")
-  backupSchedulesDeleted  BackupSchedule[]             @relation("BACKUP_SCHEDULE_DELETER")
-  backupsCreated          Backup[]                     @relation("BACKUP_CREATOR")
-  backupsDeleted          Backup[]                     @relation("BACKUP_DELETER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1514,8 +1498,8 @@ model Notification {
   createdAt         DateTime                @default(now())
   updatedAt         DateTime                @updatedAt
   user              User?                   @relation("NOTIFICATION_CREATED_BY", fields: [userId], references: [id])
-  seenBy            SeenNotification[]
   deliveries        NotificationDelivery[]
+  seenBy            SeenNotification[]
 
   @@index([userId])
   @@index([scheduledAt])
@@ -1543,8 +1527,7 @@ model DeviceToken {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  user User @relation("USER_DEVICE_TOKENS", fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation("USER_DEVICE_TOKENS", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([platform])
@@ -1561,8 +1544,7 @@ model UserNotificationPreference {
   mandatoryChannels NotificationChannel[] @default([])
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
-
-  user User @relation("USER_NOTIFICATION_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
+  user              User                  @relation("USER_NOTIFICATION_PREFERENCES", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, notificationType, eventType])
   @@index([userId])
@@ -1580,8 +1562,7 @@ model NotificationDelivery {
   metadata       Json?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
-
-  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  notification   Notification        @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@index([notificationId])
   @@index([status])
@@ -1746,6 +1727,199 @@ model DeploymentMetric {
   @@map("deployment_metrics")
 }
 
+model Message {
+  id            String          @id @default(uuid())
+  title         String
+  content       Json
+  status        MessageStatus   @default(DRAFT)
+  statusOrder   Int             @default(1)
+  startDate     DateTime?
+  endDate       DateTime?
+  createdById   String
+  metadata      Json?
+  isDismissible Boolean         @default(true)
+  requiresView  Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  publishedAt   DateTime?
+  archivedAt    DateTime?
+  createdBy     User            @relation("MESSAGE_CREATED_BY", fields: [createdById], references: [id])
+  targets       MessageTarget[] @relation("MESSAGE_TARGETS")
+  views         MessageView[]   @relation("MESSAGE_VIEWS")
+
+  @@index([status, statusOrder])
+  @@index([createdById])
+  @@index([startDate])
+  @@index([endDate])
+  @@index([publishedAt])
+  @@index([createdAt])
+}
+
+model MessageTarget {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  message   Message  @relation("MESSAGE_TARGETS", fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation("MESSAGE_TARGET_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
+}
+
+model MessageView {
+  id          String    @id @default(uuid())
+  messageId   String
+  userId      String
+  viewedAt    DateTime  @default(now())
+  dismissedAt DateTime?
+  deviceType  Platform?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  message     Message   @relation("MESSAGE_VIEWS", fields: [messageId], references: [id], onDelete: Cascade)
+  user        User      @relation("MESSAGE_VIEW_USER", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([messageId])
+  @@index([userId])
+  @@index([viewedAt])
+  @@index([dismissedAt])
+}
+
+model BackupSchedule {
+  id                  String               @id @default(uuid())
+  name                String
+  type                BackupType
+  description         String?
+  paths               String[]             @default([])
+  cronExpression      String
+  enabled             Boolean              @default(true)
+  priority            BackupPriority       @default(MEDIUM)
+  compressionLevel    Int                  @default(6)
+  encrypted           Boolean              @default(false)
+  autoDeleteEnabled   Boolean              @default(false)
+  autoDeleteRetention String?
+  bullJobId           String?              @unique
+  lastRunAt           DateTime?
+  nextRunAt           DateTime?
+  lastStatus          BackupScheduleStatus @default(PENDING)
+  lastError           String?
+  runCount            Int                  @default(0)
+  failureCount        Int                  @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  createdById         String?
+  deletedAt           DateTime?
+  deletedById         String?
+  backups             Backup[]
+  createdBy           User?                @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id])
+  deletedBy           User?                @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id])
+
+  @@index([enabled])
+  @@index([type])
+  @@index([nextRunAt])
+  @@index([createdById])
+  @@index([deletedAt])
+}
+
+model Backup {
+  id                  String           @id
+  name                String
+  type                BackupType
+  description         String?
+  paths               String[]         @default([])
+  status              BackupStatus     @default(PENDING)
+  priority            BackupPriority   @default(MEDIUM)
+  compressionLevel    Int              @default(6)
+  encrypted           Boolean          @default(false)
+  size                BigInt           @default(0)
+  progress            Int              @default(0)
+  error               String?
+  autoDeleteEnabled   Boolean          @default(false)
+  autoDeleteRetention String?
+  autoDeleteAfter     DateTime?
+  filePath            String?
+  gdriveFileId        String?
+  gdriveStatus        GDriveSyncStatus @default(PENDING)
+  gdriveSyncedAt      DateTime?
+  scheduleId          String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  completedAt         DateTime?
+  createdById         String?
+  deletedAt           DateTime?
+  deletedById         String?
+  createdBy           User?            @relation("BACKUP_CREATOR", fields: [createdById], references: [id])
+  deletedBy           User?            @relation("BACKUP_DELETER", fields: [deletedById], references: [id])
+  schedule            BackupSchedule?  @relation(fields: [scheduleId], references: [id])
+
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([autoDeleteAfter])
+  @@index([scheduleId])
+  @@index([createdById])
+  @@index([deletedAt])
+  @@index([gdriveStatus])
+}
+
+model SignatureAuditLog {
+  id              String      @id
+  ppeDeliveryId   String
+  userId          String
+  action          String
+  signatureMethod String
+  deviceInfo      Json?
+  ipAddress       String?
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  PpeDelivery     PpeDelivery @relation(fields: [ppeDeliveryId], references: [id], onDelete: Cascade)
+  User            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([ppeDeliveryId])
+  @@index([userId])
+}
+
+model Representative {
+  id                    String              @id @default(uuid())
+  name                  String
+  email                 String?             @unique
+  phone                 String              @unique
+  password              String?
+  role                  RepresentativeRole
+  customerId            String
+  isActive              Boolean             @default(true)
+  verified              Boolean             @default(false)
+  verificationCode      String?
+  verificationExpiresAt DateTime?
+  sessionToken          String?             @unique
+  resetToken            String?             @unique
+  resetTokenExpiry      DateTime?
+  lastLoginAt           DateTime?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  customer              Customer            @relation("CustomerRepresentatives", fields: [customerId], references: [id])
+  tasks                 Task[]              @relation("TaskRepresentatives")
+
+  @@unique([customerId, role])
+  @@index([email])
+  @@index([phone])
+  @@index([customerId])
+  @@index([role])
+}
+
+enum RepresentativeRole {
+  COMMERCIAL
+  MARKETING
+  COORDINATOR
+  FINANCIAL
+  FLEET_MANAGER
+}
+
 enum UserStatus {
   EXPERIENCE_PERIOD_1
   EXPERIENCE_PERIOD_2
@@ -1772,13 +1946,13 @@ enum CutOrigin {
 enum PpeType {
   SHIRT
   PANTS
-  SHORT
   BOOTS
   SLEEVES
   MASK
   GLOVES
   RAIN_BOOTS
   OTHERS
+  SHORT
 }
 
 enum PpeDeliveryMode {
@@ -1803,7 +1977,6 @@ enum PantsSize {
   SIZE_44
   SIZE_46
   SIZE_48
-  SIZE_50
 }
 
 enum BootSize {
@@ -1885,11 +2058,11 @@ enum PpeDeliveryStatus {
   PENDING
   APPROVED
   DELIVERED
+  REPROVED
+  CANCELLED
   WAITING_SIGNATURE
   COMPLETED
   SIGNATURE_REJECTED
-  REPROVED
-  CANCELLED
 }
 
 enum ActivityReason {
@@ -2020,16 +2193,12 @@ enum ExternalWithdrawalType {
 }
 
 enum ExternalWithdrawalStatus {
-  // Common statuses
   PENDING
   CANCELLED
-  // Returnable specific
   PARTIALLY_RETURNED
   FULLY_RETURNED
-  // Chargeable specific
   CHARGED
   LIQUIDATED
-  // Complimentary specific
   DELIVERED
 }
 
@@ -2090,7 +2259,6 @@ enum NotificationType {
   WARNING
   STOCK
   GENERAL
-  CUT
   TASK_STATUS
   TASK_DEADLINE
   TASK_ASSIGNMENT
@@ -2272,11 +2440,7 @@ enum MonthOccurrence {
   LAST
 }
 
-// Truck parking spots in garages
-// Format: B{garage}_F{lane}_V{spot} where garage=1-3, lane=1-3, spot=1-3
-// PATIO = trucks in the yard, not assigned to a garage spot yet
 enum TRUCK_SPOT {
-  // Garage 1 (B1)
   B1_F1_V1
   B1_F1_V2
   B1_F1_V3
@@ -2286,7 +2450,6 @@ enum TRUCK_SPOT {
   B1_F3_V1
   B1_F3_V2
   B1_F3_V3
-  // Garage 2 (B2)
   B2_F1_V1
   B2_F1_V2
   B2_F1_V3
@@ -2296,7 +2459,6 @@ enum TRUCK_SPOT {
   B2_F3_V1
   B2_F3_V2
   B2_F3_V3
-  // Garage 3 (B3)
   B3_F1_V1
   B3_F1_V2
   B3_F1_V3
@@ -2306,29 +2468,26 @@ enum TRUCK_SPOT {
   B3_F3_V1
   B3_F3_V2
   B3_F3_V3
-  // Patio (outside, not in a garage)
   PATIO
 }
 
-// Truck categories/types
 enum TruckCategory {
-  MINI // Mini truck (small urban delivery)
-  VUC // VUC - Veículo Urbano de Carga (Urban Cargo Vehicle)
-  THREE_QUARTER // 3/4 truck (light commercial)
-  RIGID // Toco - Rigid truck with single rear axle
-  TRUCK // Standard truck
-  SEMI_TRAILER // Carreta - Semi-trailer truck
-  B_DOUBLE // Bitrem - B-Double (truck with double trailer)
+  MINI
+  VUC
+  THREE_QUARTER
+  RIGID
+  TRUCK
+  SEMI_TRAILER
+  B_DOUBLE
 }
 
-// Truck body/implement types
 enum ImplementType {
-  DRY_CARGO // Carga Seca - Dry cargo body
-  REFRIGERATED // Refrigerado - Refrigerated body
-  INSULATED // Isoplastic - Insulated body
-  CURTAIN_SIDE // Sider - Curtain-side body
-  TANK // Tanque - Tank truck
-  FLATBED // Carroceria - Open flatbed/stake body
+  DRY_CARGO
+  REFRIGERATED
+  INSULATED
+  CURTAIN_SIDE
+  TANK
+  FLATBED
 }
 
 enum OrderTriggerType {
@@ -2340,7 +2499,6 @@ enum OrderTriggerType {
 enum ChangeLogTriggeredByType {
   TASK_CREATE
   TASK_UPDATE
-  TASK_COPY_FROM_TASK
   ITEM_UPDATE
   USER_ACTION
   BATCH_CREATE
@@ -2434,6 +2592,7 @@ enum ChangeLogTriggeredByType {
   API
   WEBHOOK
   ADMIN
+  TASK_COPY_FROM_TASK
 }
 
 enum ChangeLogEntityType {
@@ -2537,7 +2696,6 @@ enum NotificationActionType {
   TASK_CREATED
   TASK_UPDATED
   VIEW_ORDER
-  VIEW_SERVICE_ORDER
   VIEW_REPORT
   ACKNOWLEDGE
   DISMISS
@@ -2592,41 +2750,35 @@ enum DiscountType {
 }
 
 enum PaymentCondition {
-  CASH // Single payment (À vista)
-  INSTALLMENTS_2 // Down payment + 1 installment at 20 days
-  INSTALLMENTS_3 // Down payment + 2 installments (20/40 days)
-  INSTALLMENTS_4 // Down payment + 3 installments (20/40/60 days)
-  INSTALLMENTS_5 // Down payment + 4 installments (20/40/60/80 days)
-  INSTALLMENTS_6 // Down payment + 5 installments (20/40/60/80/100 days)
-  INSTALLMENTS_7 // Down payment + 6 installments (20/40/60/80/100/120 days)
-  CUSTOM // Custom payment terms
+  CASH
+  INSTALLMENTS_2
+  INSTALLMENTS_3
+  INSTALLMENTS_4
+  INSTALLMENTS_5
+  INSTALLMENTS_6
+  INSTALLMENTS_7
+  CUSTOM
 }
 
 enum PayrollDiscountType {
-  // Tax deductions (auto-calculated)
   INSS
   IRRF
   FGTS
-  // Absence-related deductions
-  ABSENCE // DIAS FALTAS - Full day absences
-  PARTIAL_ABSENCE // HORAS FALTAS PARCIAL - Partial hour absences
-  DSR_ABSENCE // DIAS FALTAS DSR - DSR deduction for absences
-  LATE_ARRIVAL // Atrasos - Late arrivals
-  SICK_LEAVE // DIAS AFAST. P/DOENCA - Sick leave (may be paid)
-  // Legal/Court-ordered deductions
-  UNION // CONTRIBUICAO NEGOCIAL - Union contribution
-  ALIMONY // PENSAO ALIMENTICIA - Child support/alimony
-  GARNISHMENT // Court-ordered garnishments
-  // Benefits deductions
+  ABSENCE
+  PARTIAL_ABSENCE
+  DSR_ABSENCE
+  LATE_ARRIVAL
+  SICK_LEAVE
+  UNION
+  ALIMONY
+  GARNISHMENT
   HEALTH_INSURANCE
   DENTAL_INSURANCE
   MEAL_VOUCHER
   TRANSPORT_VOUCHER
-  // Financial deductions
-  LOAN // DESC. EMP. CRED. TRAB - Employee loans
-  ADVANCE // DESC.ADIANT.SALARIAL - Salary advances
-  AUTHORIZED_DISCOUNT // DESCONTOS AUTORIZADOS - Other authorized discounts
-  // Generic
+  LOAN
+  ADVANCE
+  AUTHORIZED_DISCOUNT
   CUSTOM
 }
 
@@ -2735,135 +2887,12 @@ enum StreetType {
   OTHER
 }
 
-// ============================================================================
-// ANNOUNCEMENT/MESSAGE SYSTEM MODELS
-// ============================================================================
-
-model Message {
-  id            String        @id @default(uuid())
-  title         String
-  content       Json // Rich content blocks (headings, paragraphs, images, buttons, etc.)
-  status        MessageStatus @default(DRAFT)
-  statusOrder   Int           @default(1)
-  startDate     DateTime? // When message becomes active
-  endDate       DateTime? // When message expires
-  createdById   String
-  metadata      Json? // Additional metadata (colors, icons, etc.)
-  isDismissible Boolean       @default(true)
-  requiresView  Boolean       @default(false) // Whether view tracking is required
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  publishedAt   DateTime? // When message was published
-  archivedAt    DateTime? // When message was archived
-
-  createdBy User            @relation("MESSAGE_CREATED_BY", fields: [createdById], references: [id])
-  targets   MessageTarget[] @relation("MESSAGE_TARGETS")
-  views     MessageView[]   @relation("MESSAGE_VIEWS")
-
-  @@index([status, statusOrder])
-  @@index([createdById])
-  @@index([startDate])
-  @@index([endDate])
-  @@index([publishedAt])
-  @@index([createdAt])
-}
-
-model MessageTarget {
-  id        String   @id @default(uuid())
-  messageId String
-  userId    String // User who should see this message
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  message Message @relation("MESSAGE_TARGETS", fields: [messageId], references: [id], onDelete: Cascade)
-  user    User    @relation("MESSAGE_TARGET_USER", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([messageId, userId]) // Prevent duplicate targets
-  @@index([messageId])
-  @@index([userId])
-}
-
-model MessageView {
-  id          String    @id @default(uuid())
-  messageId   String
-  userId      String
-  viewedAt    DateTime  @default(now()) // When message was first displayed
-  dismissedAt DateTime? // When user clicked "don't show again" (null = not dismissed)
-  deviceType  Platform? // Platform from where message was viewed
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  message Message @relation("MESSAGE_VIEWS", fields: [messageId], references: [id], onDelete: Cascade)
-  user    User    @relation("MESSAGE_VIEW_USER", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, messageId])
-  @@index([messageId])
-  @@index([userId])
-  @@index([viewedAt])
-  @@index([dismissedAt])
-}
-
-// ============================================================================
-// ENUMS FOR MESSAGE SYSTEM
-// ============================================================================
-
 enum MessageStatus {
-  DRAFT // Message being created
-  SCHEDULED // Message scheduled for future
-  ACTIVE // Message currently active
-  EXPIRED // Message past end date
-  ARCHIVED // Message manually archived
-}
-
-// ============================================================================
-// BACKUP SCHEDULE PERSISTENCE
-// ============================================================================
-
-model BackupSchedule {
-  id               String         @id @default(uuid())
-  name             String
-  type             BackupType
-  description      String?
-  paths            String[]       @default([])
-  cronExpression   String
-  enabled          Boolean        @default(true)
-  priority         BackupPriority @default(MEDIUM)
-  compressionLevel Int            @default(6)
-  encrypted        Boolean        @default(false)
-
-  // Auto-delete settings
-  autoDeleteEnabled   Boolean @default(false)
-  autoDeleteRetention String? // e.g., '1_day', '1_week', '1_month'
-
-  // Bull job tracking
-  bullJobId String? @unique // Reference to Bull queue job ID
-
-  // Execution tracking
-  lastRunAt    DateTime?
-  nextRunAt    DateTime?
-  lastStatus   BackupScheduleStatus @default(PENDING)
-  lastError    String?
-  runCount     Int                  @default(0)
-  failureCount Int                  @default(0)
-
-  // Audit fields
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  createdById String?
-
-  // Soft delete fields
-  deletedAt   DateTime?
-  deletedById String?
-
-  createdBy User?    @relation("BACKUP_SCHEDULE_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
-  deletedBy User?    @relation("BACKUP_SCHEDULE_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
-  backups   Backup[] // Backups created by this schedule
-
-  @@index([enabled])
-  @@index([type])
-  @@index([nextRunAt])
-  @@index([createdById])
-  @@index([deletedAt])
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  ARCHIVED
 }
 
 enum BackupType {
@@ -2887,68 +2916,6 @@ enum BackupScheduleStatus {
   FAILED
 }
 
-// ============================================================================
-// BACKUP RECORDS (Persistent storage of backup metadata)
-// ============================================================================
-
-model Backup {
-  id               String         @id // Use the same ID as the file-based backup (backup_TIMESTAMP_RANDOM)
-  name             String
-  type             BackupType
-  description      String?
-  paths            String[]       @default([])
-  status           BackupStatus   @default(PENDING)
-  priority         BackupPriority @default(MEDIUM)
-  compressionLevel Int            @default(6)
-  encrypted        Boolean        @default(false)
-  size             BigInt         @default(0) // Size in bytes
-  progress         Int            @default(0) // Progress percentage (0-100)
-  error            String? // Error message if failed
-
-  // Auto-delete settings
-  autoDeleteEnabled   Boolean   @default(false)
-  autoDeleteRetention String? // e.g., '1_day', '1_week', '1_month'
-  autoDeleteAfter     DateTime? // Calculated date when backup should be deleted
-
-  // File storage
-  filePath String? // Relative path to backup base path (e.g., "database/2026/01/23/backup_xxx")
-
-  // Google Drive sync
-  gdriveFileId   String?          // Google Drive file ID after sync
-  gdriveStatus   GDriveSyncStatus @default(PENDING)
-  gdriveSyncedAt DateTime?        // Last sync timestamp
-
-  // Google Drive delete tracking
-  gdriveDeleteStatus   GDriveDeleteStatus @default(NOT_NEEDED)
-  gdriveDeleteError    String?
-  gdriveDeleteAttempts Int @default(0)
-
-  // Schedule reference (if created by a scheduled job)
-  scheduleId String?
-  schedule   BackupSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-
-  // Audit fields
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  completedAt DateTime?
-  createdById String?
-  createdBy   User?     @relation("BACKUP_CREATOR", fields: [createdById], references: [id], onDelete: SetNull)
-
-  // Soft delete fields
-  deletedAt   DateTime?
-  deletedById String?
-  deletedBy   User?     @relation("BACKUP_DELETER", fields: [deletedById], references: [id], onDelete: SetNull)
-
-  @@index([status])
-  @@index([type])
-  @@index([createdAt])
-  @@index([autoDeleteAfter])
-  @@index([scheduleId])
-  @@index([createdById])
-  @@index([deletedAt])
-  @@index([gdriveStatus])
-}
-
 enum BackupStatus {
   PENDING
   IN_PROGRESS
@@ -2957,17 +2924,9 @@ enum BackupStatus {
 }
 
 enum GDriveSyncStatus {
-  PENDING    // Not yet synced
-  SYNCING    // Currently syncing
-  SYNCED     // Successfully synced
-  FAILED     // Sync failed
-  DELETED    // Deleted from Google Drive
+  PENDING
+  SYNCING
+  SYNCED
+  FAILED
+  DELETED
 }
-
-enum GDriveDeleteStatus {
-  NOT_NEEDED // File was never synced to GDrive
-  PENDING    // Delete queued
-  DELETED    // Successfully deleted from GDrive
-  FAILED     // Delete failed
-}
-

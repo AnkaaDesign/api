@@ -12,6 +12,271 @@ import type { Activity } from '@types';
 import { ACTIVITY_OPERATION, ACTIVITY_REASON } from '@constants';
 
 // =====================
+// Select Schema for Partial Field Selection
+// =====================
+
+export const activitySelectSchema = z
+  .object({
+    // Activity direct fields
+    id: z.boolean().optional(),
+    quantity: z.boolean().optional(),
+    operation: z.boolean().optional(),
+    userId: z.boolean().optional(),
+    itemId: z.boolean().optional(),
+    orderId: z.boolean().optional(),
+    orderItemId: z.boolean().optional(),
+    reason: z.boolean().optional(),
+    reasonOrder: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+
+    // Relations with nested select/include
+    item: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    user: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    order: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    orderItem: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          include: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    _count: z
+      .union([z.boolean(), z.object({ select: z.record(z.boolean()).optional() })])
+      .optional(),
+  })
+  .partial();
+
+// =====================
+// Optimized Select Schemas for Different Views
+// =====================
+
+// Table view - minimal fields for list display
+export const activitySelectTableSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      quantity: z.literal(true),
+      operation: z.literal(true),
+      reason: z.literal(true),
+      reasonOrder: z.literal(true),
+      createdAt: z.literal(true),
+      userId: z.literal(true),
+      itemId: z.literal(true),
+      orderId: z.literal(true),
+      item: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            uniCode: z.literal(true),
+            brand: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+            category: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+          }),
+        })
+        .optional(),
+      user: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            email: z.literal(true),
+          }),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// Form view - fields needed for form editing
+export const activitySelectFormSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      quantity: z.literal(true),
+      operation: z.literal(true),
+      userId: z.literal(true),
+      itemId: z.literal(true),
+      orderId: z.literal(true),
+      orderItemId: z.literal(true),
+      reason: z.literal(true),
+      reasonOrder: z.literal(true),
+      createdAt: z.literal(true),
+      updatedAt: z.literal(true),
+      item: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            uniCode: z.literal(true),
+            currentStock: z.literal(true),
+          }),
+        })
+        .optional(),
+      user: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            email: z.literal(true),
+          }),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// Detail view - comprehensive fields for detailed display
+export const activitySelectDetailSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      quantity: z.literal(true),
+      operation: z.literal(true),
+      userId: z.literal(true),
+      itemId: z.literal(true),
+      orderId: z.literal(true),
+      orderItemId: z.literal(true),
+      reason: z.literal(true),
+      reasonOrder: z.literal(true),
+      createdAt: z.literal(true),
+      updatedAt: z.literal(true),
+      item: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            uniCode: z.literal(true),
+            currentStock: z.literal(true),
+            minStock: z.literal(true),
+            maxStock: z.literal(true),
+            brand: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+            category: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+            supplier: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  fantasyName: z.literal(true),
+                  corporateName: z.literal(true),
+                }),
+              })
+              .optional(),
+          }),
+        })
+        .optional(),
+      user: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            name: z.literal(true),
+            email: z.literal(true),
+            phone: z.literal(true),
+            position: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+            sector: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  name: z.literal(true),
+                }),
+              })
+              .optional(),
+          }),
+        })
+        .optional(),
+      order: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            description: z.literal(true),
+            status: z.literal(true),
+            forecast: z.literal(true),
+            supplier: z
+              .object({
+                select: z.object({
+                  id: z.literal(true),
+                  fantasyName: z.literal(true),
+                }),
+              })
+              .optional(),
+          }),
+        })
+        .optional(),
+      orderItem: z
+        .object({
+          select: z.object({
+            id: z.literal(true),
+            orderedQuantity: z.literal(true),
+            receivedQuantity: z.literal(true),
+            price: z.literal(true),
+          }),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
@@ -22,6 +287,7 @@ export const activityIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
+          select: z.any().optional(),
           include: z
             .object({
               prices: z
@@ -68,6 +334,7 @@ export const activityIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
+          select: z.any().optional(),
           include: z
             .object({
               ppeSize: z.boolean().optional(),
@@ -97,6 +364,7 @@ export const activityIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
+          select: z.any().optional(),
           include: z
             .object({
               budget: z.boolean().optional(),
@@ -116,6 +384,7 @@ export const activityIncludeSchema = z
       .union([
         z.boolean(),
         z.object({
+          select: z.any().optional(),
           include: z
             .object({
               item: z.boolean().optional(),
@@ -587,6 +856,7 @@ export const activityGetManySchema = z
     // Direct Prisma clauses
     where: activityWhereSchema.optional(),
     orderBy: activityOrderBySchema.optional(),
+    select: activitySelectSchema.optional(),
     include: activityIncludeSchema.optional(),
 
     // Convenience filters
@@ -606,7 +876,19 @@ export const activityGetManySchema = z
       })
       .optional(),
   })
-  .transform(activityTransform);
+  .transform(activityTransform)
+  .refine(
+    data => {
+      // Ensure select and include are not used together
+      if (data.select && data.include) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Cannot use both select and include options simultaneously',
+    },
+  );
 
 // =====================
 // CRUD Schemas
@@ -679,23 +961,65 @@ export const activityBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
-// Query schema for include parameter
-export const activityQuerySchema = z.object({
-  include: activityIncludeSchema.optional(),
-});
+// Query schema for include/select parameter
+export const activityQuerySchema = z
+  .object({
+    select: activitySelectSchema.optional(),
+    include: activityIncludeSchema.optional(),
+  })
+  .refine(
+    data => {
+      // Ensure select and include are not used together
+      if (data.select && data.include) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Cannot use both select and include options simultaneously',
+    },
+  );
 
 // Batch query schema
-export const activityBatchQuerySchema = z.object({
-  include: activityIncludeSchema.optional(),
-});
+export const activityBatchQuerySchema = z
+  .object({
+    select: activitySelectSchema.optional(),
+    include: activityIncludeSchema.optional(),
+  })
+  .refine(
+    data => {
+      // Ensure select and include are not used together
+      if (data.select && data.include) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Cannot use both select and include options simultaneously',
+    },
+  );
 
 // =====================
 // GetById Schema
 // =====================
 
-export const activityGetByIdSchema = z.object({
-  include: activityIncludeSchema.optional(),
-});
+export const activityGetByIdSchema = z
+  .object({
+    select: activitySelectSchema.optional(),
+    include: activityIncludeSchema.optional(),
+  })
+  .refine(
+    data => {
+      // Ensure select and include are not used together
+      if (data.select && data.include) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Cannot use both select and include options simultaneously',
+    },
+  );
 
 // =====================
 // Type Inference (FormData types)
@@ -713,6 +1037,10 @@ export type ActivityBatchUpdateFormData = z.infer<typeof activityBatchUpdateSche
 export type ActivityBatchDeleteFormData = z.infer<typeof activityBatchDeleteSchema>;
 export type ActivityBatchQueryFormData = z.infer<typeof activityBatchQuerySchema>;
 
+export type ActivitySelect = z.infer<typeof activitySelectSchema>;
+export type ActivitySelectTable = z.infer<typeof activitySelectTableSchema>;
+export type ActivitySelectForm = z.infer<typeof activitySelectFormSchema>;
+export type ActivitySelectDetail = z.infer<typeof activitySelectDetailSchema>;
 export type ActivityInclude = z.infer<typeof activityIncludeSchema>;
 export type ActivityOrderBy = z.infer<typeof activityOrderBySchema>;
 export type ActivityWhere = z.infer<typeof activityWhereSchema>;

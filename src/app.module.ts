@@ -31,6 +31,7 @@ import { OrderModule } from './modules/inventory/order/order.module';
 import { PaintModule } from './modules/paint/paint.module';
 import { PositionModule } from './modules/people/position/position.module';
 import { PreferencesModule } from './modules/people/preferences/preferences.module';
+import { RepresentativeModule } from './modules/people/representative/representative.module';
 import { PrismaModule } from './modules/common/prisma/prisma.module';
 import { WarningModule } from './modules/people/warning/warning.module';
 import { SectorModule } from './modules/people/sector/sector.module';
@@ -109,6 +110,7 @@ import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
     PaintModule,
     PositionModule,
     PreferencesModule,
+    RepresentativeModule,
     PrismaModule,
     WarningModule,
     SectorModule,

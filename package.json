@@ -31,7 +31,14 @@
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v && docker compose up -d",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "test:performance": "tsx tests/performance/performance-measurement.test.ts",
+    "test:compatibility": "tsx tests/compatibility/backward-compatibility.test.ts",
+    "test:validation": "tsx tests/validation/field-validation.test.ts",
+    "test:payload": "tsx tests/payload/payload-size-measurement.ts",
+    "test:scenarios": "tsx tests/scenarios/context-specific.test.ts",
+    "test:optimization": "tsx tests/run-all-optimization-tests.ts",
+    "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
@@ -48,7 +55,7 @@
     "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^7.4.2",
     "@nestjs/websockets": "^10.4.20",
-    "@prisma/client": "^6.19.1",
+    "@prisma/client": "6.19.2",
     "@types/archiver": "^7.0.0",
     "@types/bull": "^4.10.4",
     "@types/fluent-ffmpeg": "^2.1.27",
@@ -134,7 +141,7 @@
     "papaparse": "^5.5.3",
     "pg": "^8.17.2",
     "prettier": "^3.5.3",
-    "prisma": "^6.8.2",
+    "prisma": "6.19.2",
     "source-map-support": "^0.5.21",
     "ts-loader": "^9.4.3",
     "ts-node": "^10.9.2",

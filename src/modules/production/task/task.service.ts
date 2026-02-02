@@ -3321,7 +3321,7 @@ export class TaskService {
           'entryDate',
           'forecastDate',
           'invoiceToId',
-          'negotiatingWith',
+          'representatives',
           'bonusDiscountId',
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
@@ -7504,7 +7504,7 @@ export class TaskService {
           entryDate: destinationTask.entryDate,
           forecastDate: destinationTask.forecastDate,
           commission: destinationTask.commission,
-          negotiatingWith: destinationTask.negotiatingWith,
+          representatives: destinationTask.representatives?.map(r => r.id) || [],
           customerId: destinationTask.customerId,
           invoiceToId: destinationTask.invoiceToId,
           // Store enriched pricing data for changelog display (not just UUID)
@@ -7625,11 +7625,20 @@ export class TaskService {
               }
               break;
 
-            case 'negotiatingWith':
-              if (hasData(sourceTask.negotiatingWith)) {
-                updateData.negotiatingWith = sourceTask.negotiatingWith;
+            case 'representatives':
+              if (hasData(sourceTask.representatives)) {
+                const representativeIds = sourceTask.representatives.map(r => r.id);
+                updateData.representatives = {
+                  set: representativeIds.map(id => ({ id })),
+                };
                 copiedFields.push(field);
-                details.negotiatingWith = sourceTask.negotiatingWith;
+                details.representatives = sourceTask.representatives.map(r => ({
+                  id: r.id,
+                  name: r.name,
+                  role: r.role,
+                  phone: r.phone,
+                  email: r.email,
+                }));
               }
               break;
 

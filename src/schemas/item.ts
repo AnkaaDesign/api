@@ -37,6 +37,429 @@ import {
 import { measureIncludeSchema, measureWhereSchema, measureOrderBySchema } from './measure';
 
 // =====================
+// Select Schemas for Partial Field Selection
+// =====================
+
+// ItemBrand Select Schema - for optimized queries
+export const itemBrandSelectSchema = z
+  .object({
+    id: z.boolean().optional(),
+    name: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+    items: z.boolean().optional(),
+    _count: z.boolean().optional(),
+  })
+  .partial();
+
+// ItemCategory Select Schema - for optimized queries
+export const itemCategorySelectSchema = z
+  .object({
+    id: z.boolean().optional(),
+    name: z.boolean().optional(),
+    type: z.boolean().optional(),
+    typeOrder: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+    items: z.boolean().optional(),
+    orderSchedule: z.boolean().optional(),
+    ppeSchedules: z.boolean().optional(),
+    _count: z.boolean().optional(),
+  })
+  .partial();
+
+// Item Select Schema - for optimized queries
+export const itemSelectSchema = z
+  .object({
+    id: z.boolean().optional(),
+    name: z.boolean().optional(),
+    uniCode: z.boolean().optional(),
+    quantity: z.boolean().optional(),
+    maxQuantity: z.boolean().optional(),
+    reorderPoint: z.boolean().optional(),
+    reorderQuantity: z.boolean().optional(),
+    boxQuantity: z.boolean().optional(),
+    isManualMaxQuantity: z.boolean().optional(),
+    isManualReorderPoint: z.boolean().optional(),
+    lastAutoOrderDate: z.boolean().optional(),
+    icms: z.boolean().optional(),
+    ipi: z.boolean().optional(),
+    totalPrice: z.boolean().optional(),
+    monthlyConsumption: z.boolean().optional(),
+    monthlyConsumptionTrendPercent: z.boolean().optional(),
+    barcodes: z.boolean().optional(),
+    shouldAssignToUser: z.boolean().optional(),
+    abcCategory: z.boolean().optional(),
+    abcCategoryOrder: z.boolean().optional(),
+    xyzCategory: z.boolean().optional(),
+    xyzCategoryOrder: z.boolean().optional(),
+    brandId: z.boolean().optional(),
+    categoryId: z.boolean().optional(),
+    supplierId: z.boolean().optional(),
+    estimatedLeadTime: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    ppeType: z.boolean().optional(),
+    ppeSize: z.boolean().optional(),
+    ppeCA: z.boolean().optional(),
+    ppeDeliveryMode: z.boolean().optional(),
+    ppeStandardQuantity: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+    // Relations
+    brand: z.boolean().optional(),
+    category: z.boolean().optional(),
+    supplier: z.boolean().optional(),
+    prices: z.boolean().optional(),
+    measures: z.boolean().optional(),
+    activities: z.boolean().optional(),
+    borrows: z.boolean().optional(),
+    orderItems: z.boolean().optional(),
+    ppeDeliveries: z.boolean().optional(),
+    orderRules: z.boolean().optional(),
+    externalWithdrawalItems: z.boolean().optional(),
+    relatedItems: z.boolean().optional(),
+    relatedTo: z.boolean().optional(),
+    maintenance: z.boolean().optional(),
+    maintenanceItemsNeeded: z.boolean().optional(),
+    formulaComponents: z.boolean().optional(),
+    ppeSchedules: z.boolean().optional(),
+    _count: z.boolean().optional(),
+  })
+  .partial();
+
+// =====================
+// Minimal Select Schemas for Comboboxes
+// =====================
+
+// Minimal item selection for comboboxes - only essential fields
+export const itemComboboxSelectSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      name: z.literal(true),
+      uniCode: z.literal(true).optional(),
+      quantity: z.literal(true).optional(),
+      isActive: z.literal(true).optional(),
+      brand: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      category: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              type: z.literal(true).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// Minimal brand selection for comboboxes
+export const itemBrandComboboxSelectSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      name: z.literal(true),
+    })
+    .optional(),
+});
+
+// Minimal category selection for comboboxes
+export const itemCategoryComboboxSelectSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      name: z.literal(true),
+      type: z.literal(true).optional(),
+    })
+    .optional(),
+});
+
+// =====================
+// Optimized Select Schemas for Forms
+// =====================
+
+// Item form selection - includes all fields needed for editing
+export const itemFormSelectSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      name: z.literal(true),
+      uniCode: z.literal(true),
+      quantity: z.literal(true),
+      maxQuantity: z.literal(true),
+      reorderPoint: z.literal(true),
+      reorderQuantity: z.literal(true),
+      boxQuantity: z.literal(true),
+      isManualMaxQuantity: z.literal(true),
+      isManualReorderPoint: z.literal(true),
+      lastAutoOrderDate: z.literal(true),
+      icms: z.literal(true),
+      ipi: z.literal(true),
+      totalPrice: z.literal(true),
+      monthlyConsumption: z.literal(true),
+      monthlyConsumptionTrendPercent: z.literal(true),
+      barcodes: z.literal(true),
+      shouldAssignToUser: z.literal(true),
+      abcCategory: z.literal(true),
+      abcCategoryOrder: z.literal(true),
+      xyzCategory: z.literal(true),
+      xyzCategoryOrder: z.literal(true),
+      brandId: z.literal(true),
+      categoryId: z.literal(true),
+      supplierId: z.literal(true),
+      estimatedLeadTime: z.literal(true),
+      isActive: z.literal(true),
+      ppeType: z.literal(true),
+      ppeSize: z.literal(true),
+      ppeCA: z.literal(true),
+      ppeDeliveryMode: z.literal(true),
+      ppeStandardQuantity: z.literal(true),
+      createdAt: z.literal(true),
+      updatedAt: z.literal(true),
+      brand: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      category: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              type: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      supplier: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              fantasyName: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      measures: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              value: z.literal(true),
+              unit: z.literal(true),
+              measureType: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      prices: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              value: z.literal(true),
+              createdAt: z.literal(true),
+            })
+            .optional(),
+          orderBy: z.object({ createdAt: z.enum(['asc', 'desc']) }).optional(),
+          take: z.number().optional(),
+        })
+        .optional(),
+      _count: z
+        .object({
+          select: z
+            .object({
+              activities: z.literal(true).optional(),
+              borrows: z.literal(true).optional(),
+              orderItems: z.literal(true).optional(),
+              ppeDeliveries: z.literal(true).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// =====================
+// Optimized Select Schemas for Detail Pages
+// =====================
+
+// Item detail selection - includes comprehensive data for viewing
+export const itemDetailSelectSchema = z.object({
+  select: z
+    .object({
+      id: z.literal(true),
+      name: z.literal(true),
+      uniCode: z.literal(true),
+      quantity: z.literal(true),
+      maxQuantity: z.literal(true),
+      reorderPoint: z.literal(true),
+      reorderQuantity: z.literal(true),
+      boxQuantity: z.literal(true),
+      isManualMaxQuantity: z.literal(true),
+      isManualReorderPoint: z.literal(true),
+      lastAutoOrderDate: z.literal(true),
+      icms: z.literal(true),
+      ipi: z.literal(true),
+      totalPrice: z.literal(true),
+      monthlyConsumption: z.literal(true),
+      monthlyConsumptionTrendPercent: z.literal(true),
+      barcodes: z.literal(true),
+      shouldAssignToUser: z.literal(true),
+      abcCategory: z.literal(true),
+      abcCategoryOrder: z.literal(true),
+      xyzCategory: z.literal(true),
+      xyzCategoryOrder: z.literal(true),
+      brandId: z.literal(true),
+      categoryId: z.literal(true),
+      supplierId: z.literal(true),
+      estimatedLeadTime: z.literal(true),
+      isActive: z.literal(true),
+      ppeType: z.literal(true),
+      ppeSize: z.literal(true),
+      ppeCA: z.literal(true),
+      ppeDeliveryMode: z.literal(true),
+      ppeStandardQuantity: z.literal(true),
+      createdAt: z.literal(true),
+      updatedAt: z.literal(true),
+      brand: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              createdAt: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      category: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              type: z.literal(true),
+              typeOrder: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      supplier: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              fantasyName: z.literal(true),
+              cnpj: z.literal(true),
+              phone: z.literal(true),
+              email: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      measures: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              value: z.literal(true),
+              unit: z.literal(true),
+              measureType: z.literal(true),
+              createdAt: z.literal(true),
+            })
+            .optional(),
+        })
+        .optional(),
+      prices: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              value: z.literal(true),
+              createdAt: z.literal(true),
+            })
+            .optional(),
+          orderBy: z.object({ createdAt: z.enum(['asc', 'desc']) }).optional(),
+          take: z.number().optional(),
+        })
+        .optional(),
+      relatedItems: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              uniCode: z.literal(true),
+              quantity: z.literal(true),
+              isActive: z.literal(true),
+            })
+            .optional(),
+          take: z.number().optional(),
+        })
+        .optional(),
+      relatedTo: z
+        .object({
+          select: z
+            .object({
+              id: z.literal(true),
+              name: z.literal(true),
+              uniCode: z.literal(true),
+              quantity: z.literal(true),
+              isActive: z.literal(true),
+            })
+            .optional(),
+          take: z.number().optional(),
+        })
+        .optional(),
+      _count: z
+        .object({
+          select: z
+            .object({
+              activities: z.literal(true).optional(),
+              borrows: z.literal(true).optional(),
+              orderItems: z.literal(true).optional(),
+              ppeDeliveries: z.literal(true).optional(),
+              orderRules: z.literal(true).optional(),
+              externalWithdrawalItems: z.literal(true).optional(),
+              relatedItems: z.literal(true).optional(),
+              relatedTo: z.literal(true).optional(),
+              maintenanceItemsNeeded: z.literal(true).optional(),
+              formulaComponents: z.literal(true).optional(),
+              ppeSchedules: z.literal(true).optional(),
+              prices: z.literal(true).optional(),
+              measures: z.literal(true).optional(),
+            })
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+
+// =====================
 // ItemBrand Schemas
 // =====================
 
@@ -79,6 +502,7 @@ export const itemBrandIncludeSchema = z
             .optional(),
           where: z.lazy(() => itemWhereSchema).optional(),
           orderBy: z.lazy(() => itemOrderBySchema).optional(),
+          select: itemSelectSchema.optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),
@@ -254,6 +678,7 @@ export const itemCategoryIncludeSchema = z
             .optional(),
           where: z.lazy(() => itemWhereSchema).optional(),
           orderBy: z.lazy(() => itemOrderBySchema).optional(),
+          select: itemSelectSchema.optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),
@@ -431,6 +856,7 @@ export const itemIncludeSchema = z
         z.boolean(),
         z.object({
           include: itemBrandIncludeSchema.optional(),
+          select: itemBrandSelectSchema.optional(),
         }),
       ])
       .optional(),
@@ -439,6 +865,7 @@ export const itemIncludeSchema = z
         z.boolean(),
         z.object({
           include: itemCategoryIncludeSchema.optional(),
+          select: itemCategorySelectSchema.optional(),
         }),
       ])
       .optional(),
@@ -562,7 +989,7 @@ export const itemIncludeSchema = z
             .optional(),
           where: z.lazy(() => itemWhereSchema).optional(),
           orderBy: z.lazy(() => itemOrderBySchema).optional(),
-          select: z.any().optional(), // Allow any select clause
+          select: itemSelectSchema.optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),
@@ -596,7 +1023,7 @@ export const itemIncludeSchema = z
             .optional(),
           where: z.lazy(() => itemWhereSchema).optional(),
           orderBy: z.lazy(() => itemOrderBySchema).optional(),
-          select: z.any().optional(),
+          select: itemSelectSchema.optional(),
           take: z.coerce.number().optional(),
           skip: z.coerce.number().optional(),
         }),
@@ -1861,6 +2288,7 @@ export const itemGetManySchema = z
     where: itemWhereSchema.optional(),
     orderBy: itemOrderBySchema.optional(),
     include: itemIncludeSchema.optional(),
+    select: itemSelectSchema.optional(),
 
     // Convenience filters
     ...itemFilters,
@@ -1891,6 +2319,7 @@ export const itemBrandGetManySchema = z
     where: itemBrandWhereSchema.optional(),
     orderBy: itemBrandOrderBySchema.optional(),
     include: itemBrandIncludeSchema.optional(),
+    select: itemBrandSelectSchema.optional(),
 
     // Convenience filters
     ...itemBrandFilters,
@@ -1921,6 +2350,7 @@ export const itemCategoryGetManySchema = z
     where: itemCategoryWhereSchema.optional(),
     orderBy: itemCategoryOrderBySchema.optional(),
     include: itemCategoryIncludeSchema.optional(),
+    select: itemCategorySelectSchema.optional(),
 
     // Convenience filters
     ...itemCategoryFilters,
@@ -2215,14 +2645,17 @@ export const itemCategoryUpdateSchema = z
 
 export const itemGetByIdSchema = z.object({
   include: itemIncludeSchema.optional(),
+  select: itemSelectSchema.optional(),
 });
 
 export const itemBrandGetByIdSchema = z.object({
   include: itemBrandIncludeSchema.optional(),
+  select: itemBrandSelectSchema.optional(),
 });
 
 export const itemCategoryGetByIdSchema = z.object({
   include: itemCategoryIncludeSchema.optional(),
+  select: itemCategorySelectSchema.optional(),
 });
 
 // =====================
@@ -2245,9 +2678,10 @@ export const itemBatchUpdateSchema = z.object({
     .min(1, 'Pelo menos uma atualização é necessária'),
 });
 
-// Query schema for include parameter
+// Query schema for include/select parameter
 export const itemQuerySchema = z.object({
   include: itemIncludeSchema.optional(),
+  select: itemSelectSchema.optional(),
 });
 
 export const itemBatchDeleteSchema = z.object({
@@ -2278,9 +2712,10 @@ export const itemBrandBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
-// Query schema for include parameter
+// Query schema for include/select parameter
 export const itemBrandQuerySchema = z.object({
   include: itemBrandIncludeSchema.optional(),
+  select: itemBrandSelectSchema.optional(),
 });
 
 // ItemCategory batch operations
@@ -2305,9 +2740,10 @@ export const itemCategoryBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
-// Query schema for include parameter
+// Query schema for include/select parameter
 export const itemCategoryQuerySchema = z.object({
   include: itemCategoryIncludeSchema.optional(),
+  select: itemCategorySelectSchema.optional(),
 });
 
 // =====================
@@ -2331,6 +2767,7 @@ export type ItemBatchDeleteFormData = z.infer<typeof itemBatchDeleteSchema>;
 export type ItemInclude = z.infer<typeof itemIncludeSchema>;
 export type ItemOrderBy = z.infer<typeof itemOrderBySchema>;
 export type ItemWhere = z.infer<typeof itemWhereSchema>;
+export type ItemSelect = z.infer<typeof itemSelectSchema>;
 
 // ItemBrand types
 export type ItemBrandGetManyFormData = z.infer<typeof itemBrandGetManySchema>;
@@ -2347,6 +2784,7 @@ export type ItemBrandBatchDeleteFormData = z.infer<typeof itemBrandBatchDeleteSc
 export type ItemBrandInclude = z.infer<typeof itemBrandIncludeSchema>;
 export type ItemBrandOrderBy = z.infer<typeof itemBrandOrderBySchema>;
 export type ItemBrandWhere = z.infer<typeof itemBrandWhereSchema>;
+export type ItemBrandSelect = z.infer<typeof itemBrandSelectSchema>;
 
 // ItemCategory types
 export type ItemCategoryGetManyFormData = z.infer<typeof itemCategoryGetManySchema>;
@@ -2363,6 +2801,14 @@ export type ItemCategoryBatchDeleteFormData = z.infer<typeof itemCategoryBatchDe
 export type ItemCategoryInclude = z.infer<typeof itemCategoryIncludeSchema>;
 export type ItemCategoryOrderBy = z.infer<typeof itemCategoryOrderBySchema>;
 export type ItemCategoryWhere = z.infer<typeof itemCategoryWhereSchema>;
+export type ItemCategorySelect = z.infer<typeof itemCategorySelectSchema>;
+
+// Specialized select types
+export type ItemComboboxSelect = z.infer<typeof itemComboboxSelectSchema>;
+export type ItemBrandComboboxSelect = z.infer<typeof itemBrandComboboxSelectSchema>;
+export type ItemCategoryComboboxSelect = z.infer<typeof itemCategoryComboboxSelectSchema>;
+export type ItemFormSelect = z.infer<typeof itemFormSelectSchema>;
+export type ItemDetailSelect = z.infer<typeof itemDetailSelectSchema>;
 
 // =====================
 // Helper Functions

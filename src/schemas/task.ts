@@ -34,6 +34,884 @@ const uuidArraySchema = (errorMessage: string) =>
   );
 
 // =====================
+// Select Schema (Field-level selection)
+// =====================
+
+/**
+ * Task Select Schema - enables partial field selection for optimal performance
+ *
+ * Usage:
+ * - Reduces data transfer by selecting only needed fields
+ * - Improves query performance by avoiding unnecessary joins
+ * - Supports nested selects for related entities
+ *
+ * Examples:
+ * ```typescript
+ * // Select only id and name
+ * { select: { id: true, name: true } }
+ *
+ * // Select task with customer fantasyName only
+ * { select: { id: true, name: true, customer: { select: { id: true, fantasyName: true } } } }
+ *
+ * // Select task with paint but exclude formula
+ * { select: { id: true, generalPainting: { select: { id: true, name: true, code: true } } } }
+ * ```
+ */
+export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
+  z
+    .object({
+      // Basic fields
+      id: z.boolean().optional(),
+      name: z.boolean().optional(),
+      status: z.boolean().optional(),
+      statusOrder: z.boolean().optional(),
+      commission: z.boolean().optional(),
+      serialNumber: z.boolean().optional(),
+      details: z.boolean().optional(),
+      entryDate: z.boolean().optional(),
+      term: z.boolean().optional(),
+      startedAt: z.boolean().optional(),
+      finishedAt: z.boolean().optional(),
+      forecastDate: z.boolean().optional(),
+      createdAt: z.boolean().optional(),
+      updatedAt: z.boolean().optional(),
+
+      // Foreign keys
+      paintId: z.boolean().optional(),
+      customerId: z.boolean().optional(),
+      invoiceToId: z.boolean().optional(),
+      sectorId: z.boolean().optional(),
+      createdById: z.boolean().optional(),
+      pricingId: z.boolean().optional(),
+
+      // Relations with nested select support
+      sector: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                description: z.boolean().optional(),
+                isActive: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      customer: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                fantasyName: z.boolean().optional(), // Most common - used in lists
+                corporateName: z.boolean().optional(),
+                cnpj: z.boolean().optional(),
+                cpf: z.boolean().optional(),
+                phone: z.boolean().optional(),
+                email: z.boolean().optional(),
+                address: z.boolean().optional(),
+                city: z.boolean().optional(),
+                state: z.boolean().optional(),
+                zipCode: z.boolean().optional(),
+                isActive: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      invoiceTo: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                fantasyName: z.boolean().optional(),
+                corporateName: z.boolean().optional(),
+                cnpj: z.boolean().optional(),
+                cpf: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      budgets: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      invoices: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      receipts: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      observation: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                description: z.boolean().optional(),
+                taskId: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      generalPainting: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                code: z.boolean().optional(),
+                hexColor: z.boolean().optional(),
+                hslColor: z.boolean().optional(),
+                finish: z.boolean().optional(),
+                isActive: z.boolean().optional(),
+                paintTypeId: z.boolean().optional(),
+                paintBrandId: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+                // Note: formulas intentionally excluded for performance
+                // Use include if formulas are needed
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      createdBy: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                email: z.boolean().optional(),
+                avatar: z.boolean().optional(),
+                positionId: z.boolean().optional(),
+                sectorId: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      artworks: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                fileId: z.boolean().optional(),
+                taskId: z.boolean().optional(),
+                status: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+                file: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      select: z
+                        .object({
+                          id: z.boolean().optional(),
+                          name: z.boolean().optional(),
+                          path: z.boolean().optional(),
+                          mimetype: z.boolean().optional(),
+                          size: z.boolean().optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      baseFiles: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      logoPaints: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                code: z.boolean().optional(),
+                hexColor: z.boolean().optional(),
+                hslColor: z.boolean().optional(),
+                finish: z.boolean().optional(),
+                isActive: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+                // Note: formulas excluded by default
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      serviceOrders: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                status: z.boolean().optional(),
+                statusOrder: z.boolean().optional(),
+                type: z.boolean().optional(),
+                description: z.boolean().optional(),
+                assignedToId: z.boolean().optional(),
+                observation: z.boolean().optional(),
+                startedAt: z.boolean().optional(),
+                finishedAt: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      pricing: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                totalValue: z.boolean().optional(),
+                profitMargin: z.boolean().optional(),
+                status: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+                items: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      truck: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                plate: z.boolean().optional(),
+                chassisNumber: z.boolean().optional(),
+                spot: z.boolean().optional(),
+                category: z.boolean().optional(),
+                implementType: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      airbrushing: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                status: z.boolean().optional(),
+                description: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      cutRequest: z.boolean().optional(),
+      cutPlan: z.boolean().optional(),
+
+      relatedTasks: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z.lazy(() => taskSelectSchema).optional(),
+          }),
+        ])
+        .optional(),
+
+      relatedTo: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z.lazy(() => taskSelectSchema).optional(),
+          }),
+        ])
+        .optional(),
+
+      representatives: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                phone: z.boolean().optional(),
+                email: z.boolean().optional(),
+                role: z.boolean().optional(),
+                isActive: z.boolean().optional(),
+                customerId: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+    })
+    .partial(),
+);
+
+// =====================
+// Predefined Select Schemas for Common Use Cases
+// =====================
+
+/**
+ * Minimal select for task lists (table views)
+ * Use this for: preparation view, schedule view, history lists
+ */
+export const taskSelectMinimal = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  serialNumber: true,
+  entryDate: true,
+  term: true,
+  forecastDate: true,
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true, // Only fantasy name for performance
+    },
+  },
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  truck: {
+    select: {
+      id: true,
+      plate: true,
+      spot: true,
+    },
+  },
+};
+
+/**
+ * Table view select (adds more details for main task table)
+ */
+export const taskSelectTable = {
+  ...taskSelectMinimal,
+  startedAt: true,
+  finishedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  createdBy: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  generalPainting: {
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      hexColor: true,
+      // No formulas for performance
+    },
+  },
+  _count: {
+    select: {
+      serviceOrders: true,
+      artworks: true,
+      logoPaints: true,
+    },
+  },
+};
+
+/**
+ * Detail view select (comprehensive data for single task view)
+ */
+export const taskSelectDetail = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  commission: true,
+  serialNumber: true,
+  details: true,
+  entryDate: true,
+  term: true,
+  startedAt: true,
+  finishedAt: true,
+  forecastDate: true,
+  createdAt: true,
+  updatedAt: true,
+  paintId: true,
+  customerId: true,
+  invoiceToId: true,
+  sectorId: true,
+  createdById: true,
+  pricingId: true,
+  sector: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+    },
+  },
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true,
+      corporateName: true,
+      cnpj: true,
+      cpf: true,
+      phone: true,
+      email: true,
+      address: true,
+      city: true,
+      state: true,
+      zipCode: true,
+    },
+  },
+  invoiceTo: {
+    select: {
+      id: true,
+      fantasyName: true,
+      corporateName: true,
+      cnpj: true,
+      cpf: true,
+    },
+  },
+  createdBy: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatar: true,
+    },
+  },
+  generalPainting: {
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      hexColor: true,
+      hslColor: true,
+      finish: true,
+      // Formulas excluded - use include if needed
+    },
+  },
+  observation: {
+    select: {
+      id: true,
+      description: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  truck: {
+    select: {
+      id: true,
+      plate: true,
+      chassisNumber: true,
+      spot: true,
+      category: true,
+      implementType: true,
+    },
+  },
+  budgets: {
+    select: {
+      id: true,
+      name: true,
+      path: true,
+      mimetype: true,
+      size: true,
+    },
+  },
+  invoices: {
+    select: {
+      id: true,
+      name: true,
+      path: true,
+      mimetype: true,
+      size: true,
+    },
+  },
+  receipts: {
+    select: {
+      id: true,
+      name: true,
+      path: true,
+      mimetype: true,
+      size: true,
+    },
+  },
+  artworks: {
+    select: {
+      id: true,
+      fileId: true,
+      status: true,
+      file: {
+        select: {
+          id: true,
+          name: true,
+          path: true,
+          mimetype: true,
+          size: true,
+        },
+      },
+    },
+  },
+  baseFiles: {
+    select: {
+      id: true,
+      name: true,
+      path: true,
+      mimetype: true,
+      size: true,
+    },
+  },
+  logoPaints: {
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      hexColor: true,
+      hslColor: true,
+      finish: true,
+      // No formulas for performance
+    },
+  },
+  serviceOrders: {
+    select: {
+      id: true,
+      status: true,
+      statusOrder: true,
+      type: true,
+      description: true,
+      assignedToId: true,
+      observation: true,
+      startedAt: true,
+      finishedAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+  pricing: {
+    select: {
+      id: true,
+      totalValue: true,
+      profitMargin: true,
+      status: true,
+      items: {
+        select: {
+          id: true,
+          description: true,
+          quantity: true,
+          unitPrice: true,
+          totalPrice: true,
+        },
+      },
+    },
+  },
+  representatives: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true,
+      role: true,
+      isActive: true,
+    },
+  },
+};
+
+/**
+ * Form select (optimized for form editing)
+ */
+export const taskSelectForm = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  commission: true,
+  serialNumber: true,
+  details: true,
+  entryDate: true,
+  term: true,
+  startedAt: true,
+  finishedAt: true,
+  forecastDate: true,
+  paintId: true,
+  customerId: true,
+  invoiceToId: true,
+  sectorId: true,
+  createdById: true,
+  pricingId: true,
+  // Only IDs for relations - form will load full data as needed
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true, // For display in form
+    },
+  },
+  generalPainting: {
+    select: {
+      id: true,
+      name: true,
+      code: true,
+    },
+  },
+};
+
+/**
+ * Preparation list select (for production preparation view)
+ */
+export const taskSelectPreparation = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  serialNumber: true,
+  entryDate: true,
+  term: true,
+  forecastDate: true,
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true,
+    },
+  },
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  truck: {
+    select: {
+      id: true,
+      plate: true,
+      spot: true,
+      category: true,
+    },
+  },
+  generalPainting: {
+    select: {
+      id: true,
+      name: true,
+      hexColor: true,
+    },
+  },
+  serviceOrders: {
+    select: {
+      id: true,
+      status: true,
+      type: true,
+      description: true,
+    },
+  },
+  _count: {
+    select: {
+      artworks: true,
+      logoPaints: true,
+    },
+  },
+};
+
+/**
+ * Schedule list select (for production schedule/agenda)
+ */
+export const taskSelectSchedule = {
+  id: true,
+  name: true,
+  status: true,
+  statusOrder: true,
+  serialNumber: true,
+  term: true,
+  forecastDate: true,
+  startedAt: true,
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true,
+    },
+  },
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  truck: {
+    select: {
+      id: true,
+      plate: true,
+      spot: true,
+    },
+  },
+  createdBy: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+};
+
+/**
+ * History list select (for completed/cancelled tasks)
+ */
+export const taskSelectHistory = {
+  id: true,
+  name: true,
+  status: true,
+  serialNumber: true,
+  entryDate: true,
+  startedAt: true,
+  finishedAt: true,
+  customer: {
+    select: {
+      id: true,
+      fantasyName: true,
+    },
+  },
+  sector: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  truck: {
+    select: {
+      id: true,
+      plate: true,
+    },
+  },
+  createdBy: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+};
+
+// =====================
 // Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
@@ -433,6 +1311,18 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           z.boolean(),
           z.object({
             include: z.lazy(() => taskIncludeSchema).optional(),
+          }),
+        ])
+        .optional(),
+      representatives: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                customer: z.boolean().optional(),
+              })
+              .optional(),
           }),
         ])
         .optional(),
@@ -1494,6 +2384,7 @@ export const taskGetManySchema = z
     where: taskWhereSchema.optional(),
     orderBy: taskOrderBySchema.optional(),
     include: taskIncludeSchema.optional(),
+    select: taskSelectSchema.optional(), // NEW: Select support
   })
   .transform(taskTransform);
 
@@ -1656,13 +2547,19 @@ export const taskCreateSchema = z
       })
       .nullable()
       .optional(),
-    negotiatingWith: z
-      .object({
-        name: z.string().nullable().optional(),
-        phone: z.string().nullable().optional(),
-      })
-      .nullable()
-      .optional(),
+
+    // Relations - Representatives
+    representativeIds: uuidArraySchema('ID de representante inválido'),
+
+    // New representatives to create inline
+    newRepresentatives: z.array(z.object({
+      name: z.string().min(1, 'Nome é obrigatório'),
+      phone: z.string().min(10, 'Telefone inválido'),
+      email: z.string().email('Email inválido').optional().or(z.literal('')),
+      role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+      isActive: z.boolean().default(true),
+      customerId: z.string().uuid('ID do cliente inválido').optional(),
+    })).optional(),
 
     // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
     // Using uuidArraySchema to filter empty strings from FormData before validation
@@ -1840,13 +2737,18 @@ export const taskUpdateSchema = z
       })
       .nullable()
       .optional(),
-    negotiatingWith: z
-      .object({
-        name: z.string().nullable().optional(),
-        phone: z.string().nullable().optional(),
-      })
-      .nullable()
-      .optional(),
+    // Relations - Representatives
+    representativeIds: uuidArraySchema('ID de representante inválido'),
+
+    // New representatives to create inline
+    newRepresentatives: z.array(z.object({
+      name: z.string().min(1, 'Nome é obrigatório'),
+      phone: z.string().min(10, 'Telefone inválido'),
+      email: z.string().email('Email inválido').optional().or(z.literal('')),
+      role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+      isActive: z.boolean().default(true),
+      customerId: z.string().uuid('ID do cliente inválido').optional(),
+    })).optional(),
 
     // Relations - File arrays
     // Using uuidArraySchema to filter empty strings from FormData before validation
@@ -2007,6 +2909,7 @@ export const taskBatchDeleteSchema = z.object({
 // Query schema for include parameter
 export const taskQuerySchema = z.object({
   include: taskIncludeSchema.optional(),
+  select: taskSelectSchema.optional(), // NEW: Select support
 });
 
 // =====================
@@ -2024,6 +2927,7 @@ export const taskDuplicateSchema = z.object({
 
 export const taskGetByIdSchema = z.object({
   include: taskIncludeSchema.optional(),
+  select: taskSelectSchema.optional(), // NEW: Select support
   id: z.string().uuid('Tarefa inválida'),
 });
 
@@ -2044,6 +2948,7 @@ export type TaskBatchUpdateFormData = z.infer<typeof taskBatchUpdateSchema>;
 export type TaskBatchDeleteFormData = z.infer<typeof taskBatchDeleteSchema>;
 
 export type TaskInclude = z.infer<typeof taskIncludeSchema>;
+export type TaskSelect = z.infer<typeof taskSelectSchema>;
 export type TaskOrderBy = z.infer<typeof taskOrderBySchema>;
 export type TaskWhere = z.infer<typeof taskWhereSchema>;
 
