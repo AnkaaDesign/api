@@ -106,9 +106,9 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
   ): Promise<Representative[]> {
     const client = tx || this.prisma;
 
-    const where: Prisma.RepresentativeWhereInput = {};
+    let where: Prisma.RepresentativeWhereInput = {};
     if (options?.where) {
-      const { name, customer, ...rest } = options.where;
+      const { name, customer, OR, ...rest } = options.where as any;
       Object.assign(where, rest);
 
       if (name?.contains) {
@@ -122,6 +122,11 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
             mode: 'insensitive',
           },
         };
+      }
+
+      // Handle OR conditions for search
+      if (OR) {
+        where.OR = OR;
       }
     }
 
@@ -163,7 +168,31 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
     tx?: PrismaTransaction
   ): Promise<number> {
     const client = tx || this.prisma;
-    return await client.representative.count({ where: where as any });
+
+    let prismaWhere: Prisma.RepresentativeWhereInput = {};
+    if (where) {
+      const { name, customer, OR, ...rest } = where as any;
+      Object.assign(prismaWhere, rest);
+
+      if (name?.contains) {
+        prismaWhere.name = { contains: name.contains, mode: 'insensitive' };
+      }
+
+      if (customer?.fantasyName?.contains) {
+        prismaWhere.customer = {
+          fantasyName: {
+            contains: customer.fantasyName.contains,
+            mode: 'insensitive',
+          },
+        };
+      }
+
+      if (OR) {
+        prismaWhere.OR = OR;
+      }
+    }
+
+    return await client.representative.count({ where: prismaWhere });
   }
 
   async findBySessionToken(

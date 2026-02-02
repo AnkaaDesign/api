@@ -940,6 +940,20 @@ export function formatFieldValue(
       if (field === 'relatedTasks' || field === 'relatedTo') {
         return `${value.length} ${value.length === 1 ? 'tarefa relacionada' : 'tarefas relacionadas'}`;
       }
+      if (field === 'representatives' || field === 'representativeIds') {
+        // Format representatives with name and phone
+        if (value.length > 0 && typeof value[0] === 'object' && value[0].name) {
+          return value
+            .map((rep: { name?: string; phone?: string; role?: string }) => {
+              const name = rep.name || 'Representante';
+              const phone = rep.phone ? formatBrazilianPhone(rep.phone) : '';
+              return phone ? `${name} - ${phone}` : name;
+            })
+            .join('\n');
+        }
+        // Fallback to count for IDs only
+        return `${value.length} ${value.length === 1 ? 'representante' : 'representantes'}`;
+      }
     }
 
     return `${value.length} ${value.length === 1 ? 'item' : 'itens'}`;

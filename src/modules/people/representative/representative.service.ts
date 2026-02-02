@@ -43,15 +43,17 @@ export class RepresentativeService {
       throw new BadRequestException('Telefone já cadastrado');
     }
 
-    // Check if representative already exists for this customer and role
-    const existingRole = await this.repository.findByCustomerIdAndRole(
-      data.customerId,
-      data.role,
-    );
-    if (existingRole) {
-      throw new BadRequestException(
-        `Já existe um representante ${this.getRoleLabel(data.role)} para este cliente`,
+    // Check if representative already exists for this customer and role (only if customerId is provided)
+    if (data.customerId) {
+      const existingRole = await this.repository.findByCustomerIdAndRole(
+        data.customerId,
+        data.role,
       );
+      if (existingRole) {
+        throw new BadRequestException(
+          `Já existe um representante ${this.getRoleLabel(data.role)} para este cliente`,
+        );
+      }
     }
 
     // Hash password if provided (only required for system access)
@@ -65,16 +67,19 @@ export class RepresentativeService {
       ...data,
       password: hashedPassword,
     } as any, {
-      include: { customer: true },
+      include: { customer: { include: { logo: true } } },
     });
 
     // Log creation
-    await this.changelogService.create({
+    await this.changelogService.logChange({
       entityId: representative.id,
       entityType: ENTITY_TYPE.REPRESENTATIVE,
       action: CHANGE_ACTION.CREATE,
-      newValue: JSON.stringify(representative),
-      userId: 'system', // Or get from context
+      newValue: representative,
+      reason: 'Representante criado',
+      triggeredBy: null,
+      triggeredById: null,
+      userId: null,
     });
 
     return representative;
@@ -119,19 +124,78 @@ export class RepresentativeService {
   async findMany(options?: {
     skip?: number;
     take?: number;
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    customerId?: string;
+    role?: string;
+    isActive?: boolean;
     where?: RepresentativeWhere;
     orderBy?: RepresentativeOrderBy;
     include?: RepresentativeInclude;
   }): Promise<{
     data: RepresentativeResponse[];
-    total: number;
+    meta: {
+      total: number;
+      page: number;
+      pageSize: number;
+      pageCount: number;
+    };
   }> {
+    // Convert page/pageSize to skip/take
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || options?.take || 40;
+    const skip = options?.skip ?? (page - 1) * pageSize;
+    const take = pageSize;
+
+    // Build where clause from direct filters and search
+    let where: RepresentativeWhere = { ...options?.where };
+
+    // Apply direct filters
+    if (options?.customerId) {
+      where.customerId = options.customerId;
+    }
+    if (options?.role) {
+      where.role = options.role as any;
+    }
+    if (options?.isActive !== undefined) {
+      where.isActive = options.isActive;
+    }
+
+    // Apply search
+    if (options?.search) {
+      where = {
+        ...where,
+        OR: [
+          { name: { contains: options.search, mode: 'insensitive' } },
+          { phone: { contains: options.search } },
+          { email: { contains: options.search, mode: 'insensitive' } },
+        ],
+      };
+    }
+
     const [data, total] = await Promise.all([
-      this.repository.findMany(options),
-      this.repository.count(options?.where),
+      this.repository.findMany({
+        skip,
+        take,
+        where,
+        orderBy: options?.orderBy || { createdAt: 'desc' },
+        include: options?.include || { customer: { include: { logo: true } } },
+      }),
+      this.repository.count(where),
     ]);
 
-    return { data, total };
+    const pageCount = Math.ceil(total / pageSize);
+
+    return {
+      data: data as RepresentativeResponse[],
+      meta: {
+        total,
+        page,
+        pageSize,
+        pageCount,
+      },
+    };
   }
 
   async update(
@@ -170,20 +234,23 @@ export class RepresentativeService {
 
     // Update representative
     const updated = await this.repository.update(id, data, {
-      include: { customer: true },
+      include: { customer: { include: { logo: true } } },
     });
 
     // Log changes
     const changes = this.getChangedFields(existing, updated);
     for (const change of changes) {
-      await this.changelogService.create({
+      await this.changelogService.logChange({
         entityId: id,
         entityType: ENTITY_TYPE.REPRESENTATIVE,
         action: CHANGE_ACTION.UPDATE,
         field: change.field,
         oldValue: change.oldValue,
         newValue: change.newValue,
-        userId: 'system', // Or get from context
+        reason: `Campo ${change.field} alterado`,
+        triggeredBy: null,
+        triggeredById: null,
+        userId: null,
       });
     }
 
@@ -196,13 +263,96 @@ export class RepresentativeService {
     await this.repository.delete(id);
 
     // Log deletion
-    await this.changelogService.create({
+    await this.changelogService.logChange({
       entityId: id,
       entityType: ENTITY_TYPE.REPRESENTATIVE,
       action: CHANGE_ACTION.DELETE,
-      oldValue: JSON.stringify(representative),
-      userId: 'system', // Or get from context
+      oldValue: representative,
+      reason: 'Representante removido',
+      triggeredBy: null,
+      triggeredById: null,
+      userId: null,
     });
+  }
+
+  async toggleActive(id: string): Promise<RepresentativeResponse> {
+    const representative = await this.findById(id);
+    const newStatus = !representative.isActive;
+
+    const updated = await this.repository.update(id, {
+      isActive: newStatus,
+    } as any, {
+      include: { customer: { include: { logo: true } } },
+    });
+
+    // Log status change
+    await this.changelogService.logChange({
+      entityId: id,
+      entityType: ENTITY_TYPE.REPRESENTATIVE,
+      action: newStatus ? CHANGE_ACTION.ACTIVATE : CHANGE_ACTION.DEACTIVATE,
+      field: 'isActive',
+      oldValue: String(!newStatus),
+      newValue: String(newStatus),
+      reason: newStatus ? 'Representante ativado' : 'Representante desativado',
+      triggeredBy: null,
+      triggeredById: null,
+      userId: null,
+    });
+
+    return updated;
+  }
+
+  async checkPhoneAvailability(phone: string, excludeId?: string): Promise<{ available: boolean }> {
+    const existing = await this.repository.findByPhone(phone);
+    const available = !existing || (excludeId !== undefined && existing.id === excludeId);
+    return { available };
+  }
+
+  async checkEmailAvailability(email: string, excludeId?: string): Promise<{ available: boolean }> {
+    const existing = await this.repository.findByEmail(email);
+    const available = !existing || (excludeId !== undefined && existing.id === excludeId);
+    return { available };
+  }
+
+  async batchCreate(representatives: RepresentativeCreateFormData[]): Promise<RepresentativeResponse[]> {
+    const results: RepresentativeResponse[] = [];
+
+    for (const data of representatives) {
+      try {
+        const created = await this.create(data);
+        results.push(created);
+      } catch (error) {
+        // Log error but continue with other items
+        console.error(`Failed to create representative: ${data.name}`, error);
+      }
+    }
+
+    return results;
+  }
+
+  async batchUpdate(updates: Array<{ id: string; data: RepresentativeUpdateFormData }>): Promise<RepresentativeResponse[]> {
+    const results: RepresentativeResponse[] = [];
+
+    for (const { id, data } of updates) {
+      try {
+        const updated = await this.update(id, data);
+        results.push(updated);
+      } catch (error) {
+        console.error(`Failed to update representative: ${id}`, error);
+      }
+    }
+
+    return results;
+  }
+
+  async batchDelete(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      try {
+        await this.delete(id);
+      } catch (error) {
+        console.error(`Failed to delete representative: ${id}`, error);
+      }
+    }
   }
 
   async login(data: RepresentativeLoginFormData): Promise<{
@@ -264,7 +414,7 @@ export class RepresentativeService {
 
     return {
       representative: await this.findById(representative.id, {
-        include: { customer: true },
+        include: { customer: { include: { logo: true } } },
       }),
       token,
     };

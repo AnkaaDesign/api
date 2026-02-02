@@ -560,8 +560,8 @@ model Item {
   ppeScheduleItems               PpeScheduleItem[]        @relation("PPE_SCHEDULE_ITEM_ITEM")
   paintBrands                    PaintBrand[]             @relation("PAINT_BRAND_COMPONENT_ITEMS")
   paintTypes                     PaintType[]              @relation("PAINT_TYPE_COMPONENT_ITEMS")
-  Item_A                         Item[]                   @relation("RelatedItems")
-  Item_B                         Item[]                   @relation("RelatedItems")
+  relatedTo                      Item[]                   @relation("RelatedItems")
+  relatedItems                   Item[]                   @relation("RelatedItems")
 
   @@index([shouldAssignToUser])
   @@index([categoryId, brandId])
@@ -906,8 +906,8 @@ model Paint {
   groundPaintFor   PaintGround[]      @relation("GROUND_PAINT_FOR")
   paintGrounds     PaintGround[]      @relation("PAINT_REQUIRES_GROUND")
   generalPaintings Task[]             @relation("TASK_GENERAL_PAINTING")
-  Paint_A          Paint[]            @relation("RelatedPaints")
-  Paint_B          Paint[]            @relation("RelatedPaints")
+  relatedTo        Paint[]            @relation("RelatedPaints")
+  relatedPaints    Paint[]            @relation("RelatedPaints")
   logoTasks        Task[]             @relation("TASK_LOGO_PAINT")
 
   @@index([name])
@@ -1189,8 +1189,8 @@ model Task {
   fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
   bonuses               Bonus[]              @relation("BonusTasks")
-  Task_A                Task[]               @relation("RelatedTasks")
-  Task_B                Task[]               @relation("RelatedTasks")
+  relatedTo             Task[]               @relation("RelatedTasks")
+  relatedTasks          Task[]               @relation("RelatedTasks")
   baseFiles             File[]               @relation("TASK_BASE_FILES")
   budgets               File[]               @relation("TASK_BUDGETS")
   invoices              File[]               @relation("TASK_INVOICES")
@@ -1891,7 +1891,7 @@ model Representative {
   phone                 String              @unique
   password              String?
   role                  RepresentativeRole
-  customerId            String
+  customerId            String?
   isActive              Boolean             @default(true)
   verified              Boolean             @default(false)
   verificationCode      String?
@@ -1902,7 +1902,7 @@ model Representative {
   lastLoginAt           DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  customer              Customer            @relation("CustomerRepresentatives", fields: [customerId], references: [id])
+  customer              Customer?           @relation("CustomerRepresentatives", fields: [customerId], references: [id])
   tasks                 Task[]              @relation("TaskRepresentatives")
 
   @@unique([customerId, role])
@@ -2654,6 +2654,7 @@ enum ChangeLogEntityType {
   PRICE
   PRODUCTION
   PURCHASE
+  REPRESENTATIVE
   SECTOR
   SEEN_NOTIFICATION
   SERVICE

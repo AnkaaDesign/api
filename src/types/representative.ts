@@ -14,7 +14,7 @@ export interface RepresentativeCreateFormData {
   phone: string;
   name: string;
   password?: string; // Optional - only required for system access
-  customerId: string;
+  customerId?: string; // Optional - representative can exist without customer
   role: RepresentativeRole;
   isActive?: boolean;
 }
