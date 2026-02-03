@@ -614,6 +614,27 @@ export class PpeController {
     return this.ppeDeliveryService.findMany(filteredQuery);
   }
 
+  @Get('deliveries/my-team')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getMyTeamPpeDeliveries(
+    @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
+    @UserId() userId: string,
+  ): Promise<PpeDeliveryGetManyResponse> {
+    // Team leaders from any sector can see PPE deliveries for users in their managed sector
+    // The service verifies the user is a team leader with a managed sector
+    return this.ppeDeliveryService.findManyForTeam(query, userId);
+  }
+
   @Get('deliveries/my-available')
   @Roles(
     SECTOR_PRIVILEGES.MAINTENANCE,
@@ -634,6 +655,41 @@ export class PpeController {
   ): Promise<PpeDeliveryGetManyResponse> {
     // Production workers can see available PPE items for themselves
     return this.ppeDeliveryService.findAvailablePpeForUser(userId, ppeType, query.include);
+  }
+
+  /**
+   * Get PPE items filtered by user's size for the PPE delivery request form
+   * Returns items that match the user's configured size for each PPE type
+   */
+  @Get('items/available')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getAvailablePpeItems(
+    @UserId() userId: string,
+    @Query('ppeType') ppeType?: PPE_TYPE,
+    @Query('forUserId') forUserId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+  ): Promise<any> {
+    // Admin/HR can request items for another user
+    const targetUserId = forUserId || userId;
+    return this.ppeDeliveryService.findAvailablePpeItems(
+      targetUserId,
+      ppeType,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 50,
+      search,
+    );
   }
 
   @Post('deliveries/request')

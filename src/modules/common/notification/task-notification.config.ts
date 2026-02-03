@@ -145,7 +145,15 @@ export const FIELD_ALLOWED_ROLES: Record<string, SECTOR_PRIVILEGES[]> = {
     SECTOR_PRIVILEGES.COMMERCIAL,
   ],
 
-  // NEGOTIATION events - visible to privileged users only
+  // REPRESENTATIVE events - visible to privileged users only
+  representatives: [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.DESIGNER,
+  ],
+  // DEPRECATED: Kept for backward compatibility with existing preferences
   negotiatingWith: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.FINANCIAL,
@@ -919,7 +927,70 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
   },
 
   // =====================
-  // NEGOTIATION FIELDS
+  // REPRESENTATIVE FIELDS
+  // =====================
+  {
+    field: 'representatives',
+    label: 'Representantes',
+    category: TaskFieldCategory.NEGOTIATION,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP],
+    enabled: true,
+    isFileArray: false,
+    messages: {
+      updated: {
+        inApp: 'Representantes atualizados: {newValue}',
+        push: 'Representantes: {newValue}',
+        email: {
+          subject: '👥 Representantes - Tarefa #{serialNumber}',
+          body: 'Os representantes da tarefa "{taskName}" foram atualizados para "{newValue}" por {changedBy}.',
+        },
+        whatsapp: '👥 Representantes da tarefa #{serialNumber}: {newValue}.',
+      },
+      cleared: {
+        inApp: 'Representantes removidos',
+        push: 'Representantes removidos',
+        email: {
+          subject: 'Representantes removidos - Tarefa #{serialNumber}',
+          body: 'Os representantes da tarefa "{taskName}" foram removidos por {changedBy}.',
+        },
+        whatsapp: '👥 Representantes da tarefa #{serialNumber} foram removidos.',
+      },
+    },
+    formatter: 'formatRepresentatives',
+  },
+  {
+    field: 'representativeIds',
+    label: 'Representantes',
+    category: TaskFieldCategory.NEGOTIATION,
+    importance: NOTIFICATION_IMPORTANCE.NORMAL,
+    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP],
+    enabled: true,
+    isFileArray: false,
+    messages: {
+      updated: {
+        inApp: 'Representantes atualizados',
+        push: 'Representantes atualizados',
+        email: {
+          subject: '👥 Representantes - Tarefa #{serialNumber}',
+          body: 'Os representantes da tarefa "{taskName}" foram atualizados por {changedBy}.',
+        },
+        whatsapp: '👥 Representantes da tarefa #{serialNumber} foram atualizados.',
+      },
+      cleared: {
+        inApp: 'Representantes removidos',
+        push: 'Representantes removidos',
+        email: {
+          subject: 'Representantes removidos - Tarefa #{serialNumber}',
+          body: 'Os representantes da tarefa "{taskName}" foram removidos por {changedBy}.',
+        },
+        whatsapp: '👥 Representantes da tarefa #{serialNumber} foram removidos.',
+      },
+    },
+  },
+
+  // =====================
+  // NEGOTIATION FIELDS (DEPRECATED - kept for historical data)
   // =====================
   {
     field: 'negotiatingWith',

@@ -1,10 +1,8 @@
 import { Representative as PrismaRepresentative, RepresentativeRole, Customer, Task } from '@prisma/client';
-import { CustomerResponse } from './customer';
-import { TaskResponse } from './task';
 
 export interface Representative extends PrismaRepresentative {
-  customer?: Customer | CustomerResponse;
-  tasks?: Task[] | TaskResponse[];
+  customer?: Customer;
+  tasks?: Task[];
 }
 
 export type RepresentativeResponse = Representative;
@@ -38,8 +36,17 @@ export interface RepresentativeRegisterFormData extends RepresentativeCreateForm
 }
 
 export interface RepresentativeInclude {
-  customer?: boolean;
-  tasks?: boolean;
+  customer?: boolean | {
+    include?: {
+      logo?: boolean;
+    };
+  };
+  tasks?: boolean | {
+    include?: {
+      customer?: boolean;
+      sector?: boolean;
+    };
+  };
 }
 
 export interface RepresentativeOrderBy {
@@ -51,14 +58,16 @@ export interface RepresentativeOrderBy {
 
 export interface RepresentativeWhere {
   id?: string;
-  email?: string;
-  phone?: string;
-  name?: { contains?: string };
+  email?: string | { contains?: string; mode?: 'insensitive' | 'default' };
+  phone?: string | { contains?: string };
+  name?: { contains?: string; mode?: 'insensitive' | 'default' };
   customerId?: string;
   role?: RepresentativeRole;
   isActive?: boolean;
   verified?: boolean;
   customer?: {
-    fantasyName?: { contains?: string };
+    fantasyName?: { contains?: string; mode?: 'insensitive' | 'default' };
   };
+  OR?: RepresentativeWhere[];
+  AND?: RepresentativeWhere[];
 }

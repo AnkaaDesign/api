@@ -732,12 +732,14 @@ export class ItemPrismaRepository
       page = 1,
       take = 20,
       include,
+      select,
     } = optionsWithTake as {
       where?: ItemWhere;
       orderBy?: ItemOrderBy;
       page?: number;
       take?: number;
       include?: ItemInclude;
+      select?: any;
     };
     const skip = Math.max(0, (page - 1) * take);
 
@@ -751,9 +753,31 @@ export class ItemPrismaRepository
     // Use normal Prisma sorting for totalPrice and other fields
     const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };
 
-    // If no custom include is provided, use optimized select instead
-    // This significantly reduces data transfer
-    const useOptimizedSelect = !include || Object.keys(include).length === 0;
+    // Prioritize select over include - if select is provided, use it
+    const useProvidedSelect = select && Object.keys(select).length > 0;
+    // If no custom include or select is provided, use optimized select instead
+    const useOptimizedSelect = !useProvidedSelect && (!include || Object.keys(include).length === 0);
+
+    // If select is explicitly provided, use it
+    if (useProvidedSelect) {
+      const [total, items] = await Promise.all([
+        transaction.item.count({
+          where: this.mapWhereToDatabaseWhere(where),
+        }),
+        transaction.item.findMany({
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: prismaOrderBy,
+          skip,
+          take,
+          select,
+        }),
+      ]);
+
+      return {
+        data: items as any[],
+        meta: this.calculatePagination(total, page, take),
+      };
+    }
 
     if (useOptimizedSelect) {
       const [total, items] = await Promise.all([

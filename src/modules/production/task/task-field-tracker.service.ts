@@ -52,7 +52,9 @@ const TRACKED_FIELDS = [
   'forecastDate',
   'sectorId',
   'commission',
-  'negotiatingWith',
+  'negotiatingWith', // DEPRECATED - kept for backward compatibility
+  'representatives',
+  'representativeIds',
   'artworks', // array of files
   'budgets', // array of files
   'invoices', // array of files

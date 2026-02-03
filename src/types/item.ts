@@ -290,7 +290,12 @@ export interface ItemSelect {
   brand?: boolean | { select?: ItemBrandSelect };
   category?: boolean | { select?: ItemCategorySelect };
   supplier?: boolean;
-  prices?: boolean | { select?: { id?: boolean; value?: boolean; createdAt?: boolean } };
+  prices?: boolean | {
+    select?: { id?: boolean; value?: boolean; createdAt?: boolean };
+    take?: number;
+    skip?: number;
+    orderBy?: { id?: 'asc' | 'desc'; value?: 'asc' | 'desc'; createdAt?: 'asc' | 'desc' };
+  };
   measures?: boolean;
   activities?: boolean;
   borrows?: boolean;

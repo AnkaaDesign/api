@@ -274,14 +274,19 @@ export class CustomerPrismaRepository
       page = 1,
       take = 20,
       include,
+      select,
     } = optionsWithTake as {
       where?: CustomerWhere;
       orderBy?: CustomerOrderBy;
       page?: number;
       take?: number;
       include?: CustomerInclude;
+      select?: any;
     };
     const skip = Math.max(0, (page - 1) * take);
+
+    // Prioritize select over include
+    const useProvidedSelect = select && Object.keys(select).length > 0;
 
     const [total, customers] = await Promise.all([
       transaction.customer.count({
@@ -292,17 +297,23 @@ export class CustomerPrismaRepository
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { fantasyName: 'asc' },
         skip,
         take,
-        include:
-          include !== undefined
-            ? this.mapIncludeToDatabaseInclude(include)
-            : this.getDefaultInclude(),
+        ...(useProvidedSelect
+          ? { select }
+          : {
+              include:
+                include !== undefined
+                  ? this.mapIncludeToDatabaseInclude(include)
+                  : this.getDefaultInclude(),
+            }),
       }),
     ]);
 
     return {
-      data: customers.map(customer =>
-        this.mapDatabaseEntityToEntity(customer as unknown as CustomerDatabaseEntity),
-      ),
+      data: useProvidedSelect
+        ? (customers as any[])
+        : customers.map(customer =>
+            this.mapDatabaseEntityToEntity(customer as unknown as CustomerDatabaseEntity),
+          ),
       meta: this.calculatePagination(total, page, take),
     };
   }

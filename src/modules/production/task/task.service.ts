@@ -65,9 +65,9 @@ import {
 import {
   getServiceOrderUpdatesForTaskStatusChange,
   getTaskUpdateForServiceOrderStatusChange,
-  getServiceOrderStatusOrder,
   getTaskUpdateForArtworkServiceOrderStatusChange,
 } from '../../../utils/task-service-order-sync';
+import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import {
   getBidirectionalSyncActions,
   combineServiceOrderToPricingDescription,
@@ -5654,6 +5654,7 @@ export class TaskService {
         take: query.limit,
         orderBy: query.orderBy as TaskOrderBy,
         include: query.include as TaskInclude,
+        select: query.select,
       };
 
       const result = await this.tasksRepository.findMany(params);
@@ -5713,6 +5714,9 @@ export class TaskService {
       'chassis',
       'nfeIds',
       'receiptIds',
+      'serviceOrders', // Financial can manage COMMERCIAL, LOGISTIC, FINANCIAL service orders
+      'artworkIds', // Sent by form to preserve existing artwork state (Financial can't add/remove artworks via UI)
+      'artworkStatuses', // Sent by form to preserve existing artwork statuses
       // Note: budget/invoice/receipt file uploads are handled separately via files parameter
     ];
 
@@ -7422,6 +7426,15 @@ export class TaskService {
                 },
               }
             },
+            representatives: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                role: true,
+              },
+            },
           },
         });
 
@@ -7481,6 +7494,15 @@ export class TaskService {
                     amount: true,
                   },
                 },
+              },
+            },
+            representatives: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                role: true,
               },
             },
           },

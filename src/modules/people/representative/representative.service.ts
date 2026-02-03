@@ -4,15 +4,17 @@ import { HashService } from '@/modules/common/hash/hash.service';
 import { ChangeLogService } from '@/modules/common/changelog/changelog.service';
 import {
   Representative,
-  RepresentativeCreateFormData,
-  RepresentativeUpdateFormData,
-  RepresentativeLoginFormData,
-  RepresentativeRegisterFormData,
   RepresentativeInclude,
   RepresentativeOrderBy,
   RepresentativeWhere,
   RepresentativeResponse,
 } from '@/types/representative';
+import {
+  RepresentativeCreateFormData,
+  RepresentativeUpdateFormData,
+  RepresentativeLoginFormData,
+  RepresentativeRegisterFormData,
+} from '@/schemas/representative';
 import { ENTITY_TYPE, CHANGE_ACTION } from '@/constants/enums';
 import { PrismaService } from '@/modules/common/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';

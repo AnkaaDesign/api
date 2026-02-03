@@ -605,7 +605,8 @@ export class TaskPrismaRepository
       dataWithoutNewReps.representativeIds = [...existingRepIds, ...additionalRepIds];
     }
 
-    return super.create(dataWithoutNewReps, options, tx);
+    // Call the concrete implementation (not super, since it's abstract in base)
+    return this.createWithTransaction(tx || this.prisma, dataWithoutNewReps, options);
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
@@ -628,7 +629,6 @@ export class TaskPrismaRepository
       invoiceToId,
       sectorId,
       commission,
-      negotiatingWith,
       budgetIds,
       invoiceIds,
       receiptIds,
@@ -659,17 +659,6 @@ export class TaskPrismaRepository
     if (startedAt !== undefined) taskData.startedAt = startedAt;
     if (finishedAt !== undefined) taskData.finishedAt = finishedAt;
     if (forecastDate !== undefined) taskData.forecastDate = forecastDate;
-
-    if (negotiatingWith !== undefined) {
-      const hasValues = negotiatingWith &&
-                       typeof negotiatingWith === 'object' &&
-                       Object.keys(negotiatingWith).length > 0 &&
-                       Object.values(negotiatingWith).some(v => v !== null && v !== undefined);
-
-      if (hasValues || negotiatingWith === null) {
-        taskData.negotiatingWith = negotiatingWith;
-      }
-    }
 
     if (customerId) taskData.customer = { connect: { id: customerId } };
     if (invoiceToId) taskData.invoiceTo = { connect: { id: invoiceToId } };
@@ -867,7 +856,8 @@ export class TaskPrismaRepository
       dataWithoutNewReps.representativeIds = [...existingRepIds, ...additionalRepIds];
     }
 
-    return super.update(id, dataWithoutNewReps, options, tx);
+    // Call the concrete implementation (not super, since it's abstract in base)
+    return this.updateWithTransaction(tx || this.prisma, id, dataWithoutNewReps, options);
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
@@ -893,7 +883,6 @@ export class TaskPrismaRepository
       invoiceToId,
       sectorId,
       commission,
-      negotiatingWith,
       budgetIds,
       invoiceIds,
       receiptIds,
@@ -920,17 +909,6 @@ export class TaskPrismaRepository
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
     if (forecastDate !== undefined) updateData.forecastDate = forecastDate;
-
-    if (negotiatingWith !== undefined) {
-      const hasValues = negotiatingWith &&
-                       typeof negotiatingWith === 'object' &&
-                       Object.keys(negotiatingWith).length > 0 &&
-                       Object.values(negotiatingWith).some(v => v !== null && v !== undefined);
-
-      if (hasValues || negotiatingWith === null) {
-        updateData.negotiatingWith = negotiatingWith;
-      }
-    }
 
     if (commission !== undefined) updateData.commission = commission as any;
 
@@ -1420,15 +1398,16 @@ export class TaskPrismaRepository
     options?: FindManyOptions<TaskOrderBy, TaskWhere, TaskInclude>,
   ): Promise<FindManyResult<Task>> {
     const queryOptions = (options as any) || {};
-    const { where, orderBy, page = 1, include } = queryOptions;
+    const { where, orderBy, page = 1, include, select } = queryOptions;
     const take = queryOptions.take || queryOptions.limit || 20;
     const skip = Math.max(0, (page - 1) * take);
 
     const mappedWhere = this.mapWhereToDatabaseWhere(where);
     const countOptions = mappedWhere ? { where: mappedWhere } : undefined;
 
-    // Use optimal query pattern
-    const queryPattern = this.getOptimalQueryPattern(options);
+    // Prioritize explicit select over include and optimal query pattern
+    const useProvidedSelect = select && Object.keys(select).length > 0;
+    const queryPattern = useProvidedSelect ? { select } : this.getOptimalQueryPattern(options);
 
     const [total, tasks] = await Promise.all([
       transaction.task.count(countOptions),
@@ -1447,8 +1426,9 @@ export class TaskPrismaRepository
       );
     }
 
+    // When using custom select, don't try to map the entity (just return as-is)
     return {
-      data: tasks.map(task => this.mapDatabaseEntityToEntity(task)),
+      data: useProvidedSelect ? tasks as any[] : tasks.map(task => this.mapDatabaseEntityToEntity(task)),
       meta: super.calculatePagination(total, page, take),
     };
   }
