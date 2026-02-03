@@ -50,6 +50,74 @@ export const customerIncludeSchema = z
   .partial();
 
 // =====================
+// Select Schema for Partial Field Selection
+// =====================
+
+export const customerSelectSchema = z
+  .object({
+    // Scalar fields
+    id: z.boolean().optional(),
+    fantasyName: z.boolean().optional(),
+    cnpj: z.boolean().optional(),
+    cpf: z.boolean().optional(),
+    corporateName: z.boolean().optional(),
+    email: z.boolean().optional(),
+    phone: z.boolean().optional(),
+    mobilePhone: z.boolean().optional(),
+    address: z.boolean().optional(),
+    addressNumber: z.boolean().optional(),
+    addressComplement: z.boolean().optional(),
+    neighborhood: z.boolean().optional(),
+    city: z.boolean().optional(),
+    state: z.boolean().optional(),
+    zipCode: z.boolean().optional(),
+    site: z.boolean().optional(),
+    logoId: z.boolean().optional(),
+    economicActivityId: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+
+    // Relations - can be true or nested select
+    logo: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    economicActivity: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+        }),
+      ])
+      .optional(),
+    tasks: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.any().optional(),
+          where: z.any().optional(),
+          orderBy: z.any().optional(),
+          take: z.number().optional(),
+          skip: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z.record(z.boolean()).optional(),
+        }),
+      ])
+      .optional(),
+  })
+  .partial();
+
+// =====================
 // OrderBy Schema
 // =====================
 
@@ -642,6 +710,7 @@ export const customerGetManySchema = z
     where: customerWhereSchema.optional(),
     orderBy: customerOrderBySchema.optional(),
     include: customerIncludeSchema.optional(),
+    select: customerSelectSchema.optional(),
 
     // Convenience filters
     ...customerFilters,
@@ -938,6 +1007,7 @@ export type CustomerBatchUpdateFormData = z.infer<typeof customerBatchUpdateSche
 export type CustomerBatchDeleteFormData = z.infer<typeof customerBatchDeleteSchema>;
 
 export type CustomerInclude = z.infer<typeof customerIncludeSchema>;
+export type CustomerSelect = z.infer<typeof customerSelectSchema>;
 export type CustomerOrderBy = z.infer<typeof customerOrderBySchema>;
 export type CustomerWhere = z.infer<typeof customerWhereSchema>;
 

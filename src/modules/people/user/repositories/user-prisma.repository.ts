@@ -338,13 +338,11 @@ export class UserPrismaRepository
     try {
       const useSelect = options?.select && Object.keys(options.select).length > 0;
 
-      const result = await transaction.user.findUnique({
-        where: { id },
-        ...(useSelect
-          ? { select: options.select }
-          : { include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() }
-        ),
-      });
+      const queryArgs = useSelect
+        ? { where: { id }, select: options.select }
+        : { where: { id }, include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() };
+
+      const result = await transaction.user.findUnique(queryArgs as any);
 
       return result
         ? (useSelect ? result as any : this.mapDatabaseEntityToEntity(result))
@@ -363,13 +361,11 @@ export class UserPrismaRepository
     try {
       const useSelect = options?.select && Object.keys(options.select).length > 0;
 
-      const results = await transaction.user.findMany({
-        where: { id: { in: ids } },
-        ...(useSelect
-          ? { select: options.select }
-          : { include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() }
-        ),
-      });
+      const queryArgs = useSelect
+        ? { where: { id: { in: ids } }, select: options.select }
+        : { where: { id: { in: ids } }, include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() };
+
+      const results = await transaction.user.findMany(queryArgs as any);
 
       return useSelect
         ? results as any[]
@@ -406,20 +402,27 @@ export class UserPrismaRepository
     // Determine whether to use select or include
     const useSelect = select && Object.keys(select).length > 0;
 
+    const findManyArgs = useSelect
+      ? {
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          select,
+        }
+      : {
+          where: this.mapWhereToDatabaseWhere(where),
+          orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
+          skip,
+          take,
+          include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        };
+
     const [total, users] = await Promise.all([
       transaction.user.count({
         where: this.mapWhereToDatabaseWhere(where),
       }),
-      transaction.user.findMany({
-        where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { name: 'asc' },
-        skip,
-        take,
-        ...(useSelect
-          ? { select }
-          : { include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude() }
-        ),
-      }),
+      transaction.user.findMany(findManyArgs as any),
     ]);
 
     return {

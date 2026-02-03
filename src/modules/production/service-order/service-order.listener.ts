@@ -212,7 +212,6 @@ export class ServiceOrderListener {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         importance: NOTIFICATION_IMPORTANCE.HIGH,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
@@ -357,7 +356,6 @@ export class ServiceOrderListener {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         importance: NOTIFICATION_IMPORTANCE.NORMAL,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
@@ -374,7 +372,7 @@ export class ServiceOrderListener {
           completedBy: completedByName,
           startedBy: startedByName,
           approvedBy: approvedByName,
-          eventType: 'my.completed',
+          eventType: 'my_completed',
         },
       });
 
@@ -485,7 +483,6 @@ export class ServiceOrderListener {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         importance: NOTIFICATION_IMPORTANCE.HIGH,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_SERVICE_ORDER,
@@ -641,7 +638,7 @@ export class ServiceOrderListener {
             relatedEntityType: 'SERVICE_ORDER',
             relatedEntityId: serviceOrder.id,
             isMandatory: false,
-            metadata: { ...baseMetadata, eventType: 'assigned.updated' },
+            metadata: { ...baseMetadata, eventType: 'assigned_updated' },
           });
           notifiedUserIds.add(assignedToId);
           this.logger.log(`[SERVICE ORDER EVENT] Notified assigned user (assigned.updated)`);
@@ -672,7 +669,7 @@ export class ServiceOrderListener {
             relatedEntityType: 'SERVICE_ORDER',
             relatedEntityId: serviceOrder.id,
             isMandatory: false,
-            metadata: { ...baseMetadata, eventType: 'my.updated' },
+            metadata: { ...baseMetadata, eventType: 'my_updated' },
           });
           notifiedUserIds.add(creatorId);
           this.logger.log(`[SERVICE ORDER EVENT] Notified creator (my.updated)`);
@@ -794,7 +791,7 @@ export class ServiceOrderListener {
           taskIdentifier,
           changedBy: changedByName,
           changedFields: changes,
-          eventType: 'assigned.updated',
+          eventType: 'assigned_updated',
         },
       });
 
@@ -836,7 +833,7 @@ export class ServiceOrderListener {
               taskIdentifier,
               changedBy: changedByName,
               changedFields: changes,
-              eventType: 'my.updated',
+              eventType: 'my_updated',
             },
           });
           this.logger.log('[SERVICE ORDER EVENT] ✅ Update notification also sent to creator');

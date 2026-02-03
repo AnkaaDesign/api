@@ -987,41 +987,41 @@ export class FileService {
         const associations = await tx.file.findUnique({
           where: { id },
           include: {
-            artworks: { take: 1 }, // NEW: Artwork entities that reference this file
-            customerLogo: { take: 1 },
-            supplierLogo: { take: 1 },
-            observations: { take: 1 },
-            warning: { take: 1 },
-            taskBudgets: { take: 1 },
-            taskInvoices: { take: 1 },
-            taskReceipts: { take: 1 },
-            orderBudgets: { take: 1 },
-            orderInvoices: { take: 1 },
-            orderReceipts: { take: 1 },
-            airbrushingReceipts: { take: 1 },
-            airbrushingInvoices: { take: 1 },
-            externalWithdrawalInvoices: { take: 1 },
-            externalWithdrawalReceipts: { take: 1 },
+            artworks: true,
+            customerLogo: true,
+            supplierLogo: true,
+            observations: true,
+            warning: true,
+            taskBudgets: true,
+            taskInvoices: true,
+            taskReceipts: true,
+            orderBudgets: true,
+            orderInvoices: true,
+            orderReceipts: true,
+            airbrushingReceipts: true,
+            airbrushingInvoices: true,
+            externalWithdrawalInvoices: true,
+            externalWithdrawalReceipts: true,
           },
         });
 
         if (associations) {
           const hasAssociations =
-            associations.artworks.length > 0 || // NEW: Check Artwork associations
-            associations.customerLogo.length > 0 ||
-            associations.supplierLogo.length > 0 ||
-            associations.observations.length > 0 ||
+            !!associations.artworks || // artworks is one-to-one, not array
+            (associations.customerLogo?.length || 0) > 0 ||
+            (associations.supplierLogo?.length || 0) > 0 ||
+            (associations.observations?.length || 0) > 0 ||
             (associations.warning?.length || 0) > 0 ||
-            associations.taskBudgets.length > 0 ||
-            associations.taskInvoices.length > 0 ||
-            associations.taskReceipts.length > 0 ||
-            associations.orderBudgets.length > 0 ||
-            associations.orderInvoices.length > 0 ||
-            associations.orderReceipts.length > 0 ||
-            associations.airbrushingReceipts.length > 0 ||
-            associations.airbrushingInvoices.length > 0 ||
-            associations.externalWithdrawalInvoices.length > 0 ||
-            associations.externalWithdrawalReceipts.length > 0;
+            (associations.taskBudgets?.length || 0) > 0 ||
+            (associations.taskInvoices?.length || 0) > 0 ||
+            (associations.taskReceipts?.length || 0) > 0 ||
+            (associations.orderBudgets?.length || 0) > 0 ||
+            (associations.orderInvoices?.length || 0) > 0 ||
+            (associations.orderReceipts?.length || 0) > 0 ||
+            (associations.airbrushingReceipts?.length || 0) > 0 ||
+            (associations.airbrushingInvoices?.length || 0) > 0 ||
+            (associations.externalWithdrawalInvoices?.length || 0) > 0 ||
+            (associations.externalWithdrawalReceipts?.length || 0) > 0;
 
           if (hasAssociations) {
             throw new BadRequestException(
@@ -1296,27 +1296,27 @@ export class FileService {
           const associations = await tx.file.findUnique({
             where: { id: file.id },
             include: {
-              artworks: { take: 1 }, // NEW: Artwork entities that reference this file
-              customerLogo: { take: 1 },
-              supplierLogo: { take: 1 },
-              observations: { take: 1 },
-              warning: { take: 1 },
-              taskBudgets: { take: 1 },
-              taskInvoices: { take: 1 },
-              taskReceipts: { take: 1 },
-              orderBudgets: { take: 1 },
-              orderInvoices: { take: 1 },
-              orderReceipts: { take: 1 },
-              airbrushingReceipts: { take: 1 },
-              airbrushingInvoices: { take: 1 },
-              externalWithdrawalInvoices: { take: 1 },
-              externalWithdrawalReceipts: { take: 1 },
+              artworks: true,
+              customerLogo: true,
+              supplierLogo: true,
+              observations: true,
+              warning: true,
+              taskBudgets: true,
+              taskInvoices: true,
+              taskReceipts: true,
+              orderBudgets: true,
+              orderInvoices: true,
+              orderReceipts: true,
+              airbrushingReceipts: true,
+              airbrushingInvoices: true,
+              externalWithdrawalInvoices: true,
+              externalWithdrawalReceipts: true,
             },
           });
 
           if (associations) {
             const hasAssociations =
-              (associations.artworks?.length || 0) > 0 || // NEW: Check Artwork associations
+              !!associations.artworks || // artworks is one-to-one, not array
               (associations.customerLogo?.length || 0) > 0 ||
               (associations.supplierLogo?.length || 0) > 0 ||
               (associations.observations?.length || 0) > 0 ||

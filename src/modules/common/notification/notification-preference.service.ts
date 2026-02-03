@@ -448,7 +448,7 @@ export class NotificationPreferenceService {
       // TASK NOTIFICATIONS
       // ============================================
 
-      // Nova Tarefa (New Task) - MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
+      // Nova Tarefa (New Task) - MANDATORY: IN_APP, PUSH, WHATSAPP
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'created',
@@ -456,7 +456,6 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -472,7 +471,6 @@ export class NotificationPreferenceService {
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
@@ -484,7 +482,6 @@ export class NotificationPreferenceService {
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
@@ -497,7 +494,6 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -506,7 +502,7 @@ export class NotificationPreferenceService {
         ],
       },
 
-      // Prazo Alterado (Deadline Changed) - MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
+      // Prazo Alterado (Deadline Changed) - MANDATORY: IN_APP, PUSH, WHATSAPP
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'term',
@@ -514,7 +510,6 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -531,7 +526,6 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -544,7 +538,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'details',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -552,7 +546,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'serialNumber',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -560,7 +554,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'forecastDate',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -571,7 +565,6 @@ export class NotificationPreferenceService {
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
@@ -583,16 +576,23 @@ export class NotificationPreferenceService {
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
-      // Negociando Com (Negotiating With)
+      // Representantes (Representatives)
+      {
+        type: NOTIFICATION_TYPE.TASK,
+        eventType: 'representatives',
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
+        mandatoryChannels: [],
+      },
+
+      // Negociando Com (Negotiating With) - DEPRECATED, kept for historical data
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'negotiatingWith',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -600,7 +600,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'paintId',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -608,7 +608,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'observation',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -616,50 +616,29 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'commission',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
       // ============================================
       // SERVICE ORDER NOTIFICATIONS
-      // MANDATORY: IN_APP, PUSH, WHATSAPP | OPTIONAL: EMAIL
       // ============================================
 
-      // Service Order Completed
+      // Service Order Created (Nova Ordem de Serviço)
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
-        eventType: 'completed',
+        eventType: 'created',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
         ],
       },
 
-      // Artwork Waiting Approval
-      {
-        type: NOTIFICATION_TYPE.SERVICE_ORDER,
-        eventType: 'artwork-waiting-approval',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
-        ],
-      },
-
-      // Service Order Assigned
+      // Service Order Assigned (Atribuída a Mim)
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         eventType: 'assigned',
@@ -667,7 +646,6 @@ export class NotificationPreferenceService {
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
           NOTIFICATION_CHANNEL.WHATSAPP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
@@ -676,26 +654,38 @@ export class NotificationPreferenceService {
         ],
       },
 
-      // Service Order Created
+      // Service Order Assigned Updated (Atribuída a Mim Atualizada)
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
-        eventType: 'created',
+        eventType: 'assigned_updated',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.WHATSAPP,
         ],
       },
 
-      // Service Order Status Changed
+      // Service Order I Created Updated (Que Criei Atualizada)
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
-        eventType: 'status.changed',
+        eventType: 'my_updated',
+        channels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+        ],
+        mandatoryChannels: [
+          NOTIFICATION_CHANNEL.IN_APP,
+          NOTIFICATION_CHANNEL.PUSH,
+        ],
+      },
+
+      // Service Order I Created Completed (Que Criei Concluída)
+      {
+        type: NOTIFICATION_TYPE.SERVICE_ORDER,
+        eventType: 'my_completed',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
@@ -721,19 +711,19 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'status',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'fulfilled',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'cancelled',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
@@ -741,7 +731,6 @@ export class NotificationPreferenceService {
         eventType: 'overdue',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -754,13 +743,13 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.STOCK,
         eventType: 'low',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.STOCK,
         eventType: 'out',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
@@ -783,7 +772,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'expiration',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
@@ -791,7 +780,6 @@ export class NotificationPreferenceService {
         eventType: 'shortage',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -808,12 +796,10 @@ export class NotificationPreferenceService {
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
           NOTIFICATION_CHANNEL.PUSH,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
       },
 
@@ -831,11 +817,9 @@ export class NotificationPreferenceService {
         eventType: 'signature_rejected',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
       },
 
@@ -845,11 +829,9 @@ export class NotificationPreferenceService {
         eventType: 'signature_failed',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
         mandatoryChannels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
         ],
       },
 
@@ -875,7 +857,6 @@ export class NotificationPreferenceService {
         eventType: 'approved',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -885,7 +866,6 @@ export class NotificationPreferenceService {
         eventType: 'rejected',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -893,7 +873,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.VACATION,
         eventType: 'expiring',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 
@@ -906,7 +886,6 @@ export class NotificationPreferenceService {
         eventType: 'issued',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -916,7 +895,6 @@ export class NotificationPreferenceService {
         eventType: 'escalation',
         channels: [
           NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.EMAIL,
           NOTIFICATION_CHANNEL.PUSH,
         ],
         mandatoryChannels: [],
@@ -929,7 +907,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.SYSTEM,
         eventType: 'maintenance',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
       {
@@ -941,7 +919,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.SYSTEM,
         eventType: 'announcement',
-        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },
 

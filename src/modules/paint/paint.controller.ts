@@ -233,6 +233,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintGetManySchema))
@@ -344,6 +345,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintTypeGetManySchema))
@@ -399,6 +401,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintTypeGetByIdSchema))
@@ -440,6 +443,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintGroundGetManySchema))
@@ -500,6 +504,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintGroundGetByIdSchema))
@@ -541,6 +546,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaGetManySchema))
@@ -601,6 +607,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaGetByIdSchema))
@@ -638,6 +645,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async calculateComponentWeights(
@@ -684,6 +692,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaComponentGetManySchema))
@@ -757,6 +766,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintFormulaComponentGetByIdSchema))
@@ -799,6 +809,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintProductionGetManySchema))
@@ -814,6 +825,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   @UsePipes(new ZodQueryValidationPipe(paintProductionGetByIdSchema))
@@ -902,6 +914,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getPaintBrands(
@@ -922,6 +935,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getAvailablePaintBrands() {
@@ -934,6 +948,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getPaintsByBrandName(
@@ -963,6 +978,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getPaintsByBrand(
@@ -994,6 +1010,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getComponentsByPaintFilters(
@@ -1016,6 +1033,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getAvailableComponents(
@@ -1037,6 +1055,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getAvailableComponentsByBrand(
@@ -1057,6 +1076,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async validateComponentCompatibility(
@@ -1084,6 +1104,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getCompatibilityMatrix() {
@@ -1101,6 +1122,7 @@ export class PaintUnifiedController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.DESIGNER,
     SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getSuggestedComponents(

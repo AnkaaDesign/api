@@ -54,7 +54,7 @@ export class PpeSizePrismaRepository
     const { userId, ...rest } = formData;
 
     return {
-      ...rest,
+      ...(rest as Omit<Prisma.PpeSizeCreateInput, 'user'>),
       user: { connect: { id: userId } },
     };
   }
@@ -62,13 +62,7 @@ export class PpeSizePrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: PpeSizeUpdateFormData,
   ): Prisma.PpeSizeUpdateInput {
-    const { ...rest } = formData;
-
-    const updateInput: Prisma.PpeSizeUpdateInput = {
-      ...rest,
-    };
-
-    return updateInput;
+    return formData as unknown as Prisma.PpeSizeUpdateInput;
   }
 
   protected mapWhereToDatabaseWhere(where?: PpeSizeWhere): Prisma.PpeSizeWhereInput | undefined {

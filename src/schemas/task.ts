@@ -1753,6 +1753,40 @@ const taskTransform = (data: any): any => {
     delete data.preparationExcludeLogistic;
   }
 
+  // Design-specific display logic:
+  // Tasks should only display for design users until all artwork service orders are completed
+  // Also shows tasks that don't have an artwork service order yet
+  // Logic: Show task if:
+  // 1. Task has no ARTWORK service orders, OR
+  // 2. Task has at least one ARTWORK service order that is NOT COMPLETED/CANCELLED
+  if (data.shouldDisplayForDesigner === true) {
+    andConditions.push({
+      AND: [
+        // Not cancelled
+        { status: { not: 'CANCELLED' } },
+        // Either has no artwork service orders OR has incomplete artwork service orders
+        {
+          OR: [
+            // No artwork service orders at all
+            { serviceOrders: { none: { type: 'ARTWORK' } } },
+            // Has at least one incomplete artwork service order
+            {
+              serviceOrders: {
+                some: {
+                  AND: [
+                    { type: 'ARTWORK' },
+                    { status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    delete data.shouldDisplayForDesigner;
+  }
+
   if (data.hasAirbrushing === true) {
     andConditions.push({ airbrushing: { some: {} } });
     delete data.hasAirbrushing;
@@ -2170,6 +2204,7 @@ export const taskGetManySchema = z
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
     preparationExcludeFinancial: z.boolean().optional(), // When true, excludes FINANCIAL SO from preparation completion check
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
+    shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),

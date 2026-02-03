@@ -9,7 +9,7 @@ import {
   RepresentativeOrderBy,
   RepresentativeWhere,
 } from '@/types/representative';
-import { PrismaTransaction } from '@/types/prisma';
+import { PrismaTransaction } from '@/modules/common/base/base.repository';
 import { Prisma } from '@prisma/client';
 
 @Injectable()

@@ -46,9 +46,9 @@ import {
 } from '../../../constants/enums';
 import {
   getTaskUpdateForServiceOrderStatusChange,
-  getTaskStatusOrder,
   isStatusRollback,
 } from '../../../utils/task-service-order-sync';
+import { getTaskStatusOrder } from '../../../utils/sortOrder';
 import {
   getServiceOrderToPricingSync,
   type SyncPricingItem,

@@ -490,15 +490,17 @@ export function getTaskUpdateForServiceOrderStatusChange(
 
 /**
  * Get the status order value for a service order status
+ * (Internal helper - use getServiceOrderStatusOrder from sortOrder.ts for general use)
  */
-export function getServiceOrderStatusOrder(status: SERVICE_ORDER_STATUS): number {
+function getServiceOrderStatusOrderInternal(status: SERVICE_ORDER_STATUS): number {
   return SERVICE_ORDER_STATUS_ORDER[status] || 1;
 }
 
 /**
  * Get the status order value for a task status
+ * (Internal helper - use getTaskStatusOrder from sortOrder.ts for general use)
  */
-export function getTaskStatusOrder(status: TASK_STATUS): number {
+function getTaskStatusOrderInternal(status: TASK_STATUS): number {
   return TASK_STATUS_ORDER[status] || 1;
 }
 
@@ -509,8 +511,8 @@ export function isStatusRollback(
   oldStatus: SERVICE_ORDER_STATUS,
   newStatus: SERVICE_ORDER_STATUS,
 ): boolean {
-  const oldOrder = getServiceOrderStatusOrder(oldStatus);
-  const newOrder = getServiceOrderStatusOrder(newStatus);
+  const oldOrder = getServiceOrderStatusOrderInternal(oldStatus);
+  const newOrder = getServiceOrderStatusOrderInternal(newStatus);
   return newOrder < oldOrder;
 }
 
@@ -518,8 +520,8 @@ export function isStatusRollback(
  * Check if this is a task status rollback
  */
 export function isTaskStatusRollback(oldStatus: TASK_STATUS, newStatus: TASK_STATUS): boolean {
-  const oldOrder = getTaskStatusOrder(oldStatus);
-  const newOrder = getTaskStatusOrder(newStatus);
+  const oldOrder = getTaskStatusOrderInternal(oldStatus);
+  const newOrder = getTaskStatusOrderInternal(newStatus);
   return newOrder < oldOrder;
 }
 

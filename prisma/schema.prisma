@@ -355,17 +355,12 @@ model PpeDelivery {
   clicksignSignerKey       String?
   clicksignSignedAt        DateTime?
   deliveryDocumentId       String?
-  signatureMethod          String?
-  signatureTermsAcceptedAt DateTime?
-  signatureDeviceInfo      Json?
-  signatureIpAddress       String?
   signatureBatchId         String?
   deliveryDocument         File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
   item                     Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
   ppeSchedule              PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
   reviewedByUser           User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
   user                     User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
-  SignatureAuditLog        SignatureAuditLog[]
 
   @@index([userId])
   @@index([itemId])
@@ -1399,7 +1394,6 @@ model User {
   completedServiceOrders  ServiceOrder[]               @relation("SERVICE_ORDER_COMPLETED_BY")
   createdServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_CREATED_BY")
   startedServiceOrders    ServiceOrder[]               @relation("SERVICE_ORDER_STARTED_BY")
-  SignatureAuditLog       SignatureAuditLog[]
   createdTasks            Task[]                       @relation("TASK_CREATED_BY")
   taskFieldChangeLogs     TaskFieldChangeLog[]         @relation("TASK_FIELD_CHANGE_USER")
   avatar                  File?                        @relation("USER_AVATAR", fields: [avatarId], references: [id])
@@ -1841,10 +1835,13 @@ model Backup {
   autoDeleteRetention String?
   autoDeleteAfter     DateTime?
   filePath            String?
-  gdriveFileId        String?
-  gdriveStatus        GDriveSyncStatus @default(PENDING)
-  gdriveSyncedAt      DateTime?
-  scheduleId          String?
+  gdriveFileId          String?
+  gdriveStatus          GDriveSyncStatus   @default(PENDING)
+  gdriveSyncedAt        DateTime?
+  gdriveDeleteStatus    GDriveDeleteStatus?
+  gdriveDeleteError     String?
+  gdriveDeleteAttempts  Int                @default(0)
+  scheduleId            String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   completedAt         DateTime?
@@ -1863,25 +1860,6 @@ model Backup {
   @@index([createdById])
   @@index([deletedAt])
   @@index([gdriveStatus])
-}
-
-model SignatureAuditLog {
-  id              String      @id
-  ppeDeliveryId   String
-  userId          String
-  action          String
-  signatureMethod String
-  deviceInfo      Json?
-  ipAddress       String?
-  metadata        Json?
-  createdAt       DateTime    @default(now())
-  PpeDelivery     PpeDelivery @relation(fields: [ppeDeliveryId], references: [id], onDelete: Cascade)
-  User            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([action])
-  @@index([createdAt])
-  @@index([ppeDeliveryId])
-  @@index([userId])
 }
 
 model Representative {
@@ -2269,6 +2247,7 @@ enum NotificationType {
   STOCK_LOW
   STOCK_OUT
   STOCK_REORDER
+  CUT
 }
 
 enum NotificationImportance {
@@ -2930,4 +2909,10 @@ enum GDriveSyncStatus {
   SYNCED
   FAILED
   DELETED
+}
+
+enum GDriveDeleteStatus {
+  PENDING
+  DELETED
+  FAILED
 }

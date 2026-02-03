@@ -1500,6 +1500,28 @@ export class ExternalWithdrawalService {
   }
 
   /**
+   * Update external withdrawal status to LIQUIDATED
+   */
+  async markAsLiquidated(
+    id: string,
+    data?: { notes?: string },
+    userId?: string,
+  ): Promise<ExternalWithdrawalUpdateResponse> {
+    return this.updateStatus(id, EXTERNAL_WITHDRAWAL_STATUS.LIQUIDATED, data?.notes, userId);
+  }
+
+  /**
+   * Update external withdrawal status to DELIVERED
+   */
+  async markAsDelivered(
+    id: string,
+    data?: { notes?: string },
+    userId?: string,
+  ): Promise<ExternalWithdrawalUpdateResponse> {
+    return this.updateStatus(id, EXTERNAL_WITHDRAWAL_STATUS.DELIVERED, data?.notes, userId);
+  }
+
+  /**
    * Update external withdrawal status to CANCELLED
    */
   async cancel(

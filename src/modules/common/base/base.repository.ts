@@ -12,6 +12,9 @@ import {
   UpdateManyOptions,
 } from '../../../types';
 
+// Re-export for modules that import from base.repository
+export { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions };
+
 export type PrismaTransaction = Omit<
   Prisma.TransactionClient,
   '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'

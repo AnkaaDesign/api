@@ -12,7 +12,7 @@ export const COPYABLE_TASK_FIELDS = [
   'entryDate',
   'forecastDate',
   'commission',
-  'negotiatingWith',
+  'representatives',
   // Reference IDs
   'customerId',
   'invoiceToId',
@@ -69,7 +69,7 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<
   entryDate: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
   term: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
   forecastDate: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
-  negotiatingWith: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
+  representatives: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
   customerId: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
 
   // Commission - disabled for Financial, Designer, Logistic, Warehouse

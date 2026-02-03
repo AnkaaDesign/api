@@ -933,6 +933,267 @@ export class PpeDeliveryService {
     };
   }
 
+  /**
+   * Find PPE deliveries for users in the manager's team/sector
+   * If user manages a sector, returns deliveries for users in that sector
+   * If user doesn't manage a sector, returns only their own deliveries
+   */
+  async findManyForTeam(
+    query: PpeDeliveryGetManyFormData,
+    managerId: string,
+  ): Promise<PpeDeliveryGetManyResponse> {
+    // Get the manager's managed sector
+    const manager = await this.userRepository.findById(managerId, {
+      include: {
+        managedSector: true,
+        sector: true,
+      },
+    });
+
+    if (!manager) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    // Get the sector ID to filter by
+    // Priority: managed sector > own sector
+    const sectorId = manager.managedSector?.id || manager.sectorId;
+
+    if (!sectorId) {
+      // User has no sector association, return empty result
+      return {
+        success: true,
+        message: 'Entregas de PPE da equipe listadas com sucesso.',
+        data: [],
+        meta: {
+          totalRecords: 0,
+          totalPages: 0,
+          page: query.page || 1,
+          take: query.take || query.limit || 20,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+    }
+
+    // Get all user IDs in the sector
+    const usersInSector = await this.prisma.user.findMany({
+      where: { sectorId },
+      select: { id: true },
+    });
+
+    const userIds = usersInSector.map(u => u.id);
+
+    if (userIds.length === 0) {
+      // No users in sector, return empty result
+      return {
+        success: true,
+        message: 'Entregas de PPE da equipe listadas com sucesso.',
+        data: [],
+        meta: {
+          totalRecords: 0,
+          totalPages: 0,
+          page: query.page || 1,
+          take: query.take || query.limit || 20,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      };
+    }
+
+    // Filter deliveries to only users in the sector using userId IN filter
+    const filteredQuery: PpeDeliveryGetManyFormData = {
+      ...query,
+      where: {
+        ...query.where,
+        userId: { in: userIds },
+      },
+    };
+
+    const result = await this.repository.findMany(filteredQuery);
+
+    return {
+      success: true,
+      message: 'Entregas de PPE da equipe listadas com sucesso.',
+      ...result,
+    };
+  }
+
+  /**
+   * Find available PPE items filtered by user's size and delivery mode
+   * Returns only items that:
+   * - Match the user's configured PPE size
+   * - Are available for on-demand delivery (ON_DEMAND or BOTH)
+   */
+  async findAvailablePpeItems(
+    userId: string,
+    ppeType?: PPE_TYPE,
+    page: number = 1,
+    limit: number = 50,
+    search?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    data: any[];
+    meta: {
+      totalRecords: number;
+      totalPages: number;
+      page: number;
+      take: number;
+      hasNextPage: boolean;
+      hasPreviousPage: boolean;
+    };
+  }> {
+    // Get user's PPE size configuration
+    const user = await this.userRepository.findById(userId, {
+      include: {
+        ppeSize: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuário não encontrado');
+    }
+
+    const userPpeSize = user.ppeSize;
+
+    // Helper function to get user's size for a PPE type
+    const getUserSizeForPpeType = (itemPpeType: string | null): string | null => {
+      if (!userPpeSize || !itemPpeType) return null;
+
+      switch (itemPpeType) {
+        case PPE_TYPE.SHIRT:
+          return userPpeSize.shirts;
+        case PPE_TYPE.PANTS:
+          return userPpeSize.pants;
+        case PPE_TYPE.SHORT:
+          // Use shorts field if available, fallback to pants
+          return userPpeSize.shorts || userPpeSize.pants;
+        case PPE_TYPE.BOOTS:
+          return userPpeSize.boots;
+        case PPE_TYPE.SLEEVES:
+          return userPpeSize.sleeves;
+        case PPE_TYPE.MASK:
+          return userPpeSize.mask;
+        case PPE_TYPE.GLOVES:
+          return userPpeSize.gloves;
+        case PPE_TYPE.RAIN_BOOTS:
+          return userPpeSize.rainBoots;
+        default:
+          return null;
+      }
+    };
+
+    // Build the base query for PPE items
+    // Only include items available for on-demand delivery
+    const whereConditions: any = {
+      isActive: true,
+      category: {
+        type: 'PPE',
+      },
+      // Only show items that can be requested on-demand
+      OR: [
+        { ppeDeliveryMode: 'ON_DEMAND' },
+        { ppeDeliveryMode: 'BOTH' },
+        { ppeDeliveryMode: null }, // Include items without delivery mode set (legacy)
+      ],
+    };
+
+    // Filter by ppeType if specified
+    if (ppeType) {
+      whereConditions.ppeType = ppeType;
+    } else {
+      // If no ppeType specified, only get items that have a ppeType configured
+      whereConditions.ppeType = { not: null };
+    }
+
+    // Add search filter if provided
+    if (search) {
+      whereConditions.AND = [
+        {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { uniCode: { contains: search, mode: 'insensitive' } },
+            { brand: { name: { contains: search, mode: 'insensitive' } } },
+          ],
+        },
+      ];
+    }
+
+    // Fetch all matching items (we need to filter by size in memory)
+    // Using a reasonable limit to prevent memory issues
+    const allItems = await this.prisma.item.findMany({
+      where: whereConditions,
+      include: {
+        brand: true,
+        category: true,
+        measures: {
+          where: { measureType: 'SIZE' },
+        },
+      },
+      orderBy: { name: 'asc' },
+      take: 500, // Reasonable limit for PPE items
+    });
+
+    // Filter items by size match
+    const matchingItems = allItems.filter((item) => {
+      // Get the item's size from measures
+      const sizeMeasure = item.measures?.find((m) => m.measureType === 'SIZE');
+      const itemSize = sizeMeasure?.unit || (sizeMeasure?.value ? String(sizeMeasure.value) : null);
+
+      // If item has no size defined, include it (generic item)
+      if (!itemSize) return true;
+
+      // Get user's size for this PPE type
+      const userSize = getUserSizeForPpeType(item.ppeType);
+
+      // If user has no size configured for this type, include all items
+      if (!userSize) return true;
+
+      // Normalize user size (remove SIZE_ prefix if present)
+      const normalizedUserSize = userSize.replace('SIZE_', '');
+
+      // Check if sizes match
+      return itemSize === normalizedUserSize;
+    });
+
+    // Calculate pagination on filtered results
+    const total = matchingItems.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const paginatedItems = matchingItems.slice(skip, skip + limit);
+
+    // Annotate items with size info for frontend display
+    const annotatedItems = paginatedItems.map((item) => {
+      const sizeMeasure = item.measures?.find((m) => m.measureType === 'SIZE');
+      const itemSize = sizeMeasure?.unit || (sizeMeasure?.value ? String(sizeMeasure.value) : null);
+      const userSize = getUserSizeForPpeType(item.ppeType);
+      const normalizedUserSize = userSize?.replace('SIZE_', '') || null;
+
+      return {
+        ...item,
+        itemSize,
+        userSize: normalizedUserSize,
+        sizeMatches: true, // All returned items match (we filtered above)
+        // Remove measures from response to keep it clean
+        measures: undefined,
+      };
+    });
+
+    return {
+      success: true,
+      message: 'Itens de PPE carregados com sucesso.',
+      data: annotatedItems,
+      meta: {
+        totalRecords: total,
+        totalPages,
+        page,
+        take: limit,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
   async update(
     id: string,
     data: PpeDeliveryUpdateFormData,

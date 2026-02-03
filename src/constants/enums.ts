@@ -1104,9 +1104,12 @@ export enum PPE_TYPE {
 export enum PPE_SIZE_TYPE {
   SHIRT = 'SHIRT',
   PANTS = 'PANTS',
+  SHORT = 'SHORT',
   BOOT = 'BOOT',
   GLOVE = 'GLOVE',
   MASK = 'MASK',
+  SLEEVES = 'SLEEVES',
+  RAIN_BOOTS = 'RAIN_BOOTS',
   OVERALL = 'OVERALL',
   HELMET = 'HELMET',
   UNIFORM = 'UNIFORM',

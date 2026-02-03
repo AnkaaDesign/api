@@ -56,7 +56,9 @@ const FIELD_LABELS: Record<string, string> = {
   paintId: 'Pintura',
   customerId: 'Cliente',
   invoiceToId: 'Faturar Para',
-  negotiatingWith: 'Negociando Com',
+  negotiatingWith: 'Negociando Com', // DEPRECATED - kept for historical data
+  representatives: 'Representantes',
+  representativeIds: 'Representantes',
   budgets: 'Orçamentos',
   invoices: 'Faturas',
   receipts: 'Recibos',
