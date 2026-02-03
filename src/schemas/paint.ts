@@ -263,6 +263,79 @@ export const paintBrandWhereSchema: z.ZodSchema<any> = z.lazy(() =>
     .strict(),
 );
 
+// =====================
+// Paint Select Schema - For field selection instead of full includes
+// =====================
+export const paintSelectSchema = z
+  .object({
+    // Basic fields
+    id: z.boolean().optional(),
+    name: z.boolean().optional(),
+    code: z.boolean().optional(),
+    hex: z.boolean().optional(),
+    finish: z.boolean().optional(),
+    manufacturer: z.boolean().optional(),
+    tags: z.boolean().optional(),
+    colorOrder: z.boolean().optional(),
+    colorPreview: z.boolean().optional(),
+    createdAt: z.boolean().optional(),
+    updatedAt: z.boolean().optional(),
+
+    // Foreign keys
+    paintTypeId: z.boolean().optional(),
+    paintBrandId: z.boolean().optional(),
+
+    // Relations - with nested select support
+    paintType: z.union([
+      z.boolean(),
+      z.object({
+        select: z.object({
+          id: z.boolean().optional(),
+          name: z.boolean().optional(),
+          type: z.boolean().optional(),
+          description: z.boolean().optional(),
+          needGround: z.boolean().optional(),
+        }).optional(),
+      }),
+    ]).optional(),
+
+    paintBrand: z.union([
+      z.boolean(),
+      z.object({
+        select: z.object({
+          id: z.boolean().optional(),
+          name: z.boolean().optional(),
+          code: z.boolean().optional(),
+          description: z.boolean().optional(),
+        }).optional(),
+      }),
+    ]).optional(),
+
+    // Count only for formulas - don't load actual data
+    _count: z.union([
+      z.boolean(),
+      z.object({
+        select: z.object({
+          formulas: z.boolean().optional(),
+          generalPaintings: z.boolean().optional(),
+          logoTasks: z.boolean().optional(),
+          paintGrounds: z.boolean().optional(),
+          groundPaintFor: z.boolean().optional(),
+        }).optional(),
+      }),
+    ]).optional(),
+
+    // Relations that should NOT be included in dropdown selects
+    formulas: z.boolean().optional(),  // Should be false for dropdowns
+    generalPaintings: z.boolean().optional(),
+    logoTasks: z.boolean().optional(),
+    relatedPaints: z.boolean().optional(),
+    relatedTo: z.boolean().optional(),
+    paintGrounds: z.boolean().optional(),
+    groundPaintFor: z.boolean().optional(),
+  })
+  .partial();
+
 export const paintIncludeSchema = z
   .object({
     _count: z
@@ -1269,6 +1342,7 @@ const paintTransform = (data: any) => {
 
 export const paintGetByIdSchema = z.object({
   include: paintIncludeSchema.optional(),
+  select: paintSelectSchema.optional(),  // Added select support for field selection
 });
 
 export const paintFormulaGetByIdSchema = z.object({
@@ -1297,6 +1371,7 @@ export const paintGetManySchema = z
     where: paintWhereSchema.optional(),
     orderBy: paintOrderBySchema.optional(),
     include: paintIncludeSchema.optional(),
+    select: paintSelectSchema.optional(),  // Added select support for field selection
 
     // Convenience filters
     ...paintFilters,
@@ -2654,6 +2729,7 @@ export type PaintTypeWhere = z.infer<typeof paintTypeWhereSchema>;
 // Paint types
 export type PaintGetManyFormData = z.infer<typeof paintGetManySchema>;
 export type PaintGetByIdFormData = z.infer<typeof paintGetByIdSchema>;
+export type PaintSelect = z.infer<typeof paintSelectSchema>;
 export type PaintQueryFormData = z.infer<typeof paintQuerySchema>;
 
 export type PaintCreateFormData = z.infer<typeof paintCreateSchema>;
