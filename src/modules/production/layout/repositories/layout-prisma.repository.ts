@@ -25,17 +25,24 @@ export class LayoutPrismaRepository implements LayoutRepository {
     });
   }
 
-  async findByTruckId(truckId: string): Promise<{
+  async findByTruckId(
+    truckId: string,
+    options?: { includePhoto?: boolean }
+  ): Promise<{
     leftSideLayout: Layout | null;
     rightSideLayout: Layout | null;
     backSideLayout: Layout | null;
   }> {
+    // Only include photo if explicitly requested (for library/detail views)
+    // Preview views don't need photo data
+    const includePhoto = options?.includePhoto ?? false;
+
     const truck = await this.prisma.truck.findUnique({
       where: { id: truckId },
       include: {
         leftSideLayout: {
           include: {
-            photo: true,
+            ...(includePhoto && { photo: true }),
             layoutSections: {
               orderBy: { position: 'asc' },
             },
@@ -43,7 +50,7 @@ export class LayoutPrismaRepository implements LayoutRepository {
         },
         rightSideLayout: {
           include: {
-            photo: true,
+            ...(includePhoto && { photo: true }),
             layoutSections: {
               orderBy: { position: 'asc' },
             },
@@ -51,7 +58,7 @@ export class LayoutPrismaRepository implements LayoutRepository {
         },
         backSideLayout: {
           include: {
-            photo: true,
+            ...(includePhoto && { photo: true }),
             layoutSections: {
               orderBy: { position: 'asc' },
             },

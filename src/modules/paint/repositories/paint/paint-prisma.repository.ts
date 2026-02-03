@@ -9,6 +9,7 @@ import {
   PaintInclude,
   PaintOrderBy,
   PaintWhere,
+  PaintSelect,
 } from '../../../../schemas/paint';
 import { FindManyOptions, FindManyResult, CreateOptions, UpdateOptions } from '../../../../types';
 import { PaintRepository } from './paint.repository';
@@ -265,6 +266,50 @@ export class PaintPrismaRepository
     return where as Prisma.PaintWhereInput | undefined;
   }
 
+  /**
+   * Maps the select schema to Prisma select format
+   * Handles nested select options for relations
+   */
+  protected mapSelectToDatabaseSelect(select?: PaintSelect): Prisma.PaintSelect | undefined {
+    if (!select) return undefined;
+
+    const mappedSelect: any = {};
+
+    for (const [key, value] of Object.entries(select)) {
+      if (typeof value === 'boolean') {
+        mappedSelect[key] = value;
+      } else if (typeof value === 'object' && value !== null) {
+        // Handle nested select for relations
+        mappedSelect[key] = value;
+      }
+    }
+
+    return mappedSelect as Prisma.PaintSelect;
+  }
+
+  /**
+   * Gets query options prioritizing select over include
+   * If select is provided, use it (for optimized field selection)
+   * If include is provided without select, use include (backward compatibility)
+   * Otherwise use default include
+   */
+  protected getQueryOptions(
+    options?: { include?: PaintInclude; select?: PaintSelect }
+  ): { select?: Prisma.PaintSelect } | { include?: Prisma.PaintInclude } {
+    // If select is provided, use it (higher priority for optimization)
+    if (options?.select) {
+      return { select: this.mapSelectToDatabaseSelect(options.select) };
+    }
+
+    // If include is provided, use it (backward compatibility)
+    if (options?.include) {
+      return { include: this.mapIncludeToDatabaseInclude(options.include) };
+    }
+
+    // Default: use minimal include for performance
+    return { include: this.getDefaultInclude() };
+  }
+
   protected getDefaultInclude(): Prisma.PaintInclude {
     // Light include for list views - avoids recursive component fetching
     return {
@@ -368,23 +413,18 @@ export class PaintPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: CreateOptions<PaintInclude>,
+    options?: CreateOptions<PaintInclude, PaintSelect>,
   ): Promise<Paint | null> {
     try {
-      // Fix the include mapping directly here
-      let includeInput = this.getDefaultInclude();
-
-      if (options?.include) {
-        const mappedInclude = this.mapIncludeToDatabaseInclude(options.include);
-        if (mappedInclude) {
-          // Ensure we're using the mapped version, not the original
-          includeInput = mappedInclude;
-        }
-      }
+      // Use getQueryOptions to handle select vs include prioritization
+      const queryOptions = this.getQueryOptions({
+        include: options?.include,
+        select: options?.select,
+      });
 
       const result = await transaction.paint.findUnique({
         where: { id },
-        include: includeInput,
+        ...queryOptions, // Spreads either { select } or { include }
       });
 
       return result ? this.mapDatabaseEntityToEntity(result) : null;
@@ -417,7 +457,7 @@ export class PaintPrismaRepository
 
   async findManyWithTransaction(
     transaction: PrismaTransaction,
-    options?: FindManyOptions<PaintOrderBy, PaintWhere, PaintInclude>,
+    options?: FindManyOptions<PaintOrderBy, PaintWhere, PaintInclude, PaintSelect>,
   ): Promise<FindManyResult<Paint>> {
     // Map 'limit' to 'take' for compatibility with schema
 
@@ -431,14 +471,19 @@ export class PaintPrismaRepository
       page = 1,
       take = 20,
       include,
+      select,
     } = optionsWithTake as {
       where?: PaintWhere;
       orderBy?: PaintOrderBy;
       page?: number;
       take?: number;
       include?: PaintInclude;
+      select?: PaintSelect;
     };
     const skip = Math.max(0, (page - 1) * take);
+
+    // Use getQueryOptions to handle select vs include prioritization
+    const queryOptions = this.getQueryOptions({ include, select });
 
     const [total, paints] = await Promise.all([
       transaction.paint.count({
@@ -449,7 +494,7 @@ export class PaintPrismaRepository
         orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { createdAt: 'desc' },
         skip,
         take,
-        include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),
+        ...queryOptions, // Spreads either { select } or { include }
       }),
     ]);
 
