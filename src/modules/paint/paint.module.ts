@@ -4,6 +4,7 @@ import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { ItemModule } from '@modules/inventory/item/item.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { FilesStorageModule } from '@modules/common/file/services/files-storage.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 // Controllers
 import { PaintUnifiedController } from './paint.controller';
 import { PaintBrandController } from './paint-brand.controller';
@@ -17,6 +18,9 @@ import { PaintProductionService } from './paint-production.service';
 import { PaintGroundService } from './paint-ground.service';
 import { PaintBrandService } from './paint-brand.service';
 import { PaintCompatibilityService } from './paint-compatibility.service';
+
+// Listeners
+import { PaintProductionListener } from './paint-production.listener';
 
 // Repositories
 import { PaintRepository } from './repositories/paint/paint.repository';
@@ -35,7 +39,7 @@ import { PaintBrandRepository } from './repositories/paint-brand/paint-brand.rep
 import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-brand-prisma.repository';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FilesStorageModule],
+  imports: [PrismaModule, ChangeLogModule, ItemModule, ActivityModule, FilesStorageModule, NotificationModule],
   exports: [
     PaintService,
     PaintTypeService,
@@ -57,6 +61,7 @@ import { PaintBrandPrismaRepository } from './repositories/paint-brand/paint-bra
     PaintGroundService,
     PaintBrandService,
     PaintCompatibilityService,
+    PaintProductionListener,
     {
       provide: PaintProductionRepository,
       useClass: PaintProductionPrismaRepository,

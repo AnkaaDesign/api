@@ -98,3 +98,56 @@ export class TaskOverdueEvent {
     public readonly daysOverdue: number,
   ) {}
 }
+
+/**
+ * Event emitted when task forecast date is approaching
+ * Used for preparation tasks (status PREPARATION/WAITING_PRODUCTION)
+ */
+export class TaskForecastApproachingEvent {
+  constructor(
+    public readonly task: Task,
+    public readonly daysRemaining: number,
+    public readonly hasIncompleteOrders: boolean,
+    public readonly incompleteOrderTypes: string[],
+  ) {}
+
+  /**
+   * Get a human-readable time remaining string
+   */
+  getTimeRemainingLabel(): string {
+    if (this.daysRemaining === 0) {
+      return 'hoje';
+    }
+    return `${this.daysRemaining} dia(s)`;
+  }
+
+  /**
+   * Check if this is urgent (today or has incomplete orders)
+   */
+  isUrgent(): boolean {
+    return this.daysRemaining === 0 || (this.daysRemaining <= 1 && this.hasIncompleteOrders);
+  }
+}
+
+/**
+ * Event emitted when task forecast date is overdue
+ */
+export class TaskForecastOverdueEvent {
+  constructor(
+    public readonly task: Task,
+    public readonly daysOverdue: number,
+    public readonly hasIncompleteOrders: boolean,
+    public readonly incompleteOrderTypes: string[],
+  ) {}
+}
+
+/**
+ * Event emitted when task status changes to WAITING_PRODUCTION
+ * Indicates task is ready for production
+ */
+export class TaskWaitingProductionEvent {
+  constructor(
+    public readonly task: Task,
+    public readonly changedBy: User,
+  ) {}
+}

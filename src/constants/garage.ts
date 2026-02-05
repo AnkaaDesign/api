@@ -9,34 +9,34 @@ import { TRUCK_SPOT } from './enums';
 
 // Individual garage configurations with real measurements
 // All garages standardized to 20m × 35m for consistency with minimal waste
-// Lane lengths are preserved to maintain truck positioning accuracy
+// Lane lengths: B1=30m, B2=25m, B3=30m
 export const GARAGE_CONFIGS = {
   B1: {
     width: 20, // meters (standardized)
-    length: 35, // meters (standardized from 30m)
+    length: 35, // meters (standardized)
     paddingTop: 3, // meters - back margin from top
-    paddingBottom: 7.4, // meters - front margin from bottom (adjusted)
-    laneLength: 24.6, // meters (preserved: 35 - 3 - 7.4)
+    paddingBottom: 2, // meters - front margin from bottom (35 - 3 - 30 = 2)
+    laneLength: 30, // meters
     laneWidth: 3, // meters
     laneSpacing: 2.75, // meters between lanes (calculated: (20 - 3*3) / 4 = 2.75)
     lanePaddingX: 2.75, // meters from left edge to first lane
   },
   B2: {
-    width: 20, // meters (standardized from 18.5m)
-    length: 35, // meters (standardized from 30.5m)
+    width: 20, // meters (standardized)
+    length: 35, // meters (standardized)
     paddingTop: 3, // meters - back margin from top
-    paddingBottom: 7.5, // meters - front margin from bottom (adjusted)
-    laneLength: 24.5, // meters (preserved: 35 - 3 - 7.5)
+    paddingBottom: 7, // meters - front margin from bottom (35 - 3 - 25 = 7)
+    laneLength: 25, // meters
     laneWidth: 3, // meters
     laneSpacing: 2.75, // meters between lanes (standardized: (20 - 3*3) / 4 = 2.75)
     lanePaddingX: 2.75, // meters from left edge to first lane (standardized)
   },
   B3: {
     width: 20, // meters (standardized)
-    length: 35, // meters (standardized from 40m)
+    length: 35, // meters (standardized)
     paddingTop: 3, // meters - back margin from top
-    paddingBottom: 2, // meters - front margin from bottom (reduced from 7m)
-    laneLength: 30, // meters (preserved: 35 - 3 - 2)
+    paddingBottom: 2, // meters - front margin from bottom (35 - 3 - 30 = 2)
+    laneLength: 30, // meters
     laneWidth: 3, // meters
     laneSpacing: 2.75, // meters between lanes (calculated: (20 - 3*3) / 4 = 2.75)
     lanePaddingX: 2.75, // meters from left edge to first lane
@@ -59,8 +59,16 @@ export const GARAGE_CONFIG = {
 
   // Truck dimensions
   TRUCK_WIDTH_TOP_VIEW: 2.8, // meters (width when viewed from top = truck's actual width)
-  CABIN_LENGTH: 1.8, // meters (added to trucks < 10m) - average Brazilian cab (day cab ~1.5m, sleeper ~2.0m)
-  CABIN_THRESHOLD: 10, // meters (trucks below this length need cabin added)
+
+  // Cabin dimensions - two-tier system based on truck body length
+  CABIN_LENGTH_SMALL: 2.0, // meters - for trucks with body < 7m
+  CABIN_LENGTH_LARGE: 2.4, // meters - for trucks with body >= 7m and < 10m
+  CABIN_THRESHOLD_SMALL: 7, // meters - below this uses small cabin (2m)
+  CABIN_THRESHOLD_LARGE: 10, // meters - below this but >= 7m uses large cabin (2.4m), >= 10m no cabin
+
+  // Legacy constants (deprecated - use the new two-tier system above)
+  CABIN_LENGTH: 1.8, // DEPRECATED: Use CABIN_LENGTH_SMALL or CABIN_LENGTH_LARGE
+  CABIN_THRESHOLD: 10, // DEPRECATED: Use CABIN_THRESHOLD_SMALL and CABIN_THRESHOLD_LARGE
 
   // Limits
   MAX_TRUCKS_PER_LANE: 3,
@@ -242,15 +250,22 @@ export function getLane(garageId: GarageId, laneId: LaneId): Lane | undefined {
 
 /**
  * Calculate the actual length of a truck in the garage (top view)
- * The layout sections width sum represents the side view length
- * For trucks with total section width < 10m, add cabin length (2.8m)
+ * The layout sections width sum represents the side view length (body only)
+ *
+ * Two-tier cabin system:
+ * - Trucks with body < 7m: add 2.0m cabin (small trucks)
+ * - Trucks with body >= 7m and < 10m: add 2.4m cabin (larger trucks)
+ * - Trucks with body >= 10m: no cabin added (semi-trailers)
  *
  * @param layoutSectionsWidthSum - Sum of all layout section widths (in meters)
  * @returns Actual truck length in the garage (in meters)
  */
 export function calculateTruckGarageLength(layoutSectionsWidthSum: number): number {
-  if (layoutSectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD) {
-    return layoutSectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH;
+  if (layoutSectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_SMALL) {
+    return layoutSectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_SMALL;
+  }
+  if (layoutSectionsWidthSum < GARAGE_CONFIG.CABIN_THRESHOLD_LARGE) {
+    return layoutSectionsWidthSum + GARAGE_CONFIG.CABIN_LENGTH_LARGE;
   }
   return layoutSectionsWidthSum;
 }

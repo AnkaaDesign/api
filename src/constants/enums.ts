@@ -1043,15 +1043,10 @@ export enum NOTIFICATION_IMPORTANCE {
 
 export enum NOTIFICATION_TYPE {
   SYSTEM = 'SYSTEM',
-  TASK = 'TASK',
-  ORDER = 'ORDER',
-  SERVICE_ORDER = 'SERVICE_ORDER',
-  PPE = 'PPE',
-  VACATION = 'VACATION',
-  WARNING = 'WARNING',
-  STOCK = 'STOCK',
+  PRODUCTION = 'PRODUCTION', // Tasks, cuts, service orders, observations, airbrushings, garages
+  STOCK = 'STOCK', // Items, orders, activities, borrows, external withdrawals
+  USER = 'USER', // Warnings, vacation, PPE delivery, bonus, time entries
   GENERAL = 'GENERAL',
-  CUT = 'CUT',
 }
 
 export enum NOTIFICATION_CHANNEL {

@@ -49,16 +49,6 @@ export abstract class OrderScheduleRepository extends BaseStringRepository<
   abstract updateNextRun(id: string, nextRun: Date, tx?: PrismaTransaction): Promise<OrderSchedule>;
 
   /**
-   * Find order schedules by supplier ID
-   */
-  abstract findBySupplierId(supplierId: string, tx?: PrismaTransaction): Promise<OrderSchedule[]>;
-
-  /**
-   * Find order schedules by category ID
-   */
-  abstract findByCategoryId(categoryId: string, tx?: PrismaTransaction): Promise<OrderSchedule[]>;
-
-  /**
    * Find overdue order schedules
    */
   abstract findOverdueSchedules(tx?: PrismaTransaction): Promise<OrderSchedule[]>;

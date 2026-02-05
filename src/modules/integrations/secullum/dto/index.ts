@@ -323,3 +323,36 @@ export interface SecullumRequestActionResponse {
   message: string;
   error?: string;
 }
+
+// Secullum Schedules (Horarios) DTOs
+export interface SecullumHorario {
+  Id: number;
+  Codigo: string;
+  Descricao: string;
+  HorarioFlexivel: boolean;
+  Ativo: boolean;
+  Entrada1?: string;
+  Saida1?: string;
+  Entrada2?: string;
+  Saida2?: string;
+  Entrada3?: string;
+  Saida3?: string;
+  ToleranciaEntrada?: number;
+  ToleranciaSaida?: number;
+  CargaHorariaDiaria?: string;
+  CargaHorariaSemanal?: string;
+  TipoHorario?: number;
+  TipoHorarioDescricao?: string;
+}
+
+export interface SecullumHorariosResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumHorario[];
+}
+
+export interface SecullumHorarioDetailResponse {
+  success: boolean;
+  message: string;
+  data?: SecullumHorario;
+}

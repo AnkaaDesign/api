@@ -80,11 +80,11 @@ export interface UserAggregationPreference {
  */
 const DEFAULT_RULES: AggregationRule[] = [
   {
-    type: NOTIFICATION_TYPE.TASK,
+    type: NOTIFICATION_TYPE.PRODUCTION,
     timeWindow: 5, // 5 minutes
     maxCount: 10,
     groupBy: ['taskId'],
-    template: 'task-multiple-updates',
+    template: 'production-multiple-updates',
     enabled: true,
   },
   {
@@ -96,27 +96,11 @@ const DEFAULT_RULES: AggregationRule[] = [
     enabled: true,
   },
   {
-    type: NOTIFICATION_TYPE.ORDER,
-    timeWindow: 5, // 5 minutes
-    maxCount: 10,
-    groupBy: ['orderId'],
-    template: 'order-multiple-updates',
-    enabled: true,
-  },
-  {
-    type: NOTIFICATION_TYPE.WARNING,
+    type: NOTIFICATION_TYPE.USER,
     timeWindow: 5, // 5 minutes
     maxCount: 10,
     groupBy: ['userId'],
-    template: 'warning-multiple',
-    enabled: true,
-  },
-  {
-    type: NOTIFICATION_TYPE.PPE,
-    timeWindow: 5, // 5 minutes
-    maxCount: 10,
-    groupBy: [], // aggregate all PPE notifications
-    template: 'ppe-multiple-alerts',
+    template: 'user-multiple-alerts',
     enabled: true,
   },
 ];
@@ -554,9 +538,9 @@ export class NotificationAggregationService {
 
     // Build aggregated message based on type
     switch (group.type) {
-      case NOTIFICATION_TYPE.TASK:
-        title = this.buildTaskAggregationTitle(group);
-        body = this.buildTaskAggregationBody(group);
+      case NOTIFICATION_TYPE.PRODUCTION:
+        title = this.buildProductionAggregationTitle(group);
+        body = this.buildProductionAggregationBody(group);
         metadata.updates = group.notifications.map(n => n.metadata);
         break;
 
@@ -566,21 +550,9 @@ export class NotificationAggregationService {
         metadata.items = group.notifications.map(n => n.metadata);
         break;
 
-      case NOTIFICATION_TYPE.ORDER:
-        title = this.buildOrderAggregationTitle(group);
-        body = this.buildOrderAggregationBody(group);
-        metadata.updates = group.notifications.map(n => n.metadata);
-        break;
-
-      case NOTIFICATION_TYPE.WARNING:
-        title = this.buildWarningAggregationTitle(group);
-        body = this.buildWarningAggregationBody(group);
-        metadata.warnings = group.notifications.map(n => n.metadata);
-        break;
-
-      case NOTIFICATION_TYPE.PPE:
-        title = this.buildPpeAggregationTitle(group);
-        body = this.buildPpeAggregationBody(group);
+      case NOTIFICATION_TYPE.USER:
+        title = this.buildUserAggregationTitle(group);
+        body = this.buildUserAggregationBody(group);
         metadata.alerts = group.notifications.map(n => n.metadata);
         break;
 
@@ -609,22 +581,22 @@ export class NotificationAggregationService {
   }
 
   /**
-   * Build aggregation title for task notifications
+   * Build aggregation title for production notifications (tasks, service orders, cuts)
    */
-  private buildTaskAggregationTitle(group: AggregationGroup): string {
+  private buildProductionAggregationTitle(group: AggregationGroup): string {
     const count = group.notifications.length;
     const taskId = group.notifications[0]?.metadata?.taskId;
 
     if (taskId && group.groupId !== 'all') {
       return `${count} atualizações na Tarefa #${taskId}`;
     }
-    return `${count} atualizações de tarefas`;
+    return `${count} atualizações de produção`;
   }
 
   /**
-   * Build aggregation body for task notifications
+   * Build aggregation body for production notifications (tasks, service orders, cuts)
    */
-  private buildTaskAggregationBody(group: AggregationGroup): string {
+  private buildProductionAggregationBody(group: AggregationGroup): string {
     const updates = group.notifications
       .map(n => {
         const field = n.metadata?.field || 'Campo';
@@ -668,72 +640,20 @@ export class NotificationAggregationService {
   }
 
   /**
-   * Build aggregation title for order notifications
+   * Build aggregation title for user notifications (PPE, vacation, warning)
    */
-  private buildOrderAggregationTitle(group: AggregationGroup): string {
+  private buildUserAggregationTitle(group: AggregationGroup): string {
     const count = group.notifications.length;
-    const orderId = group.notifications[0]?.metadata?.orderId;
-
-    if (orderId && group.groupId !== 'all') {
-      return `${count} atualizações no Pedido #${orderId}`;
-    }
-    return `${count} atualizações de pedidos`;
+    return `${count} notificações de usuário`;
   }
 
   /**
-   * Build aggregation body for order notifications
+   * Build aggregation body for user notifications (PPE, vacation, warning)
    */
-  private buildOrderAggregationBody(group: AggregationGroup): string {
-    const updates = group.notifications
-      .map(n => {
-        const field = n.metadata?.field || 'Campo';
-        return `• ${field} atualizado`;
-      })
-      .slice(0, 10);
-
-    const remaining = group.notifications.length - updates.length;
-    const body = updates.join('\n');
-
-    return remaining > 0 ? `${body}\n\n... e mais ${remaining} atualizações` : body;
-  }
-
-  /**
-   * Build aggregation title for warning notifications
-   */
-  private buildWarningAggregationTitle(group: AggregationGroup): string {
-    const count = group.notifications.length;
-    return `${count} avisos recebidos`;
-  }
-
-  /**
-   * Build aggregation body for warning notifications
-   */
-  private buildWarningAggregationBody(group: AggregationGroup): string {
-    const warnings = group.notifications.map(n => `• ${n.title}`).slice(0, 10);
-
-    const remaining = group.notifications.length - warnings.length;
-    const body = warnings.join('\n');
-
-    return remaining > 0 ? `${body}\n\n... e mais ${remaining} avisos` : body;
-  }
-
-  /**
-   * Build aggregation title for PPE notifications
-   */
-  private buildPpeAggregationTitle(group: AggregationGroup): string {
-    const count = group.notifications.length;
-    return `${count} alertas de EPI`;
-  }
-
-  /**
-   * Build aggregation body for PPE notifications
-   */
-  private buildPpeAggregationBody(group: AggregationGroup): string {
+  private buildUserAggregationBody(group: AggregationGroup): string {
     const alerts = group.notifications
       .map(n => {
-        const ppeName = n.metadata?.ppeName || 'EPI';
-        const reason = n.metadata?.reason || 'Alerta';
-        return `• ${ppeName}: ${reason}`;
+        return `• ${n.title}`;
       })
       .slice(0, 10);
 

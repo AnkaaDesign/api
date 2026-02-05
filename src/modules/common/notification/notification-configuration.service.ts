@@ -591,7 +591,10 @@ export class NotificationConfigurationService {
     try {
       const configuration = await this.prisma.notificationConfiguration.findUnique({
         where: { key },
-        include: { channelConfigs: true },
+        include: {
+          channelConfigs: true,
+          targetRule: true,
+        },
       });
 
       if (!configuration) {
@@ -625,7 +628,10 @@ export class NotificationConfigurationService {
     try {
       const configuration = await this.prisma.notificationConfiguration.findUnique({
         where: { id },
-        include: { channelConfigs: true },
+        include: {
+          channelConfigs: true,
+          targetRule: true,
+        },
       });
 
       if (!configuration) {
@@ -694,7 +700,10 @@ export class NotificationConfigurationService {
           skip,
           take: limit,
           orderBy: { createdAt: 'desc' },
-          include: { channelConfigs: true },
+          include: {
+            channelConfigs: true,
+            targetRule: true,
+          },
         }),
         this.prisma.notificationConfiguration.count({ where }),
       ]);
@@ -1196,10 +1205,25 @@ export class NotificationConfigurationService {
     // Check if any channel is mandatory to determine isMandatory
     const hasMandatoryChannels = mandatoryChannels.length > 0;
 
+    // Merge targetRule into metadata for easy access by dispatch service
+    const baseMetadata = (entity.metadata as Record<string, any>) || {};
+    const targetRule = entity.targetRule
+      ? {
+          allowedSectors: entity.targetRule.allowedSectors || [],
+          excludeInactive: entity.targetRule.excludeInactive ?? true,
+          excludeOnVacation: entity.targetRule.excludeOnVacation ?? true,
+          customFilter: entity.targetRule.customFilter || null,
+        }
+      : null;
+
+    const metadata = targetRule
+      ? { ...baseMetadata, targetRule }
+      : baseMetadata;
+
     return {
       id: entity.id,
       key: entity.key,
-      name: entity.key, // NotificationConfiguration doesn't have a name field, use key
+      name: entity.name || entity.key,
       description: entity.description,
       notificationType: entity.notificationType as NOTIFICATION_TYPE,
       eventType: entity.eventType,
@@ -1212,7 +1236,7 @@ export class NotificationConfigurationService {
       maxPerDay: entity.maxFrequencyPerDay,
       deduplicationWindowMinutes: entity.deduplicationWindow,
       templates: (entity.templates as NotificationTemplateConfig) || {},
-      metadata: entity.metadata as Record<string, any> | null,
+      metadata: Object.keys(metadata).length > 0 ? metadata : null,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };

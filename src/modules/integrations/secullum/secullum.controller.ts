@@ -34,6 +34,7 @@ import {
   SecullumAuthStatusResponse,
   SecullumRequestsResponse,
   SecullumRequestActionResponse,
+  SecullumHorariosResponse,
 } from './dto';
 
 @Controller('integrations/secullum')
@@ -352,6 +353,51 @@ export class SecullumController {
     this.logger.log(`User ${userId} deleting holiday ${holidayId} in Secullum`);
 
     return await this.secullumService.deleteHoliday(holidayId);
+  }
+
+  /**
+   * Get schedules (horarios) from Secullum
+   * GET /integrations/secullum/horarios
+   */
+  @Get('horarios')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getHorarios(
+    @UserId() userId: string,
+    @Query('incluirDesativados') incluirDesativados?: string,
+  ): Promise<SecullumHorariosResponse> {
+    this.logger.log(`User ${userId} fetching schedules from Secullum`);
+
+    return await this.secullumService.getHorarios({
+      incluirDesativados: incluirDesativados !== 'false',
+    });
+  }
+
+  /**
+   * Get a single schedule (horario) by ID from Secullum
+   * GET /integrations/secullum/horarios/:id
+   */
+  @Get('horarios/:id')
+  @ReadRateLimit()
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  async getHorarioById(
+    @UserId() userId: string,
+    @Param('id') id: string,
+  ): Promise<{ success: boolean; message: string; data?: any }> {
+    this.logger.log(`User ${userId} fetching schedule ${id} from Secullum`);
+
+    const horarioId = parseInt(id, 10);
+    if (isNaN(horarioId)) {
+      return {
+        success: false,
+        message: 'Invalid schedule ID',
+        data: undefined,
+      };
+    }
+
+    return await this.secullumService.getHorarioById(horarioId);
   }
 
   /**

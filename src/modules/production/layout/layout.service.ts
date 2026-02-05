@@ -757,7 +757,7 @@ export class LayoutService {
 
       try {
         await this.notificationService.createNotification({
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           title,
           body: message,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,

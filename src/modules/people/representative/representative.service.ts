@@ -35,7 +35,7 @@ export class RepresentativeService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async create(data: RepresentativeCreateFormData): Promise<RepresentativeResponse> {
+  async create(data: RepresentativeCreateFormData): Promise<{ success: boolean; message: string; data: RepresentativeResponse }> {
     // Check if email is provided and already exists
     if (data.email) {
       const existingEmail = await this.repository.findByEmail(data.email);
@@ -92,7 +92,7 @@ export class RepresentativeService {
       userId: null,
     });
 
-    return representative;
+    return { success: true, message: 'Representante criado com sucesso', data: representative };
   }
 
   async findById(

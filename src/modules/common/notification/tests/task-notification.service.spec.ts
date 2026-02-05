@@ -226,7 +226,7 @@ describe('TaskNotificationService', () => {
       expect(result).toBe(true);
       expect(preferenceService.getChannelsForEvent).toHaveBeenCalledWith(
         'user-123',
-        NOTIFICATION_TYPE.TASK,
+        NOTIFICATION_TYPE.PRODUCTION,
         'task.field.status',
       );
     });
@@ -275,7 +275,7 @@ describe('TaskNotificationService', () => {
       expect(notificationService.createNotification).toHaveBeenCalledTimes(1);
       expect(notificationService.createNotification).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           title: 'Alteração em tarefa: Test Task',
           message: expect.stringContaining('Campo Status alterado'),
           userId: 'user-123',

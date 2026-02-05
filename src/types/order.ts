@@ -39,13 +39,14 @@ import type { Activity, ActivityIncludes, ActivityOrderBy } from './activity';
 // =====================
 
 export interface OrderSchedule extends BaseEntity {
+  // Identification fields
+  name: string | null;
+  description: string | null;
+
   frequency: SCHEDULE_FREQUENCY;
   frequencyCount: number;
   isActive: boolean;
   items: string[];
-
-  // Supplier relation
-  supplierId: string | null;
 
   // Specific scheduling fields
   specificDate: Date | null;
@@ -72,7 +73,6 @@ export interface OrderSchedule extends BaseEntity {
   originalScheduleId: string | null;
 
   // Relations (optional, populated based on query)
-  supplier?: Supplier;
   weeklyConfig?: WeeklyScheduleConfig;
   monthlyConfig?: MonthlyScheduleConfig;
   yearlyConfig?: YearlyScheduleConfig;
@@ -255,11 +255,6 @@ export interface OrderItemIncludes {
 }
 
 export interface OrderScheduleIncludes {
-  supplier?:
-    | boolean
-    | {
-        include?: SupplierIncludes;
-      };
   weeklyConfig?:
     | boolean
     | {

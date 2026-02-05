@@ -2646,6 +2646,24 @@ export const taskCreateSchema = z
         data.startedAt = data.entryDate && data.entryDate <= now ? data.entryDate : now;
       }
     }
+
+    // DATE CASCADING SYNC: forecastDate → entryDate → startedAt
+    // When a higher priority date is set, auto-fill lower priority dates if not set
+    if (data.startedAt) {
+      // startedAt set → auto-fill entryDate and forecastDate
+      if (!data.entryDate) {
+        data.entryDate = data.startedAt;
+      }
+      if (!data.forecastDate) {
+        data.forecastDate = data.startedAt;
+      }
+    } else if (data.entryDate) {
+      // entryDate set (without startedAt) → auto-fill forecastDate
+      if (!data.forecastDate) {
+        data.forecastDate = data.entryDate;
+      }
+    }
+
     return data;
   })
   .superRefine((data, ctx) => {
@@ -2882,6 +2900,8 @@ export const taskUpdateSchema = z
   })
   // Auto-fill dates based on status changes (before validation)
   // This ensures that when frontend sends status change without dates, backend auto-fills them
+  // Note: Date cascading sync (forecastDate → entryDate → startedAt) is handled in the backend
+  // task.service.ts where we have access to existing task values for partial updates
   .transform(data => {
     // Auto-fill startedAt when status changes to IN_PRODUCTION
     if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {

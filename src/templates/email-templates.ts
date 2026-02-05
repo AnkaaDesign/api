@@ -535,7 +535,7 @@ export function generatePasswordResetCodeTemplate(data: PasswordResetCodeTemplat
 // =====================
 
 interface NotificationEmailTemplateData extends BaseTemplateData {
-  notificationType: 'TASK' | 'ORDER' | 'STOCK' | 'USER' | 'SYSTEM' | 'VACATION' | 'GENERAL';
+  notificationType: 'SYSTEM' | 'PRODUCTION' | 'STOCK' | 'USER' | 'GENERAL';
   eventType: string;
   importance: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT';
   title: string;
@@ -547,12 +547,10 @@ interface NotificationEmailTemplateData extends BaseTemplateData {
 }
 
 const notificationTypeConfig: Record<string, { icon: string; color: string; label: string }> = {
-  TASK: { icon: '📋', color: '#3b82f6', label: 'Tarefa' },
-  ORDER: { icon: '🛒', color: '#8b5cf6', label: 'Pedido' },
+  SYSTEM: { icon: '⚙️', color: '#6b7280', label: 'Sistema' },
+  PRODUCTION: { icon: '📋', color: '#3b82f6', label: 'Produção' },
   STOCK: { icon: '📦', color: '#f59e0b', label: 'Estoque' },
   USER: { icon: '👤', color: '#10b981', label: 'Usuário' },
-  SYSTEM: { icon: '⚙️', color: '#6b7280', label: 'Sistema' },
-  VACATION: { icon: '🏖️', color: '#06b6d4', label: 'Férias' },
   GENERAL: { icon: '🔔', color: '#16802B', label: 'Geral' },
 };
 

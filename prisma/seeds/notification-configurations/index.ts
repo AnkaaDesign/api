@@ -1,57 +1,39 @@
 import { PrismaClient } from '@prisma/client';
-import { seedTaskLifecycleNotifications } from './task-lifecycle.seed';
-import { seedTaskBasicFieldNotifications } from './task-basic-fields.seed';
-import { seedTaskDateFieldNotifications } from './task-date-fields.seed';
-import { seedTaskAssignmentFieldNotifications } from './task-assignment-fields.seed';
-import { seedTaskFinancialFieldNotifications } from './task-financial-fields.seed';
-import { seedTaskArtworkProductionFieldNotifications } from './task-artwork-production-fields.seed';
-import { seedTaskNegotiationFieldNotifications } from './task-negotiation-fields.seed';
-import { seedServiceOrderNotifications } from './service-order.seed';
-import { seedAlertNotifications } from './alerts.seed';
+import { seedAllNotificationConfigurations } from './all-notifications.seed';
 
-export async function seedAllNotificationConfigurations(prisma: PrismaClient): Promise<void> {
-  console.log('🔔 Seeding notification configurations...');
+/**
+ * Main entry point for notification configuration seeds.
+ *
+ * This file now uses a SINGLE unified seed file (all-notifications.seed.ts)
+ * that contains ALL notification configurations for the system.
+ *
+ * The unified approach ensures:
+ * - Single source of truth for all notifications
+ * - Easier maintenance and updates
+ * - Consistent structure across all notifications
+ * - No duplicate or conflicting configurations
+ *
+ * Total notifications: 70
+ * Categories:
+ * - Task Lifecycle (3)
+ * - Task Status Events (3)
+ * - Task Deadlines - Term (6)
+ * - Task Deadlines - Forecast (6)
+ * - Task Basic Fields (4)
+ * - Task Date Fields (5)
+ * - Task Assignment Fields (3)
+ * - Task Financial Fields (6)
+ * - Task Artwork/Production Fields (5)
+ * - Task Truck Fields (3)
+ * - Task Negotiation Fields (3)
+ * - Service Orders (6)
+ * - Borrow (2)
+ * - Paint (1)
+ * - PPE/EPI (4)
+ * - Alerts (10)
+ */
 
-  // Clear existing configurations (fresh start)
-  await prisma.notificationRule.deleteMany({});
-  await prisma.notificationTargetRule.deleteMany({});
-  await prisma.notificationSectorOverride.deleteMany({});
-  await prisma.notificationChannelConfig.deleteMany({});
-  await prisma.notificationConfiguration.deleteMany({});
-
-  console.log('  Cleared existing configurations');
-
-  // Seed in order
-  await seedTaskLifecycleNotifications(prisma);
-  console.log('  ✓ Task lifecycle notifications');
-
-  await seedTaskBasicFieldNotifications(prisma);
-  console.log('  ✓ Task basic field notifications');
-
-  await seedTaskDateFieldNotifications(prisma);
-  console.log('  ✓ Task date field notifications');
-
-  await seedTaskAssignmentFieldNotifications(prisma);
-  console.log('  ✓ Task assignment field notifications');
-
-  await seedTaskFinancialFieldNotifications(prisma);
-  console.log('  ✓ Task financial field notifications');
-
-  await seedTaskArtworkProductionFieldNotifications(prisma);
-  console.log('  ✓ Task artwork production field notifications');
-
-  await seedTaskNegotiationFieldNotifications(prisma);
-  console.log('  ✓ Task negotiation field notifications');
-
-  await seedServiceOrderNotifications(prisma);
-  console.log('  ✓ Service order notifications');
-
-  await seedAlertNotifications(prisma);
-  console.log('  ✓ Alert notifications');
-
-  const count = await prisma.notificationConfiguration.count();
-  console.log(`✅ Seeded ${count} notification configurations`);
-}
+export { seedAllNotificationConfigurations };
 
 // Allow running directly
 if (require.main === module) {

@@ -66,6 +66,7 @@ import {
   getServiceOrderUpdatesForTaskStatusChange,
   getTaskUpdateForServiceOrderStatusChange,
   getTaskUpdateForArtworkServiceOrderStatusChange,
+  calculateCorrectTaskStatus,
 } from '../../../utils/task-service-order-sync';
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import {
@@ -75,6 +76,7 @@ import {
   type SyncPricingItem,
 } from '../../../utils/task-pricing-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
+import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
 
@@ -121,6 +123,7 @@ export class TaskService {
    * @param artworkStatuses - Map of File ID to artwork status
    * @param userRole - User role for permission checking
    * @param tx - Prisma transaction
+   * @param eventContext - Optional context for emitting artwork events (user, task)
    * @returns Array of Artwork IDs (to be connected to Task via many-to-many)
    */
   private async convertFileIdsToArtworkIds(
@@ -130,6 +133,7 @@ export class TaskService {
     artworkStatuses?: Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
     userRole?: string,
     tx?: PrismaTransaction,
+    eventContext?: { user?: any; task?: any },
   ): Promise<string[]> {
     const prisma = tx || this.prisma;
     const artworkIds: string[] = [];
@@ -207,6 +211,27 @@ export class TaskService {
           this.logger.log(
             `[convertFileIdsToArtworkIds] ✅ Updated shared Artwork ${artwork.id} status from ${oldStatus} to ${requestedStatus} (affects all connected tasks)`,
           );
+
+          // Emit artwork status change events if context is provided
+          if (eventContext?.user) {
+            const artworkForEvent = { ...artwork, fileId };
+            const taskForEvent = eventContext.task || null;
+
+            if (requestedStatus === 'APPROVED') {
+              this.logger.log(`[convertFileIdsToArtworkIds] 🎨 Emitting artwork.approved event for artwork ${artwork.id}`);
+              this.eventEmitter.emit(
+                'artwork.approved',
+                new ArtworkApprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
+              );
+            } else if (requestedStatus === 'REPROVED') {
+              this.logger.log(`[convertFileIdsToArtworkIds] 🎨 Emitting artwork.reproved event for artwork ${artwork.id}`);
+              this.eventEmitter.emit(
+                'artwork.reproved',
+                new ArtworkReprovedEvent(artworkForEvent, taskForEvent, eventContext.user),
+              );
+            }
+
+          }
         }
       } else {
         // Log why we're not updating
@@ -1470,6 +1495,47 @@ export class TaskService {
           }
         }
 
+        // =====================
+        // DATE CASCADING SYNC LOGIC
+        // =====================
+        // Priority order: forecastDate (lowest) → entryDate → startedAt (highest)
+        // When a higher priority date is set, auto-fill lower priority dates if not set
+        // Higher priority dates are NEVER affected by lower priority date changes
+
+        // Get the final values being used (prefer data over existing)
+        const finalStartedAt = data.startedAt ?? existingTask.startedAt;
+        const finalEntryDate = data.entryDate ?? existingTask.entryDate;
+        const finalForecastDate = data.forecastDate ?? existingTask.forecastDate;
+
+        // When startedAt is being set (explicitly or via status change)
+        if (data.startedAt) {
+          // Auto-fill entryDate if not set
+          if (!existingTask.entryDate && !data.entryDate) {
+            this.logger.log(
+              `[DATE-SYNC] Auto-setting entryDate for task ${id} (startedAt is being set)`,
+            );
+            data.entryDate = data.startedAt;
+          }
+          // Auto-fill forecastDate if not set
+          if (!existingTask.forecastDate && !data.forecastDate) {
+            this.logger.log(
+              `[DATE-SYNC] Auto-setting forecastDate for task ${id} (startedAt is being set)`,
+            );
+            data.forecastDate = data.startedAt;
+          }
+        }
+
+        // When entryDate is being set (and startedAt was not just set)
+        if (data.entryDate && !data.startedAt) {
+          // Auto-fill forecastDate if not set
+          if (!existingTask.forecastDate && !data.forecastDate) {
+            this.logger.log(
+              `[DATE-SYNC] Auto-setting forecastDate for task ${id} (entryDate is being set)`,
+            );
+            data.forecastDate = data.entryDate;
+          }
+        }
+
         // Process cut files BEFORE updating the task (so fileIds are available for cut creation)
         if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
           const customerName =
@@ -2455,7 +2521,51 @@ export class TaskService {
               (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
-            if (hasActiveProductionOrders && allActiveProductionCompleted) {
+            // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
+            if (!hasActiveProductionOrders && productionServiceOrders.length > 0) {
+              // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
+              if (updatedTask.status === TASK_STATUS.IN_PRODUCTION) {
+                this.logger.log(
+                  `[ROLLBACK TASK ON ALL PRODUCTION SO CANCEL] All ${productionServiceOrders.length} PRODUCTION service orders cancelled for task ${id}, rolling back to WAITING_PRODUCTION`,
+                );
+
+                // Update task status to WAITING_PRODUCTION (rollback)
+                updatedTask = (await tx.task.update({
+                  where: { id },
+                  data: {
+                    status: TASK_STATUS.WAITING_PRODUCTION,
+                    statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                    startedAt: null, // Clear start date on rollback
+                  },
+                  include: {
+                    ...include,
+                    customer: true,
+                    artworks: true,
+                    observation: { include: { files: true } },
+                    truck: true,
+                    serviceOrders: true,
+                  },
+                })) as any;
+
+                // Log the rollback in changelog
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: existingTask.status,
+                  newValue: TASK_STATUS.WAITING_PRODUCTION,
+                  reason: `Tarefa retornada para aguardando produção pois todas as ${productionServiceOrders.length} ordens de serviço de produção foram canceladas`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+
+                taskAutoTransitionedToWaitingProduction = true;
+              }
+              // If task is not IN_PRODUCTION, don't change task status
+            } else if (hasActiveProductionOrders && allActiveProductionCompleted) {
               this.logger.log(
                 `[AUTO-COMPLETE TASK] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${id}, transitioning to COMPLETED`,
               );
@@ -2496,6 +2606,173 @@ export class TaskService {
 
               // Track that task was auto-completed for event/notification emission after transaction
               taskAutoTransitionedToWaitingProduction = true; // Reuse this flag for event emission
+            }
+          }
+
+          // =====================================================================
+          // AUTO-CANCEL TASK WHEN ALL COMMERCIAL SERVICE ORDERS ARE CANCELLED
+          // When all COMMERCIAL service orders are cancelled, cancel task and all other SOs
+          // =====================================================================
+          if (updatedTask && updatedTask.status !== TASK_STATUS.CANCELLED) {
+            const commercialServiceOrders = (updatedTask.serviceOrders || []).filter(
+              (so: any) => so.type === SERVICE_ORDER_TYPE.COMMERCIAL,
+            );
+
+            const activeCommercialOrders = commercialServiceOrders.filter(
+              (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+            );
+
+            // If ALL commercial orders are now cancelled, cancel the task and all other service orders
+            if (activeCommercialOrders.length === 0 && commercialServiceOrders.length > 0) {
+              this.logger.log(
+                `[AUTO-CANCEL TASK] All ${commercialServiceOrders.length} COMMERCIAL service orders cancelled for task ${id}, cancelling task and all remaining service orders`,
+              );
+
+              // Cancel all remaining non-cancelled service orders
+              const otherServiceOrders = (updatedTask.serviceOrders || []).filter(
+                (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+              );
+
+              for (const otherSO of otherServiceOrders) {
+                await tx.serviceOrder.update({
+                  where: { id: otherSO.id },
+                  data: {
+                    status: SERVICE_ORDER_STATUS.CANCELLED,
+                    statusOrder: 5,
+                  },
+                });
+
+                // Log each service order cancellation
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.SERVICE_ORDER,
+                  entityId: otherSO.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: otherSO.status,
+                  newValue: SERVICE_ORDER_STATUS.CANCELLED,
+                  reason: `Ordem de serviço ${otherSO.type} cancelada automaticamente pois todas as ordens de serviço comerciais foram canceladas`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+
+              // Update task status to CANCELLED
+              updatedTask = (await tx.task.update({
+                where: { id },
+                data: {
+                  status: TASK_STATUS.CANCELLED,
+                  statusOrder: 5, // CANCELLED statusOrder
+                },
+                include: {
+                  ...include,
+                  customer: true,
+                  artworks: true,
+                  observation: { include: { files: true } },
+                  truck: true,
+                  serviceOrders: true,
+                },
+              })) as any;
+
+              // Log the auto-cancel in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: existingTask.status,
+                newValue: TASK_STATUS.CANCELLED,
+                reason: `Tarefa cancelada automaticamente pois todas as ${commercialServiceOrders.length} ordens de serviço comerciais foram canceladas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              taskAutoTransitionedToWaitingProduction = true;
+            }
+          }
+
+          // =====================================================================
+          // ROLLBACK: COMMERCIAL Service Order Un-Cancelled → Task Status Rollback
+          // Check if any COMMERCIAL SO was un-cancelled (CANCELLED → other status)
+          // If so and task is CANCELLED, calculate correct status based on all SOs
+          // =====================================================================
+          if (updatedTask.status === TASK_STATUS.CANCELLED && data.serviceOrders) {
+            // Check if any COMMERCIAL SO was un-cancelled
+            for (const serviceOrderData of data.serviceOrders) {
+              if (serviceOrderData.id && serviceOrderData.status) {
+                const oldServiceOrder = existingTask.serviceOrders?.find(
+                  (so: any) => so.id === serviceOrderData.id,
+                );
+
+                // Check if this is a COMMERCIAL SO being un-cancelled
+                if (
+                  oldServiceOrder &&
+                  oldServiceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL &&
+                  oldServiceOrder.status === SERVICE_ORDER_STATUS.CANCELLED &&
+                  serviceOrderData.status !== SERVICE_ORDER_STATUS.CANCELLED
+                ) {
+                  // Calculate the correct task status based on all service orders
+                  const correctStatus = calculateCorrectTaskStatus(
+                    (updatedTask.serviceOrders || []).map((so: any) => ({
+                      status: so.status as SERVICE_ORDER_STATUS,
+                      type: so.type as SERVICE_ORDER_TYPE,
+                    })),
+                  );
+
+                  this.logger.log(
+                    `[COMMERCIAL ROLLBACK] Commercial service order ${serviceOrderData.id} un-cancelled (${oldServiceOrder.status} → ${serviceOrderData.status}), rolling back task ${id} from CANCELLED to ${correctStatus}`,
+                  );
+
+                  const newStatusOrder =
+                    correctStatus === TASK_STATUS.PREPARATION
+                      ? 1
+                      : correctStatus === TASK_STATUS.WAITING_PRODUCTION
+                        ? 2
+                        : correctStatus === TASK_STATUS.IN_PRODUCTION
+                          ? 3
+                          : correctStatus === TASK_STATUS.COMPLETED
+                            ? 4
+                            : 5;
+
+                  // Update task status to the correct status
+                  updatedTask = (await tx.task.update({
+                    where: { id },
+                    data: {
+                      status: correctStatus,
+                      statusOrder: newStatusOrder,
+                    },
+                    include: {
+                      ...include,
+                      customer: true,
+                      artworks: true,
+                      observation: { include: { files: true } },
+                      truck: true,
+                      serviceOrders: true,
+                    },
+                  })) as any;
+
+                  // Log the rollback in changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: TASK_STATUS.CANCELLED,
+                    newValue: correctStatus,
+                    reason: `Tarefa retornada para ${correctStatus === TASK_STATUS.PREPARATION ? 'preparação' : correctStatus === TASK_STATUS.WAITING_PRODUCTION ? 'aguardando produção' : correctStatus === TASK_STATUS.IN_PRODUCTION ? 'em produção' : 'concluída'} pois ordem de serviço comercial foi reativada`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: serviceOrderData.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
+                  taskAutoTransitionedToWaitingProduction = true;
+                  break; // Only need to rollback once
+                }
+              }
             }
           }
         }
@@ -3155,6 +3432,15 @@ export class TaskService {
             // Start with empty array for Artwork entity IDs
             const artworkEntityIds: string[] = [];
 
+            // Fetch user for event context (if artworkStatuses are being processed)
+            let artworkEventUser: any = null;
+            if (artworkStatuses && Object.keys(artworkStatuses).length > 0 && userId) {
+              artworkEventUser = await tx.user.findUnique({
+                where: { id: userId },
+                select: { id: true, name: true, email: true },
+              });
+            }
+
             // Step 1: Convert existing File IDs to Artwork entity IDs (with status updates if provided)
             if (fileIdsFromRequest && fileIdsFromRequest.length > 0) {
               this.logger.log(
@@ -3167,6 +3453,8 @@ export class TaskService {
                 artworkStatuses,
                 userPrivilege,
                 tx,
+                // Pass event context for artwork status change notifications
+                artworkEventUser ? { user: artworkEventUser, task: existingTask } : undefined,
               );
               artworkEntityIds.push(...existingArtworkIds);
               this.logger.log(
@@ -3226,6 +3514,7 @@ export class TaskService {
                 this.logger.log(
                   `[Task Update] Created Artwork entity with ID: ${artworkEntityId} and status: ${newFileStatus}`,
                 );
+
               }
             }
 
@@ -8230,9 +8519,17 @@ export class TaskService {
               }
               break;
 
-            // ===== SERVICE ORDERS (Create New) =====
+            // ===== SERVICE ORDERS (Replace - Delete existing, then Create New) =====
             case 'serviceOrders':
               if (hasData(sourceTask.serviceOrders)) {
+                // First, delete existing service orders on the destination task (set behavior)
+                const deletedServiceOrders = await tx.serviceOrder.deleteMany({
+                  where: { taskId: destinationTaskId },
+                });
+                this.logger.log(
+                  `[copyFromTask] Deleted ${deletedServiceOrders.count} existing service orders from destination task`,
+                );
+
                 // Fetch full service order details for copying
                 const fullServiceOrders = await tx.serviceOrder.findMany({
                   where: {
@@ -8267,6 +8564,7 @@ export class TaskService {
                 copiedFields.push(field);
                 // Store full service order details for changelog display
                 details.serviceOrders = {
+                  deletedCount: deletedServiceOrders.count,
                   count: newServiceOrders.length,
                   ids: newServiceOrders.map(so => so.id),
                   items: fullServiceOrders.map(so => ({

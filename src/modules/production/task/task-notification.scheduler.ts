@@ -1,13 +1,50 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskDeadlineApproachingEvent, TaskOverdueEvent } from './task.events';
-import { TASK_STATUS } from '../../../constants/enums';
+import { ArtworkPendingApprovalReminderEvent } from './artwork.events';
+import { TASK_STATUS, SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '../../../constants/enums';
+
+/**
+ * Forecast deadline event - for tasks in preparation
+ */
+export class TaskForecastApproachingEvent {
+  constructor(
+    public readonly task: any,
+    public readonly daysRemaining: number,
+    public readonly hasIncompleteOrders: boolean,
+    public readonly incompleteOrderTypes: string[],
+  ) {}
+}
+
+/**
+ * Forecast overdue event
+ */
+export class TaskForecastOverdueEvent {
+  constructor(
+    public readonly task: any,
+    public readonly daysOverdue: number,
+    public readonly hasIncompleteOrders: boolean,
+    public readonly incompleteOrderTypes: string[],
+  ) {}
+}
 
 /**
  * Task Notification Scheduler
- * Runs daily to check for upcoming deadlines and overdue tasks
+ * Handles all deadline-related notifications for tasks
+ *
+ * Production Tasks (IN_PRODUCTION) - uses term field:
+ * - 1 hour before term
+ * - 4 hours before term
+ *
+ * Preparation Tasks (PREPARATION/WAITING_PRODUCTION) - uses forecastDate field:
+ * - 10 days before forecast
+ * - 7 days before forecast
+ * - 3 days before forecast
+ * - 1 day before forecast (with pending orders warning)
+ * - Today is forecast date
+ * - Overdue forecast date
  */
 @Injectable()
 export class TaskNotificationScheduler {
@@ -18,98 +55,132 @@ export class TaskNotificationScheduler {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
+  // =====================
+  // PRODUCTION TASK DEADLINES (term field)
+  // =====================
+
   /**
-   * Run hourly to check for tasks with deadlines within 4 hours
-   * This is the "Prazo Próximo" urgent notification
+   * Run hourly to check for production tasks with deadlines within 1 hour
    */
   @Cron('0 * * * *') // Every hour at minute 0
-  async checkUrgentDeadlines() {
+  async checkUrgentDeadlines1Hour() {
+    this.logger.log('Running hourly urgent deadline check (1 hour)...');
+
+    try {
+      const now = new Date();
+      const oneHourFromNow = new Date(now.getTime() + 1 * 60 * 60 * 1000);
+      const thirtyMinutesFromNow = new Date(now.getTime() + 30 * 60 * 1000);
+
+      // Find tasks with deadline between 30 minutes and 1 hour from now
+      const tasks = await this.prisma.task.findMany({
+        where: {
+          term: {
+            gt: thirtyMinutesFromNow,
+            lte: oneHourFromNow,
+          },
+          status: TASK_STATUS.IN_PRODUCTION,
+        },
+        include: {
+          sector: {
+            select: { id: true, name: true, managerId: true },
+          },
+          customer: {
+            select: { id: true, fantasyName: true },
+          },
+        },
+      });
+
+      this.logger.log(`Found ${tasks.length} production tasks with deadline in ~1 hour`);
+
+      for (const task of tasks) {
+        try {
+          const hoursRemaining = 1;
+          this.eventEmitter.emit(
+            'task.deadline.approaching',
+            new TaskDeadlineApproachingEvent(task as any, 0, hoursRemaining),
+          );
+        } catch (error) {
+          this.logger.error(`Error emitting 1-hour deadline event for task ${task.id}:`, error);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error during 1-hour deadline check:', error);
+    }
+  }
+
+  /**
+   * Run hourly to check for production tasks with deadlines within 4 hours
+   */
+  @Cron('0 * * * *') // Every hour at minute 0
+  async checkUrgentDeadlines4Hours() {
     this.logger.log('Running hourly urgent deadline check (4 hours)...');
 
     try {
       const now = new Date();
-      const fourHoursFromNow = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4 hours from now
-      const threeHoursFromNow = new Date(now.getTime() + 3 * 60 * 60 * 1000); // 3 hours from now (to avoid re-notifying)
+      const fourHoursFromNow = new Date(now.getTime() + 4 * 60 * 60 * 1000);
+      const threeHoursFromNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
 
       // Find tasks with deadline between 3 and 4 hours from now
-      // This ensures we notify exactly once when entering the 4-hour window
       const tasks = await this.prisma.task.findMany({
         where: {
           term: {
             gt: threeHoursFromNow,
             lte: fourHoursFromNow,
           },
-          status: {
-            notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED],
-          },
+          status: TASK_STATUS.IN_PRODUCTION,
         },
         include: {
           sector: {
-            select: {
-              id: true,
-              name: true,
-              managerId: true,
-            },
+            select: { id: true, name: true, managerId: true },
           },
           customer: {
-            select: {
-              id: true,
-              fantasyName: true,
-            },
+            select: { id: true, fantasyName: true },
           },
         },
       });
 
-      this.logger.log(`Found ${tasks.length} tasks with deadline in ~4 hours`);
+      this.logger.log(`Found ${tasks.length} production tasks with deadline in ~4 hours`);
 
-      // Emit event for each task with hours remaining
       for (const task of tasks) {
         try {
-          // Calculate exact hours remaining
           const hoursRemaining = Math.ceil(
             (new Date(task.term!).getTime() - now.getTime()) / (1000 * 60 * 60),
           );
-
           this.eventEmitter.emit(
             'task.deadline.approaching',
-            new TaskDeadlineApproachingEvent(task as any, 0, hoursRemaining), // 0 days, X hours
+            new TaskDeadlineApproachingEvent(task as any, 0, hoursRemaining),
           );
         } catch (error) {
-          this.logger.error(`Error emitting urgent deadline event for task ${task.id}:`, error);
+          this.logger.error(`Error emitting 4-hour deadline event for task ${task.id}:`, error);
         }
       }
-
-      this.logger.log('Hourly urgent deadline check completed successfully');
     } catch (error) {
-      this.logger.error('Error during urgent deadline check:', error);
+      this.logger.error('Error during 4-hour deadline check:', error);
     }
   }
 
   /**
-   * Run daily at 9:00 AM to check for upcoming deadlines
-   * Checks for tasks with deadlines in 1, 3, and 7 days
+   * Run daily at 9:00 AM to check for production tasks with upcoming term deadlines
+   * Checks for tasks with term in 1, 3, and 7 days
    */
   @Cron('0 9 * * *')
-  async checkUpcomingDeadlines() {
-    this.logger.log('Running daily deadline check...');
+  async checkUpcomingTermDeadlines() {
+    this.logger.log('Running daily term deadline check...');
 
     try {
       const now = new Date();
-      now.setHours(0, 0, 0, 0); // Start of today
+      now.setHours(0, 0, 0, 0);
 
-      // Define deadline thresholds (1 day, 3 days, 7 days)
       const deadlineThresholds = [1, 3, 7];
 
       for (const daysRemaining of deadlineThresholds) {
         const targetDate = new Date(now);
         targetDate.setDate(targetDate.getDate() + daysRemaining);
-        targetDate.setHours(23, 59, 59, 999); // End of target day
+        targetDate.setHours(23, 59, 59, 999);
 
         const startOfTargetDay = new Date(targetDate);
         startOfTargetDay.setHours(0, 0, 0, 0);
 
-        // Find tasks with deadline on this specific day
-        // Exclude completed and cancelled tasks
         const tasks = await this.prisma.task.findMany({
           where: {
             term: {
@@ -117,29 +188,21 @@ export class TaskNotificationScheduler {
               lte: targetDate,
             },
             status: {
-              notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED],
+              in: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.WAITING_PRODUCTION],
             },
           },
           include: {
             sector: {
-              select: {
-                id: true,
-                name: true,
-                managerId: true,
-              },
+              select: { id: true, name: true, managerId: true },
             },
             customer: {
-              select: {
-                id: true,
-                fantasyName: true,
-              },
+              select: { id: true, fantasyName: true },
             },
           },
         });
 
-        this.logger.log(`Found ${tasks.length} tasks with deadline in ${daysRemaining} day(s)`);
+        this.logger.log(`Found ${tasks.length} tasks with term deadline in ${daysRemaining} day(s)`);
 
-        // Emit event for each task
         for (const task of tasks) {
           try {
             this.eventEmitter.emit(
@@ -148,65 +211,49 @@ export class TaskNotificationScheduler {
             );
           } catch (error) {
             this.logger.error(
-              `Error emitting deadline approaching event for task ${task.id}:`,
+              `Error emitting term deadline event for task ${task.id}:`,
               error,
             );
           }
         }
       }
-
-      this.logger.log('Daily deadline check completed successfully');
     } catch (error) {
-      this.logger.error('Error during deadline check:', error);
+      this.logger.error('Error during term deadline check:', error);
     }
   }
 
   /**
-   * Run daily at 9:00 AM to check for overdue tasks
-   * Sends notifications for tasks that have passed their deadline
+   * Run daily at 9:00 AM to check for overdue production tasks (term)
    */
   @Cron('0 9 * * *')
-  async checkOverdueTasks() {
-    this.logger.log('Running daily overdue task check...');
+  async checkOverdueTermTasks() {
+    this.logger.log('Running daily overdue term task check...');
 
     try {
       const now = new Date();
-      now.setHours(0, 0, 0, 0); // Start of today
+      now.setHours(0, 0, 0, 0);
 
-      // Find tasks that are overdue
-      // Exclude completed and cancelled tasks
       const overdueTasks = await this.prisma.task.findMany({
         where: {
-          term: {
-            lt: now,
-          },
+          term: { lt: now },
           status: {
-            notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED],
+            in: [TASK_STATUS.IN_PRODUCTION, TASK_STATUS.WAITING_PRODUCTION],
           },
         },
         include: {
           sector: {
-            select: {
-              id: true,
-              name: true,
-              managerId: true,
-            },
+            select: { id: true, name: true, managerId: true },
           },
           customer: {
-            select: {
-              id: true,
-              fantasyName: true,
-            },
+            select: { id: true, fantasyName: true },
           },
         },
       });
 
-      this.logger.log(`Found ${overdueTasks.length} overdue tasks`);
+      this.logger.log(`Found ${overdueTasks.length} overdue tasks (term)`);
 
-      // Emit event for each overdue task
       for (const task of overdueTasks) {
         try {
-          // Calculate days overdue
           const termDate = new Date(task.term!);
           termDate.setHours(0, 0, 0, 0);
           const daysOverdue = Math.floor(
@@ -214,7 +261,6 @@ export class TaskNotificationScheduler {
           );
 
           // Only notify for specific intervals to avoid spam
-          // Day 1, 3, 7, 14, 30, and then every 30 days
           const shouldNotify =
             daysOverdue === 1 ||
             daysOverdue === 3 ||
@@ -230,16 +276,325 @@ export class TaskNotificationScheduler {
           this.logger.error(`Error emitting overdue event for task ${task.id}:`, error);
         }
       }
-
-      this.logger.log('Daily overdue task check completed successfully');
     } catch (error) {
-      this.logger.error('Error during overdue task check:', error);
+      this.logger.error('Error during overdue term task check:', error);
+    }
+  }
+
+  // =====================
+  // PREPARATION TASK DEADLINES (forecastDate field)
+  // =====================
+
+  /**
+   * Run daily at 9:00 AM to check for preparation tasks with forecast approaching
+   * Checks for: 10 days, 7 days, 3 days, 1 day, today, and overdue
+   */
+  @Cron('0 9 * * *')
+  async checkForecastDeadlines() {
+    this.logger.log('Running daily forecast deadline check...');
+
+    try {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+
+      // Define forecast thresholds (days before forecast date)
+      const forecastThresholds = [10, 7, 3, 1, 0]; // 0 = today
+
+      for (const daysRemaining of forecastThresholds) {
+        const targetDate = new Date(now);
+        targetDate.setDate(targetDate.getDate() + daysRemaining);
+        targetDate.setHours(23, 59, 59, 999);
+
+        const startOfTargetDay = new Date(targetDate);
+        startOfTargetDay.setHours(0, 0, 0, 0);
+
+        const tasks = await this.prisma.task.findMany({
+          where: {
+            forecastDate: {
+              gte: startOfTargetDay,
+              lte: targetDate,
+            },
+            status: {
+              in: [TASK_STATUS.PREPARATION, TASK_STATUS.WAITING_PRODUCTION],
+            },
+          },
+          include: {
+            sector: {
+              select: { id: true, name: true, managerId: true },
+            },
+            customer: {
+              select: { id: true, fantasyName: true },
+            },
+            serviceOrders: {
+              select: {
+                id: true,
+                type: true,
+                status: true,
+              },
+            },
+          },
+        });
+
+        this.logger.log(
+          `Found ${tasks.length} preparation tasks with forecast in ${daysRemaining} day(s)`,
+        );
+
+        for (const task of tasks) {
+          try {
+            // Check for incomplete service orders
+            const { hasIncompleteOrders, incompleteTypes } = this.checkServiceOrders(
+              task.serviceOrders,
+            );
+
+            // For 1 day or less, only notify if there are incomplete orders
+            // For today (0 days), always notify
+            if (daysRemaining === 1 && !hasIncompleteOrders) {
+              continue; // Skip if 1 day remaining but all orders are complete
+            }
+
+            this.eventEmitter.emit(
+              'task.forecast.approaching',
+              new TaskForecastApproachingEvent(
+                task as any,
+                daysRemaining,
+                hasIncompleteOrders,
+                incompleteTypes,
+              ),
+            );
+          } catch (error) {
+            this.logger.error(
+              `Error emitting forecast deadline event for task ${task.id}:`,
+              error,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error during forecast deadline check:', error);
     }
   }
 
   /**
+   * Run daily at 9:00 AM to check for overdue forecast tasks
+   */
+  @Cron('0 9 * * *')
+  async checkOverdueForecastTasks() {
+    this.logger.log('Running daily overdue forecast task check...');
+
+    try {
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+
+      const overdueTasks = await this.prisma.task.findMany({
+        where: {
+          forecastDate: { lt: now },
+          status: {
+            in: [TASK_STATUS.PREPARATION, TASK_STATUS.WAITING_PRODUCTION],
+          },
+        },
+        include: {
+          sector: {
+            select: { id: true, name: true, managerId: true },
+          },
+          customer: {
+            select: { id: true, fantasyName: true },
+          },
+          serviceOrders: {
+            select: {
+              id: true,
+              type: true,
+              status: true,
+            },
+          },
+        },
+      });
+
+      this.logger.log(`Found ${overdueTasks.length} overdue forecast tasks`);
+
+      for (const task of overdueTasks) {
+        try {
+          const forecastDate = new Date(task.forecastDate!);
+          forecastDate.setHours(0, 0, 0, 0);
+          const daysOverdue = Math.floor(
+            (now.getTime() - forecastDate.getTime()) / (1000 * 60 * 60 * 24),
+          );
+
+          // Only notify for specific intervals
+          const shouldNotify =
+            daysOverdue === 1 ||
+            daysOverdue === 3 ||
+            daysOverdue === 7 ||
+            daysOverdue === 14 ||
+            (daysOverdue > 14 && daysOverdue % 7 === 0);
+
+          if (shouldNotify) {
+            const { hasIncompleteOrders, incompleteTypes } = this.checkServiceOrders(
+              task.serviceOrders,
+            );
+
+            this.eventEmitter.emit(
+              'task.forecast.overdue',
+              new TaskForecastOverdueEvent(
+                task as any,
+                daysOverdue,
+                hasIncompleteOrders,
+                incompleteTypes,
+              ),
+            );
+          }
+        } catch (error) {
+          this.logger.error(`Error emitting forecast overdue event for task ${task.id}:`, error);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error during overdue forecast task check:', error);
+    }
+  }
+
+  /**
+   * Check service orders for incomplete commercial or artwork orders
+   */
+  private checkServiceOrders(
+    serviceOrders: Array<{ id: string; type: string; status: string }>,
+  ): { hasIncompleteOrders: boolean; incompleteTypes: string[] } {
+    const incompleteStatuses = [
+      SERVICE_ORDER_STATUS.PENDING,
+      SERVICE_ORDER_STATUS.IN_PROGRESS,
+      SERVICE_ORDER_STATUS.WAITING_APPROVE,
+    ];
+
+    const incompleteTypes: string[] = [];
+
+    // Check commercial orders
+    const commercialOrders = serviceOrders.filter(
+      (so) => so.type === SERVICE_ORDER_TYPE.COMMERCIAL,
+    );
+    const hasIncompleteCommercial = commercialOrders.some((so) =>
+      incompleteStatuses.includes(so.status as SERVICE_ORDER_STATUS),
+    );
+    const hasMissingCommercial = commercialOrders.length === 0;
+
+    if (hasIncompleteCommercial || hasMissingCommercial) {
+      incompleteTypes.push('COMMERCIAL');
+    }
+
+    // Check artwork orders
+    const artworkOrders = serviceOrders.filter(
+      (so) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
+    );
+    const hasIncompleteArtwork = artworkOrders.some((so) =>
+      incompleteStatuses.includes(so.status as SERVICE_ORDER_STATUS),
+    );
+    const hasMissingArtwork = artworkOrders.length === 0;
+
+    if (hasIncompleteArtwork || hasMissingArtwork) {
+      incompleteTypes.push('ARTWORK');
+    }
+
+    return {
+      hasIncompleteOrders: incompleteTypes.length > 0,
+      incompleteTypes,
+    };
+  }
+
+  // =====================
+  // PENDING ARTWORK APPROVAL REMINDERS
+  // =====================
+
+  /**
+   * Run daily at 9:00 AM to check for artworks pending approval > 24 hours
+   * Sends reminders to COMMERCIAL and ADMIN users to approve/reject pending artworks
+   */
+  @Cron('0 9 * * *')
+  async checkPendingArtworks() {
+    this.logger.log('Running daily pending artwork approval check...');
+
+    try {
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+      // Find artworks in DRAFT status created more than 24 hours ago
+      const pendingArtworks = await this.prisma.artwork.findMany({
+        where: {
+          status: 'DRAFT',
+          createdAt: { lt: twentyFourHoursAgo },
+        },
+        include: {
+          tasks: {
+            select: {
+              id: true,
+              name: true,
+              serialNumber: true,
+              sectorId: true,
+              customerId: true,
+            },
+            take: 1, // Get the first associated task
+          },
+          file: {
+            select: {
+              id: true,
+              filename: true,
+            },
+          },
+        },
+      });
+
+      this.logger.log(`Found ${pendingArtworks.length} artworks pending approval for > 24 hours`);
+
+      for (const artwork of pendingArtworks) {
+        try {
+          // Calculate days pending
+          const createdAt = new Date(artwork.createdAt);
+          const daysPending = Math.floor(
+            (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24),
+          );
+
+          // Only send reminders at specific intervals to avoid spam:
+          // 1 day, 2 days, 3 days, 5 days, 7 days, then every 7 days
+          const shouldNotify =
+            daysPending === 1 ||
+            daysPending === 2 ||
+            daysPending === 3 ||
+            daysPending === 5 ||
+            daysPending === 7 ||
+            (daysPending > 7 && daysPending % 7 === 0);
+
+          if (shouldNotify) {
+            // Get the first associated task (if any)
+            const task = artwork.tasks && artwork.tasks.length > 0 ? artwork.tasks[0] : null;
+
+            this.logger.log(
+              `Emitting pending_approval_reminder for artwork ${artwork.id} (${daysPending} days pending)`,
+            );
+            this.eventEmitter.emit(
+              'artwork.pending_approval_reminder',
+              new ArtworkPendingApprovalReminderEvent(
+                artwork as any,
+                task as any,
+                daysPending,
+              ),
+            );
+          }
+        } catch (error) {
+          this.logger.error(
+            `Error emitting pending approval reminder for artwork ${artwork.id}:`,
+            error,
+          );
+        }
+      }
+
+      this.logger.log('Completed pending artwork approval check');
+    } catch (error) {
+      this.logger.error('Error during pending artwork approval check:', error);
+    }
+  }
+
+  // =====================
+  // WEEKLY SUMMARY
+  // =====================
+
+  /**
    * Run weekly on Monday at 8:00 AM to provide weekly summary
-   * This can be used for a weekly digest notification
    */
   @Cron('0 8 * * 1')
   async sendWeeklySummary() {
@@ -250,32 +605,24 @@ export class TaskNotificationScheduler {
       const nextWeek = new Date(now);
       nextWeek.setDate(nextWeek.getDate() + 7);
 
-      // Find tasks due in the next week
       const upcomingTasks = await this.prisma.task.findMany({
         where: {
-          term: {
-            gte: now,
-            lte: nextWeek,
-          },
+          OR: [
+            { term: { gte: now, lte: nextWeek } },
+            { forecastDate: { gte: now, lte: nextWeek } },
+          ],
           status: {
             notIn: [TASK_STATUS.COMPLETED, TASK_STATUS.CANCELLED],
           },
         },
         include: {
           sector: {
-            select: {
-              id: true,
-              name: true,
-              managerId: true,
-            },
+            select: { id: true, name: true, managerId: true },
           },
         },
-        orderBy: {
-          term: 'asc',
-        },
+        orderBy: [{ term: 'asc' }, { forecastDate: 'asc' }],
       });
 
-      // Group by sector
       const tasksBySector = upcomingTasks.reduce(
         (acc, task) => {
           const sectorId = task.sectorId || 'no-sector';
@@ -291,11 +638,6 @@ export class TaskNotificationScheduler {
       this.logger.log(
         `Weekly summary: ${upcomingTasks.length} tasks due in the next 7 days across ${Object.keys(tasksBySector).length} sectors`,
       );
-
-      // Here you could emit a weekly summary event if needed
-      // For now, just logging the summary
-
-      this.logger.log('Weekly task summary completed successfully');
     } catch (error) {
       this.logger.error('Error during weekly summary:', error);
     }

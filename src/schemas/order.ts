@@ -793,8 +793,7 @@ const orderScheduleFilters = {
       }),
     )
     .optional(),
-  supplierIds: z.array(z.string()).optional(),
-  categoryIds: z.array(z.string()).optional(),
+  itemIds: z.array(z.string()).optional(),
   nextRunRange: z
     .object({
       gte: z.coerce.date().optional(),
@@ -1090,16 +1089,10 @@ const orderScheduleTransform = (data: any) => {
     delete data.frequency;
   }
 
-  // Handle supplierIds filter
-  if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
-    andConditions.push({ supplierId: { in: data.supplierIds } });
-    delete data.supplierIds;
-  }
-
-  // Handle categoryIds filter
-  if (data.categoryIds && Array.isArray(data.categoryIds) && data.categoryIds.length > 0) {
-    andConditions.push({ categoryId: { in: data.categoryIds } });
-    delete data.categoryIds;
+  // Handle itemIds filter (filter schedules that have any of the specified items)
+  if (data.itemIds && Array.isArray(data.itemIds) && data.itemIds.length > 0) {
+    andConditions.push({ items: { hasSome: data.itemIds } });
+    delete data.itemIds;
   }
 
   // Handle nextRunRange filter
@@ -1309,7 +1302,7 @@ export const orderCreateSchema = z
       .optional(),
     paymentPix: z
       .string()
-      .max(100, 'Chave Pix deve ter no máximo 100 caracteres')
+      .max(500, 'Chave Pix deve ter no máximo 500 caracteres')
       .nullable()
       .optional(),
     paymentDueDays: z
@@ -1408,7 +1401,7 @@ export const orderUpdateSchema = z
       .optional(),
     paymentPix: z
       .string()
-      .max(100, 'Chave Pix deve ter no máximo 100 caracteres')
+      .max(500, 'Chave Pix deve ter no máximo 500 caracteres')
       .nullable()
       .optional(),
     paymentDueDays: z
@@ -1672,8 +1665,10 @@ export const yearlyScheduleSchema = z
 
 export const orderScheduleCreateSchema = z
   .object({
-    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
-    categoryId: z.string().uuid({ message: 'Categoria inválida' }).optional(),
+    // Optional name/description for identification
+    name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo').optional(),
+    description: z.string().max(1000, 'Descrição muito longa').optional(),
+
     frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
       errorMap: () => ({ message: 'Frequência inválida' }),
     }),
@@ -1686,6 +1681,23 @@ export const orderScheduleCreateSchema = z
     items: z
       .array(z.string().uuid({ message: 'Item inválido' }))
       .min(1, 'Deve incluir pelo menos um item'),
+
+    // Flat scheduling fields (instead of nested objects)
+    specificDate: z.coerce.date().optional(),
+    nextRun: z.coerce.date().optional(),
+    dayOfMonth: z.number().int().min(1).max(31).optional(),
+    dayOfWeek: z
+      .enum(Object.values(WEEK_DAY) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Dia da semana inválido' }),
+      })
+      .optional(),
+    month: z
+      .enum(Object.values(MONTH) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Mês inválido' }),
+      })
+      .optional(),
+
+    // Legacy nested schedule objects (for backwards compatibility)
     weeklySchedule: weeklyScheduleSchema.optional(),
     monthlySchedule: monthlyScheduleSchema.optional(),
     yearlySchedule: yearlyScheduleSchema.optional(),
@@ -1694,37 +1706,38 @@ export const orderScheduleCreateSchema = z
     data => {
       // Validate that appropriate schedule config is provided based on frequency
       switch (data.frequency) {
-        case SCHEDULE_FREQUENCY.WEEKLY:
-          return data.weeklySchedule !== undefined;
-        case SCHEDULE_FREQUENCY.MONTHLY:
-          return data.monthlySchedule !== undefined;
-        case SCHEDULE_FREQUENCY.ANNUAL:
-          return data.yearlySchedule !== undefined;
         case SCHEDULE_FREQUENCY.ONCE:
-          return true; // No specific schedule needed
+          return !!data.specificDate;
+        case SCHEDULE_FREQUENCY.DAILY:
+          return true; // No specific config needed
+        case SCHEDULE_FREQUENCY.WEEKLY:
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
+          return !!data.dayOfWeek || data.weeklySchedule !== undefined;
+        case SCHEDULE_FREQUENCY.MONTHLY:
+        case SCHEDULE_FREQUENCY.BIMONTHLY:
+        case SCHEDULE_FREQUENCY.QUARTERLY:
+        case SCHEDULE_FREQUENCY.TRIANNUAL:
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+          return !!data.dayOfMonth || data.monthlySchedule !== undefined;
+        case SCHEDULE_FREQUENCY.ANNUAL:
+          return (!!data.dayOfMonth && !!data.month) || data.yearlySchedule !== undefined;
         default:
-          return false;
+          return true;
       }
     },
     {
       message: 'Configuração de agendamento necessária para a frequência selecionada',
     },
   )
-  .refine(
-    data => {
-      // Either supplier or category must be specified
-      return data.supplierId || data.categoryId;
-    },
-    {
-      message: 'Deve especificar um fornecedor ou categoria',
-    },
-  )
   .transform(toFormData);
 
 export const orderScheduleUpdateSchema = z
   .object({
-    supplierId: z.string().uuid({ message: 'Fornecedor inválido' }).optional(),
-    categoryId: z.string().uuid({ message: 'Categoria inválida' }).optional(),
+    // Optional name/description for identification
+    name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo').optional(),
+    description: z.string().max(1000, 'Descrição muito longa').nullable().optional(),
+
     frequency: z
       .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
         errorMap: () => ({ message: 'Frequência inválida' }),
@@ -1737,6 +1750,25 @@ export const orderScheduleUpdateSchema = z
       .optional(),
     isActive: z.boolean().optional(),
     items: z.array(z.string().uuid({ message: 'Item inválido' })).optional(),
+
+    // Flat scheduling fields
+    specificDate: z.coerce.date().nullable().optional(),
+    nextRun: z.coerce.date().nullable().optional(),
+    dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
+    dayOfWeek: z
+      .enum(Object.values(WEEK_DAY) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Dia da semana inválido' }),
+      })
+      .nullable()
+      .optional(),
+    month: z
+      .enum(Object.values(MONTH) as [string, ...string[]], {
+        errorMap: () => ({ message: 'Mês inválido' }),
+      })
+      .nullable()
+      .optional(),
+
+    // Legacy nested schedule objects (for backwards compatibility)
     weeklySchedule: weeklyScheduleSchema.optional(),
     monthlySchedule: monthlyScheduleSchema.optional(),
     yearlySchedule: yearlyScheduleSchema.optional(),

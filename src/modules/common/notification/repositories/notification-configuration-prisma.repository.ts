@@ -184,6 +184,7 @@ export class NotificationConfigurationPrismaRepository
         const config = await tx.notificationConfiguration.create({
           data: {
             key: data.key,
+            name: data.name || null,
             notificationType: this.mapNotificationTypeToPrisma(data.notificationType),
             eventType: data.eventType || '',
             description: data.description || null,
@@ -239,6 +240,7 @@ export class NotificationConfigurationPrismaRepository
         const updateData: Prisma.NotificationConfigurationUpdateInput = {};
 
         if (data.key !== undefined) updateData.key = data.key;
+        if (data.name !== undefined) updateData.name = data.name || null;
         if (data.notificationType !== undefined) {
           updateData.notificationType = this.mapNotificationTypeToPrisma(data.notificationType);
         }
@@ -484,6 +486,8 @@ export class NotificationConfigurationPrismaRepository
         configurationId: cc.configurationId,
         channel: cc.channel as NOTIFICATION_CHANNEL,
         enabled: cc.enabled,
+        mandatory: cc.mandatory,
+        defaultOn: cc.defaultOn,
         templateId: null,
         settings: null,
         createdAt: cc.createdAt,
@@ -534,6 +538,7 @@ export class NotificationConfigurationPrismaRepository
     return {
       id: prismaEntity.id,
       key: prismaEntity.key,
+      name: prismaEntity.name || null,
       notificationType: prismaEntity.notificationType as NOTIFICATION_TYPE,
       eventType: prismaEntity.eventType || null,
       title: title,

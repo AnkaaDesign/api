@@ -15,6 +15,7 @@ import {
 export interface NotificationConfiguration {
   id: string;
   key: string;
+  name: string | null;
   notificationType: NOTIFICATION_TYPE;
   eventType: string | null;
   title: string;
@@ -41,6 +42,8 @@ export interface ChannelConfiguration {
   configurationId: string;
   channel: NOTIFICATION_CHANNEL;
   enabled: boolean;
+  mandatory: boolean;
+  defaultOn: boolean;
   templateId: string | null;
   settings: Record<string, unknown> | null;
   createdAt: Date;
@@ -103,6 +106,7 @@ export interface ConfigurationFilters {
  */
 export interface CreateNotificationConfigurationDto {
   key: string;
+  name?: string | null;
   notificationType: NOTIFICATION_TYPE;
   eventType?: string | null;
   title: string;
@@ -119,6 +123,7 @@ export interface CreateNotificationConfigurationDto {
  */
 export interface UpdateNotificationConfigurationDto {
   key?: string;
+  name?: string | null;
   notificationType?: NOTIFICATION_TYPE;
   eventType?: string | null;
   title?: string;
@@ -136,6 +141,8 @@ export interface UpdateNotificationConfigurationDto {
 export interface ChannelConfigDto {
   channel: NOTIFICATION_CHANNEL;
   enabled: boolean;
+  mandatory?: boolean;
+  defaultOn?: boolean;
   templateId?: string | null;
   settings?: Record<string, unknown> | null;
 }

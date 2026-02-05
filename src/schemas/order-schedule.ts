@@ -17,18 +17,6 @@ import { SCHEDULE_FREQUENCY } from '@constants';
 
 export const orderScheduleIncludeSchema = z
   .object({
-    supplier: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({
-              contact: z.boolean().optional(),
-            })
-            .optional(),
-        }),
-      ])
-      .optional(),
     weeklyConfig: z
       .union([
         z.boolean(),
@@ -130,19 +118,6 @@ export const orderScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             equals: z.string().optional(),
             not: z.string().optional(),
-            in: z.array(z.string()).optional(),
-            notIn: z.array(z.string()).optional(),
-          }),
-        ])
-        .optional(),
-
-      supplierId: z
-        .union([
-          z.string(),
-          z.null(),
-          z.object({
-            equals: z.union([z.string(), z.null()]).optional(),
-            not: z.union([z.string(), z.null()]).optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
           }),
@@ -359,8 +334,6 @@ export const orderScheduleWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
 
       // Relations
-      supplier: z.any().optional(),
-      category: z.any().optional(),
       weeklyConfig: z.any().optional(),
       monthlyConfig: z.any().optional(),
       yearlyConfig: z.any().optional(),
@@ -382,7 +355,6 @@ const orderScheduleFilters = {
       }),
     )
     .optional(),
-  supplierIds: z.array(z.string().uuid('Fornecedor inválido')).optional(),
   itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
   hasReschedules: z.boolean().optional(),
@@ -409,10 +381,13 @@ const orderScheduleTransform = (data: any) => {
 
   const andConditions: any[] = [];
 
-  // Handle searchingFor - search in related supplier names
+  // Handle searchingFor - search in name field
   if (data.searchingFor && typeof data.searchingFor === 'string' && data.searchingFor.trim()) {
     andConditions.push({
-      OR: [{ supplier: { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } } }],
+      OR: [
+        { name: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+        { description: { contains: data.searchingFor.trim(), mode: 'insensitive' } },
+      ],
     });
     delete data.searchingFor;
   }
@@ -421,12 +396,6 @@ const orderScheduleTransform = (data: any) => {
   if (data.frequency && Array.isArray(data.frequency) && data.frequency.length > 0) {
     andConditions.push({ frequency: { in: data.frequency } });
     delete data.frequency;
-  }
-
-  // Handle supplierIds filter
-  if (data.supplierIds && Array.isArray(data.supplierIds) && data.supplierIds.length > 0) {
-    andConditions.push({ supplierId: { in: data.supplierIds } });
-    delete data.supplierIds;
   }
 
   // Handle itemIds filter (search in items array)
@@ -606,9 +575,6 @@ export const orderScheduleCreateSchema = z
     isActive: z.boolean().default(true),
     items: uuidArraySchema('item'),
 
-    // Supplier selection (optional)
-    supplierId: z.string().uuid('Fornecedor inválido').optional(),
-
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),
     dayOfMonth: z
@@ -665,9 +631,6 @@ export const orderScheduleUpdateSchema = z
       .optional(),
     isActive: z.boolean().optional(),
     items: uuidArraySchema('item').optional(),
-
-    // Supplier selection (optional)
-    supplierId: z.string().uuid('Fornecedor inválido').nullable().optional(),
 
     // Specific scheduling fields
     specificDate: z.coerce.date().nullable().optional(),
@@ -770,7 +733,6 @@ export const mapOrderScheduleToFormData = createMapToFormDataHelper<
   frequencyCount: orderSchedule.frequencyCount,
   isActive: orderSchedule.isActive,
   items: orderSchedule.items,
-  supplierId: orderSchedule.supplierId || null,
   specificDate: orderSchedule.specificDate || null,
   dayOfMonth: orderSchedule.dayOfMonth || null,
   dayOfWeek: orderSchedule.dayOfWeek || null,

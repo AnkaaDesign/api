@@ -138,7 +138,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'Test Notification',
         body: 'Test Body',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -168,7 +168,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'invalid-user',
         importance: 'HIGH' as any,
@@ -183,7 +183,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'a'.repeat(201), // Too long
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -198,7 +198,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'Test',
         body: 'a'.repeat(5001), // Too long
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -213,7 +213,7 @@ describe('NotificationService', () => {
       const createData = {
         title: '',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -228,7 +228,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: ['INVALID_CHANNEL' as any],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -246,7 +246,7 @@ describe('NotificationService', () => {
       const createData = {
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -267,7 +267,7 @@ describe('NotificationService', () => {
             id: 'notif-1',
             title: 'Test',
             body: 'Test',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             createdAt: new Date(),
           },
         ],
@@ -297,7 +297,7 @@ describe('NotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       mockNotificationRepository.findById.mockResolvedValue(mockNotification);
@@ -326,7 +326,7 @@ describe('NotificationService', () => {
         id: 'notif-1',
         title: 'Old Title',
         body: 'Old Body',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         userId: 'user-1',
       };
 
@@ -390,14 +390,14 @@ describe('NotificationService', () => {
           {
             title: 'Notif 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.EMAIL],
             userId: 'user-1',
           },
           {
             title: 'Notif 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.PUSH],
             userId: 'user-2',
           },
@@ -542,7 +542,7 @@ describe('NotificationService', () => {
       const notificationData = {
         title: 'Scheduled',
         body: 'Body',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -572,7 +572,7 @@ describe('NotificationService', () => {
       const notificationData = {
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
         userId: 'user-1',
         importance: 'HIGH' as any,

@@ -10,7 +10,7 @@ export class UpdateNotificationPreferenceDto {
   @ApiProperty({
     description: 'Notification type to update preference for',
     enum: NOTIFICATION_TYPE,
-    example: NOTIFICATION_TYPE.TASK,
+    example: NOTIFICATION_TYPE.PRODUCTION,
   })
   @IsEnum(NOTIFICATION_TYPE)
   notificationType: NOTIFICATION_TYPE;
@@ -166,7 +166,7 @@ export class ToggleNotificationTypeDto {
     description: 'Notification types to enable or disable',
     enum: NOTIFICATION_TYPE,
     isArray: true,
-    example: [NOTIFICATION_TYPE.TASK, NOTIFICATION_TYPE.ORDER],
+    example: [NOTIFICATION_TYPE.PRODUCTION, NOTIFICATION_TYPE.STOCK],
   })
   @IsArray()
   @IsEnum(NOTIFICATION_TYPE, { each: true })

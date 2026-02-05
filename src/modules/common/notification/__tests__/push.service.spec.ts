@@ -99,7 +99,7 @@ describe('PushNotificationService', () => {
       id: 'notif-1',
       title: 'Test Notification',
       body: 'This is a test push notification',
-      type: NOTIFICATION_TYPE.TASK,
+      type: NOTIFICATION_TYPE.PRODUCTION,
     };
 
     it('should send push notification successfully', async () => {
@@ -189,7 +189,7 @@ describe('PushNotificationService', () => {
             id: 'notif-1',
             title: 'Test 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-1', fcmToken: 'token-1' },
           deliveryId: 'delivery-1',
@@ -199,7 +199,7 @@ describe('PushNotificationService', () => {
             id: 'notif-2',
             title: 'Test 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.ORDER,
+            type: NOTIFICATION_TYPE.STOCK,
           },
           user: { id: 'user-2', fcmToken: 'token-2' },
           deliveryId: 'delivery-2',
@@ -222,7 +222,7 @@ describe('PushNotificationService', () => {
             id: 'notif-1',
             title: 'Test 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-1', fcmToken: 'token-1' },
           deliveryId: 'delivery-1',
@@ -232,7 +232,7 @@ describe('PushNotificationService', () => {
             id: 'notif-2',
             title: 'Test 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-2', fcmToken: null }, // No token
           deliveryId: 'delivery-2',
@@ -255,7 +255,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const mockUser: any = {
@@ -279,7 +279,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const mockUser: any = {
@@ -301,7 +301,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const mockUser: any = {
@@ -325,7 +325,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         actionUrl: 'app://tasks/123',
       };
 
@@ -348,7 +348,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Urgent Task',
         body: 'High priority notification',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         importance: 'HIGH',
       };
 
@@ -373,7 +373,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Test',
         body: 'Test',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const invalidTokens = ['', ' ', 'short', undefined, null];
@@ -397,7 +397,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'Android Test',
         body: 'Android notification',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const mockUser: any = {
@@ -419,7 +419,7 @@ describe('PushNotificationService', () => {
         id: 'notif-1',
         title: 'iOS Test',
         body: 'iOS notification',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       };
 
       const mockUser: any = {

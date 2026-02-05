@@ -5,6 +5,7 @@ import { TaskService } from './task.service';
 import { TaskRepository } from './repositories/task.repository';
 import { TaskPrismaRepository } from './repositories/task-prisma.repository';
 import { TaskListener } from './task.listener';
+import { ArtworkListener } from './artwork.listener';
 import { TaskNotificationScheduler } from './task-notification.scheduler';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
@@ -19,6 +20,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
   providers: [
     TaskService,
     TaskListener,
+    ArtworkListener,
     TaskNotificationScheduler,
     TaskFieldTrackerService,
     TaskNotificationService,
