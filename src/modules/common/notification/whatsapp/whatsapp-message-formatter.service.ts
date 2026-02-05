@@ -29,7 +29,6 @@ export interface WhatsAppMessageFormat {
  */
 @Injectable()
 export class WhatsAppMessageFormatterService {
-
   // ═══════════════════════════════════════════════════════════════
   // TASK NOTIFICATIONS
   // ═══════════════════════════════════════════════════════════════
@@ -306,11 +305,18 @@ ${data.url}`;
     totalItems: number;
     url: string;
   }): WhatsAppMessageFormat {
-    const itemsList = data.items.slice(0, 5).map((item, index) =>
-      `${index + 1}. *${item.name}*\n   📊 ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`
-    ).join('\n\n');
+    const itemsList = data.items
+      .slice(0, 5)
+      .map(
+        (item, index) =>
+          `${index + 1}. *${item.name}*\n   📊 ${item.currentQuantity} ${item.unit || 'un'}${item.suggestedQuantity ? ` → ${item.suggestedQuantity}` : ''}`,
+      )
+      .join('\n\n');
 
-    const moreItems = data.totalItems > 5 ? `\n\n_...e mais ${data.totalItems - 5} item${data.totalItems - 5 !== 1 ? 'ns' : ''}_` : '';
+    const moreItems =
+      data.totalItems > 5
+        ? `\n\n_...e mais ${data.totalItems - 5} item${data.totalItems - 5 !== 1 ? 'ns' : ''}_`
+        : '';
 
     const text = `📋 *ITENS PRECISAM REABASTECIMENTO*
 
@@ -417,25 +423,25 @@ ${data.url}`;
   private getStatusEmoji(status: string): string {
     const statusMap: Record<string, string> = {
       // Task statuses
-      'PENDENTE': '⏸️',
-      'EM_ANDAMENTO': '🔵',
-      'PAUSADO': '⏸️',
-      'CONCLUIDO': '✅',
-      'CANCELADO': '❌',
+      PENDENTE: '⏸️',
+      EM_ANDAMENTO: '🔵',
+      PAUSADO: '⏸️',
+      CONCLUIDO: '✅',
+      CANCELADO: '❌',
 
       // Order statuses
-      'RASCUNHO': '📝',
-      'AGUARDANDO': '⏳',
-      'ENVIADO': '📤',
-      'RECEBIDO': '✅',
-      'PARCIALMENTE_RECEBIDO': '🟡',
+      RASCUNHO: '📝',
+      AGUARDANDO: '⏳',
+      ENVIADO: '📤',
+      RECEBIDO: '✅',
+      PARCIALMENTE_RECEBIDO: '🟡',
 
       // Service Order statuses
-      'NAO_INICIADO': '⏸️',
-      'EXECUTANDO': '🔵',
-      'AGUARDANDO_APROVACAO': '⏰',
-      'APROVADO': '✅',
-      'REPROVADO': '❌',
+      NAO_INICIADO: '⏸️',
+      EXECUTANDO: '🔵',
+      AGUARDANDO_APROVACAO: '⏰',
+      APROVADO: '✅',
+      REPROVADO: '❌',
     };
 
     return statusMap[status] || '🔔';
@@ -443,11 +449,11 @@ ${data.url}`;
 
   private getPriorityEmoji(priority: string): string {
     const priorityMap: Record<string, string> = {
-      'URGENTE': '🔴',
-      'ALTA': '🟠',
-      'MEDIA': '🟡',
-      'BAIXA': '🟢',
-      'CRITICA': '🚨',
+      URGENTE: '🔴',
+      ALTA: '🟠',
+      MEDIA: '🟡',
+      BAIXA: '🟢',
+      CRITICA: '🚨',
     };
 
     return priorityMap[priority.toUpperCase()] || '📌';
@@ -458,10 +464,10 @@ ${data.url}`;
    */
   private getUrgencyIcon(importance?: string): string {
     const importanceMap: Record<string, string> = {
-      'URGENT': '🚨',
-      'HIGH': '🔴',
-      'MEDIUM': '🔔',
-      'LOW': 'ℹ️',
+      URGENT: '🚨',
+      HIGH: '🔴',
+      MEDIUM: '🔔',
+      LOW: 'ℹ️',
     };
 
     return importanceMap[importance?.toUpperCase() || 'MEDIUM'] || '🔔';

@@ -366,9 +366,10 @@ export class BorrowPrismaRepository
    * Determines which select/include to use based on options
    * Priority: custom select > custom include > default include (for backward compatibility)
    */
-  protected resolveSelectOrInclude(
-    options?: { select?: any; include?: any },
-  ): { select?: Prisma.BorrowSelect; include?: Prisma.BorrowInclude } {
+  protected resolveSelectOrInclude(options?: { select?: any; include?: any }): {
+    select?: Prisma.BorrowSelect;
+    include?: Prisma.BorrowInclude;
+  } {
     if (options?.select) {
       return { select: options.select as Prisma.BorrowSelect };
     }

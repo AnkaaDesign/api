@@ -181,10 +181,7 @@ export class NotificationFilterService {
     // ORDER notifications: Only ADMIN, WAREHOUSE (inventory management)
     [NOTIFICATION_TYPE.ORDER]: {
       notificationType: NOTIFICATION_TYPE.ORDER,
-      requiredSectors: [
-        SECTOR_PRIVILEGES.ADMIN,
-        SECTOR_PRIVILEGES.WAREHOUSE,
-      ],
+      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE],
     },
 
     // STOCK notifications: Only ADMIN, WAREHOUSE
@@ -311,8 +308,11 @@ export class NotificationFilterService {
         if (serviceOrderType === 'FINANCIAL' && userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
           return true;
         }
-        if (serviceOrderType === 'PRODUCTION' &&
-            (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION || userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)) {
+        if (
+          serviceOrderType === 'PRODUCTION' &&
+          (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
+            userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)
+        ) {
           return true;
         }
         if (serviceOrderType === 'COMMERCIAL' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
@@ -546,10 +546,7 @@ export class NotificationFilterService {
     if (criteria.userIds && criteria.userIds.length > 0) {
       const specificUsers = users.filter(user => criteria.userIds!.includes(user.id));
       // Merge with filtered users (OR logic)
-      const mergedUserIds = new Set([
-        ...filtered.map(u => u.id),
-        ...specificUsers.map(u => u.id),
-      ]);
+      const mergedUserIds = new Set([...filtered.map(u => u.id), ...specificUsers.map(u => u.id)]);
       filtered = users.filter(user => mergedUserIds.has(user.id));
     }
 

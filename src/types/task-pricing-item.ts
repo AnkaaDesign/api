@@ -66,8 +66,10 @@ export interface TaskPricingItemDeleteResponse extends BaseDeleteResponse {}
 // Batch Operation Responses - TaskPricingItem
 // =====================
 
-export interface TaskPricingItemBatchCreateResponse<T>
-  extends BaseBatchResponse<TaskPricingItem, T> {}
+export interface TaskPricingItemBatchCreateResponse<T> extends BaseBatchResponse<
+  TaskPricingItem,
+  T
+> {}
 export interface TaskPricingItemBatchUpdateResponse<T> extends BaseBatchResponse<
   TaskPricingItem,
   T & { id: string }

@@ -66,11 +66,7 @@ export class TaskPricingController {
    * - searchingFor (search in items)
    */
   @Get()
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findMany(
     @Query(new ZodQueryValidationPipe(taskPricingGetManySchema))
     query: TaskPricingGetManyFormData,
@@ -83,11 +79,7 @@ export class TaskPricingController {
    * Get single pricing by ID
    */
   @Get(':id')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findUnique(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskPricingQuerySchema)) query: any,
@@ -100,11 +92,7 @@ export class TaskPricingController {
    * Get pricing for specific task
    */
   @Get('task/:taskId')
-  @Roles(
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  )
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
     return this.taskPricingService.findByTaskId(taskId);
   }
@@ -168,10 +156,7 @@ export class TaskPricingController {
    */
   @Put(':id/approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
-  async approve(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async approve(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskPricingService.approve(id, userId);
   }
 
@@ -199,10 +184,7 @@ export class TaskPricingController {
    */
   @Put(':id/cancel')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async cancel(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async cancel(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskPricingService.cancel(id, userId);
   }
 
@@ -215,10 +197,7 @@ export class TaskPricingController {
   @Delete(':id')
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
-  async delete(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ) {
+  async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
     return this.taskPricingService.delete(id, userId);
   }
 

@@ -59,13 +59,13 @@ const COMPANY_INFO = {
 
 // Design system colors (matching budget PDF)
 const COLORS = {
-  primary: '#0a5c1e',      // Deep forest green
-  text: '#1a1a1a',         // Dark text
-  gray: '#666666',         // Secondary text
-  lightGray: '#e5e5e5',    // Borders
-  white: '#ffffff',        // Background
-  tableHeader: '#0a5c1e',  // Table header background
-  tableAlt: '#f9f9f9',     // Alternating row
+  primary: '#0a5c1e', // Deep forest green
+  text: '#1a1a1a', // Dark text
+  gray: '#666666', // Secondary text
+  lightGray: '#e5e5e5', // Borders
+  white: '#ffffff', // Background
+  tableHeader: '#0a5c1e', // Table header background
+  tableAlt: '#f9f9f9', // Alternating row
 };
 
 // Typography
@@ -76,12 +76,12 @@ const FONTS = {
 
 // Page layout (A4)
 const LAYOUT = {
-  pageWidth: 595.28,       // A4 width in points
-  pageHeight: 841.89,      // A4 height in points
+  pageWidth: 595.28, // A4 width in points
+  pageHeight: 841.89, // A4 height in points
   marginTop: 40,
   marginBottom: 50,
-  marginLeft: 35,          // Decreased from 50
-  marginRight: 35,         // Decreased from 50
+  marginLeft: 35, // Decreased from 50
+  marginRight: 35, // Decreased from 50
 };
 
 @Injectable()
@@ -263,7 +263,7 @@ export class PpeDocumentService {
 
     // All deliveries should be for the same user
     const firstDelivery = deliveries[0];
-    const items = deliveries.map((d) => ({
+    const items = deliveries.map(d => ({
       name: d.item?.name || 'Item não informado',
       quantity: d.quantity || 1,
       caNumber: d.item?.ppeCA || 'N/A',
@@ -271,12 +271,12 @@ export class PpeDocumentService {
     }));
 
     const batchData: PpeDocumentData = {
-      deliveryId: deliveries.map((d) => d.id).join(','),
+      deliveryId: deliveries.map(d => d.id).join(','),
       employeeName: firstDelivery.user?.name || 'Nome não informado',
       employeeCpf: firstDelivery.user?.cpf || 'CPF não informado',
       employeePosition: firstDelivery.user?.position?.name || 'Cargo não informado',
       employeeSector: firstDelivery.user?.sector?.name || 'Setor não informado',
-      itemName: items.map((i) => i.name).join(', '),
+      itemName: items.map(i => i.name).join(', '),
       quantity: items.reduce((sum, i) => sum + i.quantity, 0),
       caNumber: '',
       size: '',
@@ -307,10 +307,10 @@ export class PpeDocumentService {
 
         // Spacing constants
         const SPACING = {
-          SECTION_GAP: 24,      // Between major sections
-          SUBSECTION_GAP: 16,   // Section title to content
-          LINE_HEIGHT: 14,      // Between text lines
-          PARAGRAPH_GAP: 10,    // Between paragraphs
+          SECTION_GAP: 24, // Between major sections
+          SUBSECTION_GAP: 16, // Section title to content
+          LINE_HEIGHT: 14, // Between text lines
+          PARAGRAPH_GAP: 10, // Between paragraphs
         };
 
         // Create PDF document
@@ -351,9 +351,10 @@ export class PpeDocumentService {
         });
 
         doc.font(FONTS.regular).fontSize(9).fillColor(COLORS.gray);
-        const dateStr = data.deliveryDate instanceof Date
-          ? data.deliveryDate.toLocaleDateString('pt-BR')
-          : new Date(data.deliveryDate).toLocaleDateString('pt-BR');
+        const dateStr =
+          data.deliveryDate instanceof Date
+            ? data.deliveryDate.toLocaleDateString('pt-BR')
+            : new Date(data.deliveryDate).toLocaleDateString('pt-BR');
         doc.text(`Data: ${dateStr}`, LAYOUT.marginLeft + 150, y + 28, {
           width: contentWidth - 150,
           align: 'right',
@@ -363,7 +364,12 @@ export class PpeDocumentService {
         y += logoHeight + 12;
 
         // Header gradient line
-        const gradientLine = doc.linearGradient(LAYOUT.marginLeft, y, LAYOUT.marginLeft + contentWidth, y);
+        const gradientLine = doc.linearGradient(
+          LAYOUT.marginLeft,
+          y,
+          LAYOUT.marginLeft + contentWidth,
+          y,
+        );
         gradientLine.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, y, contentWidth, 1.5).fill(gradientLine);
 
@@ -413,12 +419,16 @@ export class PpeDocumentService {
         y += SPACING.SUBSECTION_GAP;
 
         // Table header
-        const colWidths = [contentWidth * 0.45, contentWidth * 0.15, contentWidth * 0.15, contentWidth * 0.25];
+        const colWidths = [
+          contentWidth * 0.45,
+          contentWidth * 0.15,
+          contentWidth * 0.15,
+          contentWidth * 0.25,
+        ];
         const tableHeaders = ['Descrição', 'Qtd', 'Tamanho', 'C.A.'];
         const headerHeight = 22;
 
-        doc.rect(LAYOUT.marginLeft, y, contentWidth, headerHeight)
-           .fill(COLORS.tableHeader);
+        doc.rect(LAYOUT.marginLeft, y, contentWidth, headerHeight).fill(COLORS.tableHeader);
 
         doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.white);
         let colX = LAYOUT.marginLeft + 8;
@@ -430,12 +440,14 @@ export class PpeDocumentService {
         y += headerHeight;
 
         // Table rows
-        const items = data.batchItems || [{
-          name: data.itemName,
-          quantity: data.quantity,
-          size: data.size || 'N/A',
-          caNumber: data.caNumber || 'N/A',
-        }];
+        const items = data.batchItems || [
+          {
+            name: data.itemName,
+            quantity: data.quantity,
+            size: data.size || 'N/A',
+            caNumber: data.caNumber || 'N/A',
+          },
+        ];
 
         const rowHeight = 20;
         items.forEach((item, index) => {
@@ -449,21 +461,26 @@ export class PpeDocumentService {
 
           doc.text(item.name || data.itemName, colX, y + 6, { width: colWidths[0] - 16 });
           colX += colWidths[0];
-          doc.text(String(item.quantity || data.quantity), colX, y + 6, { width: colWidths[1] - 16 });
+          doc.text(String(item.quantity || data.quantity), colX, y + 6, {
+            width: colWidths[1] - 16,
+          });
           colX += colWidths[1];
           doc.text(item.size || data.size || 'N/A', colX, y + 6, { width: colWidths[2] - 16 });
           colX += colWidths[2];
-          doc.text(item.caNumber || data.caNumber || 'N/A', colX, y + 6, { width: colWidths[3] - 16 });
+          doc.text(item.caNumber || data.caNumber || 'N/A', colX, y + 6, {
+            width: colWidths[3] - 16,
+          });
 
           y += rowHeight;
         });
 
         // Table border
-        const tableHeight = headerHeight + (items.length * rowHeight);
-        doc.rect(LAYOUT.marginLeft, y - tableHeight + headerHeight, contentWidth, tableHeight)
-           .strokeColor(COLORS.lightGray)
-           .lineWidth(0.5)
-           .stroke();
+        const tableHeight = headerHeight + items.length * rowHeight;
+        doc
+          .rect(LAYOUT.marginLeft, y - tableHeight + headerHeight, contentWidth, tableHeight)
+          .strokeColor(COLORS.lightGray)
+          .lineWidth(0.5)
+          .stroke();
 
         // Extra spacing between table and declaration
         y += SPACING.SECTION_GAP + 20;
@@ -477,12 +494,19 @@ export class PpeDocumentService {
         const declaration = `Eu, ${data.employeeName}, declaro ter recebido gratuitamente os Equipamentos de Proteção Individual (EPIs) acima relacionados, comprometendo-me a: usar exclusivamente para a finalidade destinada; responsabilizar-me pela guarda, conservação e higienização; comunicar ao empregador qualquer alteração que torne os EPIs impróprios para uso; cumprir as determinações sobre o uso adequado.`;
 
         // Calculate actual text height for proper spacing
-        const declarationHeight = doc.heightOfString(declaration, { width: contentWidth, align: 'justify' });
+        const declarationHeight = doc.heightOfString(declaration, {
+          width: contentWidth,
+          align: 'justify',
+        });
         doc.text(declaration, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
         y += declarationHeight + SPACING.PARAGRAPH_GAP;
 
-        const warningText = 'Estou ciente de que o não cumprimento das normas de uso dos EPIs poderá resultar em sanções disciplinares previstas na legislação trabalhista.';
-        const warningHeight = doc.heightOfString(warningText, { width: contentWidth, align: 'justify' });
+        const warningText =
+          'Estou ciente de que o não cumprimento das normas de uso dos EPIs poderá resultar em sanções disciplinares previstas na legislação trabalhista.';
+        const warningHeight = doc.heightOfString(warningText, {
+          width: contentWidth,
+          align: 'justify',
+        });
         doc.text(warningText, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
 
         // ========== FOOTER (fixed at bottom of page) ==========
@@ -496,20 +520,29 @@ export class PpeDocumentService {
         const sigLineWidth = 280;
         const sigLineX = (LAYOUT.pageWidth - sigLineWidth) / 2;
 
-        doc.moveTo(sigLineX, sigY)
-           .lineTo(sigLineX + sigLineWidth, sigY)
-           .strokeColor(COLORS.text)
-           .lineWidth(0.5)
-           .stroke();
+        doc
+          .moveTo(sigLineX, sigY)
+          .lineTo(sigLineX + sigLineWidth, sigY)
+          .strokeColor(COLORS.text)
+          .lineWidth(0.5)
+          .stroke();
 
         doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.text);
         doc.text(data.employeeName, sigLineX, sigY + 8, { width: sigLineWidth, align: 'center' });
 
         doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.gray);
-        doc.text('Assinatura do Colaborador', sigLineX, sigY + 22, { width: sigLineWidth, align: 'center' });
+        doc.text('Assinatura do Colaborador', sigLineX, sigY + 22, {
+          width: sigLineWidth,
+          align: 'center',
+        });
 
         // Footer line
-        const footerGradient = doc.linearGradient(LAYOUT.marginLeft, footerY, LAYOUT.marginLeft + contentWidth, footerY);
+        const footerGradient = doc.linearGradient(
+          LAYOUT.marginLeft,
+          footerY,
+          LAYOUT.marginLeft + contentWidth,
+          footerY,
+        );
         footerGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
         doc.rect(LAYOUT.marginLeft, footerY, contentWidth, 1).fill(footerGradient);
 
@@ -517,7 +550,11 @@ export class PpeDocumentService {
         doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 8);
 
         doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
-        doc.text(`${COMPANY_INFO.address} | ${COMPANY_INFO.phone} | ${COMPANY_INFO.website}`, LAYOUT.marginLeft, footerY + 20);
+        doc.text(
+          `${COMPANY_INFO.address} | ${COMPANY_INFO.phone} | ${COMPANY_INFO.website}`,
+          LAYOUT.marginLeft,
+          footerY + 20,
+        );
 
         // End document
         doc.end();

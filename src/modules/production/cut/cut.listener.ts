@@ -246,7 +246,9 @@ export class CutListener {
     this.logger.log(`[CUT EVENT] Cut ID: ${event.cut.id}`);
     this.logger.log(`[CUT EVENT] Cut Type: ${event.cut.type}`);
     this.logger.log(`[CUT EVENT] Task ID: ${event.task?.id || 'N/A'}`);
-    this.logger.log(`[CUT EVENT] Completed By: ${event.completedBy.name} (${event.completedBy.id})`);
+    this.logger.log(
+      `[CUT EVENT] Completed By: ${event.completedBy.name} (${event.completedBy.id})`,
+    );
     this.logger.log('========================================');
 
     try {
@@ -426,17 +428,19 @@ export class CutListener {
 
         // Use task for navigation
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cuts[0], event.task);
-        const detailedTitle = cutsCount === 1
-          ? `1 recorte adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`
-          : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`;
+        const detailedTitle =
+          cutsCount === 1
+            ? `1 recorte adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`
+            : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`;
         await this.notificationService.createNotification({
           userId,
           type: NOTIFICATION_TYPE.CUT,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: detailedTitle,
-          body: cutsCount === 1
-            ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`
-            : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`,
+          body:
+            cutsCount === 1
+              ? `1 recorte foi adicionado à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`
+              : `${cutsCount} recortes foram adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}.`,
           actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
           actionUrl,
           relatedEntityId: event.task.id,
@@ -573,12 +577,13 @@ export class CutListener {
   /**
    * Get cut notification metadata including navigation URLs
    */
-  private getCutNotificationMetadata(cut: any, task: any | null): { actionUrl: string; metadata: any } {
+  private getCutNotificationMetadata(
+    cut: any,
+    task: any | null,
+  ): { actionUrl: string; metadata: any } {
     // If there's a task, navigate to the task details
     // Otherwise, navigate to the plotter page
-    const webUrl = task
-      ? `/producao/cronograma/detalhes/${task.id}`
-      : '/producao/plotter';
+    const webUrl = task ? `/producao/cronograma/detalhes/${task.id}` : '/producao/plotter';
 
     // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
     // can extract mobileUrl directly via parseActionUrl().

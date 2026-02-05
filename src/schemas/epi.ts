@@ -1622,18 +1622,25 @@ export const ppeDeliveryScheduleCreateSchema = z.object({
     .refine(
       items => {
         // For non-OTHERS types, each type can only appear once
-        const nonOthersTypes = items.filter(item => item.ppeType !== PPE_TYPE.OTHERS).map(item => item.ppeType);
+        const nonOthersTypes = items
+          .filter(item => item.ppeType !== PPE_TYPE.OTHERS)
+          .map(item => item.ppeType);
         if (new Set(nonOthersTypes).size !== nonOthersTypes.length) {
           return false;
         }
         // For OTHERS type, each itemId can only appear once
-        const othersItemIds = items.filter(item => item.ppeType === PPE_TYPE.OTHERS).map(item => item.itemId);
+        const othersItemIds = items
+          .filter(item => item.ppeType === PPE_TYPE.OTHERS)
+          .map(item => item.itemId);
         if (new Set(othersItemIds).size !== othersItemIds.length) {
           return false;
         }
         return true;
       },
-      { message: 'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)' },
+      {
+        message:
+          'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)',
+      },
     ),
   userId: z.string().uuid('Usuário inválido').nullable().optional(),
   categoryId: z.string().uuid('Categoria inválida').nullable().optional(),
@@ -1675,18 +1682,25 @@ export const ppeDeliveryScheduleUpdateSchema = z.object({
     .refine(
       items => {
         // For non-OTHERS types, each type can only appear once
-        const nonOthersTypes = items.filter(item => item.ppeType !== PPE_TYPE.OTHERS).map(item => item.ppeType);
+        const nonOthersTypes = items
+          .filter(item => item.ppeType !== PPE_TYPE.OTHERS)
+          .map(item => item.ppeType);
         if (new Set(nonOthersTypes).size !== nonOthersTypes.length) {
           return false;
         }
         // For OTHERS type, each itemId can only appear once
-        const othersItemIds = items.filter(item => item.ppeType === PPE_TYPE.OTHERS).map(item => item.itemId);
+        const othersItemIds = items
+          .filter(item => item.ppeType === PPE_TYPE.OTHERS)
+          .map(item => item.itemId);
         if (new Set(othersItemIds).size !== othersItemIds.length) {
           return false;
         }
         return true;
       },
-      { message: 'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)' },
+      {
+        message:
+          'Cada tipo de PPE pode aparecer apenas uma vez (exceto "Outros" com itens diferentes)',
+      },
     )
     .optional(),
   assignmentType: z

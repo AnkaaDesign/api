@@ -9,7 +9,12 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { AirbrushingRepository, PrismaTransaction } from './repositories/airbrushing.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
-import { CHANGE_TRIGGERED_BY, CHANGE_ACTION, ENTITY_TYPE, SECTOR_PRIVILEGES } from '../../../constants/enums';
+import {
+  CHANGE_TRIGGERED_BY,
+  CHANGE_ACTION,
+  ENTITY_TYPE,
+  SECTOR_PRIVILEGES,
+} from '../../../constants/enums';
 import type {
   AirbrushingBatchCreateResponse,
   AirbrushingBatchDeleteResponse,
@@ -68,7 +73,10 @@ export class AirbrushingService {
   /**
    * Buscar muitas aerografias com filtros
    */
-  async findMany(query: AirbrushingGetManyFormData, userRole?: string): Promise<AirbrushingGetManyResponse> {
+  async findMany(
+    query: AirbrushingGetManyFormData,
+    userRole?: string,
+  ): Promise<AirbrushingGetManyResponse> {
     try {
       const result = await this.airbrushingRepository.findMany(query);
 
@@ -76,12 +84,9 @@ export class AirbrushingService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'ADMIN',
-        ].includes(userRole);
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+          userRole,
+        );
 
         if (!canSeeAllArtworks) {
           result.data = result.data.map(airbrushing => {
@@ -115,7 +120,11 @@ export class AirbrushingService {
   /**
    * Buscar uma aerografia por ID
    */
-  async findById(id: string, include?: AirbrushingInclude, userRole?: string): Promise<AirbrushingGetUniqueResponse> {
+  async findById(
+    id: string,
+    include?: AirbrushingInclude,
+    userRole?: string,
+  ): Promise<AirbrushingGetUniqueResponse> {
     try {
       const airbrushing = await this.airbrushingRepository.findById(id, { include });
 
@@ -127,12 +136,9 @@ export class AirbrushingService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (airbrushing.artworks && userRole) {
-        const canSeeAllArtworks = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'ADMIN',
-        ].includes(userRole);
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+          userRole,
+        );
 
         if (!canSeeAllArtworks) {
           airbrushing.artworks = airbrushing.artworks.filter(
@@ -246,8 +252,12 @@ export class AirbrushingService {
         await this.validateAirbrushing(data, id, tx);
 
         // Extract artworkStatuses from data before removing it
-        const artworkStatuses = (data as any).artworkStatuses as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'> | undefined;
-        this.logger.log(`[Airbrushing Update] artworkStatuses received: ${JSON.stringify(artworkStatuses)}`);
+        const artworkStatuses = (data as any).artworkStatuses as
+          | Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>
+          | undefined;
+        this.logger.log(
+          `[Airbrushing Update] artworkStatuses received: ${JSON.stringify(artworkStatuses)}`,
+        );
 
         // Process file uploads if provided and get new file IDs
         let newFileIds = {
@@ -275,7 +285,9 @@ export class AirbrushingService {
             userRole,
             tx,
           );
-          this.logger.log(`[Airbrushing Update] Converted ${combinedArtworkFileIds.length} File IDs to ${artworkEntityIds.length} Artwork entity IDs`);
+          this.logger.log(
+            `[Airbrushing Update] Converted ${combinedArtworkFileIds.length} File IDs to ${artworkEntityIds.length} Artwork entity IDs`,
+          );
         }
 
         // Build update data with converted artwork IDs (removing artworkStatuses as it's not a Prisma field)

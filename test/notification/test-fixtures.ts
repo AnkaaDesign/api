@@ -36,7 +36,7 @@ export const userFixtures = {
     name: 'Leader Test User',
     email: 'leader.test@example.com',
     phone: '+5511999990005',
-    sectorPrivilege: SECTOR_PRIVILEGES.LEADER,
+    sectorPrivilege: SECTOR_PRIVILEGES.ADMIN,
     isActive: true,
   },
 };
@@ -211,8 +211,8 @@ export const notificationFixtures = {
     title: 'Urgent Warning',
     body: 'Immediate action required',
     type: NOTIFICATION_TYPE.WARNING,
-    channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.SMS],
-    importance: NOTIFICATION_IMPORTANCE.CRITICAL,
+    channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    importance: NOTIFICATION_IMPORTANCE.URGENT,
   },
 };
 

@@ -8,11 +8,7 @@ import {
   MESSAGE_PRIORITY,
   CONTENT_BLOCK_TYPE,
 } from '../dto';
-import {
-  NotFoundException,
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 
 describe('MessageService', () => {
   let service: MessageService;
@@ -94,9 +90,7 @@ describe('MessageService', () => {
         isActive: true,
       };
 
-      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if SPECIFIC_USERS without userIds', async () => {
@@ -113,9 +107,7 @@ describe('MessageService', () => {
         isActive: true,
       };
 
-      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if SPECIFIC_ROLES without roles', async () => {
@@ -132,9 +124,7 @@ describe('MessageService', () => {
         isActive: true,
       };
 
-      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(BadRequestException);
     });
 
     it('should throw BadRequestException if endsAt is before startsAt', async () => {
@@ -153,9 +143,7 @@ describe('MessageService', () => {
         endsAt: '2026-01-09T00:00:00Z',
       };
 
-      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.create(createDto, mockAdminId)).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -241,9 +229,7 @@ describe('MessageService', () => {
     it('should throw NotFoundException if message not found', async () => {
       mockPrismaService.$queryRaw.mockResolvedValue([]);
 
-      await expect(service.findOne(mockMessageId)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.findOne(mockMessageId)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -287,9 +273,9 @@ describe('MessageService', () => {
     it('should throw NotFoundException if message to update not found', async () => {
       mockPrismaService.$queryRaw.mockResolvedValue([]);
 
-      await expect(
-        service.update(mockMessageId, { title: 'New Title' }),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.update(mockMessageId, { title: 'New Title' })).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -324,9 +310,7 @@ describe('MessageService', () => {
     it('should throw NotFoundException if message to delete not found', async () => {
       mockPrismaService.$queryRaw.mockResolvedValue([]);
 
-      await expect(service.remove(mockMessageId)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.remove(mockMessageId)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -419,11 +403,7 @@ describe('MessageService', () => {
         .mockResolvedValueOnce([]) // check existing view
         .mockResolvedValueOnce([mockView]); // create view
 
-      const result = await service.markAsViewed(
-        mockMessageId,
-        mockUserId,
-        'ADMIN',
-      );
+      const result = await service.markAsViewed(mockMessageId, mockUserId, 'ADMIN');
 
       expect(result).toEqual(mockView);
     });
@@ -459,11 +439,7 @@ describe('MessageService', () => {
         .mockResolvedValueOnce([mockMessage]) // findOne
         .mockResolvedValueOnce([existingView]); // check existing view
 
-      const result = await service.markAsViewed(
-        mockMessageId,
-        mockUserId,
-        'ADMIN',
-      );
+      const result = await service.markAsViewed(mockMessageId, mockUserId, 'ADMIN');
 
       expect(result).toEqual(existingView);
     });
@@ -489,9 +465,9 @@ describe('MessageService', () => {
 
       mockPrismaService.$queryRaw.mockResolvedValue([mockMessage]);
 
-      await expect(
-        service.markAsViewed(mockMessageId, mockUserId, 'WAREHOUSE'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.markAsViewed(mockMessageId, mockUserId, 'WAREHOUSE')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 

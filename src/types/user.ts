@@ -214,25 +214,27 @@ export interface UserSelect {
   createdTasks?: boolean;
 
   // Count
-  _count?: boolean | {
-    select?: {
-      activities?: boolean;
-      vacations?: boolean;
-      bonuses?: boolean;
-      tasks?: boolean;
-      createdTasks?: boolean;
-      workOrders?: boolean;
-      orders?: boolean;
-      suppliers?: boolean;
-      items?: boolean;
-      maintenances?: boolean;
-      productionBatches?: boolean;
-      parkingRecords?: boolean;
-      files?: boolean;
-      changeLogs?: boolean;
-      seenNotification?: boolean;
-    };
-  };
+  _count?:
+    | boolean
+    | {
+        select?: {
+          activities?: boolean;
+          vacations?: boolean;
+          bonuses?: boolean;
+          tasks?: boolean;
+          createdTasks?: boolean;
+          workOrders?: boolean;
+          orders?: boolean;
+          suppliers?: boolean;
+          items?: boolean;
+          maintenances?: boolean;
+          productionBatches?: boolean;
+          parkingRecords?: boolean;
+          files?: boolean;
+          changeLogs?: boolean;
+          seenNotification?: boolean;
+        };
+      };
 }
 
 // =====================

@@ -19,6 +19,7 @@ export * from './item';
 export * from './maintenance';
 export * from './measure';
 export * from './notification';
+export * from './notification-configuration.schema';
 export * from './notification-preference';
 export * from './observation';
 export * from './order-rule';

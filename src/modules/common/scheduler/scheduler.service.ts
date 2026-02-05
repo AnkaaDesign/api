@@ -137,9 +137,7 @@ export class SchedulerService {
    * Can be called programmatically when needed
    */
   async triggerMaxQuantityUpdate(lookbackDays: number = 90): Promise<void> {
-    this.logger.log(
-      `Manually triggering maxQuantity update with ${lookbackDays} days lookback...`,
-    );
+    this.logger.log(`Manually triggering maxQuantity update with ${lookbackDays} days lookback...`);
 
     try {
       await this.itemService.updateMaxQuantitiesBasedOnConsumption(this.systemUserId, lookbackDays);

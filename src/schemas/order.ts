@@ -8,7 +8,15 @@ import {
   moneySchema,
 } from './common';
 import type { Order, OrderItem, OrderSchedule } from '@types';
-import { ORDER_STATUS, PAYMENT_METHOD, BANK_SLIP_DUE_DAYS_OPTIONS, SCHEDULE_FREQUENCY, WEEK_DAY, MONTH, MONTH_OCCURRENCE } from '@constants';
+import {
+  ORDER_STATUS,
+  PAYMENT_METHOD,
+  BANK_SLIP_DUE_DAYS_OPTIONS,
+  SCHEDULE_FREQUENCY,
+  WEEK_DAY,
+  MONTH,
+  MONTH_OCCURRENCE,
+} from '@constants';
 
 // =====================
 // Order Include Schema Based on Prisma Schema (Second Level Only)
@@ -1299,7 +1307,11 @@ export const orderCreateSchema = z
       })
       .nullable()
       .optional(),
-    paymentPix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
+    paymentPix: z
+      .string()
+      .max(100, 'Chave Pix deve ter no máximo 100 caracteres')
+      .nullable()
+      .optional(),
     paymentDueDays: z
       .number()
       .int('Prazo de vencimento deve ser um número inteiro')
@@ -1373,7 +1385,10 @@ export const orderCreateSchema = z
 export const orderUpdateSchema = z
   .object({
     description: z.string().min(1).max(500).optional(),
-    forecast: z.coerce.date({ invalid_type_error: 'Data de previsão inválida' }).nullable().optional(),
+    forecast: z.coerce
+      .date({ invalid_type_error: 'Data de previsão inválida' })
+      .nullable()
+      .optional(),
     status: z
       .enum(Object.values(ORDER_STATUS) as [string, ...string[]], {
         errorMap: () => ({ message: 'Status inválido' }),
@@ -1391,7 +1406,11 @@ export const orderUpdateSchema = z
       })
       .nullable()
       .optional(),
-    paymentPix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
+    paymentPix: z
+      .string()
+      .max(100, 'Chave Pix deve ter no máximo 100 caracteres')
+      .nullable()
+      .optional(),
     paymentDueDays: z
       .number()
       .int('Prazo de vencimento deve ser um número inteiro')

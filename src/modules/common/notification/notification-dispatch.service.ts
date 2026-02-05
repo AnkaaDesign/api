@@ -12,11 +12,19 @@ import {
   NOTIFICATION_CHANNEL,
   SECTOR_PRIVILEGES,
   NOTIFICATION_TYPE,
+  NOTIFICATION_IMPORTANCE,
+  NOTIFICATION_ACTION_TYPE,
   ENTITY_TYPE,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
 } from '../../../constants';
-import { Prisma } from '@prisma/client';
+import { Prisma, NotificationActionType } from '@prisma/client';
+import {
+  getFieldConfig,
+  getAllowedRolesForField,
+  TaskFieldNotificationConfig,
+} from './task-notification.config';
+import { DeepLinkService } from './deep-link.service';
 
 // Import services (these need to be created separately or already exist)
 import { EmailService } from '../mailer/services/email.service';
@@ -26,6 +34,23 @@ import { PushService } from '../push/push.service';
 import { BaileysWhatsAppService } from '../whatsapp/baileys-whatsapp.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationAggregationService } from './notification-aggregation.service';
+
+/**
+ * Context object passed to configuration-based dispatch
+ * Contains all data needed for template rendering and recipient resolution
+ */
+export interface NotificationContext {
+  /** Entity type being notified about (e.g., 'task', 'order') */
+  entityType: string;
+  /** ID of the entity */
+  entityId: string;
+  /** Action that triggered the notification (e.g., 'created', 'updated') */
+  action: string;
+  /** Additional data for template rendering */
+  data: Record<string, any>;
+  /** Optional metadata to attach to the notification */
+  metadata?: Record<string, any>;
+}
 
 /**
  * Delivery status enum matching Prisma schema
@@ -78,6 +103,7 @@ export class NotificationDispatchService {
     private readonly eventEmitter: EventEmitter2,
     private readonly filterService: NotificationFilterService,
     private readonly aggregationService: NotificationAggregationService,
+    private readonly deepLinkService: DeepLinkService,
   ) {}
 
   /**
@@ -116,14 +142,11 @@ export class NotificationDispatchService {
 
       // 3.5. Check work hours restriction (7:30 - 18:00)
       // Only apply to non-urgent notifications to allow critical alerts
-      if (
-        notification.importance !== 'URGENT' &&
-        !this.isWithinWorkHours()
-      ) {
+      if (notification.importance !== 'URGENT' && !this.isWithinWorkHours()) {
         const nextWorkHourStart = this.getNextWorkHourStart();
         this.logger.warn(
           `Notification ${notificationId} blocked - outside work hours (7:30-18:00). ` +
-          `Rescheduling for ${nextWorkHourStart.toISOString()}`,
+            `Rescheduling for ${nextWorkHourStart.toISOString()}`,
         );
 
         // Reschedule for next work period
@@ -519,7 +542,9 @@ export class NotificationDispatchService {
       });
 
       // Filter users based on eligibility
-      let eligibleUsers = users.filter(user => this.isUserEligible(user as User, notification)) as User[];
+      let eligibleUsers = users.filter(user =>
+        this.isUserEligible(user as User, notification),
+      ) as User[];
 
       // ✅ CRITICAL: Filter out the actor (user who performed the action)
       // Users should NEVER receive notifications for their own actions
@@ -994,7 +1019,9 @@ export class NotificationDispatchService {
     error?: string,
     messageId?: string,
   ): Promise<void> {
-    this.logger.log(`Handling delivery result for ${deliveryId}: ${success ? 'SUCCESS' : 'FAILED'}`);
+    this.logger.log(
+      `Handling delivery result for ${deliveryId}: ${success ? 'SUCCESS' : 'FAILED'}`,
+    );
 
     try {
       // Get delivery record
@@ -1012,12 +1039,7 @@ export class NotificationDispatchService {
 
       if (success) {
         // Update as delivered
-        await this.updateDeliveryStatus(
-          deliveryId,
-          DELIVERY_STATUS.DELIVERED,
-          null,
-          new Date(),
-        );
+        await this.updateDeliveryStatus(deliveryId, DELIVERY_STATUS.DELIVERED, null, new Date());
 
         // Emit success event
         this.eventEmitter.emit('notification.delivery.success', {
@@ -1249,7 +1271,7 @@ export class NotificationDispatchService {
 
     this.logger.debug(
       `Work hours check: Current time ${hours}:${minutes.toString().padStart(2, '0')} ` +
-      `(${currentTimeInHours.toFixed(2)}h) - Within hours: ${isWithinHours}`,
+        `(${currentTimeInHours.toFixed(2)}h) - Within hours: ${isWithinHours}`,
     );
 
     return isWithinHours;
@@ -1284,5 +1306,294 @@ export class NotificationDispatchService {
     this.logger.debug(`Next work hour start calculated as: ${next730.toISOString()}`);
 
     return next730;
+  }
+
+  // =====================================================
+  // CONFIGURATION-BASED DISPATCH METHODS
+  // =====================================================
+
+  /**
+   * Dispatch notification using configuration-based approach
+   *
+   * Uses task-notification.config.ts to determine notification settings:
+   * - Field configuration (importance, channels, messages)
+   * - Role-based recipient resolution
+   * - Template interpolation
+   *
+   * @param configKey - Configuration key (e.g., 'task.created', 'task.field.status', 'task.overdue')
+   * @param triggeringUserId - User ID who triggered the action (excluded from recipients), or 'system' for system events
+   * @param context - Notification context with entity info and template data
+   */
+  async dispatchByConfiguration(
+    configKey: string,
+    triggeringUserId: string,
+    context: NotificationContext,
+  ): Promise<void> {
+    this.logger.log(`Starting configuration-based dispatch for key: ${configKey}`);
+
+    try {
+      // Extract field name from config key
+      const fieldName = this.extractFieldFromConfigKey(configKey);
+      const config = getFieldConfig(fieldName);
+
+      if (!config) {
+        this.logger.warn(`No configuration found for key: ${configKey} (field: ${fieldName})`);
+        return;
+      }
+
+      if (!config.enabled) {
+        this.logger.debug(`Notifications disabled for field: ${fieldName}`);
+        return;
+      }
+
+      // Get target users based on field configuration
+      const allowedRoles = getAllowedRolesForField(fieldName);
+      const targetUsers = await this.getTargetUsersByRoles(
+        allowedRoles,
+        triggeringUserId === 'system' ? undefined : triggeringUserId,
+      );
+
+      if (targetUsers.length === 0) {
+        this.logger.log(`No target users found for configuration: ${configKey}`);
+        return;
+      }
+
+      this.logger.log(`Found ${targetUsers.length} target users for ${configKey}`);
+
+      // Generate deep links for the task
+      const deepLinks = this.deepLinkService.generateTaskLinks(context.entityId);
+
+      // Select message template based on event data
+      const messageTemplate = this.selectMessageTemplate(config, context.data);
+
+      // Build notification content
+      const title = this.buildNotificationTitle(config, context.data);
+      const body = this.interpolateMessage(messageTemplate.inApp, {
+        taskName: context.data.taskName || '',
+        serialNumber: context.data.serialNumber || '',
+        oldValue: context.data.oldValue !== undefined ? String(context.data.oldValue) : 'N/A',
+        newValue: context.data.newValue !== undefined ? String(context.data.newValue) : 'N/A',
+        changedBy: context.data.changedBy || 'Sistema',
+        daysOverdue: context.data.daysOverdue?.toString() || '',
+        daysRemaining: context.data.daysRemaining?.toString() || '',
+        count: context.data.count?.toString() || '',
+      });
+
+      // Create notifications for all target users
+      let notificationsCreated = 0;
+      let notificationsSkipped = 0;
+
+      for (const user of targetUsers) {
+        const channels = await this.getUserChannels(user.id, NOTIFICATION_TYPE.TASK, fieldName);
+
+        if (channels.length === 0) {
+          this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
+          notificationsSkipped++;
+          continue;
+        }
+
+        // Determine action type based on config key
+        const actionType = this.getActionTypeFromConfigKey(configKey);
+
+        // Create notification
+        const notification = await this.prisma.notification.create({
+          data: {
+            userId: user.id,
+            type: NOTIFICATION_TYPE.TASK,
+            importance: config.importance,
+            title,
+            body,
+            actionType: actionType as NotificationActionType,
+            actionUrl: JSON.stringify(deepLinks),
+            relatedEntityId: context.entityId,
+            relatedEntityType: 'TASK',
+            channel: channels,
+            metadata: {
+              webUrl: `/producao/agenda/detalhes/${context.entityId}`,
+              mobileUrl: deepLinks.mobile,
+              universalLink: deepLinks.universalLink,
+              taskId: context.entityId,
+              fieldName: context.data.fieldName,
+              fieldLabel: config.label,
+              actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
+              entityType: 'Task',
+              entityId: context.entityId,
+            },
+          },
+        });
+
+        // Dispatch the notification
+        await this.dispatchNotification(notification.id);
+        notificationsCreated++;
+      }
+
+      this.logger.log(
+        `Configuration-based dispatch completed for ${configKey}: ` +
+          `${notificationsCreated} created, ${notificationsSkipped} skipped`,
+      );
+
+      // Emit event for tracking
+      this.eventEmitter.emit('notification.config.dispatched', {
+        configKey,
+        triggeringUserId,
+        context,
+        recipientCount: targetUsers.length,
+        notificationsCreated,
+        notificationsSkipped,
+        dispatchedAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error dispatching by configuration ${configKey}: ${error.message}`,
+        error.stack,
+      );
+
+      // Emit failure event
+      this.eventEmitter.emit('notification.config.dispatch.failed', {
+        configKey,
+        triggeringUserId,
+        context,
+        error: error.message,
+        failedAt: new Date(),
+      });
+
+      throw error;
+    }
+  }
+
+  /**
+   * Extract field name from configuration key
+   */
+  private extractFieldFromConfigKey(configKey: string): string {
+    if (configKey.startsWith('task.field.')) {
+      return configKey.replace('task.field.', '');
+    }
+    if (configKey === 'task.deadline_approaching') {
+      return 'deadline';
+    }
+    if (configKey === 'task.ready_for_production') {
+      return 'created'; // Uses same config as created
+    }
+    return configKey.replace('task.', '');
+  }
+
+  /**
+   * Get target users by allowed roles
+   */
+  private async getTargetUsersByRoles(
+    allowedRoles: SECTOR_PRIVILEGES[],
+    excludeUserId?: string,
+  ): Promise<User[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        sector: {
+          is: {
+            privileges: {
+              in: allowedRoles,
+            },
+          },
+        },
+      },
+      include: {
+        sector: true,
+        position: true,
+        preference: true,
+      },
+    });
+
+    const filteredUsers = excludeUserId
+      ? users.filter(user => user.id !== excludeUserId)
+      : users;
+
+    return filteredUsers as User[];
+  }
+
+  /**
+   * Select appropriate message template based on event data
+   */
+  private selectMessageTemplate(
+    config: TaskFieldNotificationConfig,
+    data: Record<string, any>,
+  ): { inApp: string; push: string; email: { subject: string; body: string }; whatsapp: string } {
+    if (config.isFileArray && data.count !== undefined) {
+      if (data.count > 0 && config.messages.filesAdded) {
+        return config.messages.filesAdded;
+      }
+      if (data.count < 0 && config.messages.filesRemoved) {
+        return config.messages.filesRemoved;
+      }
+    }
+
+    if ((data.newValue === null || data.newValue === undefined) && config.messages.cleared) {
+      return config.messages.cleared;
+    }
+
+    return config.messages.updated;
+  }
+
+  /**
+   * Build notification title based on configuration
+   */
+  private buildNotificationTitle(
+    config: TaskFieldNotificationConfig,
+    data: Record<string, any>,
+  ): string {
+    const emoji = this.getEmojiForField(config.field);
+
+    if (config.isFileArray && data.count !== undefined) {
+      if (data.count > 0) {
+        return `${emoji} ${config.label}: Arquivos Adicionados`;
+      }
+      if (data.count < 0) {
+        return `${emoji} ${config.label}: Arquivos Removidos`;
+      }
+    }
+
+    return `${emoji} ${config.label} Alterado`;
+  }
+
+  /**
+   * Get emoji for field type
+   */
+  private getEmojiForField(fieldName: string): string {
+    const emojiMap: Record<string, string> = {
+      created: '\uD83C\uDD95',
+      overdue: '\uD83D\uDEA8',
+      status: '\uD83D\uDD04',
+      deadline: '\u23F0',
+      artworks: '\uD83C\uDFA8',
+      budgets: '\uD83D\uDCCB',
+      invoices: '\uD83D\uDCC4',
+      commission: '\uD83D\uDCB5',
+      paint: '\uD83C\uDFA8',
+      sectorId: '\uD83D\uDD00',
+      name: '\uD83D\uDCDD',
+    };
+    return emojiMap[fieldName] || '\uD83D\uDCDD';
+  }
+
+  /**
+   * Get action type from configuration key
+   */
+  private getActionTypeFromConfigKey(configKey: string): NOTIFICATION_ACTION_TYPE {
+    if (configKey === 'task.created' || configKey === 'task.ready_for_production') {
+      return NOTIFICATION_ACTION_TYPE.TASK_CREATED;
+    }
+    if (configKey === 'task.overdue' || configKey === 'task.deadline_approaching') {
+      return NOTIFICATION_ACTION_TYPE.VIEW_DETAILS;
+    }
+    return NOTIFICATION_ACTION_TYPE.TASK_UPDATED;
+  }
+
+  /**
+   * Interpolate message template with variables
+   */
+  private interpolateMessage(template: string, vars: Record<string, string>): string {
+    let result = template;
+    for (const [key, value] of Object.entries(vars)) {
+      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+    }
+    return result;
   }
 }

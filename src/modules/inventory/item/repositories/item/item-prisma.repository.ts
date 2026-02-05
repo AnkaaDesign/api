@@ -756,7 +756,8 @@ export class ItemPrismaRepository
     // Prioritize select over include - if select is provided, use it
     const useProvidedSelect = select && Object.keys(select).length > 0;
     // If no custom include or select is provided, use optimized select instead
-    const useOptimizedSelect = !useProvidedSelect && (!include || Object.keys(include).length === 0);
+    const useOptimizedSelect =
+      !useProvidedSelect && (!include || Object.keys(include).length === 0);
 
     // If select is explicitly provided, use it
     if (useProvidedSelect) {
@@ -1211,12 +1212,7 @@ export class ItemPrismaRepository
   async findManyForList(
     options?: FindManyOptions<ItemOrderBy, ItemWhere, ItemInclude>,
   ): Promise<FindManyResult<Item>> {
-    const {
-      where,
-      orderBy,
-      page = 1,
-      take = 20,
-    } = options || {};
+    const { where, orderBy, page = 1, take = 20 } = options || {};
     const skip = Math.max(0, (page - 1) * take);
 
     // Check if price sorting is requested
@@ -1255,12 +1251,7 @@ export class ItemPrismaRepository
   async findManyForCombobox(
     options?: FindManyOptions<ItemOrderBy, ItemWhere, ItemInclude>,
   ): Promise<FindManyResult<Item>> {
-    const {
-      where,
-      orderBy,
-      page = 1,
-      take = 100,
-    } = options || {};
+    const { where, orderBy, page = 1, take = 100 } = options || {};
     const skip = Math.max(0, (page - 1) * take);
 
     const prismaOrderBy = this.convertOrderByToCorrectFormat(orderBy) || { name: 'asc' };

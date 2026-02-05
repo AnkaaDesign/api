@@ -70,6 +70,12 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
       useClass: PpeDeliverySchedulePrismaRepository,
     },
   ],
-  exports: [PpeSizeService, PpeDeliveryService, PpeDeliveryScheduleService, PpeDocumentService, PpeSignatureService],
+  exports: [
+    PpeSizeService,
+    PpeDeliveryService,
+    PpeDeliveryScheduleService,
+    PpeDocumentService,
+    PpeSignatureService,
+  ],
 })
 export class PpeModule {}

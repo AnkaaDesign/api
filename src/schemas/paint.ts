@@ -286,47 +286,59 @@ export const paintSelectSchema = z
     paintBrandId: z.boolean().optional(),
 
     // Relations - with nested select support
-    paintType: z.union([
-      z.boolean(),
-      z.object({
-        select: z.object({
-          id: z.boolean().optional(),
-          name: z.boolean().optional(),
-          type: z.boolean().optional(),
-          description: z.boolean().optional(),
-          needGround: z.boolean().optional(),
-        }).optional(),
-      }),
-    ]).optional(),
+    paintType: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              type: z.boolean().optional(),
+              description: z.boolean().optional(),
+              needGround: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
 
-    paintBrand: z.union([
-      z.boolean(),
-      z.object({
-        select: z.object({
-          id: z.boolean().optional(),
-          name: z.boolean().optional(),
-          code: z.boolean().optional(),
-          description: z.boolean().optional(),
-        }).optional(),
-      }),
-    ]).optional(),
+    paintBrand: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              code: z.boolean().optional(),
+              description: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
 
     // Count only for formulas - don't load actual data
-    _count: z.union([
-      z.boolean(),
-      z.object({
-        select: z.object({
-          formulas: z.boolean().optional(),
-          generalPaintings: z.boolean().optional(),
-          logoTasks: z.boolean().optional(),
-          paintGrounds: z.boolean().optional(),
-          groundPaintFor: z.boolean().optional(),
-        }).optional(),
-      }),
-    ]).optional(),
+    _count: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              formulas: z.boolean().optional(),
+              generalPaintings: z.boolean().optional(),
+              logoTasks: z.boolean().optional(),
+              paintGrounds: z.boolean().optional(),
+              groundPaintFor: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
 
     // Relations that should NOT be included in dropdown selects
-    formulas: z.boolean().optional(),  // Should be false for dropdowns
+    formulas: z.boolean().optional(), // Should be false for dropdowns
     generalPaintings: z.boolean().optional(),
     logoTasks: z.boolean().optional(),
     relatedPaints: z.boolean().optional(),
@@ -1201,7 +1213,7 @@ const paintFilters = {
   similarColor: z
     .string()
     .optional()
-    .transform((val) => {
+    .transform(val => {
       // Treat empty strings and default black as "no filter"
       if (!val || val === '' || val === '#000000') return undefined;
       return val;
@@ -1210,7 +1222,7 @@ const paintFilters = {
       z
         .string()
         .regex(/^#[0-9A-Fa-f]{6}$/, 'Must be a valid hex color')
-        .optional()
+        .optional(),
     ),
   similarColorThreshold: z.coerce.number().min(0).max(100).default(15).optional(),
 };
@@ -1342,7 +1354,7 @@ const paintTransform = (data: any) => {
 
 export const paintGetByIdSchema = z.object({
   include: paintIncludeSchema.optional(),
-  select: paintSelectSchema.optional(),  // Added select support for field selection
+  select: paintSelectSchema.optional(), // Added select support for field selection
 });
 
 export const paintFormulaGetByIdSchema = z.object({
@@ -1371,7 +1383,7 @@ export const paintGetManySchema = z
     where: paintWhereSchema.optional(),
     orderBy: paintOrderBySchema.optional(),
     include: paintIncludeSchema.optional(),
-    select: paintSelectSchema.optional(),  // Added select support for field selection
+    select: paintSelectSchema.optional(), // Added select support for field selection
 
     // Convenience filters
     ...paintFilters,

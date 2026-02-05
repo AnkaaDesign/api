@@ -51,6 +51,12 @@ import { ItemCategoryPrismaRepository } from './repositories/item-category/item-
       useClass: ItemCategoryPrismaRepository,
     },
   ],
-  exports: [ItemService, ItemBrandService, ItemCategoryService, ItemRepository, StockNotificationService],
+  exports: [
+    ItemService,
+    ItemBrandService,
+    ItemCategoryService,
+    ItemRepository,
+    StockNotificationService,
+  ],
 })
 export class ItemModule {}

@@ -256,7 +256,8 @@ export class ThumbnailService {
       if (!this.toolsAvailable.ffmpeg) {
         return {
           success: false,
-          error: 'FFmpeg não está instalado. Instale com: brew install ffmpeg (macOS) ou apt-get install ffmpeg (Ubuntu)',
+          error:
+            'FFmpeg não está instalado. Instale com: brew install ffmpeg (macOS) ou apt-get install ffmpeg (Ubuntu)',
         };
       }
 
@@ -275,9 +276,7 @@ export class ThumbnailService {
       const duration = await this.getVideoDuration(videoPath);
       const seekTime = this.calculateSeekTime(duration);
 
-      this.logger.log(
-        `Vídeo duration: ${duration}s, extracting frame at ${seekTime}s`,
-      );
+      this.logger.log(`Vídeo duration: ${duration}s, extracting frame at ${seekTime}s`);
 
       // Step 2: Extract a single frame from the video using FFmpeg
       await this.extractVideoFrame(videoPath, tempFramePath, seekTime, finalOptions);
@@ -337,7 +336,9 @@ export class ThumbnailService {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(videoPath, (err: any, metadata: any) => {
         if (err) {
-          this.logger.warn(`FFprobe falhou para ${videoPath}: ${err.message}, usando duração padrão`);
+          this.logger.warn(
+            `FFprobe falhou para ${videoPath}: ${err.message}, usando duração padrão`,
+          );
           // Return a default duration so we can still attempt frame extraction
           resolve(10);
           return;

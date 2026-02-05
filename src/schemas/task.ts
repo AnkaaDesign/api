@@ -2587,14 +2587,18 @@ export const taskCreateSchema = z
     representativeIds: uuidArraySchema('ID de representante inválido'),
 
     // New representatives to create inline
-    newRepresentatives: z.array(z.object({
-      name: z.string().min(1, 'Nome é obrigatório'),
-      phone: z.string().min(10, 'Telefone inválido'),
-      email: z.string().email('Email inválido').optional().or(z.literal('')),
-      role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
-      isActive: z.boolean().default(true),
-      customerId: z.string().uuid('ID do cliente inválido').optional(),
-    })).optional(),
+    newRepresentatives: z
+      .array(
+        z.object({
+          name: z.string().min(1, 'Nome é obrigatório'),
+          phone: z.string().min(10, 'Telefone inválido'),
+          email: z.string().email('Email inválido').optional().or(z.literal('')),
+          role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+          isActive: z.boolean().default(true),
+          customerId: z.string().uuid('ID do cliente inválido').optional(),
+        }),
+      )
+      .optional(),
 
     // Relations - File arrays (can be UUIDs of existing files or will be populated from uploaded files)
     // Using uuidArraySchema to filter empty strings from FormData before validation
@@ -2625,7 +2629,7 @@ export const taskCreateSchema = z
     airbrushings: z.array(airbrushingCreateNestedSchema).optional(), // Support for multiple airbrushings
   })
   // Auto-fill dates based on status changes (before validation)
-  .transform((data) => {
+  .transform(data => {
     // Auto-fill startedAt when status is IN_PRODUCTION
     if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
       // If entryDate exists and is in the future, use entryDate, otherwise use current date
@@ -2672,8 +2676,16 @@ export const taskCreateSchema = z
     }
 
     if (data.entryDate && data.startedAt) {
-      const startDate = new Date(data.startedAt.getFullYear(), data.startedAt.getMonth(), data.startedAt.getDate());
-      const entryDateOnly = new Date(data.entryDate.getFullYear(), data.entryDate.getMonth(), data.entryDate.getDate());
+      const startDate = new Date(
+        data.startedAt.getFullYear(),
+        data.startedAt.getMonth(),
+        data.startedAt.getDate(),
+      );
+      const entryDateOnly = new Date(
+        data.entryDate.getFullYear(),
+        data.entryDate.getMonth(),
+        data.entryDate.getDate(),
+      );
       if (startDate < entryDateOnly) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -2752,8 +2764,8 @@ export const taskUpdateSchema = z
       .string()
       .optional()
       .nullable()
-      .transform((val) => (val === '' ? null : val))
-      .refine((val) => !val || /^[A-Z0-9-]+$/.test(val), {
+      .transform(val => (val === '' ? null : val))
+      .refine(val => !val || /^[A-Z0-9-]+$/.test(val), {
         message: 'Número de série deve conter apenas letras maiúsculas, números e hífens',
       }),
     details: createDescriptionSchema(1, 1000, false).nullable().optional(),
@@ -2776,14 +2788,18 @@ export const taskUpdateSchema = z
     representativeIds: uuidArraySchema('ID de representante inválido'),
 
     // New representatives to create inline
-    newRepresentatives: z.array(z.object({
-      name: z.string().min(1, 'Nome é obrigatório'),
-      phone: z.string().min(10, 'Telefone inválido'),
-      email: z.string().email('Email inválido').optional().or(z.literal('')),
-      role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
-      isActive: z.boolean().default(true),
-      customerId: z.string().uuid('ID do cliente inválido').optional(),
-    })).optional(),
+    newRepresentatives: z
+      .array(
+        z.object({
+          name: z.string().min(1, 'Nome é obrigatório'),
+          phone: z.string().min(10, 'Telefone inválido'),
+          email: z.string().email('Email inválido').optional().or(z.literal('')),
+          role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
+          isActive: z.boolean().default(true),
+          customerId: z.string().uuid('ID do cliente inválido').optional(),
+        }),
+      )
+      .optional(),
 
     // Relations - File arrays
     // Using uuidArraySchema to filter empty strings from FormData before validation
@@ -2796,39 +2812,42 @@ export const taskUpdateSchema = z
     // Artwork statuses map - maps File ID to artwork status (for approval workflow on existing files)
     // PREPROCESS: Handle malformed FormData where artworkStatuses comes as array-like object with stringified JSON
     artworkStatuses: z
-      .preprocess((val) => {
-        // If it's already a proper record, return as-is
-        if (!val || typeof val !== 'object') return val;
+      .preprocess(
+        val => {
+          // If it's already a proper record, return as-is
+          if (!val || typeof val !== 'object') return val;
 
-        // Check if it looks like array-like object: { "0": "...", "1": "..." }
-        const keys = Object.keys(val);
-        const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
+          // Check if it looks like array-like object: { "0": "...", "1": "..." }
+          const keys = Object.keys(val);
+          const isArrayLike = keys.length > 0 && keys.every(k => !isNaN(Number(k)));
 
-        if (isArrayLike) {
-          // Merge all parsed values into single record
-          const merged: any = {};
-          for (const value of Object.values(val)) {
-            if (typeof value === 'string') {
-              try {
-                const parsed = JSON.parse(value);
-                if (typeof parsed === 'object') Object.assign(merged, parsed);
-              } catch (e) {
-                // Skip invalid JSON
+          if (isArrayLike) {
+            // Merge all parsed values into single record
+            const merged: any = {};
+            for (const value of Object.values(val)) {
+              if (typeof value === 'string') {
+                try {
+                  const parsed = JSON.parse(value);
+                  if (typeof parsed === 'object') Object.assign(merged, parsed);
+                } catch (e) {
+                  // Skip invalid JSON
+                }
+              } else if (typeof value === 'object') {
+                Object.assign(merged, value);
               }
-            } else if (typeof value === 'object') {
-              Object.assign(merged, value);
             }
+            return Object.keys(merged).length > 0 ? merged : val;
           }
-          return Object.keys(merged).length > 0 ? merged : val;
-        }
 
-        return val;
-      }, z.record(
-        z.string().uuid(),
-        z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
-          errorMap: () => ({ message: 'Status de artwork inválido' }),
-        }),
-      ))
+          return val;
+        },
+        z.record(
+          z.string().uuid(),
+          z.enum(['DRAFT', 'APPROVED', 'REPROVED'], {
+            errorMap: () => ({ message: 'Status de artwork inválido' }),
+          }),
+        ),
+      )
       .optional(),
     // New artwork statuses array - array of statuses for new files being uploaded (matches files array order)
     newArtworkStatuses: z
@@ -2863,7 +2882,7 @@ export const taskUpdateSchema = z
   })
   // Auto-fill dates based on status changes (before validation)
   // This ensures that when frontend sends status change without dates, backend auto-fills them
-  .transform((data) => {
+  .transform(data => {
     // Auto-fill startedAt when status changes to IN_PRODUCTION
     if (data.status === TASK_STATUS.IN_PRODUCTION && !data.startedAt) {
       // If entryDate exists and is in the future, use entryDate, otherwise use current date
@@ -2892,8 +2911,16 @@ export const taskUpdateSchema = z
     }
 
     if (data.entryDate && data.startedAt) {
-      const startDate = new Date(data.startedAt.getFullYear(), data.startedAt.getMonth(), data.startedAt.getDate());
-      const entryDateOnly = new Date(data.entryDate.getFullYear(), data.entryDate.getMonth(), data.entryDate.getDate());
+      const startDate = new Date(
+        data.startedAt.getFullYear(),
+        data.startedAt.getMonth(),
+        data.startedAt.getDate(),
+      );
+      const entryDateOnly = new Date(
+        data.entryDate.getFullYear(),
+        data.entryDate.getMonth(),
+        data.entryDate.getDate(),
+      );
       if (startDate < entryDateOnly) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -3015,13 +3042,16 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   // CRITICAL: artworkIds should be File IDs (artwork.fileId), not Artwork entity IDs
   artworkIds: task.artworks?.map(artwork => artwork.fileId || (artwork as any).file?.id),
   // Map artwork statuses (File ID → status)
-  artworkStatuses: task.artworks?.reduce((acc, artwork) => {
-    const fileId = artwork.fileId || (artwork as any).file?.id;
-    if (fileId && artwork.status) {
-      acc[fileId] = artwork.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
-    }
-    return acc;
-  }, {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>),
+  artworkStatuses: task.artworks?.reduce(
+    (acc, artwork) => {
+      const fileId = artwork.fileId || (artwork as any).file?.id;
+      if (fileId && artwork.status) {
+        acc[fileId] = artwork.status as 'DRAFT' | 'APPROVED' | 'REPROVED';
+      }
+      return acc;
+    },
+    {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
+  ),
   baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,

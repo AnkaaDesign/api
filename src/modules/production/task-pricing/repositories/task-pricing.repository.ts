@@ -1,16 +1,8 @@
 // api/src/modules/production/task-pricing/repositories/task-pricing.repository.ts
 
 import { BaseStringRepository } from '@modules/common/base/base-string.repository';
-import type {
-  TaskPricing,
-  TaskPricingInclude,
-  TaskPricingOrderBy,
-  TaskPricingWhere,
-} from '@types';
-import type {
-  TaskPricingCreateFormData,
-  TaskPricingUpdateFormData,
-} from '@schemas/task-pricing';
+import type { TaskPricing, TaskPricingInclude, TaskPricingOrderBy, TaskPricingWhere } from '@types';
+import type { TaskPricingCreateFormData, TaskPricingUpdateFormData } from '@schemas/task-pricing';
 
 /**
  * Abstract repository for TaskPricing entity

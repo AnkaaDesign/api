@@ -21,9 +21,7 @@ export class RcloneService {
       await execAsync('which rclone');
 
       // Check if config exists and remote is configured
-      const { stdout } = await execAsync(
-        `rclone listremotes --config "${this.rcloneConfig}"`,
-      );
+      const { stdout } = await execAsync(`rclone listremotes --config "${this.rcloneConfig}"`);
 
       if (!stdout.includes(`${this.gdriveRemote}:`)) {
         return {
@@ -58,27 +56,34 @@ export class RcloneService {
 
     this.logger.log(`Starting upload: ${localPath} -> ${fullRemotePath}`);
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const args = [
         'copy',
         localPath,
         fullRemotePath,
-        '--config', this.rcloneConfig,
+        '--config',
+        this.rcloneConfig,
         '--progress',
-        '--stats', '2s',
+        '--stats',
+        '2s',
         '--stats-one-line',
-        '--transfers', '1',
-        '--contimeout', '120s',
-        '--timeout', '0', // No timeout for large files
-        '--retries', '5',
-        '--low-level-retries', '20',
+        '--transfers',
+        '1',
+        '--contimeout',
+        '120s',
+        '--timeout',
+        '0', // No timeout for large files
+        '--retries',
+        '5',
+        '--low-level-retries',
+        '20',
       ];
 
       const rcloneProcess = spawn('rclone', args);
       let lastProgress: RcloneProgress | null = null;
       let errorOutput = '';
 
-      rcloneProcess.stdout.on('data', (data) => {
+      rcloneProcess.stdout.on('data', data => {
         const output = data.toString();
         const progress = this.parseProgress(output);
         if (progress) {
@@ -87,7 +92,7 @@ export class RcloneService {
         }
       });
 
-      rcloneProcess.stderr.on('data', (data) => {
+      rcloneProcess.stderr.on('data', data => {
         const output = data.toString();
         // rclone outputs progress to stderr
         const progress = this.parseProgress(output);
@@ -99,7 +104,7 @@ export class RcloneService {
         }
       });
 
-      rcloneProcess.on('close', async (code) => {
+      rcloneProcess.on('close', async code => {
         if (code === 0) {
           this.logger.log(`Upload completed: ${remotePath}`);
 
@@ -120,7 +125,7 @@ export class RcloneService {
         }
       });
 
-      rcloneProcess.on('error', (error) => {
+      rcloneProcess.on('error', error => {
         this.logger.error(`Rclone process error: ${error.message}`);
         resolve({
           success: false,
@@ -141,10 +146,9 @@ export class RcloneService {
     try {
       // First check if it's a directory or file
       try {
-        await execAsync(
-          `rclone lsd "${fullRemotePath}" --config "${this.rcloneConfig}"`,
-          { timeout: 30000 },
-        );
+        await execAsync(`rclone lsd "${fullRemotePath}" --config "${this.rcloneConfig}"`, {
+          timeout: 30000,
+        });
         // It's a directory, use purge
         await execAsync(
           `rclone purge "${fullRemotePath}" --config "${this.rcloneConfig}"`,
@@ -153,10 +157,9 @@ export class RcloneService {
       } catch {
         // Not a directory, try delete for file
         try {
-          await execAsync(
-            `rclone deletefile "${fullRemotePath}" --config "${this.rcloneConfig}"`,
-            { timeout: 60000 },
-          );
+          await execAsync(`rclone deletefile "${fullRemotePath}" --config "${this.rcloneConfig}"`, {
+            timeout: 60000,
+          });
         } catch (fileError) {
           // File might not exist, which is okay
           if (!fileError.message?.includes('not found')) {
@@ -192,7 +195,7 @@ export class RcloneService {
         // Search for the backup folder recursively
         const { stdout } = await execAsync(
           `rclone lsf "${this.gdriveRemote}:${this.gdriveFolder}/${typeDir}" ` +
-          `--config "${this.rcloneConfig}" --recursive --dirs-only 2>/dev/null | grep "${backupId}" || true`,
+            `--config "${this.rcloneConfig}" --recursive --dirs-only 2>/dev/null | grep "${backupId}" || true`,
           { timeout: 60000 },
         );
 
@@ -261,7 +264,9 @@ export class RcloneService {
         const bytes = this.parseSize(transferMatch[1], transferMatch[2]);
         const totalBytes = this.parseSize(transferMatch[3], transferMatch[4]);
         const percent = parseInt(transferMatch[5], 10);
-        const speed = transferMatch[6] ? `${transferMatch[6]} ${transferMatch[7]}/s` : 'calculating...';
+        const speed = transferMatch[6]
+          ? `${transferMatch[6]} ${transferMatch[7]}/s`
+          : 'calculating...';
         const eta = transferMatch[8] || 'calculating...';
 
         return { bytes, totalBytes, percent, speed, eta };

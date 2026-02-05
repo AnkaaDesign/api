@@ -80,20 +80,21 @@ export class PpeDeliverySchedulePrismaRepository
 
     // For ONCE frequency, use specificDate as nextRun.
     // For recurring, the service layer will calculate and set the proper nextRun after creation.
-    const nextRun = frequency === 'ONCE' && rest.specificDate
-      ? new Date(rest.specificDate)
-      : null;
+    const nextRun = frequency === 'ONCE' && rest.specificDate ? new Date(rest.specificDate) : null;
 
     const createInput: Prisma.PpeDeliveryScheduleCreateInput = {
       ...rest,
       // Create nested PpeScheduleItem records for the items relation
-      items: items && items.length > 0 ? {
-        create: items.map(item => ({
-          ppeType: item.ppeType as PpeType,
-          quantity: item.quantity,
-          itemId: item.itemId || null,
-        })),
-      } : undefined,
+      items:
+        items && items.length > 0
+          ? {
+              create: items.map(item => ({
+                ppeType: item.ppeType as PpeType,
+                quantity: item.quantity,
+                itemId: item.itemId || null,
+              })),
+            }
+          : undefined,
       frequency: frequency as ScheduleFrequency,
       dayOfWeek: dayOfWeek as DayOfWeek | null | undefined,
       month: month as Month | null | undefined,

@@ -319,7 +319,11 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
       `Ordem de serviço "${data.serviceOrderDescription}" foi criada para a tarefa "${data.taskName}"${data.creatorName ? ` por ${data.creatorName}` : ''} (Tipo: ${data.serviceOrderType}).`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    channels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.WHATSAPP,
+    ],
   },
 
   'service-order.status.changed': {
@@ -328,7 +332,11 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
       `Ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" mudou de "${data.oldStatus}" para "${data.newStatus}"${data.changedByName ? ` por ${data.changedByName}` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    channels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.WHATSAPP,
+    ],
   },
 
   'service-order.completed': {
@@ -346,7 +354,11 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
       `Você foi atribuído à ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" (Tipo: ${data.serviceOrderType}).`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    channels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.WHATSAPP,
+    ],
   },
 
   'service-order.artwork-waiting-approval': {
@@ -355,7 +367,11 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
       `Ordem de serviço de arte "${data.serviceOrderDescription}" da tarefa "${data.taskName}" está aguardando aprovação.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    channels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.WHATSAPP,
+    ],
   },
 
   'service-order.assigned-user-updated': {
@@ -364,7 +380,11 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
       `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterado(s) por ${data.changedByName}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+    channels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.WHATSAPP,
+    ],
   },
 
   // =====================

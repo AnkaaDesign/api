@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { RepresentativeRepository } from './repositories/representative.repository';
 import { HashService } from '@/modules/common/hash/hash.service';
 import { ChangeLogService } from '@/modules/common/changelog/changelog.service';
@@ -65,12 +70,15 @@ export class RepresentativeService {
     }
 
     // Create representative
-    const representative = await this.repository.create({
-      ...data,
-      password: hashedPassword,
-    } as any, {
-      include: { customer: { include: { logo: true } } },
-    });
+    const representative = await this.repository.create(
+      {
+        ...data,
+        password: hashedPassword,
+      } as any,
+      {
+        include: { customer: { include: { logo: true } } },
+      },
+    );
 
     // Log creation
     await this.changelogService.logChange({
@@ -200,10 +208,7 @@ export class RepresentativeService {
     };
   }
 
-  async update(
-    id: string,
-    data: RepresentativeUpdateFormData,
-  ): Promise<RepresentativeResponse> {
+  async update(id: string, data: RepresentativeUpdateFormData): Promise<RepresentativeResponse> {
     const existing = await this.findById(id);
 
     // Validate unique constraints
@@ -281,11 +286,15 @@ export class RepresentativeService {
     const representative = await this.findById(id);
     const newStatus = !representative.isActive;
 
-    const updated = await this.repository.update(id, {
-      isActive: newStatus,
-    } as any, {
-      include: { customer: { include: { logo: true } } },
-    });
+    const updated = await this.repository.update(
+      id,
+      {
+        isActive: newStatus,
+      } as any,
+      {
+        include: { customer: { include: { logo: true } } },
+      },
+    );
 
     // Log status change
     await this.changelogService.logChange({
@@ -316,7 +325,9 @@ export class RepresentativeService {
     return { available };
   }
 
-  async batchCreate(representatives: RepresentativeCreateFormData[]): Promise<RepresentativeResponse[]> {
+  async batchCreate(
+    representatives: RepresentativeCreateFormData[],
+  ): Promise<RepresentativeResponse[]> {
     const results: RepresentativeResponse[] = [];
 
     for (const data of representatives) {
@@ -332,7 +343,9 @@ export class RepresentativeService {
     return results;
   }
 
-  async batchUpdate(updates: Array<{ id: string; data: RepresentativeUpdateFormData }>): Promise<RepresentativeResponse[]> {
+  async batchUpdate(
+    updates: Array<{ id: string; data: RepresentativeUpdateFormData }>,
+  ): Promise<RepresentativeResponse[]> {
     const results: RepresentativeResponse[] = [];
 
     for (const { id, data } of updates) {
@@ -382,10 +395,7 @@ export class RepresentativeService {
     }
 
     // Check password
-    const isPasswordValid = await this.hashService.compare(
-      data.password,
-      representative.password,
-    );
+    const isPasswordValid = await this.hashService.compare(data.password, representative.password);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas');
@@ -471,10 +481,7 @@ export class RepresentativeService {
       throw new BadRequestException('Código de verificação inválido');
     }
 
-    if (
-      representative.verificationExpiresAt &&
-      representative.verificationExpiresAt < new Date()
-    ) {
+    if (representative.verificationExpiresAt && representative.verificationExpiresAt < new Date()) {
       throw new BadRequestException('Código de verificação expirado');
     }
 
@@ -497,10 +504,7 @@ export class RepresentativeService {
     }
 
     // Verify old password
-    const isOldPasswordValid = await this.hashService.compare(
-      oldPassword,
-      representative.password,
-    );
+    const isOldPasswordValid = await this.hashService.compare(oldPassword, representative.password);
 
     if (!isOldPasswordValid) {
       throw new BadRequestException('Senha atual incorreta');
@@ -514,14 +518,13 @@ export class RepresentativeService {
     } as any);
   }
 
-  async setPassword(
-    representativeId: string,
-    password: string,
-  ): Promise<void> {
+  async setPassword(representativeId: string, password: string): Promise<void> {
     const representative = await this.findById(representativeId);
 
     if (representative.password) {
-      throw new BadRequestException('Este representante já possui senha. Use a opção de alterar senha.');
+      throw new BadRequestException(
+        'Este representante já possui senha. Use a opção de alterar senha.',
+      );
     }
 
     // Hash password
@@ -552,10 +555,7 @@ export class RepresentativeService {
     // TODO: Send reset email
   }
 
-  async confirmResetPassword(
-    resetToken: string,
-    newPassword: string,
-  ): Promise<void> {
+  async confirmResetPassword(resetToken: string, newPassword: string): Promise<void> {
     const representative = await this.prisma.representative.findUnique({
       where: { resetToken },
     });
@@ -564,10 +564,7 @@ export class RepresentativeService {
       throw new BadRequestException('Token inválido');
     }
 
-    if (
-      representative.resetTokenExpiry &&
-      representative.resetTokenExpiry < new Date()
-    ) {
+    if (representative.resetTokenExpiry && representative.resetTokenExpiry < new Date()) {
       throw new BadRequestException('Token expirado');
     }
 

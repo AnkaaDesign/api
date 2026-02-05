@@ -336,31 +336,31 @@ model PpeSize {
 }
 
 model PpeDelivery {
-  id                       String               @id @default(uuid())
-  userId                   String
-  itemId                   String
-  status                   PpeDeliveryStatus    @default(PENDING)
-  statusOrder              Int                  @default(1)
-  quantity                 Int
-  reason                   String?
-  reviewedBy               String?
-  ppeScheduleId            String?
-  scheduledDate            DateTime?
-  actualDeliveryDate       DateTime?
-  createdAt                DateTime             @default(now())
-  updatedAt                DateTime             @updatedAt
-  clicksignEnvelopeId      String?
-  clicksignDocumentKey     String?
-  clicksignRequestKey      String?
-  clicksignSignerKey       String?
-  clicksignSignedAt        DateTime?
-  deliveryDocumentId       String?
-  signatureBatchId         String?
-  deliveryDocument         File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
-  item                     Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
-  ppeSchedule              PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
-  reviewedByUser           User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
-  user                     User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
+  id                   String               @id @default(uuid())
+  userId               String
+  itemId               String
+  status               PpeDeliveryStatus    @default(PENDING)
+  statusOrder          Int                  @default(1)
+  quantity             Int
+  reason               String?
+  reviewedBy           String?
+  ppeScheduleId        String?
+  scheduledDate        DateTime?
+  actualDeliveryDate   DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  clicksignEnvelopeId  String?
+  clicksignDocumentKey String?
+  clicksignRequestKey  String?
+  clicksignSignerKey   String?
+  clicksignSignedAt    DateTime?
+  deliveryDocumentId   String?
+  signatureBatchId     String?
+  deliveryDocument     File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
+  item                 Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
+  ppeSchedule          PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
+  reviewedByUser       User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
+  user                 User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([itemId])
@@ -1562,6 +1562,97 @@ model NotificationDelivery {
   @@index([status])
 }
 
+model NotificationConfiguration {
+  id                  String                       @id @default(uuid())
+  key                 String                       @unique
+  notificationType    NotificationType
+  eventType           String
+  description         String?
+  enabled             Boolean                      @default(true)
+  importance          NotificationImportance       @default(NORMAL)
+  workHoursOnly       Boolean                      @default(false)
+  batchingEnabled     Boolean                      @default(false)
+  maxFrequencyPerDay  Int?
+  deduplicationWindow Int?
+  templates           Json?
+  metadata            Json?
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  channelConfigs      NotificationChannelConfig[]  @relation("NOTIFICATION_CONFIG_CHANNELS")
+  sectorOverrides     NotificationSectorOverride[] @relation("NOTIFICATION_CONFIG_SECTOR_OVERRIDES")
+  rules               NotificationRule[]           @relation("NOTIFICATION_CONFIG_RULES")
+  targetRule          NotificationTargetRule?      @relation("NOTIFICATION_CONFIG_TARGET_RULE")
+
+  @@index([notificationType])
+  @@index([eventType])
+  @@index([enabled])
+  @@index([notificationType, eventType])
+  @@index([importance])
+}
+
+model NotificationChannelConfig {
+  id              String                    @id @default(uuid())
+  configurationId String
+  channel         NotificationChannel
+  enabled         Boolean                   @default(true)
+  mandatory       Boolean                   @default(false)
+  defaultOn       Boolean                   @default(true)
+  minImportance   NotificationImportance?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  configuration   NotificationConfiguration @relation("NOTIFICATION_CONFIG_CHANNELS", fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@unique([configurationId, channel])
+  @@index([configurationId])
+  @@index([channel])
+  @@index([enabled])
+}
+
+model NotificationSectorOverride {
+  id                 String                    @id @default(uuid())
+  configurationId    String
+  sector             SectorPrivileges
+  channelOverrides   Json?
+  importanceOverride NotificationImportance?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  configuration      NotificationConfiguration @relation("NOTIFICATION_CONFIG_SECTOR_OVERRIDES", fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@unique([configurationId, sector])
+  @@index([configurationId])
+  @@index([sector])
+}
+
+model NotificationTargetRule {
+  id                String                    @id @default(uuid())
+  configurationId   String                    @unique
+  allowedSectors    SectorPrivileges[]
+  excludeInactive   Boolean                   @default(true)
+  excludeOnVacation Boolean                   @default(true)
+  customFilter      String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  configuration     NotificationConfiguration @relation("NOTIFICATION_CONFIG_TARGET_RULE", fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@index([configurationId])
+}
+
+model NotificationRule {
+  id              String                    @id @default(uuid())
+  configurationId String
+  ruleType        String
+  ruleConfig      Json
+  priority        Int                       @default(0)
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+  configuration   NotificationConfiguration @relation("NOTIFICATION_CONFIG_RULES", fields: [configurationId], references: [id], onDelete: Cascade)
+
+  @@index([configurationId])
+  @@index([ruleType])
+  @@index([priority])
+  @@index([configurationId, priority])
+}
+
 model ThumbnailJob {
   id          String    @id @default(uuid())
   fileId      String    @unique @map("file_id")
@@ -1819,38 +1910,38 @@ model BackupSchedule {
 }
 
 model Backup {
-  id                  String           @id
-  name                String
-  type                BackupType
-  description         String?
-  paths               String[]         @default([])
-  status              BackupStatus     @default(PENDING)
-  priority            BackupPriority   @default(MEDIUM)
-  compressionLevel    Int              @default(6)
-  encrypted           Boolean          @default(false)
-  size                BigInt           @default(0)
-  progress            Int              @default(0)
-  error               String?
-  autoDeleteEnabled   Boolean          @default(false)
-  autoDeleteRetention String?
-  autoDeleteAfter     DateTime?
-  filePath            String?
-  gdriveFileId          String?
-  gdriveStatus          GDriveSyncStatus   @default(PENDING)
-  gdriveSyncedAt        DateTime?
-  gdriveDeleteStatus    GDriveDeleteStatus?
-  gdriveDeleteError     String?
-  gdriveDeleteAttempts  Int                @default(0)
-  scheduleId            String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  completedAt         DateTime?
-  createdById         String?
-  deletedAt           DateTime?
-  deletedById         String?
-  createdBy           User?            @relation("BACKUP_CREATOR", fields: [createdById], references: [id])
-  deletedBy           User?            @relation("BACKUP_DELETER", fields: [deletedById], references: [id])
-  schedule            BackupSchedule?  @relation(fields: [scheduleId], references: [id])
+  id                   String              @id
+  name                 String
+  type                 BackupType
+  description          String?
+  paths                String[]            @default([])
+  status               BackupStatus        @default(PENDING)
+  priority             BackupPriority      @default(MEDIUM)
+  compressionLevel     Int                 @default(6)
+  encrypted            Boolean             @default(false)
+  size                 BigInt              @default(0)
+  progress             Int                 @default(0)
+  error                String?
+  autoDeleteEnabled    Boolean             @default(false)
+  autoDeleteRetention  String?
+  autoDeleteAfter      DateTime?
+  filePath             String?
+  gdriveFileId         String?
+  gdriveStatus         GDriveSyncStatus    @default(PENDING)
+  gdriveSyncedAt       DateTime?
+  gdriveDeleteStatus   GDriveDeleteStatus?
+  gdriveDeleteError    String?
+  gdriveDeleteAttempts Int                 @default(0)
+  scheduleId           String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  completedAt          DateTime?
+  createdById          String?
+  deletedAt            DateTime?
+  deletedById          String?
+  createdBy            User?               @relation("BACKUP_CREATOR", fields: [createdById], references: [id])
+  deletedBy            User?               @relation("BACKUP_DELETER", fields: [deletedById], references: [id])
+  schedule             BackupSchedule?     @relation(fields: [scheduleId], references: [id])
 
   @@index([status])
   @@index([type])
@@ -1863,25 +1954,25 @@ model Backup {
 }
 
 model Representative {
-  id                    String              @id @default(uuid())
+  id                    String             @id @default(uuid())
   name                  String
-  email                 String?             @unique
-  phone                 String              @unique
+  email                 String?            @unique
+  phone                 String             @unique
   password              String?
   role                  RepresentativeRole
   customerId            String?
-  isActive              Boolean             @default(true)
-  verified              Boolean             @default(false)
+  isActive              Boolean            @default(true)
+  verified              Boolean            @default(false)
   verificationCode      String?
   verificationExpiresAt DateTime?
-  sessionToken          String?             @unique
-  resetToken            String?             @unique
+  sessionToken          String?            @unique
+  resetToken            String?            @unique
   resetTokenExpiry      DateTime?
   lastLoginAt           DateTime?
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime            @updatedAt
-  customer              Customer?           @relation("CustomerRepresentatives", fields: [customerId], references: [id])
-  tasks                 Task[]              @relation("TaskRepresentatives")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  customer              Customer?          @relation("CustomerRepresentatives", fields: [customerId], references: [id])
+  tasks                 Task[]             @relation("TaskRepresentatives")
 
   @@unique([customerId, role])
   @@index([email])

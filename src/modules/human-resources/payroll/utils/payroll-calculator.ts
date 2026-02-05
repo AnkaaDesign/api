@@ -427,7 +427,7 @@ export class PayrollCalculatorService {
       const calculation: PayrollCalculationResult = {
         baseSalary,
         bonusValue: bonusData.netBonus,
-        grossSalary: roundCurrency(baseSalary + (bonusData.netBonus)),
+        grossSalary: roundCurrency(baseSalary + bonusData.netBonus),
         totalDeductions: deductionResult.totalDeductions,
         deductionBreakdown: deductionResult.deductionBreakdown,
         netSalary,

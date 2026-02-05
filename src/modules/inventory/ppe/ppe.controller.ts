@@ -761,14 +761,8 @@ export class PpeController {
   // =====================
 
   @Get('deliveries/:id/signature-status')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
-  async getSignatureStatus(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  async getSignatureStatus(@Param('id', ParseUUIDPipe) id: string): Promise<{
     success: boolean;
     data: {
       status: string;
@@ -783,11 +777,7 @@ export class PpeController {
   }
 
   @Post('deliveries/:id/resend-signature-notification')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async resendSignatureNotification(
     @Param('id', ParseUUIDPipe) id: string,
@@ -808,11 +798,7 @@ export class PpeController {
   }
 
   @Post('deliveries/:id/reject-signature')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async rejectSignature(
     @Param('id', ParseUUIDPipe) id: string,
@@ -823,11 +809,7 @@ export class PpeController {
   }
 
   @Get('signature-available')
-  @Roles(
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async isSignatureAvailable(): Promise<{ available: boolean }> {
     return { available: this.ppeSignatureService.isClickSignAvailable() };
   }

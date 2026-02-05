@@ -77,7 +77,21 @@ export class ServiceOrderService {
     if (!str) return str;
 
     // Portuguese prepositions that should stay lowercase (unless at the start)
-    const lowercaseWords = new Set(['de', 'da', 'do', 'das', 'dos', 'na', 'no', 'nas', 'nos', 'e', 'em', 'para', 'com']);
+    const lowercaseWords = new Set([
+      'de',
+      'da',
+      'do',
+      'das',
+      'dos',
+      'na',
+      'no',
+      'nas',
+      'nos',
+      'e',
+      'em',
+      'para',
+      'com',
+    ]);
 
     return str
       .toLowerCase()
@@ -221,7 +235,9 @@ export class ServiceOrderService {
             });
 
             if (taskWithPricing?.pricing) {
-              const existingPricingItems: SyncPricingItem[] = (taskWithPricing.pricing.items || []).map((item: any) => ({
+              const existingPricingItems: SyncPricingItem[] = (
+                taskWithPricing.pricing.items || []
+              ).map((item: any) => ({
                 id: item.id,
                 description: item.description,
                 observation: item.observation,
@@ -257,7 +273,10 @@ export class ServiceOrderService {
                 const allItems = await tx.taskPricingItem.findMany({
                   where: { pricingId: taskWithPricing.pricing.id },
                 });
-                const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+                const newSubtotal = allItems.reduce(
+                  (sum, item) => sum + Number(item.amount || 0),
+                  0,
+                );
 
                 await tx.taskPricing.update({
                   where: { id: taskWithPricing.pricing.id },
@@ -267,7 +286,9 @@ export class ServiceOrderService {
                   },
                 });
 
-                this.logger.log(`[SO→PRICING SYNC] Pricing item created. New pricing subtotal: ${newSubtotal}`);
+                this.logger.log(
+                  `[SO→PRICING SYNC] Pricing item created. New pricing subtotal: ${newSubtotal}`,
+                );
               } else {
                 this.logger.log(`[SO→PRICING SYNC] Skipped: ${syncResult.reason}`);
               }
@@ -334,7 +355,8 @@ export class ServiceOrderService {
 
       // Check permissions before allowing update
       if (userId && userPrivilege) {
-        const isStatusChange = data.status !== undefined && data.status !== serviceOrderExists.status;
+        const isStatusChange =
+          data.status !== undefined && data.status !== serviceOrderExists.status;
         assertCanUpdateServiceOrder(
           serviceOrderExists,
           userId,
@@ -369,13 +391,29 @@ export class ServiceOrderService {
       }
 
       // Track if task was auto-started for event emission after transaction
-      let taskAutoStarted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      let taskAutoStarted: {
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      } | null = null;
       // Track if task was auto-transitioned to WAITING_PRODUCTION for event emission after transaction
-      let taskAutoTransitionedToWaitingProduction: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      let taskAutoTransitionedToWaitingProduction: {
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      } | null = null;
       // Track if task was auto-completed for event emission after transaction
-      let taskAutoCompleted: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      let taskAutoCompleted: {
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      } | null = null;
       // Track if task was rolled back for event emission after transaction
-      let taskRolledBack: { taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS } | null = null;
+      let taskRolledBack: {
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      } | null = null;
 
       const serviceOrder = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const oldData = serviceOrderExists;
@@ -388,7 +426,10 @@ export class ServiceOrderService {
         };
 
         // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
-        if (data.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
+        if (
+          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
             updateData.startedAt = new Date();
@@ -397,9 +438,15 @@ export class ServiceOrderService {
 
         // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
         // This happens when an ARTWORK service order is approved by admin
-        if (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
-            data.status && data.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE) {
-          if (data.status === SERVICE_ORDER_STATUS.COMPLETED || data.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+        if (
+          oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+          data.status &&
+          data.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE
+        ) {
+          if (
+            data.status === SERVICE_ORDER_STATUS.COMPLETED ||
+            data.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+          ) {
             if (!oldData.approvedById) {
               updateData.approvedById = userId || null;
               updateData.approvedAt = new Date();
@@ -408,7 +455,10 @@ export class ServiceOrderService {
         }
 
         // Automatically set completedBy/finishedAt when status changes to COMPLETED
-        if (data.status === SERVICE_ORDER_STATUS.COMPLETED && oldData.status !== SERVICE_ORDER_STATUS.COMPLETED) {
+        if (
+          data.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          oldData.status !== SERVICE_ORDER_STATUS.COMPLETED
+        ) {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
             updateData.finishedAt = new Date();
@@ -416,8 +466,11 @@ export class ServiceOrderService {
         }
 
         // If going back to IN_PROGRESS (rejection scenario), clear approval data
-        if (data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-            (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldData.status === SERVICE_ORDER_STATUS.COMPLETED)) {
+        if (
+          data.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
+            oldData.status === SERVICE_ORDER_STATUS.COMPLETED)
+        ) {
           // The observation field should be set by the caller for rejection reasons
           // Clear completion data if going back from completed
           if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
@@ -427,8 +480,13 @@ export class ServiceOrderService {
         }
 
         // If going back to PENDING, clear all progress data (rollback to initial state)
-        if (data.status === SERVICE_ORDER_STATUS.PENDING && oldData.status !== SERVICE_ORDER_STATUS.PENDING) {
-          this.logger.log(`[SERVICE ORDER ROLLBACK] Clearing all dates for SO ${id}: ${oldData.status} → PENDING`);
+        if (
+          data.status === SERVICE_ORDER_STATUS.PENDING &&
+          oldData.status !== SERVICE_ORDER_STATUS.PENDING
+        ) {
+          this.logger.log(
+            `[SERVICE ORDER ROLLBACK] Clearing all dates for SO ${id}: ${oldData.status} → PENDING`,
+          );
           updateData.startedById = null;
           updateData.startedAt = null;
           updateData.approvedById = null;
@@ -437,9 +495,14 @@ export class ServiceOrderService {
           updateData.finishedAt = null;
         }
 
-        const updated = await this.serviceOrderRepository.updateWithTransaction(tx, id, updateData, {
-          include,
-        });
+        const updated = await this.serviceOrderRepository.updateWithTransaction(
+          tx,
+          id,
+          updateData,
+          {
+            include,
+          },
+        );
 
         // Track field-level changes - include new fields
         await trackAndLogFieldChanges({
@@ -583,7 +646,11 @@ export class ServiceOrderService {
           });
 
           // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status (not already completed)
-          if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+          if (
+            task &&
+            (task.status === TASK_STATUS.IN_PRODUCTION ||
+              task.status === TASK_STATUS.WAITING_PRODUCTION)
+          ) {
             // Get all PRODUCTION service orders for this task
             const productionServiceOrders = await tx.serviceOrder.findMany({
               where: {
@@ -595,13 +662,13 @@ export class ServiceOrderService {
 
             // Filter out CANCELLED orders - they don't block task completion
             const activeProductionOrders = productionServiceOrders.filter(
-              (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+              so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
             );
 
             // Check if there's at least 1 active production service order and ALL are COMPLETED
             const hasActiveProductionOrders = activeProductionOrders.length > 0;
             const allActiveProductionCompleted = activeProductionOrders.every(
-              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (hasActiveProductionOrders && allActiveProductionCompleted) {
@@ -662,7 +729,11 @@ export class ServiceOrderService {
           });
 
           // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
-          if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+          if (
+            task &&
+            (task.status === TASK_STATUS.IN_PRODUCTION ||
+              task.status === TASK_STATUS.WAITING_PRODUCTION)
+          ) {
             // Get all PRODUCTION service orders for this task
             const productionServiceOrders = await tx.serviceOrder.findMany({
               where: {
@@ -674,13 +745,13 @@ export class ServiceOrderService {
 
             // Filter out CANCELLED orders - they don't block task completion
             const activeProductionOrders = productionServiceOrders.filter(
-              (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+              so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
             );
 
             // Check if there's at least 1 active production service order and ALL are COMPLETED
             const hasActiveProductionOrders = activeProductionOrders.length > 0;
             const allActiveProductionCompleted = activeProductionOrders.every(
-              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (hasActiveProductionOrders && allActiveProductionCompleted) {
@@ -755,7 +826,7 @@ export class ServiceOrderService {
             // Only rollback task if NO artwork SOs remain completed
             // If at least one artwork is still completed, keep task in WAITING_PRODUCTION
             const anyArtworkCompleted = artworkServiceOrders.some(
-              (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (!anyArtworkCompleted) {
@@ -803,7 +874,10 @@ export class ServiceOrderService {
         if (
           updated.type === SERVICE_ORDER_TYPE.PRODUCTION &&
           data.status &&
-          isStatusRollback(oldData.status as SERVICE_ORDER_STATUS, data.status as SERVICE_ORDER_STATUS)
+          isStatusRollback(
+            oldData.status as SERVICE_ORDER_STATUS,
+            data.status as SERVICE_ORDER_STATUS,
+          )
         ) {
           // Get the task with its current status
           const task = await tx.task.findUnique({
@@ -902,7 +976,11 @@ export class ServiceOrderService {
             select: { id: true, status: true, startedAt: true, finishedAt: true },
           });
 
-          if (task && task.status !== TASK_STATUS.PREPARATION && task.status !== TASK_STATUS.CANCELLED) {
+          if (
+            task &&
+            task.status !== TASK_STATUS.PREPARATION &&
+            task.status !== TASK_STATUS.CANCELLED
+          ) {
             // Get all service orders for this task
             const allServiceOrders = await tx.serviceOrder.findMany({
               where: { taskId: updated.taskId },
@@ -916,16 +994,16 @@ export class ServiceOrderService {
 
             if (activeProductionOrders.length > 0) {
               const allCompleted = activeProductionOrders.every(
-                so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
               );
               const allPending = activeProductionOrders.every(
-                so => so.status === SERVICE_ORDER_STATUS.PENDING
+                so => so.status === SERVICE_ORDER_STATUS.PENDING,
               );
               const anyInProgress = activeProductionOrders.some(
-                so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+                so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS,
               );
               const anyCompleted = activeProductionOrders.some(
-                so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
               );
 
               let expectedStatus: TASK_STATUS | null = null;
@@ -1366,15 +1444,11 @@ export class ServiceOrderService {
       // Filter by search term if provided
       if (search && search.trim()) {
         const searchLower = search.trim().toLowerCase();
-        descriptions = descriptions.filter(d =>
-          d.toLowerCase().includes(searchLower)
-        );
+        descriptions = descriptions.filter(d => d.toLowerCase().includes(searchLower));
       }
 
       // Sort alphabetically and apply limit
-      descriptions = descriptions
-        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
-        .slice(0, limit);
+      descriptions = descriptions.sort((a, b) => a.localeCompare(b, 'pt-BR')).slice(0, limit);
 
       return {
         success: true,
@@ -1604,7 +1678,10 @@ export class ServiceOrderService {
         };
 
         // Automatically set startedBy/startedAt when status changes to IN_PROGRESS
-        if (updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS && oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS) {
+        if (
+          updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          oldData.status !== SERVICE_ORDER_STATUS.IN_PROGRESS
+        ) {
           if (!oldData.startedById) {
             updateData.startedById = userId || null;
             updateData.startedAt = new Date();
@@ -1612,9 +1689,15 @@ export class ServiceOrderService {
         }
 
         // Automatically set approvedBy/approvedAt when status changes from WAITING_APPROVE to another status (approved)
-        if (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
-            updateData.status && updateData.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE) {
-          if (updateData.status === SERVICE_ORDER_STATUS.COMPLETED || updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS) {
+        if (
+          oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+          updateData.status &&
+          updateData.status !== SERVICE_ORDER_STATUS.WAITING_APPROVE
+        ) {
+          if (
+            updateData.status === SERVICE_ORDER_STATUS.COMPLETED ||
+            updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+          ) {
             if (!oldData.approvedById) {
               updateData.approvedById = userId || null;
               updateData.approvedAt = new Date();
@@ -1623,7 +1706,10 @@ export class ServiceOrderService {
         }
 
         // Automatically set completedBy/finishedAt when status changes to COMPLETED
-        if (updateData.status === SERVICE_ORDER_STATUS.COMPLETED && oldData.status !== SERVICE_ORDER_STATUS.COMPLETED) {
+        if (
+          updateData.status === SERVICE_ORDER_STATUS.COMPLETED &&
+          oldData.status !== SERVICE_ORDER_STATUS.COMPLETED
+        ) {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
             updateData.finishedAt = new Date();
@@ -1631,8 +1717,11 @@ export class ServiceOrderService {
         }
 
         // If going back to IN_PROGRESS (rejection scenario), clear approval data
-        if (updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
-            (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE || oldData.status === SERVICE_ORDER_STATUS.COMPLETED)) {
+        if (
+          updateData.status === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+          (oldData.status === SERVICE_ORDER_STATUS.WAITING_APPROVE ||
+            oldData.status === SERVICE_ORDER_STATUS.COMPLETED)
+        ) {
           // Clear completion data if going back from completed
           if (oldData.status === SERVICE_ORDER_STATUS.COMPLETED) {
             updateData.completedById = null;
@@ -1644,13 +1733,29 @@ export class ServiceOrderService {
       });
 
       // Track auto-started tasks for event emission after transaction
-      const tasksAutoStarted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      const tasksAutoStarted: Array<{
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      }> = [];
       // Track tasks auto-transitioned to WAITING_PRODUCTION for event emission after transaction
-      const tasksAutoTransitionedToWaitingProduction: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      const tasksAutoTransitionedToWaitingProduction: Array<{
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      }> = [];
       // Track tasks auto-completed for event emission after transaction
-      const tasksAutoCompleted: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      const tasksAutoCompleted: Array<{
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      }> = [];
       // Track tasks rolled back for event emission after transaction
-      const tasksRolledBack: Array<{ taskId: string; oldStatus: TASK_STATUS; newStatus: TASK_STATUS }> = [];
+      const tasksRolledBack: Array<{
+        taskId: string;
+        oldStatus: TASK_STATUS;
+        newStatus: TASK_STATUS;
+      }> = [];
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         const batchResult = await this.serviceOrderRepository.updateManyWithTransaction(
@@ -1746,7 +1851,9 @@ export class ServiceOrderService {
               serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
             ) {
               // Check if this task was already auto-transitioned in this batch
-              const alreadyTransitioned = tasksAutoTransitionedToWaitingProduction.some(t => t.taskId === serviceOrder.taskId);
+              const alreadyTransitioned = tasksAutoTransitionedToWaitingProduction.some(
+                t => t.taskId === serviceOrder.taskId,
+              );
               if (!alreadyTransitioned) {
                 const task = await tx.task.findUnique({
                   where: { id: serviceOrder.taskId },
@@ -1799,7 +1906,9 @@ export class ServiceOrderService {
               serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION
             ) {
               // Check if this task was already auto-completed in this batch
-              const alreadyCompleted = tasksAutoCompleted.some(t => t.taskId === serviceOrder.taskId);
+              const alreadyCompleted = tasksAutoCompleted.some(
+                t => t.taskId === serviceOrder.taskId,
+              );
               if (!alreadyCompleted) {
                 const task = await tx.task.findUnique({
                   where: { id: serviceOrder.taskId },
@@ -1807,7 +1916,11 @@ export class ServiceOrderService {
                 });
 
                 // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
-                if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+                if (
+                  task &&
+                  (task.status === TASK_STATUS.IN_PRODUCTION ||
+                    task.status === TASK_STATUS.WAITING_PRODUCTION)
+                ) {
                   // Get all PRODUCTION service orders for this task
                   const productionServiceOrders = await tx.serviceOrder.findMany({
                     where: {
@@ -1819,13 +1932,13 @@ export class ServiceOrderService {
 
                   // Filter out CANCELLED orders - they don't block task completion
                   const activeProductionOrders = productionServiceOrders.filter(
-                    (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+                    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
                   );
 
                   // Check if there's at least 1 active production service order and ALL are COMPLETED
                   const hasActiveProductionOrders = activeProductionOrders.length > 0;
                   const allActiveProductionCompleted = activeProductionOrders.every(
-                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                   );
 
                   if (hasActiveProductionOrders && allActiveProductionCompleted) {
@@ -1879,7 +1992,9 @@ export class ServiceOrderService {
               serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION
             ) {
               // Check if this task was already auto-completed in this batch
-              const alreadyCompleted = tasksAutoCompleted.some(t => t.taskId === serviceOrder.taskId);
+              const alreadyCompleted = tasksAutoCompleted.some(
+                t => t.taskId === serviceOrder.taskId,
+              );
               if (!alreadyCompleted) {
                 const task = await tx.task.findUnique({
                   where: { id: serviceOrder.taskId },
@@ -1887,7 +2002,11 @@ export class ServiceOrderService {
                 });
 
                 // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status
-                if (task && (task.status === TASK_STATUS.IN_PRODUCTION || task.status === TASK_STATUS.WAITING_PRODUCTION)) {
+                if (
+                  task &&
+                  (task.status === TASK_STATUS.IN_PRODUCTION ||
+                    task.status === TASK_STATUS.WAITING_PRODUCTION)
+                ) {
                   // Get all PRODUCTION service orders for this task
                   const productionServiceOrders = await tx.serviceOrder.findMany({
                     where: {
@@ -1899,13 +2018,13 @@ export class ServiceOrderService {
 
                   // Filter out CANCELLED orders - they don't block task completion
                   const activeProductionOrders = productionServiceOrders.filter(
-                    (so) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+                    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
                   );
 
                   // Check if there's at least 1 active production service order and ALL are COMPLETED
                   const hasActiveProductionOrders = activeProductionOrders.length > 0;
                   const allActiveProductionCompleted = activeProductionOrders.every(
-                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                   );
 
                   if (hasActiveProductionOrders && allActiveProductionCompleted) {
@@ -1981,7 +2100,7 @@ export class ServiceOrderService {
                   // Only rollback task if NO artwork SOs remain completed
                   // If at least one artwork is still completed, keep task in WAITING_PRODUCTION
                   const anyArtworkCompleted = artworkServiceOrders.some(
-                    (so) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                   );
 
                   if (!anyArtworkCompleted) {
@@ -2028,7 +2147,10 @@ export class ServiceOrderService {
             // =====================================================================
             if (
               serviceOrder.type === SERVICE_ORDER_TYPE.PRODUCTION &&
-              isStatusRollback(oldData.status as SERVICE_ORDER_STATUS, serviceOrder.status as SERVICE_ORDER_STATUS)
+              isStatusRollback(
+                oldData.status as SERVICE_ORDER_STATUS,
+                serviceOrder.status as SERVICE_ORDER_STATUS,
+              )
             ) {
               // Check if this task was already rolled back in this batch
               const alreadyRolledBack = tasksRolledBack.some(t => t.taskId === serviceOrder.taskId);
@@ -2134,7 +2256,11 @@ export class ServiceOrderService {
                   select: { id: true, status: true, startedAt: true, finishedAt: true },
                 });
 
-                if (task && task.status !== TASK_STATUS.PREPARATION && task.status !== TASK_STATUS.CANCELLED) {
+                if (
+                  task &&
+                  task.status !== TASK_STATUS.PREPARATION &&
+                  task.status !== TASK_STATUS.CANCELLED
+                ) {
                   // Get all service orders for this task
                   const allServiceOrders = await tx.serviceOrder.findMany({
                     where: { taskId: serviceOrder.taskId },
@@ -2148,16 +2274,16 @@ export class ServiceOrderService {
 
                   if (activeProductionOrders.length > 0) {
                     const allCompleted = activeProductionOrders.every(
-                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                     );
                     const allPending = activeProductionOrders.every(
-                      so => so.status === SERVICE_ORDER_STATUS.PENDING
+                      so => so.status === SERVICE_ORDER_STATUS.PENDING,
                     );
                     const anyInProgress = activeProductionOrders.some(
-                      so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS
+                      so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS,
                     );
                     const anyCompleted = activeProductionOrders.some(
-                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED
+                      so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                     );
 
                     let expectedStatus: TASK_STATUS | null = null;
@@ -2263,8 +2389,10 @@ export class ServiceOrderService {
           }
 
           // If status changed to WAITING_APPROVE and type is ARTWORK
-          if (serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
-              serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK) {
+          if (
+            serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
+            serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
+          ) {
             this.eventEmitter.emit('service-order.artwork-waiting-approval', {
               serviceOrder,
               userId,

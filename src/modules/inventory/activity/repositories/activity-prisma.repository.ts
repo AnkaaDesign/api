@@ -293,9 +293,7 @@ export class ActivityPrismaRepository
    * Maps select parameter to Prisma select
    * Handles nested select options for relations
    */
-  protected mapSelectToDatabaseSelect(
-    select?: ActivitySelect,
-  ): Prisma.ActivitySelect | undefined {
+  protected mapSelectToDatabaseSelect(select?: ActivitySelect): Prisma.ActivitySelect | undefined {
     if (!select) return undefined;
 
     const mappedSelect: any = {};
@@ -417,7 +415,9 @@ export class ActivityPrismaRepository
    * Prioritizes select over include for better performance
    * Falls back to include for backward compatibility
    */
-  protected getQueryOptions(options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect }): {
+  protected getQueryOptions(
+    options?: CreateOptions<ActivityInclude> & { select?: ActivitySelect },
+  ): {
     select?: Prisma.ActivitySelect;
     include?: Prisma.ActivityInclude;
   } {

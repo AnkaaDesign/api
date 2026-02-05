@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import * as request from 'supertest';
@@ -102,7 +104,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         title: 'Backoff Test',
         body: 'Testing exponential backoff',
         type: NOTIFICATION_TYPE.TASK,
-        channels: [NOTIFICATION_CHANNEL.SMS],
+        channels: [NOTIFICATION_CHANNEL.WHATSAPP],
       });
 
       mockSmsService.configureFail(true);
@@ -208,7 +210,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
       const smsNotifications = await createBatchNotifications(prisma, 50, {
         userId: testUserId,
         type: NOTIFICATION_TYPE.TASK,
-        channel: [NOTIFICATION_CHANNEL.SMS],
+        channel: [NOTIFICATION_CHANNEL.WHATSAPP],
       });
 
       // Dispatch both types concurrently
@@ -233,8 +235,8 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
             title: 'Urgent Notification',
             body: 'Urgent message',
             type: NOTIFICATION_TYPE.WARNING,
-            channels: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.SMS],
-            importance: NOTIFICATION_IMPORTANCE.CRITICAL,
+            channels: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.WHATSAPP],
+            importance: NOTIFICATION_IMPORTANCE.URGENT,
           })
         )
       );
@@ -285,7 +287,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         body: 'Low priority message',
         type: NOTIFICATION_TYPE.GENERAL,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
-        importance: NOTIFICATION_IMPORTANCE.LOW,
+        importance: NOTIFICATION_IMPORTANCE.NORMAL,
       });
 
       const highPriority = await createTestNotification(prisma, {
@@ -294,7 +296,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         body: 'High priority message',
         type: NOTIFICATION_TYPE.WARNING,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
-        importance: NOTIFICATION_IMPORTANCE.CRITICAL,
+        importance: NOTIFICATION_IMPORTANCE.URGENT,
       });
 
       mockEmailService.reset();

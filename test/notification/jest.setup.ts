@@ -2,6 +2,8 @@
  * Jest setup for notification e2e tests
  */
 
+/// <reference types="jest" />
+
 // Extend Jest matchers
 expect.extend({
   toBeWithinRange(received: number, floor: number, ceiling: number) {

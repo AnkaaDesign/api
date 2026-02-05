@@ -167,10 +167,10 @@ describe('WhatsAppNotificationService', () => {
       }
 
       const results = await Promise.all(promises);
-      const failedResults = results.filter((r) => !r.success);
+      const failedResults = results.filter(r => !r.success);
 
       expect(failedResults.length).toBeGreaterThan(0);
-      expect(failedResults.some((r) => r.error?.includes('Rate limit'))).toBe(true);
+      expect(failedResults.some(r => r.error?.includes('Rate limit'))).toBe(true);
     });
 
     it('should emit failure event on error', async () => {
@@ -442,12 +442,22 @@ describe('WhatsAppNotificationService', () => {
     it('should send multiple notifications', async () => {
       const notifications = [
         {
-          notification: { id: 'notif-1', title: 'Test 1', body: 'Body 1', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-1',
+            title: 'Test 1',
+            body: 'Body 1',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-1', name: 'User 1', phone: '5511999999999' },
           deliveryId: 'delivery-1',
         },
         {
-          notification: { id: 'notif-2', title: 'Test 2', body: 'Body 2', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-2',
+            title: 'Test 2',
+            body: 'Body 2',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-2', name: 'User 2', phone: '5511988888888' },
           deliveryId: 'delivery-2',
         },
@@ -471,12 +481,22 @@ describe('WhatsAppNotificationService', () => {
     it('should handle partial failures in bulk send', async () => {
       const notifications = [
         {
-          notification: { id: 'notif-1', title: 'Test 1', body: 'Body 1', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-1',
+            title: 'Test 1',
+            body: 'Body 1',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-1', name: 'User 1', phone: '5511999999999' },
           deliveryId: 'delivery-1',
         },
         {
-          notification: { id: 'notif-2', title: 'Test 2', body: 'Body 2', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-2',
+            title: 'Test 2',
+            body: 'Body 2',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-2', name: 'User 2', phone: null }, // Invalid phone
           deliveryId: 'delivery-2',
         },

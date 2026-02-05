@@ -81,7 +81,9 @@ export class ClickSignController {
       }
       // Log sign events for tracking
       else if (this.clickSignService.isSignEvent(event)) {
-        this.logger.log(`Signature completed by ${event.event.data?.signer?.name || 'unknown'} for document ${documentKey}`);
+        this.logger.log(
+          `Signature completed by ${event.event.data?.signer?.name || 'unknown'} for document ${documentKey}`,
+        );
       }
 
       return {
@@ -112,7 +114,9 @@ export class ClickSignController {
       return;
     }
 
-    this.logger.log(`Processing signature completion for document ${documentKey} (${deliveryIds.length} deliveries from metadata)`);
+    this.logger.log(
+      `Processing signature completion for document ${documentKey} (${deliveryIds.length} deliveries from metadata)`,
+    );
 
     // Get signed document URL
     const signedDocUrl = this.clickSignService.getSignedDocumentUrl(event);

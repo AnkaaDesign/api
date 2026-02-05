@@ -75,10 +75,7 @@ export class TaskNotificationScheduler {
             new TaskDeadlineApproachingEvent(task as any, 0, hoursRemaining), // 0 days, X hours
           );
         } catch (error) {
-          this.logger.error(
-            `Error emitting urgent deadline event for task ${task.id}:`,
-            error,
-          );
+          this.logger.error(`Error emitting urgent deadline event for task ${task.id}:`, error);
         }
       }
 

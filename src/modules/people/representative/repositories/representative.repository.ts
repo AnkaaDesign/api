@@ -20,30 +20,24 @@ export abstract class RepresentativeRepository {
   abstract create(
     data: RepresentativeCreateFormData,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative>;
 
   // Read
   abstract findById(
     id: string,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null>;
 
-  abstract findByEmail(
-    email: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative | null>;
+  abstract findByEmail(email: string, tx?: PrismaTransaction): Promise<Representative | null>;
 
-  abstract findByPhone(
-    phone: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative | null>;
+  abstract findByPhone(phone: string, tx?: PrismaTransaction): Promise<Representative | null>;
 
   abstract findByCustomerIdAndRole(
     customerId: string,
     role: string,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null>;
 
   abstract findByCustomerId(
@@ -52,7 +46,7 @@ export abstract class RepresentativeRepository {
       include?: RepresentativeInclude;
       orderBy?: RepresentativeOrderBy;
     },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative[]>;
 
   abstract findMany(
@@ -63,7 +57,7 @@ export abstract class RepresentativeRepository {
       orderBy?: RepresentativeOrderBy;
       include?: RepresentativeInclude;
     },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative[]>;
 
   // Update
@@ -71,30 +65,24 @@ export abstract class RepresentativeRepository {
     id: string,
     data: RepresentativeUpdateFormData,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative>;
 
   // Delete
-  abstract delete(
-    id: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative>;
+  abstract delete(id: string, tx?: PrismaTransaction): Promise<Representative>;
 
   // Count
-  abstract count(
-    where?: RepresentativeWhere,
-    tx?: PrismaTransaction
-  ): Promise<number>;
+  abstract count(where?: RepresentativeWhere, tx?: PrismaTransaction): Promise<number>;
 
   // Session management
   abstract findBySessionToken(
     sessionToken: string,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null>;
 
   abstract updateSessionToken(
     id: string,
     sessionToken: string | null,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative>;
 }

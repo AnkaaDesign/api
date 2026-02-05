@@ -444,7 +444,12 @@ export class ItemService {
         errors.push('Tamanho é obrigatório para EPIs');
       }
       // Delivery mode is not required for OTHERS type
-      if (data.ppeType && effectivePpeType !== 'OTHERS' && !data.ppeDeliveryMode && !existingHasPpeDeliveryMode) {
+      if (
+        data.ppeType &&
+        effectivePpeType !== 'OTHERS' &&
+        !data.ppeDeliveryMode &&
+        !existingHasPpeDeliveryMode
+      ) {
         errors.push('Modo de entrega é obrigatório para EPIs');
       }
     } else {
@@ -800,12 +805,18 @@ export class ItemService {
 
         // Track manual overrides for maxQuantity and reorderPoint
         // If user manually changes these values, mark them as manual
-        if (itemData.maxQuantity !== undefined && itemData.maxQuantity !== existingItem.maxQuantity) {
+        if (
+          itemData.maxQuantity !== undefined &&
+          itemData.maxQuantity !== existingItem.maxQuantity
+        ) {
           itemData.isManualMaxQuantity = true;
           this.logger.log(`Item ${id}: maxQuantity manually set to ${itemData.maxQuantity}`);
         }
 
-        if (itemData.reorderPoint !== undefined && itemData.reorderPoint !== existingItem.reorderPoint) {
+        if (
+          itemData.reorderPoint !== undefined &&
+          itemData.reorderPoint !== existingItem.reorderPoint
+        ) {
           itemData.isManualReorderPoint = true;
           this.logger.log(`Item ${id}: reorderPoint manually set to ${itemData.reorderPoint}`);
         }

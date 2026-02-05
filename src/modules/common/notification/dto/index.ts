@@ -12,10 +12,7 @@ export {
 } from './create-notification.dto';
 
 // Update Notification DTOs
-export {
-  UpdateNotificationDto,
-  PatchNotificationStatusDto,
-} from './update-notification.dto';
+export { UpdateNotificationDto, PatchNotificationStatusDto } from './update-notification.dto';
 
 // Filter DTOs
 export {

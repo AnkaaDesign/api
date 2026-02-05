@@ -433,13 +433,14 @@ export function generateBaseFileName(
   const extension = extensionMatch ? extensionMatch[1].toLowerCase() : '';
 
   // Sanitize task name (remove invalid characters for filenames)
-  const sanitizedName = taskName
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
-    .replace(/\.+/g, '.')
-    .replace(/^\.+|\.+$/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/-+/g, '-')
-    .trim() || 'Tarefa';
+  const sanitizedName =
+    taskName
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')
+      .replace(/\.+/g, '.')
+      .replace(/^\.+|\.+$/g, '')
+      .replace(/\s+/g, ' ')
+      .replace(/-+/g, '-')
+      .trim() || 'Tarefa';
 
   // Get measures if available
   const measures = formatTaskMeasures(task);

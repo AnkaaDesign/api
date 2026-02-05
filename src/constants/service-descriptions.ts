@@ -259,24 +259,16 @@ export const LOGISTIC_SERVICE_DESCRIPTIONS = [
 // =====================
 // Type Definitions
 // =====================
-export type ProductionServiceDescription =
-  (typeof PRODUCTION_SERVICE_DESCRIPTIONS)[number];
-export type CommercialServiceDescription =
-  (typeof COMMERCIAL_SERVICE_DESCRIPTIONS)[number];
-export type FinancialServiceDescription =
-  (typeof FINANCIAL_SERVICE_DESCRIPTIONS)[number];
-export type ArtworkServiceDescription =
-  (typeof ARTWORK_SERVICE_DESCRIPTIONS)[number];
-export type LogisticServiceDescription =
-  (typeof LOGISTIC_SERVICE_DESCRIPTIONS)[number];
+export type ProductionServiceDescription = (typeof PRODUCTION_SERVICE_DESCRIPTIONS)[number];
+export type CommercialServiceDescription = (typeof COMMERCIAL_SERVICE_DESCRIPTIONS)[number];
+export type FinancialServiceDescription = (typeof FINANCIAL_SERVICE_DESCRIPTIONS)[number];
+export type ArtworkServiceDescription = (typeof ARTWORK_SERVICE_DESCRIPTIONS)[number];
+export type LogisticServiceDescription = (typeof LOGISTIC_SERVICE_DESCRIPTIONS)[number];
 
 // =====================
 // Helper to get descriptions by type
 // =====================
-export const SERVICE_DESCRIPTIONS_BY_TYPE: Record<
-  SERVICE_ORDER_TYPE,
-  readonly string[]
-> = {
+export const SERVICE_DESCRIPTIONS_BY_TYPE: Record<SERVICE_ORDER_TYPE, readonly string[]> = {
   [SERVICE_ORDER_TYPE.PRODUCTION]: PRODUCTION_SERVICE_DESCRIPTIONS,
   [SERVICE_ORDER_TYPE.COMMERCIAL]: COMMERCIAL_SERVICE_DESCRIPTIONS,
   [SERVICE_ORDER_TYPE.FINANCIAL]: FINANCIAL_SERVICE_DESCRIPTIONS,
@@ -287,9 +279,7 @@ export const SERVICE_DESCRIPTIONS_BY_TYPE: Record<
 /**
  * Get service descriptions for a specific type
  */
-export function getServiceDescriptionsByType(
-  type: SERVICE_ORDER_TYPE,
-): readonly string[] {
+export function getServiceDescriptionsByType(type: SERVICE_ORDER_TYPE): readonly string[] {
   return SERVICE_DESCRIPTIONS_BY_TYPE[type] || [];
 }
 
@@ -297,14 +287,11 @@ export function getServiceDescriptionsByType(
  * Check if a description is valid for a given type
  * Case-insensitive comparison
  */
-export function isValidServiceDescription(
-  type: SERVICE_ORDER_TYPE,
-  description: string,
-): boolean {
+export function isValidServiceDescription(type: SERVICE_ORDER_TYPE, description: string): boolean {
   const descriptions = SERVICE_DESCRIPTIONS_BY_TYPE[type];
   if (!descriptions) return false;
   const normalizedDescription = description.toLowerCase().trim();
-  return descriptions.some((d) => d.toLowerCase() === normalizedDescription);
+  return descriptions.some(d => d.toLowerCase() === normalizedDescription);
 }
 
 /**

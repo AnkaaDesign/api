@@ -566,9 +566,7 @@ export function applyDiscounts(
   const percentageDiscounts = sortedDiscounts.filter(
     d => d.percentage !== undefined && d.percentage > 0,
   );
-  const fixedDiscounts = sortedDiscounts.filter(
-    d => d.value !== undefined && d.value > 0,
-  );
+  const fixedDiscounts = sortedDiscounts.filter(d => d.value !== undefined && d.value > 0);
 
   let currentValue = originalValue;
   let totalPercentageDiscount = 0;

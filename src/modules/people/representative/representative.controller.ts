@@ -125,9 +125,7 @@ export class RepresentativeController {
   @Post('batch')
   @UseGuards(AuthGuard)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async batchCreate(
-    @Body() data: { representatives: RepresentativeCreateFormData[] },
-  ) {
+  async batchCreate(@Body() data: { representatives: RepresentativeCreateFormData[] }) {
     return await this.service.batchCreate(data.representatives);
   }
 
@@ -175,13 +173,8 @@ export class RepresentativeController {
 
   @Post('verify-email')
   @Public()
-  async verifyEmail(
-    @Body() data: { representativeId: string; verificationCode: string },
-  ) {
-    return await this.service.verifyEmail(
-      data.representativeId,
-      data.verificationCode,
-    );
+  async verifyEmail(@Body() data: { representativeId: string; verificationCode: string }) {
+    return await this.service.verifyEmail(data.representativeId, data.verificationCode);
   }
 
   @Post('reset-password')
@@ -194,13 +187,8 @@ export class RepresentativeController {
   @Post('confirm-reset-password')
   @Public()
   @HttpCode(HttpStatus.NO_CONTENT)
-  async confirmResetPassword(
-    @Body() data: { resetToken: string; newPassword: string },
-  ) {
-    await this.service.confirmResetPassword(
-      data.resetToken,
-      data.newPassword,
-    );
+  async confirmResetPassword(@Body() data: { resetToken: string; newPassword: string }) {
+    await this.service.confirmResetPassword(data.resetToken, data.newPassword);
   }
 
   @Post(':id/change-password')
@@ -214,21 +202,14 @@ export class RepresentativeController {
       newPassword: string;
     },
   ) {
-    await this.service.changePassword(
-      id,
-      data.oldPassword,
-      data.newPassword,
-    );
+    await this.service.changePassword(id, data.oldPassword, data.newPassword);
   }
 
   @Post(':id/set-password')
   @UseGuards(AuthGuard)
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async setPassword(
-    @Param('id') id: string,
-    @Body('password') password: string,
-  ) {
+  async setPassword(@Param('id') id: string, @Body('password') password: string) {
     await this.service.setPassword(id, password);
   }
 }

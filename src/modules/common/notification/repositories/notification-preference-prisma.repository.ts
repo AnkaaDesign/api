@@ -223,7 +223,9 @@ export class NotificationPreferencePrismaRepository implements NotificationPrefe
       enabled: prismaEntity.enabled,
       channels: prismaEntity.channels.map((ch: string) => ch as NOTIFICATION_CHANNEL),
       isMandatory: prismaEntity.isMandatory,
-      mandatoryChannels: (prismaEntity.mandatoryChannels || []).map((ch: string) => ch as NOTIFICATION_CHANNEL),
+      mandatoryChannels: (prismaEntity.mandatoryChannels || []).map(
+        (ch: string) => ch as NOTIFICATION_CHANNEL,
+      ),
       createdAt: prismaEntity.createdAt,
       updatedAt: prismaEntity.updatedAt,
       user: prismaEntity.user,

@@ -1,4 +1,9 @@
-import { Representative as PrismaRepresentative, RepresentativeRole, Customer, Task } from '@prisma/client';
+import {
+  Representative as PrismaRepresentative,
+  RepresentativeRole,
+  Customer,
+  Task,
+} from '@prisma/client';
 
 export interface Representative extends PrismaRepresentative {
   customer?: Customer;
@@ -36,17 +41,21 @@ export interface RepresentativeRegisterFormData extends RepresentativeCreateForm
 }
 
 export interface RepresentativeInclude {
-  customer?: boolean | {
-    include?: {
-      logo?: boolean;
-    };
-  };
-  tasks?: boolean | {
-    include?: {
-      customer?: boolean;
-      sector?: boolean;
-    };
-  };
+  customer?:
+    | boolean
+    | {
+        include?: {
+          logo?: boolean;
+        };
+      };
+  tasks?:
+    | boolean
+    | {
+        include?: {
+          customer?: boolean;
+          sector?: boolean;
+        };
+      };
 }
 
 export interface RepresentativeOrderBy {

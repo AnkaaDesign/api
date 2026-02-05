@@ -1,16 +1,6 @@
-import {
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsBoolean,
-  IsDateString,
-  IsObject,
-} from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsBoolean, IsDateString, IsObject } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-} from '../../../../constants';
+import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE } from '../../../../constants';
 
 /**
  * DTO for updating a notification

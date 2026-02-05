@@ -22,6 +22,7 @@ export * from './maintenance';
 export * from './measure';
 export * from './monitoring';
 export * from './notification';
+export * from './notification-configuration';
 export * from './observation';
 export * from './order';
 export * from './paint';

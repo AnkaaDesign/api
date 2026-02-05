@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { NotificationPreferenceService } from './notification-preference.service';
 import { NotificationService } from './notification.service';
 import { DeepLinkService, DeepLinkEntity } from './deep-link.service';
-import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL, TASK_STATUS } from '../../../constants';
+import {
+  NOTIFICATION_TYPE,
+  NOTIFICATION_IMPORTANCE,
+  NOTIFICATION_CHANNEL,
+  TASK_STATUS,
+} from '../../../constants';
 import type { Task } from '../../../types';
 
 /**
@@ -150,7 +155,10 @@ export class TaskNotificationService {
    * Includes webUrl, mobileUrl, universalLink, entityType, and entityId
    * This ensures mobile app can properly navigate to the task
    */
-  private getTaskNotificationMetadata(taskOrId: Task | string, status?: string): {
+  private getTaskNotificationMetadata(
+    taskOrId: Task | string,
+    status?: string,
+  ): {
     actionUrl: string;
     metadata: {
       webUrl: string;
@@ -171,11 +179,11 @@ export class TaskNotificationService {
     return {
       actionUrl: webPath, // Web path for backward compatibility
       metadata: {
-        webUrl: deepLinks.web,              // Full web URL
-        mobileUrl: deepLinks.mobile,         // Mobile deep link (ankaadesign://task/UUID)
+        webUrl: deepLinks.web, // Full web URL
+        mobileUrl: deepLinks.mobile, // Mobile deep link (ankaadesign://task/UUID)
         universalLink: deepLinks.universalLink || '', // Universal link
-        entityType: 'Task',                  // Entity type for mobile navigation
-        entityId: taskId,                    // Entity ID for mobile navigation
+        entityType: 'Task', // Entity type for mobile navigation
+        entityId: taskId, // Entity ID for mobile navigation
       },
     };
   }
@@ -248,9 +256,7 @@ export class TaskNotificationService {
   ): Promise<string[]> {
     const notificationIds: string[] = [];
 
-    this.logger.debug(
-      `Creating field change notifications for task ${task.id}, user ${userId}`,
-    );
+    this.logger.debug(`Creating field change notifications for task ${task.id}, user ${userId}`);
 
     for (const change of changes) {
       // Check if user wants notifications for this field
@@ -303,10 +309,7 @@ export class TaskNotificationService {
           `Created notification ${notification.data.id} for field "${change.fieldLabel}"`,
         );
       } catch (error) {
-        this.logger.error(
-          `Failed to create notification for field "${change.fieldLabel}"`,
-          error,
-        );
+        this.logger.error(`Failed to create notification for field "${change.fieldLabel}"`, error);
       }
     }
 
@@ -540,8 +543,10 @@ export class TaskNotificationService {
     // Commission field normalization: treat null/undefined as NO_COMMISSION
     // This prevents false positive changes when both display as "Sem Comissão"
     if (fieldName === 'commission') {
-      const normalizedOld = (oldValue === null || oldValue === undefined) ? 'NO_COMMISSION' : oldValue;
-      const normalizedNew = (newValue === null || newValue === undefined) ? 'NO_COMMISSION' : newValue;
+      const normalizedOld =
+        oldValue === null || oldValue === undefined ? 'NO_COMMISSION' : oldValue;
+      const normalizedNew =
+        newValue === null || newValue === undefined ? 'NO_COMMISSION' : newValue;
       return normalizedOld !== normalizedNew;
     }
 

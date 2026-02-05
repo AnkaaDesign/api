@@ -1,3 +1,5 @@
+/// <reference types="jest" />
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
@@ -408,7 +410,7 @@ describe('Notification System (e2e)', () => {
           title: 'Channel Failure Test',
           body: 'Testing failure handling',
           type: NOTIFICATION_TYPE.TASK,
-          channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.SMS],
+          channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.WHATSAPP],
           importance: NOTIFICATION_IMPORTANCE.HIGH,
         },
       });
@@ -427,7 +429,7 @@ describe('Notification System (e2e)', () => {
       });
 
       const emailDelivery = deliveries.find(d => d.channel === NOTIFICATION_CHANNEL.EMAIL);
-      const smsDelivery = deliveries.find(d => d.channel === NOTIFICATION_CHANNEL.SMS);
+      const smsDelivery = deliveries.find(d => d.channel === NOTIFICATION_CHANNEL.WHATSAPP);
 
       expect(emailDelivery?.status).toBe('DELIVERED');
       // SMS might be FAILED or RETRYING depending on mock configuration

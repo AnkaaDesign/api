@@ -763,7 +763,7 @@ export const customerCreateSchema = z
     // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
     email: z.preprocess(
       val => (val === '' || val === null || val === undefined ? null : val),
-      emailSchema.nullable().optional()
+      emailSchema.nullable().optional(),
     ),
     streetType: z
       .enum([
@@ -839,7 +839,7 @@ export const customerQuickCreateSchema = z
     // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
     email: z.preprocess(
       val => (val === '' || val === null || val === undefined ? null : val),
-      emailSchema.nullable().optional()
+      emailSchema.nullable().optional(),
     ),
     streetType: z
       .enum([
@@ -903,7 +903,7 @@ export const customerUpdateSchema = z
     // Preprocess to handle empty strings from FormData (null becomes '' in FormData)
     email: z.preprocess(
       val => (val === '' || val === null || val === undefined ? null : val),
-      emailSchema.nullable().optional()
+      emailSchema.nullable().optional(),
     ),
     streetType: z
       .enum([

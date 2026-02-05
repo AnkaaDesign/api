@@ -37,24 +37,20 @@ export class GDriveSyncProcessor {
       const remotePath = backupFilePath; // Keep same structure on GDrive
 
       // Perform the upload with progress tracking
-      const result = await this.rcloneService.copyFile(
-        localPath,
-        remotePath,
-        (progress) => {
-          // Emit progress events for WebSocket clients
-          this.eventEmitter.emit('gdrive.sync-progress', {
-            backupId,
-            progress: progress.percent,
-            bytesTransferred: progress.bytes,
-            totalBytes: progress.totalBytes,
-            speed: progress.speed,
-            eta: progress.eta,
-          });
+      const result = await this.rcloneService.copyFile(localPath, remotePath, progress => {
+        // Emit progress events for WebSocket clients
+        this.eventEmitter.emit('gdrive.sync-progress', {
+          backupId,
+          progress: progress.percent,
+          bytesTransferred: progress.bytes,
+          totalBytes: progress.totalBytes,
+          speed: progress.speed,
+          eta: progress.eta,
+        });
 
-          // Update job progress
-          job.progress(progress.percent);
-        },
-      );
+        // Update job progress
+        job.progress(progress.percent);
+      });
 
       const duration = Date.now() - startTime;
 
@@ -165,7 +161,7 @@ export class GDriveSyncProcessor {
     });
 
     const failedSyncs = failedBackups.filter(
-      (b) => b.gdriveStatus === GDriveSyncStatus.FAILED && b.filePath,
+      b => b.gdriveStatus === GDriveSyncStatus.FAILED && b.filePath,
     );
 
     let retriedCount = 0;

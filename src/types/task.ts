@@ -117,25 +117,138 @@ export type TaskSelect = TaskSelectFields & {
   sector?: boolean | { select?: { id?: boolean; name?: boolean } };
   customer?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
   invoiceTo?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
-  budgets?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
-  invoices?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
-  receipts?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
-  reimbursements?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
-  invoiceReimbursements?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
-  baseFiles?: boolean | { select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean } };
+  budgets?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  invoices?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  receipts?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  reimbursements?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  invoiceReimbursements?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  baseFiles?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
   observation?: boolean | { select?: { id?: boolean; description?: boolean } };
   generalPainting?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
   createdBy?: boolean | { select?: { id?: boolean; name?: boolean; email?: boolean } };
   artworks?: boolean | { select?: { id?: boolean; fileId?: boolean; status?: boolean } };
   logoPaints?: boolean | { select?: { id?: boolean; name?: boolean; code?: boolean } };
-  serviceOrders?: boolean | { select?: { id?: boolean; description?: boolean; status?: boolean; type?: boolean; assignedToId?: boolean } };
-  pricing?: boolean | { select?: { id?: boolean; total?: boolean; subtotal?: boolean; status?: boolean; expiresAt?: boolean; budgetNumber?: boolean } };
-  airbrushings?: boolean | { select?: { id?: boolean; status?: boolean; price?: boolean; startDate?: boolean; finishDate?: boolean } };
-  cuts?: boolean | { select?: { id?: boolean; type?: boolean; status?: boolean; origin?: boolean } };
-  truck?: boolean | { select?: { id?: boolean; plate?: boolean; chassisNumber?: boolean; spot?: boolean; category?: boolean } };
+  serviceOrders?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          description?: boolean;
+          status?: boolean;
+          type?: boolean;
+          assignedToId?: boolean;
+        };
+      };
+  pricing?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          total?: boolean;
+          subtotal?: boolean;
+          status?: boolean;
+          expiresAt?: boolean;
+          budgetNumber?: boolean;
+        };
+      };
+  airbrushings?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          status?: boolean;
+          price?: boolean;
+          startDate?: boolean;
+          finishDate?: boolean;
+        };
+      };
+  cuts?:
+    | boolean
+    | { select?: { id?: boolean; type?: boolean; status?: boolean; origin?: boolean } };
+  truck?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          plate?: boolean;
+          chassisNumber?: boolean;
+          spot?: boolean;
+          category?: boolean;
+        };
+      };
   relatedTasks?: boolean | { select?: TaskSelect };
   relatedTo?: boolean | { select?: TaskSelect };
-  representatives?: boolean | { select?: { id?: boolean; name?: boolean; phone?: boolean; email?: boolean; role?: boolean } };
+  representatives?:
+    | boolean
+    | {
+        select?: { id?: boolean; name?: boolean; phone?: boolean; email?: boolean; role?: boolean };
+      };
 };
 
 // =====================
@@ -344,8 +457,8 @@ export type TaskWithSelect<S extends TaskSelect> = {
     ? S[K] extends true
       ? Task[K]
       : S[K] extends { select: any }
-      ? any // Nested selection - type would need deep inference
-      : never
+        ? any // Nested selection - type would need deep inference
+        : never
     : never;
 };
 
@@ -408,20 +521,72 @@ export interface TaskDetailed extends BaseEntity {
   sector?: { id: string; name: string } | null;
   customer?: { id: string; fantasyName: string; cnpj: string | null } | null;
   invoiceTo?: { id: string; fantasyName: string; cnpj: string | null } | null;
-  budgets?: Array<{ id: string; filename: string; path: string; mimetype: string; size: number; thumbnailUrl: string | null }>;
-  invoices?: Array<{ id: string; filename: string; path: string; mimetype: string; size: number; thumbnailUrl: string | null }>;
-  receipts?: Array<{ id: string; filename: string; path: string; mimetype: string; size: number; thumbnailUrl: string | null }>;
+  budgets?: Array<{
+    id: string;
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    thumbnailUrl: string | null;
+  }>;
+  invoices?: Array<{
+    id: string;
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    thumbnailUrl: string | null;
+  }>;
+  receipts?: Array<{
+    id: string;
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    thumbnailUrl: string | null;
+  }>;
   observation?: { id: string; description: string } | null;
   generalPainting?: { id: string; name: string; code: string | null } | null;
   createdBy?: { id: string; name: string; email: string } | null;
   artworks?: Array<{ id: string; fileId: string; status: string }>;
   logoPaints?: Array<{ id: string; name: string; code: string | null }>;
-  serviceOrders?: Array<{ id: string; description: string; status: string; type: string; assignedToId: string | null }>;
-  pricing?: { id: string; total: number; subtotal: number; status: string; expiresAt: Date; budgetNumber: number } | null;
-  airbrushings?: Array<{ id: string; status: string; price: number | null; startDate: Date | null; finishDate: Date | null }>;
+  serviceOrders?: Array<{
+    id: string;
+    description: string;
+    status: string;
+    type: string;
+    assignedToId: string | null;
+  }>;
+  pricing?: {
+    id: string;
+    total: number;
+    subtotal: number;
+    status: string;
+    expiresAt: Date;
+    budgetNumber: number;
+  } | null;
+  airbrushings?: Array<{
+    id: string;
+    status: string;
+    price: number | null;
+    startDate: Date | null;
+    finishDate: Date | null;
+  }>;
   cuts?: Array<{ id: string; type: string; status: string; origin: string }>;
-  truck?: { id: string; plate: string | null; chassisNumber: string | null; spot: string | null; category: string | null } | null;
-  representatives?: Array<{ id: string; name: string; phone: string; email: string | null; role: string }>;
+  truck?: {
+    id: string;
+    plate: string | null;
+    chassisNumber: string | null;
+    spot: string | null;
+    category: string | null;
+  } | null;
+  representatives?: Array<{
+    id: string;
+    name: string;
+    phone: string;
+    email: string | null;
+    role: string;
+  }>;
 }
 
 // =====================
@@ -451,19 +616,40 @@ export interface TaskIncludes {
     | boolean
     | {
         include?: FileIncludes;
-        select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean };
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
       };
   invoices?:
     | boolean
     | {
         include?: FileIncludes;
-        select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean };
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
       };
   receipts?:
     | boolean
     | {
         include?: FileIncludes;
-        select?: { id?: boolean; filename?: boolean; path?: boolean; mimetype?: boolean; size?: boolean; thumbnailUrl?: boolean };
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
       };
   reimbursements?:
     | boolean
@@ -510,7 +696,9 @@ export interface TaskIncludes {
     | {
         include?: ServiceOrderIncludes;
       };
-  pricing?: boolean | { include?: { items?: boolean; layoutFile?: boolean; customerSignature?: boolean } }; // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
+  pricing?:
+    | boolean
+    | { include?: { items?: boolean; layoutFile?: boolean; customerSignature?: boolean } }; // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
   airbrushings?:
     | boolean
     | {

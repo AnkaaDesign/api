@@ -502,10 +502,7 @@ export class PushProcessor {
 
       this.logger.log(`Marked delivery ${deliveryId} as permanently failed`);
     } catch (err: any) {
-      this.logger.error(
-        `Failed to mark delivery as permanently failed: ${err.message}`,
-        err.stack,
-      );
+      this.logger.error(`Failed to mark delivery as permanently failed: ${err.message}`, err.stack);
     }
   }
 
@@ -586,9 +583,7 @@ export class PushProcessor {
     const oneMinuteAgo = now - 60000;
 
     // Remove timestamps older than 1 minute
-    this.pushSentTimestamps = this.pushSentTimestamps.filter(
-      timestamp => timestamp > oneMinuteAgo,
-    );
+    this.pushSentTimestamps = this.pushSentTimestamps.filter(timestamp => timestamp > oneMinuteAgo);
 
     // Check if rate limit exceeded
     if (this.pushSentTimestamps.length >= this.RATE_LIMIT_PER_MINUTE) {

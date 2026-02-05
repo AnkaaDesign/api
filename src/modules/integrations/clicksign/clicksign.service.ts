@@ -173,12 +173,15 @@ export class ClickSignService {
 
   constructor(private readonly configService: ConfigService) {
     // API 3.0 base URL
-    this.apiUrl = this.configService.get<string>('CLICKSIGN_API_URL') || 'https://sandbox.clicksign.com/api/v3';
+    this.apiUrl =
+      this.configService.get<string>('CLICKSIGN_API_URL') || 'https://sandbox.clicksign.com/api/v3';
     this.accessToken = this.configService.get<string>('CLICKSIGN_ACCESS_TOKEN');
     this.isConfigured = !!this.accessToken;
 
     if (!this.isConfigured) {
-      this.logger.warn('ClickSign is not configured - CLICKSIGN_ACCESS_TOKEN is missing. Digital signatures will be disabled.');
+      this.logger.warn(
+        'ClickSign is not configured - CLICKSIGN_ACCESS_TOKEN is missing. Digital signatures will be disabled.',
+      );
     }
 
     this.client = axios.create({
@@ -191,19 +194,21 @@ export class ClickSignService {
     });
 
     // Add auth to all requests - ClickSign API v3 uses Authorization header with token directly
-    this.client.interceptors.request.use((config) => {
+    this.client.interceptors.request.use(config => {
       if (this.accessToken) {
         // ClickSign API v3 - Authorization header with token directly (no Bearer prefix)
         config.headers.Authorization = this.accessToken;
       }
-      this.logger.debug(`ClickSign API Request: ${config.method?.toUpperCase()} ${this.apiUrl}${config.url}`);
+      this.logger.debug(
+        `ClickSign API Request: ${config.method?.toUpperCase()} ${this.apiUrl}${config.url}`,
+      );
       return config;
     });
 
     // Add retry logic for rate limiting (429) with exponential backoff
     this.client.interceptors.response.use(
-      (response) => response,
-      async (error) => {
+      response => response,
+      async error => {
         const config = error.config;
 
         // Only retry on 429 (rate limit) errors
@@ -221,7 +226,7 @@ export class ClickSignService {
         }
 
         return Promise.reject(error);
-      }
+      },
     );
   }
 
@@ -265,7 +270,9 @@ export class ClickSignService {
         },
       });
 
-      this.logger.log(`Envelope created: ${response.data.data.id} with ${input.deliveryIds.length} delivery IDs`);
+      this.logger.log(
+        `Envelope created: ${response.data.data.id} with ${input.deliveryIds.length} delivery IDs`,
+      );
       return response.data.data;
     } catch (error) {
       this.handleApiError(error, 'createEnvelope');
@@ -302,7 +309,9 @@ export class ClickSignService {
         },
       });
 
-      this.logger.log(`Document uploaded to envelope ${input.envelopeId}: ${response.data.data.id}`);
+      this.logger.log(
+        `Document uploaded to envelope ${input.envelopeId}: ${response.data.data.id}`,
+      );
       return response.data.data;
     } catch (error) {
       this.handleApiError(error, 'uploadDocument');
@@ -353,7 +362,9 @@ export class ClickSignService {
         },
       });
 
-      this.logger.log(`Signer added to envelope ${input.envelopeId}: ${response.data.data.id} (notifications via ${notificationChannel})`);
+      this.logger.log(
+        `Signer added to envelope ${input.envelopeId}: ${response.data.data.id} (notifications via ${notificationChannel})`,
+      );
       return response.data.data;
     } catch (error) {
       this.handleApiError(error, 'addSigner');
@@ -532,8 +543,8 @@ export class ClickSignService {
 
       // Check if URL is a pre-signed S3 URL (contains X-Amz-Signature)
       // Pre-signed URLs should NOT have Authorization header - they have auth in query params
-      const isPreSignedS3Url = downloadUrl.includes('X-Amz-Signature') ||
-                               downloadUrl.includes('amazonaws.com');
+      const isPreSignedS3Url =
+        downloadUrl.includes('X-Amz-Signature') || downloadUrl.includes('amazonaws.com');
 
       const headers: Record<string, string> = {};
       if (!isPreSignedS3Url) {
@@ -562,7 +573,9 @@ export class ClickSignService {
    */
   async fetchSignedDocumentUrl(envelopeId: string, documentId: string): Promise<string | null> {
     try {
-      this.logger.log(`Fetching signed document URL for envelope ${envelopeId}, document ${documentId}`);
+      this.logger.log(
+        `Fetching signed document URL for envelope ${envelopeId}, document ${documentId}`,
+      );
       const document = await this.getDocument(envelopeId, documentId);
 
       // Log the full document structure for debugging
@@ -570,10 +583,11 @@ export class ClickSignService {
 
       // Try multiple possible paths for the signed URL based on API version
       // API v3 uses links.files.signed, older versions use attributes.downloads.signed_file_url
-      const signedUrl = (document as any).links?.files?.signed
-        || document.attributes?.downloads?.signed_file_url
-        || (document as any).downloads?.signed_file_url
-        || (document as any).signed_file_url;
+      const signedUrl =
+        (document as any).links?.files?.signed ||
+        document.attributes?.downloads?.signed_file_url ||
+        (document as any).downloads?.signed_file_url ||
+        (document as any).signed_file_url;
 
       if (signedUrl) {
         this.logger.log(`Retrieved signed document URL: ${signedUrl.substring(0, 80)}...`);
@@ -583,11 +597,17 @@ export class ClickSignService {
       // Log available paths for debugging
       const links = (document as any).links;
       if (links?.files) {
-        this.logger.warn(`No signed URL found. Available files: ${JSON.stringify(Object.keys(links.files))}`);
+        this.logger.warn(
+          `No signed URL found. Available files: ${JSON.stringify(Object.keys(links.files))}`,
+        );
       } else {
-        this.logger.warn(`No signed_file_url found in document response. Available keys: ${JSON.stringify(Object.keys(document))}`);
+        this.logger.warn(
+          `No signed_file_url found in document response. Available keys: ${JSON.stringify(Object.keys(document))}`,
+        );
         if (document.attributes) {
-          this.logger.warn(`Document attributes keys: ${JSON.stringify(Object.keys(document.attributes))}`);
+          this.logger.warn(
+            `Document attributes keys: ${JSON.stringify(Object.keys(document.attributes))}`,
+          );
         }
       }
       return null;
@@ -621,7 +641,9 @@ export class ClickSignService {
       throw new Error('ClickSign não está configurado. Verifique CLICKSIGN_ACCESS_TOKEN.');
     }
 
-    this.logger.log(`Initiating signature for ${deliveryIds.length} deliveries, signer: ${signer.email}`);
+    this.logger.log(
+      `Initiating signature for ${deliveryIds.length} deliveries, signer: ${signer.email}`,
+    );
 
     // Step 1: Create envelope
     const envelope = await this.createEnvelope({
@@ -676,7 +698,9 @@ export class ClickSignService {
     // Step 6: Send notification to all signers
     await this.sendNotification(envelope.id);
 
-    this.logger.log(`Signature initiated successfully. Envelope: ${envelope.id}, Document: ${document.id}`);
+    this.logger.log(
+      `Signature initiated successfully. Envelope: ${envelope.id}, Document: ${document.id}`,
+    );
 
     return {
       envelopeId: envelope.id,
@@ -696,21 +720,17 @@ export class ClickSignService {
     const secret = this.configService.get<string>('CLICKSIGN_WEBHOOK_SECRET');
 
     if (!secret) {
-      this.logger.warn('CLICKSIGN_WEBHOOK_SECRET not configured - skipping webhook signature validation');
+      this.logger.warn(
+        'CLICKSIGN_WEBHOOK_SECRET not configured - skipping webhook signature validation',
+      );
       return true;
     }
 
     const crypto = require('crypto');
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex');
+    const expectedSignature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
 
     try {
-      return crypto.timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature),
-      );
+      return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
     } catch {
       return false;
     }
@@ -749,9 +769,11 @@ export class ClickSignService {
    */
   isDocumentFinished(event: ClickSignWebhookEvent): boolean {
     const eventName = event.event.name;
-    return eventName === 'document_closed' ||
-           eventName === 'auto_close' ||
-           event.document?.status === 'closed';
+    return (
+      eventName === 'document_closed' ||
+      eventName === 'auto_close' ||
+      event.document?.status === 'closed'
+    );
   }
 
   /**
@@ -759,9 +781,9 @@ export class ClickSignService {
    */
   isRefusalEvent(event: ClickSignWebhookEvent): boolean {
     const eventName = event.event.name;
-    return eventName === 'refusal' ||
-           eventName === 'acceptance_term_refused' ||
-           eventName === 'cancel';
+    return (
+      eventName === 'refusal' || eventName === 'acceptance_term_refused' || eventName === 'cancel'
+    );
   }
 
   /**
@@ -769,9 +791,11 @@ export class ClickSignService {
    */
   isWhatsAppErrorEvent(event: ClickSignWebhookEvent): boolean {
     const eventName = event.event.name;
-    return eventName === 'acceptance_term_error' ||
-           eventName === 'acceptance_term_expired' ||
-           eventName === 'attempts_by_whatsapp_exceeded';
+    return (
+      eventName === 'acceptance_term_error' ||
+      eventName === 'acceptance_term_expired' ||
+      eventName === 'attempts_by_whatsapp_exceeded'
+    );
   }
 
   /**

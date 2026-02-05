@@ -6,7 +6,15 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY, NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL, SECTOR_PRIVILEGES } from '../../../constants/enums';
+import {
+  ENTITY_TYPE,
+  CHANGE_ACTION,
+  CHANGE_TRIGGERED_BY,
+  NOTIFICATION_TYPE,
+  NOTIFICATION_IMPORTANCE,
+  NOTIFICATION_CHANNEL,
+  SECTOR_PRIVILEGES,
+} from '../../../constants/enums';
 import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../schemas';
 import { LayoutPrismaRepository } from './repositories/layout-prisma.repository';
 
@@ -45,9 +53,11 @@ export class LayoutService {
     const layouts = await this.prisma.layout.findMany({
       include: {
         photo: true,
-        layoutSections: options?.includeSections ? {
-          orderBy: { position: 'asc' },
-        } : false,
+        layoutSections: options?.includeSections
+          ? {
+              orderBy: { position: 'asc' },
+            }
+          : false,
         ...(options?.includeUsage && {
           trucksBackSide: { select: { id: true } },
           trucksLeftSide: { select: { id: true } },
@@ -169,8 +179,8 @@ export class LayoutService {
     if (usageCount > 0 && !force) {
       throw new Error(
         `Este layout está sendo usado por ${usageCount} caminhão(ões). ` +
-        `Não é possível deletar um layout compartilhado. ` +
-        `Primeiro, remova o layout de todos os caminhões ou use force=true para deletar mesmo assim.`
+          `Não é possível deletar um layout compartilhado. ` +
+          `Primeiro, remova o layout de todos os caminhões ou use force=true para deletar mesmo assim.`,
       );
     }
 
@@ -352,7 +362,9 @@ export class LayoutService {
 
       // NEW LOGIC: Check if we should use an existing shared layout
       if (existingLayoutId) {
-        this.logger.log(`[BACKEND] 🔗 SHARED LAYOUT MODE - Assigning existing layout ${existingLayoutId}`);
+        this.logger.log(
+          `[BACKEND] 🔗 SHARED LAYOUT MODE - Assigning existing layout ${existingLayoutId}`,
+        );
 
         // Verify the layout exists
         const sharedLayout = await tx.layout.findUnique({
@@ -372,8 +384,13 @@ export class LayoutService {
         // If there's an old layout, handle it
         if (existingLayout && existingLayout.id !== existingLayoutId) {
           // Check if old layout is used by other trucks
-          const oldLayoutUsageCount = await this.getLayoutUsageCountInTransaction(tx, existingLayout.id);
-          this.logger.log(`[BACKEND] Old layout ${existingLayout.id} is used by ${oldLayoutUsageCount} truck(s)`);
+          const oldLayoutUsageCount = await this.getLayoutUsageCountInTransaction(
+            tx,
+            existingLayout.id,
+          );
+          this.logger.log(
+            `[BACKEND] Old layout ${existingLayout.id} is used by ${oldLayoutUsageCount} truck(s)`,
+          );
 
           if (oldLayoutUsageCount === 1) {
             // Only this truck uses it, safe to delete
@@ -383,7 +400,9 @@ export class LayoutService {
             this.logger.log(`[BACKEND] ✅ Old layout deleted`);
           } else {
             // Other trucks use it, just unlink
-            this.logger.log(`[BACKEND] ℹ️  Old layout is shared, keeping it (used by ${oldLayoutUsageCount} trucks)`);
+            this.logger.log(
+              `[BACKEND] ℹ️  Old layout is shared, keeping it (used by ${oldLayoutUsageCount} trucks)`,
+            );
           }
         }
 
@@ -411,14 +430,20 @@ export class LayoutService {
 
         // Check if existing layout is used by other trucks
         const usageCount = await this.getLayoutUsageCountInTransaction(tx, existingLayout.id);
-        this.logger.log(`[BACKEND] Existing layout ${existingLayout.id} is used by ${usageCount} truck(s)`);
+        this.logger.log(
+          `[BACKEND] Existing layout ${existingLayout.id} is used by ${usageCount} truck(s)`,
+        );
 
         if (usageCount > 1) {
           // Layout is shared! Don't delete it, just create a new one for this truck
-          this.logger.log(`[BACKEND] ⚠️  Layout is SHARED by ${usageCount} trucks - creating new layout instead of modifying shared one`);
+          this.logger.log(
+            `[BACKEND] ⚠️  Layout is SHARED by ${usageCount} trucks - creating new layout instead of modifying shared one`,
+          );
         } else {
           // Only this truck uses it, safe to delete
-          this.logger.log(`[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (only used by this truck)`);
+          this.logger.log(
+            `[BACKEND] 🗑️  Deleting old layout ${existingLayout.id} (only used by this truck)`,
+          );
 
           // First, disconnect the layout from the truck
           await tx.truck.update({
@@ -558,7 +583,12 @@ export class LayoutService {
     });
 
     // Send notifications for layout change (outside transaction to not block it)
-    this.sendLayoutChangeNotifications(truckId, side, existingLayoutId ? 'assign' : 'update', userId).catch(err => {
+    this.sendLayoutChangeNotifications(
+      truckId,
+      side,
+      existingLayoutId ? 'assign' : 'update',
+      userId,
+    ).catch(err => {
       this.logger.error('Error sending layout change notifications:', err);
     });
 
@@ -698,9 +728,8 @@ export class LayoutService {
     }
 
     const task = truck.task;
-    const title = action === 'assign'
-      ? `Layout atribuído - ${sideLabel}`
-      : `Layout atualizado - ${sideLabel}`;
+    const title =
+      action === 'assign' ? `Layout atribuído - ${sideLabel}` : `Layout atualizado - ${sideLabel}`;
     const message = `O layout do ${sideLabel} da tarefa "${task.name}" foi ${action === 'assign' ? 'atribuído' : 'atualizado'}.`;
 
     // Collect target user IDs: sector manager + admin users
@@ -745,10 +774,15 @@ export class LayoutService {
           },
         });
       } catch (err) {
-        this.logger.error(`[sendLayoutChangeNotifications] Failed to notify user ${targetUserId}:`, err);
+        this.logger.error(
+          `[sendLayoutChangeNotifications] Failed to notify user ${targetUserId}:`,
+          err,
+        );
       }
     }
 
-    this.logger.log(`[sendLayoutChangeNotifications] Sent ${targetUserIds.size} notification(s) for layout ${action} on ${sideLabel}`);
+    this.logger.log(
+      `[sendLayoutChangeNotifications] Sent ${targetUserIds.size} notification(s) for layout ${action} on ${sideLabel}`,
+    );
   }
 }

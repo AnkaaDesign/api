@@ -372,7 +372,8 @@ export class NotificationQueueProcessor implements OnModuleInit {
     job: Job<NotificationJobData>,
   ): Promise<NotificationDeliveryResult> {
     const startTime = Date.now();
-    const { notificationId, recipientDeviceToken, userId, title, body, actionUrl, metadata } = job.data;
+    const { notificationId, recipientDeviceToken, userId, title, body, actionUrl, metadata } =
+      job.data;
 
     this.logger.log(`Processing push notification ${notificationId} for user ${userId}`);
 
@@ -402,7 +403,9 @@ export class NotificationQueueProcessor implements OnModuleInit {
 
       // If we have a specific device token, send to that device
       if (recipientDeviceToken) {
-        this.logger.log(`Sending push to device token: ${recipientDeviceToken.substring(0, 10)}...`);
+        this.logger.log(
+          `Sending push to device token: ${recipientDeviceToken.substring(0, 10)}...`,
+        );
         result = await this.pushService.sendPushNotification(
           recipientDeviceToken,
           title,
@@ -416,7 +419,8 @@ export class NotificationQueueProcessor implements OnModuleInit {
         const multicastResult = await this.pushService.sendToUser(userId, title, body, dataPayload);
         result = {
           success: multicastResult.success > 0,
-          error: multicastResult.failure > 0 ? `${multicastResult.failure} devices failed` : undefined,
+          error:
+            multicastResult.failure > 0 ? `${multicastResult.failure} devices failed` : undefined,
         };
       } else {
         throw new Error('Either recipientDeviceToken or userId is required for push notifications');
@@ -481,7 +485,9 @@ export class NotificationQueueProcessor implements OnModuleInit {
     name: 'send-whatsapp',
     concurrency: 3, // Process up to 3 WhatsApp messages simultaneously
   })
-  async processWhatsAppNotification(job: Job<NotificationJobData>): Promise<NotificationDeliveryResult> {
+  async processWhatsAppNotification(
+    job: Job<NotificationJobData>,
+  ): Promise<NotificationDeliveryResult> {
     const startTime = Date.now();
     const { notificationId, userId, title, body, actionUrl, metadata } = job.data;
 
@@ -869,11 +875,15 @@ export class NotificationQueueProcessor implements OnModuleInit {
     <div class="email-body">
       <h2>${title}</h2>
       <p>${body.replace(/\n/g, '<br>')}</p>
-      ${fullActionUrl ? `
+      ${
+        fullActionUrl
+          ? `
       <div class="button-center">
         <a href="${fullActionUrl}" class="button">Ver detalhes</a>
       </div>
-      ` : ''}
+      `
+          : ''
+      }
     </div>
     <div class="email-footer">
       <p>Esta é uma notificação automática.</p>

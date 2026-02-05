@@ -1,4 +1,11 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import makeWASocket, {
   DisconnectReason,
   WASocket,
@@ -106,10 +113,10 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       const pinoLogger = {
         trace: (...args) => {}, // Silent trace logs
         debug: (...args) => {}, // Silent debug logs
-        info: (msg) => this.logger.log(msg),
-        warn: (msg) => this.logger.warn(msg),
-        error: (msg) => this.logger.error(msg),
-        fatal: (msg) => this.logger.error(msg),
+        info: msg => this.logger.log(msg),
+        warn: msg => this.logger.warn(msg),
+        error: msg => this.logger.error(msg),
+        fatal: msg => this.logger.error(msg),
         child: () => pinoLogger,
         level: 'silent',
       };
@@ -150,7 +157,7 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
     if (!this.sock) return;
 
     // Connection updates (handles qr, connected, disconnected, etc.)
-    this.sock.ev.on('connection.update', async (update) => {
+    this.sock.ev.on('connection.update', async update => {
       const { connection, lastDisconnect, qr } = update;
 
       // QR code event
@@ -192,10 +199,13 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         this.clientReady = false;
         this.isConnecting = false;
 
-        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+        const shouldReconnect =
+          (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
         const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
 
-        this.logger.warn(`Connection closed. Reason: ${reason}, shouldReconnect: ${shouldReconnect}`);
+        this.logger.warn(
+          `Connection closed. Reason: ${reason}, shouldReconnect: ${shouldReconnect}`,
+        );
 
         await this.updateConnectionStatus(WhatsAppConnectionStatus.DISCONNECTED);
         this.eventEmitter.emit('whatsapp.disconnected', { reason, timestamp: new Date() });
@@ -207,7 +217,7 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
           await this.updateConnectionStatus(WhatsAppConnectionStatus.AUTH_FAILURE);
           this.eventEmitter.emit('whatsapp.auth_failure', {
             error: 'Logged out',
-            timestamp: new Date()
+            timestamp: new Date(),
           });
         }
       }
@@ -224,7 +234,7 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
     this.sock.ev.on('creds.update', saveCreds);
 
     // Messages received/sent
-    this.sock.ev.on('messages.upsert', async (m) => {
+    this.sock.ev.on('messages.upsert', async m => {
       const messages = m.messages;
       const type = m.type;
 
@@ -233,9 +243,8 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         const fromMe = message.key.fromMe;
 
         // Extract message content
-        const messageText = message.message?.conversation ||
-                           message.message?.extendedTextMessage?.text ||
-                           '';
+        const messageText =
+          message.message?.conversation || message.message?.extendedTextMessage?.text || '';
 
         // Emit event for tracking
         this.eventEmitter.emit('whatsapp.message_create', {
@@ -243,7 +252,7 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
           from: message.key.remoteJid,
           fromMe,
           message: messageText,
-          timestamp: new Date(message.messageTimestamp as number * 1000),
+          timestamp: new Date((message.messageTimestamp as number) * 1000),
           type,
         });
 
@@ -332,7 +341,9 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       try {
         await this.initializeSocket();
       } catch (error) {
-        this.logger.error(`Reconnection attempt ${this.reconnectAttempts} failed: ${error.message}`);
+        this.logger.error(
+          `Reconnection attempt ${this.reconnectAttempts} failed: ${error.message}`,
+        );
       }
     }, cappedDelay);
   }
@@ -411,7 +422,9 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
       }
 
       const jid = result.jid;
-      this.logger.log(`Resolved JID: ${jid.split('@')[0]}@${jid.split('@')[1]} for phone ${this.maskPhone(cleanPhone)}`);
+      this.logger.log(
+        `Resolved JID: ${jid.split('@')[0]}@${jid.split('@')[1]} for phone ${this.maskPhone(cleanPhone)}`,
+      );
 
       // Log the content being sent for debugging
       this.logger.debug(`Sending message content: ${JSON.stringify(content).substring(0, 200)}`);
@@ -422,7 +435,9 @@ export class BaileysWhatsAppService implements OnModuleInit, OnModuleDestroy {
         ephemeralExpiration: undefined,
       });
 
-      this.logger.log(`Message sent successfully to ${this.maskPhone(cleanPhone)}, message ID: ${sentMessage?.key?.id}`);
+      this.logger.log(
+        `Message sent successfully to ${this.maskPhone(cleanPhone)}, message ID: ${sentMessage?.key?.id}`,
+      );
 
       this.eventEmitter.emit('whatsapp.message_sent', {
         to: cleanPhone,

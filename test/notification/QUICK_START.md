@@ -83,7 +83,7 @@ it('should send via all enabled channels', async () => {
     type: NOTIFICATION_TYPE.TASK,
     channels: [
       NOTIFICATION_CHANNEL.EMAIL,
-      NOTIFICATION_CHANNEL.SMS,
+      NOTIFICATION_CHANNEL.WHATSAPP,
       NOTIFICATION_CHANNEL.PUSH,
     ],
   });

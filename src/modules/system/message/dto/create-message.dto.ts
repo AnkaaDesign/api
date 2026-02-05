@@ -89,7 +89,8 @@ export class CreateMessageDto {
   contentBlocks: any[];
 
   @ApiPropertyOptional({
-    description: 'Array of target user IDs. Empty array = all users. Frontend should resolve sectors/positions to user IDs before sending.',
+    description:
+      'Array of target user IDs. Empty array = all users. Frontend should resolve sectors/positions to user IDs before sending.',
     type: [String],
     example: ['550e8400-e29b-41d4-a716-446655440000', '660e8400-e29b-41d4-a716-446655440001'],
     default: [],
@@ -122,5 +123,4 @@ export class CreateMessageDto {
   @IsOptional()
   @IsDateString()
   endsAt?: string;
-
 }

@@ -99,16 +99,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'invoiceReimbursements',
     'activities',
   ],
-  Representative: [
-    'id',
-    'name',
-    'phone',
-    'email',
-    'role',
-    'isActive',
-    'customer',
-    'tasks',
-  ],
+  Representative: ['id', 'name', 'phone', 'email', 'role', 'isActive', 'customer', 'tasks'],
 };
 
 /**
@@ -316,7 +307,7 @@ export function validateIncludes(
     if (!allowedFields.includes(field)) {
       throw new ForbiddenException(
         `Include field '${field}' is not allowed for ${entityType}. ` +
-        `Allowed fields: ${allowedFields.join(', ')}`,
+          `Allowed fields: ${allowedFields.join(', ')}`,
       );
     }
 
@@ -354,11 +345,7 @@ export function validateIncludes(
  * @throws BadRequestException if select is invalid
  * @throws ForbiddenException if select contains sensitive fields
  */
-export function validateSelect(
-  entityType: string,
-  select: any,
-  currentDepth: number = 0,
-): void {
+export function validateSelect(entityType: string, select: any, currentDepth: number = 0): void {
   // Check maximum depth
   if (currentDepth > MAX_SELECT_DEPTH) {
     throw new BadRequestException(
@@ -390,16 +377,14 @@ export function validateSelect(
 
     // Check for sensitive fields
     if (SENSITIVE_FIELDS.includes(field)) {
-      throw new ForbiddenException(
-        `Cannot select sensitive field '${field}' for security reasons`,
-      );
+      throw new ForbiddenException(`Cannot select sensitive field '${field}' for security reasons`);
     }
 
     // Check if field is in whitelist
     if (!allowedFields.includes(field)) {
       throw new ForbiddenException(
         `Select field '${field}' is not allowed for ${entityType}. ` +
-        `Allowed fields: ${allowedFields.join(', ')}`,
+          `Allowed fields: ${allowedFields.join(', ')}`,
       );
     }
 
@@ -429,10 +414,7 @@ export function validateSelect(
  * @throws BadRequestException if query is invalid
  * @throws ForbiddenException if query contains unauthorized fields
  */
-export function validateQuery(
-  entityType: string,
-  query: { include?: any; select?: any },
-): void {
+export function validateQuery(entityType: string, query: { include?: any; select?: any }): void {
   // Validate that include and select are not used together at the top level
   if (query.include && query.select) {
     throw new BadRequestException(

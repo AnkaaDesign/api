@@ -2124,14 +2124,14 @@ export enum DISCOUNT_TYPE {
 
 // Payment condition enum - controls payment structure
 export enum PAYMENT_CONDITION {
-  CASH = 'CASH',                       // Single payment (À vista)
-  INSTALLMENTS_2 = 'INSTALLMENTS_2',   // Down payment + 1 installment (20 days)
-  INSTALLMENTS_3 = 'INSTALLMENTS_3',   // Down payment + 2 installments (20/40 days)
-  INSTALLMENTS_4 = 'INSTALLMENTS_4',   // Down payment + 3 installments (20/40/60 days)
-  INSTALLMENTS_5 = 'INSTALLMENTS_5',   // Down payment + 4 installments (20/40/60/80 days)
-  INSTALLMENTS_6 = 'INSTALLMENTS_6',   // Down payment + 5 installments (20/40/60/80/100 days)
-  INSTALLMENTS_7 = 'INSTALLMENTS_7',   // Down payment + 6 installments (20/40/60/80/100/120 days)
-  CUSTOM = 'CUSTOM',                   // Custom payment terms
+  CASH = 'CASH', // Single payment (À vista)
+  INSTALLMENTS_2 = 'INSTALLMENTS_2', // Down payment + 1 installment (20 days)
+  INSTALLMENTS_3 = 'INSTALLMENTS_3', // Down payment + 2 installments (20/40 days)
+  INSTALLMENTS_4 = 'INSTALLMENTS_4', // Down payment + 3 installments (20/40/60 days)
+  INSTALLMENTS_5 = 'INSTALLMENTS_5', // Down payment + 4 installments (20/40/60/80 days)
+  INSTALLMENTS_6 = 'INSTALLMENTS_6', // Down payment + 5 installments (20/40/60/80/100 days)
+  INSTALLMENTS_7 = 'INSTALLMENTS_7', // Down payment + 6 installments (20/40/60/80/100/120 days)
+  CUSTOM = 'CUSTOM', // Custom payment terms
 }
 
 // Guarantee years options

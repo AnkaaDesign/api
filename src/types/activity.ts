@@ -446,8 +446,8 @@ export type ActivityWithSelect<S extends ActivitySelect> = {
       ? Activity[K]
       : never
     : S[K] extends { select: any }
-    ? any // Relations with nested select
-    : never;
+      ? any // Relations with nested select
+      : never;
 };
 
 // Utility type for partial activity with selected fields
@@ -465,7 +465,15 @@ export type PartialActivity<T extends Partial<ActivitySelect>> = Pick<
 // Activity type optimized for table display
 export type ActivityTable = Pick<
   Activity,
-  'id' | 'quantity' | 'operation' | 'reason' | 'reasonOrder' | 'createdAt' | 'userId' | 'itemId' | 'orderId'
+  | 'id'
+  | 'quantity'
+  | 'operation'
+  | 'reason'
+  | 'reasonOrder'
+  | 'createdAt'
+  | 'userId'
+  | 'itemId'
+  | 'orderId'
 > & {
   item?: Pick<Item, 'id' | 'name' | 'uniCode'> & {
     brand?: Pick<Item['brand'], 'id' | 'name'>;

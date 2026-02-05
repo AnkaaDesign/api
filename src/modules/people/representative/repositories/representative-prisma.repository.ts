@@ -21,11 +21,19 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
   async create(
     data: RepresentativeCreateFormData,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative> {
     const client = tx || this.prisma;
+    const { customerId, ...restData } = data;
+
+    // Map customerId to customer relation or use customerId directly for unchecked input
+    const createData: Prisma.RepresentativeUncheckedCreateInput = {
+      ...restData,
+      customerId: customerId ?? null,
+    };
+
     return await client.representative.create({
-      data,
+      data: createData,
       include: options?.include,
     });
   }
@@ -33,7 +41,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
   async findById(
     id: string,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null> {
     const client = tx || this.prisma;
     return await client.representative.findUnique({
@@ -42,20 +50,14 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
     });
   }
 
-  async findByEmail(
-    email: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative | null> {
+  async findByEmail(email: string, tx?: PrismaTransaction): Promise<Representative | null> {
     const client = tx || this.prisma;
     return await client.representative.findUnique({
       where: { email },
     });
   }
 
-  async findByPhone(
-    phone: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative | null> {
+  async findByPhone(phone: string, tx?: PrismaTransaction): Promise<Representative | null> {
     const client = tx || this.prisma;
     return await client.representative.findUnique({
       where: { phone },
@@ -65,7 +67,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
   async findByCustomerIdAndRole(
     customerId: string,
     role: string,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null> {
     const client = tx || this.prisma;
     return await client.representative.findUnique({
@@ -84,7 +86,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
       include?: RepresentativeInclude;
       orderBy?: RepresentativeOrderBy;
     },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative[]> {
     const client = tx || this.prisma;
     return await client.representative.findMany({
@@ -102,11 +104,11 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
       orderBy?: RepresentativeOrderBy;
       include?: RepresentativeInclude;
     },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative[]> {
     const client = tx || this.prisma;
 
-    let where: Prisma.RepresentativeWhereInput = {};
+    const where: Prisma.RepresentativeWhereInput = {};
     if (options?.where) {
       const { name, customer, OR, ...rest } = options.where as any;
       Object.assign(where, rest);
@@ -143,7 +145,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
     id: string,
     data: RepresentativeUpdateFormData,
     options?: { include?: RepresentativeInclude },
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative> {
     const client = tx || this.prisma;
     return await client.representative.update({
@@ -153,23 +155,17 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
     });
   }
 
-  async delete(
-    id: string,
-    tx?: PrismaTransaction
-  ): Promise<Representative> {
+  async delete(id: string, tx?: PrismaTransaction): Promise<Representative> {
     const client = tx || this.prisma;
     return await client.representative.delete({
       where: { id },
     });
   }
 
-  async count(
-    where?: RepresentativeWhere,
-    tx?: PrismaTransaction
-  ): Promise<number> {
+  async count(where?: RepresentativeWhere, tx?: PrismaTransaction): Promise<number> {
     const client = tx || this.prisma;
 
-    let prismaWhere: Prisma.RepresentativeWhereInput = {};
+    const prismaWhere: Prisma.RepresentativeWhereInput = {};
     if (where) {
       const { name, customer, OR, ...rest } = where as any;
       Object.assign(prismaWhere, rest);
@@ -197,7 +193,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
 
   async findBySessionToken(
     sessionToken: string,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative | null> {
     const client = tx || this.prisma;
     return await client.representative.findUnique({
@@ -209,7 +205,7 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
   async updateSessionToken(
     id: string,
     sessionToken: string | null,
-    tx?: PrismaTransaction
+    tx?: PrismaTransaction,
   ): Promise<Representative> {
     const client = tx || this.prisma;
     return await client.representative.update({

@@ -45,7 +45,11 @@ export class LayoutController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async findAll(@Query('includeUsage') includeUsage?: string, @Query('includeSections') includeSections?: string, @UserId() userId?: string) {
+  async findAll(
+    @Query('includeUsage') includeUsage?: string,
+    @Query('includeSections') includeSections?: string,
+    @UserId() userId?: string,
+  ) {
     const layouts = await this.layoutService.findAll({
       includeUsage: includeUsage === 'true',
       includeSections: includeSections === 'true',
@@ -168,11 +172,7 @@ export class LayoutController {
   }
 
   @Delete(':id')
-  @Roles(
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.DESIGNER,
-    SECTOR_PRIVILEGES.ADMIN,
-  )
+  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.ADMIN)
   async delete(@Param('id') id: string, @UserId() userId: string) {
     await this.layoutService.delete(id, userId);
 
@@ -195,12 +195,7 @@ export class LayoutController {
     @Body() data: { truckId: string; side: 'left' | 'right' | 'back' },
     @UserId() userId: string,
   ) {
-    await this.layoutService.assignLayoutToTruck(
-      data.truckId,
-      data.side,
-      layoutId,
-      userId,
-    );
+    await this.layoutService.assignLayoutToTruck(data.truckId, data.side, layoutId, userId);
 
     return {
       success: true,

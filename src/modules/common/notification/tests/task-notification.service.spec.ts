@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TaskNotificationService } from '../task-notification.service';
 import { NotificationPreferenceService } from '../notification-preference.service';
 import { NotificationService } from '../notification.service';
-import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE, NOTIFICATION_CHANNEL } from '../../../../constants';
+import {
+  NOTIFICATION_TYPE,
+  NOTIFICATION_IMPORTANCE,
+  NOTIFICATION_CHANNEL,
+} from '../../../../constants';
 import type { Task } from '../../../../types';
 
 describe('TaskNotificationService', () => {
@@ -215,9 +219,7 @@ describe('TaskNotificationService', () => {
 
   describe('shouldNotifyField', () => {
     it('should return true when user has channels enabled for field', async () => {
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
       const result = await service.shouldNotifyField('user-123', 'status');
 
@@ -260,9 +262,7 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
       const notificationIds = await service.createFieldChangeNotifications(
         mockTask,
@@ -333,9 +333,7 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
       const notificationIds = await service.createFieldChangeNotifications(
         mockTask,
@@ -361,16 +359,9 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
-      await service.createFieldChangeNotifications(
-        mockTask,
-        changes,
-        'user-123',
-        'user-admin',
-      );
+      await service.createFieldChangeNotifications(mockTask, changes, 'user-123', 'user-admin');
 
       expect(notificationService.createNotification).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -402,17 +393,9 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
-      await service.aggregateFieldChanges(
-        mockTask,
-        changes,
-        'user-123',
-        'user-admin',
-        false,
-      );
+      await service.aggregateFieldChanges(mockTask, changes, 'user-123', 'user-admin', false);
 
       expect(notificationService.createNotification).not.toHaveBeenCalled();
 
@@ -438,9 +421,7 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
       await service.aggregateFieldChanges(
         mockTask,
@@ -478,27 +459,13 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
       // Add first change
-      await service.aggregateFieldChanges(
-        mockTask,
-        changes1,
-        'user-123',
-        'user-admin',
-        false,
-      );
+      await service.aggregateFieldChanges(mockTask, changes1, 'user-123', 'user-admin', false);
 
       // Add second change
-      await service.aggregateFieldChanges(
-        mockTask,
-        changes2,
-        'user-123',
-        'user-admin',
-        false,
-      );
+      await service.aggregateFieldChanges(mockTask, changes2, 'user-123', 'user-admin', false);
 
       // Fast-forward time
       jest.advanceTimersByTime(5 * 60 * 1000);
@@ -531,13 +498,7 @@ describe('TaskNotificationService', () => {
 
       preferenceService.getChannelsForEvent.mockResolvedValue([]);
 
-      await service.aggregateFieldChanges(
-        mockTask,
-        changes,
-        'user-123',
-        'user-admin',
-        false,
-      );
+      await service.aggregateFieldChanges(mockTask, changes, 'user-123', 'user-admin', false);
 
       jest.advanceTimersByTime(5 * 60 * 1000);
       await new Promise(resolve => setImmediate(resolve));
@@ -568,17 +529,9 @@ describe('TaskNotificationService', () => {
         },
       ];
 
-      preferenceService.getChannelsForEvent.mockResolvedValue([
-        NOTIFICATION_CHANNEL.IN_APP,
-      ]);
+      preferenceService.getChannelsForEvent.mockResolvedValue([NOTIFICATION_CHANNEL.IN_APP]);
 
-      await service.aggregateFieldChanges(
-        mockTask,
-        changes,
-        'user-123',
-        'user-admin',
-        false,
-      );
+      await service.aggregateFieldChanges(mockTask, changes, 'user-123', 'user-admin', false);
 
       expect(notificationService.createNotification).not.toHaveBeenCalled();
 

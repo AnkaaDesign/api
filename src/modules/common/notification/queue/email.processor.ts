@@ -314,11 +314,7 @@ export class EmailProcessor {
       );
 
       if (deliveryId) {
-        await this.markDeliveryPermanentlyFailed(
-          deliveryId,
-          error.message,
-          job.attemptsMade,
-        );
+        await this.markDeliveryPermanentlyFailed(deliveryId, error.message, job.attemptsMade);
       }
 
       // Emit permanent failure event
@@ -479,10 +475,7 @@ export class EmailProcessor {
 
       this.logger.log(`Marked delivery ${deliveryId} as permanently failed`);
     } catch (err: any) {
-      this.logger.error(
-        `Failed to mark delivery as permanently failed: ${err.message}`,
-        err.stack,
-      );
+      this.logger.error(`Failed to mark delivery as permanently failed: ${err.message}`, err.stack);
     }
   }
 
@@ -516,12 +509,7 @@ export class EmailProcessor {
   /**
    * Generate HTML email template
    */
-  private generateEmailHtml(
-    title: string,
-    body: string,
-    actionUrl?: string,
-    data?: any,
-  ): string {
+  private generateEmailHtml(title: string, body: string, actionUrl?: string, data?: any): string {
     return `
 <!DOCTYPE html>
 <html lang="pt-BR">

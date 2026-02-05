@@ -7,11 +7,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import {
-  CreateMessageDto,
-  UpdateMessageDto,
-  FilterMessageDto,
-} from './dto';
+import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
 
 import type { Message, MessageView, MessageTarget, MessageStatus } from '@prisma/client';
 
@@ -49,9 +45,7 @@ export class MessageService {
 
       if (isArrayLike && keys.length > 0) {
         // Convert to array, sorting by numeric key
-        blocksArray = keys
-          .sort((a, b) => parseInt(a) - parseInt(b))
-          .map(key => contentBlocks[key]);
+        blocksArray = keys.sort((a, b) => parseInt(a) - parseInt(b)).map(key => contentBlocks[key]);
       } else {
         throw new BadRequestException('Os blocos de conteúdo devem ser um array');
       }
@@ -74,10 +68,14 @@ export class MessageService {
       // - Divider blocks: no additional data needed
       // - List blocks: have 'items' array
       // We validate that required data exists based on type
-      if (['paragraph', 'heading1', 'heading2', 'heading3', 'quote', 'callout'].includes(block.type)) {
+      if (
+        ['paragraph', 'heading1', 'heading2', 'heading3', 'quote', 'callout'].includes(block.type)
+      ) {
         // Content can be either array (rich text) or string (plain text) - both are valid
         if (!block.content) {
-          throw new BadRequestException(`O bloco do tipo ${block.type} requer um campo de conteúdo`);
+          throw new BadRequestException(
+            `O bloco do tipo ${block.type} requer um campo de conteúdo`,
+          );
         }
       } else if (block.type === 'image') {
         if (!block.url || typeof block.url !== 'string') {
@@ -115,7 +113,11 @@ export class MessageService {
    * Check if user is allowed to view a message based on targeting
    * SIMPLIFIED: Now just checks if message is active and if user is in targets
    */
-  private async canUserViewMessage(message: MessageWithRelations, userId: string, userRole: string): Promise<boolean> {
+  private async canUserViewMessage(
+    message: MessageWithRelations,
+    userId: string,
+    userRole: string,
+  ): Promise<boolean> {
     // Check if message is active
     if (message.status !== 'ACTIVE') {
       return false;
@@ -164,7 +166,9 @@ export class MessageService {
     try {
       // Log the raw incoming data for debugging
       this.logger.log(`[create] RAW data received:`, JSON.stringify(data, null, 2));
-      this.logger.log(`[create] contentBlocks type: ${typeof data.contentBlocks}, isArray: ${Array.isArray(data.contentBlocks)}`);
+      this.logger.log(
+        `[create] contentBlocks type: ${typeof data.contentBlocks}, isArray: ${Array.isArray(data.contentBlocks)}`,
+      );
 
       if (Array.isArray(data.contentBlocks) && data.contentBlocks.length > 0) {
         this.logger.log(`[create] First block:`, JSON.stringify(data.contentBlocks[0]));
@@ -179,7 +183,9 @@ export class MessageService {
 
       if (Array.isArray(data.contentBlocks)) {
         contentBlocks = data.contentBlocks;
-        this.logger.log(`[create] Using contentBlocks as-is (array), length: ${contentBlocks.length}`);
+        this.logger.log(
+          `[create] Using contentBlocks as-is (array), length: ${contentBlocks.length}`,
+        );
       } else if (typeof data.contentBlocks === 'object') {
         const keys = Object.keys(data.contentBlocks);
         const isArrayLike = keys.every(key => /^\d+$/.test(key));
@@ -198,8 +204,9 @@ export class MessageService {
       }
 
       // Verify contentBlocks are not empty arrays
-      const hasEmptyBlocks = contentBlocks.some(block =>
-        Array.isArray(block) || (typeof block === 'object' && Object.keys(block).length === 0)
+      const hasEmptyBlocks = contentBlocks.some(
+        block =>
+          Array.isArray(block) || (typeof block === 'object' && Object.keys(block).length === 0),
       );
       if (hasEmptyBlocks) {
         this.logger.error(`[create] WARNING: Content blocks contain empty arrays or objects!`);
@@ -251,7 +258,9 @@ export class MessageService {
   /**
    * Get all messages with filters (admin only)
    */
-  async findAll(filters: FilterMessageDto): Promise<{ data: Message[]; total: number; page: number; limit: number }> {
+  async findAll(
+    filters: FilterMessageDto,
+  ): Promise<{ data: Message[]; total: number; page: number; limit: number }> {
     try {
       const page = filters.page || 1;
       const limit = filters.limit || 10;
@@ -270,16 +279,10 @@ export class MessageService {
         const visibleDate = new Date(filters.visibleAt);
         where.AND = [
           {
-            OR: [
-              { startDate: null },
-              { startDate: { lte: visibleDate } },
-            ],
+            OR: [{ startDate: null }, { startDate: { lte: visibleDate } }],
           },
           {
-            OR: [
-              { endDate: null },
-              { endDate: { gte: visibleDate } },
-            ],
+            OR: [{ endDate: null }, { endDate: { gte: visibleDate } }],
           },
         ];
       }
@@ -309,15 +312,15 @@ export class MessageService {
       const totalActiveUsers = await this.prisma.user.count({ where: { isActive: true } });
 
       // Map messages to include stats
-      const data = messages.map((message) => {
+      const data = messages.map(message => {
         const views = message.views || [];
         const targets = message.targets || [];
 
         const stats = {
           views: views.length,
-          uniqueViews: new Set(views.map((v) => v.userId)).size,
+          uniqueViews: new Set(views.map(v => v.userId)).size,
           targetUsers: targets.length > 0 ? targets.length : totalActiveUsers,
-          dismissals: views.filter((v) => v.dismissedAt !== null).length,
+          dismissals: views.filter(v => v.dismissedAt !== null).length,
         };
 
         // Remove views and targets from response, keep only stats
@@ -531,16 +534,10 @@ export class MessageService {
         where: {
           status: 'ACTIVE',
           publishedAt: { not: null },
-          OR: [
-            { startDate: null },
-            { startDate: { lte: now } },
-          ],
+          OR: [{ startDate: null }, { startDate: { lte: now } }],
           AND: [
             {
-              OR: [
-                { endDate: null },
-                { endDate: { gte: now } },
-              ],
+              OR: [{ endDate: null }, { endDate: { gte: now } }],
             },
           ],
           // Exclude messages that have been viewed OR dismissed by this user
@@ -554,9 +551,7 @@ export class MessageService {
         include: {
           targets: true,
         },
-        orderBy: [
-          { createdAt: 'desc' },
-        ],
+        orderBy: [{ createdAt: 'desc' }],
       });
 
       this.logger.log(`[getUnviewedForUser] Query returned ${allMessages.length} messages`);
@@ -565,7 +560,9 @@ export class MessageService {
       const filteredMessages: Message[] = [];
       for (const message of allMessages) {
         const canView = await this.canUserViewMessage(message, userId, userRole);
-        this.logger.log(`[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}`);
+        this.logger.log(
+          `[getUnviewedForUser] Message "${message.title}" (${message.id}) - canView=${canView}`,
+        );
         if (canView) {
           // Create a clean message object without targets
           const messageWithoutTargets = {
@@ -589,7 +586,9 @@ export class MessageService {
         }
       }
 
-      this.logger.log(`[getUnviewedForUser] Returning ${filteredMessages.length} filtered messages`);
+      this.logger.log(
+        `[getUnviewedForUser] Returning ${filteredMessages.length} filtered messages`,
+      );
       return filteredMessages;
     } catch (error) {
       this.logger.error('Error fetching unviewed messages:', error);
@@ -735,16 +734,10 @@ export class MessageService {
         where: {
           status: 'ACTIVE',
           publishedAt: { not: null },
-          OR: [
-            { startDate: null },
-            { startDate: { lte: now } },
-          ],
+          OR: [{ startDate: null }, { startDate: { lte: now } }],
           AND: [
             {
-              OR: [
-                { endDate: null },
-                { endDate: { gte: now } },
-              ],
+              OR: [{ endDate: null }, { endDate: { gte: now } }],
             },
           ],
         },
@@ -756,15 +749,14 @@ export class MessageService {
             },
           },
         },
-        orderBy: [
-          { createdAt: 'desc' },
-        ],
+        orderBy: [{ createdAt: 'desc' }],
       });
 
       this.logger.log(`[getAllForUser] Query returned ${allMessages.length} messages`);
 
       // Filter by targeting rules
-      const filteredMessages: (Message & { viewedAt?: Date | null; dismissedAt?: Date | null })[] = [];
+      const filteredMessages: (Message & { viewedAt?: Date | null; dismissedAt?: Date | null })[] =
+        [];
       for (const message of allMessages) {
         const canView = await this.canUserViewMessage(message, userId, userRole);
         if (canView) {
@@ -791,7 +783,12 @@ export class MessageService {
             viewedAt: userView?.viewedAt || null,
             dismissedAt: userView?.dismissedAt || null,
           };
-          filteredMessages.push(messageWithViewStatus as Message & { viewedAt?: Date | null; dismissedAt?: Date | null });
+          filteredMessages.push(
+            messageWithViewStatus as Message & {
+              viewedAt?: Date | null;
+              dismissedAt?: Date | null;
+            },
+          );
         }
       }
 

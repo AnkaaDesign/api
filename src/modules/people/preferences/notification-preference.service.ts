@@ -170,7 +170,9 @@ export class NotificationPreferenceService {
       }
 
       const updateData: Prisma.NotificationPreferenceUpdateInput = {
-        ...(data.notificationType !== undefined && { notificationType: data.notificationType as NotificationType }),
+        ...(data.notificationType !== undefined && {
+          notificationType: data.notificationType as NotificationType,
+        }),
         ...(data.enabled !== undefined && { enabled: data.enabled }),
         ...(data.channels !== undefined && { channels: data.channels }),
         ...(data.importance !== undefined && { importance: data.importance }),

@@ -361,7 +361,17 @@ export class UserService {
   ): Promise<UserGetManyResponse> {
     try {
       // Map UserGetManyFormData to FindManyOptions
-      const { page, limit, take, skip, where, orderBy, include: queryInclude, select, ...filters } = query;
+      const {
+        page,
+        limit,
+        take,
+        skip,
+        where,
+        orderBy,
+        include: queryInclude,
+        select,
+        ...filters
+      } = query;
       const finalInclude = include || queryInclude;
 
       // Build where clause with filters

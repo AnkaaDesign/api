@@ -344,7 +344,9 @@ export class NotificationAggregationService {
    * @param notification - The notification to find similar ones for
    * @returns Array of similar pending notifications or null if none found
    */
-  async findSimilarNotifications(notification: Notification): Promise<PendingNotification[] | null> {
+  async findSimilarNotifications(
+    notification: Notification,
+  ): Promise<PendingNotification[] | null> {
     if (!notification.userId) {
       return null;
     }

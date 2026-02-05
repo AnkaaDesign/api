@@ -938,7 +938,8 @@ export class NotificationReminderSchedulerService {
     const workEndHour = 18.0; // 18:00
 
     // Check if within work hours
-    const isWithinWorkHours = currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
+    const isWithinWorkHours =
+      currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
 
     if (isWithinWorkHours) {
       // Already within work hours, return as-is
@@ -959,7 +960,7 @@ export class NotificationReminderSchedulerService {
 
     this.logger.log(
       `Reminder time ${reminderTime.toISOString()} is outside work hours (${hours}:${minutes.toString().padStart(2, '0')}). ` +
-      `Adjusted to ${next730.toISOString()} (next 7:30 AM)`,
+        `Adjusted to ${next730.toISOString()} (next 7:30 AM)`,
     );
 
     return next730;

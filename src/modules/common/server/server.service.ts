@@ -1348,7 +1348,11 @@ export class ServerService {
 
       for (const device of data.blockdevices || []) {
         // Skip loop devices, ram disks, etc
-        if (device.type !== 'disk' || device.name.startsWith('loop') || device.name.startsWith('ram')) {
+        if (
+          device.type !== 'disk' ||
+          device.name.startsWith('loop') ||
+          device.name.startsWith('ram')
+        ) {
           continue;
         }
 

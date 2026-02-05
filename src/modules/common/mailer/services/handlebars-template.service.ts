@@ -16,8 +16,7 @@ export class HandlebarsTemplateService {
   constructor() {
     // Set templates directory from environment or use default
     this.templatesDir =
-      process.env.EMAIL_TEMPLATES_DIR ||
-      path.join(process.cwd(), 'src', 'templates', 'emails');
+      process.env.EMAIL_TEMPLATES_DIR || path.join(process.cwd(), 'src', 'templates', 'emails');
 
     // Register custom helpers
     this.registerHelpers();

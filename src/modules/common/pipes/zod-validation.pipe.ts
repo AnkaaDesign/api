@@ -666,8 +666,10 @@ export class ZodValidationPipe implements PipeTransform {
     ];
 
     const lowerFieldName = fieldName.toLowerCase();
-    return enumFields.some(f => lowerFieldName === f.toLowerCase()) ||
-           nullableFields.some(f => lowerFieldName === f.toLowerCase());
+    return (
+      enumFields.some(f => lowerFieldName === f.toLowerCase()) ||
+      nullableFields.some(f => lowerFieldName === f.toLowerCase())
+    );
   }
 
   protected isSerializedArray(obj: any): boolean {

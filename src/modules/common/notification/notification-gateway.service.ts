@@ -196,7 +196,11 @@ export class NotificationGatewayService {
    * @param notificationId - Notification ID that was seen
    * @param seenAt - Timestamp when notification was seen
    */
-  async notifyNotificationSeen(userId: string, notificationId: string, seenAt: Date): Promise<void> {
+  async notifyNotificationSeen(
+    userId: string,
+    notificationId: string,
+    seenAt: Date,
+  ): Promise<void> {
     try {
       // Fetch the updated notification with seenBy relationship
       const notification = await this.notificationGateway['notificationRepository'].findById(
@@ -228,7 +232,9 @@ export class NotificationGatewayService {
           count: unreadCount,
         });
       } catch (countError) {
-        this.logger.warn(`Failed to update notification count for user ${userId}: ${countError.message}`);
+        this.logger.warn(
+          `Failed to update notification count for user ${userId}: ${countError.message}`,
+        );
       }
     } catch (error) {
       this.logger.error(`Failed to notify notification seen for user ${userId}: ${error.message}`);

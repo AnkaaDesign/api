@@ -129,7 +129,10 @@ export class FileController {
   async serveFileOptions(@Res() res: Response): Promise<void> {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range, x-request-id, Authorization');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Range, x-request-id, Authorization',
+    );
     res.setHeader('Access-Control-Max-Age', '86400');
     res.status(204).send();
   }
@@ -137,7 +140,11 @@ export class FileController {
   @Get('serve/:id')
   @Public()
   @FileOperationBypass() // Completely bypass ALL throttlers for file serving
-  async serveFile(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request, @Res() res: Response): Promise<void> {
+  async serveFile(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
     await this.fileService.serveFileById(id, res, req);
   }
 

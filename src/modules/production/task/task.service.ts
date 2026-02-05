@@ -152,7 +152,9 @@ export class TaskService {
         where: { fileId },
       });
 
-      this.logger.log(`[convertFileIdsToArtworkIds] Lookup result for ${fileId}: ${artwork ? `found (id: ${artwork.id})` : 'not found'}`);
+      this.logger.log(
+        `[convertFileIdsToArtworkIds] Lookup result for ${fileId}: ${artwork ? `found (id: ${artwork.id})` : 'not found'}`,
+      );
 
       // Determine the status to use
       const requestedStatus = artworkStatuses?.[fileId];
@@ -343,7 +345,9 @@ export class TaskService {
         // Create the task first WITHOUT files
         // Add createdById to data for service orders creation
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
-        const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, { include });
+        const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
+          include,
+        });
 
         // Create truck with layouts ONLY if layouts are provided
         // Note: Basic truck creation (plate, chassisNumber, spot) is handled by the repository
@@ -411,7 +415,9 @@ export class TaskService {
               transaction: tx,
             });
 
-            this.logger.log(`[Task Create] ${sideName} layout created: ${layout.id} with changelog`);
+            this.logger.log(
+              `[Task Create] ${sideName} layout created: ${layout.id} with changelog`,
+            );
           };
 
           // Create layouts for each side using the new consolidated format
@@ -845,9 +851,13 @@ export class TaskService {
 
             // Create the task with createdById for service orders
             const taskWithCreator = { ...task, createdById: userId } as typeof task;
-            const createdTask = await this.tasksRepository.createWithTransaction(tx, taskWithCreator, {
-              include,
-            });
+            const createdTask = await this.tasksRepository.createWithTransaction(
+              tx,
+              taskWithCreator,
+              {
+                include,
+              },
+            );
 
             // Log successful task creation
             await logEntityChange({
@@ -1164,11 +1174,15 @@ export class TaskService {
               if (truckData.chassisNumber !== undefined)
                 updateFields.chassisNumber = truckData.chassisNumber;
               if (truckData.category !== undefined) updateFields.category = truckData.category;
-              if (truckData.implementType !== undefined) updateFields.implementType = truckData.implementType;
+              if (truckData.implementType !== undefined)
+                updateFields.implementType = truckData.implementType;
               if (truckData.spot !== undefined) updateFields.spot = truckData.spot;
 
               if (Object.keys(updateFields).length > 0) {
-                const updatedTruck = await tx.truck.update({ where: { id: truckId }, data: updateFields });
+                const updatedTruck = await tx.truck.update({
+                  where: { id: truckId },
+                  data: updateFields,
+                });
                 this.logger.log(`[Task Update] Truck basic fields updated`);
 
                 // Create changelog for each changed field
@@ -1301,7 +1315,9 @@ export class TaskService {
                   transaction: tx,
                 });
 
-                this.logger.log(`[Task Update] ${layoutField} created: ${newLayout.id} with changelog`);
+                this.logger.log(
+                  `[Task Update] ${layoutField} created: ${newLayout.id} with changelog`,
+                );
               }
             };
 
@@ -1393,9 +1409,10 @@ export class TaskService {
           // This transition requires all ARTWORK service orders to be completed
           if (fromStatus === TASK_STATUS.PREPARATION && toStatus === TASK_STATUS.IN_PRODUCTION) {
             // Build the final state of artwork service orders by merging existing with updates
-            const existingArtworkSOs = existingTask.serviceOrders?.filter(
-              (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK
-            ) || [];
+            const existingArtworkSOs =
+              existingTask.serviceOrders?.filter(
+                (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
+              ) || [];
 
             // If user is submitting service order updates, apply them to get final state
             let finalArtworkSOs: ServiceOrder[] = existingArtworkSOs;
@@ -1412,15 +1429,15 @@ export class TaskService {
 
             if (finalArtworkSOs.length > 0) {
               const incompleteArtworks = finalArtworkSOs.filter(
-                (so: any) => so.status !== SERVICE_ORDER_STATUS.COMPLETED
+                (so: any) => so.status !== SERVICE_ORDER_STATUS.COMPLETED,
               );
 
               if (incompleteArtworks.length > 0) {
                 this.logger.warn(
-                  `[VALIDATION] User attempted PREPARATION → IN_PRODUCTION with ${incompleteArtworks.length} incomplete artwork(s). IDs: ${incompleteArtworks.map((so: any) => so.id).join(', ')}`
+                  `[VALIDATION] User attempted PREPARATION → IN_PRODUCTION with ${incompleteArtworks.length} incomplete artwork(s). IDs: ${incompleteArtworks.map((so: any) => so.id).join(', ')}`,
                 );
                 throw new BadRequestException(
-                  `Não é possível iniciar produção: ${incompleteArtworks.length} ordem(ns) de serviço de arte ainda não foi(ram) concluída(s). Complete todas as artes antes de iniciar a produção.`
+                  `Não é possível iniciar produção: ${incompleteArtworks.length} ordem(ns) de serviço de arte ainda não foi(ram) concluída(s). Complete todas as artes antes de iniciar a produção.`,
                 );
               }
             }
@@ -1438,11 +1455,7 @@ export class TaskService {
             );
             data.startedAt = new Date();
           }
-          if (
-            toStatus === TASK_STATUS.COMPLETED &&
-            !existingTask.finishedAt &&
-            !data.finishedAt
-          ) {
+          if (toStatus === TASK_STATUS.COMPLETED && !existingTask.finishedAt && !data.finishedAt) {
             this.logger.log(
               `[AUTO-FILL] Auto-setting finishedAt for task ${id} (status → COMPLETED)`,
             );
@@ -1547,7 +1560,11 @@ export class TaskService {
         }
 
         // Process pricing layout file BEFORE task update (to get the file ID for pricing)
-        if (files?.pricingLayoutFile && files.pricingLayoutFile.length > 0 && (data as any).pricing) {
+        if (
+          files?.pricingLayoutFile &&
+          files.pricingLayoutFile.length > 0 &&
+          (data as any).pricing
+        ) {
           console.log('[TaskService] Processing pricing layout file');
           const customerName = existingTask.customer?.fantasyName;
 
@@ -1572,7 +1589,7 @@ export class TaskService {
         // Extract service orders from data to handle them explicitly
         // This prevents Prisma from doing a silent nested create without events/changelogs
         const serviceOrdersData = (data as any).serviceOrders;
-        let createdServiceOrders: any[] = [];
+        const createdServiceOrders: any[] = [];
 
         // Ensure statusOrder is updated when status changes
         const updateData = {
@@ -1582,7 +1599,10 @@ export class TaskService {
 
         // CRITICAL: Check for artwork data BEFORE deleting fields
         // This flag determines if file processing block should run
-        const hasArtworkData = !!(updateData as any).artworkIds || !!(updateData as any).fileIds || !!(updateData as any).artworkStatuses;
+        const hasArtworkData =
+          !!(updateData as any).artworkIds ||
+          !!(updateData as any).fileIds ||
+          !!(updateData as any).artworkStatuses;
 
         // Remove service orders from updateData to prevent Prisma nested create
         // We'll handle them explicitly below (serviceOrdersData was already extracted at line 1393)
@@ -1601,50 +1621,64 @@ export class TaskService {
 
         // Update the task - always include customer for file organization
         // Also include file relations for changelog tracking
-        let updatedTask = await this.tasksRepository.updateWithTransaction(tx, id, updateData, {
-          include: {
-            ...include,
-            customer: true, // Always include customer for file path organization
-            artworks: {
-              include: {
-                file: {
-                  select: {
-                    id: true,
-                    filename: true,
-                    thumbnailUrl: true,
+        let updatedTask = await this.tasksRepository.updateWithTransaction(
+          tx,
+          id,
+          updateData,
+          {
+            include: {
+              ...include,
+              customer: true, // Always include customer for file path organization
+              artworks: {
+                include: {
+                  file: {
+                    select: {
+                      id: true,
+                      filename: true,
+                      thumbnailUrl: true,
+                    },
                   },
                 },
-              },
-            }, // Include for changelog tracking with file info
-            baseFiles: true, // Include for changelog tracking
-            logoPaints: true, // Include for changelog tracking
-            observation: { include: { files: true } }, // Include for changelog tracking
-            truck: true, // Include for truck field changelog tracking
-            serviceOrders: true, // Include for services field changelog tracking
-            airbrushings: true, // Include for airbrushing file uploads
+              }, // Include for changelog tracking with file info
+              baseFiles: true, // Include for changelog tracking
+              logoPaints: true, // Include for changelog tracking
+              observation: { include: { files: true } }, // Include for changelog tracking
+              truck: true, // Include for truck field changelog tracking
+              serviceOrders: true, // Include for services field changelog tracking
+              airbrushings: true, // Include for airbrushing file uploads
+            },
           },
-        }, userId);
+          userId,
+        );
 
         // Handle service orders explicitly if provided
         // FIX: Implement proper upsert logic - update existing service orders instead of always creating new ones
         // NOTE: If serviceOrdersData is provided as an array (even empty), we process deletions
         // If serviceOrdersData is undefined/null, service orders are not being modified
         if (serviceOrdersData && Array.isArray(serviceOrdersData)) {
-          this.logger.log(`[Task Update] Processing ${serviceOrdersData.length} service orders for task ${id}`);
-          this.logger.log(`[Task Update] Service orders data (with observation): ${JSON.stringify(serviceOrdersData.map((so: any) => ({ id: so.id, description: so.description, type: so.type, observation: so.observation })))}`);
+          this.logger.log(
+            `[Task Update] Processing ${serviceOrdersData.length} service orders for task ${id}`,
+          );
+          this.logger.log(
+            `[Task Update] Service orders data (with observation): ${JSON.stringify(serviceOrdersData.map((so: any) => ({ id: so.id, description: so.description, type: so.type, observation: so.observation })))}`,
+          );
 
           // Get all existing service orders for this task to handle duplicates and deletions
           const existingServiceOrders = await tx.serviceOrder.findMany({
             where: { taskId: id },
           });
-          this.logger.log(`[Task Update] Found ${existingServiceOrders.length} existing service orders for task`);
+          this.logger.log(
+            `[Task Update] Found ${existingServiceOrders.length} existing service orders for task`,
+          );
 
           // Process creates/updates for each service order in the submitted data
           for (const serviceOrderData of serviceOrdersData) {
             // Check if this is an existing service order (has an ID) or a new one
             if (serviceOrderData.id) {
               // UPDATE existing service order - preserve existing data
-              this.logger.log(`[Task Update] Updating existing service order ${serviceOrderData.id}`);
+              this.logger.log(
+                `[Task Update] Updating existing service order ${serviceOrderData.id}`,
+              );
 
               // Get the old service order data for changelog
               const oldServiceOrder = await tx.serviceOrder.findUnique({
@@ -1655,19 +1689,31 @@ export class TaskService {
                 // Only update fields that are explicitly provided
                 const updatePayload: any = {};
                 if (serviceOrderData.type !== undefined) updatePayload.type = serviceOrderData.type;
-                if (serviceOrderData.status !== undefined) updatePayload.status = serviceOrderData.status;
-                if (serviceOrderData.description !== undefined) updatePayload.description = serviceOrderData.description;
-                if (serviceOrderData.observation !== undefined) updatePayload.observation = serviceOrderData.observation;
-                if (serviceOrderData.assignedToId !== undefined) updatePayload.assignedToId = serviceOrderData.assignedToId;
+                if (serviceOrderData.status !== undefined)
+                  updatePayload.status = serviceOrderData.status;
+                if (serviceOrderData.description !== undefined)
+                  updatePayload.description = serviceOrderData.description;
+                if (serviceOrderData.observation !== undefined)
+                  updatePayload.observation = serviceOrderData.observation;
+                if (serviceOrderData.assignedToId !== undefined)
+                  updatePayload.assignedToId = serviceOrderData.assignedToId;
 
                 // Handle date clearing for status rollbacks
-                if (serviceOrderData.status !== undefined && serviceOrderData.status !== oldServiceOrder.status) {
+                if (
+                  serviceOrderData.status !== undefined &&
+                  serviceOrderData.status !== oldServiceOrder.status
+                ) {
                   const oldStatus = oldServiceOrder.status as SERVICE_ORDER_STATUS;
                   const newStatus = serviceOrderData.status as SERVICE_ORDER_STATUS;
 
                   // If rolling back to PENDING, clear all progress dates
-                  if (newStatus === SERVICE_ORDER_STATUS.PENDING && oldStatus !== SERVICE_ORDER_STATUS.PENDING) {
-                    this.logger.log(`[Task Update] Clearing dates for SO ${serviceOrderData.id}: ${oldStatus} → PENDING`);
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.PENDING &&
+                    oldStatus !== SERVICE_ORDER_STATUS.PENDING
+                  ) {
+                    this.logger.log(
+                      `[Task Update] Clearing dates for SO ${serviceOrderData.id}: ${oldStatus} → PENDING`,
+                    );
                     updatePayload.startedById = null;
                     updatePayload.startedAt = null;
                     updatePayload.approvedById = null;
@@ -1676,8 +1722,13 @@ export class TaskService {
                     updatePayload.finishedAt = null;
                   }
                   // If rolling back from COMPLETED to IN_PROGRESS, clear completion dates
-                  else if (newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS && oldStatus === SERVICE_ORDER_STATUS.COMPLETED) {
-                    this.logger.log(`[Task Update] Clearing completion dates for SO ${serviceOrderData.id}: COMPLETED → IN_PROGRESS`);
+                  else if (
+                    newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+                    oldStatus === SERVICE_ORDER_STATUS.COMPLETED
+                  ) {
+                    this.logger.log(
+                      `[Task Update] Clearing completion dates for SO ${serviceOrderData.id}: COMPLETED → IN_PROGRESS`,
+                    );
                     updatePayload.completedById = null;
                     updatePayload.finishedAt = null;
                   }
@@ -1717,7 +1768,9 @@ export class TaskService {
                     transaction: tx,
                   });
 
-                  this.logger.log(`[Task Update] Updated service order ${serviceOrderData.id} (${updatedServiceOrder.type})`);
+                  this.logger.log(
+                    `[Task Update] Updated service order ${serviceOrderData.id} (${updatedServiceOrder.type})`,
+                  );
 
                   // =====================================================================
                   // ARTWORK SYNC: Check if artwork status change should update task status
@@ -1786,30 +1839,47 @@ export class TaskService {
                 } else {
                   // No changes, just add existing service order to the result
                   createdServiceOrders.push(oldServiceOrder);
-                  this.logger.log(`[Task Update] No changes for service order ${serviceOrderData.id}`);
+                  this.logger.log(
+                    `[Task Update] No changes for service order ${serviceOrderData.id}`,
+                  );
                 }
               } else {
-                this.logger.warn(`[Task Update] Service order ${serviceOrderData.id} not found, skipping update`);
+                this.logger.warn(
+                  `[Task Update] Service order ${serviceOrderData.id} not found, skipping update`,
+                );
               }
             } else {
               // No ID provided - check if this service order already exists (prevent duplicates)
               // Match by description AND type for this task
               const existingMatch = existingServiceOrders.find(
-                (so) => so.description === serviceOrderData.description && so.type === serviceOrderData.type
+                so =>
+                  so.description === serviceOrderData.description &&
+                  so.type === serviceOrderData.type,
               );
 
               if (existingMatch) {
                 // UPDATE existing service order (found by description+type match)
-                this.logger.log(`[Task Update] Found existing service order by description+type match: ${existingMatch.id}`);
+                this.logger.log(
+                  `[Task Update] Found existing service order by description+type match: ${existingMatch.id}`,
+                );
 
                 const updatePayload: any = {};
-                if (serviceOrderData.status !== undefined && serviceOrderData.status !== existingMatch.status) {
+                if (
+                  serviceOrderData.status !== undefined &&
+                  serviceOrderData.status !== existingMatch.status
+                ) {
                   updatePayload.status = serviceOrderData.status;
                 }
-                if (serviceOrderData.observation !== undefined && serviceOrderData.observation !== existingMatch.observation) {
+                if (
+                  serviceOrderData.observation !== undefined &&
+                  serviceOrderData.observation !== existingMatch.observation
+                ) {
                   updatePayload.observation = serviceOrderData.observation;
                 }
-                if (serviceOrderData.assignedToId !== undefined && serviceOrderData.assignedToId !== existingMatch.assignedToId) {
+                if (
+                  serviceOrderData.assignedToId !== undefined &&
+                  serviceOrderData.assignedToId !== existingMatch.assignedToId
+                ) {
                   updatePayload.assignedToId = serviceOrderData.assignedToId;
                 }
 
@@ -1834,7 +1904,9 @@ export class TaskService {
                     transaction: tx,
                   });
 
-                  this.logger.log(`[Task Update] Updated existing service order ${existingMatch.id} (matched by description+type)`);
+                  this.logger.log(
+                    `[Task Update] Updated existing service order ${existingMatch.id} (matched by description+type)`,
+                  );
 
                   // =====================================================================
                   // ARTWORK SYNC: Check if artwork status change should update task status
@@ -1902,11 +1974,15 @@ export class TaskService {
                   }
                 } else {
                   createdServiceOrders.push(existingMatch);
-                  this.logger.log(`[Task Update] No changes for existing service order ${existingMatch.id} (matched by description+type)`);
+                  this.logger.log(
+                    `[Task Update] No changes for existing service order ${existingMatch.id} (matched by description+type)`,
+                  );
                 }
               } else {
                 // CREATE new service order (no ID and no existing match)
-                this.logger.log(`[Task Update] Creating new service order: ${serviceOrderData.description} (${serviceOrderData.type})`);
+                this.logger.log(
+                  `[Task Update] Creating new service order: ${serviceOrderData.description} (${serviceOrderData.type})`,
+                );
 
                 const createdServiceOrder = await tx.serviceOrder.create({
                   data: {
@@ -1936,7 +2012,9 @@ export class TaskService {
                   transaction: tx,
                 });
 
-                this.logger.log(`[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`);
+                this.logger.log(
+                  `[Task Update] Created service order ${createdServiceOrder.id} (${createdServiceOrder.type})`,
+                );
 
                 // =====================================================================
                 // ARTWORK SYNC: Check if newly created artwork with COMPLETED status should update task
@@ -2005,35 +2083,53 @@ export class TaskService {
 
           // CRITICAL DEBUG: Log deletion comparison data
           this.logger.log(`[Task Update] 🔍 Deletion analysis:`);
-          this.logger.log(`[Task Update]   - Existing SO IDs: ${existingServiceOrders.map(so => so.id).join(', ')}`);
-          this.logger.log(`[Task Update]   - Submitted SO IDs: ${Array.from(submittedServiceOrderIds).join(', ') || 'none'}`);
-          this.logger.log(`[Task Update]   - Submitted desc+type keys: ${Array.from(submittedDescriptionTypeKeys).join(', ') || 'none'}`);
-          this.logger.log(`[Task Update]   - Existing SO descriptions: ${existingServiceOrders.map(so => `${so.description}|${so.type}`).join(', ')}`);
+          this.logger.log(
+            `[Task Update]   - Existing SO IDs: ${existingServiceOrders.map(so => so.id).join(', ')}`,
+          );
+          this.logger.log(
+            `[Task Update]   - Submitted SO IDs: ${Array.from(submittedServiceOrderIds).join(', ') || 'none'}`,
+          );
+          this.logger.log(
+            `[Task Update]   - Submitted desc+type keys: ${Array.from(submittedDescriptionTypeKeys).join(', ') || 'none'}`,
+          );
+          this.logger.log(
+            `[Task Update]   - Existing SO descriptions: ${existingServiceOrders.map(so => `${so.description}|${so.type}`).join(', ')}`,
+          );
 
           // Find service orders to delete (exist in DB but not in submission)
           const serviceOrdersToDelete = existingServiceOrders.filter(existing => {
             // If the existing SO's ID is in the submitted list, don't delete
             if (submittedServiceOrderIds.has(existing.id)) {
-              this.logger.log(`[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - ID in submitted list`);
+              this.logger.log(
+                `[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - ID in submitted list`,
+              );
               return false;
             }
             // If a new item was submitted with same description+type, don't delete
             const existingKey = `${(existing.description || '').toLowerCase().trim()}|${existing.type}`;
             if (submittedDescriptionTypeKeys.has(existingKey)) {
-              this.logger.log(`[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - desc+type matches submitted item`);
+              this.logger.log(
+                `[Task Update]   ✓ Keeping SO ${existing.id} (${existing.description}) - desc+type matches submitted item`,
+              );
               return false;
             }
             // This service order should be deleted
-            this.logger.log(`[Task Update]   ✗ DELETING SO ${existing.id} (${existing.description}) - not in submitted list`);
+            this.logger.log(
+              `[Task Update]   ✗ DELETING SO ${existing.id} (${existing.description}) - not in submitted list`,
+            );
             return true;
           });
 
           // Log deletion summary
-          this.logger.log(`[Task Update] 🗑️ Service orders to delete: ${serviceOrdersToDelete.length} of ${existingServiceOrders.length} total`);
+          this.logger.log(
+            `[Task Update] 🗑️ Service orders to delete: ${serviceOrdersToDelete.length} of ${existingServiceOrders.length} total`,
+          );
 
           // Delete the service orders
           for (const soToDelete of serviceOrdersToDelete) {
-            this.logger.log(`[Task Update] Deleting service order ${soToDelete.id} (${soToDelete.type}: ${soToDelete.description})`);
+            this.logger.log(
+              `[Task Update] Deleting service order ${soToDelete.id} (${soToDelete.type}: ${soToDelete.description})`,
+            );
 
             await tx.serviceOrder.delete({
               where: { id: soToDelete.id },
@@ -2062,20 +2158,25 @@ export class TaskService {
                 where: {
                   pricing: {
                     tasks: {
-                      some: { id: id }
-                    }
-                  }
-                }
+                      some: { id: id },
+                    },
+                  },
+                },
               });
 
               for (const pricingItem of matchingPricingItems) {
                 const pricingNormalizedDesc = (pricingItem.description || '').toLowerCase().trim();
                 // Check if descriptions match (pricing item description may include observation suffix)
-                if (pricingNormalizedDesc === normalizedDesc || pricingNormalizedDesc.startsWith(normalizedDesc + ' - ')) {
-                  this.logger.log(`[Task Update] Setting shouldSync=false on pricing item ${pricingItem.id} (${pricingItem.description})`);
+                if (
+                  pricingNormalizedDesc === normalizedDesc ||
+                  pricingNormalizedDesc.startsWith(normalizedDesc + ' - ')
+                ) {
+                  this.logger.log(
+                    `[Task Update] Setting shouldSync=false on pricing item ${pricingItem.id} (${pricingItem.description})`,
+                  );
                   await tx.taskPricingItem.update({
                     where: { id: pricingItem.id },
-                    data: { shouldSync: false }
+                    data: { shouldSync: false },
                   });
                 }
               }
@@ -2090,7 +2191,9 @@ export class TaskService {
             // If task is in WAITING_PRODUCTION and no completed artworks remain, rollback to PREPARATION
             // =====================================================================
             const deletedArtworkSOs = serviceOrdersToDelete.filter(
-              so => so.type === SERVICE_ORDER_TYPE.ARTWORK && so.status === SERVICE_ORDER_STATUS.COMPLETED
+              so =>
+                so.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (deletedArtworkSOs.length > 0) {
@@ -2109,7 +2212,9 @@ export class TaskService {
 
                 // Check if any artwork SOs remain completed
                 const anyArtworkCompleted = remainingServiceOrders.some(
-                  so => so.type === SERVICE_ORDER_TYPE.ARTWORK && so.status === SERVICE_ORDER_STATUS.COMPLETED
+                  so =>
+                    so.type === SERVICE_ORDER_TYPE.ARTWORK &&
+                    so.status === SERVICE_ORDER_STATUS.COMPLETED,
                 );
 
                 if (!anyArtworkCompleted) {
@@ -2148,10 +2253,12 @@ export class TaskService {
           // This Set is used later in the PRICING↔SO SYNC section to skip creating service orders
           // that were explicitly deleted by the user
           const deletedServiceOrderDescriptions = new Set(
-            serviceOrdersToDelete.map(so => (so.description || '').toLowerCase().trim())
+            serviceOrdersToDelete.map(so => (so.description || '').toLowerCase().trim()),
           );
           if (deletedServiceOrderDescriptions.size > 0) {
-            this.logger.log(`[Task Update] Tracking ${deletedServiceOrderDescriptions.size} deleted SO descriptions to prevent sync recreation: ${Array.from(deletedServiceOrderDescriptions).join(', ')}`);
+            this.logger.log(
+              `[Task Update] Tracking ${deletedServiceOrderDescriptions.size} deleted SO descriptions to prevent sync recreation: ${Array.from(deletedServiceOrderDescriptions).join(', ')}`,
+            );
           }
 
           // Store in a variable accessible to the sync section
@@ -2169,22 +2276,32 @@ export class TaskService {
             },
           });
 
-          this.logger.log(`[Task Update] After refetch, updatedTask.serviceOrders count: ${updatedTask?.serviceOrders?.length || 0}`);
+          this.logger.log(
+            `[Task Update] After refetch, updatedTask.serviceOrders count: ${updatedTask?.serviceOrders?.length || 0}`,
+          );
 
           // =====================================================================
           // REVERSE SYNC: Service Order Status Changes → Task Status
           // Check if any service order status changes should trigger task status changes
           // This handles cases where service orders are updated via task edit form
           // =====================================================================
-          if (data.serviceOrders && Array.isArray(data.serviceOrders) && data.serviceOrders.length > 0) {
-            this.logger.log(`[REVERSE SYNC] Checking if service order updates require task status change`);
+          if (
+            data.serviceOrders &&
+            Array.isArray(data.serviceOrders) &&
+            data.serviceOrders.length > 0
+          ) {
+            this.logger.log(
+              `[REVERSE SYNC] Checking if service order updates require task status change`,
+            );
 
             // Check each service order that was updated
             for (const serviceOrderData of data.serviceOrders) {
               // Only check service orders with IDs (existing records that were updated)
               if (serviceOrderData.id && serviceOrderData.status) {
                 // Find the old service order data from existingTask
-                const oldServiceOrder = existingTask.serviceOrders?.find(so => so.id === serviceOrderData.id);
+                const oldServiceOrder = existingTask.serviceOrders?.find(
+                  so => so.id === serviceOrderData.id,
+                );
 
                 if (oldServiceOrder && oldServiceOrder.status !== serviceOrderData.status) {
                   // Service order status changed - check if task should update
@@ -2221,7 +2338,7 @@ export class TaskService {
                     }
 
                     // Update task status
-                    updatedTask = await tx.task.update({
+                    updatedTask = (await tx.task.update({
                       where: { id },
                       data: taskUpdateData,
                       include: {
@@ -2232,7 +2349,7 @@ export class TaskService {
                         truck: true,
                         serviceOrders: true,
                       },
-                    }) as any;
+                    })) as any;
 
                     // Log the reverse sync in changelog
                     await this.changeLogService.logChange({
@@ -2262,13 +2379,13 @@ export class TaskService {
           if (updatedTask && updatedTask.status === TASK_STATUS.PREPARATION) {
             // Get all ARTWORK service orders for this task (from the refetched data)
             const artworkServiceOrders = (updatedTask.serviceOrders || []).filter(
-              (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK
+              (so: any) => so.type === SERVICE_ORDER_TYPE.ARTWORK,
             );
 
             // Check if there's at least 1 artwork service order and ALL are COMPLETED
             const hasArtworkOrders = artworkServiceOrders.length > 0;
             const allArtworkCompleted = artworkServiceOrders.every(
-              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (hasArtworkOrders && allArtworkCompleted) {
@@ -2278,7 +2395,7 @@ export class TaskService {
 
               // Update task status to WAITING_PRODUCTION
               // Using tx.task.update directly to include statusOrder which is not in the form data type
-              updatedTask = await tx.task.update({
+              updatedTask = (await tx.task.update({
                 where: { id },
                 data: {
                   status: TASK_STATUS.WAITING_PRODUCTION,
@@ -2292,7 +2409,7 @@ export class TaskService {
                   truck: true,
                   serviceOrders: true,
                 },
-              }) as any;
+              })) as any;
 
               // Log the auto-transition in changelog
               await this.changeLogService.logChange({
@@ -2317,21 +2434,25 @@ export class TaskService {
           // Auto-complete task when all PRODUCTION service orders are COMPLETED
           // This ensures task workflow progresses automatically when all production work is done
           // IMPORTANT: CANCELLED service orders are excluded - they don't block task completion
-          if (updatedTask && (updatedTask.status === TASK_STATUS.IN_PRODUCTION || updatedTask.status === TASK_STATUS.WAITING_PRODUCTION)) {
+          if (
+            updatedTask &&
+            (updatedTask.status === TASK_STATUS.IN_PRODUCTION ||
+              updatedTask.status === TASK_STATUS.WAITING_PRODUCTION)
+          ) {
             // Get all PRODUCTION service orders for this task (from the refetched data)
             const productionServiceOrders = (updatedTask.serviceOrders || []).filter(
-              (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION
+              (so: any) => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
             );
 
             // Filter out CANCELLED orders - they don't block task completion
             const activeProductionOrders = productionServiceOrders.filter(
-              (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED
+              (so: any) => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
             );
 
             // Check if there's at least 1 active production service order and ALL are COMPLETED
             const hasActiveProductionOrders = activeProductionOrders.length > 0;
             const allActiveProductionCompleted = activeProductionOrders.every(
-              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED
+              (so: any) => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
             if (hasActiveProductionOrders && allActiveProductionCompleted) {
@@ -2340,7 +2461,7 @@ export class TaskService {
               );
 
               // Update task status to COMPLETED
-              updatedTask = await tx.task.update({
+              updatedTask = (await tx.task.update({
                 where: { id },
                 data: {
                   status: TASK_STATUS.COMPLETED,
@@ -2356,7 +2477,7 @@ export class TaskService {
                   truck: true,
                   serviceOrders: true,
                 },
-              }) as any;
+              })) as any;
 
               // Log the auto-complete in changelog
               await this.changeLogService.logChange({
@@ -2406,7 +2527,9 @@ export class TaskService {
             );
 
             for (const update of serviceOrderUpdates) {
-              const so = (updatedTask?.serviceOrders || []).find((s: any) => s.id === update.serviceOrderId);
+              const so = (updatedTask?.serviceOrders || []).find(
+                (s: any) => s.id === update.serviceOrderId,
+              );
               if (!so) continue;
 
               const updateData: any = {
@@ -2481,12 +2604,14 @@ export class TaskService {
         // CRITICAL: Only run sync if NEW items are being ADDED (items without IDs)
         // This prevents the sync from running when the form just sends existing data back
         // without any actual changes to pricing or service orders.
-        const hasNewServiceOrders = serviceOrdersData &&
+        const hasNewServiceOrders =
+          serviceOrdersData &&
           Array.isArray(serviceOrdersData) &&
           serviceOrdersData.length > 0 &&
           serviceOrdersData.some((so: any) => !so.id); // NEW service orders have no ID
 
-        const hasNewPricingItems = (data as any).pricing?.items &&
+        const hasNewPricingItems =
+          (data as any).pricing?.items &&
           Array.isArray((data as any).pricing.items) &&
           (data as any).pricing.items.length > 0 &&
           (data as any).pricing.items.some((item: any) => !item.id); // NEW pricing items have no ID
@@ -2510,28 +2635,44 @@ export class TaskService {
             const currentPricing = taskWithPricing?.pricing;
             const currentServiceOrders = taskWithPricing?.serviceOrders || [];
 
-            this.logger.log(`[PRICING↔SO SYNC] Refetched pricing items: ${currentPricing?.items?.length || 0}, service orders: ${currentServiceOrders.length}`);
+            this.logger.log(
+              `[PRICING↔SO SYNC] Refetched pricing items: ${currentPricing?.items?.length || 0}, service orders: ${currentServiceOrders.length}`,
+            );
 
             // Only proceed if we have data to sync
             if (currentPricing?.items || currentServiceOrders.length > 0) {
               // Log ALL pricing items with their shouldSync values for debugging
               this.logger.log(`[PRICING↔SO SYNC] ALL pricing items BEFORE filtering:`);
-              for (const item of (currentPricing?.items || [])) {
-                this.logger.log(`  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`);
+              for (const item of currentPricing?.items || []) {
+                this.logger.log(
+                  `  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`,
+                );
               }
 
               // CRITICAL: Filter out pricing items with shouldSync = false
               // These are items whose corresponding service orders were explicitly deleted
-              const syncEligiblePricingItems = (currentPricing?.items || []).filter((item: any) => item.shouldSync !== false);
-              const syncEligibleServiceOrders = currentServiceOrders.filter((so: any) => so.shouldSync !== false);
+              const syncEligiblePricingItems = (currentPricing?.items || []).filter(
+                (item: any) => item.shouldSync !== false,
+              );
+              const syncEligibleServiceOrders = currentServiceOrders.filter(
+                (so: any) => so.shouldSync !== false,
+              );
 
-              this.logger.log(`[PRICING↔SO SYNC] Filtering: ${(currentPricing?.items || []).length} total pricing items, ${syncEligiblePricingItems.length} eligible for sync`);
-              this.logger.log(`[PRICING↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`);
+              this.logger.log(
+                `[PRICING↔SO SYNC] Filtering: ${(currentPricing?.items || []).length} total pricing items, ${syncEligiblePricingItems.length} eligible for sync`,
+              );
+              this.logger.log(
+                `[PRICING↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`,
+              );
 
               // Log which items were filtered out
-              const filteredOutItems = (currentPricing?.items || []).filter((item: any) => item.shouldSync === false);
+              const filteredOutItems = (currentPricing?.items || []).filter(
+                (item: any) => item.shouldSync === false,
+              );
               if (filteredOutItems.length > 0) {
-                this.logger.log(`[PRICING↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`);
+                this.logger.log(
+                  `[PRICING↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`,
+                );
                 for (const item of filteredOutItems) {
                   this.logger.log(`  - "${item.description}" (id: ${item.id})`);
                 }
@@ -2544,19 +2685,21 @@ export class TaskService {
                 amount: item.amount,
               }));
 
-              const serviceOrders: SyncServiceOrder[] = syncEligibleServiceOrders.map((so: any) => ({
-                id: so.id,
-                description: so.description,
-                observation: so.observation,
-                type: so.type,
-              }));
+              const serviceOrders: SyncServiceOrder[] = syncEligibleServiceOrders.map(
+                (so: any) => ({
+                  id: so.id,
+                  description: so.description,
+                  observation: so.observation,
+                  type: so.type,
+                }),
+              );
 
               // Get sync actions
               const syncActions = getBidirectionalSyncActions(pricingItems, serviceOrders);
 
               this.logger.log(
                 `[PRICING↔SO SYNC] Task ${id}: Found ${syncActions.pricingItemsToCreate.length} pricing items to create, ` +
-                `${syncActions.serviceOrdersToCreate.length} service orders to create`,
+                  `${syncActions.serviceOrdersToCreate.length} service orders to create`,
               );
 
               // Create missing pricing items from service orders
@@ -2581,7 +2724,10 @@ export class TaskService {
                 const allItems = await tx.taskPricingItem.findMany({
                   where: { pricingId: currentPricing.id },
                 });
-                const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+                const newSubtotal = allItems.reduce(
+                  (sum, item) => sum + Number(item.amount || 0),
+                  0,
+                );
 
                 await tx.taskPricing.update({
                   where: { id: currentPricing.id },
@@ -2591,12 +2737,16 @@ export class TaskService {
                   },
                 });
 
-                this.logger.log(`[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`);
+                this.logger.log(
+                  `[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`,
+                );
               }
 
               // Create missing service orders from pricing items
               // CRITICAL FIX: Skip creating service orders that were explicitly deleted in this same request
-              const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as Set<string> | undefined;
+              const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as
+                | Set<string>
+                | undefined;
 
               if (syncActions.serviceOrdersToCreate.length > 0) {
                 for (const soToCreate of syncActions.serviceOrdersToCreate) {
@@ -2631,7 +2781,8 @@ export class TaskService {
                     entityType: ENTITY_TYPE.SERVICE_ORDER,
                     entityId: newServiceOrder.id,
                     action: CHANGE_ACTION.CREATE,
-                    reason: 'Ordem de serviço criada automaticamente a partir do item de precificação',
+                    reason:
+                      'Ordem de serviço criada automaticamente a partir do item de precificação',
                     triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                     triggeredById: id,
                     userId: userId || '',
@@ -2666,7 +2817,8 @@ export class TaskService {
                     field: 'observation',
                     oldValue: oldSo?.observation || null,
                     newValue: soToUpdate.observation,
-                    reason: 'Observação atualizada automaticamente a partir do item de precificação',
+                    reason:
+                      'Observação atualizada automaticamente a partir do item de precificação',
                     triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
                     triggeredById: id,
                     userId: userId || '',
@@ -2693,7 +2845,9 @@ export class TaskService {
                   },
                 });
 
-                this.logger.log(`[PRICING↔SO SYNC] Task refetched after sync. Pricing items: ${updatedTask?.pricing?.items?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`);
+                this.logger.log(
+                  `[PRICING↔SO SYNC] Task refetched after sync. Pricing items: ${updatedTask?.pricing?.items?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
+                );
               }
             }
           } catch (syncError) {
@@ -2706,11 +2860,14 @@ export class TaskService {
         // The repository only handles deletions (via notIn), we handle updates/creates here
         // This prevents cascade deletion of artworks (which have onDelete: Cascade on airbrushing)
         if (airbrushingsData && Array.isArray(airbrushingsData) && airbrushingsData.length > 0) {
-          this.logger.log(`[Task Update] Processing ${airbrushingsData.length} airbrushings for task ${id}`);
+          this.logger.log(
+            `[Task Update] Processing ${airbrushingsData.length} airbrushings for task ${id}`,
+          );
 
           for (const airbrushingData of airbrushingsData) {
             // Check if this is an existing airbrushing (valid UUID) or a new one (temp ID)
-            const isExisting = airbrushingData.id &&
+            const isExisting =
+              airbrushingData.id &&
               typeof airbrushingData.id === 'string' &&
               !airbrushingData.id.startsWith('airbrushing-');
 
@@ -2720,25 +2877,28 @@ export class TaskService {
 
               const updatePayload: any = {
                 status: airbrushingData.status || 'PENDING',
-                price: airbrushingData.price !== undefined && airbrushingData.price !== null
-                  ? Number(airbrushingData.price)
-                  : null,
+                price:
+                  airbrushingData.price !== undefined && airbrushingData.price !== null
+                    ? Number(airbrushingData.price)
+                    : null,
                 startDate: airbrushingData.startDate || null,
                 finishDate: airbrushingData.finishDate || null,
               };
 
               // Handle receipts (File IDs)
               if (airbrushingData.receiptIds !== undefined) {
-                updatePayload.receipts = airbrushingData.receiptIds.length > 0
-                  ? { set: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
-                  : { set: [] };
+                updatePayload.receipts =
+                  airbrushingData.receiptIds.length > 0
+                    ? { set: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
+                    : { set: [] };
               }
 
               // Handle invoices (File IDs)
               if (airbrushingData.invoiceIds !== undefined) {
-                updatePayload.invoices = airbrushingData.invoiceIds.length > 0
-                  ? { set: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
-                  : { set: [] };
+                updatePayload.invoices =
+                  airbrushingData.invoiceIds.length > 0
+                    ? { set: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
+                    : { set: [] };
               }
 
               // Handle artworks (File IDs -> Artwork entity IDs)
@@ -2754,11 +2914,17 @@ export class TaskService {
                     userPrivilege,
                     tx,
                   );
-                  updatePayload.artworks = { set: artworkEntityIds.map((aid: string) => ({ id: aid })) };
-                  this.logger.log(`[Task Update] Setting ${artworkEntityIds.length} artworks for airbrushing ${airbrushingData.id}`);
+                  updatePayload.artworks = {
+                    set: artworkEntityIds.map((aid: string) => ({ id: aid })),
+                  };
+                  this.logger.log(
+                    `[Task Update] Setting ${artworkEntityIds.length} artworks for airbrushing ${airbrushingData.id}`,
+                  );
                 } else {
                   updatePayload.artworks = { set: [] };
-                  this.logger.log(`[Task Update] Clearing artworks for airbrushing ${airbrushingData.id}`);
+                  this.logger.log(
+                    `[Task Update] Clearing artworks for airbrushing ${airbrushingData.id}`,
+                  );
                 }
               }
 
@@ -2776,17 +2942,20 @@ export class TaskService {
                 data: {
                   taskId: id,
                   status: airbrushingData.status || 'PENDING',
-                  price: airbrushingData.price !== undefined && airbrushingData.price !== null
-                    ? Number(airbrushingData.price)
-                    : null,
+                  price:
+                    airbrushingData.price !== undefined && airbrushingData.price !== null
+                      ? Number(airbrushingData.price)
+                      : null,
                   startDate: airbrushingData.startDate || null,
                   finishDate: airbrushingData.finishDate || null,
-                  receipts: airbrushingData.receiptIds && airbrushingData.receiptIds.length > 0
-                    ? { connect: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
-                    : undefined,
-                  invoices: airbrushingData.invoiceIds && airbrushingData.invoiceIds.length > 0
-                    ? { connect: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
-                    : undefined,
+                  receipts:
+                    airbrushingData.receiptIds && airbrushingData.receiptIds.length > 0
+                      ? { connect: airbrushingData.receiptIds.map((fid: string) => ({ id: fid })) }
+                      : undefined,
+                  invoices:
+                    airbrushingData.invoiceIds && airbrushingData.invoiceIds.length > 0
+                      ? { connect: airbrushingData.invoiceIds.map((fid: string) => ({ id: fid })) }
+                      : undefined,
                 },
               });
 
@@ -2807,7 +2976,9 @@ export class TaskService {
             },
           });
 
-          this.logger.log(`[Task Update] After airbrushings refetch, task has ${updatedTask?.airbrushings?.length || 0} airbrushings`);
+          this.logger.log(
+            `[Task Update] After airbrushings refetch, task has ${updatedTask?.airbrushings?.length || 0} airbrushings`,
+          );
         }
 
         // Process and save files WITHIN the transaction
@@ -2932,9 +3103,7 @@ export class TaskService {
           const artworkStatuses = (data as any).artworkStatuses; // Status map: File ID → status (for existing files)
           const newArtworkStatuses = (data as any).newArtworkStatuses; // Status array for new files (matches files array order)
 
-          this.logger.log(
-            `[Task Update] 🎨 ARTWORK DEBUG - Received data:`,
-          );
+          this.logger.log(`[Task Update] 🎨 ARTWORK DEBUG - Received data:`);
           this.logger.log(`  - artworkIds in request: ${JSON.stringify((data as any).artworkIds)}`);
           this.logger.log(`  - fileIds in request: ${JSON.stringify((data as any).fileIds)}`);
           this.logger.log(`  - fileIdsFromRequest (final): ${JSON.stringify(fileIdsFromRequest)}`);
@@ -2946,14 +3115,16 @@ export class TaskService {
           // If artworkIds is an EMPTY ARRAY [], that's an intentional removal by the user - respect it.
           // The frontend now cleans up artworkStatuses when files are removed, so this safeguard
           // should only trigger in edge cases where frontend sends status changes without file IDs.
-          const hasArtworkStatusChanges = artworkStatuses && Object.keys(artworkStatuses).length > 0;
+          const hasArtworkStatusChanges =
+            artworkStatuses && Object.keys(artworkStatuses).length > 0;
           const artworkIdsWasNotSent = fileIdsFromRequest === undefined;
-          const artworkIdsIsEmptyArray = Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
+          const artworkIdsIsEmptyArray =
+            Array.isArray(fileIdsFromRequest) && fileIdsFromRequest.length === 0;
 
           // Only restore if artworkIds was completely missing (undefined), NOT if it was explicitly sent as empty array
           if (hasArtworkStatusChanges && artworkIdsWasNotSent) {
             this.logger.warn(
-              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds was NOT sent (undefined). Fetching current artworks to prevent data loss.`
+              `[Task Update] 🛡️ SAFEGUARD TRIGGERED: artworkStatuses provided (${Object.keys(artworkStatuses).length} statuses) but artworkIds was NOT sent (undefined). Fetching current artworks to prevent data loss.`,
             );
             const currentTask = await tx.task.findUnique({
               where: { id },
@@ -2966,24 +3137,21 @@ export class TaskService {
               const currentFileIds = currentTask.artworks.map(a => a.fileId);
               fileIdsFromRequest.push(...currentFileIds);
               this.logger.log(
-                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} artwork File IDs: [${fileIdsFromRequest.join(', ')}]`
+                `[Task Update] 🛡️ SAFEGUARD: Restored ${fileIdsFromRequest.length} artwork File IDs: [${fileIdsFromRequest.join(', ')}]`,
               );
             } else {
               this.logger.warn(
-                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore.`
+                `[Task Update] ⚠️ SAFEGUARD: Task ${id} has no current artworks, cannot restore.`,
               );
             }
           } else if (artworkIdsIsEmptyArray) {
             // Empty array was explicitly sent - this is intentional removal, log and allow it
             this.logger.log(
-              `[Task Update] 📋 artworkIds is empty array (intentional removal). hasArtworkStatusChanges: ${hasArtworkStatusChanges}, artworkStatuses entries: ${Object.keys(artworkStatuses || {}).length}`
+              `[Task Update] 📋 artworkIds is empty array (intentional removal). hasArtworkStatusChanges: ${hasArtworkStatusChanges}, artworkStatuses entries: ${Object.keys(artworkStatuses || {}).length}`,
             );
           }
 
-          if (
-            (files?.artworks && files.artworks.length > 0) ||
-            fileIdsFromRequest !== undefined
-          ) {
+          if ((files?.artworks && files.artworks.length > 0) || fileIdsFromRequest !== undefined) {
             // Start with empty array for Artwork entity IDs
             const artworkEntityIds: string[] = [];
 
@@ -3023,19 +3191,25 @@ export class TaskService {
                     customerName,
                   },
                 );
-                this.logger.log(
-                  `[Task Update] Created new artwork File with ID: ${fileRecord.id}`,
-                );
+                this.logger.log(`[Task Update] Created new artwork File with ID: ${fileRecord.id}`);
 
                 // Determine status for new upload
                 // Use newArtworkStatuses array (by index) if provided, otherwise try artworkStatuses map, otherwise DRAFT
                 let newFileStatus: 'DRAFT' | 'APPROVED' | 'REPROVED' = 'DRAFT';
-                if (newArtworkStatuses && Array.isArray(newArtworkStatuses) && newArtworkStatuses[i]) {
+                if (
+                  newArtworkStatuses &&
+                  Array.isArray(newArtworkStatuses) &&
+                  newArtworkStatuses[i]
+                ) {
                   newFileStatus = newArtworkStatuses[i];
-                  this.logger.log(`[Task Update] Using status from newArtworkStatuses[${i}]: ${newFileStatus}`);
+                  this.logger.log(
+                    `[Task Update] Using status from newArtworkStatuses[${i}]: ${newFileStatus}`,
+                  );
                 } else if (artworkStatuses?.[fileRecord.id]) {
                   newFileStatus = artworkStatuses[fileRecord.id];
-                  this.logger.log(`[Task Update] Using status from artworkStatuses map: ${newFileStatus}`);
+                  this.logger.log(
+                    `[Task Update] Using status from artworkStatuses map: ${newFileStatus}`,
+                  );
                 } else {
                   this.logger.log(`[Task Update] Using default status: DRAFT`);
                 }
@@ -3064,9 +3238,9 @@ export class TaskService {
             if (artworkEntityIds.length === 0 && fileIdsFromRequest !== undefined) {
               this.logger.warn(
                 `[Task Update] ⚠️ WARNING: About to set artworks to EMPTY ARRAY! This will disconnect all artworks from the task. ` +
-                `fileIdsFromRequest=${fileIdsFromRequest?.length || 0}, ` +
-                `artworkStatuses=${artworkStatuses ? Object.keys(artworkStatuses).length : 0}, ` +
-                `hasArtworkStatusChanges=${hasArtworkStatusChanges}`
+                  `fileIdsFromRequest=${fileIdsFromRequest?.length || 0}, ` +
+                  `artworkStatuses=${artworkStatuses ? Object.keys(artworkStatuses).length : 0}, ` +
+                  `hasArtworkStatusChanges=${hasArtworkStatusChanges}`,
               );
             }
 
@@ -3565,10 +3739,7 @@ export class TaskService {
                     );
 
                     // Get target users for notifications: sector manager + admins
-                    const targetUsers = await this.getTargetUsersForNotification(
-                      updatedTask,
-                      tx,
-                    );
+                    const targetUsers = await this.getTargetUsersForNotification(updatedTask, tx);
 
                     // Create notifications for each target user
                     for (const targetUserId of targetUsers) {
@@ -3605,46 +3776,54 @@ export class TaskService {
           const oldServices = existingTask.serviceOrders || [];
           const newServices = updatedTask?.serviceOrders || [];
 
-          this.logger.log(`[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`);
-          this.logger.log(`[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`);
+          this.logger.log(
+            `[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`,
+          );
+          this.logger.log(
+            `[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`,
+          );
 
           // Skip if both are empty - no point in tracking "nothing changed"
           if (oldServices.length === 0 && newServices.length === 0) {
-            this.logger.log(`[Task Update Changelog] Skipping serviceOrders changelog - both old and new are empty`);
+            this.logger.log(
+              `[Task Update Changelog] Skipping serviceOrders changelog - both old and new are empty`,
+            );
           } else {
             // Check if any service orders were removed (by comparing IDs)
             const oldServiceIds = new Set(oldServices.map((s: any) => s.id));
             const newServiceIds = new Set(newServices.map((s: any) => s.id));
             const removedServices = oldServices.filter((s: any) => !newServiceIds.has(s.id));
 
-            this.logger.log(`[Task Update Changelog] Removed services count: ${removedServices.length}`);
+            this.logger.log(
+              `[Task Update Changelog] Removed services count: ${removedServices.length}`,
+            );
 
             // Only create TASK services changelog if service orders were REMOVED
             // Service order ADDITIONS are already covered by individual SERVICE_ORDER CREATE changelogs
             if (removedServices.length > 0) {
-            // Serialize services for changelog - store full data for rollback support
-            const serializeServices = (services: any[]) => {
-              return services.map((s: any) => ({
-                description: s.description,
-                status: s.status,
-                ...(s.startedAt && { startedAt: s.startedAt }),
-                ...(s.finishedAt && { finishedAt: s.finishedAt }),
-              }));
-            };
+              // Serialize services for changelog - store full data for rollback support
+              const serializeServices = (services: any[]) => {
+                return services.map((s: any) => ({
+                  description: s.description,
+                  status: s.status,
+                  ...(s.startedAt && { startedAt: s.startedAt }),
+                  ...(s.finishedAt && { finishedAt: s.finishedAt }),
+                }));
+              };
 
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: id,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'serviceOrders',
-              oldValue: serializeServices(oldServices),
-              newValue: serializeServices(newServices),
-              reason: `${removedServices.length} ordem(ns) de serviço removida(s)`,
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              userId: userId || '',
-              transaction: tx,
-            });
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'serviceOrders',
+                oldValue: serializeServices(oldServices),
+                newValue: serializeServices(newServices),
+                reason: `${removedServices.length} ordem(ns) de serviço removida(s)`,
+                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
             }
           }
         }
@@ -3673,8 +3852,12 @@ export class TaskService {
             const newArtworks = updatedTask?.artworks || [];
             const newArtworkIds = newArtworks.map((f: any) => String(f.id)).sort();
 
-            const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(String(f.id)));
-            const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(String(f.id)));
+            const addedArtworks = newArtworks.filter(
+              (f: any) => !oldArtworkIds.includes(String(f.id)),
+            );
+            const removedArtworks = oldArtworks.filter(
+              (f: any) => !newArtworkIds.includes(String(f.id)),
+            );
 
             // Only log if there are actual additions or removals
             if (addedArtworks.length > 0 || removedArtworks.length > 0) {
@@ -3724,8 +3907,12 @@ export class TaskService {
             const newBaseFiles = updatedTask?.baseFiles || [];
             const newBaseFileIds = newBaseFiles.map((f: any) => String(f.id)).sort();
 
-            const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(String(f.id)));
-            const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(String(f.id)));
+            const addedBaseFiles = newBaseFiles.filter(
+              (f: any) => !oldBaseFileIds.includes(String(f.id)),
+            );
+            const removedBaseFiles = oldBaseFiles.filter(
+              (f: any) => !newBaseFileIds.includes(String(f.id)),
+            );
 
             // Only log if there are actual additions or removals
             if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
@@ -3957,18 +4144,30 @@ export class TaskService {
           }
         }
 
-        return { updatedTask: updatedTask!, createdServiceOrders, taskAutoTransitionedToWaitingProduction };
+        return {
+          updatedTask: updatedTask!,
+          createdServiceOrders,
+          taskAutoTransitionedToWaitingProduction,
+        };
       });
 
       // Destructure transaction result
-      const { updatedTask, createdServiceOrders, taskAutoTransitionedToWaitingProduction: wasAutoTransitioned } = transactionResult;
+      const {
+        updatedTask,
+        createdServiceOrders,
+        taskAutoTransitionedToWaitingProduction: wasAutoTransitioned,
+      } = transactionResult;
 
       // Emit events for created service orders AFTER transaction commits
       if (createdServiceOrders && createdServiceOrders.length > 0) {
-        this.logger.log(`[Task Update] Emitting events for ${createdServiceOrders.length} service orders`);
+        this.logger.log(
+          `[Task Update] Emitting events for ${createdServiceOrders.length} service orders`,
+        );
 
         for (const serviceOrder of createdServiceOrders) {
-          this.logger.log(`[Task Update] Emitting service-order.created event for SO ${serviceOrder.id} (type: ${serviceOrder.type})`);
+          this.logger.log(
+            `[Task Update] Emitting service-order.created event for SO ${serviceOrder.id} (type: ${serviceOrder.type})`,
+          );
 
           // Emit creation event
           this.eventEmitter.emit('service-order.created', {
@@ -3978,7 +4177,9 @@ export class TaskService {
 
           // If service order is assigned, emit assignment event
           if (serviceOrder.assignedToId) {
-            this.logger.log(`[Task Update] Emitting service-order.assigned event for SO ${serviceOrder.id} to user ${serviceOrder.assignedToId}`);
+            this.logger.log(
+              `[Task Update] Emitting service-order.assigned event for SO ${serviceOrder.id} to user ${serviceOrder.assignedToId}`,
+            );
             this.eventEmitter.emit('service-order.assigned', {
               serviceOrder,
               userId,
@@ -3993,7 +4194,9 @@ export class TaskService {
       // If task was auto-transitioned to WAITING_PRODUCTION, emit event and send notifications
       // This notifies production sector users that a new task is ready for production
       if (wasAutoTransitioned) {
-        this.logger.log(`[Task Update] Task ${id} was auto-transitioned to WAITING_PRODUCTION, emitting events and notifications`);
+        this.logger.log(
+          `[Task Update] Task ${id} was auto-transitioned to WAITING_PRODUCTION, emitting events and notifications`,
+        );
 
         // Get the user who triggered the auto-transition
         const changedByUser = userId
@@ -4026,7 +4229,9 @@ export class TaskService {
             'task.created',
             new TaskCreatedEvent(updatedTask as Task, changedByUser as any),
           );
-          this.logger.log(`[Task Update] Emitted task.created event for task ${id} (auto-transitioned to WAITING_PRODUCTION)`);
+          this.logger.log(
+            `[Task Update] Emitted task.created event for task ${id} (auto-transitioned to WAITING_PRODUCTION)`,
+          );
         } catch (notificationError) {
           this.logger.warn(`[Task Update] Failed to emit task notification: ${notificationError}`);
         }
@@ -4325,7 +4530,9 @@ export class TaskService {
 
             // Step 2: Convert File IDs to Artwork entity IDs
             // This creates Artwork entities that wrap the uploaded Files
-            this.logger.log(`[batchUpdate] Converting ${uploadedArtworkFileIds.length} File IDs to Artwork entity IDs`);
+            this.logger.log(
+              `[batchUpdate] Converting ${uploadedArtworkFileIds.length} File IDs to Artwork entity IDs`,
+            );
             const artworkEntityIds = await this.convertFileIdsToArtworkIds(
               uploadedArtworkFileIds,
               null, // taskId - null since these artworks will be connected to multiple tasks
@@ -4337,7 +4544,9 @@ export class TaskService {
 
             // Store Artwork entity IDs (not File IDs) for merging
             uploadedFileIds.artworks = artworkEntityIds;
-            this.logger.log(`[batchUpdate] Created ${artworkEntityIds.length} Artwork entities for uploaded files`);
+            this.logger.log(
+              `[batchUpdate] Created ${artworkEntityIds.length} Artwork entities for uploaded files`,
+            );
           }
 
           // Process cut files for batch update
@@ -4381,14 +4590,25 @@ export class TaskService {
           // Upload photos and inject photoId into truck data for all tasks
           this.logger.log(`[batchUpdate] ===== LAYOUT PHOTO PROCESSING START =====`);
           this.logger.log(`[batchUpdate] All file keys: ${Object.keys(files).join(', ')}`);
-          const uploadedLayoutPhotoIds: { leftSide?: string; rightSide?: string; backSide?: string } = {};
+          const uploadedLayoutPhotoIds: {
+            leftSide?: string;
+            rightSide?: string;
+            backSide?: string;
+          } = {};
           const layoutPhotoKeys = Object.keys(files).filter(k => k.startsWith('layoutPhotos.'));
-          this.logger.log(`[batchUpdate] Layout photo keys found: ${layoutPhotoKeys.length > 0 ? layoutPhotoKeys.join(', ') : 'NONE'}`);
+          this.logger.log(
+            `[batchUpdate] Layout photo keys found: ${layoutPhotoKeys.length > 0 ? layoutPhotoKeys.join(', ') : 'NONE'}`,
+          );
           if (layoutPhotoKeys.length > 0) {
-            this.logger.log(`[batchUpdate] Processing ${layoutPhotoKeys.length} layout photo files`);
+            this.logger.log(
+              `[batchUpdate] Processing ${layoutPhotoKeys.length} layout photo files`,
+            );
 
             for (const key of layoutPhotoKeys) {
-              const side = key.replace('layoutPhotos.', '') as 'leftSide' | 'rightSide' | 'backSide';
+              const side = key.replace('layoutPhotos.', '') as
+                | 'leftSide'
+                | 'rightSide'
+                | 'backSide';
               const photoFile = Array.isArray((files as any)[key])
                 ? (files as any)[key][0]
                 : (files as any)[key];
@@ -4403,7 +4623,9 @@ export class TaskService {
                   { entityType: 'LAYOUT', customerName },
                 );
                 uploadedLayoutPhotoIds[side] = uploadedPhoto.id;
-                this.logger.log(`[batchUpdate] Layout photo uploaded for ${side}: ${uploadedPhoto.id}`);
+                this.logger.log(
+                  `[batchUpdate] Layout photo uploaded for ${side}: ${uploadedPhoto.id}`,
+                );
               }
             }
 
@@ -4423,15 +4645,23 @@ export class TaskService {
                   }
                 }
               }
-              this.logger.log('[batchUpdate] Injected layout photo IDs into truck data for all tasks');
+              this.logger.log(
+                '[batchUpdate] Injected layout photo IDs into truck data for all tasks',
+              );
             }
           }
 
           // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
           // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
-          this.logger.log('[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs');
+          this.logger.log(
+            '[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs',
+          );
           for (const update of updatesWithChangeTracking) {
-            if (update.data.artworkIds && Array.isArray(update.data.artworkIds) && update.data.artworkIds.length > 0) {
+            if (
+              update.data.artworkIds &&
+              Array.isArray(update.data.artworkIds) &&
+              update.data.artworkIds.length > 0
+            ) {
               this.logger.log(
                 `[batchUpdate] Task ${update.id}: Processing ${update.data.artworkIds.length} artwork IDs: ${JSON.stringify(update.data.artworkIds)}`,
               );
@@ -4528,8 +4758,8 @@ export class TaskService {
                   );
                   throw new Error(
                     `Failed to convert artwork IDs for task ${update.id}: ${conversionError.message}. ` +
-                    `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
-                    `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
+                      `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
+                      `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
                   );
                 }
               }
@@ -4609,7 +4839,8 @@ export class TaskService {
               if (!hasExplicitArtworkIds) {
                 // ADD mode: Merge uploaded files with current artworks
                 // Get current Artwork entity IDs and convert uploaded File IDs to match the same type
-                const currentArtworkFileIds = currentTask.artworks?.map(a => a.fileId).filter(Boolean) || [];
+                const currentArtworkFileIds =
+                  currentTask.artworks?.map(a => a.fileId).filter(Boolean) || [];
                 const mergedFileIds = [
                   ...new Set([...currentArtworkFileIds, ...uploadedFileIds.artworks]),
                 ];
@@ -4620,10 +4851,10 @@ export class TaskService {
               } else {
                 // SET/REPLACE mode: artworkIds was explicitly provided, so just add uploaded files to it
                 // The existing update.data.artworkIds contains the explicit list the user wants
-                const currentArtworkIds = Array.isArray(update.data.artworkIds) ? update.data.artworkIds : [];
-                const mergedIds = [
-                  ...new Set([...currentArtworkIds, ...uploadedFileIds.artworks]),
-                ];
+                const currentArtworkIds = Array.isArray(update.data.artworkIds)
+                  ? update.data.artworkIds
+                  : [];
+                const mergedIds = [...new Set([...currentArtworkIds, ...uploadedFileIds.artworks])];
                 update.data.artworkIds = mergedIds;
                 this.logger.log(
                   `[batchUpdate] Artwork IDs explicitly provided (${currentArtworkIds.length}), adding ${uploadedFileIds.artworks.length} uploaded files (total: ${mergedIds.length})`,
@@ -4729,7 +4960,11 @@ export class TaskService {
         // FINAL VALIDATION: Verify all artwork IDs exist before attempting Prisma update
         this.logger.log('[batchUpdate] Final validation: Verifying all artwork IDs exist');
         for (const update of updatesWithChangeTracking) {
-          if (update.data.artworkIds && Array.isArray(update.data.artworkIds) && update.data.artworkIds.length > 0) {
+          if (
+            update.data.artworkIds &&
+            Array.isArray(update.data.artworkIds) &&
+            update.data.artworkIds.length > 0
+          ) {
             const finalCheck = await tx.artwork.findMany({
               where: {
                 id: { in: update.data.artworkIds },
@@ -4742,13 +4977,13 @@ export class TaskService {
               const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
               this.logger.error(
                 `[batchUpdate] ❌ VALIDATION FAILED for task ${update.id}: ` +
-                `Expected ${update.data.artworkIds.length} artwork entities, found ${finalCheck.length}. ` +
-                `Missing IDs: ${JSON.stringify(missingIds)}`,
+                  `Expected ${update.data.artworkIds.length} artwork entities, found ${finalCheck.length}. ` +
+                  `Missing IDs: ${JSON.stringify(missingIds)}`,
               );
 
               throw new Error(
                 `Cannot update task ${update.id}: ${missingIds.length} artwork ID(s) don't exist in database. ` +
-                `Missing: ${missingIds.join(', ')}. These IDs were either deleted or never existed.`,
+                  `Missing: ${missingIds.join(', ')}. These IDs were either deleted or never existed.`,
               );
             }
 
@@ -4925,8 +5160,12 @@ export class TaskService {
                 !oldArtworkIds.every((id, index) => id === newArtworkIds[index]);
 
               if (idsChanged) {
-                const addedArtworks = newArtworks.filter((f: any) => !oldArtworkIds.includes(String(f.id)));
-                const removedArtworks = oldArtworks.filter((f: any) => !newArtworkIds.includes(String(f.id)));
+                const addedArtworks = newArtworks.filter(
+                  (f: any) => !oldArtworkIds.includes(String(f.id)),
+                );
+                const removedArtworks = oldArtworks.filter(
+                  (f: any) => !newArtworkIds.includes(String(f.id)),
+                );
 
                 if (addedArtworks.length > 0 || removedArtworks.length > 0) {
                   await this.changeLogService.logChange({
@@ -4971,8 +5210,12 @@ export class TaskService {
                 !oldBaseFileIds.every((id, index) => id === newBaseFileIds[index]);
 
               if (idsChanged) {
-                const addedBaseFiles = newBaseFiles.filter((f: any) => !oldBaseFileIds.includes(String(f.id)));
-                const removedBaseFiles = oldBaseFiles.filter((f: any) => !newBaseFileIds.includes(String(f.id)));
+                const addedBaseFiles = newBaseFiles.filter(
+                  (f: any) => !oldBaseFileIds.includes(String(f.id)),
+                );
+                const removedBaseFiles = oldBaseFiles.filter(
+                  (f: any) => !newBaseFileIds.includes(String(f.id)),
+                );
 
                 if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
                   await this.changeLogService.logChange({
@@ -5017,8 +5260,12 @@ export class TaskService {
                 !oldBudgetIds.every((id, index) => id === newBudgetIds[index]);
 
               if (idsChanged) {
-                const addedBudgets = newBudgets.filter((f: any) => !oldBudgetIds.includes(String(f.id)));
-                const removedBudgets = oldBudgets.filter((f: any) => !newBudgetIds.includes(String(f.id)));
+                const addedBudgets = newBudgets.filter(
+                  (f: any) => !oldBudgetIds.includes(String(f.id)),
+                );
+                const removedBudgets = oldBudgets.filter(
+                  (f: any) => !newBudgetIds.includes(String(f.id)),
+                );
 
                 if (addedBudgets.length > 0 || removedBudgets.length > 0) {
                   await this.changeLogService.logChange({
@@ -5063,8 +5310,12 @@ export class TaskService {
                 !oldInvoiceIds.every((id, index) => id === newInvoiceIds[index]);
 
               if (idsChanged) {
-                const addedInvoices = newInvoices.filter((f: any) => !oldInvoiceIds.includes(String(f.id)));
-                const removedInvoices = oldInvoices.filter((f: any) => !newInvoiceIds.includes(String(f.id)));
+                const addedInvoices = newInvoices.filter(
+                  (f: any) => !oldInvoiceIds.includes(String(f.id)),
+                );
+                const removedInvoices = oldInvoices.filter(
+                  (f: any) => !newInvoiceIds.includes(String(f.id)),
+                );
 
                 if (addedInvoices.length > 0 || removedInvoices.length > 0) {
                   await this.changeLogService.logChange({
@@ -5109,8 +5360,12 @@ export class TaskService {
                 !oldReceiptIds.every((id, index) => id === newReceiptIds[index]);
 
               if (idsChanged) {
-                const addedReceipts = newReceipts.filter((f: any) => !oldReceiptIds.includes(String(f.id)));
-                const removedReceipts = oldReceipts.filter((f: any) => !newReceiptIds.includes(String(f.id)));
+                const addedReceipts = newReceipts.filter(
+                  (f: any) => !oldReceiptIds.includes(String(f.id)),
+                );
+                const removedReceipts = oldReceipts.filter(
+                  (f: any) => !newReceiptIds.includes(String(f.id)),
+                );
 
                 if (addedReceipts.length > 0 || removedReceipts.length > 0) {
                   await this.changeLogService.logChange({
@@ -5142,8 +5397,12 @@ export class TaskService {
 
             // Track logoPaints changes
             if (updateData.paintIds !== undefined) {
-              const oldPaintIds = (existingTask.logoPaints?.map((p: any) => String(p.id)) || []).sort();
-              const newPaintIds = (updatedTask.logoPaints?.map((p: any) => String(p.id)) || []).sort();
+              const oldPaintIds = (
+                existingTask.logoPaints?.map((p: any) => String(p.id)) || []
+              ).sort();
+              const newPaintIds = (
+                updatedTask.logoPaints?.map((p: any) => String(p.id)) || []
+              ).sort();
 
               // Check if arrays are actually different
               const idsChanged =
@@ -5152,7 +5411,9 @@ export class TaskService {
 
               if (idsChanged) {
                 const addedPaintIds = newPaintIds.filter((id: string) => !oldPaintIds.includes(id));
-                const removedPaintIds = oldPaintIds.filter((id: string) => !newPaintIds.includes(id));
+                const removedPaintIds = oldPaintIds.filter(
+                  (id: string) => !newPaintIds.includes(id),
+                );
 
                 if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
                   await this.changeLogService.logChange({
@@ -5407,9 +5668,14 @@ export class TaskService {
               isFileArray: change.isFileArray,
             });
 
-            this.logger.debug(`[batchUpdate] Emitted task.field.changed for task ${change.taskId}, field: ${change.field}`);
+            this.logger.debug(
+              `[batchUpdate] Emitted task.field.changed for task ${change.taskId}, field: ${change.field}`,
+            );
           } catch (eventError) {
-            this.logger.error(`[batchUpdate] Error emitting event for task ${change.taskId}, field ${change.field}:`, eventError);
+            this.logger.error(
+              `[batchUpdate] Error emitting event for task ${change.taskId}, field ${change.field}:`,
+              eventError,
+            );
             // Don't throw - event emission is not critical
           }
         }
@@ -5578,7 +5844,11 @@ export class TaskService {
   /**
    * Find a task by ID
    */
-  async findById(id: string, include?: TaskInclude, userRole?: string): Promise<TaskGetUniqueResponse> {
+  async findById(
+    id: string,
+    include?: TaskInclude,
+    userRole?: string,
+  ): Promise<TaskGetUniqueResponse> {
     try {
       const task = await this.tasksRepository.findById(id, { include });
 
@@ -5590,12 +5860,9 @@ export class TaskService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (task.artworks && userRole) {
-        const canSeeAllArtworks = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'ADMIN',
-        ].includes(userRole);
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+          userRole,
+        );
 
         if (!canSeeAllArtworks) {
           task.artworks = task.artworks.filter(
@@ -5663,12 +5930,9 @@ export class TaskService {
       // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = [
-          'COMMERCIAL',
-          'DESIGNER',
-          'LOGISTIC',
-          'ADMIN',
-        ].includes(userRole);
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+          userRole,
+        );
 
         if (!canSeeAllArtworks) {
           result.data = result.data.map(task => {
@@ -5831,7 +6095,9 @@ export class TaskService {
           const finishDate = new Date(finishedAt);
 
           if (finishDate < startDate) {
-            throw new BadRequestException('Data de conclusão deve ser posterior ou igual à data de início.');
+            throw new BadRequestException(
+              'Data de conclusão deve ser posterior ou igual à data de início.',
+            );
           }
         }
       }
@@ -6641,7 +6907,10 @@ export class TaskService {
             isFileArray: true,
           });
         } catch (eventError) {
-          this.logger.error(`[bulkAddArtworks] Error emitting event for task ${change.taskId}:`, eventError);
+          this.logger.error(
+            `[bulkAddArtworks] Error emitting event for task ${change.taskId}:`,
+            eventError,
+          );
         }
       }
     }
@@ -6795,7 +7064,10 @@ export class TaskService {
             isFileArray: true,
           });
         } catch (eventError) {
-          this.logger.error(`[bulkAddDocuments] Error emitting event for task ${change.taskId}:`, eventError);
+          this.logger.error(
+            `[bulkAddDocuments] Error emitting event for task ${change.taskId}:`,
+            eventError,
+          );
         }
       }
     }
@@ -6934,7 +7206,10 @@ export class TaskService {
             isFileArray: false,
           });
         } catch (eventError) {
-          this.logger.error(`[bulkAddPaints] Error emitting event for task ${change.taskId}:`, eventError);
+          this.logger.error(
+            `[bulkAddPaints] Error emitting event for task ${change.taskId}:`,
+            eventError,
+          );
         }
       }
     }
@@ -7075,7 +7350,10 @@ export class TaskService {
             isFileArray: false,
           });
         } catch (eventError) {
-          this.logger.error(`[bulkAddCuttingPlans] Error emitting event for task ${change.taskId}:`, eventError);
+          this.logger.error(
+            `[bulkAddCuttingPlans] Error emitting event for task ${change.taskId}:`,
+            eventError,
+          );
         }
       }
     }
@@ -7298,8 +7576,10 @@ export class TaskService {
     const { expandAllFieldsForUser } = require('../../../schemas/task-copy');
 
     // Expand 'all' to only fields user has permission to copy, and filter all fields by privilege
-    let fieldsToProcess: CopyableTaskField[] = expandAllFieldsForUser(fields, userPrivilege);
-    this.logger.log(`[copyFromTask] After privilege filtering: ${fieldsToProcess.length} fields for privilege ${userPrivilege}`);
+    const fieldsToProcess: CopyableTaskField[] = expandAllFieldsForUser(fields, userPrivilege);
+    this.logger.log(
+      `[copyFromTask] After privilege filtering: ${fieldsToProcess.length} fields for privilege ${userPrivilege}`,
+    );
 
     // Ensure we have fields to process
     if (fieldsToProcess.length === 0) {
@@ -7335,9 +7615,9 @@ export class TaskService {
                     layoutSections: {
                       select: {
                         width: true,
-                      }
-                    }
-                  }
+                      },
+                    },
+                  },
                 },
                 leftSideLayout: {
                   select: {
@@ -7346,9 +7626,9 @@ export class TaskService {
                     layoutSections: {
                       select: {
                         width: true,
-                      }
-                    }
-                  }
+                      },
+                    },
+                  },
                 },
                 rightSideLayout: {
                   select: {
@@ -7357,9 +7637,9 @@ export class TaskService {
                     layoutSections: {
                       select: {
                         width: true,
-                      }
-                    }
-                  }
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -7373,9 +7653,9 @@ export class TaskService {
                     id: true,
                     filename: true,
                     thumbnailUrl: true,
-                  }
-                }
-              }
+                  },
+                },
+              },
             },
             budgets: { select: { id: true } },
             invoices: { select: { id: true } },
@@ -7387,7 +7667,7 @@ export class TaskService {
                 id: true,
                 filename: true,
                 thumbnailUrl: true,
-              }
+              },
             },
             logoPaints: { select: { id: true } },
             cuts: {
@@ -7411,7 +7691,7 @@ export class TaskService {
                 id: true,
                 description: true,
                 type: true,
-              }
+              },
             },
             pricing: {
               select: {
@@ -7424,7 +7704,7 @@ export class TaskService {
                     amount: true,
                   },
                 },
-              }
+              },
             },
             representatives: {
               select: {
@@ -7439,9 +7719,7 @@ export class TaskService {
         });
 
         if (!sourceTask) {
-          throw new NotFoundException(
-            `Tarefa de origem não encontrada (ID: ${sourceTaskId})`,
-          );
+          throw new NotFoundException(`Tarefa de origem não encontrada (ID: ${sourceTaskId})`);
         }
 
         this.logger.debug(
@@ -7455,10 +7733,14 @@ export class TaskService {
         this.logger.debug(`[copyFromTask] 🔍 RAW SOURCE TASK DATES:`);
         this.logger.debug(`[copyFromTask]   - term: ${JSON.stringify(sourceTask.term)}`);
         this.logger.debug(`[copyFromTask]   - entryDate: ${JSON.stringify(sourceTask.entryDate)}`);
-        this.logger.debug(`[copyFromTask]   - forecastDate: ${JSON.stringify(sourceTask.forecastDate)}`);
+        this.logger.debug(
+          `[copyFromTask]   - forecastDate: ${JSON.stringify(sourceTask.forecastDate)}`,
+        );
         this.logger.debug(`[copyFromTask]   - term type: ${typeof sourceTask.term}`);
         this.logger.debug(`[copyFromTask]   - entryDate type: ${typeof sourceTask.entryDate}`);
-        this.logger.debug(`[copyFromTask]   - forecastDate type: ${typeof sourceTask.forecastDate}`);
+        this.logger.debug(
+          `[copyFromTask]   - forecastDate type: ${typeof sourceTask.forecastDate}`,
+        );
 
         // Fetch destination task with all relations (for old value comparison in changelogs)
         const destinationTask = await tx.task.findUnique({
@@ -7567,11 +7849,11 @@ export class TaskService {
         const copiedFields: CopyableTaskField[] = [];
         const details: Record<string, any> = {};
 
-        this.logger.log(
-          `[copyFromTask] Processing ${fieldsToProcess.length} fields...`,
-        );
+        this.logger.log(`[copyFromTask] Processing ${fieldsToProcess.length} fields...`);
         this.logger.debug(`[copyFromTask] Fields to process: ${fieldsToProcess.join(', ')}`);
-        this.logger.debug(`[copyFromTask] Source task dates - term: ${sourceTask.term}, entryDate: ${sourceTask.entryDate}, forecastDate: ${sourceTask.forecastDate}`);
+        this.logger.debug(
+          `[copyFromTask] Source task dates - term: ${sourceTask.term}, entryDate: ${sourceTask.entryDate}, forecastDate: ${sourceTask.forecastDate}`,
+        );
 
         // Helper to check if field has data
         const hasData = (value: any): boolean => {
@@ -7604,7 +7886,9 @@ export class TaskService {
               break;
 
             case 'term':
-              this.logger.debug(`[copyFromTask] term value: ${sourceTask.term}, hasData: ${hasData(sourceTask.term)}`);
+              this.logger.debug(
+                `[copyFromTask] term value: ${sourceTask.term}, hasData: ${hasData(sourceTask.term)}`,
+              );
               if (hasData(sourceTask.term)) {
                 updateData.term = sourceTask.term;
                 copiedFields.push(field);
@@ -7616,7 +7900,9 @@ export class TaskService {
               break;
 
             case 'entryDate':
-              this.logger.debug(`[copyFromTask] entryDate value: ${sourceTask.entryDate}, hasData: ${hasData(sourceTask.entryDate)}`);
+              this.logger.debug(
+                `[copyFromTask] entryDate value: ${sourceTask.entryDate}, hasData: ${hasData(sourceTask.entryDate)}`,
+              );
               if (hasData(sourceTask.entryDate)) {
                 updateData.entryDate = sourceTask.entryDate;
                 copiedFields.push(field);
@@ -7628,7 +7914,9 @@ export class TaskService {
               break;
 
             case 'forecastDate':
-              this.logger.debug(`[copyFromTask] forecastDate value: ${sourceTask.forecastDate}, hasData: ${hasData(sourceTask.forecastDate)}`);
+              this.logger.debug(
+                `[copyFromTask] forecastDate value: ${sourceTask.forecastDate}, hasData: ${hasData(sourceTask.forecastDate)}`,
+              );
               if (hasData(sourceTask.forecastDate)) {
                 updateData.forecastDate = sourceTask.forecastDate;
                 copiedFields.push(field);
@@ -7753,7 +8041,7 @@ export class TaskService {
               if (hasData(sourceTask.cuts)) {
                 // Create new cut records with PENDING status
                 const newCuts = await Promise.all(
-                  sourceTask.cuts.map(async (cut) => {
+                  sourceTask.cuts.map(async cut => {
                     return await tx.cut.create({
                       data: {
                         taskId: destinationTaskId,
@@ -7780,7 +8068,7 @@ export class TaskService {
               if (hasData(sourceTask.airbrushings)) {
                 // Create new airbrushing records with PENDING status
                 const newAirbrushings = await Promise.all(
-                  sourceTask.airbrushings.map(async (airbrushing) => {
+                  sourceTask.airbrushings.map(async airbrushing => {
                     return await tx.airbrushing.create({
                       data: {
                         taskId: destinationTaskId,
@@ -7894,7 +8182,10 @@ export class TaskService {
                   if (!layout) return null;
                   const height = layout.height ? Math.round(layout.height * 100) : 0;
                   const totalWidth = layout.layoutSections
-                    ? layout.layoutSections.reduce((sum: number, s: any) => sum + (s.width || 0) * 100, 0)
+                    ? layout.layoutSections.reduce(
+                        (sum: number, s: any) => sum + (s.width || 0) * 100,
+                        0,
+                      )
                     : 0;
                   return { height, width: Math.round(totalWidth) };
                 };
@@ -7957,7 +8248,7 @@ export class TaskService {
 
                 // Create new service order records with PENDING status
                 const newServiceOrders = await Promise.all(
-                  fullServiceOrders.map(async (so) => {
+                  fullServiceOrders.map(async so => {
                     return await tx.serviceOrder.create({
                       data: {
                         taskId: destinationTaskId,
@@ -7994,9 +8285,7 @@ export class TaskService {
         this.logger.log(
           `[copyFromTask] Finished processing fields. Copied ${copiedFields.length} field(s)`,
         );
-        this.logger.debug(
-          `[copyFromTask] Copied fields: ${JSON.stringify(copiedFields)}`,
-        );
+        this.logger.debug(`[copyFromTask] Copied fields: ${JSON.stringify(copiedFields)}`);
         this.logger.debug(
           `[copyFromTask] UpdateData keys: ${JSON.stringify(Object.keys(updateData))}`,
         );
@@ -8054,7 +8343,10 @@ export class TaskService {
 
               this.logger.debug(`[copyFromTask] Changelog entry created for field: ${field}`);
             } catch (changelogError) {
-              this.logger.error(`[copyFromTask] Error creating changelog for field ${field}:`, changelogError);
+              this.logger.error(
+                `[copyFromTask] Error creating changelog for field ${field}:`,
+                changelogError,
+              );
               // Don't throw - changelog is not critical for the copy operation
             }
           }
@@ -8073,7 +8365,10 @@ export class TaskService {
 
       // After transaction success: Emit field change events for notifications
       // This triggers the notification system to send individual notifications per field
-      if (transactionResult.fieldChangesForEvents && transactionResult.fieldChangesForEvents.length > 0) {
+      if (
+        transactionResult.fieldChangesForEvents &&
+        transactionResult.fieldChangesForEvents.length > 0
+      ) {
         this.logger.log(
           `[copyFromTask] Emitting ${transactionResult.fieldChangesForEvents.length} field change event(s) for notifications`,
         );
@@ -8099,9 +8394,14 @@ export class TaskService {
                 isFileArray: ['artworkIds', 'baseFileIds', 'logoPaintIds'].includes(change.field),
               });
 
-              this.logger.debug(`[copyFromTask] Emitted task.field.changed event for field: ${change.field}`);
+              this.logger.debug(
+                `[copyFromTask] Emitted task.field.changed event for field: ${change.field}`,
+              );
             } catch (eventError) {
-              this.logger.error(`[copyFromTask] Error emitting event for field ${change.field}:`, eventError);
+              this.logger.error(
+                `[copyFromTask] Error emitting event for field ${change.field}:`,
+                eventError,
+              );
               // Don't throw - event emission is not critical
             }
           }
@@ -8120,16 +8420,11 @@ export class TaskService {
         error,
       );
 
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
 
-      throw new InternalServerErrorException(
-        `Erro ao copiar campos da tarefa: ${error.message}`,
-      );
+      throw new InternalServerErrorException(`Erro ao copiar campos da tarefa: ${error.message}`);
     }
   }
 }

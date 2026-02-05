@@ -487,7 +487,7 @@ export class PpeDeliveryService {
           daysToCheck = 365;
           break;
         case SCHEDULE_FREQUENCY.CUSTOM:
-          daysToCheck = (schedule.frequencyCount || 1);
+          daysToCheck = schedule.frequencyCount || 1;
           break;
         default:
           daysToCheck = 30;
@@ -1135,9 +1135,9 @@ export class PpeDeliveryService {
     });
 
     // Filter items by size match
-    const matchingItems = allItems.filter((item) => {
+    const matchingItems = allItems.filter(item => {
       // Get the item's size from measures
-      const sizeMeasure = item.measures?.find((m) => m.measureType === 'SIZE');
+      const sizeMeasure = item.measures?.find(m => m.measureType === 'SIZE');
       const itemSize = sizeMeasure?.unit || (sizeMeasure?.value ? String(sizeMeasure.value) : null);
 
       // If item has no size defined, include it (generic item)
@@ -1163,8 +1163,8 @@ export class PpeDeliveryService {
     const paginatedItems = matchingItems.slice(skip, skip + limit);
 
     // Annotate items with size info for frontend display
-    const annotatedItems = paginatedItems.map((item) => {
-      const sizeMeasure = item.measures?.find((m) => m.measureType === 'SIZE');
+    const annotatedItems = paginatedItems.map(item => {
+      const sizeMeasure = item.measures?.find(m => m.measureType === 'SIZE');
       const itemSize = sizeMeasure?.unit || (sizeMeasure?.value ? String(sizeMeasure.value) : null);
       const userSize = getUserSizeForPpeType(item.ppeType);
       const normalizedUserSize = userSize?.replace('SIZE_', '') || null;
@@ -1593,150 +1593,152 @@ export class PpeDeliveryService {
     deliveryDate?: Date,
     userId?: string,
   ): Promise<PpeDeliveryUpdateResponse> {
-    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      const oldDelivery = await this.repository.findById(id, {
-        include: { item: true },
-      });
+    const transactionResult = await this.prisma.$transaction(
+      async (transaction: PrismaTransaction) => {
+        const oldDelivery = await this.repository.findById(id, {
+          include: { item: true },
+        });
 
-      if (!oldDelivery) {
-        throw new NotFoundException(
-          'Entrega de PPE não encontrada. Verifique se o ID está correto.',
-        );
-      }
-
-      if (oldDelivery.actualDeliveryDate) {
-        throw new BadRequestException('Esta entrega já foi marcada como entregue.');
-      }
-
-      // Validate delivery date
-      const actualDeliveryDate = deliveryDate || new Date();
-      if (actualDeliveryDate > new Date()) {
-        throw new BadRequestException('A data de entrega não pode ser no futuro.');
-      }
-
-      // Validate approved by user exists
-      const reviewedByUser = await this.userRepository.findById(reviewedById);
-      if (!reviewedByUser) {
-        throw new NotFoundException('Usuário responsável pela aprovação não encontrado.');
-      }
-
-      // Check stock availability
-      if (oldDelivery.item && oldDelivery.item.quantity < oldDelivery.quantity) {
-        throw new BadRequestException(
-          `Quantidade insuficiente em estoque. Disponível: ${oldDelivery.item.quantity}, Solicitado: ${oldDelivery.quantity}`,
-        );
-      }
-
-      // Validate size compatibility
-      const userWithSize = await this.userRepository.findById(oldDelivery.userId, {
-        include: { ppeSize: true },
-      });
-
-      let sizeInfo: string | undefined;
-      let ppeType: PPE_TYPE | undefined;
-
-      if (oldDelivery.item?.ppeType && userWithSize?.ppeSize) {
-        ppeType = oldDelivery.item.ppeType;
-
-        // Map PPE type to user size
-        switch (ppeType) {
-          case PPE_TYPE.SHIRT:
-            sizeInfo = userWithSize.ppeSize.shirts || undefined;
-            break;
-          case PPE_TYPE.PANTS:
-            sizeInfo = userWithSize.ppeSize.pants || undefined;
-            break;
-          case PPE_TYPE.BOOTS:
-            sizeInfo = userWithSize.ppeSize.boots || undefined;
-            break;
-          case PPE_TYPE.SLEEVES:
-            sizeInfo = userWithSize.ppeSize.sleeves || undefined;
-            break;
-          case PPE_TYPE.MASK:
-            sizeInfo = userWithSize.ppeSize.mask || undefined;
-            break;
-          case PPE_TYPE.GLOVES:
-            sizeInfo = userWithSize.ppeSize.gloves || undefined;
-            break;
-          case PPE_TYPE.RAIN_BOOTS:
-            sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
-            break;
-        }
-
-        // Note: Size validation removed - ppeSize field no longer in Item model
-        // Size should be validated at creation time via additionalInfo
-      }
-
-      const updatedDelivery = await this.repository.updateWithTransaction(
-        transaction,
-        id,
-        {
-          reviewedBy: reviewedById,
-          actualDeliveryDate,
-          status: PPE_DELIVERY_STATUS.DELIVERED,
-          statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
-        },
-        { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
-      );
-
-      // Update stock with size information
-      await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
-        size: sizeInfo,
-        ppeType,
-      });
-
-      // Try to auto-create the next delivery if this is linked to a schedule
-      let nextDelivery: PpeDelivery | null = null;
-      try {
-        nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
-        if (nextDelivery && process.env.NODE_ENV !== 'production') {
-          console.log(
-            `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+        if (!oldDelivery) {
+          throw new NotFoundException(
+            'Entrega de PPE não encontrada. Verifique se o ID está correto.',
           );
         }
-      } catch (error) {
-        // Log but don't fail the main operation
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('Error in auto-creation during markAsDelivered:', error);
+
+        if (oldDelivery.actualDeliveryDate) {
+          throw new BadRequestException('Esta entrega já foi marcada como entregue.');
         }
-      }
 
-      // Track field changes for delivery completion
-      await trackAndLogFieldChanges({
-        changeLogService: this.changeLogService,
-        entityType: ENTITY_TYPE.PPE_DELIVERY,
-        entityId: id,
-        oldEntity: oldDelivery,
-        newEntity: updatedDelivery,
-        fieldsToTrack: ['status', 'reviewedBy', 'actualDeliveryDate'],
-        userId: userId || null,
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        transaction: transaction,
-      });
+        // Validate delivery date
+        const actualDeliveryDate = deliveryDate || new Date();
+        if (actualDeliveryDate > new Date()) {
+          throw new BadRequestException('A data de entrega não pode ser no futuro.');
+        }
 
-      // Emit ppe.delivered event
-      try {
-        if (updatedDelivery.item && updatedDelivery.user) {
-          this.eventEmitter.emit(
-            'ppe.delivered',
-            new PpeDeliveredEvent(
-              updatedDelivery,
-              updatedDelivery.item as any,
-              updatedDelivery.user as any,
-              reviewedByUser as any,
-            ),
+        // Validate approved by user exists
+        const reviewedByUser = await this.userRepository.findById(reviewedById);
+        if (!reviewedByUser) {
+          throw new NotFoundException('Usuário responsável pela aprovação não encontrado.');
+        }
+
+        // Check stock availability
+        if (oldDelivery.item && oldDelivery.item.quantity < oldDelivery.quantity) {
+          throw new BadRequestException(
+            `Quantidade insuficiente em estoque. Disponível: ${oldDelivery.item.quantity}, Solicitado: ${oldDelivery.quantity}`,
           );
         }
-      } catch (error) {
-        console.error('Error emitting ppe.delivered event:', error);
-      }
 
-      // Return data needed for signature workflow (will be called after transaction commits)
-      return {
-        updatedDelivery,
-        nextDelivery,
-      };
-    });
+        // Validate size compatibility
+        const userWithSize = await this.userRepository.findById(oldDelivery.userId, {
+          include: { ppeSize: true },
+        });
+
+        let sizeInfo: string | undefined;
+        let ppeType: PPE_TYPE | undefined;
+
+        if (oldDelivery.item?.ppeType && userWithSize?.ppeSize) {
+          ppeType = oldDelivery.item.ppeType;
+
+          // Map PPE type to user size
+          switch (ppeType) {
+            case PPE_TYPE.SHIRT:
+              sizeInfo = userWithSize.ppeSize.shirts || undefined;
+              break;
+            case PPE_TYPE.PANTS:
+              sizeInfo = userWithSize.ppeSize.pants || undefined;
+              break;
+            case PPE_TYPE.BOOTS:
+              sizeInfo = userWithSize.ppeSize.boots || undefined;
+              break;
+            case PPE_TYPE.SLEEVES:
+              sizeInfo = userWithSize.ppeSize.sleeves || undefined;
+              break;
+            case PPE_TYPE.MASK:
+              sizeInfo = userWithSize.ppeSize.mask || undefined;
+              break;
+            case PPE_TYPE.GLOVES:
+              sizeInfo = userWithSize.ppeSize.gloves || undefined;
+              break;
+            case PPE_TYPE.RAIN_BOOTS:
+              sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
+              break;
+          }
+
+          // Note: Size validation removed - ppeSize field no longer in Item model
+          // Size should be validated at creation time via additionalInfo
+        }
+
+        const updatedDelivery = await this.repository.updateWithTransaction(
+          transaction,
+          id,
+          {
+            reviewedBy: reviewedById,
+            actualDeliveryDate,
+            status: PPE_DELIVERY_STATUS.DELIVERED,
+            statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
+          },
+          { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
+        );
+
+        // Update stock with size information
+        await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
+          size: sizeInfo,
+          ppeType,
+        });
+
+        // Try to auto-create the next delivery if this is linked to a schedule
+        let nextDelivery: PpeDelivery | null = null;
+        try {
+          nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
+          if (nextDelivery && process.env.NODE_ENV !== 'production') {
+            console.log(
+              `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+            );
+          }
+        } catch (error) {
+          // Log but don't fail the main operation
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Error in auto-creation during markAsDelivered:', error);
+          }
+        }
+
+        // Track field changes for delivery completion
+        await trackAndLogFieldChanges({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.PPE_DELIVERY,
+          entityId: id,
+          oldEntity: oldDelivery,
+          newEntity: updatedDelivery,
+          fieldsToTrack: ['status', 'reviewedBy', 'actualDeliveryDate'],
+          userId: userId || null,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          transaction: transaction,
+        });
+
+        // Emit ppe.delivered event
+        try {
+          if (updatedDelivery.item && updatedDelivery.user) {
+            this.eventEmitter.emit(
+              'ppe.delivered',
+              new PpeDeliveredEvent(
+                updatedDelivery,
+                updatedDelivery.item as any,
+                updatedDelivery.user as any,
+                reviewedByUser as any,
+              ),
+            );
+          }
+        } catch (error) {
+          console.error('Error emitting ppe.delivered event:', error);
+        }
+
+        // Return data needed for signature workflow (will be called after transaction commits)
+        return {
+          updatedDelivery,
+          nextDelivery,
+        };
+      },
+    );
 
     return {
       success: true,
@@ -1753,144 +1755,148 @@ export class PpeDeliveryService {
     deliveryDate?: Date,
     userId?: string,
   ): Promise<PpeDeliveryUpdateResponse> {
-    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      const oldDelivery = await this.repository.findById(id, {
-        include: { item: true, ppeSchedule: true },
-      });
+    const transactionResult = await this.prisma.$transaction(
+      async (transaction: PrismaTransaction) => {
+        const oldDelivery = await this.repository.findById(id, {
+          include: { item: true, ppeSchedule: true },
+        });
 
-      if (!oldDelivery) {
-        throw new NotFoundException(
-          'Entrega de PPE não encontrada. Verifique se o ID está correto.',
-        );
-      }
-
-      if (oldDelivery.actualDeliveryDate) {
-        throw new BadRequestException('Esta entrega já foi marcada como entregue.');
-      }
-
-      if (!oldDelivery.ppeScheduleId) {
-        throw new BadRequestException(
-          'Esta entrega não está vinculada a um agendamento. Use o endpoint de marcar como entregue padrão.',
-        );
-      }
-
-      // Validate delivery date
-      const actualDeliveryDate = deliveryDate || new Date();
-      if (actualDeliveryDate > new Date()) {
-        throw new BadRequestException('A data de entrega não pode ser no futuro.');
-      }
-
-      // Validate approved by user exists
-      const reviewedByUser = await this.userRepository.findById(reviewedById);
-      if (!reviewedByUser) {
-        throw new NotFoundException('Usuário responsável pela aprovação não encontrado.');
-      }
-
-      // Check stock availability
-      if (oldDelivery.item && oldDelivery.item.quantity < oldDelivery.quantity) {
-        throw new BadRequestException(
-          `Quantidade insuficiente em estoque. Disponível: ${oldDelivery.item.quantity}, Solicitado: ${oldDelivery.quantity}`,
-        );
-      }
-
-      // Validate size compatibility
-      const userWithSize = await this.userRepository.findById(oldDelivery.userId, {
-        include: { ppeSize: true },
-      });
-
-      let sizeInfo: string | undefined;
-      let ppeType: PPE_TYPE | undefined;
-
-      if (oldDelivery.item?.ppeType && userWithSize?.ppeSize) {
-        ppeType = oldDelivery.item.ppeType;
-
-        // Map PPE type to user size
-        switch (ppeType) {
-          case PPE_TYPE.SHIRT:
-            sizeInfo = userWithSize.ppeSize.shirts || undefined;
-            break;
-          case PPE_TYPE.PANTS:
-            sizeInfo = userWithSize.ppeSize.pants || undefined;
-            break;
-          case PPE_TYPE.BOOTS:
-            sizeInfo = userWithSize.ppeSize.boots || undefined;
-            break;
-          case PPE_TYPE.SLEEVES:
-            sizeInfo = userWithSize.ppeSize.sleeves || undefined;
-            break;
-          case PPE_TYPE.MASK:
-            sizeInfo = userWithSize.ppeSize.mask || undefined;
-            break;
-          case PPE_TYPE.GLOVES:
-            sizeInfo = userWithSize.ppeSize.gloves || undefined;
-            break;
-          case PPE_TYPE.RAIN_BOOTS:
-            sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
-            break;
-        }
-
-        // Note: Size validation removed - ppeSize field no longer in Item model
-        // Size should be validated at creation time via additionalInfo
-      }
-
-      const updatedDelivery = await this.repository.updateWithTransaction(
-        transaction,
-        id,
-        {
-          reviewedBy: reviewedById,
-          actualDeliveryDate,
-          status: PPE_DELIVERY_STATUS.DELIVERED,
-          statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
-        },
-        { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
-      );
-
-      // Update stock with size information
-      await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
-        size: sizeInfo,
-        ppeType,
-      });
-
-      // Auto-create the next delivery - this is the main difference from markAsDelivered
-      let nextDelivery: PpeDelivery | null = null;
-      try {
-        nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
-        if (nextDelivery && process.env.NODE_ENV !== 'production') {
-          console.log(
-            `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+        if (!oldDelivery) {
+          throw new NotFoundException(
+            'Entrega de PPE não encontrada. Verifique se o ID está correto.',
           );
-        } else if (!nextDelivery && process.env.NODE_ENV !== 'production') {
-          console.warn(`No next delivery was created for completed delivery ${updatedDelivery.id}`);
         }
-      } catch (error) {
-        if (process.env.NODE_ENV !== 'production') {
-          console.error('Error in auto-creation during finishDeliveryWithAutoSchedule:', error);
+
+        if (oldDelivery.actualDeliveryDate) {
+          throw new BadRequestException('Esta entrega já foi marcada como entregue.');
         }
-        // For this method, we want to be more strict about auto-creation errors
-        throw new BadRequestException(
-          `Entrega marcada como concluída, mas houve erro na criação automática da próxima: ${error instanceof Error ? error.message : String(error)}`,
+
+        if (!oldDelivery.ppeScheduleId) {
+          throw new BadRequestException(
+            'Esta entrega não está vinculada a um agendamento. Use o endpoint de marcar como entregue padrão.',
+          );
+        }
+
+        // Validate delivery date
+        const actualDeliveryDate = deliveryDate || new Date();
+        if (actualDeliveryDate > new Date()) {
+          throw new BadRequestException('A data de entrega não pode ser no futuro.');
+        }
+
+        // Validate approved by user exists
+        const reviewedByUser = await this.userRepository.findById(reviewedById);
+        if (!reviewedByUser) {
+          throw new NotFoundException('Usuário responsável pela aprovação não encontrado.');
+        }
+
+        // Check stock availability
+        if (oldDelivery.item && oldDelivery.item.quantity < oldDelivery.quantity) {
+          throw new BadRequestException(
+            `Quantidade insuficiente em estoque. Disponível: ${oldDelivery.item.quantity}, Solicitado: ${oldDelivery.quantity}`,
+          );
+        }
+
+        // Validate size compatibility
+        const userWithSize = await this.userRepository.findById(oldDelivery.userId, {
+          include: { ppeSize: true },
+        });
+
+        let sizeInfo: string | undefined;
+        let ppeType: PPE_TYPE | undefined;
+
+        if (oldDelivery.item?.ppeType && userWithSize?.ppeSize) {
+          ppeType = oldDelivery.item.ppeType;
+
+          // Map PPE type to user size
+          switch (ppeType) {
+            case PPE_TYPE.SHIRT:
+              sizeInfo = userWithSize.ppeSize.shirts || undefined;
+              break;
+            case PPE_TYPE.PANTS:
+              sizeInfo = userWithSize.ppeSize.pants || undefined;
+              break;
+            case PPE_TYPE.BOOTS:
+              sizeInfo = userWithSize.ppeSize.boots || undefined;
+              break;
+            case PPE_TYPE.SLEEVES:
+              sizeInfo = userWithSize.ppeSize.sleeves || undefined;
+              break;
+            case PPE_TYPE.MASK:
+              sizeInfo = userWithSize.ppeSize.mask || undefined;
+              break;
+            case PPE_TYPE.GLOVES:
+              sizeInfo = userWithSize.ppeSize.gloves || undefined;
+              break;
+            case PPE_TYPE.RAIN_BOOTS:
+              sizeInfo = userWithSize.ppeSize.rainBoots || undefined;
+              break;
+          }
+
+          // Note: Size validation removed - ppeSize field no longer in Item model
+          // Size should be validated at creation time via additionalInfo
+        }
+
+        const updatedDelivery = await this.repository.updateWithTransaction(
+          transaction,
+          id,
+          {
+            reviewedBy: reviewedById,
+            actualDeliveryDate,
+            status: PPE_DELIVERY_STATUS.DELIVERED,
+            statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
+          },
+          { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
         );
-      }
 
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.PPE_DELIVERY,
-        entityId: updatedDelivery.id,
-        action: CHANGE_ACTION.UPDATE,
-        field: null,
-        oldValue: oldDelivery,
-        newValue: updatedDelivery,
-        reason: 'Entrega de PPE finalizada com agendamento automático da próxima',
-        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: updatedDelivery.id,
-        userId: userId || null,
-        transaction: transaction,
-      });
+        // Update stock with size information
+        await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
+          size: sizeInfo,
+          ppeType,
+        });
 
-      return {
-        updatedDelivery,
-        nextDelivery,
-      };
-    });
+        // Auto-create the next delivery - this is the main difference from markAsDelivered
+        let nextDelivery: PpeDelivery | null = null;
+        try {
+          nextDelivery = await this.autoCreateNextDelivery(updatedDelivery, transaction, userId);
+          if (nextDelivery && process.env.NODE_ENV !== 'production') {
+            console.log(
+              `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+            );
+          } else if (!nextDelivery && process.env.NODE_ENV !== 'production') {
+            console.warn(
+              `No next delivery was created for completed delivery ${updatedDelivery.id}`,
+            );
+          }
+        } catch (error) {
+          if (process.env.NODE_ENV !== 'production') {
+            console.error('Error in auto-creation during finishDeliveryWithAutoSchedule:', error);
+          }
+          // For this method, we want to be more strict about auto-creation errors
+          throw new BadRequestException(
+            `Entrega marcada como concluída, mas houve erro na criação automática da próxima: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.PPE_DELIVERY,
+          entityId: updatedDelivery.id,
+          action: CHANGE_ACTION.UPDATE,
+          field: null,
+          oldValue: oldDelivery,
+          newValue: updatedDelivery,
+          reason: 'Entrega de PPE finalizada com agendamento automático da próxima',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: updatedDelivery.id,
+          userId: userId || null,
+          transaction: transaction,
+        });
+
+        return {
+          updatedDelivery,
+          nextDelivery,
+        };
+      },
+    );
 
     return {
       success: true,
@@ -2483,204 +2489,206 @@ export class PpeDeliveryService {
     failed: number;
     results: any[];
   }> {
-    const transactionResult = await this.prisma.$transaction(async (transaction: PrismaTransaction) => {
-      const results: any[] = [];
-      let successCount = 0;
-      let failedCount = 0;
+    const transactionResult = await this.prisma.$transaction(
+      async (transaction: PrismaTransaction) => {
+        const results: any[] = [];
+        let successCount = 0;
+        let failedCount = 0;
 
-      // Validate reviewed by user exists
-      const reviewedByUser = await this.userRepository.findById(reviewedById);
-      if (!reviewedByUser) {
-        throw new BadRequestException('Usuário revisor não encontrado.');
-      }
-
-      // Use current date if not provided
-      const actualDeliveryDate = deliveryDate || new Date();
-      if (actualDeliveryDate > new Date()) {
-        throw new BadRequestException('A data de entrega não pode ser no futuro.');
-      }
-
-      for (const deliveryId of deliveryIds) {
-        try {
-          // Find the delivery with item and user info
-          const delivery = await this.repository.findById(deliveryId, {
-            include: { item: true, user: { include: { ppeSize: true } } },
-          });
-
-          if (!delivery) {
-            results.push({
-              id: deliveryId,
-              success: false,
-              error: 'Entrega não encontrada',
-            });
-            failedCount++;
-            continue;
-          }
-
-          // Check if already delivered
-          if (delivery.actualDeliveryDate) {
-            results.push({
-              id: deliveryId,
-              success: false,
-              error: 'Esta entrega já foi marcada como entregue',
-            });
-            failedCount++;
-            continue;
-          }
-
-          // Check if status is APPROVED
-          if (delivery.status !== PPE_DELIVERY_STATUS.APPROVED) {
-            results.push({
-              id: deliveryId,
-              success: false,
-              error: `Entrega não está aprovada. Status atual: ${delivery.status}`,
-            });
-            failedCount++;
-            continue;
-          }
-
-          // Check stock availability
-          if (delivery.item && delivery.item.quantity < delivery.quantity) {
-            results.push({
-              id: deliveryId,
-              success: false,
-              error: `Quantidade insuficiente em estoque. Disponível: ${delivery.item.quantity}, Solicitado: ${delivery.quantity}`,
-            });
-            failedCount++;
-            continue;
-          }
-
-          // Validate size compatibility
-          let sizeInfo: string | undefined;
-          let ppeType: PPE_TYPE | undefined;
-
-          if (delivery.item?.ppeType && delivery.user?.ppeSize) {
-            ppeType = delivery.item.ppeType;
-
-            // Map PPE type to user size
-            switch (ppeType) {
-              case PPE_TYPE.SHIRT:
-                sizeInfo = delivery.user.ppeSize.shirts || undefined;
-                break;
-              case PPE_TYPE.PANTS:
-                sizeInfo = delivery.user.ppeSize.pants || undefined;
-                break;
-              case PPE_TYPE.BOOTS:
-                sizeInfo = delivery.user.ppeSize.boots || undefined;
-                break;
-              case PPE_TYPE.SLEEVES:
-                sizeInfo = delivery.user.ppeSize.sleeves || undefined;
-                break;
-              case PPE_TYPE.MASK:
-                sizeInfo = delivery.user.ppeSize.mask || undefined;
-                break;
-              case PPE_TYPE.GLOVES:
-                sizeInfo = delivery.user.ppeSize.gloves || undefined;
-                break;
-              case PPE_TYPE.RAIN_BOOTS:
-                sizeInfo = delivery.user.ppeSize.rainBoots || undefined;
-                break;
-            }
-
-            // Note: Size validation removed - ppeSize field no longer in Item model
-            // Size should be validated at creation time via additionalInfo
-          }
-
-          // Update delivery status to delivered
-          const updatedDelivery = await this.repository.updateWithTransaction(
-            transaction,
-            deliveryId,
-            {
-              reviewedBy: reviewedById,
-              actualDeliveryDate,
-              status: PPE_DELIVERY_STATUS.DELIVERED,
-              statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
-            },
-            { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
-          );
-
-          // Update stock with size information
-          await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
-            size: sizeInfo,
-            ppeType,
-          });
-
-          // Try to auto-create the next delivery if this is linked to a schedule
-          try {
-            const nextDelivery = await this.autoCreateNextDelivery(
-              updatedDelivery,
-              transaction,
-              userId,
-            );
-            if (nextDelivery && process.env.NODE_ENV !== 'production') {
-              console.log(
-                `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
-              );
-            }
-          } catch (error) {
-            // Log but don't fail the main operation
-            if (process.env.NODE_ENV !== 'production') {
-              console.error('Error in auto-creation during batch mark as delivered:', error);
-            }
-          }
-
-          // Log the change - only status transition for cleaner display
-          await this.changeLogService.logChange({
-            entityType: ENTITY_TYPE.PPE_DELIVERY,
-            entityId: deliveryId,
-            action: CHANGE_ACTION.UPDATE,
-            field: 'batch_mark_delivered',
-            oldValue: { status: delivery.status },
-            newValue: { status: PPE_DELIVERY_STATUS.DELIVERED },
-            reason: 'Entrega marcada como entregue em lote',
-            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-            triggeredById: deliveryId,
-            userId: userId || null,
-            transaction: transaction,
-          });
-
-          // Emit ppe.delivered event
-          try {
-            if (updatedDelivery.item && updatedDelivery.user) {
-              this.eventEmitter.emit(
-                'ppe.delivered',
-                new PpeDeliveredEvent(
-                  updatedDelivery,
-                  updatedDelivery.item as any,
-                  updatedDelivery.user as any,
-                  reviewedByUser as any,
-                ),
-              );
-            }
-          } catch (error) {
-            console.error('Error emitting ppe.delivered event:', error);
-          }
-
-          // Store for batch signature processing (will be done after transaction commits)
-          results.push({
-            id: deliveryId,
-            success: true,
-            data: updatedDelivery,
-            userId: updatedDelivery.userId,
-          });
-          successCount++;
-        } catch (error) {
-          results.push({
-            id: deliveryId,
-            success: false,
-            error: error.message || 'Erro desconhecido',
-          });
-          failedCount++;
+        // Validate reviewed by user exists
+        const reviewedByUser = await this.userRepository.findById(reviewedById);
+        if (!reviewedByUser) {
+          throw new BadRequestException('Usuário revisor não encontrado.');
         }
-      }
 
-      return {
-        success: successCount,
-        failed: failedCount,
-        results,
-        reviewedByUser, // Include for batch event emission
-      };
-    });
+        // Use current date if not provided
+        const actualDeliveryDate = deliveryDate || new Date();
+        if (actualDeliveryDate > new Date()) {
+          throw new BadRequestException('A data de entrega não pode ser no futuro.');
+        }
+
+        for (const deliveryId of deliveryIds) {
+          try {
+            // Find the delivery with item and user info
+            const delivery = await this.repository.findById(deliveryId, {
+              include: { item: true, user: { include: { ppeSize: true } } },
+            });
+
+            if (!delivery) {
+              results.push({
+                id: deliveryId,
+                success: false,
+                error: 'Entrega não encontrada',
+              });
+              failedCount++;
+              continue;
+            }
+
+            // Check if already delivered
+            if (delivery.actualDeliveryDate) {
+              results.push({
+                id: deliveryId,
+                success: false,
+                error: 'Esta entrega já foi marcada como entregue',
+              });
+              failedCount++;
+              continue;
+            }
+
+            // Check if status is APPROVED
+            if (delivery.status !== PPE_DELIVERY_STATUS.APPROVED) {
+              results.push({
+                id: deliveryId,
+                success: false,
+                error: `Entrega não está aprovada. Status atual: ${delivery.status}`,
+              });
+              failedCount++;
+              continue;
+            }
+
+            // Check stock availability
+            if (delivery.item && delivery.item.quantity < delivery.quantity) {
+              results.push({
+                id: deliveryId,
+                success: false,
+                error: `Quantidade insuficiente em estoque. Disponível: ${delivery.item.quantity}, Solicitado: ${delivery.quantity}`,
+              });
+              failedCount++;
+              continue;
+            }
+
+            // Validate size compatibility
+            let sizeInfo: string | undefined;
+            let ppeType: PPE_TYPE | undefined;
+
+            if (delivery.item?.ppeType && delivery.user?.ppeSize) {
+              ppeType = delivery.item.ppeType;
+
+              // Map PPE type to user size
+              switch (ppeType) {
+                case PPE_TYPE.SHIRT:
+                  sizeInfo = delivery.user.ppeSize.shirts || undefined;
+                  break;
+                case PPE_TYPE.PANTS:
+                  sizeInfo = delivery.user.ppeSize.pants || undefined;
+                  break;
+                case PPE_TYPE.BOOTS:
+                  sizeInfo = delivery.user.ppeSize.boots || undefined;
+                  break;
+                case PPE_TYPE.SLEEVES:
+                  sizeInfo = delivery.user.ppeSize.sleeves || undefined;
+                  break;
+                case PPE_TYPE.MASK:
+                  sizeInfo = delivery.user.ppeSize.mask || undefined;
+                  break;
+                case PPE_TYPE.GLOVES:
+                  sizeInfo = delivery.user.ppeSize.gloves || undefined;
+                  break;
+                case PPE_TYPE.RAIN_BOOTS:
+                  sizeInfo = delivery.user.ppeSize.rainBoots || undefined;
+                  break;
+              }
+
+              // Note: Size validation removed - ppeSize field no longer in Item model
+              // Size should be validated at creation time via additionalInfo
+            }
+
+            // Update delivery status to delivered
+            const updatedDelivery = await this.repository.updateWithTransaction(
+              transaction,
+              deliveryId,
+              {
+                reviewedBy: reviewedById,
+                actualDeliveryDate,
+                status: PPE_DELIVERY_STATUS.DELIVERED,
+                statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.DELIVERED],
+              },
+              { include: { item: true, user: { include: { ppeSize: true } }, ppeSchedule: true } },
+            );
+
+            // Update stock with size information
+            await this.updateStockForDelivery(updatedDelivery, transaction, userId, {
+              size: sizeInfo,
+              ppeType,
+            });
+
+            // Try to auto-create the next delivery if this is linked to a schedule
+            try {
+              const nextDelivery = await this.autoCreateNextDelivery(
+                updatedDelivery,
+                transaction,
+                userId,
+              );
+              if (nextDelivery && process.env.NODE_ENV !== 'production') {
+                console.log(
+                  `Auto-created next PPE delivery: ${nextDelivery.id} scheduled for ${nextDelivery.scheduledDate?.toISOString()}`,
+                );
+              }
+            } catch (error) {
+              // Log but don't fail the main operation
+              if (process.env.NODE_ENV !== 'production') {
+                console.error('Error in auto-creation during batch mark as delivered:', error);
+              }
+            }
+
+            // Log the change - only status transition for cleaner display
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.PPE_DELIVERY,
+              entityId: deliveryId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'batch_mark_delivered',
+              oldValue: { status: delivery.status },
+              newValue: { status: PPE_DELIVERY_STATUS.DELIVERED },
+              reason: 'Entrega marcada como entregue em lote',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: deliveryId,
+              userId: userId || null,
+              transaction: transaction,
+            });
+
+            // Emit ppe.delivered event
+            try {
+              if (updatedDelivery.item && updatedDelivery.user) {
+                this.eventEmitter.emit(
+                  'ppe.delivered',
+                  new PpeDeliveredEvent(
+                    updatedDelivery,
+                    updatedDelivery.item as any,
+                    updatedDelivery.user as any,
+                    reviewedByUser as any,
+                  ),
+                );
+              }
+            } catch (error) {
+              console.error('Error emitting ppe.delivered event:', error);
+            }
+
+            // Store for batch signature processing (will be done after transaction commits)
+            results.push({
+              id: deliveryId,
+              success: true,
+              data: updatedDelivery,
+              userId: updatedDelivery.userId,
+            });
+            successCount++;
+          } catch (error) {
+            results.push({
+              id: deliveryId,
+              success: false,
+              error: error.message || 'Erro desconhecido',
+            });
+            failedCount++;
+          }
+        }
+
+        return {
+          success: successCount,
+          failed: failedCount,
+          results,
+          reviewedByUser, // Include for batch event emission
+        };
+      },
+    );
 
     // Emit batch delivered event for signature processing (after transaction commits)
     const successfulDeliveryIds = transactionResult.results
@@ -2697,7 +2705,9 @@ export class PpeDeliveryService {
           ),
         );
         if (process.env.NODE_ENV !== 'production') {
-          console.log(`[PPE] Batch delivered event emitted for ${successfulDeliveryIds.length} deliveries`);
+          console.log(
+            `[PPE] Batch delivered event emitted for ${successfulDeliveryIds.length} deliveries`,
+          );
         }
       } catch (error) {
         console.error('Error emitting ppe.batch.delivered event:', error);
@@ -2803,5 +2813,4 @@ export class PpeDeliveryService {
       },
     };
   }
-
 }

@@ -77,7 +77,9 @@ export class PpeListener {
     this.logger.log('[PPE EVENT] PPE requested event received');
     this.logger.log(`[PPE EVENT] Delivery ID: ${event.delivery.id}`);
     this.logger.log(`[PPE EVENT] Item: ${event.item.name}`);
-    this.logger.log(`[PPE EVENT] Requested By: ${event.requestedBy.name} (${event.requestedBy.id})`);
+    this.logger.log(
+      `[PPE EVENT] Requested By: ${event.requestedBy.name} (${event.requestedBy.id})`,
+    );
     this.logger.log('========================================');
 
     try {
@@ -327,8 +329,12 @@ export class PpeListener {
     this.logger.log('[PPE EVENT] PPE delivered event received');
     this.logger.log(`[PPE EVENT] Delivery ID: ${event.delivery.id}`);
     this.logger.log(`[PPE EVENT] Item: ${event.item.name}`);
-    this.logger.log(`[PPE EVENT] Delivered To: ${event.deliveredTo.name} (${event.deliveredTo.id})`);
-    this.logger.log(`[PPE EVENT] Delivered By: ${event.deliveredBy.name} (${event.deliveredBy.id})`);
+    this.logger.log(
+      `[PPE EVENT] Delivered To: ${event.deliveredTo.name} (${event.deliveredTo.id})`,
+    );
+    this.logger.log(
+      `[PPE EVENT] Delivered By: ${event.deliveredBy.name} (${event.deliveredBy.id})`,
+    );
     this.logger.log('========================================');
 
     try {
@@ -422,7 +428,9 @@ export class PpeListener {
     }
 
     try {
-      this.logger.log(`[PPE EVENT] Initiating signature workflow for ${deliveryIds.length} deliveries`);
+      this.logger.log(
+        `[PPE EVENT] Initiating signature workflow for ${deliveryIds.length} deliveries`,
+      );
 
       const result = await this.ppeSignatureService.initiateSignatureForDeliveries({
         deliveryIds,
@@ -432,7 +440,9 @@ export class PpeListener {
         this.logger.log('[PPE EVENT] ✅ Signature workflow initiated successfully');
         for (const r of result.results) {
           if (r.signatureResult) {
-            this.logger.log(`[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`);
+            this.logger.log(
+              `[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`,
+            );
           }
         }
       } else {
