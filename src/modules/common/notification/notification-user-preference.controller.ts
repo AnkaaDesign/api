@@ -60,6 +60,7 @@ export interface ChannelPreferenceDetail {
  */
 export interface UserPreferenceResponse {
   configKey: string;
+  name: string | null;
   description: string;
   importance: string;
   channels: ChannelPreferenceDetail[];
@@ -151,6 +152,7 @@ export class NotificationUserPreferenceController {
 
         return {
           configKey: config.key,
+          name: config.name || null,
           description: config.description || config.title,
           importance: config.defaultImportance,
           channels: channelDetails,
@@ -233,6 +235,7 @@ export class NotificationUserPreferenceController {
 
       const preference: UserPreferenceResponse = {
         configKey: config.key,
+        name: config.name || null,
         description: config.description || config.title,
         importance: config.defaultImportance,
         channels: channelDetails,
@@ -362,6 +365,7 @@ export class NotificationUserPreferenceController {
 
       const preference: UserPreferenceResponse = {
         configKey: config.key,
+        name: config.name || null,
         description: config.description || config.title,
         importance: config.defaultImportance,
         channels: channelDetails,
@@ -458,6 +462,7 @@ export class NotificationUserPreferenceController {
 
       const preference: UserPreferenceResponse = {
         configKey: config.key,
+        name: config.name || null,
         description: config.description || config.title,
         importance: config.defaultImportance,
         channels: channelDetails,
@@ -514,7 +519,7 @@ export class NotificationUserPreferenceController {
       // Get user's preferences
       const userPreferences = await this.preferenceService.getUserPreferences(userId);
 
-      // Group configurations by notification type
+      // Group configurations by notification type (now domain-based: PRODUCTION, STOCK, USER, etc.)
       const grouped = new Map<NOTIFICATION_TYPE, UserPreferenceResponse[]>();
 
       for (const config of configurations) {
@@ -527,10 +532,14 @@ export class NotificationUserPreferenceController {
         const channelDetails: ChannelPreferenceDetail[] = Object.values(NOTIFICATION_CHANNEL).map(
           channel => {
             const channelConfig = config.channelConfigs?.find(cc => cc.channel === channel);
+            // Channel is enabled if explicitly set in channelConfig, otherwise check if it's in defaultChannels
             const isEnabled = channelConfig?.enabled ?? config.defaultChannels.includes(channel);
-            const isMandatory = userPref?.mandatoryChannels?.includes(channel) ?? false;
-            const isDefaultOn = config.defaultChannels.includes(channel);
-            const userEnabled = userPref?.channels?.includes(channel) ?? isDefaultOn;
+            // Mandatory comes from the configuration's channelConfigs
+            const isMandatory = channelConfig?.mandatory ?? false;
+            // DefaultOn comes from channelConfig or falls back to checking defaultChannels
+            const isDefaultOn = channelConfig?.defaultOn ?? config.defaultChannels.includes(channel);
+            // If channel is mandatory, it's always enabled for the user
+            const userEnabled = isMandatory || (userPref?.channels?.includes(channel) ?? isDefaultOn);
 
             return {
               channel,
@@ -544,14 +553,17 @@ export class NotificationUserPreferenceController {
 
         const preference: UserPreferenceResponse = {
           configKey: config.key,
+          name: config.name || null,
           description: config.description || config.title,
           importance: config.defaultImportance,
           channels: channelDetails,
         };
 
-        const existing = grouped.get(config.notificationType) || [];
+        // Group by notification type (now domain-based)
+        const notificationType = config.notificationType;
+        const existing = grouped.get(notificationType) || [];
         existing.push(preference);
-        grouped.set(config.notificationType, existing);
+        grouped.set(notificationType, existing);
       }
 
       // Convert map to array

@@ -59,14 +59,25 @@ export class OrderSchedulePrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: OrderScheduleCreateFormData,
   ): Prisma.OrderScheduleCreateInput {
-    const { frequency, weeklySchedule, monthlySchedule, yearlySchedule, ...rest } = formData;
+    const {
+      frequency,
+      weeklySchedule,
+      monthlySchedule,
+      yearlySchedule,
+      dayOfWeek,
+      month,
+      ...rest
+    } = formData;
 
     const createInput: Prisma.OrderScheduleCreateInput = {
       ...rest,
       frequency: frequency as ScheduleFrequency,
+      // Cast flat enum fields to proper Prisma types
+      dayOfWeek: dayOfWeek ? (dayOfWeek as DayOfWeek) : undefined,
+      month: month ? (month as Month) : undefined,
     };
 
-    // Handle schedule configs based on frequency
+    // Handle nested schedule configs based on frequency (for backwards compatibility)
     if (weeklySchedule) {
       createInput.weeklyConfig = {
         create: weeklySchedule,
@@ -100,7 +111,15 @@ export class OrderSchedulePrismaRepository
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: OrderScheduleUpdateFormData,
   ): Prisma.OrderScheduleUpdateInput {
-    const { weeklySchedule, frequency, monthlySchedule, yearlySchedule, ...rest } = formData;
+    const {
+      weeklySchedule,
+      frequency,
+      monthlySchedule,
+      yearlySchedule,
+      dayOfWeek,
+      month,
+      ...rest
+    } = formData;
 
     const updateInput: Prisma.OrderScheduleUpdateInput = {
       ...rest,
@@ -110,7 +129,16 @@ export class OrderSchedulePrismaRepository
       updateInput.frequency = frequency as ScheduleFrequency;
     }
 
-    // Handle schedule config updates
+    // Handle flat enum fields
+    if (dayOfWeek !== undefined) {
+      updateInput.dayOfWeek = dayOfWeek ? (dayOfWeek as DayOfWeek) : null;
+    }
+
+    if (month !== undefined) {
+      updateInput.month = month ? (month as Month) : null;
+    }
+
+    // Handle nested schedule config updates (for backwards compatibility)
     if (weeklySchedule !== undefined) {
       updateInput.weeklyConfig = {
         upsert: {
@@ -482,52 +510,6 @@ export class OrderSchedulePrismaRepository
       return results.map(result => this.mapDatabaseEntityToEntity(result));
     } catch (error) {
       this.logError('buscar agendamentos de pedidos por IDs de itens', error, { itemIds });
-      throw error;
-    }
-  }
-
-  async findBySupplierId(supplierId: string, tx?: PrismaTransaction): Promise<OrderSchedule[]> {
-    try {
-      const client = tx || this.prisma;
-      const results = await client.orderSchedule.findMany({
-        where: {
-          order: {
-            supplierId,
-          },
-        },
-        include: this.getDefaultInclude(),
-        orderBy: { nextRun: 'asc' },
-      });
-
-      return results.map(result => this.mapDatabaseEntityToEntity(result));
-    } catch (error) {
-      this.logError('buscar agendamentos de pedidos por ID do fornecedor', error, { supplierId });
-      throw error;
-    }
-  }
-
-  async findByCategoryId(categoryId: string, tx?: PrismaTransaction): Promise<OrderSchedule[]> {
-    try {
-      const client = tx || this.prisma;
-      const results = await client.orderSchedule.findMany({
-        where: {
-          order: {
-            items: {
-              some: {
-                item: {
-                  categoryId,
-                },
-              },
-            },
-          },
-        },
-        include: this.getDefaultInclude(),
-        orderBy: { nextRun: 'asc' },
-      });
-
-      return results.map(result => this.mapDatabaseEntityToEntity(result));
-    } catch (error) {
-      this.logError('buscar agendamentos de pedidos por ID da categoria', error, { categoryId });
       throw error;
     }
   }

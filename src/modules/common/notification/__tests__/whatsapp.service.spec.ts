@@ -61,7 +61,7 @@ describe('WhatsAppNotificationService', () => {
       id: 'notif-1',
       title: 'Test Notification',
       body: 'This is a test',
-      type: NOTIFICATION_TYPE.TASK,
+      type: NOTIFICATION_TYPE.PRODUCTION,
     };
 
     const mockUser: any = {
@@ -198,7 +198,7 @@ describe('WhatsAppNotificationService', () => {
         id: 'notif-1',
         title: 'Task Update',
         body: 'Your task has been updated',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         actionUrl: 'https://app.example.com/tasks/1',
         metadata: {
           priority: 'HIGH',
@@ -446,7 +446,7 @@ describe('WhatsAppNotificationService', () => {
             id: 'notif-1',
             title: 'Test 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-1', name: 'User 1', phone: '5511999999999' },
           deliveryId: 'delivery-1',
@@ -456,7 +456,7 @@ describe('WhatsAppNotificationService', () => {
             id: 'notif-2',
             title: 'Test 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-2', name: 'User 2', phone: '5511988888888' },
           deliveryId: 'delivery-2',
@@ -485,7 +485,7 @@ describe('WhatsAppNotificationService', () => {
             id: 'notif-1',
             title: 'Test 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-1', name: 'User 1', phone: '5511999999999' },
           deliveryId: 'delivery-1',
@@ -495,7 +495,7 @@ describe('WhatsAppNotificationService', () => {
             id: 'notif-2',
             title: 'Test 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           },
           user: { id: 'user-2', name: 'User 2', phone: null }, // Invalid phone
           deliveryId: 'delivery-2',

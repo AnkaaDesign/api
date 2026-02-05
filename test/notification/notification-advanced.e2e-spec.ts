@@ -73,7 +73,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Retry Test',
         body: 'Testing retry logic',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -103,7 +103,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Backoff Test',
         body: 'Testing exponential backoff',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.WHATSAPP],
       });
 
@@ -141,7 +141,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Max Retry Test',
         body: 'Testing max retry limit',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -176,7 +176,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
     it('should enforce per-user rate limits', async () => {
       const notifications = await createBatchNotifications(prisma, 100, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
       });
 
       const startTime = Date.now();
@@ -203,13 +203,13 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
     it('should have separate rate limits per channel', async () => {
       const emailNotifications = await createBatchNotifications(prisma, 50, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
       const smsNotifications = await createBatchNotifications(prisma, 50, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.WHATSAPP],
       });
 
@@ -234,7 +234,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
             userId: testUserId,
             title: 'Urgent Notification',
             body: 'Urgent message',
-            type: NOTIFICATION_TYPE.WARNING,
+            type: NOTIFICATION_TYPE.USER,
             channels: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.WHATSAPP],
             importance: NOTIFICATION_IMPORTANCE.URGENT,
           })
@@ -260,7 +260,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
     it('should batch email deliveries for efficiency', async () => {
       const notifications = await createBatchNotifications(prisma, 20, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -294,7 +294,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'High Priority',
         body: 'High priority message',
-        type: NOTIFICATION_TYPE.WARNING,
+        type: NOTIFICATION_TYPE.USER,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         importance: NOTIFICATION_IMPORTANCE.URGENT,
       });
@@ -322,7 +322,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
             userId: testUserId,
             title: 'Task Status Changed',
             body: 'Task status changed to IN_PRODUCTION',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channels: [NOTIFICATION_CHANNEL.EMAIL],
           })
         )
@@ -348,7 +348,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
           userId: testUserId,
           title: `Notification ${i}`,
           body: 'Task update',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channels: [NOTIFICATION_CHANNEL.EMAIL],
         });
         await waitForAsync(100);
@@ -370,7 +370,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
       // Create many similar notifications
       await createBatchNotifications(prisma, 15, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -393,7 +393,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Task Assigned',
         body: 'Task assigned template',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -411,7 +411,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
           userId: testUserId,
           title: 'Task {{taskTitle}} assigned',
           body: 'Task {{taskTitle}} has been assigned to {{userName}}',
-          type: NOTIFICATION_TYPE.TASK as any,
+          type: NOTIFICATION_TYPE.PRODUCTION as any,
           channel: [NOTIFICATION_CHANNEL.EMAIL] as any[],
           importance: NOTIFICATION_IMPORTANCE.NORMAL as any,
           metadata: {
@@ -436,7 +436,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Webhook Test',
         body: 'Testing webhook handling',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -471,7 +471,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: testUserId,
         title: 'Bounce Test',
         body: 'Testing bounce handling',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -504,7 +504,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
       // Create 500 notifications
       const notifications = await createBatchNotifications(prisma, 500, {
         userId: testUserId,
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -527,7 +527,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
             userId: testUserId,
             title: `Performance Test ${i}`,
             body: 'Testing performance',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.IN_APP],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
           })
@@ -554,7 +554,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
         userId: user.id,
         title: 'Integrity Test',
         body: 'Testing referential integrity',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channels: [NOTIFICATION_CHANNEL.EMAIL],
       });
 
@@ -581,7 +581,7 @@ describe('Notification System - Advanced Scenarios (e2e)', () => {
               userId: testUserId,
               title: 'Transaction Test',
               body: 'Testing transaction',
-              type: NOTIFICATION_TYPE.TASK as any,
+              type: NOTIFICATION_TYPE.PRODUCTION as any,
               channel: [NOTIFICATION_CHANNEL.EMAIL] as any[],
               importance: NOTIFICATION_IMPORTANCE.NORMAL as any,
             },

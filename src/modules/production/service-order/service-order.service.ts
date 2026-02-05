@@ -47,6 +47,7 @@ import {
 import {
   getTaskUpdateForServiceOrderStatusChange,
   isStatusRollback,
+  calculateCorrectTaskStatus,
 } from '../../../utils/task-service-order-sync';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
 import {
@@ -754,7 +755,49 @@ export class ServiceOrderService {
               so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
             );
 
-            if (hasActiveProductionOrders && allActiveProductionCompleted) {
+            // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
+            if (!hasActiveProductionOrders && productionServiceOrders.length > 0) {
+              // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
+              if (task.status === TASK_STATUS.IN_PRODUCTION) {
+                this.logger.log(
+                  `[ROLLBACK TASK ON ALL PRODUCTION SO CANCEL] All ${productionServiceOrders.length} PRODUCTION service orders cancelled for task ${task.id}, rolling back to WAITING_PRODUCTION`,
+                );
+
+                const oldTaskStatus = task.status as TASK_STATUS;
+                await tx.task.update({
+                  where: { id: task.id },
+                  data: {
+                    status: TASK_STATUS.WAITING_PRODUCTION,
+                    statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                    startedAt: null, // Clear start date on rollback
+                  },
+                });
+
+                // Log the task rollback in changelog
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK,
+                  entityId: task.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: oldTaskStatus,
+                  newValue: TASK_STATUS.WAITING_PRODUCTION,
+                  reason: `Tarefa retornada para aguardando produção pois todas as ${productionServiceOrders.length} ordens de serviço de produção foram canceladas`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+
+                // Track for event emission after transaction commits
+                taskAutoCompleted = {
+                  taskId: task.id,
+                  oldStatus: oldTaskStatus,
+                  newStatus: TASK_STATUS.WAITING_PRODUCTION,
+                };
+              }
+              // If task is not IN_PRODUCTION, don't change task status
+            } else if (hasActiveProductionOrders && allActiveProductionCompleted) {
+              // If there are still active orders and all are completed, complete the task
               this.logger.log(
                 `[AUTO-COMPLETE TASK ON CANCEL] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id} (SO ${id} cancelled), transitioning to COMPLETED`,
               );
@@ -792,6 +835,192 @@ export class ServiceOrderService {
                 newStatus: TASK_STATUS.COMPLETED,
               };
             }
+          }
+        }
+
+        // =====================================================================
+        // AUTO-CANCEL TASK WHEN ALL COMMERCIAL SERVICE ORDERS ARE CANCELLED
+        // When a COMMERCIAL service order is cancelled, check if ALL commercial
+        // orders are now cancelled - if so, cancel task and all other service orders
+        // =====================================================================
+        if (
+          data.status === SERVICE_ORDER_STATUS.CANCELLED &&
+          oldData.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+          updated.type === SERVICE_ORDER_TYPE.COMMERCIAL
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true },
+          });
+
+          // Only proceed if task is not already cancelled
+          if (task && task.status !== TASK_STATUS.CANCELLED) {
+            // Get all COMMERCIAL service orders for this task
+            const commercialServiceOrders = await tx.serviceOrder.findMany({
+              where: {
+                taskId: updated.taskId,
+                type: SERVICE_ORDER_TYPE.COMMERCIAL,
+              },
+              select: { id: true, status: true },
+            });
+
+            // Filter out CANCELLED orders
+            const activeCommercialOrders = commercialServiceOrders.filter(
+              so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+            );
+
+            // If ALL commercial orders are now cancelled, cancel the task and all other service orders
+            if (activeCommercialOrders.length === 0 && commercialServiceOrders.length > 0) {
+              this.logger.log(
+                `[AUTO-CANCEL TASK ON ALL COMMERCIAL SO CANCEL] All ${commercialServiceOrders.length} COMMERCIAL service orders cancelled for task ${task.id}, cancelling task and all remaining service orders`,
+              );
+
+              const oldTaskStatus = task.status as TASK_STATUS;
+              await tx.task.update({
+                where: { id: task.id },
+                data: {
+                  status: TASK_STATUS.CANCELLED,
+                  statusOrder: 5, // CANCELLED statusOrder
+                },
+              });
+
+              // Cancel all remaining non-cancelled service orders (PRODUCTION, FINANCIAL, ARTWORK, LOGISTIC)
+              const otherServiceOrders = await tx.serviceOrder.findMany({
+                where: {
+                  taskId: task.id,
+                  status: { not: SERVICE_ORDER_STATUS.CANCELLED },
+                },
+                select: { id: true, status: true, type: true },
+              });
+
+              for (const otherSO of otherServiceOrders) {
+                await tx.serviceOrder.update({
+                  where: { id: otherSO.id },
+                  data: {
+                    status: SERVICE_ORDER_STATUS.CANCELLED,
+                    statusOrder: 5,
+                  },
+                });
+
+                // Log each service order cancellation
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.SERVICE_ORDER,
+                  entityId: otherSO.id,
+                  action: CHANGE_ACTION.UPDATE,
+                  field: 'status',
+                  oldValue: otherSO.status,
+                  newValue: SERVICE_ORDER_STATUS.CANCELLED,
+                  reason: `Ordem de serviço ${otherSO.type} cancelada automaticamente pois todas as ordens de serviço comerciais foram canceladas`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                  triggeredById: id,
+                  userId: userId || '',
+                  transaction: tx,
+                });
+              }
+
+              // Log the task cancellation in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: task.id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: oldTaskStatus,
+                newValue: TASK_STATUS.CANCELLED,
+                reason: `Tarefa cancelada automaticamente pois todas as ${commercialServiceOrders.length} ordens de serviço comerciais foram canceladas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
+
+              // Track for event emission after transaction commits
+              taskAutoCompleted = {
+                taskId: task.id,
+                oldStatus: oldTaskStatus,
+                newStatus: TASK_STATUS.CANCELLED,
+              };
+            }
+          }
+        }
+
+        // =====================================================================
+        // ROLLBACK SYNC: COMMERCIAL Service Order Un-Cancelled → Task Status Rollback
+        // When a COMMERCIAL service order goes from CANCELLED to any other status,
+        // check if task should rollback from CANCELLED to the correct status based on
+        // all service orders (ARTWORK + PRODUCTION)
+        // =====================================================================
+        if (
+          data.status &&
+          data.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+          oldData.status === SERVICE_ORDER_STATUS.CANCELLED &&
+          updated.type === SERVICE_ORDER_TYPE.COMMERCIAL
+        ) {
+          const task = await tx.task.findUnique({
+            where: { id: updated.taskId },
+            select: { id: true, status: true },
+          });
+
+          // Only rollback if task is currently CANCELLED
+          if (task && task.status === TASK_STATUS.CANCELLED) {
+            // Get all service orders for this task to calculate correct status
+            const allServiceOrders = await tx.serviceOrder.findMany({
+              where: { taskId: updated.taskId },
+              select: { id: true, status: true, type: true },
+            });
+
+            // Calculate the correct task status based on all service orders
+            const correctStatus = calculateCorrectTaskStatus(
+              allServiceOrders.map(so => ({
+                status: so.status as SERVICE_ORDER_STATUS,
+                type: so.type as SERVICE_ORDER_TYPE,
+              })),
+            );
+
+            this.logger.log(
+              `[COMMERCIAL ROLLBACK] Commercial service order ${id} un-cancelled (${oldData.status} → ${data.status}), rolling back task ${task.id} from CANCELLED to ${correctStatus}`,
+            );
+
+            const oldTaskStatus = task.status as TASK_STATUS;
+            const newStatusOrder =
+              correctStatus === TASK_STATUS.PREPARATION
+                ? 1
+                : correctStatus === TASK_STATUS.WAITING_PRODUCTION
+                  ? 2
+                  : correctStatus === TASK_STATUS.IN_PRODUCTION
+                    ? 3
+                    : correctStatus === TASK_STATUS.COMPLETED
+                      ? 4
+                      : 5;
+
+            await tx.task.update({
+              where: { id: task.id },
+              data: {
+                status: correctStatus,
+                statusOrder: newStatusOrder,
+              },
+            });
+
+            // Log the rollback in changelog
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: task.id,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'status',
+              oldValue: oldTaskStatus,
+              newValue: correctStatus,
+              reason: `Tarefa retornada para ${correctStatus === TASK_STATUS.PREPARATION ? 'preparação' : correctStatus === TASK_STATUS.WAITING_PRODUCTION ? 'aguardando produção' : correctStatus === TASK_STATUS.IN_PRODUCTION ? 'em produção' : 'concluída'} pois ordem de serviço comercial foi reativada`,
+              triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+              triggeredById: id,
+              userId: userId || '',
+              transaction: tx,
+            });
+
+            // Track for event emission after transaction commits
+            taskRolledBack = {
+              taskId: task.id,
+              oldStatus: oldTaskStatus,
+              newStatus: correctStatus,
+            };
           }
         }
 
@@ -2027,7 +2256,48 @@ export class ServiceOrderService {
                     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
                   );
 
-                  if (hasActiveProductionOrders && allActiveProductionCompleted) {
+                  // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
+                  if (!hasActiveProductionOrders && productionServiceOrders.length > 0) {
+                    // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
+                    if (task.status === TASK_STATUS.IN_PRODUCTION) {
+                      this.logger.log(
+                        `[ROLLBACK TASK ON ALL PRODUCTION SO CANCEL BATCH] All ${productionServiceOrders.length} PRODUCTION service orders cancelled for task ${task.id}, rolling back to WAITING_PRODUCTION`,
+                      );
+
+                      const oldTaskStatus = task.status as TASK_STATUS;
+                      await tx.task.update({
+                        where: { id: task.id },
+                        data: {
+                          status: TASK_STATUS.WAITING_PRODUCTION,
+                          statusOrder: 2, // WAITING_PRODUCTION statusOrder
+                          startedAt: null, // Clear start date on rollback
+                        },
+                      });
+
+                      // Log the task rollback in changelog
+                      await this.changeLogService.logChange({
+                        entityType: ENTITY_TYPE.TASK,
+                        entityId: task.id,
+                        action: CHANGE_ACTION.UPDATE,
+                        field: 'status',
+                        oldValue: oldTaskStatus,
+                        newValue: TASK_STATUS.WAITING_PRODUCTION,
+                        reason: `Tarefa retornada para aguardando produção pois todas as ${productionServiceOrders.length} ordens de serviço de produção foram canceladas (batch)`,
+                        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                        triggeredById: serviceOrder.id,
+                        userId: userId || '',
+                        transaction: tx,
+                      });
+
+                      tasksAutoCompleted.push({
+                        taskId: task.id,
+                        oldStatus: oldTaskStatus,
+                        newStatus: TASK_STATUS.WAITING_PRODUCTION,
+                      });
+                    }
+                    // If task is not IN_PRODUCTION, don't change task status
+                  } else if (hasActiveProductionOrders && allActiveProductionCompleted) {
+                    // If there are still active orders and all are completed, complete the task
                     this.logger.log(
                       `[AUTO-COMPLETE TASK ON CANCEL BATCH] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id} (SO ${serviceOrder.id} cancelled), transitioning to COMPLETED`,
                     );
@@ -2063,6 +2333,199 @@ export class ServiceOrderService {
                       newStatus: TASK_STATUS.COMPLETED,
                     });
                   }
+                }
+              }
+            }
+
+            // =====================================================================
+            // AUTO-CANCEL TASK WHEN ALL COMMERCIAL SERVICE ORDERS ARE CANCELLED (BATCH)
+            // When a COMMERCIAL service order is cancelled, check if ALL commercial
+            // orders are now cancelled - if so, cancel task and all other service orders
+            // =====================================================================
+            if (
+              serviceOrder.status === SERVICE_ORDER_STATUS.CANCELLED &&
+              oldData.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL
+            ) {
+              // Check if this task was already auto-cancelled in this batch
+              const alreadyCancelled = tasksAutoCompleted.some(
+                t => t.taskId === serviceOrder.taskId && t.newStatus === TASK_STATUS.CANCELLED,
+              );
+              if (!alreadyCancelled) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true },
+                });
+
+                // Only proceed if task is not already cancelled
+                if (task && task.status !== TASK_STATUS.CANCELLED) {
+                  // Get all COMMERCIAL service orders for this task
+                  const commercialServiceOrders = await tx.serviceOrder.findMany({
+                    where: {
+                      taskId: serviceOrder.taskId,
+                      type: SERVICE_ORDER_TYPE.COMMERCIAL,
+                    },
+                    select: { id: true, status: true },
+                  });
+
+                  // Filter out CANCELLED orders
+                  const activeCommercialOrders = commercialServiceOrders.filter(
+                    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+                  );
+
+                  // If ALL commercial orders are now cancelled, cancel the task and all other service orders
+                  if (activeCommercialOrders.length === 0 && commercialServiceOrders.length > 0) {
+                    this.logger.log(
+                      `[AUTO-CANCEL TASK ON ALL COMMERCIAL SO CANCEL BATCH] All ${commercialServiceOrders.length} COMMERCIAL service orders cancelled for task ${task.id}, cancelling task and all remaining service orders`,
+                    );
+
+                    const oldTaskStatus = task.status as TASK_STATUS;
+                    await tx.task.update({
+                      where: { id: task.id },
+                      data: {
+                        status: TASK_STATUS.CANCELLED,
+                        statusOrder: 5, // CANCELLED statusOrder
+                      },
+                    });
+
+                    // Cancel all remaining non-cancelled service orders (PRODUCTION, FINANCIAL, ARTWORK, LOGISTIC)
+                    const otherServiceOrders = await tx.serviceOrder.findMany({
+                      where: {
+                        taskId: task.id,
+                        status: { not: SERVICE_ORDER_STATUS.CANCELLED },
+                      },
+                      select: { id: true, status: true, type: true },
+                    });
+
+                    for (const otherSO of otherServiceOrders) {
+                      await tx.serviceOrder.update({
+                        where: { id: otherSO.id },
+                        data: {
+                          status: SERVICE_ORDER_STATUS.CANCELLED,
+                          statusOrder: 5,
+                        },
+                      });
+
+                      // Log each service order cancellation
+                      await this.changeLogService.logChange({
+                        entityType: ENTITY_TYPE.SERVICE_ORDER,
+                        entityId: otherSO.id,
+                        action: CHANGE_ACTION.UPDATE,
+                        field: 'status',
+                        oldValue: otherSO.status,
+                        newValue: SERVICE_ORDER_STATUS.CANCELLED,
+                        reason: `Ordem de serviço ${otherSO.type} cancelada automaticamente pois todas as ordens de serviço comerciais foram canceladas (batch)`,
+                        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                        triggeredById: serviceOrder.id,
+                        userId: userId || '',
+                        transaction: tx,
+                      });
+                    }
+
+                    // Log the task cancellation in changelog
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: task.id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'status',
+                      oldValue: oldTaskStatus,
+                      newValue: TASK_STATUS.CANCELLED,
+                      reason: `Tarefa cancelada automaticamente pois todas as ${commercialServiceOrders.length} ordens de serviço comerciais foram canceladas (batch)`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                      triggeredById: serviceOrder.id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
+                    tasksAutoCompleted.push({
+                      taskId: task.id,
+                      oldStatus: oldTaskStatus,
+                      newStatus: TASK_STATUS.CANCELLED,
+                    });
+                  }
+                }
+              }
+            }
+
+            // =====================================================================
+            // ROLLBACK SYNC: COMMERCIAL Service Order Un-Cancelled → Task Status Rollback (BATCH)
+            // When a COMMERCIAL service order goes from CANCELLED to any other status,
+            // check if task should rollback from CANCELLED to the correct status based on
+            // all service orders (ARTWORK + PRODUCTION)
+            // =====================================================================
+            if (
+              serviceOrder.status !== SERVICE_ORDER_STATUS.CANCELLED &&
+              oldData.status === SERVICE_ORDER_STATUS.CANCELLED &&
+              serviceOrder.type === SERVICE_ORDER_TYPE.COMMERCIAL
+            ) {
+              // Check if this task was already rolled back in this batch
+              const alreadyRolledBack = tasksRolledBack.some(t => t.taskId === serviceOrder.taskId);
+              if (!alreadyRolledBack) {
+                const task = await tx.task.findUnique({
+                  where: { id: serviceOrder.taskId },
+                  select: { id: true, status: true },
+                });
+
+                // Only rollback if task is currently CANCELLED
+                if (task && task.status === TASK_STATUS.CANCELLED) {
+                  // Get all service orders for this task to calculate correct status
+                  const allServiceOrders = await tx.serviceOrder.findMany({
+                    where: { taskId: serviceOrder.taskId },
+                    select: { id: true, status: true, type: true },
+                  });
+
+                  // Calculate the correct task status based on all service orders
+                  const correctStatus = calculateCorrectTaskStatus(
+                    allServiceOrders.map(so => ({
+                      status: so.status as SERVICE_ORDER_STATUS,
+                      type: so.type as SERVICE_ORDER_TYPE,
+                    })),
+                  );
+
+                  this.logger.log(
+                    `[COMMERCIAL ROLLBACK BATCH] Commercial service order ${serviceOrder.id} un-cancelled (${oldData.status} → ${serviceOrder.status}), rolling back task ${task.id} from CANCELLED to ${correctStatus}`,
+                  );
+
+                  const oldTaskStatus = task.status as TASK_STATUS;
+                  const newStatusOrder =
+                    correctStatus === TASK_STATUS.PREPARATION
+                      ? 1
+                      : correctStatus === TASK_STATUS.WAITING_PRODUCTION
+                        ? 2
+                        : correctStatus === TASK_STATUS.IN_PRODUCTION
+                          ? 3
+                          : correctStatus === TASK_STATUS.COMPLETED
+                            ? 4
+                            : 5;
+
+                  await tx.task.update({
+                    where: { id: task.id },
+                    data: {
+                      status: correctStatus,
+                      statusOrder: newStatusOrder,
+                    },
+                  });
+
+                  // Log the rollback in changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: task.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'status',
+                    oldValue: oldTaskStatus,
+                    newValue: correctStatus,
+                    reason: `Tarefa retornada para ${correctStatus === TASK_STATUS.PREPARATION ? 'preparação' : correctStatus === TASK_STATUS.WAITING_PRODUCTION ? 'aguardando produção' : correctStatus === TASK_STATUS.IN_PRODUCTION ? 'em produção' : 'concluída'} pois ordem de serviço comercial foi reativada (batch)`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: serviceOrder.id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
+                  tasksRolledBack.push({
+                    taskId: task.id,
+                    oldStatus: oldTaskStatus,
+                    newStatus: correctStatus,
+                  });
                 }
               }
             }

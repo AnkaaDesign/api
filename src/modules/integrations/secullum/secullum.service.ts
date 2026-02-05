@@ -22,6 +22,8 @@ import {
   SecullumRequestsResponse,
   SecullumRequestActionResponse,
   SecullumRequest,
+  SecullumHorario,
+  SecullumHorariosResponse,
 } from './dto';
 
 @Injectable()
@@ -930,6 +932,153 @@ export class SecullumService {
       };
     } catch (error) {
       this.logger.error('Error deleting holiday', error);
+      throw error;
+    }
+  }
+
+  async getHorarios(params?: {
+    incluirDesativados?: boolean;
+  }): Promise<SecullumHorariosResponse> {
+    try {
+      const incluirDesativados = params?.incluirDesativados ?? true;
+      this.logger.log(`Fetching Secullum schedules (incluirDesativados: ${incluirDesativados})`);
+
+      // First, get the list of schedules (basic info only)
+      const horariosBasicData = await this.makeAuthenticatedRequest<SecullumHorario[]>(
+        'GET',
+        '/Horarios',
+        undefined,
+        { incluirDesativados },
+        undefined,
+      );
+
+      this.logger.log(`Fetched ${horariosBasicData?.length || 0} schedules from Secullum list`);
+
+      if (!horariosBasicData || horariosBasicData.length === 0) {
+        return {
+          success: true,
+          message: 'No schedules found',
+          data: [],
+        };
+      }
+
+      // Fetch detailed info for each schedule in parallel
+      this.logger.log(`Fetching detailed info for ${horariosBasicData.length} schedules...`);
+
+      const detailedSchedules = await Promise.all(
+        horariosBasicData.map(async (basicSchedule) => {
+          try {
+            const detailedData = await this.makeAuthenticatedRequest<any>(
+              'GET',
+              `/Horarios/${basicSchedule.Id}`,
+              undefined,
+              undefined,
+              undefined,
+            );
+
+            if (!detailedData) {
+              return basicSchedule;
+            }
+
+            // Transform the detailed data to our expected format
+            // The Secullum API returns time entries inside "Dias" array (one per day of week)
+            // We'll use Monday (DiaSemana=1) as the default, or first weekday with times
+            const dias = detailedData.Dias || [];
+            const mondaySchedule = dias.find((d: any) => d.DiaSemana === 1) || dias.find((d: any) => d.Entrada1) || {};
+
+            // Calculate total daily workload from Carga (in minutes) or sum from all days
+            const weekdayCarga = dias.find((d: any) => d.Carga > 0)?.Carga || 0;
+            const cargaDiaria = weekdayCarga > 0
+              ? `${Math.floor(weekdayCarga / 60).toString().padStart(2, '0')}:${(weekdayCarga % 60).toString().padStart(2, '0')}:00`
+              : null;
+
+            // Calculate weekly workload
+            const totalWeeklyCarga = dias.reduce((sum: number, d: any) => sum + (d.Carga || 0), 0);
+            const cargaSemanal = totalWeeklyCarga > 0
+              ? `${Math.floor(totalWeeklyCarga / 60).toString().padStart(2, '0')}:${(totalWeeklyCarga % 60).toString().padStart(2, '0')}:00`
+              : null;
+
+            // Map schedule type (Tipo) to description
+            // 0 = Weekly (Semanal), 1 = Monthly Scale, etc.
+            const tipoDescricaoMap: Record<number, string> = {
+              0: 'Semanal',
+              1: 'Escala Mensal',
+              2: 'Escala',
+              3: 'Livre',
+            };
+
+            return {
+              Id: detailedData.Id,
+              Codigo: detailedData.Numero?.toString() || '',
+              Descricao: detailedData.Descricao || '',
+              HorarioFlexivel: false, // This schedule type doesn't have flexible times based on the UI
+              Ativo: !detailedData.Desativar, // Inverted logic
+              Entrada1: mondaySchedule.Entrada1 || null,
+              Saida1: mondaySchedule.Saida1 || null,
+              Entrada2: mondaySchedule.Entrada2 || null,
+              Saida2: mondaySchedule.Saida2 || null,
+              Entrada3: mondaySchedule.Entrada3 || null,
+              Saida3: mondaySchedule.Saida3 || null,
+              ToleranciaEntrada: mondaySchedule.ToleranciaFalta || null,
+              ToleranciaSaida: mondaySchedule.ToleranciaExtra || null,
+              CargaHorariaDiaria: cargaDiaria,
+              CargaHorariaSemanal: cargaSemanal,
+              TipoHorario: detailedData.Tipo,
+              TipoHorarioDescricao: tipoDescricaoMap[detailedData.Tipo] || `Tipo ${detailedData.Tipo}`,
+            } as SecullumHorario;
+          } catch (error) {
+            this.logger.warn(`Failed to fetch details for schedule ${basicSchedule.Id}, using basic data`);
+            return basicSchedule;
+          }
+        }),
+      );
+
+      this.logger.log(`Fetched and transformed ${detailedSchedules.length} schedules`);
+
+      return {
+        success: true,
+        message: 'Schedules retrieved successfully',
+        data: detailedSchedules,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching schedules from Secullum', error);
+      throw error;
+    }
+  }
+
+  async getHorarioById(id: number): Promise<{
+    success: boolean;
+    message: string;
+    data?: SecullumHorario;
+  }> {
+    try {
+      this.logger.log(`Fetching Secullum schedule by ID: ${id}`);
+
+      const horarioData = await this.makeAuthenticatedRequest<SecullumHorario>(
+        'GET',
+        `/Horarios/${id}`,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      if (!horarioData) {
+        return {
+          success: false,
+          message: 'Schedule not found',
+          data: undefined,
+        };
+      }
+
+      this.logger.log(`Fetched schedule ${id} from Secullum: ${horarioData.Descricao || horarioData.Codigo}`);
+
+      return {
+        success: true,
+        message: 'Schedule retrieved successfully',
+        data: horarioData,
+      };
+    } catch (error) {
+      this.logger.error(`Error fetching schedule ${id} from Secullum`, error);
       throw error;
     }
   }

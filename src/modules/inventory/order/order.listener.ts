@@ -117,7 +117,7 @@ export class OrderListener {
         userId,
         title,
         body,
-        type: NOTIFICATION_TYPE.ORDER,
+        type: NOTIFICATION_TYPE.STOCK,
         importance,
         actionUrl,
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,

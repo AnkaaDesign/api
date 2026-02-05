@@ -45,7 +45,7 @@ export class CreateNotificationDto {
   @ApiProperty({
     description: 'Notification type',
     enum: NOTIFICATION_TYPE,
-    example: NOTIFICATION_TYPE.TASK,
+    example: NOTIFICATION_TYPE.PRODUCTION,
   })
   @IsEnum(NOTIFICATION_TYPE)
   type: NOTIFICATION_TYPE;

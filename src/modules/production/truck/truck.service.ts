@@ -7,6 +7,7 @@ import {
   GARAGE_CONFIG,
   parseSpot,
   getGarageSpots,
+  calculateTruckGarageLength,
   type GarageId,
   type LaneId,
   type SpotNumber,
@@ -152,12 +153,8 @@ export class TruckService {
 
       if (layout?.layoutSections) {
         const sectionsSum = layout.layoutSections.reduce((sum, s) => sum + s.width, 0);
-        // Add cabin if < 10m (same logic as calculateTruckGarageLength)
-        const calculatedLength =
-          sectionsSum < GARAGE_CONFIG.CABIN_THRESHOLD
-            ? sectionsSum + GARAGE_CONFIG.CABIN_LENGTH
-            : sectionsSum;
-        length = calculatedLength;
+        // Calculate full truck length with cabin using two-tier system
+        length = calculateTruckGarageLength(sectionsSum);
       }
 
       const parsed = parseSpot(truck.spot! as any);
@@ -197,22 +194,31 @@ export class TruckService {
       // Calculate total occupied length
       const totalOccupiedLength = trucksInLane.reduce((sum, t) => sum + t.length, 0);
 
-      // Calculate required spacing (1m between trucks, small margin)
-      const requiredSpacing =
-        trucksInLane.length * GARAGE_CONFIG.TRUCK_MIN_SPACING +
-        GARAGE_CONFIG.TRUCK_MIN_SPACING * 0.2; // Small margin at ends
+      // Calculate gaps - must match garage view logic:
+      // - 1 truck: 0 gaps (just V1 at top)
+      // - 2 trucks: 0 gaps (V1 at top, V2 at bottom, no mandatory gap between)
+      // - 3 trucks: 2m gaps (V1 top, V2 middle with 1m gap on each side, V3 bottom)
+      const currentGaps = trucksInLane.length === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      const margins = 2 * 0.2; // 0.4m total (small margin at top and bottom)
 
-      // Available space = lane length - occupied - spacing
-      const availableSpace = Math.max(0, config.laneLength - totalOccupiedLength - requiredSpacing);
+      // Available space = lane length - occupied - margins - current gaps
+      const currentOccupied = totalOccupiedLength + margins + currentGaps;
+      const availableSpace = Math.max(0, config.laneLength - currentOccupied);
 
       // Count only V1/V2 occupancy for task form (max 2 spots)
       const spotsOccupiedInV1V2 = occupiedSpots.filter(s => s <= 2).length;
 
-      // Check if truck can fit (needs space + minimum spacing)
-      // Only consider V1/V2 spots for canFit (task form uses max 2 spots per lane)
+      // Calculate if the new truck would fit when added
+      const newTruckCount = trucksInLane.length + 1;
+      const newTotalLength = totalOccupiedLength + truckLength;
+      // Gaps needed after adding the truck
+      const newGaps = newTruckCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+      const totalRequiredSpace = newTotalLength + margins + newGaps;
+
+      // Check if truck can fit - must match garage view logic
       const canFit =
         spotsOccupiedInV1V2 < maxSpotsInTaskForm &&
-        availableSpace >= truckLength + GARAGE_CONFIG.TRUCK_MIN_SPACING;
+        totalRequiredSpace <= config.laneLength;
 
       // Find next available spot number (V1 or V2 only)
       let nextSpotNumber: SpotNumber | null = null;

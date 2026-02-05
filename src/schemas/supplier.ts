@@ -859,7 +859,7 @@ export const supplierCreateSchema = z.object({
     }
     return val;
   }, z.array(phoneSchema).default([]).optional()),
-  pix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
+  pix: z.string().max(500, 'Chave Pix deve ter no máximo 500 caracteres').nullable().optional(),
   tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
     if (typeof val === 'string') {
@@ -1063,7 +1063,7 @@ export const supplierUpdateSchema = z.object({
 
     return val;
   }, z.array(phoneSchema).optional()),
-  pix: z.string().max(100, 'Chave Pix deve ter no máximo 100 caracteres').nullable().optional(),
+  pix: z.string().max(500, 'Chave Pix deve ter no máximo 500 caracteres').nullable().optional(),
   tags: z.preprocess(val => {
     // Handle tags being sent as string "[]" or "[\"tag1\",\"tag2\"]"
     if (typeof val === 'string') {

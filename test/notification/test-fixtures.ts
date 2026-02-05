@@ -124,22 +124,22 @@ export const itemFixtures = {
  * Sample notification preference fixtures
  */
 export const notificationPreferenceFixtures = {
-  taskStatusMandatory: {
-    notificationType: NOTIFICATION_TYPE.TASK,
+  productionStatusMandatory: {
+    notificationType: NOTIFICATION_TYPE.PRODUCTION,
     eventType: 'status',
     enabled: true,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
     isMandatory: true,
   },
-  taskDeadlineMandatory: {
-    notificationType: NOTIFICATION_TYPE.TASK,
+  productionDeadlineMandatory: {
+    notificationType: NOTIFICATION_TYPE.PRODUCTION,
     eventType: 'deadline',
     enabled: true,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
     isMandatory: true,
   },
-  orderOptional: {
-    notificationType: NOTIFICATION_TYPE.ORDER,
+  stockOptional: {
+    notificationType: NOTIFICATION_TYPE.STOCK,
     eventType: 'created',
     enabled: true,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -168,28 +168,28 @@ export const notificationFixtures = {
   taskCreated: {
     title: 'New Task Created',
     body: 'A new task has been assigned to you',
-    type: NOTIFICATION_TYPE.TASK,
+    type: NOTIFICATION_TYPE.PRODUCTION,
     channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
   },
   taskStatusChange: {
     title: 'Task Status Updated',
     body: 'Task status has been changed to IN_PRODUCTION',
-    type: NOTIFICATION_TYPE.TASK,
+    type: NOTIFICATION_TYPE.PRODUCTION,
     channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
     importance: NOTIFICATION_IMPORTANCE.HIGH,
   },
   taskDeadlineApproaching: {
     title: 'Task Deadline Approaching',
     body: 'Your task is due in 24 hours',
-    type: NOTIFICATION_TYPE.TASK,
+    type: NOTIFICATION_TYPE.PRODUCTION,
     channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
     importance: NOTIFICATION_IMPORTANCE.HIGH,
   },
   orderReceived: {
     title: 'New Order Received',
     body: 'A new order has been placed',
-    type: NOTIFICATION_TYPE.ORDER,
+    type: NOTIFICATION_TYPE.STOCK,
     channel: [NOTIFICATION_CHANNEL.IN_APP],
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
   },
@@ -210,7 +210,7 @@ export const notificationFixtures = {
   urgentWarning: {
     title: 'Urgent Warning',
     body: 'Immediate action required',
-    type: NOTIFICATION_TYPE.WARNING,
+    type: NOTIFICATION_TYPE.USER,
     channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
     importance: NOTIFICATION_IMPORTANCE.URGENT,
   },

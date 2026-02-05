@@ -463,10 +463,20 @@ export class CreateNotificationConfigurationDto {
   @MaxLength(100)
   key: string;
 
+  @ApiPropertyOptional({
+    description: 'Human-readable name for this configuration (displayed to users)',
+    example: 'Tarefa Atribuída',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(100)
+  name?: string;
+
   @ApiProperty({
     description: 'Notification type',
     enum: NOTIFICATION_TYPE,
-    example: NOTIFICATION_TYPE.TASK,
+    example: NOTIFICATION_TYPE.PRODUCTION,
   })
   @IsEnum(NOTIFICATION_TYPE)
   notificationType: NOTIFICATION_TYPE;
@@ -892,6 +902,9 @@ export class NotificationConfigurationResponseDto {
 
   @ApiProperty({ description: 'Unique configuration key' })
   key: string;
+
+  @ApiPropertyOptional({ description: 'Human-readable name displayed to users' })
+  name?: string;
 
   @ApiProperty({ description: 'Notification type', enum: NOTIFICATION_TYPE })
   notificationType: NOTIFICATION_TYPE;

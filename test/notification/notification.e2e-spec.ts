@@ -92,7 +92,7 @@ describe('Notification System (e2e)', () => {
         .get('/notifications')
         .query({
           where: JSON.stringify({
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             userId: testUserId,
           }),
         })
@@ -107,7 +107,7 @@ describe('Notification System (e2e)', () => {
       );
 
       expect(notification).toBeDefined();
-      expect(notification.type).toBe(NOTIFICATION_TYPE.TASK);
+      expect(notification.type).toBe(NOTIFICATION_TYPE.PRODUCTION);
     });
 
     it('should send notification when task status changes', async () => {
@@ -129,7 +129,7 @@ describe('Notification System (e2e)', () => {
         .get('/notifications')
         .query({
           where: JSON.stringify({
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             userId: testUserId,
           }),
         })
@@ -161,7 +161,7 @@ describe('Notification System (e2e)', () => {
         .get('/notifications')
         .query({
           where: JSON.stringify({
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             userId: testUserId,
           }),
         })
@@ -187,7 +187,7 @@ describe('Notification System (e2e)', () => {
         .query({
           where: JSON.stringify({
             userId: productionUserId,
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           }),
         })
         .expect(200);
@@ -214,7 +214,7 @@ describe('Notification System (e2e)', () => {
         .get('/notifications')
         .query({
           where: JSON.stringify({
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             userId: testUserId,
           }),
         })
@@ -235,13 +235,13 @@ describe('Notification System (e2e)', () => {
         where: {
           userId_notificationType_eventType: {
             userId: productionUserId,
-            notificationType: NOTIFICATION_TYPE.ORDER,
+            notificationType: NOTIFICATION_TYPE.STOCK,
             eventType: 'created',
           },
         },
         create: {
           userId: productionUserId,
-          notificationType: NOTIFICATION_TYPE.ORDER,
+          notificationType: NOTIFICATION_TYPE.STOCK,
           eventType: 'created',
           enabled: false,
           channels: [],
@@ -264,19 +264,19 @@ describe('Notification System (e2e)', () => {
         .query({
           where: JSON.stringify({
             userId: productionUserId,
-            type: NOTIFICATION_TYPE.ORDER,
+            type: NOTIFICATION_TYPE.STOCK,
           }),
         })
         .expect(200);
 
-      expect(response.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.ORDER)).toHaveLength(0);
+      expect(response.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.STOCK)).toHaveLength(0);
     });
 
     it('should not allow disabling mandatory notifications', async () => {
       const response = await request(app.getHttpServer())
         .put(`/notification-preferences/${testUserId}`)
         .send({
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           enabled: false,
           channels: [],
@@ -290,7 +290,7 @@ describe('Notification System (e2e)', () => {
       const response = await request(app.getHttpServer())
         .put(`/notification-preferences/${testUserId}`)
         .send({
-          notificationType: NOTIFICATION_TYPE.ORDER,
+          notificationType: NOTIFICATION_TYPE.STOCK,
           eventType: 'created',
           enabled: true,
           channels: [NOTIFICATION_CHANNEL.EMAIL],
@@ -330,7 +330,7 @@ describe('Notification System (e2e)', () => {
         .query({
           where: JSON.stringify({
             userId: productionUserId,
-            type: NOTIFICATION_TYPE.ORDER,
+            type: NOTIFICATION_TYPE.STOCK,
           }),
         })
         .expect(200);
@@ -341,13 +341,13 @@ describe('Notification System (e2e)', () => {
         .query({
           where: JSON.stringify({
             userId: warehouseUserId,
-            type: NOTIFICATION_TYPE.ORDER,
+            type: NOTIFICATION_TYPE.STOCK,
           }),
         })
         .expect(200);
 
-      expect(productionResponse.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.ORDER)).toHaveLength(0);
-      expect(warehouseResponse.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.ORDER).length).toBeGreaterThan(0);
+      expect(productionResponse.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.STOCK)).toHaveLength(0);
+      expect(warehouseResponse.body.data.filter((n: any) => n.type === NOTIFICATION_TYPE.STOCK).length).toBeGreaterThan(0);
     });
 
     it('should send task notifications to relevant sectors', async () => {
@@ -364,7 +364,7 @@ describe('Notification System (e2e)', () => {
         .query({
           where: JSON.stringify({
             userId: productionUserId,
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
           }),
         })
         .expect(200);
@@ -380,7 +380,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Multi-channel Test',
           body: 'Testing all channels',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
         },
@@ -409,7 +409,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Channel Failure Test',
           body: 'Testing failure handling',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.WHATSAPP],
           importance: NOTIFICATION_IMPORTANCE.HIGH,
         },
@@ -441,7 +441,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Delivery Tracking Test',
           body: 'Testing delivery tracking',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.IN_APP],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
         },
@@ -471,7 +471,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Seen Tracking Test',
           body: 'Testing seen tracking',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.IN_APP],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           sentAt: new Date(),
@@ -502,7 +502,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Duplicate Seen Test',
           body: 'Testing duplicate prevention',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.IN_APP],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           sentAt: new Date(),
@@ -536,7 +536,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Remind Later Test',
           body: 'Testing remind later',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.IN_APP],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           sentAt: new Date(),
@@ -574,7 +574,7 @@ describe('Notification System (e2e)', () => {
             userId: testUserId,
             title: 'Unread 1',
             body: 'Test 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.IN_APP],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             sentAt: new Date(),
@@ -583,7 +583,7 @@ describe('Notification System (e2e)', () => {
             userId: testUserId,
             title: 'Unread 2',
             body: 'Test 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.IN_APP],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             sentAt: new Date(),
@@ -607,7 +607,7 @@ describe('Notification System (e2e)', () => {
             userId: testUserId,
             title: 'Mark All 1',
             body: 'Test 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.IN_APP],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             sentAt: new Date(),
@@ -616,7 +616,7 @@ describe('Notification System (e2e)', () => {
             userId: testUserId,
             title: 'Mark All 2',
             body: 'Test 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.IN_APP],
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             sentAt: new Date(),
@@ -673,7 +673,7 @@ describe('Notification System (e2e)', () => {
       const notifications = await prisma.notification.findMany({
         where: {
           userId: testUserId,
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
         },
       });
 
@@ -687,7 +687,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Retry Test',
           body: 'Testing retry logic',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           importance: NOTIFICATION_IMPORTANCE.HIGH,
         },
@@ -718,7 +718,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: `Rate Limit Test ${i}`,
           body: 'Testing rate limiting',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
         });
@@ -756,7 +756,7 @@ describe('Notification System (e2e)', () => {
           userId: tempUser.id,
           title: 'Deleted User Test',
           body: 'Testing deleted user handling',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
         },
@@ -794,7 +794,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: '', // Empty title should fail
           body: 'Test body',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.IN_APP],
         })
         .expect(400);
@@ -832,7 +832,7 @@ describe('Notification System (e2e)', () => {
         .expect(200);
 
       expect(response.body.data).toHaveProperty('byType');
-      expect(response.body.data.byType).toHaveProperty(NOTIFICATION_TYPE.TASK);
+      expect(response.body.data.byType).toHaveProperty(NOTIFICATION_TYPE.PRODUCTION);
     });
   });
 
@@ -845,7 +845,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Scheduled Test',
           body: 'Testing scheduled delivery',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           scheduledAt: futureDate,
@@ -871,7 +871,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Past Scheduled Test',
           body: 'Testing past scheduled delivery',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           scheduledAt: pastDate,
@@ -911,7 +911,7 @@ describe('Notification System (e2e)', () => {
           userId: testUserId,
           title: 'Stats Test',
           body: 'Testing statistics',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.IN_APP],
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
         },

@@ -101,7 +101,7 @@ export class PpeListener {
       for (const userId of targetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.PPE,
+          NOTIFICATION_TYPE.USER,
           'requested',
         );
 
@@ -112,7 +112,7 @@ export class PpeListener {
 
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.PPE,
+          type: NOTIFICATION_TYPE.USER,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: 'Nova Solicitação de EPI',
           body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovação.`,
@@ -169,14 +169,14 @@ export class PpeListener {
       if (event.requestedBy.id !== event.approvedBy.id) {
         const userChannels = await this.getEnabledChannelsForUser(
           event.requestedBy.id,
-          NOTIFICATION_TYPE.PPE,
+          NOTIFICATION_TYPE.USER,
           'approved',
         );
 
         if (userChannels.length > 0) {
           await this.notificationService.createNotification({
             userId: event.requestedBy.id,
-            type: NOTIFICATION_TYPE.PPE,
+            type: NOTIFICATION_TYPE.USER,
             importance: NOTIFICATION_IMPORTANCE.HIGH,
             title: 'Solicitação de EPI Aprovada',
             body: `Sua solicitação de ${quantityLabel}"${itemName}" foi aprovada por ${event.approvedBy.name}. Aguarde a entrega pelo almoxarifado.`,
@@ -210,7 +210,7 @@ export class PpeListener {
       for (const userId of warehouseUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.PPE,
+          NOTIFICATION_TYPE.USER,
           'approved',
         );
 
@@ -221,7 +221,7 @@ export class PpeListener {
 
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.PPE,
+          type: NOTIFICATION_TYPE.USER,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: 'EPI Aprovado para Entrega',
           body: `${quantityLabel}"${itemName}" aprovado para ${event.requestedBy.name}. Por favor, realize a entrega.`,
@@ -264,7 +264,6 @@ export class PpeListener {
     this.logger.log(`[PPE EVENT] Item: ${event.item.name}`);
     this.logger.log(`[PPE EVENT] Requested By: ${event.requestedBy.name}`);
     this.logger.log(`[PPE EVENT] Rejected By: ${event.rejectedBy.name} (${event.rejectedBy.id})`);
-    this.logger.log(`[PPE EVENT] Reason: ${event.reason || 'Não informado'}`);
     this.logger.log('========================================');
 
     try {
@@ -272,23 +271,22 @@ export class PpeListener {
       let notificationsSkipped = 0;
 
       const itemName = event.item.name;
-      const reasonText = event.reason ? ` Motivo: ${event.reason}.` : '';
 
       // Only notify the user who requested (if they're not the one who rejected)
       if (event.requestedBy.id !== event.rejectedBy.id) {
         const channels = await this.getEnabledChannelsForUser(
           event.requestedBy.id,
-          NOTIFICATION_TYPE.PPE,
+          NOTIFICATION_TYPE.USER,
           'rejected',
         );
 
         if (channels.length > 0) {
           await this.notificationService.createNotification({
             userId: event.requestedBy.id,
-            type: NOTIFICATION_TYPE.PPE,
+            type: NOTIFICATION_TYPE.USER,
             importance: NOTIFICATION_IMPORTANCE.HIGH,
             title: 'Solicitação de EPI Reprovada',
-            body: `Sua solicitação de "${itemName}" foi reprovada por ${event.rejectedBy.name}.${reasonText}`,
+            body: `Sua solicitação de "${itemName}" foi reprovada por ${event.rejectedBy.name}.`,
             actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
             actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
             relatedEntityId: event.delivery.id,
@@ -300,7 +298,6 @@ export class PpeListener {
               itemName: event.item.name,
               rejectedById: event.rejectedBy.id,
               rejectedByName: event.rejectedBy.name,
-              reason: event.reason,
             },
             channel: channels,
           });
@@ -349,14 +346,14 @@ export class PpeListener {
       if (event.deliveredTo.id !== event.deliveredBy.id) {
         const channels = await this.getEnabledChannelsForUser(
           event.deliveredTo.id,
-          NOTIFICATION_TYPE.PPE,
+          NOTIFICATION_TYPE.USER,
           'delivered',
         );
 
         if (channels.length > 0) {
           await this.notificationService.createNotification({
             userId: event.deliveredTo.id,
-            type: NOTIFICATION_TYPE.PPE,
+            type: NOTIFICATION_TYPE.USER,
             importance: NOTIFICATION_IMPORTANCE.NORMAL,
             title: 'EPI Entregue',
             body: `${quantityLabel}"${itemName}" foi entregue a você por ${event.deliveredBy.name}.`,

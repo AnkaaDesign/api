@@ -841,6 +841,8 @@ model OrderItem {
 
 model OrderSchedule {
   id                 String                 @id @default(uuid())
+  name               String?
+  description        String?
   frequency          ScheduleFrequency
   frequencyCount     Int                    @default(1)
   isActive           Boolean                @default(true)
@@ -1565,6 +1567,7 @@ model NotificationDelivery {
 model NotificationConfiguration {
   id                  String                       @id @default(uuid())
   key                 String                       @unique
+  name                String?
   notificationType    NotificationType
   eventType           String
   description         String?
@@ -2320,25 +2323,10 @@ enum WarningCategory {
 
 enum NotificationType {
   SYSTEM
-  TASK
-  ORDER
-  SERVICE_ORDER
-  PPE
-  VACATION
-  WARNING
-  STOCK
+  PRODUCTION // Tasks, cuts, service orders, observations, airbrushings, garages
+  STOCK // Items, orders, activities, borrows
+  USER // Warnings, vacation, PPE delivery, bonus, time entries
   GENERAL
-  TASK_STATUS
-  TASK_DEADLINE
-  TASK_ASSIGNMENT
-  TASK_FIELD_UPDATE
-  ORDER_CREATED
-  ORDER_STATUS
-  ORDER_OVERDUE
-  STOCK_LOW
-  STOCK_OUT
-  STOCK_REORDER
-  CUT
 }
 
 enum NotificationImportance {
@@ -2770,6 +2758,7 @@ enum NotificationActionType {
   VIEW_REPORT
   ACKNOWLEDGE
   DISMISS
+  VIEW_SERVICE_ORDER
 }
 
 enum ActivityOperation {
@@ -3006,4 +2995,5 @@ enum GDriveDeleteStatus {
   PENDING
   DELETED
   FAILED
+  NOT_NEEDED
 }

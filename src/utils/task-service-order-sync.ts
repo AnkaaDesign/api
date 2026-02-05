@@ -58,8 +58,14 @@ export function determineTaskStatusFromServiceOrders(
     so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
   );
 
-  // If all production orders are cancelled, don't change task status
+  // If all production orders are cancelled, rollback task to WAITING_PRODUCTION
+  // (only COMMERCIAL cancellation should cancel the task, not PRODUCTION)
   if (activeProductionOrders.length === 0) {
+    // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
+    if (currentTaskStatus === TASK_STATUS.IN_PRODUCTION) {
+      return TASK_STATUS.WAITING_PRODUCTION;
+    }
+    // Otherwise don't change task status
     return null;
   }
 
@@ -94,6 +100,89 @@ export function determineTaskStatusFromServiceOrders(
   }
 
   return null;
+}
+
+/**
+ * Determines the correct task status based on ALL service orders (ARTWORK + PRODUCTION).
+ * This is used for rollback scenarios where we need to calculate the proper status
+ * from scratch, considering both ARTWORK and PRODUCTION service order states.
+ *
+ * Logic:
+ * 1. If there are ARTWORK SOs and NONE are COMPLETED → PREPARATION
+ * 2. If there are ARTWORK SOs and at least one is COMPLETED (or no ARTWORK SOs exist):
+ *    a. If all active PRODUCTION SOs are PENDING → WAITING_PRODUCTION
+ *    b. If any PRODUCTION SO is IN_PROGRESS or some COMPLETED → IN_PRODUCTION
+ *    c. If all active PRODUCTION SOs are COMPLETED → COMPLETED
+ * 3. If no PRODUCTION SOs exist → based on ARTWORK status
+ */
+export function calculateCorrectTaskStatus(
+  serviceOrders: Array<{ status: SERVICE_ORDER_STATUS; type: SERVICE_ORDER_TYPE }>,
+): TASK_STATUS {
+  const artworkOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.ARTWORK);
+  const productionOrders = serviceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION);
+
+  // Filter out CANCELLED orders
+  const activeArtworkOrders = artworkOrders.filter(
+    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+  );
+  const activeProductionOrders = productionOrders.filter(
+    so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
+  );
+
+  // Check if any ARTWORK SO is completed
+  const anyArtworkCompleted = activeArtworkOrders.some(
+    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+
+  // If there are ARTWORK SOs and none are completed → PREPARATION
+  if (activeArtworkOrders.length > 0 && !anyArtworkCompleted) {
+    return TASK_STATUS.PREPARATION;
+  }
+
+  // At this point, either no ARTWORK SOs exist, or at least one is completed
+  // Now check PRODUCTION SOs to determine the status
+
+  // If no active PRODUCTION SOs, default to WAITING_PRODUCTION
+  if (activeProductionOrders.length === 0) {
+    // If there are artwork orders and at least one completed, task is waiting for production
+    if (activeArtworkOrders.length > 0 && anyArtworkCompleted) {
+      return TASK_STATUS.WAITING_PRODUCTION;
+    }
+    // If no artwork orders either, default to WAITING_PRODUCTION
+    return TASK_STATUS.WAITING_PRODUCTION;
+  }
+
+  // Check PRODUCTION SO states
+  const allProductionCompleted = activeProductionOrders.every(
+    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+  const allProductionPending = activeProductionOrders.every(
+    so => so.status === SERVICE_ORDER_STATUS.PENDING,
+  );
+  const anyProductionInProgress = activeProductionOrders.some(
+    so => so.status === SERVICE_ORDER_STATUS.IN_PROGRESS,
+  );
+  const anyProductionCompleted = activeProductionOrders.some(
+    so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+  );
+
+  // All PRODUCTION SOs completed → COMPLETED
+  if (allProductionCompleted) {
+    return TASK_STATUS.COMPLETED;
+  }
+
+  // Any PRODUCTION SO in progress or some completed → IN_PRODUCTION
+  if (anyProductionInProgress || anyProductionCompleted) {
+    return TASK_STATUS.IN_PRODUCTION;
+  }
+
+  // All PRODUCTION SOs pending → WAITING_PRODUCTION
+  if (allProductionPending) {
+    return TASK_STATUS.WAITING_PRODUCTION;
+  }
+
+  // Default fallback
+  return TASK_STATUS.WAITING_PRODUCTION;
 }
 
 /**
@@ -366,8 +455,9 @@ export function getTaskUpdateForServiceOrderStatusChange(
     }
   }
 
-  // SO: ANY → CANCELLED (check if all remaining active production SOs are complete)
+  // SO: ANY → CANCELLED (check if all remaining active production SOs are complete or all are cancelled)
   // When a service order is cancelled, check if all remaining active orders are completed
+  // OR if all production orders are now cancelled (task should rollback, not cancel)
   if (
     newServiceOrderStatus === SERVICE_ORDER_STATUS.CANCELLED &&
     oldServiceOrderStatus !== SERVICE_ORDER_STATUS.CANCELLED
@@ -377,7 +467,25 @@ export function getTaskUpdateForServiceOrderStatusChange(
       so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
     );
 
-    // Only check completion if there are active orders remaining
+    // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
+    if (activeProductionOrders.length === 0 && productionOrders.length > 0) {
+      // If task is IN_PRODUCTION, rollback to WAITING_PRODUCTION
+      if (currentTaskStatus === TASK_STATUS.IN_PRODUCTION) {
+        return {
+          shouldUpdate: true,
+          newTaskStatus: TASK_STATUS.WAITING_PRODUCTION,
+          setStartedAt: false,
+          setFinishedAt: false,
+          clearStartedAt: true, // Clear start date on rollback
+          clearFinishedAt: false,
+          reason: `Tarefa retornada para aguardando produção pois todas as ${productionOrders.length} ordens de serviço de produção foram canceladas`,
+        };
+      }
+      // Otherwise don't change task status
+      return null;
+    }
+
+    // Check if there are active orders remaining and all are completed
     if (activeProductionOrders.length > 0) {
       const allCompleted = activeProductionOrders.every(
         so => so.status === SERVICE_ORDER_STATUS.COMPLETED,

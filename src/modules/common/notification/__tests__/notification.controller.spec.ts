@@ -53,7 +53,7 @@ describe('NotificationController', () => {
             id: 'notif-1',
             title: 'Test Notification',
             body: 'Test body',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.EMAIL],
             userId: 'user-1',
             createdAt: new Date(),
@@ -100,7 +100,7 @@ describe('NotificationController', () => {
           id: 'notif-1',
           title: 'Test Notification',
           body: 'Test body',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           userId: 'user-1',
           createdAt: new Date(),
@@ -133,7 +133,7 @@ describe('NotificationController', () => {
       const createData = {
         title: 'New Notification',
         body: 'Notification body',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
         userId: 'user-1',
         importance: 'HIGH' as any,
@@ -161,7 +161,7 @@ describe('NotificationController', () => {
     it('should validate required fields', async () => {
       const invalidData = {
         body: 'Missing title',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         channel: [NOTIFICATION_CHANNEL.EMAIL],
       } as any;
 
@@ -187,7 +187,7 @@ describe('NotificationController', () => {
         data: {
           id: 'notif-1',
           ...updateData,
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           userId: 'user-1',
           createdAt: new Date(),
@@ -228,14 +228,14 @@ describe('NotificationController', () => {
           {
             title: 'Notification 1',
             body: 'Body 1',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.EMAIL],
             userId: 'user-1',
           },
           {
             title: 'Notification 2',
             body: 'Body 2',
-            type: NOTIFICATION_TYPE.TASK,
+            type: NOTIFICATION_TYPE.PRODUCTION,
             channel: [NOTIFICATION_CHANNEL.PUSH],
             userId: 'user-2',
           },
@@ -334,7 +334,7 @@ describe('NotificationController', () => {
           id: 'notif-1',
           title: 'Unseen 1',
           body: 'Body 1',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           userId: 'user-1',
           createdAt: new Date(),
         },

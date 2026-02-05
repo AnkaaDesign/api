@@ -127,50 +127,117 @@ export class NotificationFilterService {
    * Defines which sectors can receive which notification types
    */
   private readonly NOTIFICATION_FILTERS: Record<NOTIFICATION_TYPE, NotificationFilter> = {
-    // TASK notifications: Assigned users + supervisor + admin
-    [NOTIFICATION_TYPE.TASK]: {
-      notificationType: NOTIFICATION_TYPE.TASK,
-      requiredSectors: [], // All users can potentially see task notifications
+    // SYSTEM notifications: All users can see system notifications
+    [NOTIFICATION_TYPE.SYSTEM]: {
+      notificationType: NOTIFICATION_TYPE.SYSTEM,
+      requiredSectors: [], // All users can see system notifications
+    },
+
+    // PRODUCTION notifications: Tasks, Service Orders, Cuts
+    // Assigned users + supervisor + admin + relevant sector users
+    [NOTIFICATION_TYPE.PRODUCTION]: {
+      notificationType: NOTIFICATION_TYPE.PRODUCTION,
+      requiredSectors: [], // All users can potentially see production notifications
       customFilter: (user: User, notification: Notification) => {
         const metadata = this.parseMetadata(notification);
         const task = metadata?.task;
+        const serviceOrder = metadata?.serviceOrder;
+        const cut = metadata?.cut;
 
-        if (!task) {
-          return true;
-        }
-
-        // Admin can see all tasks
+        // Admin can see all production notifications
         if (user.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
           return true;
         }
 
-        // Assigned users can see the task
-        if (task.assignedUserIds?.includes(user.id)) {
-          return true;
+        // Task-related notifications
+        if (task) {
+          // Assigned users can see the task
+          if (task.assignedUserIds?.includes(user.id)) {
+            return true;
+          }
+
+          // Supervisor can see tasks they supervise
+          if (task.supervisorId === user.id) {
+            return true;
+          }
+
+          // User can see tasks in their sector
+          if (user.sectorId === task.sectorId) {
+            return true;
+          }
+
+          // Sector managers can see tasks in their managed sector
+          if (user.managedSector && user.managedSector.id === task.sectorId) {
+            return true;
+          }
+
+          // User created the task
+          if (task.createdById === user.id) {
+            return true;
+          }
+
+          // Warehouse can see all production-related tasks (inventory management)
+          if (user.sector?.privileges === SECTOR_PRIVILEGES.WAREHOUSE) {
+            return true;
+          }
         }
 
-        // Supervisor can see tasks they supervise
-        if (task.supervisorId === user.id) {
-          return true;
+        // Service Order notifications
+        if (serviceOrder) {
+          // If the service order is assigned to this user, they should see it
+          if (serviceOrder.assignedToId === user.id) {
+            return true;
+          }
+
+          // If the user created the service order, they should see completion notifications
+          if (serviceOrder.createdById === user.id) {
+            return true;
+          }
+
+          // Check based on service order type
+          const serviceOrderType = serviceOrder.type;
+          const userPrivilege = user.sector?.privileges;
+
+          if (serviceOrderType === 'ARTWORK' && userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
+            return true;
+          }
+          if (serviceOrderType === 'FINANCIAL' && userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+            return true;
+          }
+          if (
+            serviceOrderType === 'PRODUCTION' &&
+            (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
+              userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)
+          ) {
+            return true;
+          }
+          if (serviceOrderType === 'COMMERCIAL' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
+            return true;
+          }
         }
 
-        // User can see tasks in their sector
-        if (user.sectorId === task.sectorId) {
-          return true;
+        // Cut notifications
+        if (cut) {
+          // PLOTTING can see all cut notifications
+          if (user.sector?.privileges === SECTOR_PRIVILEGES.PLOTTING) {
+            return true;
+          }
+
+          // PRODUCTION can see cut notifications for tasks in their sector
+          // Only for status changes (started/finished), not all cut events
+          if (user.sector?.privileges === SECTOR_PRIVILEGES.PRODUCTION) {
+            // Only show cuts started (CUTTING) or finished (COMPLETED)
+            if (cut.status === 'CUTTING' || cut.status === 'COMPLETED') {
+              // Check if the cut's task is in user's sector
+              if (cut.taskSectorId && user.sectorId === cut.taskSectorId) {
+                return true;
+              }
+            }
+          }
         }
 
-        // Sector managers can see tasks in their managed sector
-        if (user.managedSector && user.managedSector.id === task.sectorId) {
-          return true;
-        }
-
-        // User created the task
-        if (task.createdById === user.id) {
-          return true;
-        }
-
-        // Warehouse can see all production-related tasks (inventory management)
-        if (user.sector?.privileges === SECTOR_PRIVILEGES.WAREHOUSE) {
+        // If no specific metadata, allow based on sector requirements
+        if (!task && !serviceOrder && !cut) {
           return true;
         }
 
@@ -178,27 +245,15 @@ export class NotificationFilterService {
       },
     },
 
-    // ORDER notifications: Only ADMIN, WAREHOUSE (inventory management)
-    [NOTIFICATION_TYPE.ORDER]: {
-      notificationType: NOTIFICATION_TYPE.ORDER,
-      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE],
-    },
-
-    // STOCK notifications: Only ADMIN, WAREHOUSE
+    // STOCK notifications: Orders and Stock - Only ADMIN, WAREHOUSE, LOGISTIC
     [NOTIFICATION_TYPE.STOCK]: {
       notificationType: NOTIFICATION_TYPE.STOCK,
-      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE],
+      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.LOGISTIC],
     },
 
-    // GENERAL notifications: All users can see general notifications
-    [NOTIFICATION_TYPE.GENERAL]: {
-      notificationType: NOTIFICATION_TYPE.GENERAL,
-      requiredSectors: [], // All users can see general notifications
-    },
-
-    // PPE notifications: ADMIN, HUMAN_RESOURCES, WAREHOUSE, or specific user
-    [NOTIFICATION_TYPE.PPE]: {
-      notificationType: NOTIFICATION_TYPE.PPE,
+    // USER notifications: PPE, Vacation, Warning - ADMIN, HUMAN_RESOURCES, WAREHOUSE, or specific user
+    [NOTIFICATION_TYPE.USER]: {
+      notificationType: NOTIFICATION_TYPE.USER,
       requiredSectors: [
         SECTOR_PRIVILEGES.ADMIN,
         SECTOR_PRIVILEGES.HUMAN_RESOURCES,
@@ -207,10 +262,27 @@ export class NotificationFilterService {
       customFilter: (user: User, notification: Notification) => {
         const metadata = this.parseMetadata(notification);
         const ppe = metadata?.ppe;
+        const vacation = metadata?.vacation;
+        const warning = metadata?.warning;
 
-        // If the PPE notification is for a specific user, they should see it
+        // PPE notification for a specific user
         if (ppe?.userId === user.id) {
           return true;
+        }
+
+        // Vacation notification for a specific user
+        if (vacation?.userId === user.id) {
+          return true;
+        }
+
+        // Warning notification for a specific user
+        if (warning?.userId === user.id) {
+          return true;
+        }
+
+        // Sector managers can see notifications for their team
+        if (user.managedSector) {
+          return false;
         }
 
         // Otherwise, rely on sector-based filtering
@@ -218,147 +290,10 @@ export class NotificationFilterService {
       },
     },
 
-    // VACATION notifications: ADMIN, HUMAN_RESOURCES, or the user themselves
-    [NOTIFICATION_TYPE.VACATION]: {
-      notificationType: NOTIFICATION_TYPE.VACATION,
-      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES],
-      customFilter: (user: User, notification: Notification) => {
-        const metadata = this.parseMetadata(notification);
-        const vacation = metadata?.vacation;
-
-        // If the vacation notification is for a specific user, they should see it
-        if (vacation?.userId === user.id) {
-          return true;
-        }
-
-        // Sector managers can see vacation notifications for their team
-        if (user.managedSector) {
-          return false;
-        }
-
-        return false;
-      },
-    },
-
-    // WARNING notifications: ADMIN, HUMAN_RESOURCES, or involved parties
-    [NOTIFICATION_TYPE.WARNING]: {
-      notificationType: NOTIFICATION_TYPE.WARNING,
-      requiredSectors: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES],
-      customFilter: (user: User, notification: Notification) => {
-        const metadata = this.parseMetadata(notification);
-        const warning = metadata?.warning;
-
-        // If the warning notification is for a specific user, they should see it
-        if (warning?.userId === user.id) {
-          return true;
-        }
-
-        // Sector managers can see warnings for their team
-        if (user.managedSector) {
-          return false;
-        }
-
-        return false;
-      },
-    },
-
-    // SYSTEM notifications: All users can see system notifications
-    [NOTIFICATION_TYPE.SYSTEM]: {
-      notificationType: NOTIFICATION_TYPE.SYSTEM,
-      requiredSectors: [], // All users can see system notifications
-    },
-
-    // SERVICE_ORDER notifications: Based on service order type and role
-    [NOTIFICATION_TYPE.SERVICE_ORDER]: {
-      notificationType: NOTIFICATION_TYPE.SERVICE_ORDER,
-      requiredSectors: [
-        SECTOR_PRIVILEGES.ADMIN,
-        SECTOR_PRIVILEGES.DESIGNER,
-        SECTOR_PRIVILEGES.PRODUCTION,
-        SECTOR_PRIVILEGES.FINANCIAL,
-        SECTOR_PRIVILEGES.LOGISTIC,
-        SECTOR_PRIVILEGES.COMMERCIAL,
-      ],
-      customFilter: (user: User, notification: Notification) => {
-        const metadata = this.parseMetadata(notification);
-        const serviceOrder = metadata?.serviceOrder;
-
-        // Admin can see all service order notifications
-        if (user.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
-          return true;
-        }
-
-        // If the service order is assigned to this user, they should see it
-        if (serviceOrder?.assignedToId === user.id) {
-          return true;
-        }
-
-        // If the user created the service order, they should see completion notifications
-        if (serviceOrder?.createdById === user.id) {
-          return true;
-        }
-
-        // Check based on service order type
-        const serviceOrderType = serviceOrder?.type;
-        const userPrivilege = user.sector?.privileges;
-
-        if (serviceOrderType === 'ARTWORK' && userPrivilege === SECTOR_PRIVILEGES.DESIGNER) {
-          return true;
-        }
-        if (serviceOrderType === 'FINANCIAL' && userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
-          return true;
-        }
-        if (
-          serviceOrderType === 'PRODUCTION' &&
-          (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
-            userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)
-        ) {
-          return true;
-        }
-        if (serviceOrderType === 'COMMERCIAL' && userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL) {
-          return true;
-        }
-
-        return false;
-      },
-    },
-
-    // CUT notifications: PLOTTING for all cuts, PRODUCTION for task-related cuts in their sector
-    [NOTIFICATION_TYPE.CUT]: {
-      notificationType: NOTIFICATION_TYPE.CUT,
-      requiredSectors: [
-        SECTOR_PRIVILEGES.ADMIN,
-        SECTOR_PRIVILEGES.PLOTTING,
-        SECTOR_PRIVILEGES.PRODUCTION,
-      ],
-      customFilter: (user: User, notification: Notification) => {
-        const metadata = this.parseMetadata(notification);
-        const cut = metadata?.cut;
-
-        // Admin can see all cut notifications
-        if (user.sector?.privileges === SECTOR_PRIVILEGES.ADMIN) {
-          return true;
-        }
-
-        // PLOTTING can see all cut notifications
-        if (user.sector?.privileges === SECTOR_PRIVILEGES.PLOTTING) {
-          return true;
-        }
-
-        // PRODUCTION can see cut notifications for tasks in their sector
-        // Only for status changes (started/finished), not all cut events
-        if (user.sector?.privileges === SECTOR_PRIVILEGES.PRODUCTION) {
-          // Only show cuts started (CUTTING) or finished (COMPLETED)
-          if (cut?.status === 'CUTTING' || cut?.status === 'COMPLETED') {
-            // Check if the cut's task is in user's sector
-            if (cut?.taskSectorId && user.sectorId === cut.taskSectorId) {
-              return true;
-            }
-          }
-        }
-
-        return false;
-      },
+    // GENERAL notifications: All users can see general notifications
+    [NOTIFICATION_TYPE.GENERAL]: {
+      notificationType: NOTIFICATION_TYPE.GENERAL,
+      requiredSectors: [], // All users can see general notifications
     },
   };
 
@@ -1040,28 +975,38 @@ export class NotificationFilterService {
     metadata?: NotificationMetadata,
   ): Promise<User[]> {
     switch (notificationType) {
-      case NOTIFICATION_TYPE.TASK:
-        return this.getUsersForTaskNotification(
-          metadata?.task?.sectorId ?? null,
-          metadata?.task?.createdById ?? null,
-          metadata?.task?.assignedUserIds,
-          metadata?.task?.supervisorId,
-        );
-
-      case NOTIFICATION_TYPE.ORDER:
-        return this.getUsersForOrderNotification();
+      case NOTIFICATION_TYPE.PRODUCTION:
+        // For production notifications, we may have task, service order, or cut metadata
+        if (metadata?.task) {
+          return this.getUsersForTaskNotification(
+            metadata.task.sectorId ?? null,
+            metadata.task.createdById ?? null,
+            metadata.task.assignedUserIds,
+            metadata.task.supervisorId,
+          );
+        }
+        // For service orders and cuts, return production users
+        return this.getUsersForProductionNotification();
 
       case NOTIFICATION_TYPE.STOCK:
         return this.getUsersForStockNotification();
 
-      case NOTIFICATION_TYPE.PPE:
-        return this.getUsersForPPENotification(metadata?.ppe?.userId);
-
-      case NOTIFICATION_TYPE.VACATION:
-        return this.getUsersForVacationNotification(metadata?.vacation?.userId);
-
-      case NOTIFICATION_TYPE.WARNING:
-        return this.getUsersForWarningNotification(metadata?.warning?.userId);
+      case NOTIFICATION_TYPE.USER:
+        // For user notifications, check if it's PPE, vacation, or warning
+        if (metadata?.ppe?.userId) {
+          return this.getUsersForPPENotification(metadata.ppe.userId);
+        }
+        if (metadata?.vacation?.userId) {
+          return this.getUsersForVacationNotification(metadata.vacation.userId);
+        }
+        if (metadata?.warning?.userId) {
+          return this.getUsersForWarningNotification(metadata.warning.userId);
+        }
+        // Default to HR and admin users for general user notifications
+        return this.getUsersForSectors([
+          SECTOR_PRIVILEGES.ADMIN,
+          SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+        ]);
 
       case NOTIFICATION_TYPE.SYSTEM:
         return this.getUsersForSystemNotification();

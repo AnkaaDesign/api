@@ -233,14 +233,35 @@ export class OrderScheduleService {
     }
 
     // Additional business rule: validate schedule frequency configuration
-    if (data.frequency === SCHEDULE_FREQUENCY.WEEKLY && !data.weeklySchedule) {
-      throw new BadRequestException('Configuração semanal é obrigatória para frequência semanal.');
+    // Support both flat fields (dayOfWeek, dayOfMonth, month) and nested schedule objects
+    if (
+      (data.frequency === SCHEDULE_FREQUENCY.WEEKLY || data.frequency === SCHEDULE_FREQUENCY.BIWEEKLY) &&
+      !data.weeklySchedule &&
+      !data.dayOfWeek
+    ) {
+      throw new BadRequestException('Dia da semana é obrigatório para frequência semanal/quinzenal.');
     }
-    if (data.frequency === SCHEDULE_FREQUENCY.MONTHLY && !data.monthlySchedule) {
-      throw new BadRequestException('Configuração mensal é obrigatória para frequência mensal.');
+    const monthlyFrequencies: string[] = [
+      SCHEDULE_FREQUENCY.MONTHLY,
+      SCHEDULE_FREQUENCY.BIMONTHLY,
+      SCHEDULE_FREQUENCY.QUARTERLY,
+      SCHEDULE_FREQUENCY.TRIANNUAL,
+      SCHEDULE_FREQUENCY.QUADRIMESTRAL,
+      SCHEDULE_FREQUENCY.SEMI_ANNUAL,
+    ];
+    if (
+      monthlyFrequencies.includes(data.frequency) &&
+      !data.monthlySchedule &&
+      !data.dayOfMonth
+    ) {
+      throw new BadRequestException('Dia do mês é obrigatório para frequência mensal ou similar.');
     }
-    if (data.frequency === SCHEDULE_FREQUENCY.ANNUAL && !data.yearlySchedule) {
-      throw new BadRequestException('Configuração anual é obrigatória para frequência anual.');
+    if (
+      data.frequency === SCHEDULE_FREQUENCY.ANNUAL &&
+      !data.yearlySchedule &&
+      (!data.dayOfMonth || !data.month)
+    ) {
+      throw new BadRequestException('Dia do mês e mês são obrigatórios para frequência anual.');
     }
   }
 

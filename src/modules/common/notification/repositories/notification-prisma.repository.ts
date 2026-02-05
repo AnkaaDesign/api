@@ -101,15 +101,10 @@ export class NotificationPrismaRepository
   private getTypeOrder(type: NOTIFICATION_TYPE): number {
     const typeOrderMap: Record<NOTIFICATION_TYPE, number> = {
       [NOTIFICATION_TYPE.SYSTEM]: 1,
-      [NOTIFICATION_TYPE.TASK]: 2,
-      [NOTIFICATION_TYPE.ORDER]: 3,
-      [NOTIFICATION_TYPE.SERVICE_ORDER]: 4,
-      [NOTIFICATION_TYPE.PPE]: 5,
-      [NOTIFICATION_TYPE.VACATION]: 6,
-      [NOTIFICATION_TYPE.WARNING]: 7,
-      [NOTIFICATION_TYPE.STOCK]: 8,
-      [NOTIFICATION_TYPE.GENERAL]: 9,
-      [NOTIFICATION_TYPE.CUT]: 10,
+      [NOTIFICATION_TYPE.PRODUCTION]: 2,
+      [NOTIFICATION_TYPE.STOCK]: 3,
+      [NOTIFICATION_TYPE.USER]: 4,
+      [NOTIFICATION_TYPE.GENERAL]: 5,
     };
     return typeOrderMap[type] || 99;
   }

@@ -277,7 +277,7 @@ export class TaskNotificationService {
         const eventType = this.getFieldEventType(change.field);
         const channels = await this.preferenceService.getChannelsForEvent(
           userId,
-          NOTIFICATION_TYPE.TASK,
+          NOTIFICATION_TYPE.PRODUCTION,
           eventType,
         );
 
@@ -286,7 +286,7 @@ export class TaskNotificationService {
 
         // Create notification with proper deep links
         const notification = await this.notificationService.createNotification({
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           title: `Alteração em tarefa: ${task.name}`,
           body: message,
           importance: this.determineFieldImportance(change.field),
@@ -357,7 +357,7 @@ export class TaskNotificationService {
       // Get user's channels for this event
       const channels = await this.preferenceService.getChannelsForEvent(
         userId,
-        NOTIFICATION_TYPE.TASK,
+        NOTIFICATION_TYPE.PRODUCTION,
         eventType,
       );
 
@@ -490,7 +490,7 @@ export class TaskNotificationService {
       // Get user's preferred channels
       const channels = await this.preferenceService.getChannelsForEvent(
         aggregation.userId,
-        NOTIFICATION_TYPE.TASK,
+        NOTIFICATION_TYPE.PRODUCTION,
         'task.field.multiple', // Special event type for aggregated changes
       );
 
@@ -502,7 +502,7 @@ export class TaskNotificationService {
 
       // Create aggregated notification with proper deep links
       const notification = await this.notificationService.createNotification({
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         title,
         body: message,
         importance: NOTIFICATION_IMPORTANCE.NORMAL,

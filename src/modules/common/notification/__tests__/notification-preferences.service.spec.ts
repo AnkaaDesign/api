@@ -44,7 +44,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-1',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           channels: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
           enabled: true,
@@ -67,7 +67,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-1',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           enabled: true,
@@ -87,7 +87,7 @@ describe('NotificationPreferenceService', () => {
       const existingPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         enabled: true,
@@ -104,7 +104,7 @@ describe('NotificationPreferenceService', () => {
 
       const result = await service.updatePreference(
         'user-1',
-        'TASK',
+        'PRODUCTION',
         'status',
         ['EMAIL', 'PUSH'],
         'user-1',
@@ -122,7 +122,7 @@ describe('NotificationPreferenceService', () => {
 
     it('should throw ForbiddenException when user tries to update others preferences', async () => {
       await expect(
-        service.updatePreference('user-1', 'TASK', 'status', ['EMAIL'], 'user-2', false),
+        service.updatePreference('user-1', 'PRODUCTION', 'status', ['EMAIL'], 'user-2', false),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -130,7 +130,7 @@ describe('NotificationPreferenceService', () => {
       const existingPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         enabled: true,
@@ -140,7 +140,7 @@ describe('NotificationPreferenceService', () => {
       mockPreferenceRepository.getPreference.mockResolvedValue(existingPreference);
       mockPreferenceRepository.updatePreference.mockResolvedValue(existingPreference);
 
-      await service.updatePreference('user-1', 'TASK', 'status', ['EMAIL'], 'admin-user', true);
+      await service.updatePreference('user-1', 'PRODUCTION', 'status', ['EMAIL'], 'admin-user', true);
 
       expect(preferenceRepository.updatePreference).toHaveBeenCalled();
     });
@@ -149,7 +149,7 @@ describe('NotificationPreferenceService', () => {
       const mandatoryPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         enabled: true,
@@ -159,7 +159,7 @@ describe('NotificationPreferenceService', () => {
       mockPreferenceRepository.getPreference.mockResolvedValue(mandatoryPreference);
 
       await expect(
-        service.updatePreference('user-1', 'TASK', 'status', [], 'user-1'),
+        service.updatePreference('user-1', 'PRODUCTION', 'status', [], 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -173,7 +173,7 @@ describe('NotificationPreferenceService', () => {
       const existingPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         enabled: true,
@@ -183,7 +183,7 @@ describe('NotificationPreferenceService', () => {
       mockPreferenceRepository.getPreference.mockResolvedValue(existingPreference);
 
       await expect(
-        service.updatePreference('user-1', 'TASK', 'status', ['INVALID_CHANNEL'], 'user-1'),
+        service.updatePreference('user-1', 'PRODUCTION', 'status', ['INVALID_CHANNEL'], 'user-1'),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -191,7 +191,7 @@ describe('NotificationPreferenceService', () => {
       mockPreferenceRepository.getPreference.mockResolvedValue(null);
 
       await expect(
-        service.updatePreference('user-1', 'TASK', 'status', ['EMAIL'], 'user-1'),
+        service.updatePreference('user-1', 'PRODUCTION', 'status', ['EMAIL'], 'user-1'),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -229,7 +229,7 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getChannelsForEvent.mockResolvedValue(mockChannels);
 
-      const result = await service.getChannelsForEvent('user-1', 'TASK', 'status');
+      const result = await service.getChannelsForEvent('user-1', 'PRODUCTION', 'status');
 
       expect(result).toEqual(mockChannels);
       expect(preferenceRepository.getChannelsForEvent).toHaveBeenCalledWith(
@@ -242,7 +242,7 @@ describe('NotificationPreferenceService', () => {
     it('should return empty array when no channels enabled', async () => {
       mockPreferenceRepository.getChannelsForEvent.mockResolvedValue([]);
 
-      const result = await service.getChannelsForEvent('user-1', 'TASK', 'status');
+      const result = await service.getChannelsForEvent('user-1', 'PRODUCTION', 'status');
 
       expect(result).toEqual([]);
     });
@@ -253,7 +253,7 @@ describe('NotificationPreferenceService', () => {
       const mockPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.ORDER,
+        notificationType: NOTIFICATION_TYPE.STOCK,
         eventType: 'created',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         isMandatory: false,
@@ -261,7 +261,7 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getPreference.mockResolvedValue(mockPreference);
 
-      const result = await service.validatePreferences('user-1', 'ORDER', 'created', ['EMAIL']);
+      const result = await service.validatePreferences('user-1', 'STOCK', 'created', ['EMAIL']);
 
       expect(result.valid).toBe(true);
       expect(result.errors).toHaveLength(0);
@@ -271,7 +271,7 @@ describe('NotificationPreferenceService', () => {
       const mockPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [],
         isMandatory: true,
@@ -279,7 +279,7 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getPreference.mockResolvedValue(mockPreference);
 
-      const result = await service.validatePreferences('user-1', 'TASK', 'status', []);
+      const result = await service.validatePreferences('user-1', 'PRODUCTION', 'status', []);
 
       expect(result.valid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
@@ -290,7 +290,7 @@ describe('NotificationPreferenceService', () => {
       const mockPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'deadline',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         isMandatory: true,
@@ -298,7 +298,7 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getPreference.mockResolvedValue(mockPreference);
 
-      const result = await service.validatePreferences('user-1', 'TASK', 'deadline', []);
+      const result = await service.validatePreferences('user-1', 'PRODUCTION', 'deadline', []);
 
       expect(result.valid).toBe(false);
       expect(result.errors.some(e => e.includes('mandatory'))).toBe(true);
@@ -308,7 +308,7 @@ describe('NotificationPreferenceService', () => {
       const mockPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.ORDER,
+        notificationType: NOTIFICATION_TYPE.STOCK,
         eventType: 'created',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         isMandatory: false,
@@ -316,7 +316,7 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getPreference.mockResolvedValue(mockPreference);
 
-      const result = await service.validatePreferences('user-1', 'ORDER', 'created', [
+      const result = await service.validatePreferences('user-1', 'STOCK', 'created', [
         'INVALID_CHANNEL',
       ]);
 
@@ -331,7 +331,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-1',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           channels: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH],
           enabled: true,
@@ -339,7 +339,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-2',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.ORDER,
+          notificationType: NOTIFICATION_TYPE.STOCK,
           eventType: 'created',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           enabled: true,
@@ -362,7 +362,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-1',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           enabled: true,
@@ -370,7 +370,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-2',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'deadline',
           channels: [NOTIFICATION_CHANNEL.PUSH],
           enabled: true,
@@ -378,7 +378,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-3',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.ORDER,
+          notificationType: NOTIFICATION_TYPE.STOCK,
           eventType: 'created',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           enabled: true,
@@ -389,8 +389,8 @@ describe('NotificationPreferenceService', () => {
 
       const result = await service.getTypePreferences('user-1');
 
-      expect(result[NOTIFICATION_TYPE.TASK]).toHaveLength(2);
-      expect(result[NOTIFICATION_TYPE.ORDER]).toHaveLength(1);
+      expect(result[NOTIFICATION_TYPE.PRODUCTION]).toHaveLength(2);
+      expect(result[NOTIFICATION_TYPE.STOCK]).toHaveLength(1);
       expect(result[NOTIFICATION_TYPE.STOCK]).toHaveLength(0);
     });
   });
@@ -399,12 +399,12 @@ describe('NotificationPreferenceService', () => {
     it('should update multiple preferences at once', async () => {
       const preferences = [
         {
-          type: 'TASK',
+          type: 'PRODUCTION',
           eventType: 'status',
           channels: ['EMAIL', 'PUSH'],
         },
         {
-          type: 'ORDER',
+          type: 'STOCK',
           eventType: 'created',
           channels: ['EMAIL'],
         },
@@ -414,7 +414,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-1',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.TASK,
+          notificationType: NOTIFICATION_TYPE.PRODUCTION,
           eventType: 'status',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           isMandatory: false,
@@ -422,7 +422,7 @@ describe('NotificationPreferenceService', () => {
         {
           id: 'pref-2',
           userId: 'user-1',
-          notificationType: NOTIFICATION_TYPE.ORDER,
+          notificationType: NOTIFICATION_TYPE.STOCK,
           eventType: 'created',
           channels: [NOTIFICATION_CHANNEL.EMAIL],
           isMandatory: false,
@@ -446,7 +446,7 @@ describe('NotificationPreferenceService', () => {
     it('should throw error if any preference validation fails', async () => {
       const preferences = [
         {
-          type: 'TASK',
+          type: 'PRODUCTION',
           eventType: 'status',
           channels: [], // Invalid: task notification requires channels
         },
@@ -455,7 +455,7 @@ describe('NotificationPreferenceService', () => {
       const mockMandatoryPreference = {
         id: 'pref-1',
         userId: 'user-1',
-        notificationType: NOTIFICATION_TYPE.TASK,
+        notificationType: NOTIFICATION_TYPE.PRODUCTION,
         eventType: 'status',
         channels: [NOTIFICATION_CHANNEL.EMAIL],
         isMandatory: true,
@@ -471,7 +471,7 @@ describe('NotificationPreferenceService', () => {
     it('should throw ForbiddenException when non-admin updates others preferences', async () => {
       const preferences = [
         {
-          type: 'TASK',
+          type: 'PRODUCTION',
           eventType: 'status',
           channels: ['EMAIL'],
         },
@@ -491,7 +491,7 @@ describe('NotificationPreferenceService', () => {
       expect(defaults.length).toBeGreaterThan(0);
 
       // Check that task preferences are mandatory
-      const taskPreferences = defaults.filter(p => p.type === NOTIFICATION_TYPE.TASK);
+      const taskPreferences = defaults.filter(p => p.type === NOTIFICATION_TYPE.PRODUCTION);
       expect(taskPreferences.length).toBeGreaterThan(0);
       taskPreferences.forEach(pref => {
         expect(pref.mandatory).toBe(true);
@@ -506,8 +506,8 @@ describe('NotificationPreferenceService', () => {
       const defaults = service.getDefaultPreferences();
       const types = new Set(defaults.map(p => p.type));
 
-      expect(types.has(NOTIFICATION_TYPE.TASK)).toBe(true);
-      expect(types.has(NOTIFICATION_TYPE.ORDER)).toBe(true);
+      expect(types.has(NOTIFICATION_TYPE.PRODUCTION)).toBe(true);
+      expect(types.has(NOTIFICATION_TYPE.STOCK)).toBe(true);
       expect(types.has(NOTIFICATION_TYPE.STOCK)).toBe(true);
       expect(types.has(NOTIFICATION_TYPE.SYSTEM)).toBe(true);
     });

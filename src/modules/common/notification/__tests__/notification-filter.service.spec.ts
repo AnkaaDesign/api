@@ -57,12 +57,12 @@ describe('NotificationFilterService', () => {
         },
         {
           id: 'notif-2',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           userId: 'user-1',
         },
         {
           id: 'notif-3',
-          type: NOTIFICATION_TYPE.VACATION,
+          type: NOTIFICATION_TYPE.USER,
           userId: 'user-2',
           metadata: { vacation: { userId: 'user-2' } },
         },
@@ -88,8 +88,8 @@ describe('NotificationFilterService', () => {
 
       const notifications: any[] = [
         { id: 'notif-1', type: NOTIFICATION_TYPE.STOCK, userId: null },
-        { id: 'notif-2', type: NOTIFICATION_TYPE.VACATION, userId: 'user-1' },
-        { id: 'notif-3', type: NOTIFICATION_TYPE.TASK, userId: 'user-2' },
+        { id: 'notif-2', type: NOTIFICATION_TYPE.USER, userId: 'user-1' },
+        { id: 'notif-3', type: NOTIFICATION_TYPE.PRODUCTION, userId: 'user-2' },
       ];
 
       const result = service.filterByRole(adminUser, notifications);
@@ -111,7 +111,7 @@ describe('NotificationFilterService', () => {
       const notifications: any[] = [
         {
           id: 'notif-1',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           userId: null,
           metadata: {
             task: {
@@ -123,7 +123,7 @@ describe('NotificationFilterService', () => {
         },
         {
           id: 'notif-2',
-          type: NOTIFICATION_TYPE.TASK,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           userId: null,
           metadata: {
             task: {
@@ -185,7 +185,7 @@ describe('NotificationFilterService', () => {
 
       const notification: any = {
         id: 'notif-1',
-        type: NOTIFICATION_TYPE.VACATION,
+        type: NOTIFICATION_TYPE.USER,
         userId: 'user-2',
       };
 
@@ -202,7 +202,7 @@ describe('NotificationFilterService', () => {
 
       const notification: any = {
         id: 'notif-1',
-        type: NOTIFICATION_TYPE.TASK,
+        type: NOTIFICATION_TYPE.PRODUCTION,
         userId: 'user-1',
       };
 
@@ -219,7 +219,7 @@ describe('NotificationFilterService', () => {
 
       const notification: any = {
         id: 'notif-1',
-        type: NOTIFICATION_TYPE.VACATION,
+        type: NOTIFICATION_TYPE.USER,
         userId: 'user-2',
       };
 

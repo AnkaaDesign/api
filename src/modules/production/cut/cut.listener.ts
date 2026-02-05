@@ -118,7 +118,7 @@ export class CutListener {
       for (const userId of targetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.CUT,
+          NOTIFICATION_TYPE.PRODUCTION,
           'created',
         );
 
@@ -130,7 +130,7 @@ export class CutListener {
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cut, event.task);
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.CUT,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: `Recorte de ${cutTypeLabel} adicionado para tarefa "${taskName}"${serialNumber} por ${event.createdBy.name}`,
           body: `Um recorte de ${cutTypeLabel} foi adicionado para a tarefa "${taskName}"${serialNumber} por ${event.createdBy.name}.`,
@@ -199,7 +199,7 @@ export class CutListener {
       for (const userId of allTargetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.CUT,
+          NOTIFICATION_TYPE.PRODUCTION,
           'started',
         );
 
@@ -211,7 +211,7 @@ export class CutListener {
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cut, event.task);
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.CUT,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} iniciado por ${event.startedBy.name}`,
           body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} foi iniciado por ${event.startedBy.name}.`,
@@ -282,7 +282,7 @@ export class CutListener {
       for (const userId of allTargetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.CUT,
+          NOTIFICATION_TYPE.PRODUCTION,
           'completed',
         );
 
@@ -294,7 +294,7 @@ export class CutListener {
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cut, event.task);
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.CUT,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: `Recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} concluído por ${event.completedBy.name}`,
           body: `O recorte de ${cutTypeLabel} da tarefa "${taskName}"${serialNumber} foi concluído por ${event.completedBy.name}.`,
@@ -351,7 +351,7 @@ export class CutListener {
       for (const userId of targetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.CUT,
+          NOTIFICATION_TYPE.PRODUCTION,
           'request',
         );
 
@@ -363,7 +363,7 @@ export class CutListener {
         const { actionUrl, metadata } = this.getCutNotificationMetadata(event.cut, event.task);
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.CUT,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           importance: NOTIFICATION_IMPORTANCE.URGENT,
           title: `Novo recorte de ${cutTypeLabel} solicitado para tarefa "${taskName}"${serialNumber} por ${event.createdBy.name} - Motivo: ${reasonLabel}`,
           body: `Foi solicitado um novo recorte de ${cutTypeLabel} para a tarefa "${taskName}"${serialNumber}. Motivo: ${reasonLabel}. Solicitado por ${event.createdBy.name}.`,
@@ -417,7 +417,7 @@ export class CutListener {
       for (const userId of targetUsers) {
         const channels = await this.getEnabledChannelsForUser(
           userId,
-          NOTIFICATION_TYPE.CUT,
+          NOTIFICATION_TYPE.PRODUCTION,
           'created',
         );
 
@@ -434,7 +434,7 @@ export class CutListener {
             : `${cutsCount} recortes adicionados à tarefa "${event.task.name}"${serialNumber} por ${event.addedBy.name}`;
         await this.notificationService.createNotification({
           userId,
-          type: NOTIFICATION_TYPE.CUT,
+          type: NOTIFICATION_TYPE.PRODUCTION,
           importance: NOTIFICATION_IMPORTANCE.NORMAL,
           title: detailedTitle,
           body:

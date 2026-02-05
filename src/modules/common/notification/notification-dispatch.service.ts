@@ -19,12 +19,11 @@ import {
   CHANGE_TRIGGERED_BY,
 } from '../../../constants';
 import { Prisma, NotificationActionType } from '@prisma/client';
-import {
-  getFieldConfig,
-  getAllowedRolesForField,
-  TaskFieldNotificationConfig,
-} from './task-notification.config';
 import { DeepLinkService } from './deep-link.service';
+import {
+  NotificationConfigurationService,
+  NotificationConfiguration as DBNotificationConfiguration,
+} from './notification-configuration.service';
 
 // Import services (these need to be created separately or already exist)
 import { EmailService } from '../mailer/services/email.service';
@@ -104,6 +103,7 @@ export class NotificationDispatchService {
     private readonly filterService: NotificationFilterService,
     private readonly aggregationService: NotificationAggregationService,
     private readonly deepLinkService: DeepLinkService,
+    private readonly configurationService: NotificationConfigurationService,
   ) {}
 
   /**
@@ -1313,11 +1313,11 @@ export class NotificationDispatchService {
   // =====================================================
 
   /**
-   * Dispatch notification using configuration-based approach
+   * Dispatch notification using database configuration-based approach
    *
-   * Uses task-notification.config.ts to determine notification settings:
-   * - Field configuration (importance, channels, messages)
-   * - Role-based recipient resolution
+   * Uses NotificationConfiguration table (seeded from all-notifications.seed.ts) to determine:
+   * - Notification settings (importance, channels, templates)
+   * - Role-based recipient resolution via targetRule.allowedSectors
    * - Template interpolation
    *
    * @param configKey - Configuration key (e.g., 'task.created', 'task.field.status', 'task.overdue')
@@ -1329,27 +1329,39 @@ export class NotificationDispatchService {
     triggeringUserId: string,
     context: NotificationContext,
   ): Promise<void> {
-    this.logger.log(`Starting configuration-based dispatch for key: ${configKey}`);
+    this.logger.log(`Starting database configuration-based dispatch for key: ${configKey}`);
 
     try {
-      // Extract field name from config key
-      const fieldName = this.extractFieldFromConfigKey(configKey);
-      const config = getFieldConfig(fieldName);
+      // Get configuration from database
+      const dbConfig = await this.configurationService.getConfiguration(configKey);
 
-      if (!config) {
-        this.logger.warn(`No configuration found for key: ${configKey} (field: ${fieldName})`);
+      if (!dbConfig) {
+        this.logger.warn(`No database configuration found for key: ${configKey}`);
         return;
       }
 
-      if (!config.enabled) {
-        this.logger.debug(`Notifications disabled for field: ${fieldName}`);
+      if (!dbConfig.isEnabled) {
+        this.logger.debug(`Notifications disabled for configuration: ${configKey}`);
         return;
       }
 
-      // Get target users based on field configuration
-      const allowedRoles = getAllowedRolesForField(fieldName);
+      // Check business rules (work hours, frequency limits, deduplication)
+      const businessRulesCheck = await this.configurationService.checkBusinessRules(dbConfig, {
+        userId: triggeringUserId === 'system' ? undefined : triggeringUserId,
+        entityId: context.entityId,
+        entityType: context.entityType,
+        ...context.data,
+      });
+
+      if (!businessRulesCheck.allowed) {
+        this.logger.log(`Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`);
+        return;
+      }
+
+      // Get target users based on targetRule from database configuration
+      const allowedSectors = this.extractAllowedSectorsFromConfig(dbConfig);
       const targetUsers = await this.getTargetUsersByRoles(
-        allowedRoles,
+        allowedSectors,
         triggeringUserId === 'system' ? undefined : triggeringUserId,
       );
 
@@ -1363,12 +1375,8 @@ export class NotificationDispatchService {
       // Generate deep links for the task
       const deepLinks = this.deepLinkService.generateTaskLinks(context.entityId);
 
-      // Select message template based on event data
-      const messageTemplate = this.selectMessageTemplate(config, context.data);
-
-      // Build notification content
-      const title = this.buildNotificationTitle(config, context.data);
-      const body = this.interpolateMessage(messageTemplate.inApp, {
+      // Render templates from database configuration
+      const templateVars = {
         taskName: context.data.taskName || '',
         serialNumber: context.data.serialNumber || '',
         oldValue: context.data.oldValue !== undefined ? String(context.data.oldValue) : 'N/A',
@@ -1377,14 +1385,22 @@ export class NotificationDispatchService {
         daysOverdue: context.data.daysOverdue?.toString() || '',
         daysRemaining: context.data.daysRemaining?.toString() || '',
         count: context.data.count?.toString() || '',
-      });
+        ...context.data,
+      };
+
+      const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
+
+      // Build notification content from rendered templates
+      const title = renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
+      const body = renderedTemplates.inApp?.body || '';
 
       // Create notifications for all target users
       let notificationsCreated = 0;
       let notificationsSkipped = 0;
 
       for (const user of targetUsers) {
-        const channels = await this.getUserChannels(user.id, NOTIFICATION_TYPE.TASK, fieldName);
+        // Resolve channels for this user based on their preferences and config
+        const channels = await this.configurationService.resolveChannelsForUser(configKey, user);
 
         if (channels.length === 0) {
           this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
@@ -1399,8 +1415,8 @@ export class NotificationDispatchService {
         const notification = await this.prisma.notification.create({
           data: {
             userId: user.id,
-            type: NOTIFICATION_TYPE.TASK,
-            importance: config.importance,
+            type: dbConfig.notificationType,
+            importance: dbConfig.importance,
             title,
             body,
             actionType: actionType as NotificationActionType,
@@ -1414,7 +1430,7 @@ export class NotificationDispatchService {
               universalLink: deepLinks.universalLink,
               taskId: context.entityId,
               fieldName: context.data.fieldName,
-              fieldLabel: config.label,
+              configKey: configKey,
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
               entityType: 'Task',
               entityId: context.entityId,
@@ -1428,7 +1444,7 @@ export class NotificationDispatchService {
       }
 
       this.logger.log(
-        `Configuration-based dispatch completed for ${configKey}: ` +
+        `Database configuration-based dispatch completed for ${configKey}: ` +
           `${notificationsCreated} created, ${notificationsSkipped} skipped`,
       );
 
@@ -1462,23 +1478,34 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Extract field name from configuration key
+   * Extract allowed sectors from database configuration metadata
    */
-  private extractFieldFromConfigKey(configKey: string): string {
-    if (configKey.startsWith('task.field.')) {
-      return configKey.replace('task.field.', '');
+  private extractAllowedSectorsFromConfig(config: DBNotificationConfiguration): SECTOR_PRIVILEGES[] {
+    const metadata = config.metadata as any;
+    if (metadata?.targetRule?.allowedSectors) {
+      return metadata.targetRule.allowedSectors as SECTOR_PRIVILEGES[];
     }
-    if (configKey === 'task.deadline_approaching') {
-      return 'deadline';
-    }
-    if (configKey === 'task.ready_for_production') {
-      return 'created'; // Uses same config as created
-    }
-    return configKey.replace('task.', '');
+    // Fallback to all admin/production sectors if no specific rule defined
+    return [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION];
   }
 
   /**
-   * Get target users by allowed roles
+   * Build notification title from database configuration
+   */
+  private buildNotificationTitleFromConfig(
+    config: DBNotificationConfiguration,
+    data: Record<string, any>,
+  ): string {
+    // Try to get title from templates
+    if (config.templates?.inApp?.title) {
+      return this.configurationService.renderTemplate(config.templates.inApp.title, data);
+    }
+    // Fallback to config name/key
+    return config.name || config.key;
+  }
+
+  /**
+   * Get target users by allowed roles/sectors
    */
   private async getTargetUsersByRoles(
     allowedRoles: SECTOR_PRIVILEGES[],
@@ -1510,70 +1537,6 @@ export class NotificationDispatchService {
   }
 
   /**
-   * Select appropriate message template based on event data
-   */
-  private selectMessageTemplate(
-    config: TaskFieldNotificationConfig,
-    data: Record<string, any>,
-  ): { inApp: string; push: string; email: { subject: string; body: string }; whatsapp: string } {
-    if (config.isFileArray && data.count !== undefined) {
-      if (data.count > 0 && config.messages.filesAdded) {
-        return config.messages.filesAdded;
-      }
-      if (data.count < 0 && config.messages.filesRemoved) {
-        return config.messages.filesRemoved;
-      }
-    }
-
-    if ((data.newValue === null || data.newValue === undefined) && config.messages.cleared) {
-      return config.messages.cleared;
-    }
-
-    return config.messages.updated;
-  }
-
-  /**
-   * Build notification title based on configuration
-   */
-  private buildNotificationTitle(
-    config: TaskFieldNotificationConfig,
-    data: Record<string, any>,
-  ): string {
-    const emoji = this.getEmojiForField(config.field);
-
-    if (config.isFileArray && data.count !== undefined) {
-      if (data.count > 0) {
-        return `${emoji} ${config.label}: Arquivos Adicionados`;
-      }
-      if (data.count < 0) {
-        return `${emoji} ${config.label}: Arquivos Removidos`;
-      }
-    }
-
-    return `${emoji} ${config.label} Alterado`;
-  }
-
-  /**
-   * Get emoji for field type
-   */
-  private getEmojiForField(fieldName: string): string {
-    const emojiMap: Record<string, string> = {
-      created: '\uD83C\uDD95',
-      overdue: '\uD83D\uDEA8',
-      status: '\uD83D\uDD04',
-      deadline: '\u23F0',
-      artworks: '\uD83C\uDFA8',
-      budgets: '\uD83D\uDCCB',
-      invoices: '\uD83D\uDCC4',
-      commission: '\uD83D\uDCB5',
-      paint: '\uD83C\uDFA8',
-      sectorId: '\uD83D\uDD00',
-      name: '\uD83D\uDCDD',
-    };
-    return emojiMap[fieldName] || '\uD83D\uDCDD';
-  }
-
-  /**
    * Get action type from configuration key
    */
   private getActionTypeFromConfigKey(configKey: string): NOTIFICATION_ACTION_TYPE {
@@ -1586,14 +1549,4 @@ export class NotificationDispatchService {
     return NOTIFICATION_ACTION_TYPE.TASK_UPDATED;
   }
 
-  /**
-   * Interpolate message template with variables
-   */
-  private interpolateMessage(template: string, vars: Record<string, string>): string {
-    let result = template;
-    for (const [key, value] of Object.entries(vars)) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
-    }
-    return result;
-  }
 }
