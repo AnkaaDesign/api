@@ -7,7 +7,7 @@ import {
   CHANGE_TRIGGERED_BY,
   ORDER_STATUS,
   ACTIVITY_OPERATION,
-  ACTIVITY_REASON
+  ACTIVITY_REASON,
 } from '@/constants/enums';
 import { subDays, subMonths, differenceInDays } from 'date-fns';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -148,9 +148,15 @@ export class AutoOrderService {
 
     // Add synchronization items - items from same supplier that should be ordered together
     // to align reorder cycles
-    const enhancedRecommendations = await this.addSynchronizationItems(groupedBySupplier, items, scheduledItems);
+    const enhancedRecommendations = await this.addSynchronizationItems(
+      groupedBySupplier,
+      items,
+      scheduledItems,
+    );
 
-    this.logger.log(`Generated ${enhancedRecommendations.length} auto-order recommendations (with sync items)`);
+    this.logger.log(
+      `Generated ${enhancedRecommendations.length} auto-order recommendations (with sync items)`,
+    );
 
     return enhancedRecommendations;
   }
@@ -183,7 +189,7 @@ export class AutoOrderService {
         weightedMonthly: 0,
         trend: 'stable',
         trendPercentage: 0,
-        monthlyData: []
+        monthlyData: [],
       };
     }
 
@@ -193,8 +199,9 @@ export class AutoOrderService {
     let totalWeight = 0;
     const monthlyData: WeightedConsumption[] = [];
 
-    const sortedMonths = Array.from(monthlyConsumption.entries())
-      .sort((a, b) => b[0].localeCompare(a[0])); // Newest first
+    const sortedMonths = Array.from(monthlyConsumption.entries()).sort((a, b) =>
+      b[0].localeCompare(a[0]),
+    ); // Newest first
 
     sortedMonths.forEach(([month, quantity], index) => {
       // Exponential decay: recent months weighted more heavily
@@ -222,13 +229,15 @@ export class AutoOrderService {
     const recentMonths = sortedMonths.slice(0, 3);
     const olderMonths = sortedMonths.slice(3, 6);
 
-    const recentAvg = recentMonths.length > 0
-      ? recentMonths.reduce((sum, [, qty]) => sum + qty, 0) / recentMonths.length
-      : 0;
+    const recentAvg =
+      recentMonths.length > 0
+        ? recentMonths.reduce((sum, [, qty]) => sum + qty, 0) / recentMonths.length
+        : 0;
 
-    const olderAvg = olderMonths.length > 0
-      ? olderMonths.reduce((sum, [, qty]) => sum + qty, 0) / olderMonths.length
-      : recentAvg;
+    const olderAvg =
+      olderMonths.length > 0
+        ? olderMonths.reduce((sum, [, qty]) => sum + qty, 0) / olderMonths.length
+        : recentAvg;
 
     let trend: 'increasing' | 'stable' | 'decreasing' = 'stable';
     let trendPercentage = 0;
@@ -248,7 +257,7 @@ export class AutoOrderService {
       weightedMonthly,
       trend,
       trendPercentage,
-      monthlyData
+      monthlyData,
     };
   }
 
@@ -280,9 +289,8 @@ export class AutoOrderService {
     // Calculate days until stockout
     // Cap at 999 days max to avoid meaningless large numbers when consumption is very low
     const MAX_DAYS_DISPLAY = 999;
-    const rawDaysUntilStockout = dailyConsumption > 0
-      ? Math.floor(currentStock / dailyConsumption)
-      : MAX_DAYS_DISPLAY;
+    const rawDaysUntilStockout =
+      dailyConsumption > 0 ? Math.floor(currentStock / dailyConsumption) : MAX_DAYS_DISPLAY;
     const daysUntilStockout = Math.min(rawDaysUntilStockout, MAX_DAYS_DISPLAY);
 
     // Check for active pending orders
@@ -295,9 +303,7 @@ export class AutoOrderService {
 
     // Get last order date
     const lastOrderDate = item.orderItems[0]?.order?.createdAt || null;
-    const daysSinceLastOrder = lastOrderDate
-      ? differenceInDays(new Date(), lastOrderDate)
-      : null;
+    const daysSinceLastOrder = lastOrderDate ? differenceInDays(new Date(), lastOrderDate) : null;
 
     // Smart duplicate prevention: never order same item within 30 days
     // UNLESS it's critical (stock below 50% of reorder point)
@@ -319,7 +325,7 @@ export class AutoOrderService {
       if (!willStockoutBeforeSchedule && daysUntilScheduledOrder <= estimatedLeadTime * 1.5) {
         // Scheduled order is soon enough and stock will last - defer to schedule
         this.logger.debug(
-          `Skipping ${item.name}: covered by schedule (next order in ${daysUntilScheduledOrder} days)`
+          `Skipping ${item.name}: covered by schedule (next order in ${daysUntilScheduledOrder} days)`,
         );
         return null;
       }
@@ -329,7 +335,7 @@ export class AutoOrderService {
         // Create auto-order with warning
         this.logger.warn(
           `EMERGENCY: ${item.name} will stockout in ${daysUntilStockout} days, ` +
-          `but scheduled order not until ${daysUntilScheduledOrder} days. Creating auto-order.`
+            `but scheduled order not until ${daysUntilScheduledOrder} days. Creating auto-order.`,
         );
         // Continue to create auto-order with special reason
       }
@@ -372,7 +378,9 @@ export class AutoOrderService {
 
     // Check if this is an emergency override of schedule
     const isInSchedule = !!scheduleInfo;
-    const isEmergencyOverride = isInSchedule && scheduleInfo!.nextRun !== null &&
+    const isEmergencyOverride =
+      isInSchedule &&
+      scheduleInfo!.nextRun !== null &&
       daysUntilStockout < differenceInDays(scheduleInfo!.nextRun, new Date()) + estimatedLeadTime;
 
     // Update reason if emergency override
@@ -441,7 +449,7 @@ export class AutoOrderService {
       trendMultiplier = 1.0 + Math.min(trendPercentage / 100, 0.5); // Cap at 50% increase
     } else if (trend === 'decreasing') {
       // For decreasing demand, order less (but not too little)
-      trendMultiplier = Math.max(0.7, 1.0 + (trendPercentage / 100)); // Min 70% of normal
+      trendMultiplier = Math.max(0.7, 1.0 + trendPercentage / 100); // Min 70% of normal
     }
 
     // Calculate quantity needed to cover lead time + 1 month buffer
@@ -450,7 +458,7 @@ export class AutoOrderService {
     const bufferConsumption = monthlyConsumption; // 1 month buffer
 
     let targetQuantity = Math.ceil(
-      (leadTimeConsumption + bufferConsumption - currentStock) * trendMultiplier
+      (leadTimeConsumption + bufferConsumption - currentStock) * trendMultiplier,
     );
 
     // Ensure we don't exceed max quantity (if set and not manual)
@@ -464,7 +472,7 @@ export class AutoOrderService {
       const availableSpace = maxQuantity - currentStock;
       if (targetQuantity > availableSpace) {
         this.logger.warn(
-          `Item has manual maxQuantity (${maxQuantity}) that may be insufficient for demand trend`
+          `Item has manual maxQuantity (${maxQuantity}) that may be insufficient for demand trend`,
         );
         targetQuantity = availableSpace;
       }
@@ -495,7 +503,7 @@ export class AutoOrderService {
     if (daysUntilStockout < estimatedLeadTime) {
       return {
         shouldOrder: true,
-        reason: `Estoque esgotará em ${daysUntilStockout} dias (prazo de entrega: ${estimatedLeadTime} dias)`
+        reason: `Estoque esgotará em ${daysUntilStockout} dias (prazo de entrega: ${estimatedLeadTime} dias)`,
       };
     }
 
@@ -503,7 +511,7 @@ export class AutoOrderService {
     if (currentStock <= reorderPoint) {
       return {
         shouldOrder: true,
-        reason: `Estoque abaixo do ponto de reposição (${currentStock} ≤ ${reorderPoint})`
+        reason: `Estoque abaixo do ponto de reposição (${currentStock} ≤ ${reorderPoint})`,
       };
     }
 
@@ -511,7 +519,7 @@ export class AutoOrderService {
     if (currentStock <= reorderPoint * 1.2 && daysUntilStockout < estimatedLeadTime * 1.5) {
       return {
         shouldOrder: true,
-        reason: 'Reposição preventiva - aproximando do ponto de reposição'
+        reason: 'Reposição preventiva - aproximando do ponto de reposição',
       };
     }
 
@@ -551,11 +559,7 @@ export class AutoOrderService {
         itemId,
         order: {
           status: {
-            in: [
-              ORDER_STATUS.CREATED,
-              ORDER_STATUS.PARTIALLY_FULFILLED,
-              ORDER_STATUS.FULFILLED,
-            ],
+            in: [ORDER_STATUS.CREATED, ORDER_STATUS.PARTIALLY_FULFILLED, ORDER_STATUS.FULFILLED],
           },
         },
       },
@@ -583,15 +587,16 @@ export class AutoOrderService {
       const totalValue = 0; // Would calculate from item prices
 
       // Determine overall urgency (highest urgency item)
-      const urgency = items.reduce((max, item) => {
-        const urgencyOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-        return urgencyOrder[item.urgency] > urgencyOrder[max] ? item.urgency : max;
-      }, 'low' as 'critical' | 'high' | 'medium' | 'low');
+      const urgency = items.reduce(
+        (max, item) => {
+          const urgencyOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+          return urgencyOrder[item.urgency] > urgencyOrder[max] ? item.urgency : max;
+        },
+        'low' as 'critical' | 'high' | 'medium' | 'low',
+      );
 
       // Consolidate reasons
-      const consolidatedReasons = Array.from(
-        new Set(items.map(item => item.reason))
-      );
+      const consolidatedReasons = Array.from(new Set(items.map(item => item.reason)));
 
       return {
         supplierId: supplierId === 'NO_SUPPLIER' ? null : supplierId,
@@ -658,7 +663,7 @@ export class AutoOrderService {
       // Calculate the TARGET DATE for next order based on critical items
       // After ordering, when will the critical items reach their reorder point again?
       const criticalItems = recommendation.items.filter(
-        item => item.urgency === 'critical' || item.urgency === 'high'
+        item => item.urgency === 'critical' || item.urgency === 'high',
       );
 
       // Calculate days until each critical item reaches reorder point AFTER receiving the order
@@ -674,12 +679,13 @@ export class AutoOrderService {
 
       // Use the MINIMUM days as our target - we want all items to need ordering at the same time
       // Use at least 30 days as minimum cycle
-      const targetDaysUntilNextOrder = daysUntilNextReorderPoints.length > 0
-        ? Math.max(Math.min(...daysUntilNextReorderPoints), 30)
-        : 60; // Default 60 days if no critical items with consumption
+      const targetDaysUntilNextOrder =
+        daysUntilNextReorderPoints.length > 0
+          ? Math.max(Math.min(...daysUntilNextReorderPoints), 30)
+          : 60; // Default 60 days if no critical items with consumption
 
       this.logger.debug(
-        `Supplier ${recommendation.supplierName}: Target next order in ${targetDaysUntilNextOrder} days`
+        `Supplier ${recommendation.supplierName}: Target next order in ${targetDaysUntilNextOrder} days`,
       );
 
       // IDs of items already in the recommendation
@@ -710,9 +716,8 @@ export class AutoOrderService {
         const reorderPoint = item.reorderPoint || 0;
 
         // Calculate current days until this item reaches its reorder point
-        const currentDaysUntilReorder = dailyConsumption > 0
-          ? Math.floor((currentStock - reorderPoint) / dailyConsumption)
-          : 999;
+        const currentDaysUntilReorder =
+          dailyConsumption > 0 ? Math.floor((currentStock - reorderPoint) / dailyConsumption) : 999;
 
         // If this item will already need ordering BEFORE the target date,
         // it should already be in recommendations (skip to avoid duplicates)
@@ -721,7 +726,7 @@ export class AutoOrderService {
         // Calculate how much stock this item needs to also reach reorder point at targetDaysUntilNextOrder
         // We want: (currentStock + syncQuantity - reorderPoint) / dailyConsumption = targetDaysUntilNextOrder
         // So: syncQuantity = (targetDaysUntilNextOrder * dailyConsumption) + reorderPoint - currentStock
-        const stockNeededAtTargetDate = (targetDaysUntilNextOrder * dailyConsumption) + reorderPoint;
+        const stockNeededAtTargetDate = targetDaysUntilNextOrder * dailyConsumption + reorderPoint;
         const syncQuantity = Math.ceil(stockNeededAtTargetDate - currentStock);
 
         // Only sync if we need to ADD stock (positive quantity)
@@ -737,9 +742,8 @@ export class AutoOrderService {
         if (recommendedQuantity < 1) continue;
 
         // Calculate actual days until stockout for display
-        const daysUntilStockout = dailyConsumption > 0
-          ? Math.min(Math.floor(currentStock / dailyConsumption), 999)
-          : 999;
+        const daysUntilStockout =
+          dailyConsumption > 0 ? Math.min(Math.floor(currentStock / dailyConsumption), 999) : 999;
 
         // Get latest price for cost calculation
         const currentPrice = item.prices && item.prices[0] ? item.prices[0].value : 0;
@@ -775,7 +779,7 @@ export class AutoOrderService {
       }
 
       this.logger.debug(
-        `Supplier ${recommendation.supplierName}: Added ${syncItems.length} sync items to ${recommendation.items.length} required items`
+        `Supplier ${recommendation.supplierName}: Added ${syncItems.length} sync items to ${recommendation.items.length} required items`,
       );
 
       // Combine original items with sync items
@@ -785,14 +789,15 @@ export class AutoOrderService {
       const totalEstimatedCost = allItems.reduce((sum, item) => sum + (item.estimatedCost || 0), 0);
 
       // Recalculate urgency and consolidated reasons
-      const urgency = allItems.reduce((max, item) => {
-        const urgencyOrder = { critical: 4, high: 3, medium: 2, low: 1 };
-        return urgencyOrder[item.urgency] > urgencyOrder[max] ? item.urgency : max;
-      }, 'low' as 'critical' | 'high' | 'medium' | 'low');
-
-      const consolidatedReasons = Array.from(
-        new Set(allItems.map(item => item.reason))
+      const urgency = allItems.reduce(
+        (max, item) => {
+          const urgencyOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+          return urgencyOrder[item.urgency] > urgencyOrder[max] ? item.urgency : max;
+        },
+        'low' as 'critical' | 'high' | 'medium' | 'low',
       );
+
+      const consolidatedReasons = Array.from(new Set(allItems.map(item => item.reason)));
 
       enhancedRecommendations.push({
         ...recommendation,

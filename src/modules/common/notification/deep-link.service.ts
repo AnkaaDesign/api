@@ -282,7 +282,10 @@ export class DeepLinkService {
    * @param queryParams - Optional query parameters
    * @returns Object containing web, mobile, universal link URLs, and webPath
    */
-  generateTaskLinks(taskId: string, queryParams?: DeepLinkQueryParams): DeepLinkResult & { webPath: string } {
+  generateTaskLinks(
+    taskId: string,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult & { webPath: string } {
     return this.generateBothLinks(DeepLinkEntity.Task, taskId, queryParams);
   }
 
@@ -292,7 +295,10 @@ export class DeepLinkService {
    * @param queryParams - Optional query parameters
    * @returns Object containing web, mobile, universal link URLs, and webPath
    */
-  generateOrderLinks(orderId: string, queryParams?: DeepLinkQueryParams): DeepLinkResult & { webPath: string } {
+  generateOrderLinks(
+    orderId: string,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult & { webPath: string } {
     return this.generateBothLinks(DeepLinkEntity.Order, orderId, queryParams);
   }
 
@@ -302,7 +308,10 @@ export class DeepLinkService {
    * @param queryParams - Optional query parameters
    * @returns Object containing web, mobile, universal link URLs, and webPath
    */
-  generateItemLinks(itemId: string, queryParams?: DeepLinkQueryParams): DeepLinkResult & { webPath: string } {
+  generateItemLinks(
+    itemId: string,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult & { webPath: string } {
     return this.generateBothLinks(DeepLinkEntity.Item, itemId, queryParams);
   }
 
@@ -325,7 +334,10 @@ export class DeepLinkService {
    * @param queryParams - Optional query parameters
    * @returns Object containing web, mobile, universal link URLs, and webPath
    */
-  generateFinancialLinks(financialId: string, queryParams?: DeepLinkQueryParams): DeepLinkResult & { webPath: string } {
+  generateFinancialLinks(
+    financialId: string,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult & { webPath: string } {
     return this.generateBothLinks(DeepLinkEntity.Financial, financialId, queryParams);
   }
 
@@ -335,7 +347,10 @@ export class DeepLinkService {
    * @param queryParams - Optional query parameters
    * @returns Object containing web, mobile, universal link URLs, and webPath
    */
-  generateUserLinks(userId: string, queryParams?: DeepLinkQueryParams): DeepLinkResult & { webPath: string } {
+  generateUserLinks(
+    userId: string,
+    queryParams?: DeepLinkQueryParams,
+  ): DeepLinkResult & { webPath: string } {
     return this.generateBothLinks(DeepLinkEntity.User, userId, queryParams);
   }
 
@@ -516,10 +531,7 @@ export class DeepLinkService {
    * @param queryParams - Query parameters for filtering (applied to web only)
    * @returns JSON string containing web and mobile URLs
    */
-  generateListPageActionUrl(
-    listPage: DeepLinkListPage,
-    queryParams?: DeepLinkQueryParams,
-  ): string {
+  generateListPageActionUrl(listPage: DeepLinkListPage, queryParams?: DeepLinkQueryParams): string {
     const links = this.generateListPageLinks(listPage, queryParams);
     return JSON.stringify(links);
   }

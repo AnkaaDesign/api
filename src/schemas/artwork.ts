@@ -467,9 +467,7 @@ export const artworkUpdateSchema = z.preprocess(
 // =====================
 
 export const artworkBatchCreateSchema = z.object({
-  artworks: z
-    .array(artworkCreateSchema)
-    .min(1, 'Pelo menos um artwork deve ser fornecido'),
+  artworks: z.array(artworkCreateSchema).min(1, 'Pelo menos um artwork deve ser fornecido'),
 });
 
 export const artworkBatchUpdateSchema = z.object({

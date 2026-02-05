@@ -171,8 +171,10 @@ export class TaskFieldTrackerService {
     // Commission field normalization: treat null/undefined as NO_COMMISSION
     // This prevents false positive changes when both display as "Sem Comissão"
     if (fieldName === 'commission') {
-      const normalizedOld = (oldValue === null || oldValue === undefined) ? 'NO_COMMISSION' : oldValue;
-      const normalizedNew = (newValue === null || newValue === undefined) ? 'NO_COMMISSION' : newValue;
+      const normalizedOld =
+        oldValue === null || oldValue === undefined ? 'NO_COMMISSION' : oldValue;
+      const normalizedNew =
+        newValue === null || newValue === undefined ? 'NO_COMMISSION' : newValue;
       return normalizedOld !== normalizedNew;
     }
 
@@ -310,7 +312,7 @@ export class TaskFieldTrackerService {
       if (oldObj !== null && newObj !== null) {
         this.logger.debug(
           `Object comparison - oldIsEmpty: ${oldIsEmpty}, newIsEmpty: ${newIsEmpty}, ` +
-          `old: ${JSON.stringify(oldObj)}, new: ${JSON.stringify(newObj)}`
+            `old: ${JSON.stringify(oldObj)}, new: ${JSON.stringify(newObj)}`,
         );
       }
 
@@ -334,7 +336,7 @@ export class TaskFieldTrackerService {
       const hasChanged = sortedOldJson !== sortedNewJson;
       if (hasChanged) {
         this.logger.debug(
-          `Object content changed - oldJson: ${sortedOldJson}, newJson: ${sortedNewJson}`
+          `Object content changed - oldJson: ${sortedOldJson}, newJson: ${sortedNewJson}`,
         );
       }
 

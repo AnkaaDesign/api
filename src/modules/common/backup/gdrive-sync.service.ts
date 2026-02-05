@@ -5,11 +5,7 @@ import { EventEmitter2 } from 'eventemitter2';
 import { BackupRepository } from './backup.repository';
 import { RcloneService } from './rclone.service';
 import { GDriveSyncStatus } from '@prisma/client';
-import {
-  GDriveSyncJobData,
-  GDriveDeleteJobData,
-  GDriveSyncStats,
-} from './gdrive-sync.types';
+import { GDriveSyncJobData, GDriveDeleteJobData, GDriveSyncStats } from './gdrive-sync.types';
 
 @Injectable()
 export class GDriveSyncService {
@@ -64,10 +60,7 @@ export class GDriveSyncService {
   /**
    * Queue a backup for deletion from Google Drive
    */
-  async queueDelete(
-    backupId: string,
-    gdriveFileId?: string,
-  ): Promise<Job<GDriveDeleteJobData>> {
+  async queueDelete(backupId: string, gdriveFileId?: string): Promise<Job<GDriveDeleteJobData>> {
     this.logger.log(`Queueing GDrive delete for backup: ${backupId}`);
 
     const job = await this.gdriveSyncQueue.add(
@@ -102,7 +95,7 @@ export class GDriveSyncService {
     });
 
     const failedSyncs = failedBackups.filter(
-      (b) => b.gdriveStatus === GDriveSyncStatus.FAILED && b.filePath,
+      b => b.gdriveStatus === GDriveSyncStatus.FAILED && b.filePath,
     );
 
     const retriedBackupIds: string[] = [];
@@ -211,7 +204,7 @@ export class GDriveSyncService {
   async getPendingSyncs(): Promise<{ id: string; name: string; type: string; createdAt: Date }[]> {
     const backups = await this.backupRepository.findPendingGDriveSync();
 
-    return backups.map((b) => ({
+    return backups.map(b => ({
       id: b.id,
       name: b.name,
       type: b.type,

@@ -36,6 +36,12 @@ import { PrismaModule } from '../prisma/prisma.module';
     GDriveSyncProcessor,
     RcloneService,
   ],
-  exports: [BackupService, BackupRepository, BackupScheduleRepository, GDriveSyncService, RcloneService],
+  exports: [
+    BackupService,
+    BackupRepository,
+    BackupScheduleRepository,
+    GDriveSyncService,
+    RcloneService,
+  ],
 })
 export class BackupModule {}

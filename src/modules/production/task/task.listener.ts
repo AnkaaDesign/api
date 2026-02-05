@@ -1,8 +1,6 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
-import { DeepLinkService } from '@modules/common/notification/deep-link.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   TaskCreatedEvent,
@@ -12,40 +10,12 @@ import {
   TaskDeadlineApproachingEvent,
   TaskOverdueEvent,
 } from './task.events';
-import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_ACTION_TYPE,
-  SECTOR_PRIVILEGES,
-  COMMISSION_STATUS,
-  TASK_STATUS,
-} from '../../../constants/enums';
-import { TASK_STATUS_LABELS } from '../../../constants/enum-labels';
-import {
-  TASK_FIELD_NOTIFICATIONS,
-  getFieldConfig,
-  getAllowedRolesForField,
-  canRoleReceiveFieldNotification,
-  getFieldLabel,
-  TaskFieldCategory,
-  CATEGORY_ALLOWED_ROLES,
-} from '@modules/common/notification/task-notification.config';
-
-/**
- * Commission Status Labels
- */
-const COMMISSION_STATUS_LABELS: Record<string, string> = {
-  [COMMISSION_STATUS.NO_COMMISSION]: 'Sem Comissão',
-  [COMMISSION_STATUS.PARTIAL_COMMISSION]: 'Comissão Parcial',
-  [COMMISSION_STATUS.FULL_COMMISSION]: 'Comissão Total',
-  [COMMISSION_STATUS.SUSPENDED_COMMISSION]: 'Comissão Suspensa',
-};
+import { TASK_STATUS } from '../../../constants/enums';
 
 /**
  * Task Event Listener
  * Handles all task-related events and creates appropriate notifications
- * with role-based targeting and multi-channel delivery
+ * using configuration-based dispatch for role-based targeting and multi-channel delivery
  */
 @Injectable()
 export class TaskListener {
@@ -53,9 +23,7 @@ export class TaskListener {
 
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
-    private readonly notificationService: NotificationService,
-    private readonly preferenceService: NotificationPreferenceService,
-    private readonly deepLinkService: DeepLinkService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly prisma: PrismaService,
   ) {
     this.logger.log('========================================');
@@ -90,7 +58,7 @@ export class TaskListener {
 
   /**
    * Handle task creation event
-   * Notify: sector manager + admin users
+   * Uses configuration-based dispatch for role-based targeting
    */
   private async handleTaskCreated(event: TaskCreatedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -102,68 +70,26 @@ export class TaskListener {
     this.logger.log('========================================');
 
     try {
-      this.logger.log('[TASK EVENT] Step 1: Fetching target users for task creation...');
-      // Self-notification prevention: exclude the user who created the task
-      const targetUsers = await this.getTargetUsersForTaskCreated(event.task, event.createdBy.id);
-      this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
-      targetUsers.forEach((userId, idx) => {
-        this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
-      });
-
-      // Create notifications for all target users
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
-      for (const userId of targetUsers) {
-        this.logger.log('----------------------------------------');
-        this.logger.log(`[TASK EVENT] Processing user: ${userId}`);
-
-        // Use 'created' to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          'created',
-        );
-
-        this.logger.log(`[TASK EVENT] Enabled channels for user: [${channels.join(', ')}]`);
-
-        if (channels.length === 0) {
-          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for user ${userId} - skipping`);
-          notificationsSkipped++;
-          continue;
-        }
-
-        this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        const serialNumberSuffix = event.task.serialNumber ? ` (${event.task.serialNumber})` : '';
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: '🆕 Nova Tarefa Criada',
-          body: `Tarefa "${event.task.name}"${serialNumberSuffix} foi criada por ${event.createdBy.name}`,
-          actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            actorId: event.createdBy.id, // User who created the task (for self-action filtering)
+      await this.dispatchService.dispatchByConfiguration(
+        'task.created',
+        event.createdBy.id,
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'created',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            changedBy: event.createdBy?.name || 'Sistema',
           },
-          channel: channels,
-        });
-        this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
-        notificationsCreated++;
-      }
+        },
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[TASK EVENT] Task creation notification summary:');
-      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[TASK EVENT] Task creation notification dispatched via configuration');
     } catch (error) {
       this.logger.error('========================================');
-      this.logger.error('[TASK EVENT] ❌ Error handling task created event');
+      this.logger.error('[TASK EVENT] Error handling task created event');
       this.logger.error('[TASK EVENT] Error:', error.message);
       this.logger.error('[TASK EVENT] Stack:', error.stack);
       this.logger.error('========================================');
@@ -172,8 +98,8 @@ export class TaskListener {
 
   /**
    * Handle task status change event
-   * Notify: assigned users + sector manager + admin users
-   * Special case: When status changes to WAITING_PRODUCTION, notify PRODUCTION users with task creation message
+   * Uses 'task.field.status' configuration for dispatch
+   * Special case: When status changes to WAITING_PRODUCTION, notify PRODUCTION users
    */
   private async handleTaskStatusChanged(event: TaskStatusChangedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -186,79 +112,37 @@ export class TaskListener {
     this.logger.log('========================================');
 
     try {
-      this.logger.log('[TASK EVENT] Step 1: Fetching target users...');
-      // Self-notification prevention: exclude the user who changed the status
-      const targetUsers = await this.getTargetUsersForField(event.task, 'status', event.changedBy.id);
-      this.logger.log(`[TASK EVENT] Found ${targetUsers.length} target user(s)`);
-      targetUsers.forEach((userId, idx) => {
-        this.logger.log(`[TASK EVENT]   User ${idx + 1}: ${userId}`);
-      });
-
-      const oldStatusLabel = TASK_STATUS_LABELS[event.oldStatus];
-      const newStatusLabel = TASK_STATUS_LABELS[event.newStatus];
-      this.logger.log(`[TASK EVENT] Status labels: "${oldStatusLabel}" → "${newStatusLabel}"`);
-
-      // Create notifications for all target users
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
-      for (const userId of targetUsers) {
-        this.logger.log('----------------------------------------');
-        this.logger.log(`[TASK EVENT] Processing user: ${userId}`);
-
-        // Use 'status' to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          'status',
-        );
-
-        this.logger.log(`[TASK EVENT] Enabled channels for user: [${channels.join(', ')}]`);
-
-        if (channels.length === 0) {
-          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for user ${userId} - skipping`);
-          notificationsSkipped++;
-          continue;
-        }
-
-        this.logger.log(`[TASK EVENT] Creating notification for user ${userId}...`);
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        const taskIdentifier = event.task.name || event.task.serialNumber || 'Tarefa';
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: NOTIFICATION_IMPORTANCE.HIGH,
-          title: '🔄 Status da Tarefa Alterado',
-          body: `Tarefa "${event.task.name}" mudou de "${oldStatusLabel}" para "${newStatusLabel}" por ${event.changedBy.name}`,
-          actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            actorId: event.changedBy.id, // User who changed the status (for self-action filtering)
+      await this.dispatchService.dispatchByConfiguration(
+        'task.field.status',
+        event.changedBy.id,
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'field_updated',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            fieldName: 'status',
+            oldValue: event.oldStatus,
+            newValue: event.newStatus,
+            changedBy: event.changedBy?.name || 'Sistema',
           },
-          channel: channels,
-        });
-        this.logger.log(`[TASK EVENT] ✅ Notification created for user ${userId}`);
-        notificationsCreated++;
-      }
+        },
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[TASK EVENT] Task status change notification summary:');
-      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[TASK EVENT] Task status change notification dispatched via configuration');
 
       // Special case: When status changes TO WAITING_PRODUCTION, notify PRODUCTION users
-      // This acts as a "task created" notification for the production team
       if (event.newStatus === TASK_STATUS.WAITING_PRODUCTION) {
-        this.logger.log('[TASK EVENT] Status changed to WAITING_PRODUCTION - notifying production users...');
+        this.logger.log(
+          '[TASK EVENT] Status changed to WAITING_PRODUCTION - notifying production users...',
+        );
         await this.notifyProductionUsersTaskReady(event.task, event.changedBy);
       }
     } catch (error) {
       this.logger.error('========================================');
-      this.logger.error('[TASK EVENT] ❌ Error handling task status changed event');
+      this.logger.error('[TASK EVENT] Error handling task status changed event');
       this.logger.error('[TASK EVENT] Error:', error.message);
       this.logger.error('[TASK EVENT] Stack:', error.stack);
       this.logger.error('========================================');
@@ -267,83 +151,32 @@ export class TaskListener {
 
   /**
    * Handle task field update event
-   * Notify users based on field type, importance, and role restrictions
+   * Uses configuration-based dispatch for role-based targeting
    */
   private async handleTaskFieldUpdated(event: TaskFieldUpdatedEvent): Promise<void> {
     try {
-      this.logger.log(
-        `Task field updated: ${event.task.id} - ${event.fieldName} changed`,
+      this.logger.log(`Task field updated: ${event.task.id} - ${event.fieldName} changed`);
+
+      await this.dispatchService.dispatchByConfiguration(
+        `task.field.${event.fieldName}`,
+        event.updatedBy.id,
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'field_updated',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            fieldName: event.fieldName,
+            oldValue: event.oldValue,
+            newValue: event.newValue,
+            changedBy: event.updatedBy?.name || 'Sistema',
+          },
+        },
       );
 
-      const config = getFieldConfig(event.fieldName);
-
-      // Skip if field is not configured or disabled
-      if (!config || !config.enabled) {
-        this.logger.debug(`Skipping notification for unconfigured/disabled field: ${event.fieldName}`);
-        return;
-      }
-
-      // Self-notification prevention: exclude the user who updated the field
-      const targetUsers = await this.getTargetUsersForField(event.task, event.fieldName, event.updatedBy.id);
-
-      // Format the values for display
-      const oldValueFormatted = await this.formatFieldValue(event.fieldName, event.oldValue);
-      const newValueFormatted = await this.formatFieldValue(event.fieldName, event.newValue);
-
-      // Determine message type (cleared vs updated)
-      const isCleared = event.newValue === null || event.newValue === undefined;
-      const messageConfig = isCleared && config.messages.cleared
-        ? config.messages.cleared
-        : config.messages.updated;
-
-      // Get task identifier for the notification title (prefer name, then customer fantasyName, then serialNumber)
-      const taskIdentifier = event.task.name || event.task.customer?.fantasyName || event.task.serialNumber || 'Tarefa';
-
-      // Create notifications for all target users
-      for (const userId of targetUsers) {
-        // Use just the field name to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          event.fieldName,
-        );
-
-        if (channels.length === 0) continue;
-
-        const body = this.interpolateMessage(messageConfig.inApp, {
-          taskName: event.task.name,
-          serialNumber: event.task.serialNumber || '',
-          oldValue: oldValueFormatted,
-          newValue: newValueFormatted,
-          changedBy: event.updatedBy.name,
-        });
-
-        const detailedBody = `${config.label} da tarefa "${taskIdentifier}" alterado de "${oldValueFormatted}" para "${newValueFormatted}" por ${event.updatedBy.name}`;
-
-        // Build short title with field label
-        const detailedTitle = `📝 ${config.label} Alterado`;
-
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: config.importance,
-          title: detailedTitle,
-          body: detailedBody,
-          actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            fieldLabel: config.label,
-            actorId: event.updatedBy.id, // User who updated the field (for self-action filtering)
-          },
-          channel: channels,
-        });
-      }
-
-      this.logger.log(`Created ${targetUsers.length} notifications for field update: ${event.fieldName}`);
+      this.logger.log(`Field update notification dispatched for: ${event.fieldName}`);
     } catch (error) {
       this.logger.error('Error handling task field updated event:', error);
     }
@@ -351,25 +184,13 @@ export class TaskListener {
 
   /**
    * Handle task field changed event from field tracker
-   * Provides detailed handling for file array changes
-   * Notify users based on field type, importance, and role restrictions
+   * Uses configuration-based dispatch for role-based targeting
    */
   private async handleTaskFieldChanged(event: TaskFieldChangedEvent): Promise<void> {
     try {
       this.logger.log(
         `Task field changed: ${event.task.id} - ${event.field} (isFileArray: ${event.isFileArray})`,
       );
-
-      const config = getFieldConfig(event.field);
-
-      // Skip if field is not configured or disabled
-      if (!config || !config.enabled) {
-        this.logger.debug(`Skipping notification for unconfigured/disabled field: ${event.field}`);
-        return;
-      }
-
-      // Self-notification prevention: exclude the user who changed the field
-      const targetUsers = await this.getTargetUsersForField(event.task, event.field, event.changedBy);
 
       // Get the user who made the change
       const changedByUser = await this.prisma.user.findUnique({
@@ -379,110 +200,34 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
-      // Determine message configuration based on change type
-      let messageConfig = config.messages.updated;
-      let messageVars: Record<string, string | number> = {
-        taskName: event.task.name || '',
-        serialNumber: event.task.serialNumber || '',
-        changedBy: changedByName,
-      };
-
+      // Calculate count for file arrays
+      let count: number | undefined;
       if (event.isFileArray && event.fileChange) {
-        // Handle file array changes
         const { added, removed } = event.fileChange;
-
-        if (added > 0 && removed === 0 && config.messages.filesAdded) {
-          messageConfig = config.messages.filesAdded;
-          messageVars.count = added;
-        } else if (removed > 0 && added === 0 && config.messages.filesRemoved) {
-          messageConfig = config.messages.filesRemoved;
-          messageVars.count = removed;
-        } else {
-          // Mixed changes
-          messageVars.count = added + removed;
-        }
-      } else {
-        // Regular field change
-        const isCleared = event.newValue === null || event.newValue === undefined;
-
-        if (isCleared && config.messages.cleared) {
-          messageConfig = config.messages.cleared;
-        }
-
-        const oldValueFormatted = await this.formatFieldValue(event.field, event.oldValue);
-        const newValueFormatted = await this.formatFieldValue(event.field, event.newValue);
-
-        // Skip notification if formatted values are the same (e.g., null -> NO_COMMISSION both show as equivalent)
-        if (oldValueFormatted === newValueFormatted) {
-          this.logger.debug(`Skipping notification for ${event.field}: formatted values are identical ("${oldValueFormatted}")`);
-          return;
-        }
-
-        messageVars.oldValue = oldValueFormatted;
-        messageVars.newValue = newValueFormatted;
+        count = added > 0 ? added : -removed; // Positive for added, negative for removed
       }
 
-      // Get task identifier for the notification title (prefer name, then customer fantasyName, then serialNumber)
-      const taskIdentifier = event.task.name || event.task.customer?.fantasyName || event.task.serialNumber || 'Tarefa';
-
-      // Create notifications for all target users
-      for (const userId of targetUsers) {
-        // Use just the field name to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          event.field,
-        );
-
-        if (channels.length === 0) continue;
-
-        const body = this.interpolateMessage(messageConfig.inApp, messageVars);
-
-        // Build short title and detailed body based on change type
-        let detailedTitle: string;
-        let detailedBody: string;
-        if (event.isFileArray && event.fileChange) {
-          const { added, removed } = event.fileChange;
-          if (added > 0 && removed === 0) {
-            detailedTitle = `📎 ${config.label}: Arquivos Adicionados`;
-            detailedBody = `${added} arquivo(s) adicionado(s) em "${taskIdentifier}" por ${changedByName}`;
-          } else if (removed > 0 && added === 0) {
-            detailedTitle = `📎 ${config.label}: Arquivos Removidos`;
-            detailedBody = `${removed} arquivo(s) removido(s) de "${taskIdentifier}" por ${changedByName}`;
-          } else {
-            detailedTitle = `📎 ${config.label}: Arquivos Alterados`;
-            detailedBody = `${added} adicionado(s), ${removed} removido(s) em "${taskIdentifier}" por ${changedByName}`;
-          }
-        } else {
-          const oldVal = messageVars.oldValue || 'N/A';
-          const newVal = messageVars.newValue || 'N/A';
-          detailedTitle = `📝 ${config.label} Alterado`;
-          detailedBody = `${config.label} da tarefa "${taskIdentifier}" alterado de "${oldVal}" para "${newVal}" por ${changedByName}`;
-        }
-
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: config.importance,
-          title: detailedTitle,
-          body: detailedBody,
-          actionType: NOTIFICATION_ACTION_TYPE.TASK_UPDATED,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            fieldLabel: config.label,
-            actorId: event.changedBy, // User who changed the field (for self-action filtering)
+      await this.dispatchService.dispatchByConfiguration(
+        `task.field.${event.field}`,
+        event.changedBy,
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'field_changed',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            fieldName: event.field,
+            oldValue: event.oldValue,
+            newValue: event.newValue,
+            changedBy: changedByName,
+            count,
           },
-          channel: channels,
-        });
-      }
-
-      this.logger.log(
-        `Created ${targetUsers.length} notifications for field change: ${event.field}`,
+        },
       );
+
+      this.logger.log(`Field change notification dispatched for: ${event.field}`);
     } catch (error) {
       this.logger.error('Error handling task field changed event:', error);
     }
@@ -490,89 +235,35 @@ export class TaskListener {
 
   /**
    * Handle deadline approaching event
-   * Notify: assigned users + sector manager
-   * Supports both day-based (1, 3, 7 days) and hour-based (4 hours) notifications
+   * Uses 'task.deadline_approaching' configuration for dispatch
    */
   private async handleTaskDeadlineApproaching(event: TaskDeadlineApproachingEvent): Promise<void> {
     try {
-      // Check if this is an hour-based notification (urgent 4-hour window)
       const isHourBased = event.hoursRemaining !== undefined && event.hoursRemaining < 24;
       const timeLabel = isHourBased
         ? `${event.hoursRemaining} hora(s)`
         : `${event.daysRemaining} dia(s)`;
 
-      this.logger.log(
-        `Task deadline approaching: ${event.task.id} - ${timeLabel} remaining`,
+      this.logger.log(`Task deadline approaching: ${event.task.id} - ${timeLabel} remaining`);
+
+      await this.dispatchService.dispatchByConfiguration(
+        'task.deadline_approaching',
+        'system', // System-generated notification
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'deadline_approaching',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            daysRemaining: event.daysRemaining,
+            hoursRemaining: event.hoursRemaining,
+          },
+        },
       );
 
-      const targetUsers = await this.getTargetUsersForDeadline(event.task);
-
-      // Determine importance based on time remaining
-      // Hour-based notifications (4 hours or less) are always URGENT
-      let importance: typeof NOTIFICATION_IMPORTANCE.URGENT | typeof NOTIFICATION_IMPORTANCE.HIGH | typeof NOTIFICATION_IMPORTANCE.NORMAL;
-      if (isHourBased && event.hoursRemaining! <= 4) {
-        importance = NOTIFICATION_IMPORTANCE.URGENT;
-      } else if (event.daysRemaining <= 1) {
-        importance = NOTIFICATION_IMPORTANCE.URGENT;
-      } else if (event.daysRemaining <= 3) {
-        importance = NOTIFICATION_IMPORTANCE.HIGH;
-      } else {
-        importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      }
-
-      // Determine channels based on urgency
-      // Hour-based urgent notifications use all channels including WhatsApp
-      const defaultChannels =
-        (isHourBased && event.hoursRemaining! <= 4) || event.daysRemaining <= 1
-          ? [
-              NOTIFICATION_CHANNEL.IN_APP,
-              NOTIFICATION_CHANNEL.PUSH,
-              NOTIFICATION_CHANNEL.EMAIL,
-              NOTIFICATION_CHANNEL.WHATSAPP,
-            ]
-          : [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
-
-      // Create notifications for all target users
-      for (const userId of targetUsers) {
-        // Use 'deadline' to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          'deadline',
-          defaultChannels,
-        );
-
-        if (channels.length === 0) continue;
-
-        // Build notification title and body based on urgency
-        const title = isHourBased
-          ? '⚠️ Prazo Urgente!'
-          : '⏰ Prazo se Aproximando';
-
-        const body = `Tarefa "${event.task.name}" tem prazo em ${timeLabel}${event.task.serialNumber ? ` (${event.task.serialNumber})` : ''}`;
-
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance,
-          title,
-          body,
-          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            isUrgent: isHourBased && event.hoursRemaining! <= 4,
-            hoursRemaining: event.hoursRemaining,
-            daysRemaining: event.daysRemaining,
-          },
-          channel: channels,
-        });
-      }
-
-      this.logger.log(`Created ${targetUsers.length} notifications for deadline approaching (${timeLabel})`);
+      this.logger.log(`Deadline approaching notification dispatched (${timeLabel})`);
     } catch (error) {
       this.logger.error('Error handling task deadline approaching event:', error);
     }
@@ -580,74 +271,37 @@ export class TaskListener {
 
   /**
    * Handle task overdue event
-   * Notify: assigned users + sector manager + admin users
+   * Uses 'task.overdue' configuration for dispatch
    */
   private async handleTaskOverdue(event: TaskOverdueEvent): Promise<void> {
     try {
       this.logger.log(`Task overdue: ${event.task.id} - ${event.daysOverdue} days overdue`);
 
-      const targetUsers = await this.getTargetUsersForOverdue(event.task);
+      await this.dispatchService.dispatchByConfiguration(
+        'task.overdue',
+        'system', // System-generated notification
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'overdue',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            daysOverdue: event.daysOverdue,
+          },
+        },
+      );
 
-      // Create notifications for all target users
-      for (const userId of targetUsers) {
-        // Use 'overdue' to match user preference event type
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          'overdue',
-          [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
-        );
-
-        if (channels.length === 0) continue;
-
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(event.task);
-        const taskIdentifier = event.task.name || event.task.serialNumber || 'Tarefa';
-        const serialNumberSuffix = event.task.serialNumber ? ` (${event.task.serialNumber})` : '';
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: NOTIFICATION_IMPORTANCE.URGENT,
-          title: '🚨 Tarefa Atrasada',
-          body: `Tarefa "${event.task.name}"${serialNumberSuffix} está atrasada há ${event.daysOverdue} dia(s)`,
-          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl,
-          relatedEntityId: event.task.id,
-          relatedEntityType: 'TASK',
-          metadata,
-          channel: channels,
-        });
-      }
-
-      this.logger.log(`Created ${targetUsers.length} notifications for overdue task`);
+      this.logger.log('Overdue task notification dispatched');
     } catch (error) {
       this.logger.error('Error handling task overdue event:', error);
     }
   }
 
-  // =====================
-  // Helper Methods - Target Users
-  // =====================
-
-  /**
-   * Get target users for task creation
-   * Returns: sector manager + users with ADMIN, DESIGNER, LOGISTIC, FINANCIAL privileges
-   * Note: PRODUCTION users are notified separately when task status changes to WAITING_PRODUCTION
-   * @param task - The task object
-   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
-   */
-  private async getTargetUsersForTaskCreated(task: any, excludeUserId?: string): Promise<string[]> {
-    return this.getTargetUsersWithRoleFilter(task, [
-      SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.DESIGNER,
-      SECTOR_PRIVILEGES.LOGISTIC,
-      SECTOR_PRIVILEGES.FINANCIAL,
-    ], excludeUserId);
-  }
-
   /**
    * Notify PRODUCTION users when a task becomes ready for production (WAITING_PRODUCTION status)
-   * This acts as a "task created" notification specifically for the production team
-   * Uses the 'created' event type for preference lookup so users can control it via notification preferences
+   * Uses 'task.ready_for_production' configuration for dispatch
    */
   private async notifyProductionUsersTaskReady(task: any, changedBy: any): Promise<void> {
     this.logger.log('========================================');
@@ -657,424 +311,25 @@ export class TaskListener {
     this.logger.log('========================================');
 
     try {
-      // Get only PRODUCTION users
-      // Self-notification prevention: exclude the user who changed the status
-      const productionUsers = await this.getTargetUsersWithRoleFilter(task, [
-        SECTOR_PRIVILEGES.PRODUCTION,
-      ], changedBy.id);
-
-      this.logger.log(`[TASK EVENT] Found ${productionUsers.length} PRODUCTION user(s) to notify`);
-
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
-      for (const userId of productionUsers) {
-        this.logger.log(`[TASK EVENT] Processing PRODUCTION user: ${userId}`);
-
-        // Use 'created' event type so users can control this via their notification preferences
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.TASK,
-          'created',
-        );
-
-        this.logger.log(`[TASK EVENT] Enabled channels for PRODUCTION user: [${channels.join(', ')}]`);
-
-        if (channels.length === 0) {
-          this.logger.warn(`[TASK EVENT] ⚠️ No enabled channels for PRODUCTION user ${userId} - skipping`);
-          notificationsSkipped++;
-          continue;
-        }
-
-        const { actionUrl, metadata } = this.getTaskNotificationMetadata(task);
-        const taskIdentifier = task.name || task.serialNumber || 'Tarefa';
-        const serialNumberSuffix = task.serialNumber ? ` (${task.serialNumber})` : '';
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.TASK,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: '🏭 Tarefa Pronta para Produção',
-          body: `Tarefa "${task.name}"${serialNumberSuffix} aguardando produção - alterado por ${changedBy.name}`,
-          actionType: NOTIFICATION_ACTION_TYPE.TASK_CREATED,
-          actionUrl,
-          relatedEntityId: task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            ...metadata,
-            actorId: changedBy.id, // User who changed status to production (for self-action filtering)
-          },
-          channel: channels,
-        });
-        this.logger.log(`[TASK EVENT] ✅ Production notification created for user ${userId}`);
-        notificationsCreated++;
-      }
-
-      this.logger.log('========================================');
-      this.logger.log('[TASK EVENT] PRODUCTION notification summary:');
-      this.logger.log(`[TASK EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[TASK EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
-    } catch (error) {
-      this.logger.error('[TASK EVENT] ❌ Error notifying PRODUCTION users:', error.message);
-    }
-  }
-
-  /**
-   * Get target users for a specific field change
-   * Filters based on role restrictions from config
-   * @param task - The task object
-   * @param fieldName - The field name that changed
-   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
-   */
-  private async getTargetUsersForField(task: any, fieldName: string, excludeUserId?: string): Promise<string[]> {
-    const allowedRoles = getAllowedRolesForField(fieldName);
-
-    if (allowedRoles.length === 0) {
-      this.logger.warn(`No allowed roles configured for field: ${fieldName}`);
-      return [];
-    }
-
-    return this.getTargetUsersWithRoleFilter(task, allowedRoles, excludeUserId);
-  }
-
-  /**
-   * Get target users for deadline approaching
-   * Returns: assigned users + sector manager
-   * Note: Deadline notifications are system-generated, so no excludeUserId needed
-   */
-  private async getTargetUsersForDeadline(task: any): Promise<string[]> {
-    return this.getTargetUsersWithRoleFilter(task, [
-      SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.PRODUCTION,
-    ]);
-  }
-
-  /**
-   * Get target users for overdue task
-   * Returns: assigned users + sector manager + admin users
-   * Note: Overdue notifications are system-generated, so no excludeUserId needed
-   */
-  private async getTargetUsersForOverdue(task: any): Promise<string[]> {
-    return this.getTargetUsersWithRoleFilter(task, [
-      SECTOR_PRIVILEGES.ADMIN,
-      SECTOR_PRIVILEGES.PRODUCTION,
-      SECTOR_PRIVILEGES.FINANCIAL,
-    ]);
-  }
-
-  /**
-   * Get target users filtered by role privileges
-   * @param task - The task object
-   * @param allowedRoles - Array of allowed sector privileges
-   * @param excludeUserId - Optional user ID to exclude (self-notification prevention)
-   */
-  private async getTargetUsersWithRoleFilter(
-    task: any,
-    allowedRoles: SECTOR_PRIVILEGES[],
-    excludeUserId?: string,
-  ): Promise<string[]> {
-    const userIds = new Set<string>();
-
-    try {
-      // Get sector manager if task has a sector
-      if (task.sectorId) {
-        const sector = await this.prisma.sector.findUnique({
-          where: { id: task.sectorId },
-          select: {
-            managerId: true,
-            privileges: true, // Field is 'privileges' (plural)
-          },
-        });
-
-        if (sector?.managerId) {
-          // Check if sector privileges is in allowed roles
-          if (allowedRoles.includes(sector.privileges as SECTOR_PRIVILEGES)) {
-            userIds.add(sector.managerId);
-          }
-        }
-      }
-
-      // Get users with allowed privileges
-      // Note: 'sector' is an optional relation, so we use 'is' to filter on its fields
-      // The field is 'privileges' (plural) not 'privilege'
-      const users = await this.prisma.user.findMany({
-        where: {
-          isActive: true,
-          sector: {
-            is: {
-              privileges: {
-                in: allowedRoles,
-              },
-            },
+      await this.dispatchService.dispatchByConfiguration(
+        'task.ready_for_production',
+        changedBy.id,
+        {
+          entityType: 'task',
+          entityId: task.id,
+          action: 'ready_for_production',
+          data: {
+            taskId: task.id,
+            taskName: task.name,
+            serialNumber: task.serialNumber,
+            changedBy: changedBy?.name || 'Sistema',
           },
         },
-        select: { id: true },
-      });
-
-      users.forEach(user => userIds.add(user.id));
-    } catch (error) {
-      this.logger.error('Error getting target users with role filter:', error);
-    }
-
-    // Self-notification prevention: exclude the user who performed the action
-    if (excludeUserId) {
-      userIds.delete(excludeUserId);
-    }
-
-    return Array.from(userIds);
-  }
-
-  // =====================
-  // Helper Methods - Channels
-  // =====================
-
-  /**
-   * Get enabled channels for a user based on their preferences
-   */
-  private async getEnabledChannelsForUser(
-    userId: string,
-    notificationType: NOTIFICATION_TYPE,
-    eventType: string,
-    defaultChannels?: NOTIFICATION_CHANNEL[],
-  ): Promise<NOTIFICATION_CHANNEL[]> {
-    try {
-      this.logger.debug(`Looking up channels for user ${userId}, type ${notificationType}, event ${eventType}`);
-
-      const channels = await this.preferenceService.getChannelsForEvent(
-        userId,
-        notificationType,
-        eventType,
       );
 
-      this.logger.debug(`Found ${channels.length} channels from preferences: ${channels.join(', ') || 'none'}`);
-
-      // If user has specific preferences, use them
-      if (channels.length > 0) {
-        return channels;
-      }
-
-      // Otherwise, use defaults from config or provided defaults
-      if (defaultChannels) {
-        return defaultChannels;
-      }
-
-      // Fall back to field config defaults
-      // eventType is now just the field name (e.g., 'status', 'name', 'created')
-      const config = getFieldConfig(eventType);
-
-      return config?.defaultChannels || [NOTIFICATION_CHANNEL.IN_APP];
+      this.logger.log('[TASK EVENT] Production ready notification dispatched via configuration');
     } catch (error) {
-      this.logger.warn(`Error getting channels for user ${userId}, using defaults:`, error);
-      return [NOTIFICATION_CHANNEL.IN_APP];
+      this.logger.error('[TASK EVENT] Error notifying PRODUCTION users:', error.message);
     }
-  }
-
-  // =====================
-  // Helper Methods - Value Formatting
-  // =====================
-
-  /**
-   * Format field value for display in notifications
-   */
-  private async formatFieldValue(fieldName: string, value: any): Promise<string> {
-    if (value === null || value === undefined) {
-      return 'N/A';
-    }
-
-    const config = getFieldConfig(fieldName);
-
-    try {
-      switch (config?.formatter) {
-        case 'formatDate':
-          return this.formatDate(value);
-        case 'formatStatus':
-          return TASK_STATUS_LABELS[value] || value;
-        case 'formatCommissionStatus':
-          return COMMISSION_STATUS_LABELS[value] || value;
-        case 'formatSector':
-          return await this.formatSector(value);
-        case 'formatCustomer':
-          return await this.formatCustomer(value);
-        case 'formatPaint':
-          return await this.formatPaint(value);
-        case 'formatContact':
-          return this.formatContact(value);
-        default:
-          return this.formatDefaultValue(value);
-      }
-    } catch (error) {
-      this.logger.warn(`Error formatting field ${fieldName}:`, error);
-      return String(value);
-    }
-  }
-
-  /**
-   * Format date value
-   */
-  private formatDate(value: any): string {
-    if (!value) return 'N/A';
-
-    const date = new Date(value);
-    if (isNaN(date.getTime())) return String(value);
-
-    return date.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  }
-
-  /**
-   * Format sector ID to name
-   */
-  private async formatSector(sectorId: string): Promise<string> {
-    try {
-      const sector = await this.prisma.sector.findUnique({
-        where: { id: sectorId },
-        select: { name: true },
-      });
-      return sector?.name || sectorId;
-    } catch {
-      return sectorId;
-    }
-  }
-
-  /**
-   * Format customer ID to name
-   */
-  private async formatCustomer(customerId: string): Promise<string> {
-    try {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { fantasyName: true, corporateName: true },
-      });
-      return customer?.fantasyName || customer?.corporateName || customerId;
-    } catch {
-      return customerId;
-    }
-  }
-
-  /**
-   * Format paint ID to name
-   */
-  private async formatPaint(paintId: string): Promise<string> {
-    try {
-      const paint = await this.prisma.paint.findUnique({
-        where: { id: paintId },
-        select: { name: true, code: true },
-      });
-      return paint ? `${paint.name} (${paint.code})` : paintId;
-    } catch {
-      return paintId;
-    }
-  }
-
-  /**
-   * Format negotiating contact
-   */
-  private formatContact(value: any): string {
-    if (typeof value === 'object' && value !== null) {
-      const name = value.name || '';
-      const phone = value.phone || '';
-      return phone ? `${name} (${phone})` : name;
-    }
-    return String(value);
-  }
-
-  /**
-   * Format default value (arrays, objects, primitives)
-   */
-  private formatDefaultValue(value: any): string {
-    if (Array.isArray(value)) {
-      return `${value.length} item(ns)`;
-    }
-
-    if (typeof value === 'object') {
-      return JSON.stringify(value);
-    }
-
-    if (typeof value === 'boolean') {
-      return value ? 'Sim' : 'Não';
-    }
-
-    return String(value);
-  }
-
-  /**
-   * Interpolate message template with variables
-   */
-  private interpolateMessage(
-    template: string,
-    vars: Record<string, string | number>,
-  ): string {
-    let result = template;
-
-    for (const [key, value] of Object.entries(vars)) {
-      result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), String(value));
-    }
-
-    return result;
-  }
-
-  /**
-   * Get the correct URL for a task based on its status
-   * - PREPARATION → /producao/agenda/detalhes/{id}
-   * - WAITING_PRODUCTION or IN_PRODUCTION → /producao/cronograma/detalhes/{id}
-   * - COMPLETED → /producao/historico/detalhes/{id}
-   */
-  private getTaskUrl(task: any): string {
-    const taskId = task.id;
-    const status = task.status;
-
-    switch (status) {
-      case TASK_STATUS.PREPARATION:
-        return `/producao/agenda/detalhes/${taskId}`;
-      case TASK_STATUS.WAITING_PRODUCTION:
-      case TASK_STATUS.IN_PRODUCTION:
-        return `/producao/cronograma/detalhes/${taskId}`;
-      case TASK_STATUS.COMPLETED:
-        return `/producao/historico/detalhes/${taskId}`;
-      case TASK_STATUS.CANCELLED:
-        return `/producao/historico/detalhes/${taskId}`;
-      default:
-        // Default to agenda for unknown status
-        return `/producao/agenda/detalhes/${taskId}`;
-    }
-  }
-
-  /**
-   * Get task notification metadata including web and mobile deep links
-   * Returns actionUrl (web) and metadata with all link types for channel-specific routing
-   *
-   * Channel routing:
-   * - IN_APP, EMAIL → Use webUrl (status-specific routes)
-   * - WHATSAPP, PUSH → Use mobileUrl or universalLink
-   *
-   * @param task - Task object with id
-   * @returns Object with actionUrl and metadata containing all link types
-   */
-  private getTaskNotificationMetadata(task: any): { actionUrl: string; metadata: any } {
-    // Get status-specific web URL for backward compatibility
-    const webUrl = this.getTaskUrl(task);
-
-    // Generate deep links for mobile and universal linking
-    const deepLinks = this.deepLinkService.generateTaskLinks(task.id);
-
-    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
-    // can extract mobileUrl directly via parseActionUrl().
-    // Previously this was a simple web path which caused mobileUrl to be empty
-    // in push notifications, breaking mobile navigation.
-    return {
-      actionUrl: JSON.stringify(deepLinks),
-      metadata: {
-        webUrl,                        // Status-specific web route (for web app)
-        mobileUrl: deepLinks.mobile,   // Mobile app deep link (custom scheme)
-        universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
-        taskId: task.id,               // For reference
-        taskStatus: task.status,       // For reference
-        entityType: 'Task',            // For mobile navigation via entityType
-        entityId: task.id,             // For mobile navigation via entityId
-      },
-    };
   }
 }

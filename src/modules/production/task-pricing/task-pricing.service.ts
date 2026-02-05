@@ -26,7 +26,12 @@ import type {
   TaskPricingBatchDeleteResponse,
   TaskPricing,
 } from '@types';
-import { TASK_PRICING_STATUS, CHANGE_LOG_ENTITY_TYPE, CHANGE_LOG_ACTION, DISCOUNT_TYPE } from '@constants';
+import {
+  TASK_PRICING_STATUS,
+  CHANGE_LOG_ENTITY_TYPE,
+  CHANGE_LOG_ACTION,
+  DISCOUNT_TYPE,
+} from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
 
@@ -43,7 +48,7 @@ function calculateDiscountAmount(
   }
 
   if (discountType === DISCOUNT_TYPE.PERCENTAGE) {
-    return Math.round((subtotal * discountValue) / 100 * 100) / 100; // Round to 2 decimal places
+    return Math.round(((subtotal * discountValue) / 100) * 100) / 100; // Round to 2 decimal places
   }
 
   if (discountType === DISCOUNT_TYPE.FIXED_VALUE) {
@@ -56,11 +61,7 @@ function calculateDiscountAmount(
 /**
  * Calculate total from subtotal and discount
  */
-function calculateTotal(
-  subtotal: number,
-  discountType: string,
-  discountValue?: number,
-): number {
+function calculateTotal(subtotal: number, discountType: string, discountValue?: number): number {
   const discountAmount = calculateDiscountAmount(subtotal, discountType, discountValue);
   return Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100); // Ensure non-negative and round to 2 decimals
 }
@@ -101,10 +102,7 @@ export class TaskPricingService {
   /**
    * Find unique pricing by ID
    */
-  async findUnique(
-    id: string,
-    include?: any,
-  ): Promise<TaskPricingGetUniqueResponse> {
+  async findUnique(id: string, include?: any): Promise<TaskPricingGetUniqueResponse> {
     try {
       const pricing = await this.taskPricingRepository.findById(id, include);
 
@@ -161,7 +159,7 @@ export class TaskPricingService {
     try {
       // Validate task exists
       const task = await this.prisma.task.findUnique({
-        where: { id: data.taskId }
+        where: { id: data.taskId },
       });
 
       if (!task) {
@@ -180,9 +178,7 @@ export class TaskPricingService {
       // Validate subtotal matches items sum
       const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
       if (Math.abs(data.subtotal - itemsTotal) > 0.01) {
-        throw new BadRequestException(
-          'O subtotal deve ser igual à soma dos itens do orçamento.',
-        );
+        throw new BadRequestException('O subtotal deve ser igual à soma dos itens do orçamento.');
       }
 
       // Calculate and validate total with discount
@@ -270,7 +266,9 @@ export class TaskPricingService {
     userId: string,
   ): Promise<TaskPricingUpdateResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id, { include: { items: { orderBy: { position: 'asc' } } } });
+      const existing = await this.taskPricingRepository.findById(id, {
+        include: { items: { orderBy: { position: 'asc' } } },
+      });
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -278,17 +276,17 @@ export class TaskPricingService {
 
       // Determine current or new values
       const subtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
-      const discountType = data.discountType !== undefined ? data.discountType : existing.discountType;
-      const discountValue = data.discountValue !== undefined ? data.discountValue : existing.discountValue;
+      const discountType =
+        data.discountType !== undefined ? data.discountType : existing.discountType;
+      const discountValue =
+        data.discountValue !== undefined ? data.discountValue : existing.discountValue;
 
       // Validate items if provided (check against subtotal)
       if (data.items && data.items.length > 0) {
         const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
         const targetSubtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
         if (Math.abs(targetSubtotal - itemsTotal) > 0.01) {
-          throw new BadRequestException(
-            'O subtotal deve ser igual à soma dos itens do orçamento.',
-          );
+          throw new BadRequestException('O subtotal deve ser igual à soma dos itens do orçamento.');
         }
       }
 
@@ -316,10 +314,14 @@ export class TaskPricingService {
             // Payment Terms (simplified)
             ...(data.paymentCondition !== undefined && { paymentCondition: data.paymentCondition }),
             ...(data.downPaymentDate !== undefined && { downPaymentDate: data.downPaymentDate }),
-            ...(data.customPaymentText !== undefined && { customPaymentText: data.customPaymentText }),
+            ...(data.customPaymentText !== undefined && {
+              customPaymentText: data.customPaymentText,
+            }),
             // Guarantee Terms
             ...(data.guaranteeYears !== undefined && { guaranteeYears: data.guaranteeYears }),
-            ...(data.customGuaranteeText !== undefined && { customGuaranteeText: data.customGuaranteeText }),
+            ...(data.customGuaranteeText !== undefined && {
+              customGuaranteeText: data.customGuaranteeText,
+            }),
             // Layout File
             ...(data.layoutFileId !== undefined && { layoutFileId: data.layoutFileId }),
             ...(data.items && {
@@ -370,10 +372,7 @@ export class TaskPricingService {
   /**
    * Delete pricing
    */
-  async delete(
-    id: string,
-    userId: string,
-  ): Promise<TaskPricingDeleteResponse> {
+  async delete(id: string, userId: string): Promise<TaskPricingDeleteResponse> {
     try {
       const existing = await this.taskPricingRepository.findById(id);
 
@@ -428,11 +427,7 @@ export class TaskPricingService {
       this.validateStatusTransition(existing.status as TASK_PRICING_STATUS, status);
 
       // Update status
-      const updated = await this.update(
-        id,
-        { status },
-        userId,
-      );
+      const updated = await this.update(id, { status }, userId);
 
       return {
         success: true,
@@ -448,31 +443,21 @@ export class TaskPricingService {
   /**
    * Approve pricing (change status to APPROVED)
    */
-  async approve(
-    id: string,
-    userId: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  async approve(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
     return this.updateStatus(id, TASK_PRICING_STATUS.APPROVED, userId);
   }
 
   /**
    * Reject pricing (change status to REJECTED)
    */
-  async reject(
-    id: string,
-    userId: string,
-    reason?: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  async reject(id: string, userId: string, reason?: string): Promise<TaskPricingUpdateResponse> {
     return this.updateStatus(id, TASK_PRICING_STATUS.REJECTED, userId, reason);
   }
 
   /**
    * Cancel pricing (change status to CANCELLED)
    */
-  async cancel(
-    id: string,
-    userId: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  async cancel(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
     return this.updateStatus(id, TASK_PRICING_STATUS.CANCELLED, userId);
   }
 
@@ -614,11 +599,13 @@ export class TaskPricingService {
 
       // Delete old signature file if it exists
       if (pricing.customerSignature) {
-        await this.prisma.file.delete({
-          where: { id: pricing.customerSignature.id },
-        }).catch(() => {
-          // Ignore errors when deleting old file
-        });
+        await this.prisma.file
+          .delete({
+            where: { id: pricing.customerSignature.id },
+          })
+          .catch(() => {
+            // Ignore errors when deleting old file
+          });
       }
 
       this.logger.log(`Customer signature uploaded for pricing ${id}`);
@@ -659,17 +646,12 @@ export class TaskPricingService {
     }
 
     // Allow REJECTED → DRAFT (for revision)
-    if (
-      currentStatus === TASK_PRICING_STATUS.REJECTED &&
-      newStatus === TASK_PRICING_STATUS.DRAFT
-    ) {
+    if (currentStatus === TASK_PRICING_STATUS.REJECTED && newStatus === TASK_PRICING_STATUS.DRAFT) {
       return;
     }
 
     // Disallow other transitions
-    throw new BadRequestException(
-      `Transição de status inválida: ${currentStatus} → ${newStatus}`,
-    );
+    throw new BadRequestException(`Transição de status inválida: ${currentStatus} → ${newStatus}`);
   }
 
   /**

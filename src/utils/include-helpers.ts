@@ -325,9 +325,7 @@ export function buildSelectiveInclude<T extends Record<string, any>>(
  * // Result: { customer: true, sector: { select: { id: true, name: true } } }
  * ```
  */
-export function mergeIncludes<T extends Record<string, any>>(
-  ...includes: T[]
-): T {
+export function mergeIncludes<T extends Record<string, any>>(...includes: T[]): T {
   return Object.assign({}, ...includes);
 }
 
@@ -502,10 +500,7 @@ export function buildCountSelect(relations: string[]) {
  * @param maxDepth - Maximum allowed nesting depth (default: 3)
  * @returns Warning message if potential performance issue detected
  */
-export function checkIncludePerformance(
-  include: Record<string, any>,
-  maxDepth = 3,
-): string | null {
+export function checkIncludePerformance(include: Record<string, any>, maxDepth = 3): string | null {
   let maxNestingDepth = 0;
   let relationCount = 0;
 
@@ -665,19 +660,16 @@ export const SelectPatterns = {
  * @param allowedFields - Array of allowed field names
  * @throws Error if select contains disallowed fields
  */
-export function validateSelectFields(
-  select: Record<string, any>,
-  allowedFields: string[],
-): void {
+export function validateSelectFields(select: Record<string, any>, allowedFields: string[]): void {
   const selectedFields = Object.keys(select);
   const disallowedFields = selectedFields.filter(
-    (field) => !allowedFields.includes(field) && field !== '_count',
+    field => !allowedFields.includes(field) && field !== '_count',
   );
 
   if (disallowedFields.length > 0) {
     throw new Error(
       `Select contains disallowed fields: ${disallowedFields.join(', ')}. ` +
-      `Allowed fields: ${allowedFields.join(', ')}`,
+        `Allowed fields: ${allowedFields.join(', ')}`,
     );
   }
 }

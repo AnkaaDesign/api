@@ -67,7 +67,12 @@ import {
 import { OrderScheduleService } from './order-schedule.service';
 import { FileService } from '@modules/common/file/file.service';
 import { promises as fs } from 'fs';
-import { OrderCreatedEvent, OrderStatusChangedEvent, OrderItemReceivedEvent, OrderCancelledEvent } from './order.events';
+import {
+  OrderCreatedEvent,
+  OrderStatusChangedEvent,
+  OrderItemReceivedEvent,
+  OrderCancelledEvent,
+} from './order.events';
 
 @Injectable()
 export class OrderService {

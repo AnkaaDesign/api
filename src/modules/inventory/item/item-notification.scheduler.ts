@@ -3,10 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import {
-  DeepLinkService,
-  DeepLinkListPage,
-} from '@modules/common/notification/deep-link.service';
+import { DeepLinkService, DeepLinkListPage } from '@modules/common/notification/deep-link.service';
 import {
   SECTOR_PRIVILEGES,
   NOTIFICATION_CHANNEL,
@@ -259,13 +256,10 @@ export class ItemNotificationScheduler {
       // Generate proper action URL with both web and mobile links
       // Web gets filters for stock levels, mobile navigates to item list page
       const stockLevels = ['LOW', 'CRITICAL', 'OUT_OF_STOCK'];
-      const deepLinks = this.deepLinkService.generateListPageLinks(
-        DeepLinkListPage.ItemList,
-        {
-          stockLevels: JSON.stringify(stockLevels),
-          isActive: 'true',
-        },
-      );
+      const deepLinks = this.deepLinkService.generateListPageLinks(DeepLinkListPage.ItemList, {
+        stockLevels: JSON.stringify(stockLevels),
+        isActive: 'true',
+      });
 
       // Create batch notifications
       // Use webPath (relative path) for actionUrl for backward compatibility
@@ -276,12 +270,12 @@ export class ItemNotificationScheduler {
         body,
         type: NOTIFICATION_TYPE.STOCK,
         importance,
-        actionUrl: deepLinks.webPath,  // Use relative path for backward compatibility (like task notifications)
+        actionUrl: deepLinks.webPath, // Use relative path for backward compatibility (like task notifications)
         actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
         channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
         sentAt: new Date(),
         metadata: {
-          webUrl: deepLinks.web,  // Full URL for platforms that need it
+          webUrl: deepLinks.web, // Full URL for platforms that need it
           mobileUrl: deepLinks.mobile,
           universalLink: deepLinks.universalLink,
         },

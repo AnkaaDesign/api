@@ -135,10 +135,7 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
         },
       },
     },
-    orderBy: [
-      { type: 'asc' as const },
-      { position: 'asc' as const },
-    ],
+    orderBy: [{ type: 'asc' as const }, { position: 'asc' as const }],
   },
 };
 
@@ -198,10 +195,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
         },
       },
     },
-    orderBy: [
-      { type: 'asc' as const },
-      { position: 'asc' as const },
-    ],
+    orderBy: [{ type: 'asc' as const }, { position: 'asc' as const }],
   },
   truck: {
     select: {
@@ -222,7 +216,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
-  invoiceTo: { select: { id: true, fantasyName: true } },  // Removed cnpj - not displayed anywhere
+  invoiceTo: { select: { id: true, fantasyName: true } }, // Removed cnpj - not displayed anywhere
   pricing: {
     include: {
       items: { orderBy: { position: 'asc' } },
@@ -353,10 +347,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
         },
       },
     },
-    orderBy: [
-      { type: 'asc' },
-      { position: 'asc' },
-    ],
+    orderBy: [{ type: 'asc' }, { position: 'asc' }],
   },
   truck: {
     select: {
@@ -474,7 +465,9 @@ export class TaskPrismaRepository
   /**
    * Determines optimal query pattern based on context
    */
-  private getOptimalQueryPattern(options?: FindManyOptions<TaskOrderBy, TaskWhere, TaskInclude>): any {
+  private getOptimalQueryPattern(
+    options?: FindManyOptions<TaskOrderBy, TaskWhere, TaskInclude>,
+  ): any {
     // If specific includes requested, use custom mapping
     if (options?.include) {
       return { include: this.mapIncludeToDatabaseInclude(options.include) };
@@ -592,8 +585,8 @@ export class TaskPrismaRepository
               customerId: repData.customerId || data.customerId,
               password: repData.password || null,
             },
-          })
-        )
+          }),
+        ),
       );
 
       additionalRepIds = createdReps.map(rep => rep.id);
@@ -718,7 +711,9 @@ export class TaskPrismaRepository
           type: (service.type || 'PRODUCTION') as any,
           description: service.description || '',
           position: index,
-          ...(service.assignedToId ? { assignedTo: { connect: { id: service.assignedToId } } } : {}),
+          ...(service.assignedToId
+            ? { assignedTo: { connect: { id: service.assignedToId } } }
+            : {}),
           startedAt: service.startedAt || null,
           finishedAt: service.finishedAt || null,
           createdBy: { connect: { id: (service as any).createdById || creatorId } },
@@ -833,7 +828,7 @@ export class TaskPrismaRepository
     if (newRepresentatives && newRepresentatives.length > 0) {
       const task = await prismaClient.task.findUnique({
         where: { id },
-        select: { customerId: true }
+        select: { customerId: true },
       });
 
       const createdReps = await Promise.all(
@@ -844,8 +839,8 @@ export class TaskPrismaRepository
               customerId: repData.customerId || task?.customerId,
               password: repData.password || null,
             },
-          })
-        )
+          }),
+        ),
       );
 
       additionalRepIds = createdReps.map(rep => rep.id);
@@ -864,7 +859,10 @@ export class TaskPrismaRepository
     formData: TaskUpdateFormData,
     userId?: string,
   ): Prisma.TaskUpdateInput {
-    this.logger.log('[mapUpdateFormDataToDatabaseUpdateInput] Incoming formData:', JSON.stringify(formData, null, 2));
+    this.logger.log(
+      '[mapUpdateFormDataToDatabaseUpdateInput] Incoming formData:',
+      JSON.stringify(formData, null, 2),
+    );
 
     const extendedData = formData as TaskUpdateFormData;
 
@@ -999,8 +997,12 @@ export class TaskPrismaRepository
         serviceOrdersUpdate.updateMany = existingOrdersWithIndex.map(({ service, index }) => ({
           where: { id: service.id },
           data: {
-            ...(service.status !== undefined && { status: mapServiceOrderStatusToPrisma(service.status) }),
-            ...(service.status !== undefined && { statusOrder: getServiceOrderStatusOrder(service.status) }),
+            ...(service.status !== undefined && {
+              status: mapServiceOrderStatusToPrisma(service.status),
+            }),
+            ...(service.status !== undefined && {
+              statusOrder: getServiceOrderStatusOrder(service.status),
+            }),
             ...(service.type !== undefined && { type: service.type }),
             ...(service.description !== undefined && { description: service.description }),
             ...(service.observation !== undefined && { observation: service.observation }),
@@ -1139,19 +1141,27 @@ export class TaskPrismaRepository
         updateData.airbrushings = { deleteMany: {} };
       } else if (Array.isArray(airbrushings) && airbrushings.length > 0) {
         const idsToKeep = airbrushings
-          .filter((item: any) => item.id && typeof item.id === 'string' && !item.id.startsWith('airbrushing-'))
+          .filter(
+            (item: any) =>
+              item.id && typeof item.id === 'string' && !item.id.startsWith('airbrushing-'),
+          )
           .map((item: any) => item.id);
 
         if (idsToKeep.length > 0) {
           updateData.airbrushings = {
             deleteMany: { id: { notIn: idsToKeep } },
           };
-          this.logger.log(`[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings: keeping ${idsToKeep.length} existing, deleting others`);
+          this.logger.log(
+            `[mapUpdateFormDataToDatabaseUpdateInput] Airbrushings: keeping ${idsToKeep.length} existing, deleting others`,
+          );
         }
       }
     }
 
-    this.logger.log('[mapUpdateFormDataToDatabaseUpdateInput] Final updateData:', JSON.stringify(updateData, null, 2));
+    this.logger.log(
+      '[mapUpdateFormDataToDatabaseUpdateInput] Final updateData:',
+      JSON.stringify(updateData, null, 2),
+    );
 
     return updateData;
   }
@@ -1291,8 +1301,10 @@ export class TaskPrismaRepository
           (sum: number, item: any) => sum + Number(item.amount || 0),
           0,
         );
-        const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
-        const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+        const subtotal =
+          pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+        const total =
+          pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
 
         const maxBudgetNumber = await transaction.taskPricing.aggregate({
           _max: { budgetNumber: true },
@@ -1309,11 +1321,14 @@ export class TaskPrismaRepository
             subtotal,
             total,
             discountType: pricingData.discountType || 'NONE',
-            discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+            discountValue:
+              pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
             expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
             status: pricingData.status || 'DRAFT',
             paymentCondition: pricingData.paymentCondition || null,
-            downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+            downPaymentDate: pricingData.downPaymentDate
+              ? new Date(pricingData.downPaymentDate)
+              : null,
             customPaymentText: pricingData.customPaymentText || null,
             guaranteeYears: pricingData.guaranteeYears || null,
             customGuaranteeText: pricingData.customGuaranteeText || null,
@@ -1428,7 +1443,9 @@ export class TaskPrismaRepository
 
     // When using custom select, don't try to map the entity (just return as-is)
     return {
-      data: useProvidedSelect ? tasks as any[] : tasks.map(task => this.mapDatabaseEntityToEntity(task)),
+      data: useProvidedSelect
+        ? (tasks as any[])
+        : tasks.map(task => this.mapDatabaseEntityToEntity(task)),
       meta: super.calculatePagination(total, page, take),
     };
   }
@@ -1465,13 +1482,16 @@ export class TaskPrismaRepository
             (sum: number, item: any) => sum + Number(item.amount || 0),
             0,
           );
-          const subtotal = pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
-          const total = pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+          const subtotal =
+            pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+          const total =
+            pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
 
           if (currentTask?.pricingId) {
-            const layoutFileUpdate = pricingData.layoutFileId !== undefined
-              ? { layoutFileId: pricingData.layoutFileId }
-              : {};
+            const layoutFileUpdate =
+              pricingData.layoutFileId !== undefined
+                ? { layoutFileId: pricingData.layoutFileId }
+                : {};
 
             await transaction.taskPricing.update({
               where: { id: currentTask.pricingId },
@@ -1479,17 +1499,36 @@ export class TaskPrismaRepository
                 subtotal,
                 total,
                 discountType: pricingData.discountType || 'NONE',
-                discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+                discountValue:
+                  pricingData.discountValue !== undefined
+                    ? Number(pricingData.discountValue)
+                    : null,
                 expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : undefined,
                 status: pricingData.status || undefined,
-                paymentCondition: pricingData.paymentCondition !== undefined ? pricingData.paymentCondition : undefined,
-                downPaymentDate: pricingData.downPaymentDate !== undefined
-                  ? (pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null)
-                  : undefined,
-                customPaymentText: pricingData.customPaymentText !== undefined ? pricingData.customPaymentText : undefined,
-                guaranteeYears: pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
-                customGuaranteeText: pricingData.customGuaranteeText !== undefined ? pricingData.customGuaranteeText : undefined,
-                customForecastDays: pricingData.customForecastDays !== undefined ? pricingData.customForecastDays : undefined,
+                paymentCondition:
+                  pricingData.paymentCondition !== undefined
+                    ? pricingData.paymentCondition
+                    : undefined,
+                downPaymentDate:
+                  pricingData.downPaymentDate !== undefined
+                    ? pricingData.downPaymentDate
+                      ? new Date(pricingData.downPaymentDate)
+                      : null
+                    : undefined,
+                customPaymentText:
+                  pricingData.customPaymentText !== undefined
+                    ? pricingData.customPaymentText
+                    : undefined,
+                guaranteeYears:
+                  pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
+                customGuaranteeText:
+                  pricingData.customGuaranteeText !== undefined
+                    ? pricingData.customGuaranteeText
+                    : undefined,
+                customForecastDays:
+                  pricingData.customForecastDays !== undefined
+                    ? pricingData.customForecastDays
+                    : undefined,
                 ...layoutFileUpdate,
                 items: {
                   deleteMany: {},
@@ -1519,11 +1558,16 @@ export class TaskPrismaRepository
                 subtotal,
                 total,
                 discountType: pricingData.discountType || 'NONE',
-                discountValue: pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
+                discountValue:
+                  pricingData.discountValue !== undefined
+                    ? Number(pricingData.discountValue)
+                    : null,
                 expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
                 status: pricingData.status || 'DRAFT',
                 paymentCondition: pricingData.paymentCondition || null,
-                downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+                downPaymentDate: pricingData.downPaymentDate
+                  ? new Date(pricingData.downPaymentDate)
+                  : null,
                 customPaymentText: pricingData.customPaymentText || null,
                 guaranteeYears: pricingData.guaranteeYears || null,
                 customGuaranteeText: pricingData.customGuaranteeText || null,

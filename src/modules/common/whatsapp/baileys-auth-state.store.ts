@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AuthenticationCreds, AuthenticationState, SignalDataTypeMap, initAuthCreds, BufferJSON } from '@whiskeysockets/baileys';
+import {
+  AuthenticationCreds,
+  AuthenticationState,
+  SignalDataTypeMap,
+  initAuthCreds,
+  BufferJSON,
+} from '@whiskeysockets/baileys';
 import { proto } from '@whiskeysockets/baileys';
 import { CacheService } from '../cache/cache.service';
 
@@ -117,7 +123,9 @@ export class BaileysAuthStateStore {
         }
       }
 
-      this.logger.debug(`Retrieved ${Object.keys(result).length}/${ids.length} keys of type ${type}`);
+      this.logger.debug(
+        `Retrieved ${Object.keys(result).length}/${ids.length} keys of type ${type}`,
+      );
       return result;
     } catch (error) {
       this.logger.error(`Failed to get keys (type: ${type}): ${error.message}`);

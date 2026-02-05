@@ -114,7 +114,12 @@ export class TaskController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.LOGISTIC)
+  @Roles(
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.LOGISTIC,
+  )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -186,16 +191,19 @@ export class TaskController {
       taskId: taskData.id,
       taskName: taskData.name,
       artworkCount: taskData.artworks?.length || 0,
-      artworks: taskData.artworks?.map((artwork: any) => ({
-        artworkId: artwork.id,
-        fileId: artwork.fileId,
-        status: artwork.status,
-        file: artwork.file ? {
-          id: artwork.file.id,
-          filename: artwork.file.filename,
-          originalName: artwork.file.originalName,
-        } : null,
-      })) || [],
+      artworks:
+        taskData.artworks?.map((artwork: any) => ({
+          artworkId: artwork.id,
+          fileId: artwork.fileId,
+          status: artwork.status,
+          file: artwork.file
+            ? {
+                id: artwork.file.id,
+                filename: artwork.file.filename,
+                originalName: artwork.file.originalName,
+              }
+            : null,
+        })) || [],
     };
   }
 
@@ -381,7 +389,12 @@ export class TaskController {
   }
 
   @Put(':id/prepare')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async prepareTask(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
@@ -453,10 +466,7 @@ export class TaskController {
     // Default sort: forecastDate first, then serialNumber (identificador)
     return this.tasksService.findMany({
       ...query,
-      orderBy: query.orderBy || [
-        { forecastDate: 'asc' },
-        { serialNumber: 'asc' },
-      ],
+      orderBy: query.orderBy || [{ forecastDate: 'asc' }, { serialNumber: 'asc' }],
       where: {
         ...query.where,
         status: TASK_STATUS.PREPARATION,
@@ -579,7 +589,12 @@ export class TaskController {
   }
 
   @Put(':id/copy-from')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.DESIGNER)
+  @Roles(
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.DESIGNER,
+  )
   @UsePipes(new ZodValidationPipe(taskCopyFromSchema))
   async copyFromTask(
     @Param('id') destinationTaskId: string,

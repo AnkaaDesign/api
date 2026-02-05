@@ -63,11 +63,7 @@ export class BackupProcessor {
       const relativePath = backupPath.replace(backupBasePath + '/', '');
 
       // Update backup completion in database
-      await this.backupService.updateBackupCompletion(
-        backupId,
-        BigInt(stats.size),
-        relativePath,
-      );
+      await this.backupService.updateBackupCompletion(backupId, BigInt(stats.size), relativePath);
 
       // Set final permissions AFTER metadata is saved (fixes permission denied issues)
       const backupDir = path.dirname(backupPath);
@@ -336,9 +332,7 @@ export class BackupProcessor {
       if (schedule) {
         // Calculate next run time based on cron
         const repeatOpts = job.opts?.repeat as { every?: number } | undefined;
-        const nextRun = repeatOpts?.every
-          ? new Date(Date.now() + repeatOpts.every)
-          : undefined;
+        const nextRun = repeatOpts?.every ? new Date(Date.now() + repeatOpts.every) : undefined;
 
         await this.backupScheduleRepository.recordSuccess(schedule.id, nextRun);
         this.logger.log(`Schedule ${schedule.name} execution recorded successfully`);

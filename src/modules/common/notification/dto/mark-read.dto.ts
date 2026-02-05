@@ -1,11 +1,4 @@
-import {
-  IsArray,
-  IsUUID,
-  IsBoolean,
-  IsOptional,
-  IsEnum,
-  IsDateString,
-} from 'class-validator';
+import { IsArray, IsUUID, IsBoolean, IsOptional, IsEnum, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { NOTIFICATION_TYPE } from '../../../../constants';
 
@@ -150,7 +143,14 @@ export class BulkNotificationActionDto {
     example: 'mark_read',
   })
   @IsEnum(['mark_read', 'mark_unread', 'mark_seen', 'archive', 'unarchive', 'dismiss', 'delete'])
-  action: 'mark_read' | 'mark_unread' | 'mark_seen' | 'archive' | 'unarchive' | 'dismiss' | 'delete';
+  action:
+    | 'mark_read'
+    | 'mark_unread'
+    | 'mark_seen'
+    | 'archive'
+    | 'unarchive'
+    | 'dismiss'
+    | 'delete';
 }
 
 /**

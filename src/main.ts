@@ -67,9 +67,10 @@ class SocketIoAdapter extends IoAdapter {
       ...options,
       // CORS configuration for WebSocket connections
       cors: {
-        origin: typeof allowedOrigins === 'function'
-          ? (origin, callback) => allowedOrigins(origin, callback)
-          : allowedOrigins,
+        origin:
+          typeof allowedOrigins === 'function'
+            ? (origin, callback) => allowedOrigins(origin, callback)
+            : allowedOrigins,
         methods: ['GET', 'POST'],
         credentials: true,
         allowedHeaders: ['Content-Type', 'Authorization'],
@@ -142,8 +143,7 @@ async function bootstrap() {
     // Capture raw body for webhook signature verification
     // This must be done BEFORE any JSON parsing
     app.use((req: any, res, next) => {
-      const isWebhookRoute =
-        (req.url === '/deployments/webhook' && req.method === 'POST');
+      const isWebhookRoute = req.url === '/deployments/webhook' && req.method === 'POST';
 
       if (isWebhookRoute) {
         let data = '';
@@ -168,7 +168,7 @@ async function bootstrap() {
     // Manually configure body parser with 50MB limit for messages with base64 images
     // This runs AFTER webhook handler so webhook can manually parse its body
     app.use(express.json({ limit: '50mb' }));
-    app.use(express.urlencoded({ extended: true, limit: '50mb' }))
+    app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
     // Security headers with Helmet
     // Temporarily disable some security features for debugging

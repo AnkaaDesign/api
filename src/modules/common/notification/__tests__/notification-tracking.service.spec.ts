@@ -19,7 +19,7 @@ describe('NotificationTrackingService', () => {
   let deliveryRepository: NotificationDeliveryRepository;
 
   const mockPrismaService = {
-    $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    $transaction: jest.fn(callback => callback(mockPrismaService)),
     notification: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -369,7 +369,11 @@ describe('NotificationTrackingService', () => {
       const mockNotification = {
         id: 'notif-1',
         title: 'Test',
-        channel: [NOTIFICATION_CHANNEL.EMAIL, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.WHATSAPP],
+        channel: [
+          NOTIFICATION_CHANNEL.EMAIL,
+          NOTIFICATION_CHANNEL.PUSH,
+          NOTIFICATION_CHANNEL.WHATSAPP,
+        ],
         deliveries: [
           {
             id: 'delivery-1',

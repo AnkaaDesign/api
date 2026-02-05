@@ -112,7 +112,12 @@ export class ChangeLogService {
       if (keys.length > 0) {
         const firstKey = keys[0];
         const firstValue = old[firstKey];
-        if (firstValue && typeof firstValue === 'object' && 'from' in firstValue && 'to' in firstValue) {
+        if (
+          firstValue &&
+          typeof firstValue === 'object' &&
+          'from' in firstValue &&
+          'to' in firstValue
+        ) {
           // This is a changes object, include it in metadata
           Object.assign(metadata, old);
         }

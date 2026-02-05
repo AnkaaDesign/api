@@ -39,11 +39,10 @@ export class DeepLinkTestExamples {
   testGenerateDeepLink() {
     console.log('\n=== Test 1: generateDeepLink() ===');
 
-    const result = this.deepLinkService.generateDeepLink(
-      DeepLinkEntity.Task,
-      'task-123',
-      { action: 'view', source: 'notification' },
-    );
+    const result = this.deepLinkService.generateDeepLink(DeepLinkEntity.Task, 'task-123', {
+      action: 'view',
+      source: 'notification',
+    });
 
     console.log('Web URL:', result.web);
     // Expected: https://app.domain.com/tarefas/task-123?action=view&source=notification
@@ -94,11 +93,9 @@ export class DeepLinkTestExamples {
   testBuildWebLink() {
     console.log('\n=== Test 3: buildWebLink() ===');
 
-    const webUrl = this.deepLinkService.buildWebLink(
-      DeepLinkEntity.Order,
-      'order-456',
-      { highlight: 'status' },
-    );
+    const webUrl = this.deepLinkService.buildWebLink(DeepLinkEntity.Order, 'order-456', {
+      highlight: 'status',
+    });
 
     console.log('Web URL:', webUrl);
     // Expected: https://app.domain.com/pedidos/order-456?highlight=status
@@ -113,11 +110,9 @@ export class DeepLinkTestExamples {
   testBuildMobileLink() {
     console.log('\n=== Test 4: buildMobileLink() ===');
 
-    const mobileUrl = this.deepLinkService.buildMobileLink(
-      DeepLinkEntity.Item,
-      'item-789',
-      { action: 'reorder' },
-    );
+    const mobileUrl = this.deepLinkService.buildMobileLink(DeepLinkEntity.Item, 'item-789', {
+      action: 'reorder',
+    });
 
     console.log('Mobile URL:', mobileUrl);
     // Expected: myapp://estoque/produtos/item-789?action=reorder
@@ -230,15 +225,11 @@ export class DeepLinkTestExamples {
     console.log('\n=== Test 8: Notification Integration ===');
 
     // Generate deep links for task assignment
-    const links = this.deepLinkService.generateDeepLink(
-      DeepLinkEntity.Task,
-      'task-123',
-      {
-        action: 'view',
-        source: 'assignment',
-        priority: 'high',
-      },
-    );
+    const links = this.deepLinkService.generateDeepLink(DeepLinkEntity.Task, 'task-123', {
+      action: 'view',
+      source: 'assignment',
+      priority: 'high',
+    });
 
     // Notification payload structure
     const notificationPayload = {

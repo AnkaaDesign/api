@@ -78,8 +78,12 @@ export class PushService implements OnModuleInit {
 
       this.logger.log('[PUSH] Checking Firebase environment variables...');
       this.logger.log(`[PUSH] FIREBASE_PROJECT_ID: ${projectId ? '✅ Set' : '❌ Missing'}`);
-      this.logger.log(`[PUSH] FIREBASE_PRIVATE_KEY: ${privateKey ? '✅ Set (length: ' + privateKey.length + ')' : '❌ Missing'}`);
-      this.logger.log(`[PUSH] FIREBASE_CLIENT_EMAIL: ${clientEmail ? '✅ Set (' + clientEmail + ')' : '❌ Missing'}`);
+      this.logger.log(
+        `[PUSH] FIREBASE_PRIVATE_KEY: ${privateKey ? '✅ Set (length: ' + privateKey.length + ')' : '❌ Missing'}`,
+      );
+      this.logger.log(
+        `[PUSH] FIREBASE_CLIENT_EMAIL: ${clientEmail ? '✅ Set (' + clientEmail + ')' : '❌ Missing'}`,
+      );
 
       if (!projectId || !privateKey || !clientEmail) {
         this.logger.warn('========================================');
@@ -546,7 +550,9 @@ export class PushService implements OnModuleInit {
 
     tokens.forEach((token, idx) => {
       const isExpo = this.isExpoPushToken(token);
-      this.logger.log(`[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}... [${isExpo ? 'EXPO' : 'FCM'}]`);
+      this.logger.log(
+        `[PUSH] Device ${idx + 1}: ${token.substring(0, 30)}... [${isExpo ? 'EXPO' : 'FCM'}]`,
+      );
 
       if (isExpo) {
         expoTokens.push(token);
@@ -578,7 +584,9 @@ export class PushService implements OnModuleInit {
       totalFailure += expoResult.failure;
       allFailedTokens.push(...expoResult.failedTokens);
 
-      this.logger.log(`[PUSH] Expo result: ✅ ${expoResult.success} success, ❌ ${expoResult.failure} failure`);
+      this.logger.log(
+        `[PUSH] Expo result: ✅ ${expoResult.success} success, ❌ ${expoResult.failure} failure`,
+      );
 
       // Deactivate failed Expo tokens
       if (expoResult.failedTokens.length > 0) {
@@ -598,7 +606,9 @@ export class PushService implements OnModuleInit {
         allFailedTokens.push(...fcmResult.failedTokens);
       }
 
-      this.logger.log(`[PUSH] FCM result: ✅ ${fcmResult.success} success, ❌ ${fcmResult.failure} failure`);
+      this.logger.log(
+        `[PUSH] FCM result: ✅ ${fcmResult.success} success, ❌ ${fcmResult.failure} failure`,
+      );
     }
 
     this.logger.log('[PUSH] ========================================');

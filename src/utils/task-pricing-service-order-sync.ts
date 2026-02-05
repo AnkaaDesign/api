@@ -79,10 +79,7 @@ export function normalizeDescription(description: string | null): string {
 /**
  * Checks if two descriptions are equivalent (case-insensitive, normalized whitespace).
  */
-export function areDescriptionsEqual(
-  desc1: string | null,
-  desc2: string | null,
-): boolean {
+export function areDescriptionsEqual(desc1: string | null, desc2: string | null): boolean {
   return normalizeDescription(desc1) === normalizeDescription(desc2);
 }
 
@@ -130,8 +127,7 @@ export function getServiceOrderToPricingSync(
       pricingItemDescription: '',
       pricingItemObservation: null,
       pricingItemAmount: 0,
-      reason:
-        'Apenas ordens de serviço do tipo PRODUÇÃO são sincronizadas com precificação',
+      reason: 'Apenas ordens de serviço do tipo PRODUÇÃO são sincronizadas com precificação',
     };
   }
 
@@ -150,7 +146,7 @@ export function getServiceOrderToPricingSync(
   }
 
   // Check if a pricing item with this exact description already exists
-  const existingItem = existingPricingItems.find((item) =>
+  const existingItem = existingPricingItems.find(item =>
     areDescriptionsEqual(item.description, description),
   );
 
@@ -224,10 +220,10 @@ export function getPricingItemToServiceOrderSync(
 
   // Check if a PRODUCTION service order with this exact description already exists
   const productionOrders = existingServiceOrders.filter(
-    (so) => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
+    so => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
   );
 
-  const existingOrder = productionOrders.find((so) =>
+  const existingOrder = productionOrders.find(so =>
     areDescriptionsEqual(so.description, description),
   );
 
@@ -350,9 +346,7 @@ export function getBidirectionalSyncActions(
     const syncResult = getServiceOrderToPricingSync(so, pricingItems);
 
     if (syncResult.shouldCreatePricingItem) {
-      const normalizedDesc = normalizeDescription(
-        syncResult.pricingItemDescription,
-      );
+      const normalizedDesc = normalizeDescription(syncResult.pricingItemDescription);
       if (!matchedPricingDescriptions.has(normalizedDesc)) {
         result.pricingItemsToCreate.push({
           description: syncResult.pricingItemDescription,
@@ -362,23 +356,16 @@ export function getBidirectionalSyncActions(
         });
         matchedPricingDescriptions.add(normalizedDesc);
       }
-    } else if (
-      syncResult.shouldUpdatePricingItem &&
-      syncResult.existingPricingItemId
-    ) {
+    } else if (syncResult.shouldUpdatePricingItem && syncResult.existingPricingItemId) {
       result.pricingItemsToUpdate.push({
         id: syncResult.existingPricingItemId,
         description: syncResult.pricingItemDescription,
         observation: syncResult.pricingItemObservation,
         sourceServiceOrderId: so.id,
       });
-      matchedPricingDescriptions.add(
-        normalizeDescription(syncResult.pricingItemDescription),
-      );
+      matchedPricingDescriptions.add(normalizeDescription(syncResult.pricingItemDescription));
     } else if (syncResult.existingPricingItemId) {
-      matchedPricingDescriptions.add(
-        normalizeDescription(syncResult.pricingItemDescription),
-      );
+      matchedPricingDescriptions.add(normalizeDescription(syncResult.pricingItemDescription));
       if (so.id) matchedServiceOrderIds.add(so.id);
     }
   }
@@ -400,10 +387,7 @@ export function getBidirectionalSyncActions(
         observation: syncResult.serviceOrderObservation,
         sourcePricingItemId: pi.id,
       });
-    } else if (
-      syncResult.shouldUpdateServiceOrder &&
-      syncResult.existingServiceOrderId
-    ) {
+    } else if (syncResult.shouldUpdateServiceOrder && syncResult.existingServiceOrderId) {
       if (!matchedServiceOrderIds.has(syncResult.existingServiceOrderId)) {
         result.serviceOrdersToUpdate.push({
           id: syncResult.existingServiceOrderId,
@@ -446,7 +430,7 @@ export function getPricingItemsToAddFromServiceOrders(
     amount: number;
   }> = [];
   const existingDescriptions = new Set(
-    existingPricingItems.map((pi) => normalizeDescription(pi.description)),
+    existingPricingItems.map(pi => normalizeDescription(pi.description)),
   );
 
   for (const so of serviceOrders) {
@@ -475,8 +459,8 @@ export function getServiceOrdersToAddFromPricingItems(
   const result: Array<{ description: string; observation: string | null }> = [];
   const existingDescriptions = new Set(
     existingServiceOrders
-      .filter((so) => so.type === SERVICE_ORDER_TYPE.PRODUCTION)
-      .map((so) => normalizeDescription(so.description)),
+      .filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION)
+      .map(so => normalizeDescription(so.description)),
   );
 
   for (const pi of pricingItems) {

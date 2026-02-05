@@ -943,15 +943,21 @@ export class NotificationQueueService {
         if (!user.phone) {
           throw new Error(`User ${user.id} has no phone number for WhatsApp`);
         }
-        return await this.addWhatsAppJob(job.notificationId, user.id, user.phone, notification.body, {
-          metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
-          priority: 'normal',
-        });
+        return await this.addWhatsAppJob(
+          job.notificationId,
+          user.id,
+          user.phone,
+          notification.body,
+          {
+            metadata: { deliveryId: job.deliveryId, attempts: job.attempts },
+            priority: 'normal',
+          },
+        );
 
       case NOTIFICATION_CHANNEL.PUSH:
         // For push notifications, we send to all user's registered devices
         // Include notification metadata for mobile navigation (entityType, entityId, mobileUrl, etc.)
-        const notificationMetadata = notification.metadata as Record<string, any> || {};
+        const notificationMetadata = (notification.metadata as Record<string, any>) || {};
         return await this.addPushJobForUser(
           job.notificationId,
           user.id,

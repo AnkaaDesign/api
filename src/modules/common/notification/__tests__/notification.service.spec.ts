@@ -2,7 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotificationService } from '../notification.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChangeLogService } from '../../changelog/changelog.service';
-import { NotificationRepository, SeenNotificationRepository } from '../repositories/notification.repository';
+import {
+  NotificationRepository,
+  SeenNotificationRepository,
+} from '../repositories/notification.repository';
 import { NotificationGatewayService } from '../notification-gateway.service';
 import { NotificationTrackingService } from '../notification-tracking.service';
 import { NotificationDispatchService } from '../notification-dispatch.service';
@@ -20,7 +23,7 @@ describe('NotificationService', () => {
   let dispatchService: NotificationDispatchService;
 
   const mockPrismaService = {
-    $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    $transaction: jest.fn(callback => callback(mockPrismaService)),
     user: {
       findUnique: jest.fn(),
       count: jest.fn(),
@@ -347,9 +350,7 @@ describe('NotificationService', () => {
     it('should throw NotFoundException when notification not found', async () => {
       mockNotificationRepository.findByIdWithTransaction.mockResolvedValue(null);
 
-      await expect(service.updateNotification('invalid-id', {})).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.updateNotification('invalid-id', {})).rejects.toThrow(NotFoundException);
     });
   });
 

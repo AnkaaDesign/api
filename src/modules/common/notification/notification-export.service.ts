@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  InternalServerErrorException,
-  StreamableFile,
-} from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, StreamableFile } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { stringify } from 'csv-stringify';
 import { Readable } from 'stream';
@@ -157,7 +152,18 @@ export class NotificationExportService {
 
       // Convert data to worksheet
       const worksheet = XLSX.utils.json_to_sheet(exportData, {
-        header: ['id', 'type', 'user', 'message', 'channels', 'status', 'sentAt', 'deliveredAt', 'seenAt', 'failedReason'],
+        header: [
+          'id',
+          'type',
+          'user',
+          'message',
+          'channels',
+          'status',
+          'sentAt',
+          'deliveredAt',
+          'seenAt',
+          'failedReason',
+        ],
       });
 
       // Set column widths for better readability
@@ -250,9 +256,7 @@ export class NotificationExportService {
         const deliveryStatus = this.getDeliveryStatus(notification.deliveries);
 
         // Get first delivery timestamp
-        const firstDelivery = notification.deliveries.find(
-          (d: any) => d.deliveredAt !== null,
-        );
+        const firstDelivery = notification.deliveries.find((d: any) => d.deliveredAt !== null);
 
         // Get failed delivery reason
         const failedDelivery = notification.deliveries.find((d: any) => d.status === 'FAILED');
@@ -273,9 +277,7 @@ export class NotificationExportService {
           deliveredAt: firstDelivery?.deliveredAt
             ? firstDelivery.deliveredAt.toISOString()
             : 'Not delivered',
-          seenAt: seenNotification?.seenAt
-            ? seenNotification.seenAt.toISOString()
-            : 'Not seen',
+          seenAt: seenNotification?.seenAt ? seenNotification.seenAt.toISOString() : 'Not seen',
           failedReason: failedDelivery?.errorMessage || 'N/A',
         };
       });
@@ -293,7 +295,10 @@ export class NotificationExportService {
    * @param type - Export type ('notifications' or 'analytics')
    * @returns Formatted filename
    */
-  generateExportFilename(format: ExportFormat, type: 'notifications' | 'analytics' = 'notifications'): string {
+  generateExportFilename(
+    format: ExportFormat,
+    type: 'notifications' | 'analytics' = 'notifications',
+  ): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
     const time = new Date().toISOString().split('T')[1].split('.')[0].replace(/:/g, '-');
 

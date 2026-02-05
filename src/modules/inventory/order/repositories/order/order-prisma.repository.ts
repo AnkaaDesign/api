@@ -226,7 +226,8 @@ export class OrderPrismaRepository
     if (formData.forecast !== undefined) updateData.forecast = formData.forecast;
     if (formData.notes !== undefined) updateData.notes = formData.notes;
     if (formData.orderRuleId !== undefined) updateData.orderRuleId = formData.orderRuleId;
-    if (formData.paymentMethod !== undefined) updateData.paymentMethod = formData.paymentMethod as any;
+    if (formData.paymentMethod !== undefined)
+      updateData.paymentMethod = formData.paymentMethod as any;
     if (formData.paymentPix !== undefined) updateData.paymentPix = formData.paymentPix;
     if (formData.paymentDueDays !== undefined) updateData.paymentDueDays = formData.paymentDueDays;
 

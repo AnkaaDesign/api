@@ -22,7 +22,10 @@ export const representativeCreateSchema = z.object({
 export const representativeUpdateSchema = z.object({
   name: z.string().min(3).optional(),
   email: z.string().email().optional().nullable(),
-  phone: z.string().regex(/^\d{10,11}$/).optional(),
+  phone: z
+    .string()
+    .regex(/^\d{10,11}$/)
+    .optional(),
   role: representativeRoleSchema.optional(),
   isActive: z.boolean().optional(),
   customerId: z.string().uuid().optional().nullable(),
@@ -33,19 +36,21 @@ export const representativeLoginSchema = z.object({
   password: z.string().min(1, 'Senha obrigatória'),
 });
 
-export const representativeRegisterSchema = z.object({
-  name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  email: z.string().email('Email inválido'), // Required for registration
-  phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
-  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'), // Required for registration
-  passwordConfirmation: z.string().min(6),
-  customerId: z.string().uuid('ID do cliente inválido'),
-  role: representativeRoleSchema,
-  isActive: z.boolean().optional().default(true),
-}).refine(data => data.password === data.passwordConfirmation, {
-  message: 'Senhas não coincidem',
-  path: ['passwordConfirmation'],
-});
+export const representativeRegisterSchema = z
+  .object({
+    name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
+    email: z.string().email('Email inválido'), // Required for registration
+    phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
+    password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'), // Required for registration
+    passwordConfirmation: z.string().min(6),
+    customerId: z.string().uuid('ID do cliente inválido'),
+    role: representativeRoleSchema,
+    isActive: z.boolean().optional().default(true),
+  })
+  .refine(data => data.password === data.passwordConfirmation, {
+    message: 'Senhas não coincidem',
+    path: ['passwordConfirmation'],
+  });
 
 export const representativeIncludeSchema = z.object({
   customer: z.boolean().optional(),
@@ -82,14 +87,11 @@ export const representativeGetManySchema = z.object({
   // Direct filters (commonly used by frontend)
   customerId: z.string().uuid().optional(),
   role: representativeRoleSchema.optional(),
-  isActive: z.preprocess(
-    (val) => {
-      if (val === 'true') return true;
-      if (val === 'false') return false;
-      return val;
-    },
-    z.boolean().optional()
-  ),
+  isActive: z.preprocess(val => {
+    if (val === 'true') return true;
+    if (val === 'false') return false;
+    return val;
+  }, z.boolean().optional()),
 });
 
 // Type exports

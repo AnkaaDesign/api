@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Expo, ExpoPushMessage, ExpoPushTicket, ExpoPushSuccessTicket, ExpoPushErrorTicket } from 'expo-server-sdk';
+import {
+  Expo,
+  ExpoPushMessage,
+  ExpoPushTicket,
+  ExpoPushSuccessTicket,
+  ExpoPushErrorTicket,
+} from 'expo-server-sdk';
 
 export interface ExpoPushResult {
   success: boolean;
@@ -76,14 +82,18 @@ export class ExpoPushService {
 
     // Validate token
     if (!Expo.isExpoPushToken(token)) {
-      this.logger.error(`[EXPO PUSH] Invalid Expo push token: ${String(token).substring(0, 20)}...`);
+      this.logger.error(
+        `[EXPO PUSH] Invalid Expo push token: ${String(token).substring(0, 20)}...`,
+      );
       return { success: false, error: 'Invalid Expo push token format' };
     }
 
     try {
       this.logger.log(`[EXPO PUSH] Sending notification to token: ${token.substring(0, 30)}...`);
       this.logger.log(`[EXPO PUSH] Title: ${title}`);
-      this.logger.log(`[EXPO PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`);
+      this.logger.log(
+        `[EXPO PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`,
+      );
 
       // Determine Android notification channel based on data
       const importance = data?.importance || 'default';
@@ -162,7 +172,9 @@ export class ExpoPushService {
       this.logger.log(`[EXPO PUSH] ========================================`);
       this.logger.log(`[EXPO PUSH] Sending multicast notification to ${tokens.length} token(s)`);
       this.logger.log(`[EXPO PUSH] Title: ${title}`);
-      this.logger.log(`[EXPO PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`);
+      this.logger.log(
+        `[EXPO PUSH] Body: ${body.substring(0, 100)}${body.length > 100 ? '...' : ''}`,
+      );
 
       // Filter valid Expo tokens
       const validTokens = tokens.filter(token => Expo.isExpoPushToken(token));
@@ -229,7 +241,9 @@ export class ExpoPushService {
       tickets.forEach((ticket, index) => {
         if (ticket.status === 'ok') {
           successCount++;
-          this.logger.log(`[EXPO PUSH] ✅ Token ${index + 1}: Success (${(ticket as ExpoPushSuccessTicket).id})`);
+          this.logger.log(
+            `[EXPO PUSH] ✅ Token ${index + 1}: Success (${(ticket as ExpoPushSuccessTicket).id})`,
+          );
         } else {
           failureCount++;
           const errorTicket = ticket as ExpoPushErrorTicket;

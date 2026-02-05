@@ -72,8 +72,8 @@ describe('NotificationFilterService', () => {
 
       // Should see stock (warehouse privilege) and own task
       expect(result).toHaveLength(2);
-      expect(result.some((n) => n.id === 'notif-1')).toBe(true);
-      expect(result.some((n) => n.id === 'notif-2')).toBe(true);
+      expect(result.some(n => n.id === 'notif-1')).toBe(true);
+      expect(result.some(n => n.id === 'notif-2')).toBe(true);
     });
 
     it('should allow admin to see all notifications', () => {
@@ -349,8 +349,8 @@ describe('NotificationFilterService', () => {
       ]);
 
       expect(result).toHaveLength(2);
-      expect(result.some((u) => u.id === 'user-1')).toBe(true);
-      expect(result.some((u) => u.id === 'user-2')).toBe(true);
+      expect(result.some(u => u.id === 'user-1')).toBe(true);
+      expect(result.some(u => u.id === 'user-2')).toBe(true);
     });
 
     it('should return all users when sectors array is empty', () => {
@@ -376,8 +376,8 @@ describe('NotificationFilterService', () => {
       const result = service.filterByPrivilege(users, 4); // Warehouse level
 
       expect(result).toHaveLength(2);
-      expect(result.some((u) => u.id === 'user-2')).toBe(true);
-      expect(result.some((u) => u.id === 'user-3')).toBe(true);
+      expect(result.some(u => u.id === 'user-2')).toBe(true);
+      expect(result.some(u => u.id === 'user-3')).toBe(true);
     });
 
     it('should exclude users without sector', () => {
@@ -422,8 +422,8 @@ describe('NotificationFilterService', () => {
       });
 
       expect(result).toHaveLength(2);
-      expect(result.some((u) => u.id === 'user-1')).toBe(true);
-      expect(result.some((u) => u.id === 'user-2')).toBe(true);
+      expect(result.some(u => u.id === 'user-1')).toBe(true);
+      expect(result.some(u => u.id === 'user-2')).toBe(true);
     });
 
     it('should exclude specific user IDs', () => {
@@ -439,7 +439,7 @@ describe('NotificationFilterService', () => {
       });
 
       expect(result).toHaveLength(2);
-      expect(result.some((u) => u.id === 'user-2')).toBe(false);
+      expect(result.some(u => u.id === 'user-2')).toBe(false);
     });
 
     it('should apply custom filter function', () => {
@@ -450,7 +450,7 @@ describe('NotificationFilterService', () => {
 
       const result = service.combineFilters(users, {
         sectors: [SECTOR_PRIVILEGES.WAREHOUSE],
-        customFilter: (user) => user.name.startsWith('A'),
+        customFilter: user => user.name.startsWith('A'),
       });
 
       expect(result).toHaveLength(1);
@@ -547,7 +547,7 @@ describe('NotificationFilterService', () => {
       const result = await service.getUsersForPPENotification('user-2');
 
       expect(result).toHaveLength(2);
-      expect(result.some((u) => u.id === 'user-2')).toBe(true);
+      expect(result.some(u => u.id === 'user-2')).toBe(true);
     });
   });
 

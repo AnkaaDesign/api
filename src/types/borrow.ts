@@ -517,7 +517,15 @@ export type BorrowTableView = Pick<
  */
 export type BorrowFormView = Pick<
   Borrow,
-  'id' | 'itemId' | 'userId' | 'quantity' | 'status' | 'statusOrder' | 'returnedAt' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'itemId'
+  | 'userId'
+  | 'quantity'
+  | 'status'
+  | 'statusOrder'
+  | 'returnedAt'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
   item: Pick<Item, 'id' | 'name' | 'uniCode' | 'quantity'> & {
     isPpe?: boolean;

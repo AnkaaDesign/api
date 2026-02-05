@@ -1,4 +1,11 @@
-import { Injectable, Logger, InternalServerErrorException, OnModuleInit, Inject, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  InternalServerErrorException,
+  OnModuleInit,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { exec, spawn } from 'child_process';
@@ -157,7 +164,15 @@ export class BackupService implements OnModuleInit {
    * - full → completo
    */
   private getBackupDirectoryPath(
-    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema' | 'banco-de-dados' | 'completo',
+    type:
+      | 'database'
+      | 'files'
+      | 'system'
+      | 'full'
+      | 'arquivos'
+      | 'sistema'
+      | 'banco-de-dados'
+      | 'completo',
   ): string {
     // Map English type names to Portuguese folder names
     const folderMapping: Record<string, string> = {
@@ -212,7 +227,15 @@ export class BackupService implements OnModuleInit {
    * Creates structure: /banco-de-dados/2025/10/25/backup_XXX/
    */
   private async ensureDateBasedDirectory(
-    type: 'database' | 'files' | 'system' | 'full' | 'arquivos' | 'sistema' | 'banco-de-dados' | 'completo',
+    type:
+      | 'database'
+      | 'files'
+      | 'system'
+      | 'full'
+      | 'arquivos'
+      | 'sistema'
+      | 'banco-de-dados'
+      | 'completo',
     backupId: string,
   ): Promise<string> {
     const dateBasedPath = this.getBackupDirectoryPath(type);
@@ -624,7 +647,9 @@ export class BackupService implements OnModuleInit {
             this.logger.error(`  Original error: ${error.message}`);
             this.logger.error(`  Chown error: ${chownError.message}`);
             this.logger.error(`  Sudo rm error: ${sudoError.message}`);
-            throw new Error(`Failed to delete backup: All methods exhausted. Check sudo permissions for user kennedy.`);
+            throw new Error(
+              `Failed to delete backup: All methods exhausted. Check sudo permissions for user kennedy.`,
+            );
           }
         }
       }
@@ -1230,7 +1255,9 @@ export class BackupService implements OnModuleInit {
       });
 
       // 4. Combine all backups into one archive
-      this.logger.log(`Full backup [${backupId}]: Combining ${backupComponents.length} components...`);
+      this.logger.log(
+        `Full backup [${backupId}]: Combining ${backupComponents.length} components...`,
+      );
 
       // Build tar command dynamically
       const tarParts = backupComponents.map(c => `-C "${c.path}" "${c.name}"`).join(' ');
@@ -1315,7 +1342,10 @@ export class BackupService implements OnModuleInit {
     return mapping[status] || BackupStatus.PENDING;
   }
 
-  async scheduleBackup(createBackupDto: CreateBackupDto, userId?: string): Promise<{ message: string; scheduleId: string }> {
+  async scheduleBackup(
+    createBackupDto: CreateBackupDto,
+    userId?: string,
+  ): Promise<{ message: string; scheduleId: string }> {
     try {
       if (!createBackupDto.schedule?.enabled || !createBackupDto.schedule.cron) {
         throw new Error('Invalid schedule configuration');
@@ -1355,7 +1385,9 @@ export class BackupService implements OnModuleInit {
         nextRunAt,
       });
 
-      this.logger.log(`Backup scheduled: ${jobName} with cron: ${createBackupDto.schedule.cron} (DB ID: ${dbSchedule.id})`);
+      this.logger.log(
+        `Backup scheduled: ${jobName} with cron: ${createBackupDto.schedule.cron} (DB ID: ${dbSchedule.id})`,
+      );
       return { message: 'Backup scheduled successfully', scheduleId: dbSchedule.id };
     } catch (error) {
       this.logger.error(`Failed to schedule backup: ${error.message}`);
@@ -1448,7 +1480,9 @@ export class BackupService implements OnModuleInit {
 
       if (job) {
         await this.backupQueue.removeRepeatableByKey(job.key);
-        this.logger.log(`Legacy scheduled backup removed from Bull queue: ${job.name} (key: ${job.key})`);
+        this.logger.log(
+          `Legacy scheduled backup removed from Bull queue: ${job.name} (key: ${job.key})`,
+        );
 
         // Also soft delete from database by Bull job ID
         await this.backupScheduleRepository.softDeleteByBullJobId(job.id || job.key, deletedById);

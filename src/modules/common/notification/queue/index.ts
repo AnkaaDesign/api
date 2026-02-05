@@ -7,31 +7,19 @@
 
 // Export Email Processor
 export { EmailProcessor } from './email.processor';
-export type {
-  EmailJobData,
-  EmailDeliveryResult,
-} from './email.processor';
+export type { EmailJobData, EmailDeliveryResult } from './email.processor';
 
 // Export Push Processor
 export { PushProcessor } from './push.processor';
-export type {
-  PushJobData,
-  PushDeliveryResult,
-} from './push.processor';
+export type { PushJobData, PushDeliveryResult } from './push.processor';
 
 // Export WhatsApp Processor
 export { WhatsAppProcessor } from './whatsapp.processor';
-export type {
-  WhatsAppJobData,
-  WhatsAppDeliveryResult,
-} from './whatsapp.processor';
+export type { WhatsAppJobData, WhatsAppDeliveryResult } from './whatsapp.processor';
 
 // Export Reminder Processor
 export { ReminderProcessor } from './reminder.processor';
-export type {
-  ReminderJobData,
-  ReminderProcessingResult,
-} from './reminder.processor';
+export type { ReminderJobData, ReminderProcessingResult } from './reminder.processor';
 
 /**
  * Queue Configuration Summary

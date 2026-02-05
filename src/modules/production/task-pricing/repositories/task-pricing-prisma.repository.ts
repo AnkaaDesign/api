@@ -15,10 +15,7 @@ import type {
   CreateOptions,
   UpdateOptions,
 } from '@types';
-import type {
-  TaskPricingCreateFormData,
-  TaskPricingUpdateFormData,
-} from '@schemas/task-pricing';
+import type { TaskPricingCreateFormData, TaskPricingUpdateFormData } from '@schemas/task-pricing';
 import { TASK_PRICING_STATUS } from '@constants';
 import { TaskPricing as PrismaTaskPricing, Prisma } from '@prisma/client';
 
@@ -109,20 +106,25 @@ export class TaskPricingPrismaRepository
     const updateInput: Prisma.TaskPricingUpdateInput = {};
 
     if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
-    if (formData.discountType !== undefined) updateInput.discountType = formData.discountType as any;
+    if (formData.discountType !== undefined)
+      updateInput.discountType = formData.discountType as any;
     if (formData.discountValue !== undefined) updateInput.discountValue = formData.discountValue;
     if (formData.total !== undefined) updateInput.total = formData.total;
     if (formData.expiresAt !== undefined) updateInput.expiresAt = formData.expiresAt;
     if (formData.status !== undefined) updateInput.status = formData.status as any;
 
     // Payment Terms (simplified)
-    if (formData.paymentCondition !== undefined) updateInput.paymentCondition = formData.paymentCondition as any;
-    if (formData.downPaymentDate !== undefined) updateInput.downPaymentDate = formData.downPaymentDate;
-    if (formData.customPaymentText !== undefined) updateInput.customPaymentText = formData.customPaymentText;
+    if (formData.paymentCondition !== undefined)
+      updateInput.paymentCondition = formData.paymentCondition as any;
+    if (formData.downPaymentDate !== undefined)
+      updateInput.downPaymentDate = formData.downPaymentDate;
+    if (formData.customPaymentText !== undefined)
+      updateInput.customPaymentText = formData.customPaymentText;
 
     // Guarantee Terms
     if (formData.guaranteeYears !== undefined) updateInput.guaranteeYears = formData.guaranteeYears;
-    if (formData.customGuaranteeText !== undefined) updateInput.customGuaranteeText = formData.customGuaranteeText;
+    if (formData.customGuaranteeText !== undefined)
+      updateInput.customGuaranteeText = formData.customGuaranteeText;
 
     // Layout File
     if (formData.layoutFileId !== undefined) {
@@ -144,7 +146,8 @@ export class TaskPricingPrismaRepository
     const mappedInclude: Prisma.TaskPricingInclude = {};
 
     if (include.items !== undefined) {
-      mappedInclude.items = include.items === true ? { orderBy: { position: 'asc' as const } } : include.items;
+      mappedInclude.items =
+        include.items === true ? { orderBy: { position: 'asc' as const } } : include.items;
     }
     if ((include as any).tasks !== undefined) {
       if (typeof (include as any).tasks === 'boolean') {
@@ -153,7 +156,8 @@ export class TaskPricingPrismaRepository
         mappedInclude.tasks = { include: (include as any).tasks.include as any };
       }
     }
-    if ((include as any).layoutFile !== undefined) mappedInclude.layoutFile = (include as any).layoutFile;
+    if ((include as any).layoutFile !== undefined)
+      mappedInclude.layoutFile = (include as any).layoutFile;
 
     return mappedInclude;
   }
@@ -275,10 +279,7 @@ export class TaskPricingPrismaRepository
   }
 
   // Delete with transaction
-  async deleteWithTransaction(
-    transaction: PrismaTransaction,
-    id: string,
-  ): Promise<TaskPricing> {
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<TaskPricing> {
     const deleted = await transaction.taskPricing.delete({
       where: { id },
       include: this.getDefaultInclude(),

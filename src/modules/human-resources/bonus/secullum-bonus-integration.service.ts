@@ -108,7 +108,13 @@ export class SecullumBonusIntegrationService {
 
     for (const user of users) {
       try {
-        const analysis = await this.analyzeUser(user, startDate, endDate, secullumEmployees, holidays);
+        const analysis = await this.analyzeUser(
+          user,
+          startDate,
+          endDate,
+          secullumEmployees,
+          holidays,
+        );
         if (analysis) {
           results.set(user.id, analysis);
         }
@@ -169,7 +175,7 @@ export class SecullumBonusIntegrationService {
     let secullumEmployeeId: number | null = null;
 
     if (secullumEmployees) {
-      const normalizeCpf = (cpf: string) => cpf ? cpf.replace(/[.-]/g, '') : '';
+      const normalizeCpf = (cpf: string) => (cpf ? cpf.replace(/[.-]/g, '') : '');
       const userCpf = user.cpf ? normalizeCpf(user.cpf) : '';
       const userPis = user.pis || '';
       const userPayroll = user.payrollNumber?.toString() || '';
@@ -178,13 +184,17 @@ export class SecullumBonusIntegrationService {
         const empCpf = normalizeCpf(emp.Cpf || '');
         const empPis = emp.NumeroPis || '';
         const empPayroll = (emp.NumeroFolha || '').toString();
-        return (userCpf && empCpf === userCpf) ||
-               (userPis && empPis === userPis) ||
-               (userPayroll && empPayroll === userPayroll);
+        return (
+          (userCpf && empCpf === userCpf) ||
+          (userPis && empPis === userPis) ||
+          (userPayroll && empPayroll === userPayroll)
+        );
       });
 
       if (!match) {
-        this.logger.warn(`No Secullum employee match for ${user.name} (cpf=${user.cpf}, pis=${user.pis}, payroll=${user.payrollNumber})`);
+        this.logger.warn(
+          `No Secullum employee match for ${user.name} (cpf=${user.cpf}, pis=${user.pis}, payroll=${user.payrollNumber})`,
+        );
         return null;
       }
       secullumEmployeeId = match.Id;
@@ -204,7 +214,9 @@ export class SecullumBonusIntegrationService {
         endDate,
       );
     } catch (error) {
-      this.logger.warn(`Batidas API failed for ${user.name} (secullumId=${secullumEmployeeId}): ${error?.message || error}`);
+      this.logger.warn(
+        `Batidas API failed for ${user.name} (secullumId=${secullumEmployeeId}): ${error?.message || error}`,
+      );
       return null;
     }
 
@@ -227,12 +239,15 @@ export class SecullumBonusIntegrationService {
     }
 
     // Parse Faltas and Atrasos from Calculos endpoint
-    const { faltasHours, atrasosHours, faltasTotal, atrasosTotal, dailyCargaHours } = this.parseCalculationTotals(calculationData);
+    const { faltasHours, atrasosHours, faltasTotal, atrasosTotal, dailyCargaHours } =
+      this.parseCalculationTotals(calculationData);
 
     // Determine actual workday hours from Carga (e.g., 8:45 = 8.75h instead of assumed 8h)
     const actualWorkdayHours = dailyCargaHours > 0 ? dailyCargaHours : WORKDAY_HOURS;
 
-    this.logger.log(`User ${user.name}: Secullum Calculos → Faltas=${faltasTotal}, Atrasos=${atrasosTotal} (parsed: faltasH=${faltasHours}, atrasosH=${atrasosHours}, workdayH=${actualWorkdayHours})`);
+    this.logger.log(
+      `User ${user.name}: Secullum Calculos → Faltas=${faltasTotal}, Atrasos=${atrasosTotal} (parsed: faltasH=${faltasHours}, atrasosH=${atrasosHours}, workdayH=${actualWorkdayHours})`,
+    );
 
     // Analyze each day from Batidas for electronic stamp detection
     const dailyBreakdown: DayAnalysis[] = [];
@@ -275,7 +290,9 @@ export class SecullumBonusIntegrationService {
 
     // Calculate discount percentages from tiers
     const atestadoDiscountPercentage = this.getAtestadoDiscountPercentage(totalAtestadoHours);
-    const unjustifiedDiscountPercentage = this.getUnjustifiedDiscountPercentage(totalUnjustifiedAbsenceHours);
+    const unjustifiedDiscountPercentage = this.getUnjustifiedDiscountPercentage(
+      totalUnjustifiedAbsenceHours,
+    );
 
     // Get tier labels for display
     const atestadoTierLabel = this.getAtestadoTierLabel(totalAtestadoHours);
@@ -295,9 +312,9 @@ export class SecullumBonusIntegrationService {
 
     this.logger.log(
       `User ${user.name}: workingDays=${totalWorkingDays}, holidays=${holidays.length}, electronicDays=${daysWithFullElectronicStamps}, ` +
-      `incorrectDays=${incorrectlyStampedDays}, extraPct=${extraPercentage}% (reversed logic), ` +
-      `atestadoH=${totalAtestadoHours}, unjustifiedH=${totalUnjustifiedAbsenceHours}, ` +
-      `atestadoDiscount=${atestadoDiscountPercentage}% (${atestadoTierLabel}), unjustifiedDiscount=${unjustifiedDiscountPercentage}% (${unjustifiedTierLabel}), losesExtra=${losesExtra}`,
+        `incorrectDays=${incorrectlyStampedDays}, extraPct=${extraPercentage}% (reversed logic), ` +
+        `atestadoH=${totalAtestadoHours}, unjustifiedH=${totalUnjustifiedAbsenceHours}, ` +
+        `atestadoDiscount=${atestadoDiscountPercentage}% (${atestadoTierLabel}), unjustifiedDiscount=${unjustifiedDiscountPercentage}% (${unjustifiedTierLabel}), losesExtra=${losesExtra}`,
     );
 
     return {
@@ -333,7 +350,13 @@ export class SecullumBonusIntegrationService {
     dailyCargaHours: number;
   } {
     if (!data || !data.Colunas || !data.Totais) {
-      return { faltasHours: 0, atrasosHours: 0, faltasTotal: null, atrasosTotal: null, dailyCargaHours: 0 };
+      return {
+        faltasHours: 0,
+        atrasosHours: 0,
+        faltasTotal: null,
+        atrasosTotal: null,
+        dailyCargaHours: 0,
+      };
     }
 
     let faltasIndex = -1;
@@ -348,7 +371,12 @@ export class SecullumBonusIntegrationService {
       if (nome === 'faltas' || nomeExibicao === 'faltas') {
         faltasIndex = i;
       }
-      if (nome === 'atras.' || nomeExibicao === 'atras.' || nome === 'atrasos' || nomeExibicao === 'atrasos') {
+      if (
+        nome === 'atras.' ||
+        nomeExibicao === 'atras.' ||
+        nome === 'atrasos' ||
+        nomeExibicao === 'atrasos'
+      ) {
         atrasosIndex = i;
       }
       if (nome === 'carga' || nomeExibicao === 'carga') {
@@ -411,7 +439,8 @@ export class SecullumBonusIntegrationService {
 
     const allTimeFields = [entrada1, saida1, entrada2, saida2];
     const isAtestad = (f: any) => f && typeof f === 'string' && f.toUpperCase().includes('ATESTAD');
-    const isValidStamp = (s: any) => s && typeof s === 'string' && s.trim() !== '' && /\d{1,2}:\d{2}/.test(s);
+    const isValidStamp = (s: any) =>
+      s && typeof s === 'string' && s.trim() !== '' && /\d{1,2}:\d{2}/.test(s);
 
     const morningAtestado = isAtestad(entrada1) || isAtestad(saida1);
     const afternoonAtestado = isAtestad(entrada2) || isAtestad(saida2);
@@ -436,16 +465,22 @@ export class SecullumBonusIntegrationService {
 
     // Check if this day is a holiday
     const entryDate = new Date(date);
-    const isHoliday = holidays.some(holiday =>
-      holiday.getFullYear() === entryDate.getFullYear() &&
-      holiday.getMonth() === entryDate.getMonth() &&
-      holiday.getDate() === entryDate.getDate()
+    const isHoliday = holidays.some(
+      holiday =>
+        holiday.getFullYear() === entryDate.getFullYear() &&
+        holiday.getMonth() === entryDate.getMonth() &&
+        holiday.getDate() === entryDate.getDate(),
     );
 
     // Working day = Monday-Friday, not a holiday, not vacation
     const isWorkingDay = this.isWorkingDay(tipoDoDia, date) && !isFerias && !isHoliday;
 
-    const hasAllFourStamps = isValidStamp(entrada1) && isValidStamp(saida1) && isValidStamp(entrada2) && isValidStamp(saida2) && !isAtestado;
+    const hasAllFourStamps =
+      isValidStamp(entrada1) &&
+      isValidStamp(saida1) &&
+      isValidStamp(entrada2) &&
+      isValidStamp(saida2) &&
+      !isAtestado;
 
     const getFonteDadosTipo = (fieldName: string): number | null => {
       const fd = entry[fieldName] || entry[fieldName.charAt(0).toLowerCase() + fieldName.slice(1)];
@@ -460,12 +495,9 @@ export class SecullumBonusIntegrationService {
     const origemEntrada2 = getFonteDadosTipo('FonteDadosEntrada2');
     const origemSaida2 = getFonteDadosTipo('FonteDadosSaida2');
 
-    const allStampsElectronic = hasAllFourStamps && this.allOriginsElectronic([
-      origemEntrada1,
-      origemSaida1,
-      origemEntrada2,
-      origemSaida2,
-    ]);
+    const allStampsElectronic =
+      hasAllFourStamps &&
+      this.allOriginsElectronic([origemEntrada1, origemSaida1, origemEntrada2, origemSaida2]);
 
     let atestadoHours = 0;
     let unjustifiedAbsenceHours = 0;
@@ -473,7 +505,11 @@ export class SecullumBonusIntegrationService {
     if (isWorkingDay && isAtestado) {
       atestadoHours = WORKDAY_HOURS * atestadoProportion;
     } else if (isWorkingDay && !hasAllFourStamps && !isAtestado) {
-      const hasSomeStamps = isValidStamp(entrada1) || isValidStamp(saida1) || isValidStamp(entrada2) || isValidStamp(saida2);
+      const hasSomeStamps =
+        isValidStamp(entrada1) ||
+        isValidStamp(saida1) ||
+        isValidStamp(entrada2) ||
+        isValidStamp(saida2);
       if (!hasSomeStamps) {
         unjustifiedAbsenceHours = WORKDAY_HOURS;
       } else {
@@ -489,7 +525,8 @@ export class SecullumBonusIntegrationService {
       allStampsElectronic,
       isAtestado,
       atestadoProportion,
-      isUnjustifiedAbsence: isWorkingDay && !hasAllFourStamps && !isAtestado && unjustifiedAbsenceHours > 0,
+      isUnjustifiedAbsence:
+        isWorkingDay && !hasAllFourStamps && !isAtestado && unjustifiedAbsenceHours > 0,
       atestadoHours,
       unjustifiedAbsenceHours,
       stamps: { entrada1, saida1, entrada2, saida2 },
@@ -536,7 +573,7 @@ export class SecullumBonusIntegrationService {
     try {
       const [sh, sm] = start.split(':').map(Number);
       const [eh, em] = end.split(':').map(Number);
-      return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+      return Math.max(0, eh * 60 + em - (sh * 60 + sm));
     } catch {
       return 0;
     }

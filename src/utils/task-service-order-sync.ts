@@ -161,11 +161,15 @@ export function getServiceOrderUpdatesForTaskStatusChange(
   // Task: IN_PRODUCTION → COMPLETED
   // Action: Complete all production service orders that are not already completed
   if (
-    (oldTaskStatus === TASK_STATUS.IN_PRODUCTION || oldTaskStatus === TASK_STATUS.WAITING_PRODUCTION) &&
+    (oldTaskStatus === TASK_STATUS.IN_PRODUCTION ||
+      oldTaskStatus === TASK_STATUS.WAITING_PRODUCTION) &&
     newTaskStatus === TASK_STATUS.COMPLETED
   ) {
     for (const so of productionOrders) {
-      if (so.status !== SERVICE_ORDER_STATUS.COMPLETED && so.status !== SERVICE_ORDER_STATUS.CANCELLED) {
+      if (
+        so.status !== SERVICE_ORDER_STATUS.COMPLETED &&
+        so.status !== SERVICE_ORDER_STATUS.CANCELLED
+      ) {
         updates.push({
           serviceOrderId: so.id,
           newStatus: SERVICE_ORDER_STATUS.COMPLETED,
@@ -196,7 +200,8 @@ export function getServiceOrderUpdatesForTaskStatusChange(
           setFinishedAt: false,
           clearStartedAt: true,
           clearFinishedAt: false,
-          reason: 'Ordem de serviço retornada para pendente quando tarefa retornou para aguardando produção',
+          reason:
+            'Ordem de serviço retornada para pendente quando tarefa retornou para aguardando produção',
         });
       }
     }
@@ -204,12 +209,11 @@ export function getServiceOrderUpdatesForTaskStatusChange(
 
   // Task: COMPLETED → IN_PRODUCTION (rollback)
   // Action: Reset the most recently completed production service order to IN_PROGRESS
-  if (
-    oldTaskStatus === TASK_STATUS.COMPLETED &&
-    newTaskStatus === TASK_STATUS.IN_PRODUCTION
-  ) {
+  if (oldTaskStatus === TASK_STATUS.COMPLETED && newTaskStatus === TASK_STATUS.IN_PRODUCTION) {
     // Find completed service orders and reset them to IN_PROGRESS
-    const completedOrders = productionOrders.filter(so => so.status === SERVICE_ORDER_STATUS.COMPLETED);
+    const completedOrders = productionOrders.filter(
+      so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
+    );
     for (const so of completedOrders) {
       updates.push({
         serviceOrderId: so.id,
@@ -225,12 +229,12 @@ export function getServiceOrderUpdatesForTaskStatusChange(
 
   // Task: COMPLETED → WAITING_PRODUCTION (full rollback)
   // Action: Reset all non-pending production service orders to PENDING
-  if (
-    oldTaskStatus === TASK_STATUS.COMPLETED &&
-    newTaskStatus === TASK_STATUS.WAITING_PRODUCTION
-  ) {
+  if (oldTaskStatus === TASK_STATUS.COMPLETED && newTaskStatus === TASK_STATUS.WAITING_PRODUCTION) {
     for (const so of productionOrders) {
-      if (so.status !== SERVICE_ORDER_STATUS.PENDING && so.status !== SERVICE_ORDER_STATUS.CANCELLED) {
+      if (
+        so.status !== SERVICE_ORDER_STATUS.PENDING &&
+        so.status !== SERVICE_ORDER_STATUS.CANCELLED
+      ) {
         updates.push({
           serviceOrderId: so.id,
           newStatus: SERVICE_ORDER_STATUS.PENDING,
@@ -238,7 +242,8 @@ export function getServiceOrderUpdatesForTaskStatusChange(
           setFinishedAt: false,
           clearStartedAt: true,
           clearFinishedAt: true,
-          reason: 'Ordem de serviço retornada para pendente quando tarefa retornou para aguardando produção',
+          reason:
+            'Ordem de serviço retornada para pendente quando tarefa retornou para aguardando produção',
         });
       }
     }
@@ -303,7 +308,9 @@ export function getTaskUpdateForServiceOrderStatusChange(
     so.id === changedServiceOrderId ? { ...so, status: newServiceOrderStatus } : so,
   );
 
-  const productionOrders = updatedServiceOrders.filter(so => so.type === SERVICE_ORDER_TYPE.PRODUCTION);
+  const productionOrders = updatedServiceOrders.filter(
+    so => so.type === SERVICE_ORDER_TYPE.PRODUCTION,
+  );
 
   // ===== FORWARD TRANSITIONS =====
 

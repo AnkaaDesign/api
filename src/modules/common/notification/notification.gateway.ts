@@ -423,7 +423,9 @@ export class NotificationGateway
         this.server.to(userRoom).emit('notification:count', { count: unreadCount });
         this.logger.log(`Updated notification count for user ${userId}: ${unreadCount}`);
       } catch (error) {
-        this.logger.warn(`Failed to update notification count for user ${userId}: ${error.message}`);
+        this.logger.warn(
+          `Failed to update notification count for user ${userId}: ${error.message}`,
+        );
       }
     }
 
@@ -474,7 +476,9 @@ export class NotificationGateway
     // Support both 'type' and 'event' field names for flexibility
     const eventType = notification.event || notification.type || 'notification:new';
 
-    this.logger.debug(`Broadcasting to admins: event="${notification.event}", type="${notification.type}", resolved="${eventType}"`);
+    this.logger.debug(
+      `Broadcasting to admins: event="${notification.event}", type="${notification.type}", resolved="${eventType}"`,
+    );
 
     this.server.to('admin').emit(eventType, notification);
 

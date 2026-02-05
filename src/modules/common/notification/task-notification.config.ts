@@ -85,16 +85,8 @@ export const CATEGORY_ALLOWED_ROLES: Record<TaskFieldCategory, SECTOR_PRIVILEGES
  */
 export const FIELD_ALLOWED_ROLES: Record<string, SECTOR_PRIVILEGES[]> = {
   // LIFECYCLE events - created goes to preparation sectors, overdue to production sectors
-  created: [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.FINANCIAL,
-    SECTOR_PRIVILEGES.COMMERCIAL,
-  ],
-  overdue: [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.FINANCIAL,
-  ],
+  created: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL],
+  overdue: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.FINANCIAL],
 
   // DATE events - granular control
   deadline: [
@@ -163,16 +155,8 @@ export const FIELD_ALLOWED_ROLES: Record<string, SECTOR_PRIVILEGES[]> = {
   ],
 
   // PRODUCTION events
-  paint: [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-  ],
-  logoPaints: [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.PRODUCTION,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-  ],
+  paint: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE],
+  logoPaints: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE],
   observation: [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.PRODUCTION,
@@ -282,7 +266,11 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
     label: 'Tarefa Atrasada',
     category: TaskFieldCategory.LIFECYCLE,
     importance: NOTIFICATION_IMPORTANCE.URGENT,
-    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
+    defaultChannels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.EMAIL,
+    ],
     enabled: true,
     isFileArray: false,
     messages: {
@@ -293,7 +281,8 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
           subject: '⚠️ URGENTE: Tarefa #{serialNumber} atrasada',
           body: 'ATENÇÃO: A tarefa "{taskName}" está atrasada há {daysOverdue} dia(s).\n\nÉ necessário tomar uma ação imediata para resolver esta situação.\n\nAcesse o sistema para mais detalhes.',
         },
-        whatsapp: '⚠️ URGENTE: Tarefa #{serialNumber} "{taskName}" está atrasada há {daysOverdue} dia(s)!',
+        whatsapp:
+          '⚠️ URGENTE: Tarefa #{serialNumber} "{taskName}" está atrasada há {daysOverdue} dia(s)!',
       },
     },
   },
@@ -432,7 +421,8 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
           subject: '⚠️ Prazo da tarefa #{serialNumber} alterado',
           body: 'ATENÇÃO: O prazo da tarefa "{taskName}" foi alterado de {oldValue} para {newValue} por {changedBy}.\n\nPor favor, verifique se a nova data é viável.',
         },
-        whatsapp: '⚠️ Prazo da tarefa #{serialNumber} alterado para {newValue}. Verifique o cronograma!',
+        whatsapp:
+          '⚠️ Prazo da tarefa #{serialNumber} alterado para {newValue}. Verifique o cronograma!',
       },
       cleared: {
         inApp: 'Prazo removido',
@@ -698,7 +688,11 @@ export const TASK_FIELD_NOTIFICATIONS: TaskFieldNotificationConfig[] = [
     label: 'Notas Fiscais',
     category: TaskFieldCategory.FINANCIAL,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
-    defaultChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
+    defaultChannels: [
+      NOTIFICATION_CHANNEL.IN_APP,
+      NOTIFICATION_CHANNEL.PUSH,
+      NOTIFICATION_CHANNEL.EMAIL,
+    ],
     enabled: true,
     isFileArray: true,
     messages: {
@@ -1137,9 +1131,9 @@ export function getFieldConfig(fieldName: string): TaskFieldNotificationConfig |
  * Get all financial fields (restricted to ADMIN and FINANCIAL)
  */
 export function getFinancialFields(): string[] {
-  return TASK_FIELD_NOTIFICATIONS
-    .filter(config => config.category === TaskFieldCategory.FINANCIAL)
-    .map(config => config.field);
+  return TASK_FIELD_NOTIFICATIONS.filter(
+    config => config.category === TaskFieldCategory.FINANCIAL,
+  ).map(config => config.field);
 }
 
 /**
@@ -1173,9 +1167,7 @@ export function canRoleReceiveFieldNotification(
  * Get all enabled field names
  */
 export function getEnabledFields(): string[] {
-  return TASK_FIELD_NOTIFICATIONS
-    .filter(config => config.enabled)
-    .map(config => config.field);
+  return TASK_FIELD_NOTIFICATIONS.filter(config => config.enabled).map(config => config.field);
 }
 
 /**
@@ -1202,7 +1194,10 @@ export const FIELD_LABELS: Record<string, string> = TASK_FIELD_NOTIFICATIONS.red
  */
 export const TASK_FIELD_EVENT_TYPES: Record<string, string> = TASK_FIELD_NOTIFICATIONS.reduce(
   (acc, config) => {
-    const eventKey = config.field.toUpperCase().replace(/([A-Z])/g, '_$1').replace(/^_/, '');
+    const eventKey = config.field
+      .toUpperCase()
+      .replace(/([A-Z])/g, '_$1')
+      .replace(/^_/, '');
     acc[`${eventKey}_CHANGED`] = `task.field.${config.field}`;
     return acc;
   },

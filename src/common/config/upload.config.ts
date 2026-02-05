@@ -176,10 +176,10 @@ export function createUploadConfig(): MulterOptions {
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'video/mp4',
-    'video/quicktime',      // .mov
-    'video/x-msvideo',      // .avi
+    'video/quicktime', // .mov
+    'video/x-msvideo', // .avi
     'video/webm',
-    'video/x-matroska',     // .mkv
+    'video/x-matroska', // .mkv
   ];
 
   // Ensure upload directory exists

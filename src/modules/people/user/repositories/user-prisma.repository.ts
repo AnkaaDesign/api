@@ -340,13 +340,14 @@ export class UserPrismaRepository
 
       const queryArgs = useSelect
         ? { where: { id }, select: options.select }
-        : { where: { id }, include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() };
+        : {
+            where: { id },
+            include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude(),
+          };
 
       const result = await transaction.user.findUnique(queryArgs as any);
 
-      return result
-        ? (useSelect ? result as any : this.mapDatabaseEntityToEntity(result))
-        : null;
+      return result ? (useSelect ? (result as any) : this.mapDatabaseEntityToEntity(result)) : null;
     } catch (error) {
       this.logError(`buscar usuário por ID ${id}`, error);
       throw error;
@@ -363,12 +364,15 @@ export class UserPrismaRepository
 
       const queryArgs = useSelect
         ? { where: { id: { in: ids } }, select: options.select }
-        : { where: { id: { in: ids } }, include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude() };
+        : {
+            where: { id: { in: ids } },
+            include: this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude(),
+          };
 
       const results = await transaction.user.findMany(queryArgs as any);
 
       return useSelect
-        ? results as any[]
+        ? (results as any[])
         : results.map(result => this.mapDatabaseEntityToEntity(result));
     } catch (error) {
       this.logError('buscar usuários por IDs', error, { ids });
@@ -427,7 +431,7 @@ export class UserPrismaRepository
 
     return {
       data: useSelect
-        ? users as any[] // When using select, return as-is without mapping
+        ? (users as any[]) // When using select, return as-is without mapping
         : users.map(user => this.mapDatabaseEntityToEntity(user)),
       meta: this.calculatePagination(total, page, take),
     };
@@ -565,7 +569,9 @@ export class UserPrismaRepository
         orderBy,
         page = 1,
         take = 20,
-      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+        take?: number;
+      };
       const skip = Math.max(0, (page - 1) * take);
 
       const [total, users] = await Promise.all([
@@ -601,7 +607,9 @@ export class UserPrismaRepository
   async findManyWithSector(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{ id: string; name: string; sector: { id: string; name: string } | null }>> {
+  ): Promise<
+    FindManyResult<{ id: string; name: string; sector: { id: string; name: string } | null }>
+  > {
     try {
       const transaction = tx || this.prisma;
       const optionsWithTake = options
@@ -613,7 +621,9 @@ export class UserPrismaRepository
         orderBy,
         page = 1,
         take = 20,
-      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+        take?: number;
+      };
       const skip = Math.max(0, (page - 1) * take);
 
       const [total, users] = await Promise.all([
@@ -655,7 +665,9 @@ export class UserPrismaRepository
   async findManyWithPosition(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{ id: string; name: string; position: { id: string; name: string } | null }>> {
+  ): Promise<
+    FindManyResult<{ id: string; name: string; position: { id: string; name: string } | null }>
+  > {
     try {
       const transaction = tx || this.prisma;
       const optionsWithTake = options
@@ -667,7 +679,9 @@ export class UserPrismaRepository
         orderBy,
         page = 1,
         take = 20,
-      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+        take?: number;
+      };
       const skip = Math.max(0, (page - 1) * take);
 
       const [total, users] = await Promise.all([
@@ -709,12 +723,14 @@ export class UserPrismaRepository
   async findManyWithSectorAndPosition(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{
-    id: string;
-    name: string;
-    sector: { id: string; name: string } | null;
-    position: { id: string; name: string } | null;
-  }>> {
+  ): Promise<
+    FindManyResult<{
+      id: string;
+      name: string;
+      sector: { id: string; name: string } | null;
+      position: { id: string; name: string } | null;
+    }>
+  > {
     try {
       const transaction = tx || this.prisma;
       const optionsWithTake = options
@@ -726,7 +742,9 @@ export class UserPrismaRepository
         orderBy,
         page = 1,
         take = 20,
-      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+        take?: number;
+      };
       const skip = Math.max(0, (page - 1) * take);
 
       const [total, users] = await Promise.all([
@@ -774,18 +792,20 @@ export class UserPrismaRepository
   async findManyForList(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{
-    id: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    status: string;
-    isActive: boolean;
-    avatarId: string | null;
-    payrollNumber: number | null;
-    sector: { id: string; name: string } | null;
-    position: { id: string; name: string } | null;
-  }>> {
+  ): Promise<
+    FindManyResult<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      status: string;
+      isActive: boolean;
+      avatarId: string | null;
+      payrollNumber: number | null;
+      sector: { id: string; name: string } | null;
+      position: { id: string; name: string } | null;
+    }>
+  > {
     try {
       const transaction = tx || this.prisma;
       const optionsWithTake = options
@@ -797,7 +817,9 @@ export class UserPrismaRepository
         orderBy,
         page = 1,
         take = 20,
-      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & { take?: number };
+      } = optionsWithTake as FindManyOptions<UserOrderBy, UserWhere, UserInclude> & {
+        take?: number;
+      };
       const skip = Math.max(0, (page - 1) * take);
 
       const [total, users] = await Promise.all([

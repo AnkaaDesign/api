@@ -1,17 +1,7 @@
-import {
-  IsString,
-  IsEnum,
-  IsOptional,
-  IsArray,
-  IsBoolean,
-  ValidateNested,
-} from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsArray, IsBoolean, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_CHANNEL,
-} from '../../../../constants';
+import { NOTIFICATION_TYPE, NOTIFICATION_CHANNEL } from '../../../../constants';
 
 /**
  * DTO for updating a single notification preference
@@ -26,7 +16,8 @@ export class UpdateNotificationPreferenceDto {
   notificationType: NOTIFICATION_TYPE;
 
   @ApiPropertyOptional({
-    description: 'Event type within the notification type (e.g., "status" for TASK, "created" for ORDER)',
+    description:
+      'Event type within the notification type (e.g., "status" for TASK, "created" for ORDER)',
     example: 'status',
   })
   @IsOptional()

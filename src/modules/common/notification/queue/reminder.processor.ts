@@ -265,10 +265,7 @@ export class ReminderProcessor {
       };
     } catch (error: any) {
       const processingTime = Date.now() - startTime;
-      this.logger.error(
-        `Failed to process reminder ${reminderId}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Failed to process reminder ${reminderId}: ${error.message}`, error.stack);
 
       // Emit failure event
       this.eventEmitter.emit('reminder.failed', {
@@ -538,7 +535,9 @@ export class ReminderProcessor {
     attempts: number,
   ): Promise<void> {
     try {
-      this.logger.log(`Reminder ${reminderId} marked as permanently failed after ${attempts} attempts`);
+      this.logger.log(
+        `Reminder ${reminderId} marked as permanently failed after ${attempts} attempts`,
+      );
     } catch (err: any) {
       this.logger.error(`Failed to mark reminder as failed: ${err.message}`, err.stack);
     }
@@ -547,9 +546,7 @@ export class ReminderProcessor {
   /**
    * Map priority to importance level
    */
-  private mapPriorityToImportance(
-    priority: string,
-  ): 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' {
+  private mapPriorityToImportance(priority: string): 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' {
     switch (priority) {
       case 'critical':
       case 'urgent':

@@ -313,7 +313,9 @@ export const getPhoneLookupVariants = (phone: string, defaultDDD: string = '43')
         `(${normalized.substring(0, 2)}) ${normalized.substring(2, 7)}-${normalized.substring(7)}`,
       );
       // +55 43 99140-2403
-      variants.add(`+55 ${normalized.substring(0, 2)} ${normalized.substring(2, 7)}-${normalized.substring(7)}`);
+      variants.add(
+        `+55 ${normalized.substring(0, 2)} ${normalized.substring(2, 7)}-${normalized.substring(7)}`,
+      );
     }
   }
 
@@ -359,7 +361,7 @@ export const getPhoneLookupVariants = (phone: string, defaultDDD: string = '43')
     variants.add('55' + defaultDDD + '9' + digits);
   }
 
-  return Array.from(variants).filter((v) => v.length > 0);
+  return Array.from(variants).filter(v => v.length > 0);
 };
 
 /**
@@ -382,28 +384,52 @@ export const formatPhoneForSms = (phone: string, defaultDDD: string = '43'): str
  * These are common connecting words in Brazilian Portuguese
  */
 const PORTUGUESE_LOWERCASE_WORDS = new Set([
-  "de", "da", "do", "das", "dos",  // of, from
-  "e",                              // and
-  "em", "na", "no", "nas", "nos",  // in, on, at
-  "para", "pra",                   // for, to
-  "por", "pela", "pelo",           // by, through
-  "com",                           // with
-  "sem",                           // without
-  "a", "o", "as", "os",            // the (articles)
-  "um", "uma", "uns", "umas",      // a/an (articles)
-  "ao", "aos", "à", "às",          // contractions
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos', // of, from
+  'e', // and
+  'em',
+  'na',
+  'no',
+  'nas',
+  'nos', // in, on, at
+  'para',
+  'pra', // for, to
+  'por',
+  'pela',
+  'pelo', // by, through
+  'com', // with
+  'sem', // without
+  'a',
+  'o',
+  'as',
+  'os', // the (articles)
+  'um',
+  'uma',
+  'uns',
+  'umas', // a/an (articles)
+  'ao',
+  'aos',
+  'à',
+  'às', // contractions
 ]);
 
 /**
  * Brazilian company suffixes that should remain uppercase
  */
 const COMPANY_SUFFIXES = new Set([
-  "ltda", "ltda.",                 // Limitada
-  "eireli",                        // Empresa Individual de Responsabilidade Limitada
-  "s/a", "s.a.", "s.a",            // Sociedade Anônima
-  "cia", "cia.",                   // Companhia
-  "mei",                           // Microempreendedor Individual
-  "ss",                            // Sociedade Simples
+  'ltda',
+  'ltda.', // Limitada
+  'eireli', // Empresa Individual de Responsabilidade Limitada
+  's/a',
+  's.a.',
+  's.a', // Sociedade Anônima
+  'cia',
+  'cia.', // Companhia
+  'mei', // Microempreendedor Individual
+  'ss', // Sociedade Simples
 ]);
 
 /**
@@ -421,9 +447,9 @@ const COMPANY_SUFFIXES = new Set([
  * Example: "comercio eireli" -> "Comercio EIRELI"
  */
 export const toTitleCase = (str: string): string => {
-  if (!str) return "";
+  if (!str) return '';
   return str
-    .split(" ")
+    .split(' ')
     .map((word, index) => {
       if (word.length === 0) return word;
 
@@ -447,5 +473,5 @@ export const toTitleCase = (str: string): string => {
       // Capitalize first letter, lowercase the rest
       return lowerWord.charAt(0).toUpperCase() + lowerWord.slice(1);
     })
-    .join(" ");
+    .join(' ');
 };

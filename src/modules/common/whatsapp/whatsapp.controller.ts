@@ -212,7 +212,9 @@ export class WhatsAppController {
       const qrData = await this.whatsappService.getQRCode();
 
       if (!qrData) {
-        throw new BadRequestException('QR code not yet generated. Please try again in a few seconds.');
+        throw new BadRequestException(
+          'QR code not yet generated. Please try again in a few seconds.',
+        );
       }
 
       return {

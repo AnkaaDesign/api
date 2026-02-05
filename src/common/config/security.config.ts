@@ -224,9 +224,13 @@ export const securityConfig = {
             'http://www.ankaadesign.com.br',
             'http://staging.ankaadesign.com.br',
             // Add CLIENT_HOST (supports comma-separated values for local network access)
-            ...(process.env.CLIENT_HOST ? process.env.CLIENT_HOST.split(',').map(h => h.trim()) : []),
+            ...(process.env.CLIENT_HOST
+              ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
+              : []),
             // Add CORS_ORIGINS (supports comma-separated values)
-            ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(h => h.trim()) : []),
+            ...(process.env.CORS_ORIGINS
+              ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+              : []),
           ]
         : (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
             // In development, allow localhost and any local network IP (192.168.0.*)
@@ -238,14 +242,14 @@ export const securityConfig = {
 
             // Define allowed patterns for development
             const allowedPatterns = [
-              /^http:\/\/localhost:\d+$/,                           // localhost with any port
-              /^http:\/\/127\.0\.0\.1:\d+$/,                       // 127.0.0.1 with any port
-              /^http:\/\/192\.168\.0\.\d{1,3}(:\d+)?$/,            // Local network IPs (192.168.0.*)
-              /^http:\/\/192\.168\.1\.\d{1,3}(:\d+)?$/,            // Alternative local network (192.168.1.*)
-              /^http:\/\/192\.168\.10\.\d{1,3}(:\d+)?$/,           // Server local network (192.168.10.*)
-              /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/,      // 10.x.x.x network
-              /^https:\/\/(www\.)?ankaadesign\.com\.br$/,          // Production domain
-              /^https:\/\/staging\.ankaadesign\.com\.br$/,         // Staging domain
+              /^http:\/\/localhost:\d+$/, // localhost with any port
+              /^http:\/\/127\.0\.0\.1:\d+$/, // 127.0.0.1 with any port
+              /^http:\/\/192\.168\.0\.\d{1,3}(:\d+)?$/, // Local network IPs (192.168.0.*)
+              /^http:\/\/192\.168\.1\.\d{1,3}(:\d+)?$/, // Alternative local network (192.168.1.*)
+              /^http:\/\/192\.168\.10\.\d{1,3}(:\d+)?$/, // Server local network (192.168.10.*)
+              /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/, // 10.x.x.x network
+              /^https:\/\/(www\.)?ankaadesign\.com\.br$/, // Production domain
+              /^https:\/\/staging\.ankaadesign\.com\.br$/, // Staging domain
             ];
 
             // Check if origin matches any allowed pattern

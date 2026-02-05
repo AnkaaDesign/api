@@ -293,9 +293,10 @@ export class PaintPrismaRepository
    * If include is provided without select, use include (backward compatibility)
    * Otherwise use default include
    */
-  protected getQueryOptions(
-    options?: { include?: PaintInclude; select?: PaintSelect }
-  ): { select?: Prisma.PaintSelect } | { include?: Prisma.PaintInclude } {
+  protected getQueryOptions(options?: {
+    include?: PaintInclude;
+    select?: PaintSelect;
+  }): { select?: Prisma.PaintSelect } | { include?: Prisma.PaintInclude } {
     // If select is provided, use it (higher priority for optimization)
     if (options?.select) {
       return { select: this.mapSelectToDatabaseSelect(options.select) };

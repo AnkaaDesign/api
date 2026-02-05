@@ -80,7 +80,13 @@ export class ObservationController {
   }
 
   @Post()
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
   async create(
@@ -98,7 +104,13 @@ export class ObservationController {
 
   // Batch Operations (must come before dynamic routes)
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(observationBatchCreateSchema)) data: ObservationBatchCreateFormData,
@@ -109,7 +121,13 @@ export class ObservationController {
   }
 
   @Put('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   async batchUpdate(
     @Body(new ZodValidationPipe(observationBatchUpdateSchema)) data: ObservationBatchUpdateFormData,
     @Query(new ZodQueryValidationPipe(observationQuerySchema)) query: ObservationQueryFormData,
@@ -119,7 +137,13 @@ export class ObservationController {
   }
 
   @Delete('batch')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @HttpCode(HttpStatus.OK)
   async batchDelete(
     @Body(new ZodValidationPipe(observationBatchDeleteSchema)) data: ObservationBatchDeleteFormData,
@@ -150,7 +174,13 @@ export class ObservationController {
   }
 
   @Put(':id')
-  @Roles(SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
   @UseInterceptors(FileFieldsInterceptor([{ name: 'files', maxCount: 10 }], multerConfig))
   async update(
     @Param('id', ParseUUIDPipe) id: string,

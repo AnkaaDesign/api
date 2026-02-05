@@ -8,6 +8,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { PaintRepository } from './repositories/paint/paint.repository';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
 import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
@@ -1323,7 +1324,7 @@ export class PaintService {
           groundPaintFor: true,
           relatedPaints: true,
           relatedTo: true,
-        },
+        } satisfies Prisma.PaintInclude,
       });
 
       if (!targetPaint) {
@@ -1345,7 +1346,7 @@ export class PaintService {
           relatedTo: true,
           generalPaintings: true,
           logoTasks: true,
-        },
+        } satisfies Prisma.PaintInclude,
       });
 
       if (sourcePaints.length !== data.sourcePaintIds.length) {
@@ -1552,7 +1553,7 @@ export class PaintService {
       // 11. Fetch the updated paint with includes
       const updatedPaint = await tx.paint.findUnique({
         where: { id: data.targetPaintId },
-        include: include || {
+        include: (include as Prisma.PaintInclude) || {
           paintType: true,
           paintBrand: true,
           formulas: {

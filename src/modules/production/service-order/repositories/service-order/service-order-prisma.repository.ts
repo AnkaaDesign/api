@@ -265,7 +265,10 @@ export class ServiceOrderPrismaRepository
       }),
       transaction.serviceOrder.findMany({
         where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || [{ type: 'asc' }, { position: 'asc' }],
+        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || [
+          { type: 'asc' },
+          { position: 'asc' },
+        ],
         skip,
         take,
         include: this.mapIncludeToDatabaseInclude(include) || this.getDefaultInclude(),

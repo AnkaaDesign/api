@@ -1,12 +1,4 @@
-import {
-  IsEnum,
-  IsUUID,
-  IsOptional,
-  IsDateString,
-  IsInt,
-  Min,
-  Max,
-} from 'class-validator';
+import { IsEnum, IsUUID, IsOptional, IsDateString, IsInt, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { REMINDER_INTERVAL } from '../notification-reminder-scheduler.service';
 

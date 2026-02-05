@@ -108,7 +108,7 @@ export class FileService {
   private encodePathForNginx(path: string): string {
     return path
       .split('/')
-      .map((segment) => encodeURIComponent(segment))
+      .map(segment => encodeURIComponent(segment))
       .join('/');
   }
 
@@ -497,7 +497,9 @@ export class FileService {
             // Check if generation is already in progress for this file
             const existingLock = this.thumbnailGenerationLocks.get(lockKey);
             if (existingLock) {
-              this.logger.log(`Thumbnail generation already in progress for ${file.id}, waiting...`);
+              this.logger.log(
+                `Thumbnail generation already in progress for ${file.id}, waiting...`,
+              );
               try {
                 const result = await existingLock;
                 if (result?.success && result.thumbnailPath && existsSync(result.thumbnailPath)) {
@@ -516,7 +518,9 @@ export class FileService {
               const generatePromise = (async () => {
                 try {
                   // Resolve file path to absolute if it's relative
-                  const absoluteFilePath = file.path.startsWith('/') ? file.path : resolve(file.path);
+                  const absoluteFilePath = file.path.startsWith('/')
+                    ? file.path
+                    : resolve(file.path);
 
                   this.logger.log(`Generating thumbnail from path: ${absoluteFilePath}`);
 
@@ -565,7 +569,9 @@ export class FileService {
                   this.logger.error(
                     `Thumbnail generation failed or file doesn't exist. Result: ${JSON.stringify(result)}`,
                   );
-                  throw new NotFoundException('Não foi possível gerar thumbnail para este arquivo.');
+                  throw new NotFoundException(
+                    'Não foi possível gerar thumbnail para este arquivo.',
+                  );
                 }
               } catch (genError: any) {
                 this.logger.error(

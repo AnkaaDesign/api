@@ -16,7 +16,10 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { ClickSignService, SignatureResult } from '@modules/integrations/clicksign/clicksign.service';
+import {
+  ClickSignService,
+  SignatureResult,
+} from '@modules/integrations/clicksign/clicksign.service';
 import { BaileysWhatsAppService } from '@modules/common/whatsapp/baileys-whatsapp.service';
 import { PpeDocumentService } from './ppe-document.service';
 import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
@@ -64,7 +67,7 @@ export class PpeSignatureService {
     const isDev = this.configService.get<string>('NODE_ENV') === 'development';
 
     // In development, use uploads folder; in production, use /srv/files
-    this.filesRoot = isDev ? (uploadDir || './uploads') : (filesRoot || '/srv/files');
+    this.filesRoot = isDev ? uploadDir || './uploads' : filesRoot || '/srv/files';
   }
 
   /**
@@ -91,11 +94,13 @@ export class PpeSignatureService {
       this.logger.warn('ClickSign not configured - skipping signature initiation');
       return {
         success: false,
-        results: [{
-          userId: '',
-          deliveryIds: input.deliveryIds,
-          error: 'ClickSign não está configurado',
-        }],
+        results: [
+          {
+            userId: '',
+            deliveryIds: input.deliveryIds,
+            error: 'ClickSign não está configurado',
+          },
+        ],
       };
     }
 
@@ -178,7 +183,9 @@ export class PpeSignatureService {
     group: BatchDeliveryGroup,
     triggeredByUserId?: string,
   ): Promise<SignatureResult> {
-    this.logger.log(`Initiating signature for user ${group.userName} with ${group.deliveryIds.length} deliveries`);
+    this.logger.log(
+      `Initiating signature for user ${group.userName} with ${group.deliveryIds.length} deliveries`,
+    );
 
     // Step 1: Generate PDF (batch if multiple deliveries)
     let pdfBuffer: Buffer;
@@ -190,7 +197,12 @@ export class PpeSignatureService {
 
     // Step 2: Save PDF to file storage with user-specific path
     const filename = this.generateFilename(group.userName, group.deliveryIds);
-    const savedFile = await this.savePdfToStorage(pdfBuffer, filename, group.userName, group.deliveryIds[0]);
+    const savedFile = await this.savePdfToStorage(
+      pdfBuffer,
+      filename,
+      group.userName,
+      group.deliveryIds[0],
+    );
 
     // Step 3: Send to ClickSign - sends notification directly to user's email
     const signatureResult = await this.clickSignService.initiateSignature(
@@ -219,7 +231,9 @@ export class PpeSignatureService {
       },
     });
 
-    this.logger.log(`Signature initiated for ${group.deliveryIds.length} deliveries. Envelope: ${signatureResult.envelopeId}`);
+    this.logger.log(
+      `Signature initiated for ${group.deliveryIds.length} deliveries. Envelope: ${signatureResult.envelopeId}`,
+    );
 
     // Step 5: Send WhatsApp notification to user about pending signature
     await this.sendSignatureRequestWhatsApp(group);
@@ -305,16 +319,15 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
         // Check if we still need to download the signed document
         // This handles the case where auto_close fires before signed PDF is ready,
         // but document_closed fires later with the signed PDF available
-        const needsSignedDoc = alreadyCompleted.some(d =>
-          !d.deliveryDocument?.filename?.includes('_assinado')
+        const needsSignedDoc = alreadyCompleted.some(
+          d => !d.deliveryDocument?.filename?.includes('_assinado'),
         );
 
         if (needsSignedDoc && input.signedDocumentUrl) {
-          this.logger.log(`Document ${input.documentKey} already completed but signed PDF not yet downloaded - attempting download`);
-          await this.downloadAndSaveSignedDocument(
-            input.signedDocumentUrl,
-            alreadyCompleted,
+          this.logger.log(
+            `Document ${input.documentKey} already completed but signed PDF not yet downloaded - attempting download`,
           );
+          await this.downloadAndSaveSignedDocument(input.signedDocumentUrl, alreadyCompleted);
           return { success: true, updatedDeliveries: [] };
         }
 
@@ -331,7 +344,9 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
           }
         }
 
-        this.logger.log(`Document ${input.documentKey} already completed - ignoring duplicate webhook`);
+        this.logger.log(
+          `Document ${input.documentKey} already completed - ignoring duplicate webhook`,
+        );
         return { success: true, updatedDeliveries: [] };
       }
 
@@ -363,7 +378,8 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
     if (signedDocumentUrl) {
       try {
         this.logger.log(`Downloading signed document from: ${signedDocumentUrl}`);
-        const signedPdfBuffer = await this.clickSignService.downloadSignedDocument(signedDocumentUrl);
+        const signedPdfBuffer =
+          await this.clickSignService.downloadSignedDocument(signedDocumentUrl);
 
         // Use same filename as original but with _assinado suffix
         const originalFilename = deliveries[0].deliveryDocument?.filename || 'termo_epi.pdf';
@@ -373,7 +389,7 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
           signedPdfBuffer,
           signedFilename,
           userName,
-          deliveryIds[0]
+          deliveryIds[0],
         );
         signedFileId = savedSignedFile.id;
         this.logger.log(`Signed document saved: ${savedSignedFile.path}`);
@@ -402,7 +418,9 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
       await this.deleteOldFile(oldDocumentId);
     }
 
-    this.logger.log(`Signature completion processed. ${deliveryIds.length} deliveries marked as COMPLETED`);
+    this.logger.log(
+      `Signature completion processed. ${deliveryIds.length} deliveries marked as COMPLETED`,
+    );
 
     // Send WhatsApp notification to user about completed signature
     await this.sendSignatureCompletedWhatsApp(deliveries);
@@ -426,7 +444,9 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
       const oldDocumentId = deliveries[0].deliveryDocumentId;
       const deliveryIds = deliveries.map(d => d.id);
 
-      this.logger.log(`Downloading signed document for completed delivery: ${signedDocumentUrl.substring(0, 80)}...`);
+      this.logger.log(
+        `Downloading signed document for completed delivery: ${signedDocumentUrl.substring(0, 80)}...`,
+      );
       const signedPdfBuffer = await this.clickSignService.downloadSignedDocument(signedDocumentUrl);
 
       // Use same filename as original but with _assinado suffix
@@ -437,7 +457,7 @@ Você receberá um e-mail da ClickSign com o link para assinatura.
         signedPdfBuffer,
         signedFilename,
         userName,
-        deliveryIds[0]
+        deliveryIds[0],
       );
 
       // Update deliveries with signed document reference
@@ -564,7 +584,9 @@ Obrigado pela colaboração!`;
       },
     });
 
-    this.logger.log(`Signature refusal processed. ${deliveryIds.length} deliveries marked as SIGNATURE_REJECTED`);
+    this.logger.log(
+      `Signature refusal processed. ${deliveryIds.length} deliveries marked as SIGNATURE_REJECTED`,
+    );
 
     // Send WhatsApp notification to user about rejection
     if (deliveries[0]?.user?.phone) {
@@ -697,7 +719,7 @@ Entre em contato com o setor responsável para mais informações.`;
     const month = (now.getMonth() + 1).toString().padStart(2, '0');
     const sanitizedUserName = this.sanitizeUserNameForPath(userName);
 
-    const relativePath = join("Colaboradores", sanitizedUserName, "EPI's", year, month);
+    const relativePath = join('Colaboradores', sanitizedUserName, "EPI's", year, month);
     const absoluteDir = join(this.filesRoot, relativePath);
 
     // Ensure directory exists
@@ -791,9 +813,7 @@ Entre em contato com o setor responsável para mais informações.`;
       status: delivery.status,
       documentKey: delivery.clicksignDocumentKey || undefined,
       signedAt: delivery.clicksignSignedAt || undefined,
-      documentUrl: delivery.deliveryDocument
-        ? `/files/${delivery.deliveryDocument.id}`
-        : undefined,
+      documentUrl: delivery.deliveryDocument ? `/files/${delivery.deliveryDocument.id}` : undefined,
       signatureUrl,
     };
   }

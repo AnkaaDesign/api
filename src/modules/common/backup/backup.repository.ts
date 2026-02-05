@@ -257,11 +257,7 @@ export class BackupRepository {
   /**
    * Update backup status
    */
-  async updateStatus(
-    id: string,
-    status: BackupStatus,
-    error?: string,
-  ): Promise<Backup> {
+  async updateStatus(id: string, status: BackupStatus, error?: string): Promise<Backup> {
     const data: Prisma.BackupUpdateInput = { status };
 
     if (error) {
@@ -301,11 +297,7 @@ export class BackupRepository {
   /**
    * Update Google Drive sync status
    */
-  async updateGDriveStatus(
-    id: string,
-    status: GDriveSyncStatus,
-    fileId?: string,
-  ): Promise<Backup> {
+  async updateGDriveStatus(id: string, status: GDriveSyncStatus, fileId?: string): Promise<Backup> {
     const data: Prisma.BackupUpdateInput = { gdriveStatus: status };
 
     if (fileId) {

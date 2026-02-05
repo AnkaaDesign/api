@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Query,
-  HttpCode,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, HttpCode, HttpStatus, Logger } from '@nestjs/common';
 import { AutoOrderService } from './auto-order.service';
 import { UserId } from '../../common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -25,12 +16,22 @@ export const autoOrderAnalysisQuerySchema = z.object({
   supplierIds: z
     .array(z.string().uuid())
     .optional()
-    .or(z.string().uuid().transform(val => [val]))
+    .or(
+      z
+        .string()
+        .uuid()
+        .transform(val => [val]),
+    )
     .optional(),
   categoryIds: z
     .array(z.string().uuid())
     .optional()
-    .or(z.string().uuid().transform(val => [val]))
+    .or(
+      z
+        .string()
+        .uuid()
+        .transform(val => [val]),
+    )
     .optional(),
 });
 
@@ -100,9 +101,7 @@ export class AutoOrderController {
       filteredGroups = filteredGroups
         .map(group => ({
           ...group,
-          items: group.items.filter(
-            item => item.currentStock === 0 || item.daysUntilStockout <= 7,
-          ),
+          items: group.items.filter(item => item.currentStock === 0 || item.daysUntilStockout <= 7),
         }))
         .filter(group => group.items.length > 0);
     } else if (query.minStockCriteria === 'low') {
@@ -160,9 +159,7 @@ export class AutoOrderController {
     @Body(new ZodValidationPipe(autoOrderCreateSchema)) body: AutoOrderCreateFormData,
     @UserId() userId: string,
   ) {
-    this.logger.log(
-      `User ${userId} creating auto-orders for ${body.recommendations.length} items`,
-    );
+    this.logger.log(`User ${userId} creating auto-orders for ${body.recommendations.length} items`);
 
     // Group recommendations by supplier
     const bySupplier = new Map<string, typeof body.recommendations>();

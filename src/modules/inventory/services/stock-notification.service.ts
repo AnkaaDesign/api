@@ -2,10 +2,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import {
-  DeepLinkService,
-  DeepLinkEntity,
-} from '@modules/common/notification/deep-link.service';
+import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   NOTIFICATION_TYPE,
@@ -281,12 +278,8 @@ export class StockNotificationService {
     eventType: STOCK_EVENT_TYPE,
   ): StockNotificationMetadata {
     // Calculate thresholds
-    const criticalThreshold = calculation.reorderPoint
-      ? calculation.reorderPoint * 0.9
-      : null;
-    const lowThreshold = calculation.reorderPoint
-      ? calculation.reorderPoint * 1.1
-      : null;
+    const criticalThreshold = calculation.reorderPoint ? calculation.reorderPoint * 0.9 : null;
+    const lowThreshold = calculation.reorderPoint ? calculation.reorderPoint * 1.1 : null;
 
     return {
       itemId: calculation.itemId,
@@ -351,17 +344,14 @@ export class StockNotificationService {
             title,
             body,
             type: NOTIFICATION_TYPE.STOCK,
-            channel: [
-              NOTIFICATION_CHANNEL.IN_APP,
-              NOTIFICATION_CHANNEL.EMAIL,
-            ],
+            channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
             importance: this.getImportance(metadata.eventType),
             actionType: metadata.eventType,
-            actionUrl: deepLinks.webPath,  // Use relative path for backward compatibility (like task notifications)
+            actionUrl: deepLinks.webPath, // Use relative path for backward compatibility (like task notifications)
             metadata: {
               ...(metadata as any),
-              webUrl: deepLinks.web,                  // Full web URL for platforms that need it
-              mobileUrl: deepLinks.mobile,            // Mobile app deep link
+              webUrl: deepLinks.web, // Full web URL for platforms that need it
+              mobileUrl: deepLinks.mobile, // Mobile app deep link
               universalLink: deepLinks.universalLink, // Universal link for mobile
             },
           },
@@ -498,10 +488,7 @@ export class StockNotificationService {
    * @returns JSON string containing web and mobile URLs
    */
   private buildDeepLink(itemId: string): string {
-    return this.deepLinkService.generateNotificationActionUrl(
-      DeepLinkEntity.Item,
-      itemId,
-    );
+    return this.deepLinkService.generateNotificationActionUrl(DeepLinkEntity.Item, itemId);
   }
 
   /**

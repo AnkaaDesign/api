@@ -58,7 +58,6 @@ export class FirebaseConfigService implements OnModuleInit {
       // Method 2: Load from individual environment variables
       this.logger.log('Initializing Firebase from environment variables...');
       return await this.initializeFromEnvironmentVariables();
-
     } catch (error) {
       this.logger.error('Failed to initialize Firebase Admin SDK', error.stack);
       this.initialized = false;
@@ -85,7 +84,6 @@ export class FirebaseConfigService implements OnModuleInit {
       this.logger.log(`Firebase Admin SDK initialized from file: ${filePath}`);
       this.logger.log(`Project ID: ${serviceAccount.project_id}`);
       return true;
-
     } catch (error) {
       this.logger.error(`Failed to load service account from file: ${filePath}`, error.message);
       this.initialized = false;
@@ -107,8 +105,8 @@ export class FirebaseConfigService implements OnModuleInit {
     if (!projectId || !privateKey || !clientEmail) {
       this.logger.warn(
         'Firebase credentials not configured. Push notifications will be disabled. ' +
-        'Please set FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL ' +
-        'or FIREBASE_SERVICE_ACCOUNT_PATH environment variables.',
+          'Please set FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL ' +
+          'or FIREBASE_SERVICE_ACCOUNT_PATH environment variables.',
       );
       this.initialized = false;
       return false;
@@ -132,7 +130,6 @@ export class FirebaseConfigService implements OnModuleInit {
       this.logger.log(`Project ID: ${projectId}`);
       this.logger.log(`Client Email: ${clientEmail}`);
       return true;
-
     } catch (error) {
       this.logger.error('Failed to initialize Firebase from environment variables', error.message);
       this.initialized = false;

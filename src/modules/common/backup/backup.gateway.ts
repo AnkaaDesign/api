@@ -28,8 +28,12 @@ import { OnEvent } from '@nestjs/event-emitter';
             'http://ankaadesign.com.br',
             'http://www.ankaadesign.com.br',
             'http://staging.ankaadesign.com.br',
-            ...(process.env.CLIENT_HOST ? process.env.CLIENT_HOST.split(',').map(h => h.trim()) : []),
-            ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(h => h.trim()) : []),
+            ...(process.env.CLIENT_HOST
+              ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
+              : []),
+            ...(process.env.CORS_ORIGINS
+              ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+              : []),
           ]
         : true, // Allow all origins in development
     credentials: true,
@@ -282,11 +286,7 @@ export class BackupGateway implements OnGatewayInit, OnGatewayConnection, OnGate
    * Listen to GDrive delete failed events
    */
   @OnEvent('gdrive.delete-failed')
-  handleGDriveDeleteFailed(data: {
-    backupId: string;
-    error: string;
-    attempt: number;
-  }) {
+  handleGDriveDeleteFailed(data: { backupId: string; error: string; attempt: number }) {
     this.server.emit('gdrive-delete-failed', data);
     this.logger.warn(`GDrive delete failed event broadcast: ${data.backupId}`);
   }

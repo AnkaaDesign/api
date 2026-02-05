@@ -27,7 +27,7 @@ export class LayoutPrismaRepository implements LayoutRepository {
 
   async findByTruckId(
     truckId: string,
-    options?: { includePhoto?: boolean }
+    options?: { includePhoto?: boolean },
   ): Promise<{
     leftSideLayout: Layout | null;
     rightSideLayout: Layout | null;

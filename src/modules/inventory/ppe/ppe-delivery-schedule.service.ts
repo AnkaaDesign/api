@@ -328,7 +328,9 @@ export class PpeDeliveryScheduleService {
         // Numeric sizes (SIZE_38) are stored in the value field as numbers
         const numericSize = ppeSizeToNumeric(userSize);
         if (!numericSize) {
-          errors.push(`${user.name || userId}: Formato de tamanho inválido "${userSize}" para ${ppeType}`);
+          errors.push(
+            `${user.name || userId}: Formato de tamanho inválido "${userSize}" para ${ppeType}`,
+          );
           continue;
         }
         measuresFilter = {
@@ -363,7 +365,9 @@ export class PpeDeliveryScheduleService {
           quantity: requestedQuantity, // Use quantity specified in schedule
         });
       } else {
-        errors.push(`${user.name || userId}: Nenhum item encontrado para ${ppeType} tamanho ${userSize} com estoque disponível`);
+        errors.push(
+          `${user.name || userId}: Nenhum item encontrado para ${ppeType} tamanho ${userSize} com estoque disponível`,
+        );
       }
     }
 
@@ -532,11 +536,9 @@ export class PpeDeliveryScheduleService {
       await this.validateEntity();
 
       // Create the schedule
-      let ppeDeliverySchedule = await this.repository.createWithTransaction(
-        transaction,
-        data,
-        { include },
-      );
+      const ppeDeliverySchedule = await this.repository.createWithTransaction(transaction, data, {
+        include,
+      });
 
       if (!ppeDeliverySchedule) {
         throw new BadRequestException('Erro ao criar agendamento de PPE');
@@ -598,15 +600,19 @@ export class PpeDeliveryScheduleService {
         const firstNextRun = data.nextRun
           ? new Date(data.nextRun)
           : this.calculateNextRunDate(
-              { frequency: data.frequency, frequencyCount: data.frequencyCount || 1, dayOfMonth: data.dayOfMonth, dayOfWeek: data.dayOfWeek, month: data.month },
+              {
+                frequency: data.frequency,
+                frequencyCount: data.frequencyCount || 1,
+                dayOfMonth: data.dayOfMonth,
+                dayOfWeek: data.dayOfWeek,
+                month: data.month,
+              },
               new Date(),
             );
         if (firstNextRun) {
-          await this.repository.updateWithTransaction(
-            transaction,
-            ppeDeliverySchedule.id,
-            { nextRun: firstNextRun },
-          );
+          await this.repository.updateWithTransaction(transaction, ppeDeliverySchedule.id, {
+            nextRun: firstNextRun,
+          });
         }
       }
 
@@ -682,9 +688,10 @@ export class PpeDeliveryScheduleService {
         scheduleId: effectiveSchedule.id,
         immediateExecution,
         leadDays: frequencyLeadDays,
-        message: data.frequency === SCHEDULE_FREQUENCY.ONCE
-          ? `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes da data agendada.`
-          : `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes de cada execução.`,
+        message:
+          data.frequency === SCHEDULE_FREQUENCY.ONCE
+            ? `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes da data agendada.`
+            : `Agendamento de PPE criado com sucesso. As entregas serão geradas ${frequencyLeadDays} dia(s) antes de cada execução.`,
         data: effectiveSchedule,
       };
     });
@@ -694,9 +701,13 @@ export class PpeDeliveryScheduleService {
     // Skip active check since we want to create deliveries even for inactive schedules
     // during initial creation (for ONCE schedules that will become inactive after execution)
     if (result.immediateExecution) {
-      console.log('[PPE Schedule Create] Executing schedule immediately...', { scheduleId: result.scheduleId });
+      console.log('[PPE Schedule Create] Executing schedule immediately...', {
+        scheduleId: result.scheduleId,
+      });
       try {
-        const execResult = await this.executeScheduleNow(result.scheduleId, userId, { skipActiveCheck: true });
+        const execResult = await this.executeScheduleNow(result.scheduleId, userId, {
+          skipActiveCheck: true,
+        });
         console.log('[PPE Schedule Create] Immediate execution result:', {
           scheduleId: result.scheduleId,
           deliveriesCreated: execResult.data.deliveriesCreated,
@@ -714,7 +725,10 @@ export class PpeDeliveryScheduleService {
         // Schedule was created successfully, just the immediate execution failed.
         // The cron job will pick it up later.
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('[PPE Schedule Create] Immediate execution failed:', { scheduleId: result.scheduleId, error: errorMessage });
+        console.error('[PPE Schedule Create] Immediate execution failed:', {
+          scheduleId: result.scheduleId,
+          error: errorMessage,
+        });
         return {
           success: true,
           message: `${result.message} Nota: a execução imediata falhou (${errorMessage}), o cron irá processar.`,
@@ -722,7 +736,10 @@ export class PpeDeliveryScheduleService {
         };
       }
     } else {
-      console.log('[PPE Schedule Create] Skipping immediate execution', { scheduleId: result.scheduleId, immediateExecution: result.immediateExecution });
+      console.log('[PPE Schedule Create] Skipping immediate execution', {
+        scheduleId: result.scheduleId,
+        immediateExecution: result.immediateExecution,
+      });
     }
 
     return {
@@ -1324,11 +1341,7 @@ export class PpeDeliveryScheduleService {
         );
       }
 
-      if (
-        !schedule.items ||
-        !Array.isArray(schedule.items) ||
-        schedule.items.length === 0
-      ) {
+      if (!schedule.items || !Array.isArray(schedule.items) || schedule.items.length === 0) {
         throw new BadRequestException('O agendamento não possui itens de PPE configurados.');
       }
 
@@ -1363,11 +1376,12 @@ export class PpeDeliveryScheduleService {
       });
 
       for (const assignedUserId of assignedUserIds) {
-        const { matches: userItemMatches, errors: matchErrors } = await this.findMatchingItemsForUser(
-          assignedUserId,
-          schedule.items as { ppeType: PPE_TYPE; quantity: number; itemId?: string }[],
-          transaction,
-        );
+        const { matches: userItemMatches, errors: matchErrors } =
+          await this.findMatchingItemsForUser(
+            assignedUserId,
+            schedule.items as { ppeType: PPE_TYPE; quantity: number; itemId?: string }[],
+            transaction,
+          );
 
         // Collect any matching errors (missing sizes, no items in stock, etc.)
         if (matchErrors.length > 0) {

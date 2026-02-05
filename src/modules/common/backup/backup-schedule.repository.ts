@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BackupSchedule, BackupType, BackupPriority, BackupScheduleStatus, Prisma } from '@prisma/client';
+import {
+  BackupSchedule,
+  BackupType,
+  BackupPriority,
+  BackupScheduleStatus,
+  Prisma,
+} from '@prisma/client';
 
 export interface CreateBackupScheduleDto {
   name: string;
@@ -245,7 +251,10 @@ export class BackupScheduleRepository {
   /**
    * Soft delete by Bull job ID
    */
-  async softDeleteByBullJobId(bullJobId: string, deletedById?: string): Promise<BackupSchedule | null> {
+  async softDeleteByBullJobId(
+    bullJobId: string,
+    deletedById?: string,
+  ): Promise<BackupSchedule | null> {
     const schedule = await this.findByBullJobId(bullJobId);
     if (schedule) {
       return this.softDelete(schedule.id, deletedById);

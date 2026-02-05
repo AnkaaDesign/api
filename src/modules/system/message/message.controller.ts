@@ -12,13 +12,7 @@ import {
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiBearerAuth,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { MessageService } from './message.service';
 import { CreateMessageDto, UpdateMessageDto, FilterMessageDto } from './dto';
 import { User, UserId, UserPayload } from '@modules/common/auth/decorators/user.decorator';
@@ -59,14 +53,17 @@ export class MessageController {
     status: 403,
     description: 'Forbidden - admin access required',
   })
-  async create(
-    @Body() createMessageDto: CreateMessageDto,
-    @UserId() userId: string,
-  ) {
+  async create(@Body() createMessageDto: CreateMessageDto, @UserId() userId: string) {
     // Debug: Log what the controller receives AFTER ValidationPipe transformation
-    console.log('[MessageController.create] Received DTO:', JSON.stringify(createMessageDto, null, 2));
+    console.log(
+      '[MessageController.create] Received DTO:',
+      JSON.stringify(createMessageDto, null, 2),
+    );
     console.log('[MessageController.create] contentBlocks:', createMessageDto.contentBlocks);
-    console.log('[MessageController.create] First block type:', typeof createMessageDto.contentBlocks[0]);
+    console.log(
+      '[MessageController.create] First block type:',
+      typeof createMessageDto.contentBlocks[0],
+    );
     console.log('[MessageController.create] First block:', createMessageDto.contentBlocks[0]);
 
     const message = await this.messageService.create(createMessageDto, userId);
@@ -121,13 +118,12 @@ export class MessageController {
     status: 200,
     description: 'Unviewed messages retrieved successfully',
   })
-  async getUnviewed(
-    @UserId() userId: string,
-    @User() user: UserPayload,
-  ) {
+  async getUnviewed(@UserId() userId: string, @User() user: UserPayload) {
     console.log(`[MessageController.getUnviewed] userId=${userId}, role=${user.role}`);
     const messages = await this.messageService.getUnviewedForUser(userId, user.role);
-    console.log(`[MessageController.getUnviewed] Received ${messages.length} messages from service`);
+    console.log(
+      `[MessageController.getUnviewed] Received ${messages.length} messages from service`,
+    );
     return {
       success: true,
       data: messages,
@@ -145,16 +141,14 @@ export class MessageController {
   @Get('my-messages')
   @ApiOperation({
     summary: 'Get all messages for current user',
-    description: 'Retrieve all messages targeted to the current user, including viewed and dismissed ones',
+    description:
+      'Retrieve all messages targeted to the current user, including viewed and dismissed ones',
   })
   @ApiResponse({
     status: 200,
     description: 'Messages retrieved successfully',
   })
-  async getMyMessages(
-    @UserId() userId: string,
-    @User() user: UserPayload,
-  ) {
+  async getMyMessages(@UserId() userId: string, @User() user: UserPayload) {
     const messages = await this.messageService.getAllForUser(userId, user.role);
     return {
       success: true,
@@ -231,10 +225,7 @@ export class MessageController {
     status: 403,
     description: 'Forbidden - admin access required',
   })
-  async update(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() updateMessageDto: UpdateMessageDto,
-  ) {
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() updateMessageDto: UpdateMessageDto) {
     const message = await this.messageService.update(id, updateMessageDto);
     return {
       success: true,
@@ -323,7 +314,7 @@ export class MessageController {
   @Post(':id/dismiss')
   @ApiOperation({
     summary: 'Dismiss message',
-    description: 'Mark a message as dismissed (don\'t show again) for the current user',
+    description: "Mark a message as dismissed (don't show again) for the current user",
   })
   @ApiParam({
     name: 'id',

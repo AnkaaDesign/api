@@ -89,13 +89,13 @@ export class TwilioRepository extends SmsRepository implements OnModuleInit {
     } catch (error: any) {
       // Handle ts-node-dev IPC channel closed error gracefully
       const errorMessage = error.message || '';
-      const isIpcError = errorMessage.includes('Channel closed') ||
-                         error.code === 'ERR_IPC_CHANNEL_CLOSED';
+      const isIpcError =
+        errorMessage.includes('Channel closed') || error.code === 'ERR_IPC_CHANNEL_CLOSED';
 
       if (isIpcError) {
         this.logger.warn(
           'Twilio SDK loading interrupted (ts-node-dev IPC issue). ' +
-          'SMS will be retried on next attempt. This is normal in development.',
+            'SMS will be retried on next attempt. This is normal in development.',
         );
         // Don't set permanent error - allow retry on next sendSms call
         this.twilioClient = null;
@@ -132,8 +132,7 @@ export class TwilioRepository extends SmsRepository implements OnModuleInit {
 
     if (!this.twilioClient) {
       throw new Error(
-        this.initializationError ||
-        'SMS service temporarily unavailable. Please try again later.'
+        this.initializationError || 'SMS service temporarily unavailable. Please try again later.',
       );
     }
 
@@ -193,7 +192,9 @@ export class TwilioRepository extends SmsRepository implements OnModuleInit {
 
       // Provide user-friendly error messages based on error type
       if (error.message?.includes('not configured') || error.message?.includes('not available')) {
-        throw new Error('Serviço de SMS não está disponível no momento. Tente novamente mais tarde.');
+        throw new Error(
+          'Serviço de SMS não está disponível no momento. Tente novamente mais tarde.',
+        );
       }
 
       throw new Error(`Falha ao enviar SMS: ${error.message}`);

@@ -108,7 +108,7 @@ export class NotificationPreferenceService {
     // Check if user is trying to disable mandatory channels
     if (existingPreference?.mandatoryChannels && existingPreference.mandatoryChannels.length > 0) {
       const missingMandatoryChannels = existingPreference.mandatoryChannels.filter(
-        (mandatoryChannel) => !validatedChannels.includes(mandatoryChannel),
+        mandatoryChannel => !validatedChannels.includes(mandatoryChannel),
       );
 
       if (missingMandatoryChannels.length > 0) {
@@ -292,9 +292,12 @@ export class NotificationPreferenceService {
         eventType || null,
       );
 
-      if (existingPreference?.mandatoryChannels && existingPreference.mandatoryChannels.length > 0) {
+      if (
+        existingPreference?.mandatoryChannels &&
+        existingPreference.mandatoryChannels.length > 0
+      ) {
         const missingMandatoryChannels = existingPreference.mandatoryChannels.filter(
-          (mandatoryChannel) => !channels.includes(mandatoryChannel as string),
+          mandatoryChannel => !channels.includes(mandatoryChannel as string),
         );
 
         if (missingMandatoryChannels.length > 0) {
@@ -468,10 +471,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'status',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
@@ -479,10 +479,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'completion',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
@@ -562,10 +559,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'sectorId',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
@@ -573,10 +567,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.TASK,
         eventType: 'artworks',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
@@ -628,14 +619,8 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         eventType: 'created',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
       // Service Order Assigned (Atribuída a Mim)
@@ -658,28 +643,16 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         eventType: 'assigned_updated',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
       // Service Order I Created Updated (Que Criei Atualizada)
       {
         type: NOTIFICATION_TYPE.SERVICE_ORDER,
         eventType: 'my_updated',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
       // Service Order I Created Completed (Que Criei Concluída)
@@ -729,10 +702,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.ORDER,
         eventType: 'overdue',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
 
@@ -778,10 +748,7 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'shortage',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
 
@@ -793,14 +760,8 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'signature_requested',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
       // Assinatura Concluída (Signature Completed) - Notify admins/HR
@@ -815,37 +776,24 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'signature_rejected',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP],
       },
 
       // Erro de Processamento de Assinatura (Signature Processing Failed) - MANDATORY for admins
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'signature_failed',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP],
       },
 
       // Lembrete de Assinatura Pendente (Pending Signature Reminder)
       {
         type: NOTIFICATION_TYPE.PPE,
         eventType: 'signature_reminder',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
-        mandatoryChannels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP],
       },
 
       // ============================================
@@ -855,19 +803,13 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.VACATION,
         eventType: 'approved',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.VACATION,
         eventType: 'rejected',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
       {
@@ -884,19 +826,13 @@ export class NotificationPreferenceService {
       {
         type: NOTIFICATION_TYPE.WARNING,
         eventType: 'issued',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
       {
         type: NOTIFICATION_TYPE.WARNING,
         eventType: 'escalation',
-        channels: [
-          NOTIFICATION_CHANNEL.IN_APP,
-          NOTIFICATION_CHANNEL.PUSH,
-        ],
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
         mandatoryChannels: [],
       },
 

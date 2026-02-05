@@ -454,10 +454,7 @@ export class WhatsAppProcessor {
 
       this.logger.log(`Marked delivery ${deliveryId} as permanently failed`);
     } catch (err: any) {
-      this.logger.error(
-        `Failed to mark delivery as permanently failed: ${err.message}`,
-        err.stack,
-      );
+      this.logger.error(`Failed to mark delivery as permanently failed: ${err.message}`, err.stack);
     }
   }
 

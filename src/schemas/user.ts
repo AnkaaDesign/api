@@ -1369,7 +1369,11 @@ const userTransform = (data: any) => {
   }
 
   // Handle excludeSectorPrivileges filter - exclude users whose sector has specific privileges
-  if (data.excludeSectorPrivileges && Array.isArray(data.excludeSectorPrivileges) && data.excludeSectorPrivileges.length > 0) {
+  if (
+    data.excludeSectorPrivileges &&
+    Array.isArray(data.excludeSectorPrivileges) &&
+    data.excludeSectorPrivileges.length > 0
+  ) {
     andConditions.push({
       OR: [
         // Include users with no sector
@@ -1382,7 +1386,11 @@ const userTransform = (data: any) => {
   }
 
   // Handle includeSectorPrivileges filter - only include users whose sector has specific privileges
-  if (data.includeSectorPrivileges && Array.isArray(data.includeSectorPrivileges) && data.includeSectorPrivileges.length > 0) {
+  if (
+    data.includeSectorPrivileges &&
+    Array.isArray(data.includeSectorPrivileges) &&
+    data.includeSectorPrivileges.length > 0
+  ) {
     andConditions.push({
       sector: { is: { privileges: { in: data.includeSectorPrivileges } } },
     });

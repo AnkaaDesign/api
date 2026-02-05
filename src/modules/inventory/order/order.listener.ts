@@ -473,9 +473,7 @@ export class OrderListener {
    */
   async handleOrderCancelled(event: OrderCancelledEvent): Promise<void> {
     try {
-      this.logger.log(
-        `Handling order cancelled event for order ${event.order.id}`,
-      );
+      this.logger.log(`Handling order cancelled event for order ${event.order.id}`);
 
       const targetUsers = await this.getTargetUsers();
       if (targetUsers.length === 0) {

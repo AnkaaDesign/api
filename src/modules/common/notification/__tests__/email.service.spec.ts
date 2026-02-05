@@ -116,9 +116,9 @@ describe('MailerService', () => {
       };
 
       // Mock template loading
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(() => '<html><body>Task: {{taskTitle}}</body></html>'),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(jest.fn(() => '<html><body>Task: {{taskTitle}}</body></html>'));
 
       const result = await service.sendEmail(options);
 
@@ -180,11 +180,15 @@ describe('MailerService', () => {
         { email: 'user3@example.com', templateData: { name: 'User 3' } },
       ];
 
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(() => '<html><body>Hello {{name}}</body></html>'),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(jest.fn(() => '<html><body>Hello {{name}}</body></html>'));
 
-      const result = await service.sendBulkEmails(recipients, 'Test Subject', 'generic-notification');
+      const result = await service.sendBulkEmails(
+        recipients,
+        'Test Subject',
+        'generic-notification',
+      );
 
       expect(result.totalSent).toBe(3);
       expect(result.totalFailed).toBe(0);
@@ -196,11 +200,15 @@ describe('MailerService', () => {
         { email: 'invalid-email', templateData: { name: 'Invalid' } },
       ];
 
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(() => '<html><body>Hello {{name}}</body></html>'),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(jest.fn(() => '<html><body>Hello {{name}}</body></html>'));
 
-      const result = await service.sendBulkEmails(recipients, 'Test Subject', 'generic-notification');
+      const result = await service.sendBulkEmails(
+        recipients,
+        'Test Subject',
+        'generic-notification',
+      );
 
       expect(result.totalSent).toBe(1);
       expect(result.totalFailed).toBe(1);
@@ -213,11 +221,15 @@ describe('MailerService', () => {
         templateData: { name: `User ${i}` },
       }));
 
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(() => '<html><body>Hello {{name}}</body></html>'),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(jest.fn(() => '<html><body>Hello {{name}}</body></html>'));
 
-      const result = await service.sendBulkEmails(recipients, 'Test Subject', 'generic-notification');
+      const result = await service.sendBulkEmails(
+        recipients,
+        'Test Subject',
+        'generic-notification',
+      );
 
       expect(result.totalSent).toBe(60);
       // Should be processed in multiple batches (batch size = 50)
@@ -233,7 +245,7 @@ describe('MailerService', () => {
         '123@test.com',
       ];
 
-      validEmails.forEach((email) => {
+      validEmails.forEach(email => {
         const result = service.validateEmail(email);
         expect(result.isValid).toBe(true);
       });
@@ -248,7 +260,7 @@ describe('MailerService', () => {
         'test..name@example.com',
       ];
 
-      invalidEmails.forEach((email) => {
+      invalidEmails.forEach(email => {
         const result = service.validateEmail(email);
         expect(result.isValid).toBe(false);
       });
@@ -485,12 +497,14 @@ describe('MailerService', () => {
       };
 
       // Mock template
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(
-          (data: any) =>
-            `<html><body>Hello ${data.userName}, Task: ${data.taskTitle}</body></html>`,
-        ),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(
+          jest.fn(
+            (data: any) =>
+              `<html><body>Hello ${data.userName}, Task: ${data.taskTitle}</body></html>`,
+          ),
+        );
 
       const result = await service.buildEmailFromTemplate('task-created', templateData);
 
@@ -500,12 +514,14 @@ describe('MailerService', () => {
     });
 
     it('should include company info in template data', async () => {
-      jest.spyOn(service as any, 'loadTemplate').mockResolvedValue(
-        jest.fn(
-          (data: any) =>
-            `<html><body>Company: ${data.companyName}, Year: ${data.currentYear}</body></html>`,
-        ),
-      );
+      jest
+        .spyOn(service as any, 'loadTemplate')
+        .mockResolvedValue(
+          jest.fn(
+            (data: any) =>
+              `<html><body>Company: ${data.companyName}, Year: ${data.currentYear}</body></html>`,
+          ),
+        );
 
       const result = await service.buildEmailFromTemplate('generic-notification', {});
 

@@ -70,8 +70,7 @@ export function checkServiceOrderUpdatePermission(
   ) {
     return {
       canUpdate: false,
-      reason:
-        'O status "Aguardando Aprovação" é exclusivo para ordens de serviço de arte',
+      reason: 'O status "Aguardando Aprovação" é exclusivo para ordens de serviço de arte',
     };
   }
 
@@ -86,11 +85,15 @@ export function checkServiceOrderUpdatePermission(
 
   // COMMERCIAL users can edit non-status fields (description, responsible, observation) on ALL service order types
   // But they can only change status on COMMERCIAL service orders
-  if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL && serviceOrder.type !== SERVICE_ORDER_TYPE.COMMERCIAL) {
+  if (
+    userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL &&
+    serviceOrder.type !== SERVICE_ORDER_TYPE.COMMERCIAL
+  ) {
     if (isStatusChange) {
       return {
         canUpdate: false,
-        reason: 'Usuários comerciais não podem alterar o status de ordens de serviço de outros setores',
+        reason:
+          'Usuários comerciais não podem alterar o status de ordens de serviço de outros setores',
       };
     }
     return { canUpdate: true };
@@ -125,7 +128,10 @@ export function checkServiceOrderUpdatePermission(
 
     case SERVICE_ORDER_TYPE.COMMERCIAL:
       // COMMERCIAL and FINANCIAL can update COMMERCIAL service orders
-      if (userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL || userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+      if (
+        userPrivilege === SECTOR_PRIVILEGES.COMMERCIAL ||
+        userPrivilege === SECTOR_PRIVILEGES.FINANCIAL
+      ) {
         return { canUpdate: true };
       }
       return {
@@ -181,7 +187,13 @@ export function assertCanUpdateServiceOrder(
   newStatus?: SERVICE_ORDER_STATUS,
   isStatusChange?: boolean,
 ): void {
-  const check = checkServiceOrderUpdatePermission(serviceOrder, userId, userPrivilege, newStatus, isStatusChange);
+  const check = checkServiceOrderUpdatePermission(
+    serviceOrder,
+    userId,
+    userPrivilege,
+    newStatus,
+    isStatusChange,
+  );
 
   if (!check.canUpdate) {
     throw new ForbiddenException(

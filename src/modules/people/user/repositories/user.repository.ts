@@ -9,7 +9,11 @@ import {
   UserWhere,
 } from '../../../../schemas/user';
 import { BaseStringRepository } from '@modules/common/base/base-string.repository';
-import { PrismaTransaction, FindManyOptions, FindManyResult } from '@modules/common/base/base.repository';
+import {
+  PrismaTransaction,
+  FindManyOptions,
+  FindManyResult,
+} from '@modules/common/base/base.repository';
 
 export type { PrismaTransaction } from '@modules/common/base/base.repository';
 
@@ -36,36 +40,44 @@ export abstract class UserRepository extends BaseStringRepository<
   abstract findManyWithSector(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{ id: string; name: string; sector: { id: string; name: string } | null }>>;
+  ): Promise<
+    FindManyResult<{ id: string; name: string; sector: { id: string; name: string } | null }>
+  >;
 
   abstract findManyWithPosition(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{ id: string; name: string; position: { id: string; name: string } | null }>>;
+  ): Promise<
+    FindManyResult<{ id: string; name: string; position: { id: string; name: string } | null }>
+  >;
 
   abstract findManyWithSectorAndPosition(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{
-    id: string;
-    name: string;
-    sector: { id: string; name: string } | null;
-    position: { id: string; name: string } | null;
-  }>>;
+  ): Promise<
+    FindManyResult<{
+      id: string;
+      name: string;
+      sector: { id: string; name: string } | null;
+      position: { id: string; name: string } | null;
+    }>
+  >;
 
   abstract findManyForList(
     options?: FindManyOptions<UserOrderBy, UserWhere, UserInclude>,
     tx?: PrismaTransaction,
-  ): Promise<FindManyResult<{
-    id: string;
-    name: string;
-    email: string | null;
-    phone: string | null;
-    status: string;
-    isActive: boolean;
-    avatarId: string | null;
-    payrollNumber: number | null;
-    sector: { id: string; name: string } | null;
-    position: { id: string; name: string } | null;
-  }>>;
+  ): Promise<
+    FindManyResult<{
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      status: string;
+      isActive: boolean;
+      avatarId: string | null;
+      payrollNumber: number | null;
+      sector: { id: string; name: string } | null;
+      position: { id: string; name: string } | null;
+    }>
+  >;
 }

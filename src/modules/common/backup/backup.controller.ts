@@ -475,11 +475,7 @@ export class BackupController {
       let gdriveJobId: string | undefined;
       if (dto.triggerGDriveSync) {
         try {
-          const job = await this.gdriveSyncService.queueSync(
-            result.id,
-            dto.filePath,
-            dto.type,
-          );
+          const job = await this.gdriveSyncService.queueSync(result.id, dto.filePath, dto.type);
           gdriveJobId = job.id?.toString();
         } catch (syncError) {
           // Don't fail the registration if sync fails to queue
@@ -624,10 +620,7 @@ export class BackupController {
     description: 'Falha ao remover backup agendado',
   })
   @HttpCode(HttpStatus.OK)
-  async removeScheduledBackup(
-    @Param('id') id: string,
-    @UserId() userId?: string,
-  ) {
+  async removeScheduledBackup(@Param('id') id: string, @UserId() userId?: string) {
     // Let exceptions propagate for proper error handling on the frontend
     await this.backupService.removeScheduledBackup(id, userId);
 

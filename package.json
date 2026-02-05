@@ -38,7 +38,8 @@
     "test:payload": "tsx tests/payload/payload-size-measurement.ts",
     "test:scenarios": "tsx tests/scenarios/context-specific.test.ts",
     "test:optimization": "tsx tests/run-all-optimization-tests.ts",
-    "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html"
+    "test:optimization:report": "tsx tests/run-all-optimization-tests.ts && open tests/reports/latest-report.html",
+    "seed:notifications": "ts-node prisma/seeds/notification-configurations/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",

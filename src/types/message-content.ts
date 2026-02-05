@@ -284,30 +284,19 @@ export function validateMessageBlock(block: unknown): block is MessageBlock {
   switch (b.type) {
     case 'heading':
       return (
-        'level' in b &&
-        [1, 2, 3].includes(b.level) &&
-        'content' in b &&
-        Array.isArray(b.content)
+        'level' in b && [1, 2, 3].includes(b.level) && 'content' in b && Array.isArray(b.content)
       );
     case 'paragraph':
       return 'content' in b && Array.isArray(b.content);
     case 'image':
       return 'url' in b && typeof b.url === 'string';
     case 'button':
-      return (
-        'text' in b &&
-        typeof b.text === 'string' &&
-        'url' in b &&
-        typeof b.url === 'string'
-      );
+      return 'text' in b && typeof b.text === 'string' && 'url' in b && typeof b.url === 'string';
     case 'divider':
       return true;
     case 'list':
       return (
-        'ordered' in b &&
-        typeof b.ordered === 'boolean' &&
-        'items' in b &&
-        Array.isArray(b.items)
+        'ordered' in b && typeof b.ordered === 'boolean' && 'items' in b && Array.isArray(b.items)
       );
     case 'quote':
       return 'content' in b && Array.isArray(b.content);
@@ -320,16 +309,18 @@ export function validateMessageBlock(block: unknown): block is MessageBlock {
  * Extracts plain text from inline content (useful for search, previews, etc.)
  */
 export function extractPlainText(content: InlineContent[]): string {
-  return content.map(item => {
-    switch (item.type) {
-      case 'text':
-      case 'styled':
-      case 'link':
-        return item.text;
-      default:
-        return '';
-    }
-  }).join('');
+  return content
+    .map(item => {
+      switch (item.type) {
+        case 'text':
+        case 'styled':
+        case 'link':
+          return item.text;
+        default:
+          return '';
+      }
+    })
+    .join('');
 }
 
 /**

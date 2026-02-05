@@ -99,9 +99,7 @@ export const messageBlockSchema = z.discriminatedUnion('type', [
 // =====================
 
 export const messageContentSchema = z.object({
-  blocks: z
-    .array(messageBlockSchema)
-    .min(1, 'Mensagem deve ter pelo menos um bloco de conteúdo'),
+  blocks: z.array(messageBlockSchema).min(1, 'Mensagem deve ter pelo menos um bloco de conteúdo'),
   version: z.string().default('1.0').optional(),
 });
 
@@ -222,7 +220,7 @@ export const createInlineLinkSchema = z.object({
 
 // Schema for validating entire message content with strict limits
 export const validateMessageContentSchema = messageContentSchema.refine(
-  (data) => {
+  data => {
     // Count total inline content elements across all blocks
     let totalInlineElements = 0;
     for (const block of data.blocks) {

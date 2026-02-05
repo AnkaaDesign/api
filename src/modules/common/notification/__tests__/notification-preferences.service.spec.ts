@@ -301,7 +301,7 @@ describe('NotificationPreferenceService', () => {
       const result = await service.validatePreferences('user-1', 'TASK', 'deadline', []);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some((e) => e.includes('mandatory'))).toBe(true);
+      expect(result.errors.some(e => e.includes('mandatory'))).toBe(true);
     });
 
     it('should return errors for invalid channels', async () => {
@@ -321,7 +321,7 @@ describe('NotificationPreferenceService', () => {
       ]);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some((e) => e.includes('Invalid notification channel'))).toBe(true);
+      expect(result.errors.some(e => e.includes('Invalid notification channel'))).toBe(true);
     });
   });
 
@@ -463,9 +463,9 @@ describe('NotificationPreferenceService', () => {
 
       mockPreferenceRepository.getPreference.mockResolvedValue(mockMandatoryPreference);
 
-      await expect(
-        service.updatePreferences('user-1', preferences, 'user-1'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.updatePreferences('user-1', preferences, 'user-1')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw ForbiddenException when non-admin updates others preferences', async () => {
@@ -491,20 +491,20 @@ describe('NotificationPreferenceService', () => {
       expect(defaults.length).toBeGreaterThan(0);
 
       // Check that task preferences are mandatory
-      const taskPreferences = defaults.filter((p) => p.type === NOTIFICATION_TYPE.TASK);
+      const taskPreferences = defaults.filter(p => p.type === NOTIFICATION_TYPE.TASK);
       expect(taskPreferences.length).toBeGreaterThan(0);
-      taskPreferences.forEach((pref) => {
+      taskPreferences.forEach(pref => {
         expect(pref.mandatory).toBe(true);
       });
 
       // Check that some preferences are optional
-      const optionalPreferences = defaults.filter((p) => !p.mandatory);
+      const optionalPreferences = defaults.filter(p => !p.mandatory);
       expect(optionalPreferences.length).toBeGreaterThan(0);
     });
 
     it('should include all notification types', () => {
       const defaults = service.getDefaultPreferences();
-      const types = new Set(defaults.map((p) => p.type));
+      const types = new Set(defaults.map(p => p.type));
 
       expect(types.has(NOTIFICATION_TYPE.TASK)).toBe(true);
       expect(types.has(NOTIFICATION_TYPE.ORDER)).toBe(true);
@@ -516,9 +516,9 @@ describe('NotificationPreferenceService', () => {
       const defaults = service.getDefaultPreferences();
       const validChannels = Object.values(NOTIFICATION_CHANNEL);
 
-      defaults.forEach((pref) => {
+      defaults.forEach(pref => {
         expect(pref.channels.length).toBeGreaterThan(0);
-        pref.channels.forEach((channel) => {
+        pref.channels.forEach(channel => {
           expect(validChannels).toContain(channel);
         });
       });

@@ -2,7 +2,10 @@ import { Injectable, Inject, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BaileysWhatsAppService } from '../../whatsapp/baileys-whatsapp.service';
-import { WhatsAppMessageFormatterService, WhatsAppMessageFormat } from './whatsapp-message-formatter.service';
+import {
+  WhatsAppMessageFormatterService,
+  WhatsAppMessageFormat,
+} from './whatsapp-message-formatter.service';
 import { User, Notification } from '../../../../types';
 import { NOTIFICATION_CHANNEL } from '../../../../constants';
 
@@ -282,7 +285,10 @@ export class WhatsAppNotificationService {
       if (type === 'service-order.status.changed' || type === 'serviceOrder.status.changed') {
         return this.formatter.formatServiceOrderStatusChanged(data);
       }
-      if (type === 'service-order.artwork-waiting-approval' || type === 'serviceOrder.artworkWaitingApproval') {
+      if (
+        type === 'service-order.artwork-waiting-approval' ||
+        type === 'serviceOrder.artworkWaitingApproval'
+      ) {
         return this.formatter.formatArtworkWaitingApproval(data);
       }
 
@@ -353,7 +359,8 @@ export class WhatsAppNotificationService {
     // Build full URL if it's a relative path
     if (actionUrlToUse) {
       // Use WEB_APP_URL as the canonical base URL
-      const baseUrl = process.env.WEB_APP_URL || process.env.WEB_BASE_URL || 'https://ankaadesign.com.br';
+      const baseUrl =
+        process.env.WEB_APP_URL || process.env.WEB_BASE_URL || 'https://ankaadesign.com.br';
 
       // Check if URL is already complete (has protocol)
       if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {
@@ -363,7 +370,10 @@ export class WhatsAppNotificationService {
           return '';
         }
         // If it looks like a domain (www.example.com), add https://
-        if (actionUrlToUse.startsWith('www.') || actionUrlToUse.match(/^[a-z0-9-]+\.(com|br|net|org)/i)) {
+        if (
+          actionUrlToUse.startsWith('www.') ||
+          actionUrlToUse.match(/^[a-z0-9-]+\.(com|br|net|org)/i)
+        ) {
           actionUrlToUse = `https://${actionUrlToUse}`;
         }
         // Otherwise, treat as relative path and prepend base URL
@@ -711,10 +721,7 @@ export class WhatsAppNotificationService {
 
     // 0. sendSeen/markedUnread errors - message was actually sent, no retry needed
     // These errors occur AFTER the message is delivered, during WhatsApp's internal "mark as seen" step
-    if (
-      errorMessage.includes('markedUnread') ||
-      errorMessage.includes('sendSeen')
-    ) {
+    if (errorMessage.includes('markedUnread') || errorMessage.includes('sendSeen')) {
       this.logger.log(
         `sendSeen error for delivery ${deliveryId} - message was sent successfully, no retry needed`,
       );

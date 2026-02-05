@@ -803,7 +803,11 @@ export function formatFieldValue(
   metadata?: FieldMetadata,
 ): string {
   // Handle null/undefined commission field specifically
-  if ((value === null || value === undefined) && field === 'commission' && entityType === CHANGE_LOG_ENTITY_TYPE.TASK) {
+  if (
+    (value === null || value === undefined) &&
+    field === 'commission' &&
+    entityType === CHANGE_LOG_ENTITY_TYPE.TASK
+  ) {
     return 'Não Definida';
   }
 
@@ -1474,7 +1478,12 @@ export function formatFieldValue(
       if (typeof item === 'object' && item.ppeType) {
         const typeName = ppeTypeLabels[item.ppeType as string] || String(item.ppeType);
         // For OTHERS type, include the item name if available
-        if (item.ppeType === 'OTHERS' && item.item && typeof item.item === 'object' && (item.item as any).name) {
+        if (
+          item.ppeType === 'OTHERS' &&
+          item.item &&
+          typeof item.item === 'object' &&
+          (item.item as any).name
+        ) {
           return `${typeName}: ${(item.item as any).name} (${item.quantity} un)`;
         }
         return `${typeName} (${item.quantity} un)`;

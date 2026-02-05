@@ -44,14 +44,16 @@ class MockPushNotificationService {
     }
   }
 
-  async sendBulkNotifications(notifications: Array<{ notification: any; user: any; deliveryId: string }>) {
+  async sendBulkNotifications(
+    notifications: Array<{ notification: any; user: any; deliveryId: string }>,
+  ) {
     const results = await Promise.all(
       notifications.map(({ notification, user, deliveryId }) =>
         this.sendNotification(notification, user, deliveryId),
       ),
     );
 
-    const success = results.filter((r) => r.success).length;
+    const success = results.filter(r => r.success).length;
     const failed = results.length - success;
 
     return { success, failed };
@@ -216,12 +218,22 @@ describe('PushNotificationService', () => {
     it('should handle partial failures in bulk send', async () => {
       const notifications = [
         {
-          notification: { id: 'notif-1', title: 'Test 1', body: 'Body 1', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-1',
+            title: 'Test 1',
+            body: 'Body 1',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-1', fcmToken: 'token-1' },
           deliveryId: 'delivery-1',
         },
         {
-          notification: { id: 'notif-2', title: 'Test 2', body: 'Body 2', type: NOTIFICATION_TYPE.TASK },
+          notification: {
+            id: 'notif-2',
+            title: 'Test 2',
+            body: 'Body 2',
+            type: NOTIFICATION_TYPE.TASK,
+          },
           user: { id: 'user-2', fcmToken: null }, // No token
           deliveryId: 'delivery-2',
         },

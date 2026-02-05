@@ -1587,10 +1587,7 @@ export class ExternalWithdrawalService {
           newStatus !== EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
           newStatus !== EXTERNAL_WITHDRAWAL_STATUS.CANCELLED;
 
-        if (
-          existingWithdrawal.status === EXTERNAL_WITHDRAWAL_STATUS.PENDING &&
-          isDeliveredStatus
-        ) {
+        if (existingWithdrawal.status === EXTERNAL_WITHDRAWAL_STATUS.PENDING && isDeliveredStatus) {
           // Get withdrawal items for OUTBOUND creation
           const withdrawalWithItems =
             await this.externalWithdrawalRepository.findByIdWithTransaction(tx, id, {

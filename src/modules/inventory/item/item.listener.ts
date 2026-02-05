@@ -2,10 +2,7 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import {
-  DeepLinkService,
-  DeepLinkEntity,
-} from '@modules/common/notification/deep-link.service';
+import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import {
   ItemLowStockEvent,
   ItemOutOfStockEvent,
@@ -102,12 +99,12 @@ export class ItemListener {
     return {
       actionUrl: JSON.stringify(deepLinks),
       metadata: {
-        webUrl: deepLinks.web,                  // Web route
-        mobileUrl: deepLinks.mobile,            // Mobile app deep link (custom scheme)
+        webUrl: deepLinks.web, // Web route
+        mobileUrl: deepLinks.mobile, // Mobile app deep link (custom scheme)
         universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
-        entityType: 'Item',                     // Entity type for mobile navigation
-        entityId: itemId,                       // Entity ID for mobile navigation
-        itemId,                                 // For backward compatibility
+        entityType: 'Item', // Entity type for mobile navigation
+        entityId: itemId, // Entity ID for mobile navigation
+        itemId, // For backward compatibility
       },
     };
   }

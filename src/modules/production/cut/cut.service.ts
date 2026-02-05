@@ -464,7 +464,13 @@ export class CutService {
                 }
                 this.eventEmitter.emit(
                   'cut.request.created',
-                  new CutRequestCreatedEvent(cut, task, cut.reason, parentCut, createdByUser as any),
+                  new CutRequestCreatedEvent(
+                    cut,
+                    task,
+                    cut.reason,
+                    parentCut,
+                    createdByUser as any,
+                  ),
                 );
               } else {
                 this.eventEmitter.emit(

@@ -131,7 +131,10 @@ export class NotificationResponseDto {
   @ApiPropertyOptional({ description: 'When notification is scheduled for' })
   scheduledAt?: Date;
 
-  @ApiPropertyOptional({ description: 'Delivery information', type: [NotificationDeliveryResponseDto] })
+  @ApiPropertyOptional({
+    description: 'Delivery information',
+    type: [NotificationDeliveryResponseDto],
+  })
   deliveries?: NotificationDeliveryResponseDto[];
 
   @ApiPropertyOptional({ description: 'Whether a reminder is set' })
@@ -232,7 +235,10 @@ export class NotificationSummaryResponseDto {
   @ApiPropertyOptional({ description: 'Recent notifications', type: [NotificationResponseDto] })
   recent?: NotificationResponseDto[];
 
-  @ApiPropertyOptional({ description: 'Notifications with active reminders', type: [NotificationResponseDto] })
+  @ApiPropertyOptional({
+    description: 'Notifications with active reminders',
+    type: [NotificationResponseDto],
+  })
   withReminders?: NotificationResponseDto[];
 
   @ApiPropertyOptional({ description: 'Latest notification timestamp' })

@@ -95,7 +95,8 @@ export class NotificationController {
   @Get()
   @ApiOperation({
     summary: 'Get notifications for current user',
-    description: 'Retrieve a paginated list of notifications for the authenticated user with optional filtering',
+    description:
+      'Retrieve a paginated list of notifications for the authenticated user with optional filtering',
   })
   @ApiResponse({
     status: 200,
@@ -167,7 +168,11 @@ export class NotificationController {
     @Query(new ZodQueryValidationPipe(notificationQuerySchema)) query: NotificationQueryFormData,
     @UserId() userId: string,
   ): Promise<NotificationCreateResponse> {
-    const notification = await this.notificationService.createNotification(data, query.include, userId);
+    const notification = await this.notificationService.createNotification(
+      data,
+      query.include,
+      userId,
+    );
 
     // Dispatch the notification immediately if not scheduled
     if (!data.scheduledAt) {

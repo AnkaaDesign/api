@@ -288,24 +288,29 @@ export class CustomerPrismaRepository
     // Prioritize select over include
     const useProvidedSelect = select && Object.keys(select).length > 0;
 
+    const baseQuery = {
+      where: this.mapWhereToDatabaseWhere(where),
+      orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { fantasyName: 'asc' },
+      skip,
+      take,
+    };
+
     const [total, customers] = await Promise.all([
       transaction.customer.count({
         where: this.mapWhereToDatabaseWhere(where),
       }),
-      transaction.customer.findMany({
-        where: this.mapWhereToDatabaseWhere(where),
-        orderBy: this.mapOrderByToDatabaseOrderBy(orderBy) || { fantasyName: 'asc' },
-        skip,
-        take,
-        ...(useProvidedSelect
-          ? { select }
-          : {
-              include:
-                include !== undefined
-                  ? this.mapIncludeToDatabaseInclude(include)
-                  : this.getDefaultInclude(),
-            }),
-      }),
+      useProvidedSelect
+        ? transaction.customer.findMany({
+            ...baseQuery,
+            select,
+          })
+        : transaction.customer.findMany({
+            ...baseQuery,
+            include:
+              include !== undefined
+                ? this.mapIncludeToDatabaseInclude(include)
+                : this.getDefaultInclude(),
+          }),
     ]);
 
     return {

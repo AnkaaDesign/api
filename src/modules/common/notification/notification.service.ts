@@ -828,7 +828,9 @@ export class NotificationService {
           take: 1000, // Fetch up to 1000 notifications at once
         });
 
-        this.logger.log(`Found ${unreadNotifications.data.length} unread notifications for user ${userId}`);
+        this.logger.log(
+          `Found ${unreadNotifications.data.length} unread notifications for user ${userId}`,
+        );
 
         // Mark all as read
         let markedCount = 0;

@@ -133,11 +133,11 @@ Your app likely has an admin panel to send notifications. Just send one!
 
 ```bash
 # Get your user's push token first
-curl -X GET http://192.168.10.161:3030/notifications/device-tokens \
+curl -X GET http://192.168.0.16:3030/notifications/device-tokens \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
 
 # Send test notification (admin only)
-curl -X POST http://192.168.10.161:3030/notifications/test \
+curl -X POST http://192.168.0.16:3030/notifications/test \
   -H "Authorization: Bearer YOUR_ADMIN_JWT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
