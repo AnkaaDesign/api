@@ -1,15 +1,9 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_CHANNEL,
-  TASK_STATUS,
-} from '../../constants/enums';
+import { TASK_STATUS } from '../../constants/enums';
 
 /**
  * Event emitted when paint is produced
@@ -28,12 +22,20 @@ export interface PaintProducedEvent {
 
 /**
  * Paint Production Listener
- * Handles notifications when paint is produced
+ * Handles notifications when paint is produced using config-based dispatch.
+ *
+ * Config key: paint.produced
  *
  * Notification flow:
  * 1. Paint is produced
  * 2. Find all active tasks using this paint (via paintId or logoPaints)
- * 3. Notify users in those task's sectors
+ * 3. Get unique sectors from those tasks
+ * 4. Get active users in those sectors
+ * 5. For each user, build personalized notification (tasks in their sector)
+ * 6. Dispatch via dispatchByConfigurationToUsers (checks config enablement + user preferences)
+ *
+ * Custom targeting: Users in sectors of tasks using the paint (NOT the static sector
+ * list from the config). Per-user personalization with different task names per user.
  *
  * Message: "Tinta {paintName} que é utilizada na tarefa {taskName} foi produzida"
  */
@@ -43,8 +45,7 @@ export class PaintProductionListener {
 
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
-    private readonly notificationService: NotificationService,
-    private readonly preferenceService: NotificationPreferenceService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
     private readonly prisma: PrismaService,
   ) {
@@ -53,7 +54,7 @@ export class PaintProductionListener {
     this.logger.log('[PAINT LISTENER] Registering event handlers...');
 
     this.eventEmitter.on('paint.produced', this.handlePaintProduced.bind(this));
-    this.logger.log('[PAINT LISTENER] ✅ Registered: paint.produced');
+    this.logger.log('[PAINT LISTENER] Registered: paint.produced');
 
     this.logger.log('[PAINT LISTENER] All event handlers registered successfully');
     this.logger.log('========================================');
@@ -107,135 +108,82 @@ export class PaintProductionListener {
         return;
       }
 
-      // Get unique sector IDs
+      // Get unique sector IDs from tasks
       const sectorIds = [...new Set(tasksUsingPaint.map((t) => t.sectorId).filter(Boolean))];
 
-      // Get users in these sectors
+      // Get active users in those sectors (dispatch service will also exclude the triggering user)
       const usersInSectors = await this.prisma.user.findMany({
         where: {
           isActive: true,
           sectorId: {
             in: sectorIds as string[],
           },
-          id: {
-            not: event.producedBy.id, // Exclude the user who produced the paint
-          },
         },
         select: {
           id: true,
-          name: true,
           sectorId: true,
         },
       });
 
       this.logger.log(`[PAINT EVENT] Found ${usersInSectors.length} users in relevant sectors`);
 
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
+      if (usersInSectors.length === 0) {
+        this.logger.log('[PAINT EVENT] No users in relevant sectors, skipping notifications');
+        return;
+      }
 
-      // Create notifications for each user
+      // For each user, build personalized notification based on their sector's tasks
       for (const user of usersInSectors) {
-        try {
-          // Find tasks in user's sector that use this paint
-          const userTasks = tasksUsingPaint.filter((t) => t.sectorId === user.sectorId);
+        const userTasks = tasksUsingPaint.filter((t) => t.sectorId === user.sectorId);
 
-          if (userTasks.length === 0) {
-            continue;
-          }
-
-          // Get user's notification preferences
-          const channels = await this.getEnabledChannelsForUser(
-            user.id,
-            NOTIFICATION_TYPE.PRODUCTION,
-            'paint.produced',
-          );
-
-          if (channels.length === 0) {
-            notificationsSkipped++;
-            continue;
-          }
-
-          // Build notification message
-          const taskNames = userTasks.map((t) => t.name || `#${t.serialNumber}`).slice(0, 3);
-          const taskList = taskNames.join(', ');
-          const moreTasksText =
-            userTasks.length > 3 ? ` e mais ${userTasks.length - 3} tarefa(s)` : '';
-
-          // Use first task for deep link
-          const firstTask = userTasks[0];
-          const deepLinks = this.deepLinkService.generateTaskLinks(firstTask.id);
-
-          await this.notificationService.createNotification({
-            userId: user.id,
-            type: NOTIFICATION_TYPE.PRODUCTION,
-            importance: NOTIFICATION_IMPORTANCE.NORMAL,
-            title: 'Tinta Produzida',
-            body:
-              userTasks.length === 1
-                ? `Tinta "${event.paintName}" que é utilizada na tarefa "${taskList}" foi produzida.`
-                : `Tinta "${event.paintName}" que é utilizada nas tarefas ${taskList}${moreTasksText} foi produzida.`,
-            actionUrl: deepLinks.webPath,
-            relatedEntityId: event.paintProductionId,
-            relatedEntityType: 'PAINT_PRODUCTION',
-            metadata: {
-              webUrl: deepLinks.web,
-              mobileUrl: deepLinks.mobile,
-              universalLink: deepLinks.universalLink,
-              entityType: 'Task',
-              entityId: firstTask.id,
-              paintId: event.paintId,
-              paintName: event.paintName,
-              volumeLiters: event.volumeLiters,
-              producedById: event.producedBy.id,
-              producedByName: event.producedBy.name,
-              taskIds: userTasks.map((t) => t.id),
-              taskNames: userTasks.map((t) => t.name || `#${t.serialNumber}`),
-            },
-            channel: channels,
-          });
-          notificationsCreated++;
-        } catch (error) {
-          this.logger.error(
-            `[PAINT EVENT] Error creating notification for user ${user.id}:`,
-            error,
-          );
+        if (userTasks.length === 0) {
+          continue;
         }
+
+        const taskNames = userTasks.map((t) => t.name || `#${t.serialNumber}`).slice(0, 3);
+        const taskList = taskNames.join(', ');
+        const firstTask = userTasks[0];
+        const deepLinks = this.deepLinkService.generateTaskLinks(firstTask.id);
+
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'paint.produced',
+          event.producedBy.id,
+          {
+            entityType: 'Task',
+            entityId: firstTask.id,
+            action: 'paint_produced',
+            data: {
+              paintName: event.paintName,
+              taskName: taskList,
+              taskNames: userTasks.map((t) => t.name || `#${t.serialNumber}`),
+              volumeLiters: event.volumeLiters,
+              producedByName: event.producedBy.name,
+            },
+            metadata: {
+              paintId: event.paintId,
+              paintProductionId: event.paintProductionId,
+              taskIds: userTasks.map((t) => t.id),
+            },
+            overrides: {
+              actionUrl: JSON.stringify(deepLinks),
+              webUrl: `/producao/cronograma/detalhes/${firstTask.id}`,
+              relatedEntityType: 'PAINT_PRODUCTION',
+              title: 'Tinta Produzida',
+              body:
+                userTasks.length === 1
+                  ? `Tinta "${event.paintName}" que é utilizada na tarefa "${taskList}" foi produzida.`
+                  : `Tinta "${event.paintName}" que é utilizada nas tarefas ${taskList}${userTasks.length > 3 ? ` e mais ${userTasks.length - 3} tarefa(s)` : ''} foi produzida.`,
+            },
+          },
+          [user.id],
+        );
       }
 
       this.logger.log('========================================');
-      this.logger.log('[PAINT EVENT] Paint produced notification summary:');
-      this.logger.log(`[PAINT EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[PAINT EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
+      this.logger.log('[PAINT EVENT] Paint produced notification dispatch completed');
       this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('[PAINT EVENT] ❌ Error handling paint produced event:', error);
-    }
-  }
-
-  /**
-   * Get enabled channels for a user based on their preferences
-   */
-  private async getEnabledChannelsForUser(
-    userId: string,
-    notificationType: NOTIFICATION_TYPE,
-    eventType: string,
-  ): Promise<NOTIFICATION_CHANNEL[]> {
-    try {
-      const channels = await this.preferenceService.getChannelsForEvent(
-        userId,
-        notificationType,
-        eventType,
-      );
-
-      if (channels.length > 0) {
-        return channels;
-      }
-
-      // Default channels for paint production notifications
-      return [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
-    } catch (error) {
-      this.logger.warn(`Error getting channels for user ${userId}, using defaults:`, error);
-      return [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
+      this.logger.error('[PAINT EVENT] Error handling paint produced event:', error);
     }
   }
 }

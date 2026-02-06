@@ -511,7 +511,7 @@ export class NotificationTemplateRendererService {
       if (value.length === 0) {
         return 'Nenhum';
       }
-      return `${value.length} item(s)`;
+      return value.length === 1 ? '1 item' : `${value.length} itens`;
     }
 
     // Handle objects with name property

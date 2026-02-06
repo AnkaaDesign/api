@@ -77,7 +77,7 @@
 {{else}}
     <div class="info-box warning">
         <h3 style="font-size: 16px; margin-bottom: 10px; color: #856404;">
-            {{productCount}} produto(s) com estoque baixo
+            {{productCount}} {{#if (eq productCount 1)}}produto{{else}}produtos{{/if}} com estoque baixo
         </h3>
         <p style="margin: 0; color: #856404;">
             Vários produtos estão abaixo do nível mínimo de estoque estabelecido.

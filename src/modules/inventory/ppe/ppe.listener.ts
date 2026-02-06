@@ -1,7 +1,6 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { EventEmitter } from 'events';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { NotificationPreferenceService } from '@modules/common/notification/notification-preference.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PpeSignatureService } from './ppe-signature.service';
 import {
@@ -11,26 +10,21 @@ import {
   PpeDeliveredEvent,
   PpeBatchDeliveredEvent,
 } from './ppe.events';
-import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_ACTION_TYPE,
-  SECTOR_PRIVILEGES,
-} from '../../../constants/enums';
 
 /**
  * PPE Event Listener
- * Handles all PPE delivery-related events and creates appropriate notifications
+ * Handles all PPE delivery-related events and dispatches notifications using
+ * database configuration-based approach (checks config enablement + user preferences).
  *
- * Notification flow:
- * 1. User requests PPE → ADMIN, HR receive notification
- * 2. Admin approves → User + WAREHOUSE receive notification
- * 3. Admin rejects → User receives notification
- * 4. Warehouse delivers → User receives notification
+ * Config keys:
+ * - ppe.requested  (sector-based: ADMIN + HUMAN_RESOURCES)
+ * - ppe.approved   (targeted: the requester)
+ * - ppe.rejected   (targeted: the requester)
+ * - ppe.delivered   (targeted: the deliveredTo user)
+ * - ppe.batch.delivered (no notification — signature workflow only)
  *
  * Self-notification prevention:
- * - Users who perform an action do NOT receive the notification for that action
+ * - The dispatch service automatically excludes the triggering user from recipients
  */
 @Injectable()
 export class PpeListener {
@@ -38,8 +32,7 @@ export class PpeListener {
 
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
-    private readonly notificationService: NotificationService,
-    private readonly preferenceService: NotificationPreferenceService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => PpeSignatureService))
     private readonly ppeSignatureService: PpeSignatureService,
@@ -50,19 +43,19 @@ export class PpeListener {
 
     // Register event listeners
     this.eventEmitter.on('ppe.requested', this.handlePpeRequested.bind(this));
-    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.requested');
+    this.logger.log('[PPE LISTENER] Registered: ppe.requested');
 
     this.eventEmitter.on('ppe.approved', this.handlePpeApproved.bind(this));
-    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.approved');
+    this.logger.log('[PPE LISTENER] Registered: ppe.approved');
 
     this.eventEmitter.on('ppe.rejected', this.handlePpeRejected.bind(this));
-    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.rejected');
+    this.logger.log('[PPE LISTENER] Registered: ppe.rejected');
 
     this.eventEmitter.on('ppe.delivered', this.handlePpeDelivered.bind(this));
-    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.delivered');
+    this.logger.log('[PPE LISTENER] Registered: ppe.delivered');
 
     this.eventEmitter.on('ppe.batch.delivered', this.handlePpeBatchDelivered.bind(this));
-    this.logger.log('[PPE LISTENER] ✅ Registered: ppe.batch.delivered');
+    this.logger.log('[PPE LISTENER] Registered: ppe.batch.delivered');
 
     this.logger.log('[PPE LISTENER] All event handlers registered successfully');
     this.logger.log('========================================');
@@ -70,7 +63,7 @@ export class PpeListener {
 
   /**
    * Handle PPE requested event
-   * Notify: ADMIN + HUMAN_RESOURCES users
+   * Notify: ADMIN + HUMAN_RESOURCES users (sector-based via config)
    */
   private async handlePpeRequested(event: PpeRequestedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -83,70 +76,51 @@ export class PpeListener {
     this.logger.log('========================================');
 
     try {
-      // Get ADMIN and HR users (excluding the requester)
-      const targetUsers = await this.getUsersByPrivileges(
-        [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.HUMAN_RESOURCES],
-        event.requestedBy.id,
-      );
-
-      this.logger.log(`[PPE EVENT] Found ${targetUsers.length} target user(s)`);
-
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
+      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
 
-      for (const userId of targetUsers) {
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.USER,
-          'requested',
-        );
-
-        if (channels.length === 0) {
-          notificationsSkipped++;
-          continue;
-        }
-
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.USER,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'Nova Solicitação de EPI',
-          body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovação.`,
-          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-          relatedEntityId: event.delivery.id,
-          relatedEntityType: 'PPE_DELIVERY',
+      await this.dispatchService.dispatchByConfiguration(
+        'ppe.requested',
+        event.requestedBy.id,
+        {
+          entityType: 'PPE_DELIVERY',
+          entityId: event.delivery.id,
+          action: 'requested',
+          data: {
+            itemName,
+            requestedByName: event.requestedBy.name,
+            quantity,
+            quantityLabel,
+          },
           metadata: {
-            webUrl: `/estoque/epi/entregas/${event.delivery.id}`,
             deliveryId: event.delivery.id,
             itemId: event.item.id,
-            itemName: event.item.name,
+            itemName,
             requestedById: event.requestedBy.id,
             requestedByName: event.requestedBy.name,
             quantity: event.delivery.quantity,
           },
-          channel: channels,
-        });
-        notificationsCreated++;
-      }
+          overrides: {
+            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+            webUrl,
+            relatedEntityType: 'PPE_DELIVERY',
+            title: 'Nova Solicitacao de EPI',
+            body: `${event.requestedBy.name} solicitou ${quantityLabel}"${itemName}". Aguardando aprovacao.`,
+          },
+        },
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[PPE EVENT] PPE request notification summary:');
-      this.logger.log(`[PPE EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[PPE EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[PPE EVENT] PPE requested dispatch completed');
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error handling PPE requested event:', error.message);
+      this.logger.error('[PPE EVENT] Error handling PPE requested event:', error.message);
     }
   }
 
   /**
    * Handle PPE approved event
-   * Notify: The user who requested + WAREHOUSE users
+   * Notify: The user who requested (targeted dispatch)
    */
   private async handlePpeApproved(event: PpeApprovedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -158,104 +132,54 @@ export class PpeListener {
     this.logger.log('========================================');
 
     try {
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
+      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
 
-      // 1. Notify the user who requested (high importance - their request was approved)
-      if (event.requestedBy.id !== event.approvedBy.id) {
-        const userChannels = await this.getEnabledChannelsForUser(
-          event.requestedBy.id,
-          NOTIFICATION_TYPE.USER,
-          'approved',
-        );
-
-        if (userChannels.length > 0) {
-          await this.notificationService.createNotification({
-            userId: event.requestedBy.id,
-            type: NOTIFICATION_TYPE.USER,
-            importance: NOTIFICATION_IMPORTANCE.HIGH,
-            title: 'Solicitação de EPI Aprovada',
-            body: `Sua solicitação de ${quantityLabel}"${itemName}" foi aprovada por ${event.approvedBy.name}. Aguarde a entrega pelo almoxarifado.`,
-            actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-            relatedEntityId: event.delivery.id,
-            relatedEntityType: 'PPE_DELIVERY',
-            metadata: {
-              webUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-              deliveryId: event.delivery.id,
-              itemId: event.item.id,
-              itemName: event.item.name,
-              approvedById: event.approvedBy.id,
-              approvedByName: event.approvedBy.name,
-              quantity: event.delivery.quantity,
-            },
-            channel: userChannels,
-          });
-          notificationsCreated++;
-        } else {
-          notificationsSkipped++;
-        }
-      }
-
-      // 2. Notify WAREHOUSE users (they need to prepare for delivery)
-      const warehouseUsers = await this.getUsersByPrivileges(
-        [SECTOR_PRIVILEGES.WAREHOUSE],
+      // Notify the requester that their request was approved
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'ppe.approved',
         event.approvedBy.id,
-      );
-
-      for (const userId of warehouseUsers) {
-        const channels = await this.getEnabledChannelsForUser(
-          userId,
-          NOTIFICATION_TYPE.USER,
-          'approved',
-        );
-
-        if (channels.length === 0) {
-          notificationsSkipped++;
-          continue;
-        }
-
-        await this.notificationService.createNotification({
-          userId,
-          type: NOTIFICATION_TYPE.USER,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          title: 'EPI Aprovado para Entrega',
-          body: `${quantityLabel}"${itemName}" aprovado para ${event.requestedBy.name}. Por favor, realize a entrega.`,
-          actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-          actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-          relatedEntityId: event.delivery.id,
-          relatedEntityType: 'PPE_DELIVERY',
+        {
+          entityType: 'PPE_DELIVERY',
+          entityId: event.delivery.id,
+          action: 'approved',
+          data: {
+            itemName,
+            approvedByName: event.approvedBy.name,
+            requestedByName: event.requestedBy.name,
+            quantity,
+            quantityLabel,
+          },
           metadata: {
-            webUrl: `/estoque/epi/entregas/${event.delivery.id}`,
             deliveryId: event.delivery.id,
             itemId: event.item.id,
-            itemName: event.item.name,
-            requestedById: event.requestedBy.id,
-            requestedByName: event.requestedBy.name,
+            itemName,
+            approvedById: event.approvedBy.id,
+            approvedByName: event.approvedBy.name,
             quantity: event.delivery.quantity,
           },
-          channel: channels,
-        });
-        notificationsCreated++;
-      }
+          overrides: {
+            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+            webUrl,
+            relatedEntityType: 'PPE_DELIVERY',
+            title: 'Solicitacao de EPI Aprovada',
+            body: `Sua solicitacao de ${quantityLabel}"${itemName}" foi aprovada por ${event.approvedBy.name}. Aguarde a entrega pelo almoxarifado.`,
+          },
+        },
+        [event.requestedBy.id],
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[PPE EVENT] PPE approved notification summary:');
-      this.logger.log(`[PPE EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[PPE EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[PPE EVENT] PPE approved dispatch completed');
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error handling PPE approved event:', error.message);
+      this.logger.error('[PPE EVENT] Error handling PPE approved event:', error.message);
     }
   }
 
   /**
    * Handle PPE rejected event
-   * Notify: The user who requested
+   * Notify: The user who requested (targeted dispatch)
    */
   private async handlePpeRejected(event: PpeRejectedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -267,59 +191,48 @@ export class PpeListener {
     this.logger.log('========================================');
 
     try {
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
       const itemName = event.item.name;
+      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
 
-      // Only notify the user who requested (if they're not the one who rejected)
-      if (event.requestedBy.id !== event.rejectedBy.id) {
-        const channels = await this.getEnabledChannelsForUser(
-          event.requestedBy.id,
-          NOTIFICATION_TYPE.USER,
-          'rejected',
-        );
-
-        if (channels.length > 0) {
-          await this.notificationService.createNotification({
-            userId: event.requestedBy.id,
-            type: NOTIFICATION_TYPE.USER,
-            importance: NOTIFICATION_IMPORTANCE.HIGH,
-            title: 'Solicitação de EPI Reprovada',
-            body: `Sua solicitação de "${itemName}" foi reprovada por ${event.rejectedBy.name}.`,
-            actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-            relatedEntityId: event.delivery.id,
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'ppe.rejected',
+        event.rejectedBy.id,
+        {
+          entityType: 'PPE_DELIVERY',
+          entityId: event.delivery.id,
+          action: 'rejected',
+          data: {
+            itemName,
+            rejectedByName: event.rejectedBy.name,
+            requestedByName: event.requestedBy.name,
+          },
+          metadata: {
+            deliveryId: event.delivery.id,
+            itemId: event.item.id,
+            itemName,
+            rejectedById: event.rejectedBy.id,
+            rejectedByName: event.rejectedBy.name,
+          },
+          overrides: {
+            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+            webUrl,
             relatedEntityType: 'PPE_DELIVERY',
-            metadata: {
-              webUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-              deliveryId: event.delivery.id,
-              itemId: event.item.id,
-              itemName: event.item.name,
-              rejectedById: event.rejectedBy.id,
-              rejectedByName: event.rejectedBy.name,
-            },
-            channel: channels,
-          });
-          notificationsCreated++;
-        } else {
-          notificationsSkipped++;
-        }
-      }
+            title: 'Solicitacao de EPI Reprovada',
+            body: `Sua solicitacao de "${itemName}" foi reprovada por ${event.rejectedBy.name}.`,
+          },
+        },
+        [event.requestedBy.id],
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[PPE EVENT] PPE rejected notification summary:');
-      this.logger.log(`[PPE EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[PPE EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[PPE EVENT] PPE rejected dispatch completed');
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error handling PPE rejected event:', error.message);
+      this.logger.error('[PPE EVENT] Error handling PPE rejected event:', error.message);
     }
   }
 
   /**
    * Handle PPE delivered event
-   * Notify: The user who receives the PPE
+   * Notify: The user who receives the PPE (targeted dispatch)
    */
   private async handlePpeDelivered(event: PpeDeliveredEvent): Promise<void> {
     this.logger.log('========================================');
@@ -335,65 +248,57 @@ export class PpeListener {
     this.logger.log('========================================');
 
     try {
-      let notificationsCreated = 0;
-      let notificationsSkipped = 0;
-
       const itemName = event.item.name;
       const quantity = event.delivery.quantity || 1;
       const quantityLabel = quantity > 1 ? `${quantity} unidades de ` : '';
+      const webUrl = `/estoque/epi/entregas/${event.delivery.id}`;
 
-      // Notify the user who received the PPE (if they're not the one who marked it as delivered)
-      if (event.deliveredTo.id !== event.deliveredBy.id) {
-        const channels = await this.getEnabledChannelsForUser(
-          event.deliveredTo.id,
-          NOTIFICATION_TYPE.USER,
-          'delivered',
-        );
-
-        if (channels.length > 0) {
-          await this.notificationService.createNotification({
-            userId: event.deliveredTo.id,
-            type: NOTIFICATION_TYPE.USER,
-            importance: NOTIFICATION_IMPORTANCE.NORMAL,
-            title: 'EPI Entregue',
-            body: `${quantityLabel}"${itemName}" foi entregue a você por ${event.deliveredBy.name}.`,
-            actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-            actionUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-            relatedEntityId: event.delivery.id,
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'ppe.delivered',
+        event.deliveredBy.id,
+        {
+          entityType: 'PPE_DELIVERY',
+          entityId: event.delivery.id,
+          action: 'delivered',
+          data: {
+            itemName,
+            deliveredByName: event.deliveredBy.name,
+            deliveredToName: event.deliveredTo.name,
+            quantity,
+            quantityLabel,
+          },
+          metadata: {
+            deliveryId: event.delivery.id,
+            itemId: event.item.id,
+            itemName,
+            deliveredById: event.deliveredBy.id,
+            deliveredByName: event.deliveredBy.name,
+            quantity: event.delivery.quantity,
+          },
+          overrides: {
+            actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+            webUrl,
             relatedEntityType: 'PPE_DELIVERY',
-            metadata: {
-              webUrl: `/estoque/epi/entregas/${event.delivery.id}`,
-              deliveryId: event.delivery.id,
-              itemId: event.item.id,
-              itemName: event.item.name,
-              deliveredById: event.deliveredBy.id,
-              deliveredByName: event.deliveredBy.name,
-              quantity: event.delivery.quantity,
-            },
-            channel: channels,
-          });
-          notificationsCreated++;
-        } else {
-          notificationsSkipped++;
-        }
-      }
+            title: 'EPI Entregue',
+            body: `${quantityLabel}"${itemName}" foi entregue a voce por ${event.deliveredBy.name}.`,
+          },
+        },
+        [event.deliveredTo.id],
+      );
 
-      this.logger.log('========================================');
-      this.logger.log('[PPE EVENT] PPE delivered notification summary:');
-      this.logger.log(`[PPE EVENT]   ✅ Created: ${notificationsCreated}`);
-      this.logger.log(`[PPE EVENT]   ⏭️  Skipped: ${notificationsSkipped}`);
-      this.logger.log('========================================');
+      this.logger.log('[PPE EVENT] PPE delivered dispatch completed');
 
       // Note: Signature workflow is handled by the batch event (ppe.batch.delivered)
       // to avoid duplicate signature requests
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error handling PPE delivered event:', error.message);
+      this.logger.error('[PPE EVENT] Error handling PPE delivered event:', error.message);
     }
   }
 
   /**
    * Handle PPE batch delivered event
    * Initiates signature workflow for multiple deliveries (grouped by user)
+   * No notification dispatch — signature workflow only
    */
   private async handlePpeBatchDelivered(event: PpeBatchDeliveredEvent): Promise<void> {
     this.logger.log('========================================');
@@ -410,7 +315,7 @@ export class PpeListener {
       this.logger.log('[PPE EVENT] PPE batch delivered processed successfully');
       this.logger.log('========================================');
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error handling PPE batch delivered event:', error.message);
+      this.logger.error('[PPE EVENT] Error handling PPE batch delivered event:', error.message);
     }
   }
 
@@ -434,7 +339,7 @@ export class PpeListener {
       });
 
       if (result.success) {
-        this.logger.log('[PPE EVENT] ✅ Signature workflow initiated successfully');
+        this.logger.log('[PPE EVENT] Signature workflow initiated successfully');
         for (const r of result.results) {
           if (r.signatureResult) {
             this.logger.log(
@@ -443,7 +348,7 @@ export class PpeListener {
           }
         }
       } else {
-        this.logger.warn('[PPE EVENT] ⚠️ Some signature initiations failed');
+        this.logger.warn('[PPE EVENT] Some signature initiations failed');
         for (const r of result.results) {
           if (r.error) {
             this.logger.warn(`[PPE EVENT]   - User ${r.userId}: ${r.error}`);
@@ -451,72 +356,8 @@ export class PpeListener {
         }
       }
     } catch (error) {
-      this.logger.error('[PPE EVENT] ❌ Error initiating signature workflow:', error);
+      this.logger.error('[PPE EVENT] Error initiating signature workflow:', error);
       // Don't throw - signature is not critical for delivery
-    }
-  }
-
-  // =====================
-  // Helper Methods
-  // =====================
-
-  /**
-   * Get users by sector privileges
-   * Excludes a specific user (for self-notification prevention)
-   */
-  private async getUsersByPrivileges(
-    privileges: SECTOR_PRIVILEGES[],
-    excludeUserId: string,
-  ): Promise<string[]> {
-    try {
-      const users = await this.prisma.user.findMany({
-        where: {
-          isActive: true,
-          sector: {
-            is: {
-              privileges: {
-                in: privileges,
-              },
-            },
-          },
-          id: {
-            not: excludeUserId,
-          },
-        },
-        select: { id: true },
-      });
-
-      return users.map(user => user.id);
-    } catch (error) {
-      this.logger.error('Error getting users by privileges:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get enabled channels for a user based on their preferences
-   */
-  private async getEnabledChannelsForUser(
-    userId: string,
-    notificationType: NOTIFICATION_TYPE,
-    eventType: string,
-  ): Promise<NOTIFICATION_CHANNEL[]> {
-    try {
-      const channels = await this.preferenceService.getChannelsForEvent(
-        userId,
-        notificationType,
-        eventType,
-      );
-
-      if (channels.length > 0) {
-        return channels;
-      }
-
-      // Default channels for PPE notifications
-      return [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
-    } catch (error) {
-      this.logger.warn(`Error getting channels for user ${userId}, using defaults:`, error);
-      return [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH];
     }
   }
 }

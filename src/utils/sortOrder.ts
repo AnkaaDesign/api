@@ -3,6 +3,7 @@
 import {
   VACATION_STATUS_ORDER,
   TASK_STATUS_ORDER,
+  COMMISSION_STATUS_ORDER,
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,
   AIRBRUSHING_STATUS_ORDER,
@@ -83,6 +84,10 @@ export function getTaskStatusOrder(status: string): number {
   return getSortOrder(status, TASK_STATUS_ORDER);
 }
 
+export function getCommissionStatusOrder(commission: string): number {
+  return getSortOrder(commission, COMMISSION_STATUS_ORDER);
+}
+
 export function getOrderStatusOrder(status: string): number {
   return getSortOrder(status, ORDER_STATUS_ORDER);
 }
@@ -125,6 +130,7 @@ export function getCutStatusOrder(status: string): number {
 export {
   VACATION_STATUS_ORDER,
   TASK_STATUS_ORDER,
+  COMMISSION_STATUS_ORDER,
   ORDER_STATUS_ORDER,
   SERVICE_ORDER_STATUS_ORDER,
   AIRBRUSHING_STATUS_ORDER,

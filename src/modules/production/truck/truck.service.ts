@@ -215,20 +215,31 @@ export class TruckService {
       const newGaps = newTruckCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
       const totalRequiredSpace = newTotalLength + margins + newGaps;
 
-      // Check if truck can fit - must match garage view logic
-      const canFit =
+      // Check if truck can fit in V1 or V2 (normal case)
+      const canFitInV1V2 =
         spotsOccupiedInV1V2 < maxSpotsInTaskForm &&
         totalRequiredSpace <= config.laneLength;
 
-      // Find next available spot number (V1 or V2 only)
+      // Check if truck can fit in V3 (special case: V1+V2 occupied, small trucks)
+      const v3IsOccupied = occupiedSpots.includes(3 as SpotNumber);
+      const canFitInV3 =
+        spotsOccupiedInV1V2 >= maxSpotsInTaskForm &&
+        !v3IsOccupied &&
+        totalRequiredSpace <= config.laneLength;
+
+      const canFit = canFitInV1V2 || canFitInV3;
+
+      // Find next available spot number
       let nextSpotNumber: SpotNumber | null = null;
-      if (canFit) {
+      if (canFitInV1V2) {
         for (let i = 1; i <= maxSpotsInTaskForm; i++) {
           if (!occupiedSpots.includes(i as SpotNumber)) {
             nextSpotNumber = i as SpotNumber;
             break;
           }
         }
+      } else if (canFitInV3) {
+        nextSpotNumber = 3 as SpotNumber;
       }
 
       return {

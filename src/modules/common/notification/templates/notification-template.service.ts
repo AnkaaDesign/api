@@ -47,7 +47,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.deadline': {
     title: data => `Prazo da Tarefa se Aproximando`,
     body: data =>
-      `Tarefa "${data.taskName}" tem prazo em ${data.daysRemaining} dia(s)${data.serialNumber ? ` (${data.serialNumber})` : ''}.`,
+      `Tarefa "${data.taskName}" tem prazo em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}${data.serialNumber ? ` (${data.serialNumber})` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.URGENT,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -56,7 +56,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.deadline.critical': {
     title: data => `Prazo da Tarefa - URGENTE`,
     body: data =>
-      `ATENÇÃO: Tarefa "${data.taskName}" tem prazo em apenas ${data.daysRemaining} dia(s)! Ação imediata necessária.`,
+      `ATENÇÃO: Tarefa "${data.taskName}" tem prazo em apenas ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}! Ação imediata necessária.`,
     importance: NOTIFICATION_IMPORTANCE.URGENT,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
@@ -65,7 +65,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.overdue': {
     title: data => `Tarefa Atrasada`,
     body: data =>
-      `Tarefa "${data.taskName}" está atrasada há ${data.daysOverdue} dia(s)${data.serialNumber ? ` (${data.serialNumber})` : ''}!`,
+      `Tarefa "${data.taskName}" está atrasada há ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}${data.serialNumber ? ` (${data.serialNumber})` : ''}!`,
     importance: NOTIFICATION_IMPORTANCE.URGENT,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
@@ -101,7 +101,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'task.artwork.added': {
     title: data => `Arte Adicionada à Tarefa`,
     body: data =>
-      `Arquivos de arte foram adicionados à tarefa "${data.taskName}"${data.fileCount ? ` (${data.fileCount} arquivo(s))` : ''}.`,
+      `Arquivos de arte foram adicionados à tarefa "${data.taskName}"${data.fileCount ? ` (${data.fileCount} ${data.fileCount === 1 ? 'arquivo' : 'arquivos'})` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP],
@@ -258,7 +258,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.overdue': {
     title: data => `Pedido Atrasado`,
     body: data =>
-      `Pedido #${data.orderNumber} para ${data.supplierName} está atrasado há ${data.daysOverdue} dia(s)!`,
+      `Pedido #${data.orderNumber} para ${data.supplierName} está atrasado há ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}!`,
     importance: NOTIFICATION_IMPORTANCE.URGENT,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH, NOTIFICATION_CHANNEL.EMAIL],
@@ -303,7 +303,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'order.deadline.approaching': {
     title: data => `Prazo de Entrega se Aproximando`,
     body: data =>
-      `Pedido #${data.orderNumber} tem prazo de entrega em ${data.daysRemaining} dia(s).`,
+      `Pedido #${data.orderNumber} tem prazo de entrega em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -377,7 +377,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'service-order.assigned-user-updated': {
     title: data => `Ordem de Serviço Atualizada`,
     body: data =>
-      `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterado(s) por ${data.changedByName}.`,
+      `A ordem de serviço "${data.serviceOrderDescription}" da tarefa "${data.taskName}" teve ${data.changesText} alterados por ${data.changedByName}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [
@@ -461,7 +461,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.request.created': {
     title: data => `Nova Solicitação de EPI`,
     body: data =>
-      `${data.userName} solicitou EPIs${data.itemCount ? ` (${data.itemCount} item(ns))` : ''}.`,
+      `${data.userName} solicitou EPIs${data.itemCount ? ` (${data.itemCount} ${data.itemCount === 1 ? 'item' : 'itens'})` : ''}.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -506,7 +506,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'ppe.expiring.soon': {
     title: data => `EPI Próximo ao Vencimento`,
     body: data =>
-      `Seu EPI "${data.itemName}" vence em ${data.daysRemaining} dia(s). Solicite a substituição.`,
+      `Seu EPI "${data.itemName}" vence em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}. Solicite a substituição.`,
     importance: NOTIFICATION_IMPORTANCE.HIGH,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -554,7 +554,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
 
   'vacation.starting.soon': {
     title: data => `Férias se Aproximando`,
-    body: data => `Suas férias começam em ${data.daysRemaining} dia(s) (${data.startDate}).`,
+    body: data => `Suas férias começam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.startDate}).`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -571,7 +571,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'vacation.ending.soon': {
     title: data => `Férias Terminando`,
     body: data =>
-      `Suas férias terminam em ${data.daysRemaining} dia(s) (${data.endDate}). Prepare-se para o retorno.`,
+      `Suas férias terminam em ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'} (${data.endDate}). Prepare-se para o retorno.`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -655,7 +655,7 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
   'user.anniversary': {
     title: data => `Aniversário de Empresa`,
     body: data =>
-      `Parabéns, ${data.userName}! Hoje você completa ${data.years} ano(s) na empresa. Obrigado pela dedicação!`,
+      `Parabéns, ${data.userName}! Hoje você completa ${data.years} ${data.years === 1 ? 'ano' : 'anos'} na empresa. Obrigado pela dedicação!`,
     importance: NOTIFICATION_IMPORTANCE.NORMAL,
     actionType: NOTIFICATION_ACTION_TYPE.ACKNOWLEDGE,
     channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
@@ -742,7 +742,7 @@ Ver detalhes: ${data.url}
 ⏰ *Prazo da Tarefa se Aproximando*
 
 Tarefa: ${data.taskName}
-Prazo: ${data.daysRemaining} dia(s)
+Prazo: ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}
 ${data.serialNumber ? `Série: ${data.serialNumber}` : ''}
 
 Ver detalhes: ${data.url}
@@ -753,7 +753,7 @@ Ver detalhes: ${data.url}
 🚨 *Tarefa Atrasada*
 
 Tarefa: ${data.taskName}
-Atrasada há: ${data.daysOverdue} dia(s)
+Atrasada há: ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}
 ${data.serialNumber ? `Série: ${data.serialNumber}` : ''}
 
 *AÇÃO URGENTE NECESSÁRIA*
@@ -778,7 +778,7 @@ Ver detalhes: ${data.url}
 
 Pedido: #${data.orderNumber}
 Fornecedor: ${data.supplierName}
-Atrasado há: ${data.daysOverdue} dia(s)
+Atrasado há: ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}
 
 Ver detalhes: ${data.url}
   `.trim(),
@@ -856,7 +856,7 @@ Esta é uma notificação urgente sobre o prazo de uma tarefa:
 
 Tarefa: ${data.taskName}
 ${data.serialNumber ? `Série: ${data.serialNumber}` : ''}
-Prazo: ${data.daysRemaining} dia(s)
+Prazo: ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}
 
 Ação imediata é necessária para garantir a conclusão dentro do prazo.
 
@@ -891,7 +891,7 @@ Sistema de Gestão
       <div class="info">
         <strong>Tarefa:</strong> ${data.taskName}<br>
         ${data.serialNumber ? `<strong>Série:</strong> ${data.serialNumber}<br>` : ''}
-        <strong>Prazo:</strong> ${data.daysRemaining} dia(s)<br>
+        <strong>Prazo:</strong> ${data.daysRemaining} ${data.daysRemaining === 1 ? 'dia' : 'dias'}<br>
       </div>
       <p><strong>Ação imediata é necessária</strong> para garantir a conclusão dentro do prazo.</p>
       <a href="${data.url}" class="button">Ver Detalhes</a>
@@ -915,7 +915,7 @@ Uma tarefa está atrasada:
 
 Tarefa: ${data.taskName}
 ${data.serialNumber ? `Série: ${data.serialNumber}` : ''}
-Atrasada há: ${data.daysOverdue} dia(s)
+Atrasada há: ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}
 
 Por favor, tome providências imediatas.
 
@@ -952,7 +952,7 @@ Sistema de Gestão
       <div class="info">
         <strong>Tarefa:</strong> ${data.taskName}<br>
         ${data.serialNumber ? `<strong>Série:</strong> ${data.serialNumber}<br>` : ''}
-        <strong>Atrasada há:</strong> ${data.daysOverdue} dia(s)<br>
+        <strong>Atrasada há:</strong> ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}<br>
       </div>
       <p>Por favor, tome providências imediatas para resolver esta situação.</p>
       <a href="${data.url}" class="button">Ver Detalhes</a>
@@ -976,7 +976,7 @@ Um pedido está atrasado:
 
 Pedido: #${data.orderNumber}
 Fornecedor: ${data.supplierName}
-Atrasado há: ${data.daysOverdue} dia(s)
+Atrasado há: ${data.daysOverdue} ${data.daysOverdue === 1 ? 'dia' : 'dias'}
 
 Por favor, contate o fornecedor e verifique o status da entrega.
 

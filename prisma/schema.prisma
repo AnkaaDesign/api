@@ -1166,6 +1166,7 @@ model Task {
   invoiceToId           String?
   sectorId              String?
   commission            CommissionStatus?
+  commissionOrder       Int                  @default(3)
   negotiatingWith       Json?
   createdById           String?
   createdAt             DateTime             @default(now())
@@ -1200,6 +1201,7 @@ model Task {
 
   @@index([status, sectorId])
   @@index([statusOrder])
+  @@index([commissionOrder])
   @@index([term])
   @@index([forecastDate])
   @@index([createdAt])

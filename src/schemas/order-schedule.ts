@@ -564,6 +564,10 @@ const toFormData = <T>(data: T) => data;
 
 export const orderScheduleCreateSchema = z
   .object({
+    // Identification fields
+    name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo').optional(),
+    description: z.string().max(1000, 'Descrição muito longa').optional(),
+
     frequency: z.enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
       errorMap: () => ({ message: 'Frequência inválida' }),
     }),
@@ -577,6 +581,7 @@ export const orderScheduleCreateSchema = z
 
     // Specific scheduling fields - conditionally required based on frequency
     specificDate: z.coerce.date().optional(),
+    nextRun: z.coerce.date().optional(),
     dayOfMonth: z
       .number()
       .int()
@@ -619,6 +624,10 @@ export const orderScheduleCreateSchema = z
 
 export const orderScheduleUpdateSchema = z
   .object({
+    // Identification fields
+    name: z.string().min(1, 'Nome é obrigatório').max(255, 'Nome muito longo').optional(),
+    description: z.string().max(1000, 'Descrição muito longa').nullable().optional(),
+
     frequency: z
       .enum(Object.values(SCHEDULE_FREQUENCY) as [string, ...string[]], {
         errorMap: () => ({ message: 'Frequência inválida' }),
@@ -634,6 +643,7 @@ export const orderScheduleUpdateSchema = z
 
     // Specific scheduling fields
     specificDate: z.coerce.date().nullable().optional(),
+    nextRun: z.coerce.date().nullable().optional(),
     dayOfMonth: z.number().int().min(1).max(31).nullable().optional(),
     dayOfWeek: z.string().nullable().optional(),
     month: z.string().nullable().optional(),
@@ -729,11 +739,14 @@ export const mapOrderScheduleToFormData = createMapToFormDataHelper<
   OrderSchedule,
   OrderScheduleUpdateFormData
 >(orderSchedule => ({
+  name: orderSchedule.name || undefined,
+  description: orderSchedule.description || null,
   frequency: orderSchedule.frequency as SCHEDULE_FREQUENCY,
   frequencyCount: orderSchedule.frequencyCount,
   isActive: orderSchedule.isActive,
   items: orderSchedule.items,
   specificDate: orderSchedule.specificDate || null,
+  nextRun: orderSchedule.nextRun || null,
   dayOfMonth: orderSchedule.dayOfMonth || null,
   dayOfWeek: orderSchedule.dayOfWeek || null,
   month: orderSchedule.month || null,

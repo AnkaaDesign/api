@@ -18,6 +18,7 @@ import { Prisma } from '@prisma/client';
 import { TASK_STATUS, SERVICE_ORDER_STATUS, CUT_STATUS } from '../../../../constants/enums';
 import {
   getTaskStatusOrder,
+  getCommissionStatusOrder,
   getServiceOrderStatusOrder,
   getCutStatusOrder,
   mapTaskStatusToPrisma,
@@ -66,6 +67,7 @@ const TASK_SELECT_CARD: Prisma.TaskSelect = {
   startedAt: true,
   finishedAt: true,
   commission: true,
+  commissionOrder: true,
   createdById: true,
   // Additional relations
   createdBy: {
@@ -147,6 +149,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
   ...TASK_SELECT_MINIMAL,
   details: true,
   commission: true,
+  commissionOrder: true,
   paintId: true,
   // Paint info without formulas
   generalPainting: {
@@ -628,6 +631,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds,
+      baseFileIds,
       pricingId,
       paintIds,
       representativeIds,
@@ -643,6 +647,7 @@ export class TaskPrismaRepository
       status: mapTaskStatusToPrisma(status || TASK_STATUS.PREPARATION),
       statusOrder: getTaskStatusOrder(status || TASK_STATUS.PREPARATION),
       commission: (commission as any) || 'NO_COMMISSION',
+      commissionOrder: getCommissionStatusOrder((commission as string) || 'NO_COMMISSION'),
     };
 
     if (serialNumber !== undefined) taskData.serialNumber = serialNumber;
@@ -675,6 +680,9 @@ export class TaskPrismaRepository
     }
     if (artworkIds && artworkIds.length > 0) {
       taskData.artworks = { connect: artworkIds.map(id => ({ id })) };
+    }
+    if (baseFileIds && baseFileIds.length > 0) {
+      taskData.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
     }
     if (pricingId) {
       taskData.pricing = { connect: { id: pricingId } };
@@ -887,6 +895,7 @@ export class TaskPrismaRepository
       reimbursementIds,
       reimbursementInvoiceIds,
       artworkIds,
+      baseFileIds,
       pricingId,
       paintIds,
       representativeIds,
@@ -908,7 +917,10 @@ export class TaskPrismaRepository
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
     if (forecastDate !== undefined) updateData.forecastDate = forecastDate;
 
-    if (commission !== undefined) updateData.commission = commission as any;
+    if (commission !== undefined) {
+      updateData.commission = commission as any;
+      updateData.commissionOrder = getCommissionStatusOrder(commission as string);
+    }
 
     if (status !== undefined) {
       updateData.status = mapTaskStatusToPrisma(status);
@@ -945,6 +957,9 @@ export class TaskPrismaRepository
     }
     if (artworkIds !== undefined) {
       updateData.artworks = { set: artworkIds.map(id => ({ id })) };
+    }
+    if (baseFileIds !== undefined) {
+      updateData.baseFiles = { set: baseFileIds.map(id => ({ id })) };
     }
     if (pricingId !== undefined) {
       updateData.pricing = pricingId ? { connect: { id: pricingId } } : { disconnect: true };
@@ -1091,12 +1106,13 @@ export class TaskPrismaRepository
         for (const cutItem of cuts) {
           if (!cutItem.fileId) continue;
           const quantity = (cutItem as any).quantity || 1;
+          const cutStatus = (cutItem as any).status || CUT_STATUS.PENDING;
           for (let i = 0; i < quantity; i++) {
             cutRecords.push({
               fileId: cutItem.fileId,
               type: cutItem.type as any,
-              status: CUT_STATUS.PENDING as any,
-              statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
+              status: cutStatus as any,
+              statusOrder: getCutStatusOrder(cutStatus),
               origin: cutItem.origin as any,
               reason: cutItem.reason ? (cutItem.reason as any) : null,
               parentCutId: cutItem.parentCutId || null,
@@ -1106,12 +1122,13 @@ export class TaskPrismaRepository
       } else if (cut !== undefined && cut !== null) {
         if (cut.fileId) {
           const quantity = (cut as any).quantity || 1;
+          const cutStatus = (cut as any).status || CUT_STATUS.PENDING;
           for (let i = 0; i < quantity; i++) {
             cutRecords.push({
               fileId: cut.fileId,
               type: cut.type as any,
-              status: CUT_STATUS.PENDING as any,
-              statusOrder: getCutStatusOrder(CUT_STATUS.PENDING),
+              status: cutStatus as any,
+              statusOrder: getCutStatusOrder(cutStatus),
               origin: cut.origin as any,
               reason: cut.reason ? (cut.reason as any) : null,
               parentCutId: cut.parentCutId || null,
@@ -1121,8 +1138,10 @@ export class TaskPrismaRepository
       }
 
       if (cutRecords.length > 0) {
+        // Use create-only (additive) when cuts array was provided.
+        // The deleteMany+create pattern destroys existing cuts (including in-progress ones).
+        // Callers that need to remove specific cuts should use removeCutIds instead.
         updateData.cuts = {
-          deleteMany: {},
           create: cutRecords,
         };
       } else if (

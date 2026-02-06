@@ -34,6 +34,7 @@ export interface Task extends BaseEntity {
   status: TASK_STATUS;
   statusOrder: number;
   commission: COMMISSION_STATUS | null;
+  commissionOrder: number;
   serialNumber: string | null;
   details: string | null;
   entryDate: Date | null;

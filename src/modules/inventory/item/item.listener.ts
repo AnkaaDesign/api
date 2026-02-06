@@ -1,37 +1,35 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { DeepLinkService } from '@modules/common/notification/deep-link.service';
 import {
   ItemLowStockEvent,
   ItemOutOfStockEvent,
   ItemReorderRequiredEvent,
   ItemOverstockEvent,
 } from './item.events';
-import {
-  SECTOR_PRIVILEGES,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_TYPE,
-  NOTIFICATION_ACTION_TYPE,
-} from '../../../constants/enums';
 
 /**
- * ItemListener handles stock-related events and creates notifications
- * for users in ADMIN and WAREHOUSE sectors only
+ * ItemListener handles stock-related events and dispatches notifications
+ * using configuration-based dispatch for role-based targeting and multi-channel delivery.
+ *
+ * All item stock events are system-triggered (no actor user).
+ *
+ * Config keys (from all-notifications.seed.ts):
+ * - item.low_stock
+ * - item.out_of_stock
+ * - item.reorder_required
+ * - item.overstock
  */
 @Injectable()
 export class ItemListener {
   private readonly logger = new Logger(ItemListener.name);
 
-  // Target sectors for stock notifications
-  private readonly TARGET_SECTORS = [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.WAREHOUSE];
-
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
   ) {
     this.registerEventListeners();
@@ -50,113 +48,13 @@ export class ItemListener {
   }
 
   /**
-   * Get users from target sectors who have stock notifications enabled
-   */
-  private async getTargetUsers(): Promise<string[]> {
-    try {
-      // Get all users with sectors that match target privileges
-      const users = await this.prisma.user.findMany({
-        where: {
-          isActive: true,
-          sector: {
-            privileges: {
-              in: this.TARGET_SECTORS,
-            },
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      const targetUserIds = users.map(user => user.id);
-
-      return targetUserIds;
-    } catch (error) {
-      this.logger.error('Error fetching target users for stock notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Generate item notification metadata with proper deep links
-   *
-   * IMPORTANT: actionUrl is now a JSON string containing { web, mobile, universalLink }
-   * This ensures the mobile app can always extract the correct navigation URL,
-   * following the same pattern as order.listener.ts which works correctly.
-   *
-   * @param itemId - The item identifier
-   * @returns Object with actionUrl (JSON string) and metadata containing all link types
-   */
-  private getItemNotificationMetadata(itemId: string): { actionUrl: string; metadata: any } {
-    // Generate deep links for mobile and universal linking
-    const deepLinks = this.deepLinkService.generateItemLinks(itemId);
-
-    // CRITICAL FIX: Store actionUrl as JSON string so the queue processor
-    // can extract mobileUrl directly via parseActionUrl().
-    // Previously this was a simple web URL which caused mobileUrl to be empty
-    // and the mobile app would open the web page instead of navigating in-app.
-    return {
-      actionUrl: JSON.stringify(deepLinks),
-      metadata: {
-        webUrl: deepLinks.web, // Web route
-        mobileUrl: deepLinks.mobile, // Mobile app deep link (custom scheme)
-        universalLink: deepLinks.universalLink, // Universal link (HTTPS for mobile)
-        entityType: 'Item', // Entity type for mobile navigation
-        entityId: itemId, // Entity ID for mobile navigation
-        itemId, // For backward compatibility
-      },
-    };
-  }
-
-  /**
-   * Create notifications for multiple users
-   */
-  private async createNotificationsForUsers(
-    userIds: string[],
-    title: string,
-    body: string,
-    actionUrl: string,
-    metadata: any,
-    importance: NOTIFICATION_IMPORTANCE = NOTIFICATION_IMPORTANCE.NORMAL,
-  ): Promise<void> {
-    try {
-      if (userIds.length === 0) {
-        this.logger.warn('No users to notify for stock event');
-        return;
-      }
-
-      const notificationData = userIds.map(userId => ({
-        userId,
-        title,
-        body,
-        type: NOTIFICATION_TYPE.STOCK,
-        importance,
-        actionUrl,
-        actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-        metadata,
-        channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        sentAt: new Date(),
-      }));
-
-      await this.notificationService.batchCreateNotifications({
-        notifications: notificationData,
-      });
-
-      this.logger.log(`Created ${notificationData.length} notifications for stock event`);
-    } catch (error) {
-      this.logger.error('Error creating stock notifications:', error);
-    }
-  }
-
-  /**
-   * Format item details for notification
+   * Format item details for notification body
    */
   private formatItemDetails(item: any): string {
     const details = [];
 
     if (item.uniCode) {
-      details.push(`Código: ${item.uniCode}`);
+      details.push(`Codigo: ${item.uniCode}`);
     }
 
     if (item.brand?.name) {
@@ -172,6 +70,7 @@ export class ItemListener {
 
   /**
    * Handle low stock event
+   * Config key: item.low_stock
    */
   async handleLowStock(event: ItemLowStockEvent): Promise<void> {
     try {
@@ -179,13 +78,6 @@ export class ItemListener {
         `Handling low stock event for item ${event.item.id}: ${event.currentQuantity}/${event.reorderPoint}`,
       );
 
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for low stock notification');
-        return;
-      }
-
-      // Fetch item with relations for detailed notification
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
@@ -201,20 +93,37 @@ export class ItemListener {
       }
 
       const itemDetails = this.formatItemDetails(item);
-      const title = '⚠️ Estoque Baixo';
-      const body = `O item "${item.name}" está com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposição.`;
+      const deepLinks = this.deepLinkService.generateItemLinks(item.id);
 
-      // Generate proper notification metadata with web, mobile, and universal links
-      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
+      const title = 'Estoque Baixo';
+      const body = `O item "${item.name}" esta com estoque baixo.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nPonto de recompra: ${event.reorderPoint} unidades\n\nRecomenda-se verificar e realizar pedido de reposicao.`;
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        metadata,
-        NOTIFICATION_IMPORTANCE.NORMAL,
+      await this.dispatchService.dispatchByConfiguration(
+        'item.low_stock',
+        'system',
+        {
+          entityType: 'Item',
+          entityId: item.id,
+          action: 'low_stock',
+          data: {
+            itemName: item.name,
+            itemCode: item.uniCode,
+            currentQuantity: event.currentQuantity,
+            minimumQuantity: event.reorderPoint,
+            category: item.category?.name || '',
+          },
+          metadata: { itemId: item.id },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/produtos/detalhes/${item.id}`,
+            relatedEntityType: 'ITEM',
+            title,
+            body,
+          },
+        },
       );
+
+      this.logger.log('Low stock notification dispatched via configuration');
     } catch (error) {
       this.logger.error('Error handling low stock event:', error);
     }
@@ -222,18 +131,12 @@ export class ItemListener {
 
   /**
    * Handle out of stock event
+   * Config key: item.out_of_stock
    */
   async handleOutOfStock(event: ItemOutOfStockEvent): Promise<void> {
     try {
       this.logger.log(`Handling out of stock event for item ${event.item.id}`);
 
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for out of stock notification');
-        return;
-      }
-
-      // Fetch item with relations for detailed notification
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
@@ -249,24 +152,39 @@ export class ItemListener {
       }
 
       const itemDetails = this.formatItemDetails(item);
+      const deepLinks = this.deepLinkService.generateItemLinks(item.id);
+
       const supplierInfo = item.supplier
         ? `\nFornecedor: ${item.supplier.fantasyName || item.supplier.corporateName}`
         : '';
 
-      const title = '🚨 Estoque Esgotado';
-      const body = `O item "${item.name}" está ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAção urgente necessária para repor o item.`;
+      const title = 'Estoque Esgotado';
+      const body = `O item "${item.name}" esta ESGOTADO.${itemDetails}${supplierInfo}\n\nEstoque atual: 0 unidades\n\nAcao urgente necessaria para repor o item.`;
 
-      // Generate proper notification metadata with web, mobile, and universal links
-      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
-
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        metadata,
-        NOTIFICATION_IMPORTANCE.HIGH,
+      await this.dispatchService.dispatchByConfiguration(
+        'item.out_of_stock',
+        'system',
+        {
+          entityType: 'Item',
+          entityId: item.id,
+          action: 'out_of_stock',
+          data: {
+            itemName: item.name,
+            itemCode: item.uniCode,
+            category: item.category?.name || '',
+          },
+          metadata: { itemId: item.id },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/produtos/detalhes/${item.id}`,
+            relatedEntityType: 'ITEM',
+            title,
+            body,
+          },
+        },
       );
+
+      this.logger.log('Out of stock notification dispatched via configuration');
     } catch (error) {
       this.logger.error('Error handling out of stock event:', error);
     }
@@ -274,6 +192,7 @@ export class ItemListener {
 
   /**
    * Handle reorder required event
+   * Config key: item.reorder_required
    */
   async handleReorderRequired(event: ItemReorderRequiredEvent): Promise<void> {
     try {
@@ -281,13 +200,6 @@ export class ItemListener {
         `Handling reorder required event for item ${event.item.id}: ${event.currentQuantity} (reorder qty: ${event.reorderQuantity})`,
       );
 
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for reorder required notification');
-        return;
-      }
-
-      // Fetch item with relations for detailed notification
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
@@ -303,6 +215,8 @@ export class ItemListener {
       }
 
       const itemDetails = this.formatItemDetails(item);
+      const deepLinks = this.deepLinkService.generateItemLinks(item.id);
+
       const supplierInfo = item.supplier
         ? `\nFornecedor sugerido: ${item.supplier.fantasyName || item.supplier.corporateName}`
         : '';
@@ -310,20 +224,41 @@ export class ItemListener {
         ? `\nPrazo estimado de entrega: ${item.estimatedLeadTime} dias`
         : '';
 
-      const title = '🔄 Recompra Necessária';
+      const title = 'Recompra Necessaria';
       const body = `O item "${item.name}" requer recompra.${itemDetails}${supplierInfo}${leadTimeInfo}\n\nEstoque atual: ${event.currentQuantity} unidades\nQuantidade sugerida para pedido: ${event.reorderQuantity} unidades\n\nRealize o pedido de compra.`;
 
-      // Generate proper notification metadata with web, mobile, and universal links
-      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
+      const preferredSupplier = item.supplier
+        ? item.supplier.fantasyName || item.supplier.corporateName
+        : '';
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        metadata,
-        NOTIFICATION_IMPORTANCE.NORMAL,
+      await this.dispatchService.dispatchByConfiguration(
+        'item.reorder_required',
+        'system',
+        {
+          entityType: 'Item',
+          entityId: item.id,
+          action: 'reorder_required',
+          data: {
+            itemName: item.name,
+            itemCode: item.uniCode,
+            currentQuantity: event.currentQuantity,
+            reorderPoint: event.currentQuantity,
+            suggestedOrderQuantity: event.reorderQuantity,
+            preferredSupplier,
+            category: item.category?.name || '',
+          },
+          metadata: { itemId: item.id },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/produtos/detalhes/${item.id}`,
+            relatedEntityType: 'ITEM',
+            title,
+            body,
+          },
+        },
       );
+
+      this.logger.log('Reorder required notification dispatched via configuration');
     } catch (error) {
       this.logger.error('Error handling reorder required event:', error);
     }
@@ -331,6 +266,7 @@ export class ItemListener {
 
   /**
    * Handle overstock event
+   * Config key: item.overstock
    */
   async handleOverstock(event: ItemOverstockEvent): Promise<void> {
     try {
@@ -338,13 +274,6 @@ export class ItemListener {
         `Handling overstock event for item ${event.item.id}: ${event.currentQuantity}/${event.maxQuantity}`,
       );
 
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for overstock notification');
-        return;
-      }
-
-      // Fetch item with relations for detailed notification
       const item = await this.prisma.item.findUnique({
         where: { id: event.item.id },
         include: {
@@ -359,22 +288,39 @@ export class ItemListener {
       }
 
       const itemDetails = this.formatItemDetails(item);
+      const deepLinks = this.deepLinkService.generateItemLinks(item.id);
       const excess = event.currentQuantity - event.maxQuantity;
 
-      const title = '📈 Excesso de Estoque';
-      const body = `O item "${item.name}" está com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque máximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possíveis desperdícios ou ajuste o estoque máximo.`;
+      const title = 'Excesso de Estoque';
+      const body = `O item "${item.name}" esta com excesso de estoque.${itemDetails}\n\nEstoque atual: ${event.currentQuantity} unidades\nEstoque maximo: ${event.maxQuantity} unidades\nExcesso: ${excess} unidades\n\nVerifique possiveis desperdicios ou ajuste o estoque maximo.`;
 
-      // Generate proper notification metadata with web, mobile, and universal links
-      const { actionUrl, metadata } = this.getItemNotificationMetadata(item.id);
-
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        metadata,
-        NOTIFICATION_IMPORTANCE.LOW,
+      await this.dispatchService.dispatchByConfiguration(
+        'item.overstock',
+        'system',
+        {
+          entityType: 'Item',
+          entityId: item.id,
+          action: 'overstock',
+          data: {
+            itemName: item.name,
+            itemCode: item.uniCode,
+            currentQuantity: event.currentQuantity,
+            maximumQuantity: event.maxQuantity,
+            excessQuantity: excess,
+            category: item.category?.name || '',
+          },
+          metadata: { itemId: item.id },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/produtos/detalhes/${item.id}`,
+            relatedEntityType: 'ITEM',
+            title,
+            body,
+          },
+        },
       );
+
+      this.logger.log('Overstock notification dispatched via configuration');
     } catch (error) {
       this.logger.error('Error handling overstock event:', error);
     }

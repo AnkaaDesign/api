@@ -1,8 +1,8 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { DeepLinkService } from '@modules/common/notification/deep-link.service';
 import {
   OrderCreatedEvent,
   OrderStatusChangedEvent,
@@ -10,33 +10,26 @@ import {
   OrderItemReceivedEvent,
   OrderCancelledEvent,
 } from './order.events';
-import {
-  SECTOR_PRIVILEGES,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_TYPE,
-  NOTIFICATION_ACTION_TYPE,
-} from '../../../constants/enums';
 
 /**
- * OrderListener handles order-related events and creates notifications
- * for users in ADMIN, WAREHOUSE, and LOGISTIC sectors
+ * OrderListener handles order-related events and dispatches notifications
+ * using database configuration-based approach (checks config enablement + user preferences).
+ *
+ * Config keys:
+ * - order.created
+ * - order.status.changed
+ * - order.overdue
+ * - order.item.received
+ * - order.cancelled
  */
 @Injectable()
 export class OrderListener {
   private readonly logger = new Logger(OrderListener.name);
 
-  // Target sectors for order notifications
-  private readonly TARGET_SECTORS = [
-    SECTOR_PRIVILEGES.ADMIN,
-    SECTOR_PRIVILEGES.WAREHOUSE,
-    SECTOR_PRIVILEGES.LOGISTIC,
-  ];
-
   constructor(
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
   ) {
     this.registerEventListeners();
@@ -53,96 +46,6 @@ export class OrderListener {
     this.eventEmitter.on('order.cancelled', this.handleOrderCancelled.bind(this));
 
     this.logger.log('Order event listeners registered successfully');
-  }
-
-  /**
-   * Get users from target sectors who have order notifications enabled
-   */
-  private async getTargetUsers(): Promise<string[]> {
-    try {
-      // Get all users with sectors that match target privileges
-      const users = await this.prisma.user.findMany({
-        where: {
-          isActive: true,
-          sector: {
-            privileges: {
-              in: this.TARGET_SECTORS,
-            },
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      const targetUserIds = users.map(user => user.id);
-
-      return targetUserIds;
-    } catch (error) {
-      this.logger.error('Error fetching target users for order notifications:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Create notifications for multiple users
-   * @param userIds - Target user IDs
-   * @param title - Notification title
-   * @param body - Notification body
-   * @param actionUrl - Deep link URLs (JSON string)
-   * @param importance - Notification importance level
-   * @param actorId - The user who triggered the action (will be excluded from recipients)
-   * @param additionalMetadata - Additional metadata to include in the notification
-   */
-  private async createNotificationsForUsers(
-    userIds: string[],
-    title: string,
-    body: string,
-    actionUrl: string,
-    importance: NOTIFICATION_IMPORTANCE = NOTIFICATION_IMPORTANCE.NORMAL,
-    actorId?: string,
-    additionalMetadata?: Record<string, any>,
-  ): Promise<void> {
-    try {
-      // Parse actionUrl to extract individual URLs for metadata
-      let parsedUrls: { web?: string; mobile?: string; universalLink?: string } = {};
-      try {
-        parsedUrls = JSON.parse(actionUrl);
-      } catch {
-        // If not JSON, use as-is
-        parsedUrls = { web: actionUrl };
-      }
-
-      const notificationData = userIds.map(userId => ({
-        userId,
-        title,
-        body,
-        type: NOTIFICATION_TYPE.STOCK,
-        importance,
-        actionUrl,
-        actionType: NOTIFICATION_ACTION_TYPE.VIEW_ORDER,
-        channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        sentAt: new Date(),
-        metadata: {
-          actorId, // User who triggered the action (for self-action filtering)
-          webUrl: parsedUrls.web,
-          mobileUrl: parsedUrls.mobile,
-          universalLink: parsedUrls.universalLink,
-          entityType: 'Order',
-          ...additionalMetadata,
-        },
-      }));
-
-      if (notificationData.length > 0) {
-        await this.notificationService.batchCreateNotifications({
-          notifications: notificationData,
-        });
-
-        this.logger.log(`Created ${notificationData.length} notifications for order event`);
-      }
-    } catch (error) {
-      this.logger.error('Error creating notifications:', error);
-    }
   }
 
   /**
@@ -180,12 +83,6 @@ export class OrderListener {
     try {
       this.logger.log(`Handling order created event for order ${event.order.id}`);
 
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for order created notification');
-        return;
-      }
-
       // Fetch order with supplier and items
       const order = await this.prisma.order.findUnique({
         where: { id: event.order.id },
@@ -208,24 +105,34 @@ export class OrderListener {
       const orderNumber = order.id.slice(-8).toUpperCase();
       const itemsSummary = this.generateOrderItemsSummary(order);
 
-      const title = '📦 Novo Pedido Criado';
-      const body = `Pedido #${orderNumber} criado para ${supplierName}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-
-      // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
-      const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        NOTIFICATION_IMPORTANCE.NORMAL,
-        event.createdBy.id, // Actor ID - user who created the order (will be excluded)
+      await this.dispatchService.dispatchByConfiguration(
+        'order.created',
+        event.createdBy.id,
         {
-          orderId: order.id,
-          orderNumber,
-          supplierName,
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'created',
+          data: {
+            orderNumber,
+            supplierName,
+            changedBy: event.createdBy.name,
+            description: order.description || 'Sem descrição',
+            itemsSummary,
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Novo Pedido Criado',
+            body: `Pedido #${orderNumber} criado para ${supplierName}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`,
+          },
         },
       );
     } catch (error) {
@@ -241,12 +148,6 @@ export class OrderListener {
       this.logger.log(
         `Handling order status changed event for order ${event.order.id}: ${event.oldStatus} -> ${event.newStatus}`,
       );
-
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for order status changed notification');
-        return;
-      }
 
       // Fetch order with supplier and items
       const order = await this.prisma.order.findUnique({
@@ -284,34 +185,40 @@ export class OrderListener {
       const oldStatusLabel = statusLabels[event.oldStatus] || event.oldStatus;
       const newStatusLabel = statusLabels[event.newStatus] || event.newStatus;
 
-      // Determine importance based on status
-      let importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      if (event.newStatus === 'OVERDUE' || event.newStatus === 'CANCELLED') {
-        importance = NOTIFICATION_IMPORTANCE.HIGH;
-      } else if (event.newStatus === 'RECEIVED') {
-        importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      }
-
-      const title = '🔄 Status do Pedido Alterado';
-      const body = `Pedido #${orderNumber} (${supplierName}) mudou de "${oldStatusLabel}" para "${newStatusLabel}".\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-
-      // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
-      const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        importance,
-        event.changedBy.id, // Actor ID - user who changed the status (will be excluded)
+      await this.dispatchService.dispatchByConfiguration(
+        'order.status.changed',
+        event.changedBy.id,
         {
-          orderId: order.id,
-          orderNumber,
-          supplierName,
-          oldStatus: event.oldStatus,
-          newStatus: event.newStatus,
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'status_changed',
+          data: {
+            orderNumber,
+            supplierName,
+            oldStatus: event.oldStatus,
+            newStatus: event.newStatus,
+            oldStatusLabel,
+            newStatusLabel,
+            changedBy: event.changedBy.name,
+            description: order.description || 'Sem descrição',
+            itemsSummary,
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+            oldStatus: event.oldStatus,
+            newStatus: event.newStatus,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Status do Pedido Alterado',
+            body: `Pedido #${orderNumber} (${supplierName}) mudou de "${oldStatusLabel}" para "${newStatusLabel}".\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`,
+          },
         },
       );
     } catch (error) {
@@ -328,12 +235,6 @@ export class OrderListener {
       this.logger.log(
         `Handling order overdue event for order ${event.order.id} (${event.daysOverdue} days overdue)`,
       );
-
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for order overdue notification');
-        return;
-      }
 
       // Fetch order with supplier and items
       const order = await this.prisma.order.findUnique({
@@ -359,7 +260,6 @@ export class OrderListener {
 
       let title: string;
       let body: string;
-      let importance: NOTIFICATION_IMPORTANCE;
 
       // Check if this is an upcoming order (negative days) or overdue order
       if (event.daysOverdue < 0) {
@@ -367,34 +267,45 @@ export class OrderListener {
         const daysUntil = Math.abs(event.daysOverdue);
         const daysText = daysUntil === 1 ? 'amanhã' : `em ${daysUntil} dias`;
 
-        title = '⏰ Pedido Vencendo';
+        title = 'Pedido Vencendo';
         body = `Pedido #${orderNumber} (${supplierName}) vence ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, prepare-se para o recebimento.`;
-        importance = NOTIFICATION_IMPORTANCE.NORMAL;
       } else {
         // Overdue order
         const daysText = event.daysOverdue === 1 ? '1 dia' : `${event.daysOverdue} dias`;
 
-        title = '🚨 Pedido Atrasado';
+        title = 'Pedido Atrasado';
         body = `Pedido #${orderNumber} (${supplierName}) está atrasado há ${daysText}.\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}\n\nPor favor, verifique o status do pedido com o fornecedor.`;
-        importance = NOTIFICATION_IMPORTANCE.HIGH;
       }
 
-      // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
-      const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        importance,
-        undefined, // No actor ID - this is a system-triggered notification
+      await this.dispatchService.dispatchByConfiguration(
+        'order.overdue',
+        'system', // Cron-triggered, no triggering user
         {
-          orderId: order.id,
-          orderNumber,
-          supplierName,
-          daysOverdue: event.daysOverdue,
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'overdue',
+          data: {
+            orderNumber,
+            supplierName,
+            daysOverdue: event.daysOverdue,
+            description: order.description || 'Sem descrição',
+            itemsSummary,
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+            daysOverdue: event.daysOverdue,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title,
+            body,
+          },
         },
       );
     } catch (error) {
@@ -410,12 +321,6 @@ export class OrderListener {
       this.logger.log(
         `Handling order item received event for order ${event.order.id}, item ${event.item.id}`,
       );
-
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for order item received notification');
-        return;
-      }
 
       // Fetch order with supplier and items
       const order = await this.prisma.order.findUnique({
@@ -441,26 +346,41 @@ export class OrderListener {
         event.item.item?.name || event.item.temporaryItemDescription || 'Item desconhecido';
       const itemsSummary = this.generateOrderItemsSummary(order);
 
-      const title = '📥 Item Recebido';
-      const body = `Item "${itemName}" recebido do pedido #${orderNumber} (${supplierName}).\n\nQuantidade recebida: ${event.quantity}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-
-      // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
-      const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        NOTIFICATION_IMPORTANCE.NORMAL,
-        undefined, // TODO: Add receivedBy to OrderItemReceivedEvent for proper actor filtering
+      // Use receivedBy from event if available, otherwise 'system'
+      const triggeringUserId = (event as any).receivedBy?.id || 'system';
+
+      await this.dispatchService.dispatchByConfiguration(
+        'order.item.received',
+        triggeringUserId,
         {
-          orderId: order.id,
-          orderNumber,
-          supplierName,
-          itemName,
-          quantity: event.quantity,
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'item_received',
+          data: {
+            orderNumber,
+            supplierName,
+            itemName,
+            quantity: event.quantity,
+            changedBy: (event as any).receivedBy?.name || 'Sistema',
+            description: order.description || 'Sem descrição',
+            itemsSummary,
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+            itemName,
+            quantity: event.quantity,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Item Recebido',
+            body: `Item "${itemName}" recebido do pedido #${orderNumber} (${supplierName}).\n\nQuantidade recebida: ${event.quantity}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`,
+          },
         },
       );
     } catch (error) {
@@ -474,12 +394,6 @@ export class OrderListener {
   async handleOrderCancelled(event: OrderCancelledEvent): Promise<void> {
     try {
       this.logger.log(`Handling order cancelled event for order ${event.order.id}`);
-
-      const targetUsers = await this.getTargetUsers();
-      if (targetUsers.length === 0) {
-        this.logger.warn('No target users found for order cancelled notification');
-        return;
-      }
 
       // Fetch order with supplier and items
       const order = await this.prisma.order.findUnique({
@@ -504,26 +418,38 @@ export class OrderListener {
       const itemsSummary = this.generateOrderItemsSummary(order);
       const cancelledByName = event.cancelledBy.name || 'Usuário desconhecido';
 
-      const title = '❌ Pedido Cancelado';
-      const body = `Pedido #${orderNumber} (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`;
-
-      // Generate deep links for web and mobile
       const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
-      const actionUrl = JSON.stringify(deepLinks);
 
-      await this.createNotificationsForUsers(
-        targetUsers,
-        title,
-        body,
-        actionUrl,
-        NOTIFICATION_IMPORTANCE.HIGH,
-        event.cancelledBy.id, // Actor ID - user who cancelled the order (will be excluded)
+      await this.dispatchService.dispatchByConfiguration(
+        'order.cancelled',
+        event.cancelledBy.id,
         {
-          orderId: order.id,
-          orderNumber,
-          supplierName,
-          cancelledByName,
-          reason: event.reason,
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'cancelled',
+          data: {
+            orderNumber,
+            supplierName,
+            cancelledByName,
+            reason: event.reason || 'Não especificado',
+            changedBy: cancelledByName,
+            description: order.description || 'Sem descrição',
+            itemsSummary,
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+            cancelledByName,
+            reason: event.reason,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Pedido Cancelado',
+            body: `Pedido #${orderNumber} (${supplierName}) foi cancelado.\n\nCancelado por: ${cancelledByName}\nMotivo: ${event.reason || 'Não especificado'}\n\nDescrição: ${order.description || 'Sem descrição'}${itemsSummary}`,
+          },
         },
       );
     } catch (error) {

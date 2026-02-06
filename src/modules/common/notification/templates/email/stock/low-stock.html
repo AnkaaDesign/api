@@ -103,5 +103,5 @@
 {{/if}}
 
 {{#if pendingOrders}}
-<p class="text-muted text-small"><strong>Observação:</strong> Existem {{pendingOrders}} pedido(s) pendente(s) para este item.</p>
+<p class="text-muted text-small"><strong>Observação:</strong> {{#if (eq pendingOrders 1)}}Existe 1 pedido pendente{{else}}Existem {{pendingOrders}} pedidos pendentes{{/if}} para este item.</p>
 {{/if}}

@@ -5,6 +5,14 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SERVICE_ORDER_STATUS } from '../../../constants/enums';
 
 /**
+ * Builds a type-specific notification config key.
+ * E.g., getTypedConfigKey('service_order.created', 'PRODUCTION') → 'service_order.created.production'
+ */
+function getTypedConfigKey(baseKey: string, soType: string): string {
+  return `${baseKey}.${soType.toLowerCase()}`;
+}
+
+/**
  * Status to configuration key mapping for service order status changes
  * Maps SERVICE_ORDER_STATUS enum values to notification configuration keys
  */
@@ -49,6 +57,11 @@ export class ServiceOrderListener {
       this.logger.log(`[SERVICE ORDER EVENT] Type: ${event.serviceOrder.type}`);
       this.logger.log(`[SERVICE ORDER EVENT] Description: ${event.serviceOrder.description}`);
 
+      if (!event.serviceOrder.type) {
+        this.logger.warn('[SERVICE ORDER EVENT] Missing SO type, skipping notification');
+        return;
+      }
+
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: event.serviceOrder.taskId },
@@ -65,8 +78,11 @@ export class ServiceOrderListener {
         },
       });
 
+      const configKey = getTypedConfigKey('service_order.created', event.serviceOrder.type);
+      this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
+
       await this.dispatchService.dispatchByConfiguration(
-        'service_order.created',
+        configKey,
         event.userId,
         {
           entityType: 'SERVICE_ORDER',
@@ -102,6 +118,11 @@ export class ServiceOrderListener {
       this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${event.serviceOrder.id}`);
       this.logger.log(`[SERVICE ORDER EVENT] Assigned To: ${event.assignedToId}`);
 
+      if (!event.serviceOrder.type) {
+        this.logger.warn('[SERVICE ORDER EVENT] Missing SO type, skipping notification');
+        return;
+      }
+
       // Get task information for context
       const task = await this.prisma.task.findUnique({
         where: { id: event.serviceOrder.taskId },
@@ -120,8 +141,11 @@ export class ServiceOrderListener {
         select: { name: true },
       }) : null);
 
+      const configKey = getTypedConfigKey('service_order.assigned', event.serviceOrder.type);
+      this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
+
       await this.dispatchService.dispatchByConfiguration(
-        'service_order.assigned',
+        configKey,
         event.userId,
         {
           entityType: 'SERVICE_ORDER',
@@ -160,13 +184,19 @@ export class ServiceOrderListener {
 
       const { serviceOrder, oldStatus, newStatus, userId } = event;
 
+      if (!serviceOrder.type) {
+        this.logger.warn('[SERVICE ORDER EVENT] Missing SO type, skipping notification');
+        return;
+      }
+
       // Map status to configuration key
-      const configKey = STATUS_CONFIG_MAP[newStatus];
-      if (!configKey) {
+      const baseConfigKey = STATUS_CONFIG_MAP[newStatus];
+      if (!baseConfigKey) {
         this.logger.warn(`[SERVICE ORDER EVENT] No configuration mapping for status: ${newStatus}`);
         return;
       }
 
+      const configKey = getTypedConfigKey(baseConfigKey, serviceOrder.type);
       this.logger.log(`[SERVICE ORDER EVENT] Using configuration key: ${configKey}`);
 
       // Get task information for context
@@ -220,10 +250,110 @@ export class ServiceOrderListener {
       );
 
       this.logger.log(`[SERVICE ORDER EVENT] ✅ Status change notification dispatched via configuration (${configKey})`);
+
+      // Also notify the creator of the service order (if they're not the one who changed it)
+      const soWithCreator = await this.prisma.serviceOrder.findUnique({
+        where: { id: serviceOrder.id },
+        select: { createdById: true },
+      });
+
+      if (soWithCreator?.createdById && soWithCreator.createdById !== userId) {
+        const creatorConfigKey = getTypedConfigKey('service_order.status_changed_for_creator', serviceOrder.type);
+        this.logger.log(`[SERVICE ORDER EVENT] Notifying creator ${soWithCreator.createdById} via ${creatorConfigKey}`);
+
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          creatorConfigKey,
+          userId,
+          {
+            entityType: 'SERVICE_ORDER',
+            entityId: serviceOrder.id,
+            action: newStatus,
+            data: {
+              serviceOrderId: serviceOrder.id,
+              description: serviceOrder.description,
+              type: serviceOrder.type,
+              taskId: serviceOrder.taskId,
+              taskName: task?.name,
+              oldStatus,
+              newStatus,
+              changedBy: changedByUser?.name || 'Sistema',
+            },
+          },
+          [soWithCreator.createdById],
+        );
+      }
+
       this.logger.log('========================================');
     } catch (error) {
       this.logger.error(
         '[SERVICE ORDER EVENT] ❌ Error dispatching status change notification:',
+        error,
+      );
+    }
+  }
+
+  /**
+   * Handle service order observation change event
+   * Dispatches notification when an SO observation is added, modified, or cleared
+   */
+  @OnEvent('service_order.observation.changed')
+  async handleObservationChanged(event: any): Promise<void> {
+    try {
+      this.logger.log('========================================');
+      this.logger.log('[SERVICE ORDER EVENT] Observation changed');
+      this.logger.log(`[SERVICE ORDER EVENT] Service Order ID: ${event.serviceOrder.id}`);
+      this.logger.log(`[SERVICE ORDER EVENT] Type: ${event.serviceOrder.type}`);
+
+      const { serviceOrder, oldObservation, newObservation, userId } = event;
+
+      if (!serviceOrder.type) {
+        this.logger.warn('[SERVICE ORDER EVENT] Missing SO type, skipping observation notification');
+        return;
+      }
+
+      const configKey = getTypedConfigKey('service_order.observation_changed', serviceOrder.type);
+      this.logger.log(`[SERVICE ORDER EVENT] Using config key: ${configKey}`);
+
+      // Get task information for context
+      const task = await this.prisma.task.findUnique({
+        where: { id: serviceOrder.taskId },
+        select: { name: true },
+      });
+
+      // Get user who made the change
+      let changedByUser = event.user;
+      if (!changedByUser && userId) {
+        changedByUser = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { name: true },
+        });
+      }
+
+      await this.dispatchService.dispatchByConfiguration(
+        configKey,
+        userId,
+        {
+          entityType: 'SERVICE_ORDER',
+          entityId: serviceOrder.id,
+          action: 'observation_changed',
+          data: {
+            serviceOrderId: serviceOrder.id,
+            description: serviceOrder.description,
+            type: serviceOrder.type,
+            taskId: serviceOrder.taskId,
+            taskName: task?.name,
+            oldObservation: oldObservation || '(vazio)',
+            newObservation: newObservation || '(vazio)',
+            changedBy: changedByUser?.name || 'Sistema',
+          },
+        },
+      );
+
+      this.logger.log('[SERVICE ORDER EVENT] ✅ Observation change notification dispatched via configuration');
+      this.logger.log('========================================');
+    } catch (error) {
+      this.logger.error(
+        '[SERVICE ORDER EVENT] ❌ Error dispatching observation change notification:',
         error,
       );
     }

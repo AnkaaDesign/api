@@ -50,6 +50,8 @@ interface NotificationConfigurationFiltersDto {
   search?: string;
   page?: number;
   limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**
@@ -315,6 +317,17 @@ export class NotificationConfigurationController {
     type: Number,
     description: 'Items per page (default: 20)',
   })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    description: 'Sort field (key, name, notificationType, eventType, importance, enabled, createdAt, updatedAt)',
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    enum: ['asc', 'desc'],
+    description: 'Sort order (default: desc)',
+  })
   @ApiResponse({ status: 200, description: 'Configurations retrieved successfully' })
   async findAll(@Query() filters: NotificationConfigurationFiltersDto) {
     try {
@@ -325,6 +338,8 @@ export class NotificationConfigurationController {
         search,
         page = 1,
         limit = 20,
+        sortBy,
+        sortOrder,
       } = filters;
 
       // Build where clause
@@ -361,6 +376,12 @@ export class NotificationConfigurationController {
       // Calculate pagination
       const skip = (page - 1) * limit;
 
+      // Build orderBy from sortBy/sortOrder params
+      const allowedSortFields = ['key', 'name', 'notificationType', 'eventType', 'importance', 'enabled', 'createdAt', 'updatedAt'];
+      const orderBy = sortBy && allowedSortFields.includes(sortBy)
+        ? { [sortBy]: sortOrder || 'asc' }
+        : { createdAt: 'desc' as const };
+
       // Execute query
       const [configurations, total] = await Promise.all([
         this.prisma.notificationConfiguration.findMany({
@@ -370,7 +391,7 @@ export class NotificationConfigurationController {
             sectorOverrides: true,
             targetRule: true,
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy,
           skip,
           take: limit,
         }),
@@ -498,6 +519,7 @@ export class NotificationConfigurationController {
         where: { id },
         data: {
           key: dto.key,
+          name: dto.name,
           notificationType: dto.notificationType,
           eventType: dto.eventType,
           description: dto.description,
@@ -517,9 +539,46 @@ export class NotificationConfigurationController {
         },
       });
 
+      // Update target rule if provided
+      if (dto.targetRule) {
+        const existingTargetRule = await this.prisma.notificationTargetRule.findFirst({
+          where: { configurationId: id },
+        });
+
+        if (existingTargetRule) {
+          await this.prisma.notificationTargetRule.update({
+            where: { id: existingTargetRule.id },
+            data: {
+              allowedSectors: dto.targetRule.allowedSectors,
+              excludeInactive: dto.targetRule.excludeInactive,
+              excludeOnVacation: dto.targetRule.excludeOnVacation,
+            },
+          });
+        } else {
+          await this.prisma.notificationTargetRule.create({
+            data: {
+              configurationId: id,
+              allowedSectors: dto.targetRule.allowedSectors ?? [],
+              excludeInactive: dto.targetRule.excludeInactive ?? true,
+              excludeOnVacation: dto.targetRule.excludeOnVacation ?? false,
+            },
+          });
+        }
+      }
+
+      // Refetch with updated target rule
+      const updatedConfiguration = await this.prisma.notificationConfiguration.findUnique({
+        where: { id },
+        include: {
+          channelConfigs: true,
+          sectorOverrides: true,
+          targetRule: true,
+        },
+      });
+
       return {
         success: true,
-        data: configuration,
+        data: updatedConfiguration,
         message: 'Configuração de notificação atualizada com sucesso.',
       };
     } catch (error) {

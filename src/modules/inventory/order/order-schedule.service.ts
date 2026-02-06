@@ -235,11 +235,14 @@ export class OrderScheduleService {
     // Additional business rule: validate schedule frequency configuration
     // Support both flat fields (dayOfWeek, dayOfMonth, month) and nested schedule objects
     if (
-      (data.frequency === SCHEDULE_FREQUENCY.WEEKLY || data.frequency === SCHEDULE_FREQUENCY.BIWEEKLY) &&
+      (data.frequency === SCHEDULE_FREQUENCY.WEEKLY ||
+        data.frequency === SCHEDULE_FREQUENCY.BIWEEKLY) &&
       !data.weeklySchedule &&
       !data.dayOfWeek
     ) {
-      throw new BadRequestException('Dia da semana é obrigatório para frequência semanal/quinzenal.');
+      throw new BadRequestException(
+        'Dia da semana é obrigatório para frequência semanal/quinzenal.',
+      );
     }
     const monthlyFrequencies: string[] = [
       SCHEDULE_FREQUENCY.MONTHLY,
@@ -249,11 +252,7 @@ export class OrderScheduleService {
       SCHEDULE_FREQUENCY.QUADRIMESTRAL,
       SCHEDULE_FREQUENCY.SEMI_ANNUAL,
     ];
-    if (
-      monthlyFrequencies.includes(data.frequency) &&
-      !data.monthlySchedule &&
-      !data.dayOfMonth
-    ) {
+    if (monthlyFrequencies.includes(data.frequency) && !data.monthlySchedule && !data.dayOfMonth) {
       throw new BadRequestException('Dia do mês é obrigatório para frequência mensal ou similar.');
     }
     if (

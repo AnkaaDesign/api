@@ -17,31 +17,31 @@ import {
  * the database. Code should NOT hardcode notification configurations.
  *
  * CATEGORIES:
- * 1. Task Lifecycle (3)
- * 2. Task Status Events (3)
- * 3. Task Deadlines - Term (6)
- * 4. Task Deadlines - Forecast (6)
- * 5. Task Basic Fields (4)
+ * 1. Task Lifecycle (2) - created, overdue
+ * 2. Task Status Events (4) - waiting_production, in_production, completed, ready_for_production
+ * 3. Task Deadlines - Term (5) - 1hour, 4hours, 1day, 3days, 7days
+ * 4. Task Deadlines - Forecast (6) - 10days, 7days, 3days, 1day, today, overdue
+ * 5. Task Basic Fields (5) - name, status, details, serialNumber, priority
  * 6. Task Date Fields (5)
  * 7. Task Assignment Fields (3)
  * 8. Task Financial Fields (6)
  * 9. Task Artwork/Production Fields (5)
- * 10. Task Truck Fields (3)
- * 11. Task Negotiation Fields (3)
- * 12. Service Orders (6 + 1 = 7)
+ * 10. Task Truck Fields (8) - plate, spot, chassisNumber, category, implementType, leftSideLayoutId, rightSideLayoutId, backSideLayoutId
+ * 11. Task Negotiation Fields (2)
+ * 12. Service Orders - Type-Specific (7 events x 5 types + 1 artwork waiting_approval = 36)
  * 13. Borrow/Emprestimo (2)
  * 14. Paint/Tinta (1)
  * 15. PPE/EPI (4)
- * 16. Alerts (10)
+ * 16. Alerts (0) - removed, no code emits alert events yet
  * 17. Cut/Recorte (5)
  * 18. Order/Pedido (5)
- * 19. Item/Stock Detail (5)
+ * 19. Item/Stock Detail (4)
  * 20. Artwork Approval (3)
- * 21. Time Entry Reminders (2)
+ * 21. Time Entry Reminders (1)
  *
- * TOTAL: 91 notifications
+ * TOTAL: 112 notifications
  *
- * Last updated: 2025
+ * Last updated: 2026
  */
 
 // ============================================================================
@@ -88,6 +88,13 @@ const BASIC_SECTORS: SectorPrivileges[] = ['ADMIN', 'PRODUCTION', 'FINANCIAL', '
 const DATE_SECTORS: SectorPrivileges[] = ['ADMIN', 'PRODUCTION', 'FINANCIAL', 'LOGISTIC'];
 const NEGOTIATION_SECTORS: SectorPrivileges[] = ['ADMIN', 'FINANCIAL', 'COMMERCIAL', 'LOGISTIC', 'DESIGNER'];
 
+// Service Order type-specific sector mappings
+const SO_TYPE_PRODUCTION_SECTORS: SectorPrivileges[] = ['ADMIN', 'PRODUCTION', 'LOGISTIC'];
+const SO_TYPE_FINANCIAL_SECTORS: SectorPrivileges[] = ['ADMIN', 'FINANCIAL'];
+const SO_TYPE_COMMERCIAL_SECTORS: SectorPrivileges[] = ['ADMIN', 'COMMERCIAL', 'FINANCIAL'];
+const SO_TYPE_ARTWORK_SECTORS: SectorPrivileges[] = ['ADMIN', 'DESIGNER'];
+const SO_TYPE_LOGISTIC_SECTORS: SectorPrivileges[] = ['ADMIN', 'LOGISTIC'];
+
 // ============================================================================
 // CHANNEL PRESETS
 // ============================================================================
@@ -121,7 +128,7 @@ const CHANNELS_HIGH: ChannelConfig[] = [
 ];
 
 // ============================================================================
-// 1. TASK LIFECYCLE NOTIFICATIONS (3)
+// 1. TASK LIFECYCLE NOTIFICATIONS (2)
 // ============================================================================
 
 const TASK_LIFECYCLE_CONFIGS: NotificationConfig[] = [
@@ -174,35 +181,10 @@ const TASK_LIFECYCLE_CONFIGS: NotificationConfig[] = [
       allowedSectors: ['ADMIN', 'PRODUCTION', 'FINANCIAL'],
     },
   },
-  {
-    key: 'task.deadline_approaching',
-    name: 'Prazo se Aproximando',
-    notificationType: 'PRODUCTION',
-    eventType: 'deadline_approaching',
-    description: 'Notificacao enviada quando o prazo de uma tarefa esta se aproximando',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Prazo se aproximando: "{taskName}" #{serialNumber} vence em {daysRemaining} dia(s)',
-        push: 'Prazo se aproximando!',
-        email: {
-          subject: 'Prazo se aproximando - Tarefa #{serialNumber}',
-          body: 'ATENCAO: O prazo da tarefa "{taskName}" esta se aproximando.\n\nVence em: {daysRemaining} dia(s)\nPrazo: {term}\n\nVerifique se a tarefa esta em andamento e tome as providencias necessarias.',
-        },
-        whatsapp: 'Prazo se aproximando: Tarefa #{serialNumber} "{taskName}" vence em {daysRemaining} dia(s)!',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: {
-      allowedSectors: PRODUCTION_SECTORS,
-      customFilter: 'TASK_ASSIGNEE',
-    },
-  },
 ];
 
 // ============================================================================
-// 2. TASK STATUS EVENTS (3)
+// 2. TASK STATUS EVENTS (4)
 // ============================================================================
 
 const TASK_STATUS_CONFIGS: NotificationConfig[] = [
@@ -278,10 +260,34 @@ const TASK_STATUS_CONFIGS: NotificationConfig[] = [
       allowedSectors: ['ADMIN', 'PRODUCTION', 'COMMERCIAL', 'FINANCIAL', 'LOGISTIC'],
     },
   },
+  {
+    key: 'task.ready_for_production',
+    name: 'Tarefa Pronta para Producao',
+    notificationType: 'PRODUCTION',
+    eventType: 'ready_for_production',
+    description: 'Notificacao enviada especificamente ao setor de producao quando uma tarefa esta pronta para iniciar a producao',
+    importance: 'HIGH',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Pronta para producao: "{taskName}" #{serialNumber} - Todos os preparativos concluidos',
+        push: 'Tarefa pronta para producao!',
+        email: {
+          subject: 'Tarefa pronta para producao - #{serialNumber}',
+          body: 'A tarefa "{taskName}" (#{serialNumber}) esta pronta para iniciar a producao.\n\nTodos os preparativos foram concluidos e a tarefa pode ser iniciada.\n\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Tarefa "{taskName}" #{serialNumber} pronta para producao. Iniciada por {changedBy}.',
+      },
+    },
+    channelConfigs: CHANNELS_HIGH,
+    targetRule: {
+      allowedSectors: ['ADMIN', 'PRODUCTION'],
+    },
+  },
 ];
 
 // ============================================================================
-// 3. TASK DEADLINES - TERM (6)
+// 3. TASK DEADLINES - TERM (5)
 // ============================================================================
 
 const TASK_TERM_DEADLINE_CONFIGS: NotificationConfig[] = [
@@ -415,56 +421,34 @@ const TASK_TERM_DEADLINE_CONFIGS: NotificationConfig[] = [
       customFilter: 'TASK_ASSIGNEE',
     },
   },
-  {
-    key: 'task.term_overdue',
-    name: 'Prazo Vencido',
-    notificationType: 'PRODUCTION',
-    eventType: 'term_overdue',
-    description: 'Notificacao urgente enviada quando o prazo da tarefa esta vencido',
-    importance: 'URGENT',
-    workHoursOnly: false,
-    maxFrequencyPerDay: 3,
-    templates: {
-      updated: {
-        inApp: 'ATRASADO: Tarefa "{taskName}" #{serialNumber} esta atrasada ha {daysOverdue} dia(s)',
-        push: 'ATRASADO: Tarefa esta vencida!',
-        email: {
-          subject: 'URGENTE: Tarefa #{serialNumber} esta atrasada',
-          body: 'ATENCAO URGENTE!\n\nA tarefa "{taskName}" (#{serialNumber}) esta ATRASADA ha {daysOverdue} dia(s).\n\nPrazo original: {term}\nStatus atual: {status}\nSetor: {sectorName}\n\nE necessaria acao imediata para resolver esta situacao.',
-        },
-        whatsapp: 'URGENTE: Tarefa "{taskName}" #{serialNumber} esta ATRASADA ha {daysOverdue} dia(s)! Acao imediata necessaria.',
-      },
-    },
-    channelConfigs: CHANNELS_URGENT,
-    targetRule: {
-      allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC', 'COMMERCIAL', 'FINANCIAL'],
-    },
-  },
 ];
 
 // ============================================================================
-// 4. TASK DEADLINES - FORECAST (6)
+// 4. TASK FORECAST - PREVISAO DE LIBERACAO (6)
+// The forecast date (forecastDate) is the expected date when the truck
+// will be liberated/available for painting. These notifications alert
+// teams as the liberation date approaches.
 // ============================================================================
 
 const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   {
     key: 'task.forecast_10days',
-    name: 'Previsao em 10 Dias',
+    name: 'Liberacao em 10 Dias',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_10days',
-    description: 'Notificacao enviada 10 dias antes da data de previsao da tarefa',
+    description: 'Notificacao enviada 10 dias antes da previsao de liberacao do caminhao',
     importance: 'NORMAL',
     workHoursOnly: true,
     maxFrequencyPerDay: 1,
     templates: {
       updated: {
-        inApp: 'Previsao se aproximando: Tarefa "{taskName}" #{serialNumber} tem previsao em 10 dias',
-        push: 'Previsao em 10 dias: {taskName}',
+        inApp: 'Liberacao se aproximando: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar em 10 dias',
+        push: 'Liberacao em 10 dias: {taskName}',
         email: {
-          subject: 'Previsao em 10 dias - Tarefa #{serialNumber}',
-          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de producao em 10 dias.\n\nData de previsao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n\nVerifique se os preparativos estao em andamento.',
+          subject: 'Liberacao em 10 dias - Tarefa #{serialNumber}',
+          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de liberacao do caminhao em 10 dias.\n\nData de liberacao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n\nVerifique se os preparativos estao em andamento.',
         },
-        whatsapp: 'Previsao em 10 dias: Tarefa "{taskName}" #{serialNumber}.',
+        whatsapp: 'Liberacao em 10 dias: Tarefa "{taskName}" #{serialNumber}.',
       },
     },
     channelConfigs: CHANNELS_IN_APP_ONLY,
@@ -474,22 +458,22 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.forecast_7days',
-    name: 'Previsao em 7 Dias',
+    name: 'Liberacao em 7 Dias',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_7days',
-    description: 'Notificacao enviada 7 dias antes da data de previsao da tarefa',
+    description: 'Notificacao enviada 7 dias antes da previsao de liberacao do caminhao',
     importance: 'NORMAL',
     workHoursOnly: true,
     maxFrequencyPerDay: 1,
     templates: {
       updated: {
-        inApp: 'Previsao se aproximando: Tarefa "{taskName}" #{serialNumber} tem previsao em 7 dias',
-        push: 'Previsao em 7 dias: {taskName}',
+        inApp: 'Liberacao se aproximando: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar em 7 dias',
+        push: 'Liberacao em 7 dias: {taskName}',
         email: {
-          subject: 'Previsao em 7 dias - Tarefa #{serialNumber}',
-          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de producao em 7 dias.\n\nData de previsao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n\nVerifique se os preparativos estao em andamento.',
+          subject: 'Liberacao em 7 dias - Tarefa #{serialNumber}',
+          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de liberacao do caminhao em 7 dias.\n\nData de liberacao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n\nVerifique se os preparativos estao em andamento.',
         },
-        whatsapp: 'Previsao em 7 dias: Tarefa "{taskName}" #{serialNumber}.',
+        whatsapp: 'Liberacao em 7 dias: Tarefa "{taskName}" #{serialNumber}.',
       },
     },
     channelConfigs: CHANNELS_IN_APP_ONLY,
@@ -499,22 +483,22 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.forecast_3days',
-    name: 'Previsao em 3 Dias',
+    name: 'Liberacao em 3 Dias',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_3days',
-    description: 'Notificacao enviada 3 dias antes da data de previsao da tarefa',
+    description: 'Notificacao enviada 3 dias antes da previsao de liberacao do caminhao',
     importance: 'HIGH',
     workHoursOnly: true,
     maxFrequencyPerDay: 1,
     templates: {
       updated: {
-        inApp: 'Previsao se aproximando: Tarefa "{taskName}" #{serialNumber} tem previsao em 3 dias{pendingOrdersText}',
-        push: 'Previsao em 3 dias: {taskName}',
+        inApp: 'Liberacao em 3 dias: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar em 3 dias{pendingOrdersText}',
+        push: 'Liberacao em 3 dias: {taskName}',
         email: {
-          subject: 'Previsao em 3 dias - Tarefa #{serialNumber}',
-          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de producao em 3 dias.\n\nData de previsao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se todos os preparativos estao concluidos.',
+          subject: 'Liberacao em 3 dias - Tarefa #{serialNumber}',
+          body: 'A tarefa "{taskName}" (#{serialNumber}) tem previsao de liberacao do caminhao em 3 dias.\n\nData de liberacao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se todos os preparativos estao concluidos.',
         },
-        whatsapp: 'Previsao em 3 dias: Tarefa "{taskName}" #{serialNumber}.{pendingOrdersText}',
+        whatsapp: 'Liberacao em 3 dias: Tarefa "{taskName}" #{serialNumber}.{pendingOrdersText}',
       },
     },
     channelConfigs: CHANNELS_HIGH,
@@ -524,22 +508,22 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.forecast_1day',
-    name: 'Previsao Amanha',
+    name: 'Liberacao Amanha',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_1day',
-    description: 'Notificacao enviada 1 dia antes da data de previsao da tarefa, incluindo verificacao de pedidos pendentes',
+    description: 'Notificacao enviada 1 dia antes da previsao de liberacao do caminhao, incluindo verificacao de pedidos pendentes',
     importance: 'HIGH',
     workHoursOnly: true,
     maxFrequencyPerDay: 1,
     templates: {
       updated: {
-        inApp: 'Previsao amanha: Tarefa "{taskName}" #{serialNumber}{pendingOrdersText}',
-        push: 'Previsao amanha: {taskName}',
+        inApp: 'Liberacao amanha: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar AMANHA{pendingOrdersText}',
+        push: 'Liberacao amanha: {taskName}',
         email: {
-          subject: 'Previsao amanha - Tarefa #{serialNumber}',
-          body: 'ATENCAO: A tarefa "{taskName}" (#{serialNumber}) tem previsao de producao AMANHA.\n\nData de previsao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se tudo esta pronto para a producao.',
+          subject: 'Liberacao amanha - Tarefa #{serialNumber}',
+          body: 'ATENCAO: A tarefa "{taskName}" (#{serialNumber}) tem previsao de liberacao do caminhao AMANHA.\n\nData de liberacao: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se tudo esta pronto para a producao.',
         },
-        whatsapp: 'Previsao amanha: Tarefa "{taskName}" #{serialNumber}.{pendingOrdersText}',
+        whatsapp: 'Liberacao amanha: Tarefa "{taskName}" #{serialNumber}.{pendingOrdersText}',
       },
     },
     channelConfigs: CHANNELS_HIGH,
@@ -549,22 +533,22 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.forecast_today',
-    name: 'Previsao Hoje',
+    name: 'Liberacao Hoje',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_today',
-    description: 'Notificacao urgente enviada quando a data de previsao da tarefa e hoje',
+    description: 'Notificacao urgente enviada quando a previsao de liberacao do caminhao e hoje',
     importance: 'URGENT',
     workHoursOnly: false,
     maxFrequencyPerDay: 2,
     templates: {
       updated: {
-        inApp: 'HOJE: Tarefa "{taskName}" #{serialNumber} tem previsao para HOJE{pendingOrdersText}',
-        push: 'HOJE: Previsao de producao!',
+        inApp: 'HOJE: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar HOJE{pendingOrdersText}',
+        push: 'HOJE: Liberacao do caminhao!',
         email: {
-          subject: 'URGENTE: Previsao HOJE - Tarefa #{serialNumber}',
-          body: 'ATENCAO URGENTE!\n\nA tarefa "{taskName}" (#{serialNumber}) tem previsao de producao para HOJE.\n\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se a producao esta em andamento.',
+          subject: 'URGENTE: Liberacao HOJE - Tarefa #{serialNumber}',
+          body: 'ATENCAO URGENTE!\n\nA tarefa "{taskName}" (#{serialNumber}) tem previsao de liberacao do caminhao para HOJE.\n\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nVerifique se a producao esta em andamento.',
         },
-        whatsapp: 'HOJE: Tarefa "{taskName}" #{serialNumber} tem previsao para HOJE!{pendingOrdersText}',
+        whatsapp: 'HOJE: Tarefa "{taskName}" #{serialNumber} - caminhao previsto para liberar HOJE!{pendingOrdersText}',
       },
     },
     channelConfigs: CHANNELS_URGENT,
@@ -574,22 +558,22 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.forecast_overdue',
-    name: 'Previsao Atrasada',
+    name: 'Liberacao Atrasada',
     notificationType: 'PRODUCTION',
     eventType: 'forecast_overdue',
-    description: 'Notificacao urgente enviada quando a data de previsao da tarefa esta atrasada',
+    description: 'Notificacao urgente enviada quando a previsao de liberacao do caminhao esta atrasada',
     importance: 'URGENT',
     workHoursOnly: false,
     maxFrequencyPerDay: 3,
     templates: {
       updated: {
-        inApp: 'ATRASADO: Tarefa "{taskName}" #{serialNumber} tem previsao atrasada ha {daysOverdue} dia(s){pendingOrdersText}',
-        push: 'ATRASADO: Previsao vencida!',
+        inApp: 'ATRASADO: Tarefa "{taskName}" #{serialNumber} - liberacao atrasada ha {daysOverdue} dia(s){pendingOrdersText}',
+        push: 'ATRASADO: Liberacao vencida!',
         email: {
-          subject: 'URGENTE: Previsao atrasada - Tarefa #{serialNumber}',
-          body: 'ATENCAO URGENTE!\n\nA tarefa "{taskName}" (#{serialNumber}) esta com a previsao ATRASADA ha {daysOverdue} dia(s).\n\nData de previsao original: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nE necessaria acao imediata para resolver esta situacao.',
+          subject: 'URGENTE: Liberacao atrasada - Tarefa #{serialNumber}',
+          body: 'ATENCAO URGENTE!\n\nA tarefa "{taskName}" (#{serialNumber}) esta com a previsao de liberacao ATRASADA ha {daysOverdue} dia(s).\n\nData de liberacao original: {forecast}\nStatus atual: {status}\nSetor: {sectorName}\n{pendingOrdersText}\n\nE necessaria acao imediata para resolver esta situacao.',
         },
-        whatsapp: 'URGENTE: Tarefa "{taskName}" #{serialNumber} tem previsao ATRASADA ha {daysOverdue} dia(s)!{pendingOrdersText}',
+        whatsapp: 'URGENTE: Tarefa "{taskName}" #{serialNumber} - liberacao ATRASADA ha {daysOverdue} dia(s)!{pendingOrdersText}',
       },
     },
     channelConfigs: CHANNELS_URGENT,
@@ -600,7 +584,7 @@ const TASK_FORECAST_DEADLINE_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 5. TASK BASIC FIELDS (4)
+// 5. TASK BASIC FIELDS (5)
 // ============================================================================
 
 const TASK_BASIC_FIELD_CONFIGS: NotificationConfig[] = [
@@ -696,6 +680,29 @@ const TASK_BASIC_FIELD_CONFIGS: NotificationConfig[] = [
     channelConfigs: CHANNELS_IN_APP_ONLY,
     targetRule: { allowedSectors: BASIC_SECTORS },
   },
+  {
+    key: 'task.field.priority',
+    name: 'Prioridade da Tarefa',
+    notificationType: 'PRODUCTION',
+    eventType: 'field.priority',
+    description: 'Notificacao enviada quando a prioridade da tarefa e alterada',
+    importance: 'NORMAL',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Prioridade alterada: "{taskName}" #{serialNumber} - {oldValue} para {newValue}',
+        push: 'Prioridade alterada: {newValue}',
+        email: {
+          subject: 'Prioridade alterada - Tarefa #{serialNumber}',
+          body: 'A prioridade da tarefa "{taskName}" (#{serialNumber}) foi alterada de "{oldValue}" para "{newValue}" por {changedBy}.',
+        },
+        whatsapp: 'Prioridade da tarefa #{serialNumber} alterada para {newValue}.',
+      },
+    },
+    metadata: { field: 'priority', category: 'BASIC' },
+    channelConfigs: CHANNELS_IN_APP_PUSH,
+    targetRule: { allowedSectors: BASIC_SECTORS },
+  },
 ];
 
 // ============================================================================
@@ -737,10 +744,10 @@ const TASK_DATE_FIELD_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.field.term',
-    name: 'Prazo',
+    name: 'Prazo de Conclusao',
     notificationType: 'PRODUCTION',
     eventType: 'field.term',
-    description: 'Notificacao quando o prazo da tarefa e alterado ou removido',
+    description: 'Notificacao quando o prazo para concluir a pintura/tarefa e alterado ou removido',
     importance: 'HIGH',
     workHoursOnly: true,
     templates: {
@@ -769,30 +776,30 @@ const TASK_DATE_FIELD_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'task.field.forecastDate',
-    name: 'Data Prevista',
+    name: 'Previsao de Liberacao',
     notificationType: 'PRODUCTION',
     eventType: 'field.forecastDate',
-    description: 'Notificacao quando a data prevista de entrega e alterada ou removida',
+    description: 'Notificacao quando a previsao de liberacao do caminhao e alterada ou removida',
     importance: 'NORMAL',
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Data prevista alterada para {newValue}',
-        push: 'Previsao: {newValue}',
+        inApp: 'Previsao de liberacao alterada para {newValue}',
+        push: 'Liberacao: {newValue}',
         email: {
-          subject: 'Previsao de entrega - Tarefa #{serialNumber}',
-          body: 'A data prevista da tarefa "{taskName}" foi alterada para {newValue} por {changedBy}.',
+          subject: 'Previsao de liberacao - Tarefa #{serialNumber}',
+          body: 'A previsao de liberacao do caminhao da tarefa "{taskName}" foi alterada para {newValue} por {changedBy}.',
         },
-        whatsapp: 'Data prevista da tarefa #{serialNumber}: {newValue}.',
+        whatsapp: 'Previsao de liberacao da tarefa #{serialNumber}: {newValue}.',
       },
       cleared: {
-        inApp: 'Data prevista removida',
-        push: 'Previsao removida',
+        inApp: 'Previsao de liberacao removida',
+        push: 'Liberacao removida',
         email: {
-          subject: 'Previsao removida - Tarefa #{serialNumber}',
-          body: 'A data prevista da tarefa "{taskName}" foi removida por {changedBy}.',
+          subject: 'Previsao de liberacao removida - Tarefa #{serialNumber}',
+          body: 'A previsao de liberacao do caminhao da tarefa "{taskName}" foi removida por {changedBy}.',
         },
-        whatsapp: 'Data prevista da tarefa #{serialNumber} foi removida.',
+        whatsapp: 'Previsao de liberacao da tarefa #{serialNumber} foi removida.',
       },
     },
     metadata: { field: 'forecastDate', category: 'DATES', formatter: 'formatDate' },
@@ -1403,12 +1410,12 @@ const TASK_ARTWORK_PRODUCTION_FIELD_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 10. TASK TRUCK FIELDS (3)
+// 10. TASK TRUCK FIELDS (8)
 // ============================================================================
 
 const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
   {
-    key: 'task.truck.plate',
+    key: 'task.field.truck.plate',
     name: 'Placa do Caminhao',
     notificationType: 'PRODUCTION',
     eventType: 'truck.plate',
@@ -1425,46 +1432,28 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
         },
         whatsapp: 'Placa alterada na tarefa "{taskName}" #{serialNumber}: {newValue}.',
       },
-      cleared: {
-        inApp: 'Placa do caminhao removida',
-        push: 'Placa removida',
-        email: {
-          subject: 'Placa removida - Tarefa #{serialNumber}',
-          body: 'A placa do caminhao da tarefa "{taskName}" foi removida por {changedBy}.',
-        },
-        whatsapp: 'Placa da tarefa #{serialNumber} foi removida.',
-      },
     },
     metadata: { field: 'truck.plate', category: 'PRODUCTION' },
     channelConfigs: CHANNELS_IN_APP_PUSH,
     targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC'] },
   },
   {
-    key: 'task.truck.spot',
-    name: 'Vaga do Caminhao',
+    key: 'task.field.truck.spot',
+    name: 'Localizacao do Caminhao',
     notificationType: 'PRODUCTION',
     eventType: 'truck.spot',
-    description: 'Notificacao enviada quando a vaga do caminhao e alterada na tarefa',
+    description: 'Notificacao enviada quando a localizacao do caminhao e alterada na tarefa',
     importance: 'NORMAL',
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Vaga alterada: "{taskName}" #{serialNumber} - Vaga: {newValue}',
-        push: 'Vaga do caminhao alterada',
+        inApp: 'Localizacao alterada: "{taskName}" #{serialNumber} - Local: {newValue}',
+        push: 'Localizacao do caminhao alterada',
         email: {
-          subject: 'Vaga do caminhao alterada - Tarefa #{serialNumber}',
-          body: 'A vaga do caminhao foi alterada na tarefa "{taskName}" (#{serialNumber}).\n\nVaga anterior: {oldValue}\nNova vaga: {newValue}\nAlterado por: {changedBy}',
+          subject: 'Localizacao do caminhao alterada - Tarefa #{serialNumber}',
+          body: 'A localizacao do caminhao foi alterada na tarefa "{taskName}" (#{serialNumber}).\n\nLocalizacao anterior: {oldValue}\nNova localizacao: {newValue}\nAlterado por: {changedBy}',
         },
-        whatsapp: 'Vaga alterada na tarefa "{taskName}" #{serialNumber}: {newValue}.',
-      },
-      cleared: {
-        inApp: 'Vaga do caminhao removida',
-        push: 'Vaga removida',
-        email: {
-          subject: 'Vaga removida - Tarefa #{serialNumber}',
-          body: 'A vaga do caminhao da tarefa "{taskName}" foi removida por {changedBy}.',
-        },
-        whatsapp: 'Vaga da tarefa #{serialNumber} foi removida.',
+        whatsapp: 'Localizacao alterada na tarefa "{taskName}" #{serialNumber}: {newValue}.',
       },
     },
     metadata: { field: 'truck.spot', category: 'PRODUCTION' },
@@ -1472,34 +1461,140 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
     targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC'] },
   },
   {
-    key: 'task.truck.layout',
-    name: 'Layout do Caminhao',
+    key: 'task.field.truck.chassisNumber',
+    name: 'Chassi do Caminhao',
     notificationType: 'PRODUCTION',
-    eventType: 'truck.layout',
-    description: 'Notificacao enviada quando o layout do caminhao e alterado na tarefa',
+    eventType: 'truck.chassisNumber',
+    description: 'Notificacao enviada quando o numero do chassi do caminhao e alterado na tarefa',
+    importance: 'NORMAL',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Chassi alterado: "{taskName}" #{serialNumber} - Chassi: {newValue}',
+        push: 'Chassi do caminhao alterado',
+        email: {
+          subject: 'Chassi do caminhao alterado - Tarefa #{serialNumber}',
+          body: 'O chassi do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nChassi anterior: {oldValue}\nNovo chassi: {newValue}\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Chassi alterado na tarefa "{taskName}" #{serialNumber}: {newValue}.',
+      },
+    },
+    metadata: { field: 'truck.chassisNumber', category: 'PRODUCTION' },
+    channelConfigs: CHANNELS_IN_APP_ONLY,
+    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC'] },
+  },
+  {
+    key: 'task.field.truck.category',
+    name: 'Categoria do Caminhao',
+    notificationType: 'PRODUCTION',
+    eventType: 'truck.category',
+    description: 'Notificacao enviada quando a categoria do caminhao e alterada na tarefa',
+    importance: 'NORMAL',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Categoria alterada: "{taskName}" #{serialNumber} - Categoria: {newValue}',
+        push: 'Categoria do caminhao alterada',
+        email: {
+          subject: 'Categoria do caminhao alterada - Tarefa #{serialNumber}',
+          body: 'A categoria do caminhao foi alterada na tarefa "{taskName}" (#{serialNumber}).\n\nCategoria anterior: {oldValue}\nNova categoria: {newValue}\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Categoria alterada na tarefa "{taskName}" #{serialNumber}: {newValue}.',
+      },
+    },
+    metadata: { field: 'truck.category', category: 'PRODUCTION' },
+    channelConfigs: CHANNELS_IN_APP_ONLY,
+    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC'] },
+  },
+  {
+    key: 'task.field.truck.implementType',
+    name: 'Tipo de Implemento',
+    notificationType: 'PRODUCTION',
+    eventType: 'truck.implementType',
+    description: 'Notificacao enviada quando o tipo de implemento do caminhao e alterado na tarefa',
+    importance: 'NORMAL',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Tipo de implemento alterado: "{taskName}" #{serialNumber} - Implemento: {newValue}',
+        push: 'Tipo de implemento alterado',
+        email: {
+          subject: 'Tipo de implemento alterado - Tarefa #{serialNumber}',
+          body: 'O tipo de implemento do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nTipo anterior: {oldValue}\nNovo tipo: {newValue}\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Implemento alterado na tarefa "{taskName}" #{serialNumber}: {newValue}.',
+      },
+    },
+    metadata: { field: 'truck.implementType', category: 'PRODUCTION' },
+    channelConfigs: CHANNELS_IN_APP_ONLY,
+    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC'] },
+  },
+  {
+    key: 'task.field.truck.leftSideLayoutId',
+    name: 'Layout Lado Esquerdo',
+    notificationType: 'PRODUCTION',
+    eventType: 'truck.leftSideLayoutId',
+    description: 'Notificacao enviada quando o layout do lado esquerdo do caminhao e alterado',
     importance: 'HIGH',
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Layout alterado: "{taskName}" #{serialNumber}',
-        push: 'Layout do caminhao alterado',
+        inApp: 'Layout lado esquerdo alterado: "{taskName}" #{serialNumber}',
+        push: 'Layout lado esquerdo alterado',
         email: {
-          subject: 'Layout do caminhao alterado - Tarefa #{serialNumber}',
-          body: 'O layout do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+          subject: 'Layout lado esquerdo alterado - Tarefa #{serialNumber}',
+          body: 'O layout do lado esquerdo do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
         },
-        whatsapp: 'Layout alterado na tarefa "{taskName}" #{serialNumber}.',
-      },
-      cleared: {
-        inApp: 'Layout do caminhao removido',
-        push: 'Layout removido',
-        email: {
-          subject: 'Layout removido - Tarefa #{serialNumber}',
-          body: 'O layout do caminhao da tarefa "{taskName}" foi removido por {changedBy}.',
-        },
-        whatsapp: 'Layout da tarefa #{serialNumber} foi removido.',
+        whatsapp: 'Layout lado esquerdo alterado na tarefa "{taskName}" #{serialNumber}.',
       },
     },
-    metadata: { field: 'truck.layout', category: 'PRODUCTION' },
+    metadata: { field: 'truck.leftSideLayoutId', category: 'PRODUCTION' },
+    channelConfigs: CHANNELS_IN_APP_PUSH,
+    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'DESIGNER'] },
+  },
+  {
+    key: 'task.field.truck.rightSideLayoutId',
+    name: 'Layout Lado Direito',
+    notificationType: 'PRODUCTION',
+    eventType: 'truck.rightSideLayoutId',
+    description: 'Notificacao enviada quando o layout do lado direito do caminhao e alterado',
+    importance: 'HIGH',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Layout lado direito alterado: "{taskName}" #{serialNumber}',
+        push: 'Layout lado direito alterado',
+        email: {
+          subject: 'Layout lado direito alterado - Tarefa #{serialNumber}',
+          body: 'O layout do lado direito do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Layout lado direito alterado na tarefa "{taskName}" #{serialNumber}.',
+      },
+    },
+    metadata: { field: 'truck.rightSideLayoutId', category: 'PRODUCTION' },
+    channelConfigs: CHANNELS_IN_APP_PUSH,
+    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'DESIGNER'] },
+  },
+  {
+    key: 'task.field.truck.backSideLayoutId',
+    name: 'Layout Traseira',
+    notificationType: 'PRODUCTION',
+    eventType: 'truck.backSideLayoutId',
+    description: 'Notificacao enviada quando o layout da traseira do caminhao e alterado',
+    importance: 'HIGH',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Layout traseira alterado: "{taskName}" #{serialNumber}',
+        push: 'Layout traseira alterado',
+        email: {
+          subject: 'Layout traseira alterado - Tarefa #{serialNumber}',
+          body: 'O layout da traseira do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+        },
+        whatsapp: 'Layout traseira alterado na tarefa "{taskName}" #{serialNumber}.',
+      },
+    },
+    metadata: { field: 'truck.backSideLayoutId', category: 'PRODUCTION' },
     channelConfigs: CHANNELS_IN_APP_PUSH,
     targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'DESIGNER'] },
   },
@@ -1543,38 +1638,6 @@ const TASK_NEGOTIATION_FIELD_CONFIGS: NotificationConfig[] = [
     targetRule: { allowedSectors: NEGOTIATION_SECTORS },
   },
   {
-    key: 'task.field.representativeIds',
-    name: 'IDs de Representantes',
-    notificationType: 'PRODUCTION',
-    eventType: 'field.representativeIds',
-    description: 'Notificacao quando os IDs de representantes da tarefa sao alterados',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Representantes atualizados',
-        push: 'Representantes atualizados',
-        email: {
-          subject: 'Representantes - Tarefa #{serialNumber}',
-          body: 'Os representantes da tarefa "{taskName}" foram atualizados por {changedBy}.',
-        },
-        whatsapp: 'Representantes da tarefa #{serialNumber} foram atualizados.',
-      },
-      cleared: {
-        inApp: 'Representantes removidos',
-        push: 'Representantes removidos',
-        email: {
-          subject: 'Representantes removidos - Tarefa #{serialNumber}',
-          body: 'Os representantes da tarefa "{taskName}" foram removidos por {changedBy}.',
-        },
-        whatsapp: 'Representantes da tarefa #{serialNumber} foram removidos.',
-      },
-    },
-    metadata: { field: 'representativeIds', category: 'NEGOTIATION' },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: NEGOTIATION_SECTORS },
-  },
-  {
     key: 'task.field.negotiatingWith',
     name: 'Negociando Com',
     notificationType: 'PRODUCTION',
@@ -1609,145 +1672,215 @@ const TASK_NEGOTIATION_FIELD_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 12. SERVICE ORDER NOTIFICATIONS (6)
+// 12. SERVICE ORDER NOTIFICATIONS - TYPE-SPECIFIC (9 events x 5 types = 45)
 // ============================================================================
 
-const SERVICE_ORDER_CONFIGS: NotificationConfig[] = [
-  {
-    key: 'service_order.created',
-    name: 'Ordem de Servico Criada',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.created',
-    description: 'Notificacao enviada quando uma nova ordem de servico e criada no sistema',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} criada para a tarefa "{taskName}"',
-        push: 'OS #{id}: Nova ordem de servico criada',
-        email: {
-          subject: 'Nova Ordem de Servico #{id} Criada',
-          body: 'Uma nova ordem de servico foi criada:\n\nOS: #{id}\nTarefa: {taskName}\nTipo: {type}\nDescricao: {description}\nCriada por: {changedBy}',
+/**
+ * Generates 8 notification configs for a specific SO type.
+ * Each SO type gets its own set of configs targeting the correct sectors.
+ */
+function generateSOConfigsForType(
+  soType: string,
+  typeLower: string,
+  typeLabel: string,
+  sectors: SectorPrivileges[],
+  options?: { includeWaitingApproval?: boolean },
+): NotificationConfig[] {
+  const configs: NotificationConfig[] = [
+    {
+      key: `service_order.created.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Criada`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.created.${typeLower}`,
+      description: `Notificacao enviada quando uma nova ordem de servico do tipo ${typeLabel} e criada`,
+      importance: 'NORMAL',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{id} criada para a tarefa "{taskName}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Nova ordem de servico criada`,
+          email: {
+            subject: `Nova Ordem de Servico ${typeLabel} #{id} Criada`,
+            body: `Uma nova ordem de servico (${typeLabel}) foi criada:\n\nOrdem de Servico: #{id}\nTarefa: {taskName}\nTipo: ${typeLabel}\nDescricao: {description}\nCriada por: {changedBy}`,
+          },
+          whatsapp: `Nova Ordem de Servico ${typeLabel} #{id} criada para tarefa "{taskName}". Criada por {changedBy}.`,
         },
-        whatsapp: 'Nova OS #{id} criada para tarefa "{taskName}". Tipo: {type}. Criada por {changedBy}.',
+      },
+      channelConfigs: CHANNELS_IN_APP_ONLY,
+      targetRule: { allowedSectors: sectors },
+    },
+    {
+      key: `service_order.assigned.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Atribuida`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.assigned.${typeLower}`,
+      description: `Notificacao enviada quando uma Ordem de Servico ${typeLabel} e atribuida a um usuario`,
+      importance: 'HIGH',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{id} atribuida a {assignedTo}: "{description}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Voce foi atribuido`,
+          email: {
+            subject: `Ordem de Servico ${typeLabel} #{id} Atribuida a Voce`,
+            body: `Uma ordem de servico (${typeLabel}) foi atribuida a voce:\n\nOrdem de Servico: #{id}\nDescricao: {description}\nAtribuido por: {assignedBy}\nAtribuido para: {assignedTo}\n\nPor favor, verifique os detalhes e inicie o trabalho assim que possivel.`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{id} atribuida a {assignedTo} por {assignedBy}.`,
+        },
+      },
+      channelConfigs: CHANNELS_HIGH,
+      targetRule: {
+        allowedSectors: ALL_SECTORS,
+        customFilter: 'SERVICE_ORDER_ASSIGNEE',
       },
     },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION'] },
-  },
-  {
-    key: 'service_order.assigned',
-    name: 'Ordem de Servico Atribuida',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.assigned',
-    description: 'Notificacao enviada quando uma ordem de servico e atribuida a um usuario',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} atribuida a {assignedTo}: "{description}"',
-        push: 'OS #{id}: Voce foi atribuido a uma ordem de servico',
-        email: {
-          subject: 'Ordem de Servico #{id} Atribuida a Voce',
-          body: 'Uma ordem de servico foi atribuida a voce:\n\nOS: #{id}\nDescricao: {description}\nAtribuido por: {assignedBy}\nAtribuido para: {assignedTo}\n\nPor favor, verifique os detalhes e inicie o trabalho assim que possivel.',
+    {
+      key: `service_order.started.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Iniciada`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.started.${typeLower}`,
+      description: `Notificacao enviada quando uma Ordem de Servico ${typeLabel} e iniciada`,
+      importance: 'NORMAL',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{id} iniciada: "{description}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Ordem de servico iniciada`,
+          email: {
+            subject: `Ordem de Servico ${typeLabel} #{id} Iniciada`,
+            body: `A ordem de servico (${typeLabel}) foi iniciada:\n\nOrdem de Servico: #{id}\nDescricao: {description}\nIniciada por: {changedBy}\nData de inicio: {startedAt}`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{id} iniciada. Iniciada por {changedBy}.`,
         },
-        whatsapp: 'OS #{id} atribuida a {assignedTo} por {assignedBy}. Descricao: {description}',
       },
+      channelConfigs: CHANNELS_IN_APP_ONLY,
+      targetRule: { allowedSectors: sectors },
     },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: {
-      allowedSectors: ALL_SECTORS,
-      customFilter: 'SERVICE_ORDER_ASSIGNEE',
-    },
-  },
-  {
-    key: 'service_order.started',
-    name: 'Ordem de Servico Iniciada',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.started',
-    description: 'Notificacao enviada quando uma ordem de servico e iniciada (em andamento)',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} iniciada: "{description}"',
-        push: 'OS #{id}: Ordem de servico iniciada',
-        email: {
-          subject: 'Ordem de Servico #{id} Iniciada',
-          body: 'A ordem de servico foi iniciada:\n\nOS: #{id}\nDescricao: {description}\nIniciada por: {changedBy}\nData de inicio: {startedAt}',
+    {
+      key: `service_order.completed.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Concluida`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.completed.${typeLower}`,
+      description: `Notificacao enviada quando uma Ordem de Servico ${typeLabel} e concluida`,
+      importance: 'HIGH',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{id} concluida: "{description}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Ordem de servico concluida`,
+          email: {
+            subject: `Ordem de Servico ${typeLabel} #{id} Concluida`,
+            body: `A ordem de servico (${typeLabel}) foi concluida:\n\nOrdem de Servico: #{id}\nDescricao: {description}\nConcluida por: {changedBy}\nData de conclusao: {completedAt}`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{id} concluida. Concluida por {changedBy}.`,
         },
-        whatsapp: 'OS #{id} iniciada: "{description}". Iniciada por {changedBy}.',
       },
+      channelConfigs: CHANNELS_IN_APP_PUSH,
+      targetRule: { allowedSectors: sectors },
     },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION'] },
-  },
-  {
-    key: 'service_order.completed',
-    name: 'Ordem de Servico Concluida',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.completed',
-    description: 'Notificacao enviada quando uma ordem de servico e concluida',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} concluida: "{description}"',
-        push: 'OS #{id}: Ordem de servico concluida',
-        email: {
-          subject: 'Ordem de Servico #{id} Concluida',
-          body: 'A ordem de servico foi concluida:\n\nOS: #{id}\nDescricao: {description}\nConcluida por: {changedBy}\nData de conclusao: {completedAt}',
+    {
+      key: `service_order.cancelled.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Cancelada`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.cancelled.${typeLower}`,
+      description: `Notificacao enviada quando uma Ordem de Servico ${typeLabel} e cancelada`,
+      importance: 'HIGH',
+      workHoursOnly: false,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{id} cancelada: "{description}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Ordem de servico cancelada`,
+          email: {
+            subject: `Ordem de Servico ${typeLabel} #{id} Cancelada`,
+            body: `A ordem de servico (${typeLabel}) foi cancelada:\n\nOrdem de Servico: #{id}\nDescricao: {description}\nCancelada por: {changedBy}\nMotivo: {cancellationReason}`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{id} cancelada. Cancelada por {changedBy}. Motivo: {cancellationReason}`,
         },
-        whatsapp: 'OS #{id} concluida: "{description}". Concluida por {changedBy}.',
       },
+      channelConfigs: CHANNELS_IN_APP_PUSH,
+      targetRule: { allowedSectors: sectors },
     },
-    channelConfigs: CHANNELS_IN_APP_PUSH,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'FINANCIAL'] },
-  },
-  {
-    key: 'service_order.approved',
-    name: 'Ordem de Servico Aprovada',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.approved',
-    description: 'Notificacao enviada quando uma ordem de servico e aprovada',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} aprovada: "{description}"',
-        push: 'OS #{id}: Ordem de servico aprovada',
-        email: {
-          subject: 'Ordem de Servico #{id} Aprovada',
-          body: 'A ordem de servico foi aprovada:\n\nOS: #{id}\nDescricao: {description}\nAprovada por: {changedBy}\nData de aprovacao: {approvedAt}',
+    {
+      key: `service_order.observation_changed.${typeLower}`,
+      name: `Observacao de Ordem de Servico ${typeLabel} Alterada`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.observation_changed.${typeLower}`,
+      description: `Notificacao enviada quando a observacao de uma Ordem de Servico ${typeLabel} e alterada`,
+      importance: 'NORMAL',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Observacao da Ordem de Servico ${typeLabel} #{id} alterada na tarefa "{taskName}"`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Observacao alterada`,
+          email: {
+            subject: `Observacao Alterada - Ordem de Servico ${typeLabel} #{id}`,
+            body: `A observacao de uma ordem de servico (${typeLabel}) foi alterada:\n\nOrdem de Servico: #{id}\nTarefa: {taskName}\nAlterada por: {changedBy}\n\nObservacao anterior: {oldObservation}\nNova observacao: {newObservation}`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{id}: Observacao alterada por {changedBy}.`,
         },
-        whatsapp: 'OS #{id} aprovada: "{description}". Aprovada por {changedBy}.',
       },
+      channelConfigs: CHANNELS_IN_APP_ONLY,
+      targetRule: { allowedSectors: sectors },
     },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION'] },
-  },
-  {
-    key: 'service_order.cancelled',
-    name: 'Ordem de Servico Cancelada',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.cancelled',
-    description: 'Notificacao enviada quando uma ordem de servico e cancelada',
-    importance: 'HIGH',
-    workHoursOnly: false,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{id} cancelada: "{description}"',
-        push: 'OS #{id}: Ordem de servico cancelada',
-        email: {
-          subject: 'Ordem de Servico #{id} Cancelada',
-          body: 'A ordem de servico foi cancelada:\n\nOS: #{id}\nDescricao: {description}\nCancelada por: {changedBy}\nMotivo: {cancellationReason}',
+    {
+      key: `service_order.status_changed_for_creator.${typeLower}`,
+      name: `Status da Ordem de Servico ${typeLabel} Alterado (Criador)`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.status_changed_for_creator.${typeLower}`,
+      description: `Notificacao enviada ao criador de uma Ordem de Servico ${typeLabel} quando o status e alterado por outra pessoa`,
+      importance: 'NORMAL',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Sua Ordem de Servico ${typeLabel} #{id} mudou de status: {oldStatus} para {newStatus}`,
+          push: `Ordem de Servico ${typeLabel} #{id}: Status alterado para {newStatus}`,
+          email: {
+            subject: `Status Alterado - Ordem de Servico ${typeLabel} #{id}`,
+            body: `O status de uma ordem de servico (${typeLabel}) que voce criou foi alterado:\n\nOrdem de Servico: #{id}\nTarefa: {taskName}\nStatus anterior: {oldStatus}\nNovo status: {newStatus}\nAlterado por: {changedBy}`,
+          },
+          whatsapp: `Sua Ordem de Servico ${typeLabel} #{id} mudou para {newStatus}. Alterado por {changedBy}.`,
         },
-        whatsapp: 'OS #{id} cancelada: "{description}". Cancelada por {changedBy}. Motivo: {cancellationReason}',
       },
+      channelConfigs: CHANNELS_IN_APP_PUSH,
+      targetRule: { allowedSectors: ALL_SECTORS },
     },
-    channelConfigs: CHANNELS_IN_APP_PUSH,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION'] },
-  },
+  ];
+
+  // Only ARTWORK type uses WAITING_APPROVE status
+  if (options?.includeWaitingApproval) {
+    configs.push({
+      key: `service_order.waiting_approval.${typeLower}`,
+      name: `Ordem de Servico ${typeLabel} Aguardando Aprovacao`,
+      notificationType: 'PRODUCTION',
+      eventType: `service_order.waiting_approval.${typeLower}`,
+      description: `Notificacao enviada quando uma Ordem de Servico ${typeLabel} esta aguardando aprovacao`,
+      importance: 'HIGH',
+      workHoursOnly: true,
+      templates: {
+        updated: {
+          inApp: `Ordem de Servico ${typeLabel} #{serviceOrderNumber} aguardando aprovacao`,
+          push: `Ordem de Servico ${typeLabel} aguardando aprovacao`,
+          email: {
+            subject: `Ordem de Servico ${typeLabel} #{serviceOrderNumber} - Aguardando Aprovacao`,
+            body: `Uma ordem de servico (${typeLabel}) esta aguardando sua aprovacao:\n\nNumero: #{serviceOrderNumber}\nDescricao: {description}\nExecutado por: {executedBy}\nData: {completedDate}\n\nAcesse o sistema para aprovar ou rejeitar.`,
+          },
+          whatsapp: `Ordem de Servico ${typeLabel} #{serviceOrderNumber} aguardando aprovacao. Verificar sistema.`,
+        },
+      },
+      channelConfigs: CHANNELS_HIGH,
+      targetRule: { allowedSectors: sectors },
+    });
+  }
+
+  return configs;
+}
+
+const SERVICE_ORDER_TYPE_CONFIGS: NotificationConfig[] = [
+  ...generateSOConfigsForType('PRODUCTION', 'production', 'Producao', SO_TYPE_PRODUCTION_SECTORS),
+  ...generateSOConfigsForType('FINANCIAL', 'financial', 'Financeira', SO_TYPE_FINANCIAL_SECTORS),
+  ...generateSOConfigsForType('COMMERCIAL', 'commercial', 'Comercial', SO_TYPE_COMMERCIAL_SECTORS),
+  ...generateSOConfigsForType('ARTWORK', 'artwork', 'Arte', SO_TYPE_ARTWORK_SECTORS, { includeWaitingApproval: true }),
+  ...generateSOConfigsForType('LOGISTIC', 'logistic', 'Logistica', SO_TYPE_LOGISTIC_SECTORS),
 ];
 
 // ============================================================================
@@ -1946,246 +2079,12 @@ const PPE_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 16. ALERT NOTIFICATIONS (10)
+// 16. ALERT NOTIFICATIONS
+// NOTE: Alert configs removed - no code currently emits alert.* events.
+// These can be re-added when alert systems are implemented.
 // ============================================================================
 
-const ALERT_CONFIGS: NotificationConfig[] = [
-  // Stock Alerts
-  {
-    key: 'alert.stock_out',
-    name: 'Estoque Zerado',
-    notificationType: 'STOCK',
-    eventType: 'alert.stock_out',
-    description: 'Alerta urgente enviado quando um item fica sem estoque',
-    importance: 'URGENT',
-    workHoursOnly: false,
-    maxFrequencyPerDay: 5,
-    templates: {
-      updated: {
-        inApp: 'ESTOQUE ZERADO: "{itemName}" esta sem estoque!',
-        push: 'URGENTE: Item sem estoque!',
-        email: {
-          subject: 'URGENTE: Estoque zerado - {itemName}',
-          body: 'ATENCAO URGENTE!\n\nO item "{itemName}" esta SEM ESTOQUE.\n\nCategoria: {categoryName}\nFornecedor: {supplierName}\nUltima movimentacao: {lastMovementDate}\n\nE necessaria acao imediata para repor este item.',
-        },
-        whatsapp: 'URGENTE: O item "{itemName}" esta SEM ESTOQUE! Acao imediata necessaria.',
-      },
-    },
-    channelConfigs: CHANNELS_URGENT,
-    targetRule: { allowedSectors: ['WAREHOUSE', 'ADMIN', 'FINANCIAL'] },
-  },
-  {
-    key: 'alert.low_stock',
-    name: 'Estoque Baixo',
-    notificationType: 'STOCK',
-    eventType: 'alert.low_stock',
-    description: 'Alerta enviado quando o estoque de um item esta abaixo do minimo',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    maxFrequencyPerDay: 3,
-    templates: {
-      updated: {
-        inApp: 'Estoque baixo: "{itemName}" - {currentQuantity}/{minQuantity} unidades',
-        push: 'Estoque baixo: {itemName}',
-        email: {
-          subject: 'Alerta de estoque baixo - {itemName}',
-          body: 'O estoque do item "{itemName}" esta abaixo do minimo.\n\nQuantidade atual: {currentQuantity}\nQuantidade minima: {minQuantity}\nCategoria: {categoryName}\n\nConsidere fazer um pedido de reposicao.',
-        },
-        whatsapp: 'Estoque baixo: "{itemName}" com {currentQuantity} unidades (minimo: {minQuantity}).',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: { allowedSectors: ['WAREHOUSE', 'ADMIN', 'MAINTENANCE'] },
-  },
-  {
-    key: 'alert.reorder_needed',
-    name: 'Reposicao Necessaria',
-    notificationType: 'STOCK',
-    eventType: 'alert.reorder_needed',
-    description: 'Alerta enviado quando um item atinge o ponto de reposicao',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Reposicao necessaria: "{itemName}" atingiu o ponto de pedido',
-        push: 'Reposicao necessaria: {itemName}',
-        email: {
-          subject: 'Ponto de reposicao atingido - {itemName}',
-          body: 'O item "{itemName}" atingiu o ponto de reposicao e precisa ser reposto.\n\nQuantidade atual: {currentQuantity}\nPonto de pedido: {reorderPoint}\nQuantidade sugerida: {suggestedQuantity}\nFornecedor: {supplierName}',
-        },
-        whatsapp: 'Reposicao necessaria: "{itemName}" atingiu o ponto de pedido.',
-      },
-    },
-    channelConfigs: CHANNELS_IN_APP_PUSH,
-    targetRule: { allowedSectors: ['WAREHOUSE', 'ADMIN', 'FINANCIAL'] },
-  },
-
-  // Task Alerts
-  {
-    key: 'alert.overdue',
-    name: 'Tarefa Atrasada (Alerta)',
-    notificationType: 'PRODUCTION',
-    eventType: 'alert.overdue',
-    description: 'Alerta de tarefa atrasada - complementa task.overdue com notificacoes adicionais',
-    importance: 'HIGH',
-    workHoursOnly: false,
-    maxFrequencyPerDay: 2,
-    templates: {
-      updated: {
-        inApp: 'Tarefa atrasada: "{taskName}" - {daysOverdue} dia(s) de atraso',
-        push: 'Tarefa atrasada: {daysOverdue} dia(s)!',
-        email: {
-          subject: 'Alerta: Tarefa #{serialNumber} atrasada',
-          body: 'A tarefa "{taskName}" esta atrasada ha {daysOverdue} dia(s).\n\nNumero de Serie: #{serialNumber}\nPrazo original: {term}\nSetor responsavel: {sectorName}\n\nPor favor, verifique a situacao e tome as providencias necessarias.',
-        },
-        whatsapp: 'Alerta: Tarefa #{serialNumber} atrasada ha {daysOverdue} dia(s)!',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: {
-      allowedSectors: ['ADMIN', 'PRODUCTION', 'COMMERCIAL'],
-      customFilter: 'TASK_ASSIGNEE',
-    },
-  },
-  {
-    key: 'alert.customer_complaint',
-    name: 'Reclamacao de Cliente',
-    notificationType: 'PRODUCTION',
-    eventType: 'alert.customer_complaint',
-    description: 'Alerta urgente enviado quando uma reclamacao de cliente e registrada',
-    importance: 'URGENT',
-    workHoursOnly: false,
-    templates: {
-      updated: {
-        inApp: 'RECLAMACAO DO CLIENTE: "{customerName}" - Tarefa #{serialNumber}',
-        push: 'URGENTE: Reclamacao de cliente!',
-        email: {
-          subject: 'URGENTE: Reclamacao de cliente - {customerName}',
-          body: 'ATENCAO URGENTE!\n\nUma reclamacao de cliente foi registrada.\n\nCliente: {customerName}\nTarefa: {taskName} (#{serialNumber})\nMotivo: {complaintReason}\nRegistrado por: {changedBy}\nData: {complaintDate}\n\nE necessaria acao imediata para resolver esta situacao.',
-        },
-        whatsapp: 'URGENTE: Reclamacao do cliente "{customerName}" sobre tarefa #{serialNumber}. Acao imediata necessaria!',
-      },
-    },
-    channelConfigs: CHANNELS_URGENT,
-    targetRule: { allowedSectors: ['ADMIN', 'COMMERCIAL', 'PRODUCTION', 'FINANCIAL'] },
-  },
-
-  // PPE Alerts
-  {
-    key: 'alert.stock_shortage',
-    name: 'Falta de EPI',
-    notificationType: 'USER',
-    eventType: 'alert.stock_shortage',
-    description: 'Alerta enviado quando ha falta de estoque de EPI',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Falta de EPI: "{ppeItemName}" - Estoque insuficiente para entregas programadas',
-        push: 'Falta de EPI: {ppeItemName}',
-        email: {
-          subject: 'Alerta de falta de EPI - {ppeItemName}',
-          body: 'O estoque de EPI "{ppeItemName}" esta insuficiente para atender as entregas programadas.\n\nQuantidade em estoque: {currentQuantity}\nQuantidade necessaria: {requiredQuantity}\nEntregas pendentes: {pendingDeliveries}\n\nPor favor, providencie a reposicao.',
-        },
-        whatsapp: 'Falta de EPI: "{ppeItemName}" com estoque insuficiente para entregas.',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: { allowedSectors: ['HUMAN_RESOURCES', 'ADMIN', 'WAREHOUSE'] },
-  },
-  {
-    key: 'alert.missing_delivery',
-    name: 'Entrega de EPI Pendente',
-    notificationType: 'USER',
-    eventType: 'alert.missing_delivery',
-    description: 'Alerta enviado quando uma entrega de EPI programada nao foi realizada',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Entrega de EPI pendente: {employeeName} - {ppeItemName}',
-        push: 'Entrega de EPI pendente',
-        email: {
-          subject: 'Entrega de EPI pendente - {employeeName}',
-          body: 'Uma entrega de EPI programada nao foi realizada.\n\nColaborador: {employeeName}\nItem: {ppeItemName}\nData programada: {scheduledDate}\nSetor: {sectorName}\n\nPor favor, verifique e regularize a situacao.',
-        },
-        whatsapp: 'Entrega de EPI pendente para {employeeName}: {ppeItemName}.',
-      },
-    },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: ['HUMAN_RESOURCES', 'ADMIN'] },
-  },
-
-  // Order Alert
-  {
-    key: 'alert.delivery_delay',
-    name: 'Atraso na Entrega',
-    notificationType: 'STOCK',
-    eventType: 'alert.delivery_delay',
-    description: 'Alerta enviado quando ha atraso na entrega de um pedido',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Atraso na entrega: Pedido #{orderNumber} - {daysDelayed} dia(s) de atraso',
-        push: 'Atraso na entrega: Pedido #{orderNumber}',
-        email: {
-          subject: 'Atraso na entrega - Pedido #{orderNumber}',
-          body: 'O pedido #{orderNumber} esta com atraso na entrega.\n\nFornecedor: {supplierName}\nData prevista: {expectedDate}\nDias de atraso: {daysDelayed}\nItens: {itemsCount}\n\nPor favor, entre em contato com o fornecedor para verificar a situacao.',
-        },
-        whatsapp: 'Atraso na entrega do pedido #{orderNumber} - {daysDelayed} dia(s). Verificar com fornecedor.',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: { allowedSectors: ['WAREHOUSE', 'ADMIN', 'FINANCIAL'] },
-  },
-
-  // Warning Alerts
-  {
-    key: 'alert.escalation_needed',
-    name: 'Escalacao Necessaria',
-    notificationType: 'USER',
-    eventType: 'alert.escalation_needed',
-    description: 'Alerta urgente enviado quando um aviso precisa ser escalado para nivel superior',
-    importance: 'URGENT',
-    workHoursOnly: false,
-    templates: {
-      updated: {
-        inApp: 'ESCALACAO NECESSARIA: Aviso para {employeeName} requer acao do RH',
-        push: 'URGENTE: Escalacao de aviso necessaria!',
-        email: {
-          subject: 'URGENTE: Escalacao de aviso necessaria - {employeeName}',
-          body: 'ATENCAO URGENTE!\n\nUm aviso precisa ser escalado para tratamento em nivel superior.\n\nColaborador: {employeeName}\nSetor: {sectorName}\nTipo de aviso: {warningSeverity}\nMotivo: {warningReason}\nCategoria: {warningCategory}\nAvisos anteriores: {previousWarningsCount}\n\nE necessaria acao imediata do RH para avaliar a situacao.',
-        },
-        whatsapp: 'URGENTE: Aviso para {employeeName} requer escalacao. {warningSeverity} - {warningReason}.',
-      },
-    },
-    channelConfigs: CHANNELS_URGENT,
-    targetRule: { allowedSectors: ['HUMAN_RESOURCES', 'ADMIN'] },
-  },
-  {
-    key: 'alert.repeat_offender',
-    name: 'Avisos Recorrentes',
-    notificationType: 'USER',
-    eventType: 'alert.repeat_offender',
-    description: 'Alerta enviado quando um colaborador recebe avisos repetidos',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Avisos recorrentes: {employeeName} - {warningsCount} avisos no periodo',
-        push: 'Avisos recorrentes: {employeeName}',
-        email: {
-          subject: 'Alerta: Avisos recorrentes - {employeeName}',
-          body: 'O colaborador {employeeName} recebeu {warningsCount} avisos no periodo.\n\nSetor: {sectorName}\nTipo mais frequente: {mostFrequentCategory}\nUltimo aviso: {lastWarningDate}\nMotivo: {lastWarningReason}\n\nRecomenda-se avaliacao do historico e possivel acao disciplinar.',
-        },
-        whatsapp: 'Avisos recorrentes: {employeeName} com {warningsCount} avisos. Avaliar historico.',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: { allowedSectors: ['HUMAN_RESOURCES', 'ADMIN'] },
-  },
-];
+const ALERT_CONFIGS: NotificationConfig[] = [];
 
 // ============================================================================
 // 17. CUT NOTIFICATIONS (5)
@@ -2282,16 +2181,16 @@ const CUT_CONFIGS: NotificationConfig[] = [
   },
   {
     key: 'cuts.added.to.task',
-    name: 'Recortes Adicionados em Lote',
+    name: 'Recortes Adicionados',
     notificationType: 'PRODUCTION',
     eventType: 'cuts.added.to.task',
-    description: 'Notificacao enviada quando multiplos recortes sao adicionados a uma tarefa',
+    description: 'Notificacao enviada quando recortes sao adicionados a uma tarefa',
     importance: 'NORMAL',
     workHoursOnly: true,
     templates: {
       updated: {
         inApp: '{count} recorte(s) adicionado(s) para tarefa "{taskName}" #{serialNumber}',
-        push: 'Recortes adicionados em lote',
+        push: 'Recortes adicionados',
         email: {
           subject: '{count} recorte(s) adicionado(s) - Tarefa #{serialNumber}',
           body: 'Foram adicionados {count} recorte(s) a tarefa:\n\nTarefa: {taskName} #{serialNumber}\nQuantidade: {count}\nAdicionados por: {changedBy}\n\nAcesse o sistema para verificar os detalhes.',
@@ -2422,37 +2321,10 @@ const ORDER_CONFIGS: NotificationConfig[] = [
   },
 ];
 
-// ============================================================================
-// 19. ADDITIONAL SERVICE ORDER NOTIFICATIONS (1)
-// ============================================================================
-
-const SERVICE_ORDER_ADDITIONAL_CONFIGS: NotificationConfig[] = [
-  {
-    key: 'service_order.waiting_approval',
-    name: 'Ordem de Servico Aguardando Aprovacao',
-    notificationType: 'PRODUCTION',
-    eventType: 'service_order.waiting_approval',
-    description: 'Notificacao enviada quando uma ordem de servico esta aguardando aprovacao',
-    importance: 'HIGH',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Ordem de servico #{serviceOrderNumber} aguardando aprovacao',
-        push: 'OS aguardando aprovacao',
-        email: {
-          subject: 'Ordem de Servico #{serviceOrderNumber} - Aguardando Aprovacao',
-          body: 'Uma ordem de servico esta aguardando sua aprovacao:\n\nNumero: #{serviceOrderNumber}\nTipo: {serviceType}\nDescricao: {description}\nExecutado por: {executedBy}\nData: {completedDate}\n\nAcesse o sistema para aprovar ou rejeitar.',
-        },
-        whatsapp: 'OS #{serviceOrderNumber} aguardando aprovacao. Verificar sistema.',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: { allowedSectors: ['ADMIN', 'PRODUCTION', 'MAINTENANCE'] },
-  },
-];
+// (SERVICE_ORDER_ADDITIONAL_CONFIGS removed - merged into SERVICE_ORDER_TYPE_CONFIGS above)
 
 // ============================================================================
-// 20. ITEM/STOCK DETAIL NOTIFICATIONS (5)
+// 20. ITEM/STOCK DETAIL NOTIFICATIONS (4)
 // ============================================================================
 
 const ITEM_STOCK_CONFIGS: NotificationConfig[] = [
@@ -2546,29 +2418,6 @@ const ITEM_STOCK_CONFIGS: NotificationConfig[] = [
     channelConfigs: CHANNELS_IN_APP_ONLY,
     targetRule: { allowedSectors: ['ADMIN', 'WAREHOUSE'] },
   },
-  {
-    key: 'item.daily_stock_report',
-    name: 'Relatorio Diario de Estoque',
-    notificationType: 'STOCK',
-    eventType: 'item.daily_stock_report',
-    description: 'Relatorio diario agregado com itens que requerem atencao de estoque',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    maxFrequencyPerDay: 1,
-    templates: {
-      updated: {
-        inApp: 'Verificacao diaria: {totalItems} item(s) requerem atencao',
-        push: 'Verificacao diaria de estoque',
-        email: {
-          subject: 'Verificacao Diaria de Estoque - {totalItems} itens requerem atencao',
-          body: 'Relatorio diario de verificacao de estoque:\n\n{stockSummary}\n\nItens sem estoque: {outOfStockCount}\nItens com estoque baixo: {lowStockCount}\nItens para recompra: {reorderCount}\n\nAcesse o sistema para detalhes completos.',
-        },
-        whatsapp: 'Verificacao de estoque: {totalItems} itens requerem atencao.',
-      },
-    },
-    channelConfigs: CHANNELS_IN_APP_PUSH,
-    targetRule: { allowedSectors: ['ADMIN', 'WAREHOUSE'] },
-  },
 ];
 
 // ============================================================================
@@ -2649,7 +2498,7 @@ const ARTWORK_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 21. TIME ENTRY REMINDER NOTIFICATIONS (2)
+// 21. TIME ENTRY REMINDER NOTIFICATIONS (1)
 // ============================================================================
 
 const TIME_ENTRY_REMINDER_CONFIGS: NotificationConfig[] = [
@@ -2678,31 +2527,6 @@ const TIME_ENTRY_REMINDER_CONFIGS: NotificationConfig[] = [
       allowedSectors: ALL_SECTORS,
     },
   },
-  {
-    key: 'timeentry.missing_daily',
-    name: 'Resumo Diario de Pontos Pendentes',
-    notificationType: 'USER',
-    eventType: 'timeentry.missing_daily',
-    description: 'Resumo enviado ao final do dia listando todos os registros de ponto que nao foram realizados',
-    importance: 'HIGH',
-    workHoursOnly: false, // Sent after work hours
-    maxFrequencyPerDay: 1,
-    templates: {
-      updated: {
-        inApp: 'Atencao: Voce tem {missingCount} registro(s) de ponto pendente(s) hoje.',
-        push: 'Pontos pendentes hoje!',
-        email: {
-          subject: 'ATENCAO: Registros de Ponto Pendentes - {date}',
-          body: 'Ola {userName},\n\nIdentificamos que voce possui registros de ponto pendentes para hoje ({date}).\n\nRegistros faltantes:\n{missingEntries}\n\nPor favor, regularize seus registros de ponto ou entre em contato com o RH caso tenha alguma justificativa.\n\nEste e um lembrete automatico do sistema.',
-        },
-        whatsapp: 'ATENCAO: Voce tem {missingCount} registro(s) de ponto pendente(s) hoje. Regularize seu ponto!',
-      },
-    },
-    channelConfigs: CHANNELS_HIGH,
-    targetRule: {
-      allowedSectors: ALL_SECTORS,
-    },
-  },
 ];
 
 // ============================================================================
@@ -2710,15 +2534,15 @@ const TIME_ENTRY_REMINDER_CONFIGS: NotificationConfig[] = [
 // ============================================================================
 
 const ALL_NOTIFICATION_CONFIGS: NotificationConfig[] = [
-  // Task Lifecycle (3)
+  // Task Lifecycle (2)
   ...TASK_LIFECYCLE_CONFIGS,
-  // Task Status Events (3)
+  // Task Status Events (4)
   ...TASK_STATUS_CONFIGS,
-  // Task Deadlines - Term (6)
+  // Task Deadlines - Term (5)
   ...TASK_TERM_DEADLINE_CONFIGS,
   // Task Deadlines - Forecast (6)
   ...TASK_FORECAST_DEADLINE_CONFIGS,
-  // Task Basic Fields (4)
+  // Task Basic Fields (5)
   ...TASK_BASIC_FIELD_CONFIGS,
   // Task Date Fields (5)
   ...TASK_DATE_FIELD_CONFIGS,
@@ -2728,31 +2552,29 @@ const ALL_NOTIFICATION_CONFIGS: NotificationConfig[] = [
   ...TASK_FINANCIAL_FIELD_CONFIGS,
   // Task Artwork/Production Fields (5)
   ...TASK_ARTWORK_PRODUCTION_FIELD_CONFIGS,
-  // Task Truck Fields (3)
+  // Task Truck Fields (8)
   ...TASK_TRUCK_FIELD_CONFIGS,
   // Task Negotiation Fields (3)
   ...TASK_NEGOTIATION_FIELD_CONFIGS,
-  // Service Orders (6)
-  ...SERVICE_ORDER_CONFIGS,
+  // Service Orders - Type-Specific (36)
+  ...SERVICE_ORDER_TYPE_CONFIGS,
   // Borrow (2)
   ...BORROW_CONFIGS,
   // Paint (1)
   ...PAINT_CONFIGS,
   // PPE/EPI (4)
   ...PPE_CONFIGS,
-  // Alerts (10)
+  // Alerts (0)
   ...ALERT_CONFIGS,
   // Cut Notifications (5)
   ...CUT_CONFIGS,
   // Order Notifications (5)
   ...ORDER_CONFIGS,
-  // Additional Service Order (1)
-  ...SERVICE_ORDER_ADDITIONAL_CONFIGS,
-  // Item/Stock Detail (5)
+  // Item/Stock Detail (4)
   ...ITEM_STOCK_CONFIGS,
   // Artwork Approval (5)
   ...ARTWORK_CONFIGS,
-  // Time Entry Reminders (4)
+  // Time Entry Reminders (1)
   ...TIME_ENTRY_REMINDER_CONFIGS,
 ];
 
