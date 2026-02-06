@@ -36,9 +36,8 @@ coverage/
 *.temp
 .cache/
 
-# Uploads directory (temp files)
-uploads/temp/
-uploads/**/*.eps
+# Uploads directory
+uploads/
 
 # Database
 *.db
