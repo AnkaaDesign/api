@@ -2,13 +2,8 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import {
-  BORROW_STATUS,
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_CHANNEL,
-} from '../../../constants/enums';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
+import { BORROW_STATUS } from '../../../constants/enums';
 
 /**
  * Event emitted when user has unreturned borrows
@@ -29,12 +24,16 @@ export class UnreturnedBorrowEvent {
 
 /**
  * Borrow Notification Scheduler
- * Handles daily reminders for unreturned borrows
+ * Handles daily reminders for unreturned borrows using config-based dispatch.
  *
- * Runs daily at 17:20 (5:20 PM) to remind users about unreturned tools/items
- * Notifies:
- * - The user who has the borrowed item
- * - The sector manager of that user
+ * Runs daily at 17:20 (5:20 PM) to remind users about unreturned tools/items.
+ *
+ * Config keys:
+ * - borrow.unreturned_reminder          → targets the borrower user
+ * - borrow.unreturned_manager_reminder  → targets the sector manager
+ *
+ * Uses dispatchByConfigurationToUsers for targeted user dispatch
+ * (checks config enablement + user notification preferences before sending).
  */
 @Injectable()
 export class BorrowNotificationScheduler {
@@ -42,7 +41,7 @@ export class BorrowNotificationScheduler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
+    private readonly dispatchService: NotificationDispatchService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
@@ -137,48 +136,26 @@ export class BorrowNotificationScheduler {
           const borrowCount = borrows.length;
           const itemList = borrows.map((b) => b.itemName).join(', ');
 
-          // 1. Notify the user who has the borrowed items
-          await this.notificationService.createNotification({
-            userId,
-            type: NOTIFICATION_TYPE.STOCK,
-            importance: NOTIFICATION_IMPORTANCE.NORMAL,
-            title: 'Lembrete: Itens Emprestados',
-            body:
-              borrowCount === 1
-                ? `Você possui "${itemList}" emprestado(a). Por favor, devolva ao almoxarifado.`
-                : `Você possui ${borrowCount} itens emprestados: ${itemList}. Por favor, devolva ao almoxarifado.`,
-            actionUrl: '/estoque/emprestimos',
-            metadata: {
-              webUrl: '/estoque/emprestimos',
-              borrowCount,
-              items: borrows.map((b) => ({
-                id: b.id,
-                name: b.itemName,
-                quantity: b.quantity,
-                borrowedAt: b.borrowedAt,
-              })),
-            },
-            channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
-          });
-          notificationsCreated++;
+          const title = 'Lembrete: Itens Emprestados';
+          const body =
+            borrowCount === 1
+              ? `Você possui "${itemList}" emprestado(a). Por favor, devolva ao almoxarifado.`
+              : `Você possui ${borrowCount} itens emprestados: ${itemList}. Por favor, devolva ao almoxarifado.`;
 
-          // 2. Notify the sector manager (if exists and different from user)
-          const sectorManagerId = user.sector?.managerId;
-          if (sectorManagerId && sectorManagerId !== userId) {
-            await this.notificationService.createNotification({
-              userId: sectorManagerId,
-              type: NOTIFICATION_TYPE.STOCK,
-              importance: NOTIFICATION_IMPORTANCE.NORMAL,
-              title: 'Lembrete: Colaborador com Itens Emprestados',
-              body:
-                borrowCount === 1
-                  ? `${user.name} possui "${itemList}" emprestado(a) há mais de um dia.`
-                  : `${user.name} possui ${borrowCount} itens emprestados: ${itemList}.`,
-              actionUrl: '/estoque/emprestimos',
+          // 1. Notify the user who has the borrowed items
+          await this.dispatchService.dispatchByConfigurationToUsers(
+            'borrow.unreturned_reminder',
+            'system', // Cron-triggered, no actor user
+            {
+              entityType: 'Borrow',
+              entityId: borrows[0].id,
+              action: 'unreturned_reminder',
+              data: {
+                userName: user.name,
+                borrowCount: borrowCount.toString(),
+                itemList,
+              },
               metadata: {
-                webUrl: '/estoque/emprestimos',
-                employeeId: userId,
-                employeeName: user.name,
                 borrowCount,
                 items: borrows.map((b) => ({
                   id: b.id,
@@ -187,8 +164,61 @@ export class BorrowNotificationScheduler {
                   borrowedAt: b.borrowedAt,
                 })),
               },
-              channel: [NOTIFICATION_CHANNEL.IN_APP],
-            });
+              overrides: {
+                actionUrl: '/estoque/emprestimos',
+                webUrl: '/estoque/emprestimos',
+                relatedEntityType: 'BORROW',
+                title,
+                body,
+              },
+            },
+            [userId],
+          );
+          notificationsCreated++;
+
+          // 2. Notify the sector manager (if exists and different from user)
+          const sectorManagerId = user.sector?.managerId;
+          if (sectorManagerId && sectorManagerId !== userId) {
+            const managerTitle = 'Lembrete: Colaborador com Itens Emprestados';
+            const managerBody =
+              borrowCount === 1
+                ? `${user.name} possui "${itemList}" emprestado(a) há mais de um dia.`
+                : `${user.name} possui ${borrowCount} itens emprestados: ${itemList}.`;
+
+            await this.dispatchService.dispatchByConfigurationToUsers(
+              'borrow.unreturned_manager_reminder',
+              'system', // Cron-triggered, no actor user
+              {
+                entityType: 'Borrow',
+                entityId: borrows[0].id,
+                action: 'unreturned_manager_reminder',
+                data: {
+                  userName: user.name,
+                  borrowCount: borrowCount.toString(),
+                  itemList,
+                  employeeName: user.name,
+                },
+                metadata: {
+                  employeeId: userId,
+                  employeeName: user.name,
+                  borrowCount,
+                  items: borrows.map((b) => ({
+                    id: b.id,
+                    name: b.itemName,
+                    quantity: b.quantity,
+                    borrowedAt: b.borrowedAt,
+                  })),
+                },
+                overrides: {
+                  actionUrl: '/estoque/emprestimos',
+                  webUrl: '/estoque/emprestimos',
+                  relatedEntityType: 'BORROW',
+                  title: managerTitle,
+                  body: managerBody,
+                },
+              },
+              [sectorManagerId],
+            );
             notificationsCreated++;
           }
 

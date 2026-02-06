@@ -48,19 +48,24 @@ export interface TaskFieldChangedEvent {
  */
 const TRACKED_FIELDS = [
   // 'status', // EXCLUDED - Has dedicated task.status.changed event handler
+  'name',
   'term',
   'forecastDate',
   'sectorId',
   'commission',
   'negotiatingWith', // DEPRECATED - kept for backward compatibility
   'representatives',
-  'representativeIds',
   'artworks', // array of files
   'budgets', // array of files
   'invoices', // array of files
   'receipts', // array of files
+  'baseFiles', // array of files
+  'logoPaints', // array of files/paints
+  'reimbursements', // array of files
+  'invoiceReimbursements', // array of files
   'priority',
   'details',
+  'observation',
   'entryDate',
   'startedAt',
   'finishedAt',
@@ -88,6 +93,8 @@ const FILE_ARRAY_FIELDS = [
   'budgets',
   'invoices',
   'receipts',
+  'baseFiles',
+  'logoPaints',
   'reimbursements',
   'invoiceReimbursements',
 ] as const;

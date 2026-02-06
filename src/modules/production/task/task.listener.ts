@@ -10,7 +10,50 @@ import {
   TaskDeadlineApproachingEvent,
   TaskOverdueEvent,
 } from './task.events';
+import {
+  TaskForecastApproachingEvent,
+  TaskForecastOverdueEvent,
+} from './task-notification.scheduler';
 import { TASK_STATUS } from '../../../constants/enums';
+
+/**
+ * Maps deadline thresholds to specific configuration keys.
+ * Hour-based thresholds (< 24h) and day-based thresholds.
+ */
+function getDeadlineConfigKey(daysRemaining: number, hoursRemaining?: number): string | null {
+  // Hour-based thresholds
+  if (hoursRemaining !== undefined && hoursRemaining <= 1) return 'task.deadline_1hour';
+  if (hoursRemaining !== undefined && hoursRemaining <= 4) return 'task.deadline_4hours';
+
+  // Day-based thresholds
+  if (daysRemaining <= 1) return 'task.deadline_1day';
+  if (daysRemaining <= 3) return 'task.deadline_3days';
+  if (daysRemaining <= 7) return 'task.deadline_7days';
+
+  return null;
+}
+
+/**
+ * Maps forecast thresholds to specific configuration keys.
+ */
+function getForecastConfigKey(daysRemaining: number): string | null {
+  if (daysRemaining === 0) return 'task.forecast_today';
+  if (daysRemaining <= 1) return 'task.forecast_1day';
+  if (daysRemaining <= 3) return 'task.forecast_3days';
+  if (daysRemaining <= 7) return 'task.forecast_7days';
+  if (daysRemaining <= 10) return 'task.forecast_10days';
+
+  return null;
+}
+
+/**
+ * Maps task status to specific notification configuration keys.
+ */
+const STATUS_CONFIG_MAP: Partial<Record<TASK_STATUS, string>> = {
+  [TASK_STATUS.WAITING_PRODUCTION]: 'task.waiting_production',
+  [TASK_STATUS.IN_PRODUCTION]: 'task.in_production',
+  [TASK_STATUS.COMPLETED]: 'task.completed',
+};
 
 /**
  * Task Event Listener
@@ -51,6 +94,18 @@ export class TaskListener {
 
     this.eventEmitter.on('task.overdue', this.handleTaskOverdue.bind(this));
     this.logger.log('[TASK LISTENER] ✅ Registered: task.overdue');
+
+    this.eventEmitter.on(
+      'task.forecast.approaching',
+      this.handleTaskForecastApproaching.bind(this),
+    );
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.forecast.approaching');
+
+    this.eventEmitter.on(
+      'task.forecast.overdue',
+      this.handleTaskForecastOverdue.bind(this),
+    );
+    this.logger.log('[TASK LISTENER] ✅ Registered: task.forecast.overdue');
 
     this.logger.log('[TASK LISTENER] All event handlers registered successfully');
     this.logger.log('========================================');
@@ -98,8 +153,8 @@ export class TaskListener {
 
   /**
    * Handle task status change event
-   * Uses 'task.field.status' configuration for dispatch
-   * Special case: When status changes to WAITING_PRODUCTION, notify PRODUCTION users
+   * Dispatches both generic 'task.field.status' and status-specific notifications
+   * (e.g., task.waiting_production, task.in_production, task.completed)
    */
   private async handleTaskStatusChanged(event: TaskStatusChangedEvent): Promise<void> {
     this.logger.log('========================================');
@@ -112,28 +167,44 @@ export class TaskListener {
     this.logger.log('========================================');
 
     try {
+      const notificationContext = {
+        entityType: 'task',
+        entityId: event.task.id,
+        action: 'field_updated',
+        data: {
+          taskId: event.task.id,
+          taskName: event.task.name,
+          serialNumber: event.task.serialNumber,
+          fieldName: 'status',
+          oldValue: event.oldStatus,
+          newValue: event.newStatus,
+          changedBy: event.changedBy?.name || 'Sistema',
+        },
+      };
+
+      // 1. Generic field-level status change notification
       await this.dispatchService.dispatchByConfiguration(
         'task.field.status',
         event.changedBy.id,
-        {
-          entityType: 'task',
-          entityId: event.task.id,
-          action: 'field_updated',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            fieldName: 'status',
-            oldValue: event.oldStatus,
-            newValue: event.newStatus,
-            changedBy: event.changedBy?.name || 'Sistema',
-          },
-        },
+        notificationContext,
       );
+      this.logger.log('[TASK EVENT] Generic task.field.status notification dispatched');
 
-      this.logger.log('[TASK EVENT] Task status change notification dispatched via configuration');
+      // 2. Status-specific notification (e.g., task.waiting_production, task.in_production, task.completed)
+      const statusConfigKey = STATUS_CONFIG_MAP[event.newStatus as TASK_STATUS];
+      if (statusConfigKey) {
+        await this.dispatchService.dispatchByConfiguration(
+          statusConfigKey,
+          event.changedBy.id,
+          {
+            ...notificationContext,
+            action: event.newStatus.toLowerCase(),
+          },
+        );
+        this.logger.log(`[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey}`);
+      }
 
-      // Special case: When status changes TO WAITING_PRODUCTION, notify PRODUCTION users
+      // 3. Special case: When status changes TO WAITING_PRODUCTION, also notify PRODUCTION users
       if (event.newStatus === TASK_STATUS.WAITING_PRODUCTION) {
         this.logger.log(
           '[TASK EVENT] Status changed to WAITING_PRODUCTION - notifying production users...',
@@ -235,7 +306,8 @@ export class TaskListener {
 
   /**
    * Handle deadline approaching event
-   * Uses 'task.deadline_approaching' configuration for dispatch
+   * Maps threshold to specific config key (task.deadline_1hour, task.deadline_4hours,
+   * task.deadline_1day, task.deadline_3days, task.deadline_7days)
    */
   private async handleTaskDeadlineApproaching(event: TaskDeadlineApproachingEvent): Promise<void> {
     try {
@@ -246,9 +318,19 @@ export class TaskListener {
 
       this.logger.log(`Task deadline approaching: ${event.task.id} - ${timeLabel} remaining`);
 
+      const configKey = getDeadlineConfigKey(event.daysRemaining, event.hoursRemaining);
+      if (!configKey) {
+        this.logger.warn(
+          `[TASK EVENT] No deadline config key for daysRemaining=${event.daysRemaining}, hoursRemaining=${event.hoursRemaining}`,
+        );
+        return;
+      }
+
+      this.logger.log(`[TASK EVENT] Using deadline config key: ${configKey}`);
+
       await this.dispatchService.dispatchByConfiguration(
-        'task.deadline_approaching',
-        'system', // System-generated notification
+        configKey,
+        'system',
         {
           entityType: 'task',
           entityId: event.task.id,
@@ -263,7 +345,7 @@ export class TaskListener {
         },
       );
 
-      this.logger.log(`Deadline approaching notification dispatched (${timeLabel})`);
+      this.logger.log(`Deadline approaching notification dispatched (${configKey})`);
     } catch (error) {
       this.logger.error('Error handling task deadline approaching event:', error);
     }
@@ -279,7 +361,7 @@ export class TaskListener {
 
       await this.dispatchService.dispatchByConfiguration(
         'task.overdue',
-        'system', // System-generated notification
+        'system',
         {
           entityType: 'task',
           entityId: event.task.id,
@@ -296,6 +378,85 @@ export class TaskListener {
       this.logger.log('Overdue task notification dispatched');
     } catch (error) {
       this.logger.error('Error handling task overdue event:', error);
+    }
+  }
+
+  /**
+   * Handle forecast approaching event
+   * Maps threshold to specific config key (task.forecast_10days, task.forecast_7days,
+   * task.forecast_3days, task.forecast_1day, task.forecast_today)
+   */
+  private async handleTaskForecastApproaching(event: TaskForecastApproachingEvent): Promise<void> {
+    try {
+      this.logger.log(
+        `Task forecast approaching: ${event.task.id} - ${event.daysRemaining} day(s) remaining`,
+      );
+
+      const configKey = getForecastConfigKey(event.daysRemaining);
+      if (!configKey) {
+        this.logger.warn(
+          `[TASK EVENT] No forecast config key for daysRemaining=${event.daysRemaining}`,
+        );
+        return;
+      }
+
+      this.logger.log(`[TASK EVENT] Using forecast config key: ${configKey}`);
+
+      await this.dispatchService.dispatchByConfiguration(
+        configKey,
+        'system',
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'forecast_approaching',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            daysRemaining: event.daysRemaining,
+            hasIncompleteOrders: event.hasIncompleteOrders,
+            incompleteOrderTypes: event.incompleteOrderTypes,
+          },
+        },
+      );
+
+      this.logger.log(`Forecast approaching notification dispatched (${configKey})`);
+    } catch (error) {
+      this.logger.error('Error handling task forecast approaching event:', error);
+    }
+  }
+
+  /**
+   * Handle forecast overdue event
+   * Uses 'task.forecast_overdue' configuration for dispatch
+   */
+  private async handleTaskForecastOverdue(event: TaskForecastOverdueEvent): Promise<void> {
+    try {
+      this.logger.log(
+        `Task forecast overdue: ${event.task.id} - ${event.daysOverdue} day(s) overdue`,
+      );
+
+      await this.dispatchService.dispatchByConfiguration(
+        'task.forecast_overdue',
+        'system',
+        {
+          entityType: 'task',
+          entityId: event.task.id,
+          action: 'forecast_overdue',
+          data: {
+            taskId: event.task.id,
+            taskName: event.task.name,
+            serialNumber: event.task.serialNumber,
+            daysOverdue: event.daysOverdue,
+            hasIncompleteOrders: event.hasIncompleteOrders,
+            incompleteOrderTypes: event.incompleteOrderTypes,
+          },
+        },
+      );
+
+      this.logger.log('Forecast overdue notification dispatched');
+    } catch (error) {
+      this.logger.error('Error handling task forecast overdue event:', error);
     }
   }
 

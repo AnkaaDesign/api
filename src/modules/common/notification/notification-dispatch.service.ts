@@ -39,7 +39,7 @@ import { NotificationAggregationService } from './notification-aggregation.servi
  * Contains all data needed for template rendering and recipient resolution
  */
 export interface NotificationContext {
-  /** Entity type being notified about (e.g., 'task', 'order') */
+  /** Entity type being notified about (e.g., 'Task', 'Order', 'Item', 'Cut', 'PPE_DELIVERY') */
   entityType: string;
   /** ID of the entity */
   entityId: string;
@@ -49,6 +49,22 @@ export interface NotificationContext {
   data: Record<string, any>;
   /** Optional metadata to attach to the notification */
   metadata?: Record<string, any>;
+  /**
+   * Optional overrides for entity-specific notification data.
+   * When provided, these override the default task-centric values.
+   */
+  overrides?: {
+    /** Pre-built actionUrl (JSON deep links string) — skips auto deep link generation */
+    actionUrl?: string;
+    /** Web URL for the notification metadata */
+    webUrl?: string;
+    /** Related entity type for the notification record */
+    relatedEntityType?: string;
+    /** Custom title (overrides template-rendered title) */
+    title?: string;
+    /** Custom body (overrides template-rendered body) */
+    body?: string;
+  };
 }
 
 /**
@@ -1372,8 +1388,14 @@ export class NotificationDispatchService {
 
       this.logger.log(`Found ${targetUsers.length} target users for ${configKey}`);
 
-      // Generate deep links for the task
-      const deepLinks = this.deepLinkService.generateTaskLinks(context.entityId);
+      // Generate deep links — use overrides if provided, otherwise generate based on entity type
+      const deepLinks = context.overrides?.actionUrl
+        ? null // actionUrl already provided
+        : this.generateDeepLinksForEntity(context.entityType, context.entityId);
+
+      const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
+      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${context.entityId}`;
+      const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
 
       // Render templates from database configuration
       const templateVars = {
@@ -1390,9 +1412,9 @@ export class NotificationDispatchService {
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
 
-      // Build notification content from rendered templates
-      const title = renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
-      const body = renderedTemplates.inApp?.body || '';
+      // Build notification content — use overrides if provided, otherwise use templates
+      const title = context.overrides?.title || renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
+      const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
 
       // Create notifications for all target users
       let notificationsCreated = 0;
@@ -1420,20 +1442,19 @@ export class NotificationDispatchService {
             title,
             body,
             actionType: actionType as NotificationActionType,
-            actionUrl: JSON.stringify(deepLinks),
+            actionUrl,
             relatedEntityId: context.entityId,
-            relatedEntityType: 'TASK',
+            relatedEntityType: relatedEntityType,
             channel: channels,
             metadata: {
-              webUrl: `/producao/agenda/detalhes/${context.entityId}`,
-              mobileUrl: deepLinks.mobile,
-              universalLink: deepLinks.universalLink,
-              taskId: context.entityId,
-              fieldName: context.data.fieldName,
+              webUrl,
+              mobileUrl: deepLinks?.mobile,
+              universalLink: deepLinks?.universalLink,
               configKey: configKey,
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
-              entityType: 'Task',
+              entityType: context.entityType,
               entityId: context.entityId,
+              ...context.metadata,
             },
           },
         });
@@ -1474,6 +1495,141 @@ export class NotificationDispatchService {
       });
 
       throw error;
+    }
+  }
+
+  /**
+   * Dispatch a notification to specific users using a database configuration.
+   * Unlike dispatchByConfiguration (which targets all users in allowed sectors),
+   * this method targets only the specified user IDs.
+   */
+  async dispatchByConfigurationToUsers(
+    configKey: string,
+    triggeringUserId: string,
+    context: NotificationContext,
+    targetUserIds: string[],
+  ): Promise<void> {
+    this.logger.log(`Starting targeted dispatch for key: ${configKey} to ${targetUserIds.length} user(s)`);
+
+    try {
+      const dbConfig = await this.configurationService.getConfiguration(configKey);
+
+      if (!dbConfig) {
+        this.logger.warn(`No database configuration found for key: ${configKey}`);
+        return;
+      }
+
+      if (!dbConfig.isEnabled) {
+        this.logger.debug(`Notifications disabled for configuration: ${configKey}`);
+        return;
+      }
+
+      // Check business rules
+      const businessRulesCheck = await this.configurationService.checkBusinessRules(dbConfig, {
+        userId: triggeringUserId === 'system' ? undefined : triggeringUserId,
+        entityId: context.entityId,
+        entityType: context.entityType,
+        ...context.data,
+      });
+
+      if (!businessRulesCheck.allowed) {
+        this.logger.log(`Business rules blocked notification ${configKey}: ${businessRulesCheck.reason}`);
+        return;
+      }
+
+      // Filter to only active users from the provided IDs, excluding the triggering user
+      const targetUsers = await this.prisma.user.findMany({
+        where: {
+          id: { in: targetUserIds },
+          isActive: true,
+          ...(triggeringUserId && triggeringUserId !== 'system'
+            ? { NOT: { id: triggeringUserId } }
+            : {}),
+        },
+        include: {
+          sector: true,
+          position: true,
+          preference: true,
+        },
+      });
+
+      if (targetUsers.length === 0) {
+        this.logger.log(`No target users found for targeted dispatch: ${configKey}`);
+        return;
+      }
+
+      // Generate deep links — use overrides if provided, otherwise generate based on entity type
+      const deepLinks = context.overrides?.actionUrl
+        ? null
+        : this.generateDeepLinksForEntity(context.entityType, context.entityId);
+
+      const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
+      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${context.entityId}`;
+      const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
+
+      // Render templates
+      const templateVars = {
+        taskName: context.data.taskName || '',
+        serialNumber: context.data.serialNumber || '',
+        oldValue: context.data.oldValue !== undefined ? String(context.data.oldValue) : 'N/A',
+        newValue: context.data.newValue !== undefined ? String(context.data.newValue) : 'N/A',
+        changedBy: context.data.changedBy || 'Sistema',
+        ...context.data,
+      };
+
+      const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
+      const title = context.overrides?.title || renderedTemplates.inApp?.title || this.buildNotificationTitleFromConfig(dbConfig, context.data);
+      const body = context.overrides?.body || renderedTemplates.inApp?.body || '';
+
+      const actionType = this.getActionTypeFromConfigKey(configKey);
+
+      let notificationsCreated = 0;
+
+      for (const user of targetUsers) {
+        const channels = await this.configurationService.resolveChannelsForUser(configKey, user);
+
+        if (channels.length === 0) {
+          this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
+          continue;
+        }
+
+        const notification = await this.prisma.notification.create({
+          data: {
+            userId: user.id,
+            type: dbConfig.notificationType,
+            importance: dbConfig.importance,
+            title,
+            body,
+            actionType: actionType as NotificationActionType,
+            actionUrl,
+            relatedEntityId: context.entityId,
+            relatedEntityType: relatedEntityType,
+            channel: channels,
+            metadata: {
+              webUrl,
+              mobileUrl: deepLinks?.mobile,
+              universalLink: deepLinks?.universalLink,
+              configKey,
+              actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
+              entityType: context.entityType,
+              entityId: context.entityId,
+              ...context.metadata,
+            },
+          },
+        });
+
+        await this.dispatchNotification(notification.id);
+        notificationsCreated++;
+      }
+
+      this.logger.log(
+        `Targeted dispatch completed for ${configKey}: ${notificationsCreated} created`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in targeted dispatch ${configKey}: ${error.message}`,
+        error.stack,
+      );
     }
   }
 
@@ -1543,10 +1699,41 @@ export class NotificationDispatchService {
     if (configKey === 'task.created' || configKey === 'task.ready_for_production') {
       return NOTIFICATION_ACTION_TYPE.TASK_CREATED;
     }
+    if (configKey.startsWith('order.')) {
+      return NOTIFICATION_ACTION_TYPE.VIEW_ORDER;
+    }
     if (configKey === 'task.overdue' || configKey === 'task.deadline_approaching') {
       return NOTIFICATION_ACTION_TYPE.VIEW_DETAILS;
     }
-    return NOTIFICATION_ACTION_TYPE.TASK_UPDATED;
+    if (configKey.startsWith('artwork.') && configKey.includes('pending')) {
+      return NOTIFICATION_ACTION_TYPE.APPROVE_REQUEST;
+    }
+    if (configKey.startsWith('task.')) {
+      return NOTIFICATION_ACTION_TYPE.TASK_UPDATED;
+    }
+    return NOTIFICATION_ACTION_TYPE.VIEW_DETAILS;
+  }
+
+  /**
+   * Generate deep links for any entity type.
+   * Routes to the appropriate deep link generator based on entity type.
+   */
+  private generateDeepLinksForEntity(entityType: string, entityId: string): any {
+    switch (entityType) {
+      case 'Task':
+        return this.deepLinkService.generateTaskLinks(entityId);
+      case 'Order':
+        return this.deepLinkService.generateOrderLinks(entityId);
+      case 'Item':
+        return this.deepLinkService.generateItemLinks(entityId);
+      case 'ServiceOrder':
+        return this.deepLinkService.generateServiceOrderLinks(entityId);
+      case 'User':
+        return this.deepLinkService.generateUserLinks(entityId);
+      default:
+        // Fallback to task links for task-related entities (Cut, Artwork, etc.)
+        return this.deepLinkService.generateTaskLinks(entityId);
+    }
   }
 
 }

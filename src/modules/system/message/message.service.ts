@@ -323,12 +323,13 @@ export class MessageService {
           dismissals: views.filter(v => v.dismissedAt !== null).length,
         };
 
-        // Remove views and targets from response, keep only stats
+        // Remove views and targets from response, keep only stats and targetCount
         const { views: _views, targets: _targets, ...messageWithoutRelations } = message;
 
         return {
           ...messageWithoutRelations,
           stats,
+          targetCount: targets.length,
         };
       });
 

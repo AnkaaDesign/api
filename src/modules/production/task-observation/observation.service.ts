@@ -15,6 +15,7 @@ import {
   CHANGE_ACTION,
   COMMISSION_STATUS,
 } from '../../../constants/enums';
+import { getCommissionStatusOrder } from '../../../utils';
 import {
   trackFieldChanges,
   trackAndLogFieldChanges,
@@ -162,7 +163,10 @@ export class ObservationService {
         if (data.taskId) {
           await tx.task.update({
             where: { id: data.taskId },
-            data: { commission: COMMISSION_STATUS.SUSPENDED_COMMISSION },
+            data: {
+              commission: COMMISSION_STATUS.SUSPENDED_COMMISSION,
+              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.SUSPENDED_COMMISSION),
+            },
           });
 
           // Registrar mudança na comissão
@@ -367,7 +371,10 @@ export class ObservationService {
         if (observation.taskId) {
           await tx.task.update({
             where: { id: observation.taskId },
-            data: { commission: COMMISSION_STATUS.FULL_COMMISSION },
+            data: {
+              commission: COMMISSION_STATUS.FULL_COMMISSION,
+              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.FULL_COMMISSION),
+            },
           });
 
           // Registrar mudança na comissão
@@ -687,7 +694,10 @@ export class ObservationService {
         for (const taskId of taskIds) {
           await tx.task.update({
             where: { id: taskId as string },
-            data: { commission: COMMISSION_STATUS.FULL_COMMISSION },
+            data: {
+              commission: COMMISSION_STATUS.FULL_COMMISSION,
+              commissionOrder: getCommissionStatusOrder(COMMISSION_STATUS.FULL_COMMISSION),
+            },
           });
 
           // Registrar mudança na comissão

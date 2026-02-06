@@ -261,12 +261,14 @@ export function canTruckFitInLane(
     return false;
   }
 
-  const occupiedLength =
-    trucksInLane.reduce((sum, t) => sum + t.length, 0) +
-    trucksInLane.length * GARAGE_CONFIG.TRUCK_MIN_SPACING;
+  const totalOccupiedLength = trucksInLane.reduce((sum, t) => sum + t.length, 0);
+  const newTruckCount = trucksInLane.length + 1;
+  const newTotalLength = totalOccupiedLength + truckLength;
+  // Only add gaps when 3 trucks: 2 × 1m = 2m (1m gap on each side of middle truck)
+  const gaps = newTruckCount === 3 ? 2 * GARAGE_CONFIG.TRUCK_MIN_SPACING : 0;
+  const margins = 2 * 0.2; // 0.4m total (small margin at top and bottom)
 
-  const availableLength = lane.length - occupiedLength;
-  return availableLength >= truckLength + GARAGE_CONFIG.TRUCK_MIN_SPACING;
+  return newTotalLength + margins + gaps <= lane.length;
 }
 
 /**

@@ -45,7 +45,7 @@
 {{#if impactedTasks}}
 <div class="warning-box">
     <p><strong>Tarefas Impactadas:</strong></p>
-    <p>Existem <strong>{{impactedTasks}}</strong> tarefa(s) que podem ser afetadas pela falta deste item.</p>
+    <p>{{#if (eq impactedTasks 1)}}Existe <strong>1</strong> tarefa que pode ser afetada{{else}}Existem <strong>{{impactedTasks}}</strong> tarefas que podem ser afetadas{{/if}} pela falta deste item.</p>
     {{#if tasksList}}
     <ul style="margin-top: 10px;">
         {{#each tasksList}}
@@ -126,7 +126,7 @@
 <div class="info-box" style="margin-top: 20px; background-color: #e7f3ff; border-left-color: #2196F3;">
     <div class="info-box-title">Pedidos em Andamento</div>
     <div class="info-box-content">
-        <p>Existem {{pendingOrders}} pedido(s) em andamento para este item.</p>
+        <p>{{#if (eq pendingOrders 1)}}Existe 1 pedido em andamento{{else}}Existem {{pendingOrders}} pedidos em andamento{{/if}} para este item.</p>
         {{#if expectedArrival}}
         <div class="info-row">
             <span class="info-label">Próxima Chegada Prevista:</span>

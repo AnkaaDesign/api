@@ -60,6 +60,7 @@ import {
   isValidTaskStatusTransition,
   getTaskStatusLabel,
   getTaskStatusOrder,
+  getCommissionStatusOrder,
   generateBaseFileName,
 } from '../../../utils';
 import {
@@ -316,6 +317,12 @@ export class TaskService {
     },
   ): Promise<TaskCreateResponse> {
     try {
+      // Capture pre-uploaded file IDs before any processing
+      // These come from the web form when files are pre-uploaded (e.g., serial range creation)
+      const preUploadedArtworkFileIds = data.artworkIds ? [...(data.artworkIds as string[])] : [];
+      const preUploadedBaseFileIds = (data as any).baseFileIds ? [...((data as any).baseFileIds as string[])] : [];
+      const artworkStatusesMap = (data as any).artworkStatuses || null;
+
       // Check if this is a bulk create from serial number range
       const serialNumberFrom = (data as any).serialNumberFrom;
       const serialNumberTo = (data as any).serialNumberTo;
@@ -367,32 +374,93 @@ export class TaskService {
           }
         }
 
-        // Create the task first WITHOUT files
+        // Note: artworkIds/baseFileIds connection is handled AFTER task creation (post-create update)
+        // to guarantee it works regardless of how mapCreateFormDataToDatabaseCreateInput processes them.
+
+        // Create the task first
         // Add createdById to data for service orders creation
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
           include,
         });
 
-        // Create truck with layouts ONLY if layouts are provided
-        // Note: Basic truck creation (plate, chassisNumber, spot) is handled by the repository
+        // ======= EXPLICIT POST-CREATION: Connect pre-uploaded artworks and base files =======
+        // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
+        // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
+        if (preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
+          const postCreateUpdates: any = {};
+
+          // Convert artwork File IDs to Artwork entity IDs and connect
+          if (preUploadedArtworkFileIds.length > 0) {
+            const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+              preUploadedArtworkFileIds,
+              null,
+              null,
+              artworkStatusesMap,
+              undefined,
+              tx,
+            );
+            if (artworkEntityIds.length > 0) {
+              postCreateUpdates.artworks = { connect: artworkEntityIds.map(id => ({ id })) };
+            }
+          }
+
+          // Connect base files directly (they're already File IDs)
+          if (preUploadedBaseFileIds.length > 0) {
+            postCreateUpdates.baseFiles = { connect: preUploadedBaseFileIds.map(id => ({ id })) };
+          }
+
+          if (Object.keys(postCreateUpdates).length > 0) {
+            await tx.task.update({
+              where: { id: newTask.id },
+              data: postCreateUpdates,
+            });
+
+          }
+        }
+
+        // Handle truck layouts: either create NEW layouts or connect to EXISTING shared layouts
+        // Note: Basic truck creation (plate, chassisNumber, spot, category, implementType) is handled by the repository
         const truckData = (data as any).truck;
         const hasLayouts =
           truckData &&
           (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
-        if (hasLayouts) {
+        const hasSharedLayoutIds =
+          truckData &&
+          (truckData.leftSideLayoutId || truckData.rightSideLayoutId || truckData.backSideLayoutId);
+
+        if (hasSharedLayoutIds && !hasLayouts) {
+          // Connect to existing shared layouts (for batch creation - reuse layouts from first task)
+          this.logger.log(`[Task Create] Connecting shared layouts for task ${newTask.id}`);
+          const truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
+          if (truck) {
+            await tx.truck.update({
+              where: { id: truck.id },
+              data: {
+                ...(truckData.leftSideLayoutId && { leftSideLayoutId: truckData.leftSideLayoutId }),
+                ...(truckData.rightSideLayoutId && { rightSideLayoutId: truckData.rightSideLayoutId }),
+                ...(truckData.backSideLayoutId && { backSideLayoutId: truckData.backSideLayoutId }),
+              },
+            });
+            this.logger.log(`[Task Create] Shared layouts connected to truck ${truck.id}`);
+          }
+        } else if (hasLayouts) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
-          // Create truck with basic fields
-          const truck = await tx.truck.create({
-            data: {
-              taskId: newTask.id,
-              plate: truckData.plate || null,
-              chassisNumber: truckData.chassisNumber || null,
-              spot: truckData.spot || null,
-            },
-          });
-          this.logger.log(`[Task Create] Truck created: ${truck.id}`);
+          // Find the truck already created by the repository (via nested create)
+          let truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
+          if (!truck) {
+            // Fallback: create truck if repository didn't create one (e.g., no basic truck fields were provided)
+            truck = await tx.truck.create({
+              data: {
+                taskId: newTask.id,
+                plate: truckData.plate || null,
+                chassisNumber: truckData.chassisNumber || null,
+                spot: truckData.spot || null,
+              },
+            });
+          }
+          this.logger.log(`[Task Create] Truck found/created: ${truck.id}`);
 
           // Helper function to create layout for a side
           const createLayout = async (
@@ -450,12 +518,7 @@ export class TaskService {
           await createLayout(truckData.rightSideLayout, 'rightSideLayoutId', 'right');
           await createLayout(truckData.backSideLayout, 'backSideLayoutId', 'back');
 
-          // Update task with truck
-          await tx.task.update({
-            where: { id: newTask.id },
-            data: { truck: { connect: { id: truck.id } } },
-          });
-          this.logger.log(`[Task Create] Task updated with truck`);
+          this.logger.log(`[Task Create] Layouts created for truck ${truck.id}`);
         }
 
         // Log task creation
@@ -739,6 +802,16 @@ export class TaskService {
           }
         }
 
+        // Re-fetch task if layouts were created/connected so response includes truck with layout IDs
+        if (hasLayouts || hasSharedLayoutIds) {
+          const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
+            tx,
+            newTask.id,
+            include,
+          );
+          if (refetchedTask) return refetchedTask;
+        }
+
         return newTask!;
       });
 
@@ -869,6 +942,88 @@ export class TaskService {
         const successfulTasks: Task[] = [];
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
+        // Pre-create shared layouts if layout data is present (for serial range / batch creation)
+        // This prevents duplicate layout creation for each task
+        const sharedLayoutIds: {
+          leftSideLayoutId: string | null;
+          rightSideLayoutId: string | null;
+          backSideLayoutId: string | null;
+        } = { leftSideLayoutId: null, rightSideLayoutId: null, backSideLayoutId: null };
+        let hasSharedLayouts = false;
+
+        if (data.tasks.length > 0) {
+          const firstTruckData = (data.tasks[0] as any).truck;
+          const hasLayoutData = firstTruckData &&
+            (firstTruckData.leftSideLayout || firstTruckData.rightSideLayout || firstTruckData.backSideLayout);
+
+          if (hasLayoutData) {
+            this.logger.log('[batchCreate] Pre-creating shared layouts from first task data');
+
+            const createSharedLayout = async (layoutData: any, sideName: string): Promise<string | null> => {
+              if (!layoutData || !layoutData.layoutSections) return null;
+              const layout = await tx.layout.create({
+                data: {
+                  height: layoutData.height,
+                  ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
+                  layoutSections: {
+                    create: layoutData.layoutSections.map((section: any, idx: number) => ({
+                      width: section.width,
+                      isDoor: section.isDoor,
+                      doorHeight: section.doorHeight,
+                      position: section.position ?? idx,
+                    })),
+                  },
+                },
+              });
+              this.logger.log(`[batchCreate] Shared ${sideName} layout created: ${layout.id}`);
+              return layout.id;
+            };
+
+            sharedLayoutIds.leftSideLayoutId = await createSharedLayout(firstTruckData.leftSideLayout, 'left');
+            sharedLayoutIds.rightSideLayoutId = await createSharedLayout(firstTruckData.rightSideLayout, 'right');
+            sharedLayoutIds.backSideLayoutId = await createSharedLayout(firstTruckData.backSideLayout, 'back');
+            hasSharedLayouts = !!(sharedLayoutIds.leftSideLayoutId || sharedLayoutIds.rightSideLayoutId || sharedLayoutIds.backSideLayoutId);
+
+            if (hasSharedLayouts) {
+              // Replace layout DATA with layout IDs in all tasks so they connect instead of create
+              for (const task of data.tasks) {
+                const truckData = (task as any).truck;
+                if (truckData) {
+                  delete truckData.leftSideLayout;
+                  delete truckData.rightSideLayout;
+                  delete truckData.backSideLayout;
+                  if (sharedLayoutIds.leftSideLayoutId) truckData.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
+                  if (sharedLayoutIds.rightSideLayoutId) truckData.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
+                  if (sharedLayoutIds.backSideLayoutId) truckData.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
+                }
+              }
+              this.logger.log(`[batchCreate] Layout IDs injected into ${data.tasks.length} tasks`);
+            }
+          }
+        }
+
+        // Pre-convert artworkIds from File IDs to Artwork entity IDs
+        // The web create form pre-uploads artwork files and sends File IDs as artworkIds.
+        // The repository expects Artwork entity IDs, so we need to convert them first.
+        // We do this ONCE and share the Artwork entities across all tasks (shared artworks).
+        if (data.tasks.length > 0 && (data.tasks[0] as any).artworkIds?.length > 0) {
+          const fileIds = (data.tasks[0] as any).artworkIds as string[];
+          this.logger.log(`[batchCreate] Converting ${fileIds.length} artwork File IDs to Artwork entity IDs`);
+          const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+            fileIds,
+            null,
+            null,
+            undefined,
+            undefined,
+            tx,
+          );
+          this.logger.log(`[batchCreate] Converted to ${artworkEntityIds.length} Artwork entity IDs`);
+          // Replace File IDs with Artwork entity IDs in all tasks
+          for (const task of data.tasks) {
+            (task as any).artworkIds = artworkEntityIds;
+          }
+        }
+
         for (const [index, task] of data.tasks.entries()) {
           try {
             // Validate task
@@ -883,6 +1038,21 @@ export class TaskService {
                 include,
               },
             );
+
+            // Connect shared layouts to the truck (repository doesn't handle layout IDs)
+            if (hasSharedLayouts) {
+              const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
+              if (truck) {
+                const layoutUpdate: any = {};
+                if (sharedLayoutIds.leftSideLayoutId) layoutUpdate.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
+                if (sharedLayoutIds.rightSideLayoutId) layoutUpdate.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
+                if (sharedLayoutIds.backSideLayoutId) layoutUpdate.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
+                if (Object.keys(layoutUpdate).length > 0) {
+                  await tx.truck.update({ where: { id: truck.id }, data: layoutUpdate });
+                  this.logger.log(`[batchCreate] Connected shared layouts to truck ${truck.id} for task ${createdTask.id}`);
+                }
+              }
+            }
 
             // Log successful task creation
             await logEntityChange({
@@ -1070,75 +1240,54 @@ export class TaskService {
             // Delete truck if explicitly set to null
             if (existingTask.truck) {
               this.logger.log(`[Task Update] Deleting truck for task ${id}`);
-              // Layouts will be cascade deleted if configured, otherwise delete manually
               const truck = existingTask.truck;
 
-              // Delete layouts and create changelogs
-              if (truck.leftSideLayoutId) {
-                const layoutToDelete = await tx.layout.findUnique({
-                  where: { id: truck.leftSideLayoutId },
-                  include: { layoutSections: true },
+              // Helper: only delete a layout if no other trucks reference it
+              const safeDeleteLayout = async (
+                layoutId: string,
+                relationName: 'trucksLeftSide' | 'trucksRightSide' | 'trucksBackSide',
+                fieldName: string,
+              ) => {
+                // Count how many trucks reference this layout (excluding the one being deleted)
+                const layout = await tx.layout.findUnique({
+                  where: { id: layoutId },
+                  include: { layoutSections: true, [relationName]: { select: { id: true } } },
                 });
-                await tx.layoutSection.deleteMany({ where: { layoutId: truck.leftSideLayoutId } });
-                await tx.layout.delete({ where: { id: truck.leftSideLayoutId } });
+                if (!layout) return;
 
-                if (layoutToDelete) {
+                const referencingTrucks = (layout as any)[relationName] || [];
+                const otherTrucks = referencingTrucks.filter((t: any) => t.id !== truck.id);
+
+                if (otherTrucks.length === 0) {
+                  // No other trucks reference this layout - safe to delete
+                  await tx.layoutSection.deleteMany({ where: { layoutId } });
+                  await tx.layout.delete({ where: { id: layoutId } });
                   await logEntityChange({
                     changeLogService: this.changeLogService,
                     entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: truck.leftSideLayoutId,
+                    entityId: layoutId,
                     action: CHANGE_ACTION.DELETE,
-                    entity: layoutToDelete,
+                    entity: layout,
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: 'Layout leftSideLayoutId removido (caminhão deletado)',
+                    reason: `Layout ${fieldName} removido (caminhão deletado)`,
                     transaction: tx,
                   });
+                } else {
+                  this.logger.log(
+                    `[Task Update] Layout ${layoutId} shared by ${otherTrucks.length} other truck(s), skipping deletion`,
+                  );
                 }
+              };
+
+              if (truck.leftSideLayoutId) {
+                await safeDeleteLayout(truck.leftSideLayoutId, 'trucksLeftSide', 'leftSideLayoutId');
               }
               if (truck.rightSideLayoutId) {
-                const layoutToDelete = await tx.layout.findUnique({
-                  where: { id: truck.rightSideLayoutId },
-                  include: { layoutSections: true },
-                });
-                await tx.layoutSection.deleteMany({ where: { layoutId: truck.rightSideLayoutId } });
-                await tx.layout.delete({ where: { id: truck.rightSideLayoutId } });
-
-                if (layoutToDelete) {
-                  await logEntityChange({
-                    changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: truck.rightSideLayoutId,
-                    action: CHANGE_ACTION.DELETE,
-                    entity: layoutToDelete,
-                    userId: userId || '',
-                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: 'Layout rightSideLayoutId removido (caminhão deletado)',
-                    transaction: tx,
-                  });
-                }
+                await safeDeleteLayout(truck.rightSideLayoutId, 'trucksRightSide', 'rightSideLayoutId');
               }
               if (truck.backSideLayoutId) {
-                const layoutToDelete = await tx.layout.findUnique({
-                  where: { id: truck.backSideLayoutId },
-                  include: { layoutSections: true },
-                });
-                await tx.layoutSection.deleteMany({ where: { layoutId: truck.backSideLayoutId } });
-                await tx.layout.delete({ where: { id: truck.backSideLayoutId } });
-
-                if (layoutToDelete) {
-                  await logEntityChange({
-                    changeLogService: this.changeLogService,
-                    entityType: ENTITY_TYPE.LAYOUT,
-                    entityId: truck.backSideLayoutId,
-                    action: CHANGE_ACTION.DELETE,
-                    entity: layoutToDelete,
-                    userId: userId || '',
-                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                    reason: 'Layout backSideLayoutId removido (caminhão deletado)',
-                    transaction: tx,
-                  });
-                }
+                await safeDeleteLayout(truck.backSideLayoutId, 'trucksBackSide', 'backSideLayoutId');
               }
 
               // Delete truck and create changelog
@@ -1244,105 +1393,135 @@ export class TaskService {
               if (layoutData === undefined) return; // Not in payload, skip
 
               if (layoutData === null) {
-                // Delete existing layout
+                // Remove layout from this truck
                 if (existingLayoutId) {
-                  this.logger.log(`[Task Update] Deleting ${layoutField}`);
+                  this.logger.log(`[Task Update] Removing ${layoutField} from truck`);
 
-                  // Get layout details before deletion for changelog
-                  const layoutToDelete = await tx.layout.findUnique({
-                    where: { id: existingLayoutId },
-                    include: { layoutSections: true },
-                  });
-
-                  await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                  await tx.layout.delete({ where: { id: existingLayoutId } });
+                  // Disconnect this truck from the layout first
                   await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
 
-                  // Create changelog for layout deletion
-                  if (layoutToDelete) {
-                    await logEntityChange({
-                      changeLogService: this.changeLogService,
-                      entityType: ENTITY_TYPE.LAYOUT,
-                      entityId: existingLayoutId,
-                      action: CHANGE_ACTION.DELETE,
-                      entity: layoutToDelete,
-                      userId: userId || '',
-                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                      reason: `Layout ${layoutField} removido`,
-                      transaction: tx,
-                    });
-                  }
+                  // Check if other trucks still reference this layout
+                  const relationName = layoutField === 'leftSideLayoutId' ? 'trucksLeftSide'
+                    : layoutField === 'rightSideLayoutId' ? 'trucksRightSide' : 'trucksBackSide';
+                  const layoutWithRefs = await tx.layout.findUnique({
+                    where: { id: existingLayoutId },
+                    include: { layoutSections: true, [relationName]: { select: { id: true } } },
+                  });
 
-                  this.logger.log(`[Task Update] Deleted ${layoutField} with changelog`);
+                  if (layoutWithRefs) {
+                    const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+                    if (remainingTrucks.length === 0) {
+                      // No other trucks reference this layout - safe to delete
+                      await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                      await tx.layout.delete({ where: { id: existingLayoutId } });
+
+                      await logEntityChange({
+                        changeLogService: this.changeLogService,
+                        entityType: ENTITY_TYPE.LAYOUT,
+                        entityId: existingLayoutId,
+                        action: CHANGE_ACTION.DELETE,
+                        entity: layoutWithRefs,
+                        userId: userId || '',
+                        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                        reason: `Layout ${layoutField} removido`,
+                        transaction: tx,
+                      });
+                      this.logger.log(`[Task Update] Deleted ${layoutField} (no other references)`);
+                    } else {
+                      this.logger.log(
+                        `[Task Update] Layout ${existingLayoutId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
+                      );
+                    }
+                  }
                 }
               } else {
                 // Create or update layout
-                let layoutToDelete = null;
                 if (existingLayoutId) {
-                  // Get layout details before deletion for changelog
-                  layoutToDelete = await tx.layout.findUnique({
+                  // Get layout details before update for changelog
+                  const existingLayout = await tx.layout.findUnique({
                     where: { id: existingLayoutId },
                     include: { layoutSections: true },
                   });
 
-                  // Delete existing and recreate (simpler than complex update)
+                  // Update in-place: replace sections but keep the same Layout record
+                  // This preserves shared layout references (multiple trucks pointing to same layout)
                   await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                  await tx.layout.delete({ where: { id: existingLayoutId } });
-
-                  // Create changelog for layout deletion (as part of update)
-                  if (layoutToDelete) {
-                    await logEntityChange({
-                      changeLogService: this.changeLogService,
-                      entityType: ENTITY_TYPE.LAYOUT,
-                      entityId: existingLayoutId,
-                      action: CHANGE_ACTION.DELETE,
-                      entity: layoutToDelete,
-                      userId: userId || '',
-                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                      reason: `Layout ${layoutField} atualizado (removido antigo)`,
-                      transaction: tx,
-                    });
-                  }
-                }
-
-                const newLayout = await tx.layout.create({
-                  data: {
-                    height: layoutData.height,
-                    ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
-                    layoutSections: {
-                      create: layoutData.layoutSections.map((section: any, index: number) => ({
-                        width: section.width,
-                        isDoor: section.isDoor,
-                        doorHeight: section.doorHeight,
-                        position: section.position ?? index,
-                      })),
+                  const updatedLayout = await tx.layout.update({
+                    where: { id: existingLayoutId },
+                    data: {
+                      height: layoutData.height,
+                      photoId: layoutData.photoId || null,
+                      layoutSections: {
+                        create: layoutData.layoutSections.map((section: any, index: number) => ({
+                          width: section.width,
+                          isDoor: section.isDoor,
+                          doorHeight: section.doorHeight,
+                          position: section.position ?? index,
+                        })),
+                      },
                     },
-                  },
-                  include: {
-                    layoutSections: true,
-                  },
-                });
-                await tx.truck.update({
-                  where: { id: truckId! },
-                  data: { [layoutField]: newLayout.id },
-                });
+                    include: {
+                      layoutSections: true,
+                    },
+                  });
 
-                // Create changelog for new layout creation
-                await logEntityChange({
-                  changeLogService: this.changeLogService,
-                  entityType: ENTITY_TYPE.LAYOUT,
-                  entityId: newLayout.id,
-                  action: CHANGE_ACTION.CREATE,
-                  entity: newLayout,
-                  userId: userId || '',
-                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                  reason: `Layout ${layoutField} ${layoutToDelete ? 'atualizado (novo criado)' : 'criado'}`,
-                  transaction: tx,
-                });
+                  // Create changelog for layout update
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.LAYOUT,
+                    entityId: existingLayoutId,
+                    action: CHANGE_ACTION.UPDATE,
+                    entity: updatedLayout,
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    reason: `Layout ${layoutField} atualizado`,
+                    transaction: tx,
+                  });
 
-                this.logger.log(
-                  `[Task Update] ${layoutField} created: ${newLayout.id} with changelog`,
-                );
+                  this.logger.log(
+                    `[Task Update] ${layoutField} updated in-place: ${existingLayoutId} with changelog`,
+                  );
+                } else {
+                  // No existing layout - create new one
+                  const newLayout = await tx.layout.create({
+                    data: {
+                      height: layoutData.height,
+                      ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
+                      layoutSections: {
+                        create: layoutData.layoutSections.map((section: any, index: number) => ({
+                          width: section.width,
+                          isDoor: section.isDoor,
+                          doorHeight: section.doorHeight,
+                          position: section.position ?? index,
+                        })),
+                      },
+                    },
+                    include: {
+                      layoutSections: true,
+                    },
+                  });
+                  await tx.truck.update({
+                    where: { id: truckId! },
+                    data: { [layoutField]: newLayout.id },
+                  });
+
+                  // Create changelog for new layout creation
+                  await logEntityChange({
+                    changeLogService: this.changeLogService,
+                    entityType: ENTITY_TYPE.LAYOUT,
+                    entityId: newLayout.id,
+                    action: CHANGE_ACTION.CREATE,
+                    entity: newLayout,
+                    userId: userId || '',
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    reason: `Layout ${layoutField} criado`,
+                    transaction: tx,
+                  });
+
+                  this.logger.log(
+                    `[Task Update] ${layoutField} created: ${newLayout.id} with changelog`,
+                  );
+                }
               }
             };
 
@@ -1656,11 +1835,13 @@ export class TaskService {
         // This prevents Prisma from doing a silent nested create without events/changelogs
         const serviceOrdersData = (data as any).serviceOrders;
         const createdServiceOrders: any[] = [];
+        const observationChangedSOs: Array<{ serviceOrder: any; oldObservation: string | null }> = [];
 
-        // Ensure statusOrder is updated when status changes
+        // Ensure statusOrder and commissionOrder are updated when status/commission changes
         const updateData = {
           ...data,
           ...(data.status && { statusOrder: getTaskStatusOrder(data.status as TASK_STATUS) }),
+          ...((data as any).commission && { commissionOrder: getCommissionStatusOrder((data as any).commission) }),
         };
 
         // CRITICAL: Check for artwork data BEFORE deleting fields
@@ -1764,13 +1945,40 @@ export class TaskService {
                 if (serviceOrderData.assignedToId !== undefined)
                   updatePayload.assignedToId = serviceOrderData.assignedToId;
 
-                // Handle date clearing for status rollbacks
+                // Handle date setting/clearing for status transitions
                 if (
                   serviceOrderData.status !== undefined &&
                   serviceOrderData.status !== oldServiceOrder.status
                 ) {
                   const oldStatus = oldServiceOrder.status as SERVICE_ORDER_STATUS;
                   const newStatus = serviceOrderData.status as SERVICE_ORDER_STATUS;
+
+                  // If transitioning to IN_PROGRESS, set startedAt/startedById if not already set
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+                    oldStatus !== SERVICE_ORDER_STATUS.IN_PROGRESS
+                  ) {
+                    if (!oldServiceOrder.startedById) {
+                      updatePayload.startedById = userId || null;
+                      updatePayload.startedAt = new Date();
+                    }
+                  }
+
+                  // If transitioning to COMPLETED, set completedBy/finishedAt and startedAt if not already set
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.COMPLETED &&
+                    oldStatus !== SERVICE_ORDER_STATUS.COMPLETED
+                  ) {
+                    if (!oldServiceOrder.completedById) {
+                      updatePayload.completedById = userId || null;
+                      updatePayload.finishedAt = new Date();
+                    }
+                    // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
+                    if (!oldServiceOrder.startedById) {
+                      updatePayload.startedById = userId || null;
+                      updatePayload.startedAt = updatePayload.finishedAt || new Date();
+                    }
+                  }
 
                   // If rolling back to PENDING, clear all progress dates
                   if (
@@ -1808,6 +2016,17 @@ export class TaskService {
                   });
 
                   createdServiceOrders.push(updatedServiceOrder);
+
+                  // Track observation changes for post-transaction event emission
+                  if (
+                    serviceOrderData.observation !== undefined &&
+                    oldServiceOrder.observation !== updatedServiceOrder.observation
+                  ) {
+                    observationChangedSOs.push({
+                      serviceOrder: updatedServiceOrder,
+                      oldObservation: oldServiceOrder.observation,
+                    });
+                  }
 
                   // Create changelog for service order update with field tracking
                   await trackAndLogFieldChanges({
@@ -1949,6 +2168,63 @@ export class TaskService {
                   updatePayload.assignedToId = serviceOrderData.assignedToId;
                 }
 
+                // Handle date setting/clearing for status transitions
+                if (
+                  serviceOrderData.status !== undefined &&
+                  serviceOrderData.status !== existingMatch.status
+                ) {
+                  const oldStatus = existingMatch.status as SERVICE_ORDER_STATUS;
+                  const newStatus = serviceOrderData.status as SERVICE_ORDER_STATUS;
+
+                  // If transitioning to IN_PROGRESS, set startedAt/startedById if not already set
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+                    oldStatus !== SERVICE_ORDER_STATUS.IN_PROGRESS
+                  ) {
+                    if (!existingMatch.startedById) {
+                      updatePayload.startedById = userId || null;
+                      updatePayload.startedAt = new Date();
+                    }
+                  }
+
+                  // If transitioning to COMPLETED, set completedBy/finishedAt and startedAt if not already set
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.COMPLETED &&
+                    oldStatus !== SERVICE_ORDER_STATUS.COMPLETED
+                  ) {
+                    if (!existingMatch.completedById) {
+                      updatePayload.completedById = userId || null;
+                      updatePayload.finishedAt = new Date();
+                    }
+                    // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
+                    if (!existingMatch.startedById) {
+                      updatePayload.startedById = userId || null;
+                      updatePayload.startedAt = updatePayload.finishedAt || new Date();
+                    }
+                  }
+
+                  // If rolling back to PENDING, clear all progress dates
+                  if (
+                    newStatus === SERVICE_ORDER_STATUS.PENDING &&
+                    oldStatus !== SERVICE_ORDER_STATUS.PENDING
+                  ) {
+                    updatePayload.startedById = null;
+                    updatePayload.startedAt = null;
+                    updatePayload.approvedById = null;
+                    updatePayload.approvedAt = null;
+                    updatePayload.completedById = null;
+                    updatePayload.finishedAt = null;
+                  }
+                  // If rolling back from COMPLETED to IN_PROGRESS, clear completion dates
+                  else if (
+                    newStatus === SERVICE_ORDER_STATUS.IN_PROGRESS &&
+                    oldStatus === SERVICE_ORDER_STATUS.COMPLETED
+                  ) {
+                    updatePayload.completedById = null;
+                    updatePayload.finishedAt = null;
+                  }
+                }
+
                 if (Object.keys(updatePayload).length > 0) {
                   const updatedServiceOrder = await tx.serviceOrder.update({
                     where: { id: existingMatch.id },
@@ -1957,6 +2233,17 @@ export class TaskService {
 
                   createdServiceOrders.push(updatedServiceOrder);
 
+                  // Track observation changes for post-transaction event emission
+                  if (
+                    serviceOrderData.observation !== undefined &&
+                    existingMatch.observation !== updatedServiceOrder.observation
+                  ) {
+                    observationChangedSOs.push({
+                      serviceOrder: updatedServiceOrder,
+                      oldObservation: existingMatch.observation,
+                    });
+                  }
+
                   // Create changelog for service order update
                   await trackAndLogFieldChanges({
                     changeLogService: this.changeLogService,
@@ -1964,7 +2251,7 @@ export class TaskService {
                     entityId: existingMatch.id,
                     oldEntity: existingMatch,
                     newEntity: updatedServiceOrder,
-                    fieldsToTrack: ['status', 'observation', 'assignedToId'],
+                    fieldsToTrack: ['status', 'observation', 'assignedToId', 'startedAt', 'startedById', 'finishedAt', 'completedById'],
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     transaction: tx,
@@ -2606,6 +2893,58 @@ export class TaskService {
 
               // Track that task was auto-completed for event/notification emission after transaction
               taskAutoTransitionedToWaitingProduction = true; // Reuse this flag for event emission
+            }
+          }
+
+          // =====================================================================
+          // ROLLBACK COMPLETED TASK: When new service orders are added to a COMPLETED task
+          // If a task is COMPLETED but now has non-completed production SOs (e.g. a new
+          // PENDING SO was added), recalculate the correct status and rollback accordingly.
+          // =====================================================================
+          if (updatedTask && updatedTask.status === TASK_STATUS.COMPLETED) {
+            const correctStatus = calculateCorrectTaskStatus(
+              (updatedTask.serviceOrders || []).map((so: any) => ({
+                status: so.status as SERVICE_ORDER_STATUS,
+                type: so.type as SERVICE_ORDER_TYPE,
+              })),
+            );
+
+            if (correctStatus !== TASK_STATUS.COMPLETED) {
+              this.logger.log(
+                `[ROLLBACK COMPLETED TASK] Task ${id} is COMPLETED but calculated status is ${correctStatus} (new service orders may have been added), rolling back`,
+              );
+
+              updatedTask = (await tx.task.update({
+                where: { id },
+                data: {
+                  status: correctStatus,
+                  statusOrder: getTaskStatusOrder(correctStatus),
+                  finishedAt: null, // Clear finish date since task is being reopened
+                },
+                include: {
+                  ...include,
+                  customer: true,
+                  artworks: true,
+                  observation: { include: { files: true } },
+                  truck: true,
+                  serviceOrders: true,
+                },
+              })) as any;
+
+              // Log the rollback in changelog
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: id,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'status',
+                oldValue: TASK_STATUS.COMPLETED,
+                newValue: correctStatus,
+                reason: `Tarefa reaberta automaticamente de concluída para ${correctStatus === TASK_STATUS.IN_PRODUCTION ? 'em produção' : 'aguardando produção'} pois novas ordens de serviço foram adicionadas`,
+                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                triggeredById: id,
+                userId: userId || '',
+                transaction: tx,
+              });
             }
           }
 
@@ -3518,7 +3857,25 @@ export class TaskService {
               }
             }
 
-            // Step 3: Set the Artwork entities on the Task (using 'set' to REPLACE, not add)
+            // Step 3: Merge with existing artworks if only new files were uploaded (no explicit artworkIds sent)
+            // This prevents replacing all existing artworks when the frontend only sends new file uploads
+            if (artworkIdsWasNotSent && artworkEntityIds.length > 0) {
+              const currentTaskForMerge = await tx.task.findUnique({
+                where: { id },
+                include: { artworks: { select: { id: true } } },
+              });
+              if (currentTaskForMerge?.artworks?.length) {
+                const currentArtworkIds = currentTaskForMerge.artworks.map(a => a.id);
+                const mergedIds = [...new Set([...currentArtworkIds, ...artworkEntityIds])];
+                this.logger.log(
+                  `[Task Update] 🔄 MERGE: artworkIds was not sent, merging ${currentArtworkIds.length} existing artworks with ${artworkEntityIds.length} new uploads (total: ${mergedIds.length})`,
+                );
+                artworkEntityIds.length = 0;
+                artworkEntityIds.push(...mergedIds);
+              }
+            }
+
+            // Step 4: Set the Artwork entities on the Task
             this.logger.log(
               `[Task Update] Final Artwork entity IDs array (${artworkEntityIds.length} total): [${artworkEntityIds.join(', ')}]`,
             );
@@ -4436,6 +4793,7 @@ export class TaskService {
         return {
           updatedTask: updatedTask!,
           createdServiceOrders,
+          observationChangedSOs,
           taskAutoTransitionedToWaitingProduction,
         };
       });
@@ -4444,6 +4802,7 @@ export class TaskService {
       const {
         updatedTask,
         createdServiceOrders,
+        observationChangedSOs: soObservationChanges,
         taskAutoTransitionedToWaitingProduction: wasAutoTransitioned,
       } = transactionResult;
 
@@ -4455,11 +4814,11 @@ export class TaskService {
 
         for (const serviceOrder of createdServiceOrders) {
           this.logger.log(
-            `[Task Update] Emitting service-order.created event for SO ${serviceOrder.id} (type: ${serviceOrder.type})`,
+            `[Task Update] Emitting service_order.created event for SO ${serviceOrder.id} (type: ${serviceOrder.type})`,
           );
 
           // Emit creation event
-          this.eventEmitter.emit('service-order.created', {
+          this.eventEmitter.emit('service_order.created', {
             serviceOrder,
             userId,
           });
@@ -4467,9 +4826,9 @@ export class TaskService {
           // If service order is assigned, emit assignment event
           if (serviceOrder.assignedToId) {
             this.logger.log(
-              `[Task Update] Emitting service-order.assigned event for SO ${serviceOrder.id} to user ${serviceOrder.assignedToId}`,
+              `[Task Update] Emitting service_order.assigned event for SO ${serviceOrder.id} to user ${serviceOrder.assignedToId}`,
             );
-            this.eventEmitter.emit('service-order.assigned', {
+            this.eventEmitter.emit('service_order.assigned', {
               serviceOrder,
               userId,
               assignedToId: serviceOrder.assignedToId,
@@ -4478,6 +4837,21 @@ export class TaskService {
         }
       } else {
         this.logger.log(`[Task Update] No service orders to emit events for`);
+      }
+
+      // Emit observation change events for service orders whose observation was modified
+      if (soObservationChanges && soObservationChanges.length > 0) {
+        for (const { serviceOrder, oldObservation } of soObservationChanges) {
+          this.logger.log(
+            `[Task Update] Emitting service_order.observation.changed for SO ${serviceOrder.id}`,
+          );
+          this.eventEmitter.emit('service_order.observation.changed', {
+            serviceOrder,
+            oldObservation,
+            newObservation: serviceOrder.observation,
+            userId,
+          });
+        }
       }
 
       // If task was auto-transitioned to WAITING_PRODUCTION, emit event and send notifications
@@ -4576,6 +4950,7 @@ export class TaskService {
       receipts?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
+      baseFiles?: Express.Multer.File[];
     },
   ): Promise<TaskBatchUpdateResponse<TaskUpdateFormData>> {
     this.logger.log('[batchUpdate] ========== BATCH UPDATE STARTED ==========');
@@ -4599,6 +4974,23 @@ export class TaskService {
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         this.logger.log('[batchUpdate] Inside transaction');
+
+        // Look up user's sector privilege for artwork status permission checks
+        // Note: batchUpdate endpoint requires @Roles(ADMIN), so the user already has ADMIN access.
+        // We still fetch the privilege for logging, but fall back to ADMIN since the endpoint guard
+        // already validated the user's permission level.
+        let userPrivilege: string | undefined;
+        if (userId) {
+          const user = await tx.user.findUnique({
+            where: { id: userId },
+            select: { sector: { select: { privileges: true } } },
+          });
+          userPrivilege = user?.sector?.privileges || SECTOR_PRIVILEGES.ADMIN;
+          this.logger.log(`[batchUpdate] User ${userId} privilege: ${userPrivilege} (sector: ${user?.sector?.privileges || 'none'})`);
+        } else {
+          userPrivilege = SECTOR_PRIVILEGES.ADMIN;
+        }
+
         // Prepare updates with change tracking and validation
         const updatesWithChangeTracking: { id: string; data: TaskUpdateFormData }[] = [];
         const validationErrors: Array<{ id: string; error: string }> = [];
@@ -4676,11 +5068,14 @@ export class TaskService {
                 // when task status changes to IN_PRODUCTION or COMPLETED respectively
               }
 
-              // Ensure statusOrder is updated when status changes
+              // Ensure statusOrder and commissionOrder are updated when status/commission changes
               const updateData = {
                 ...update.data,
                 ...(update.data.status && {
                   statusOrder: getTaskStatusOrder(update.data.status as TASK_STATUS),
+                }),
+                ...((update.data as any).commission && {
+                  commissionOrder: getCommissionStatusOrder((update.data as any).commission),
                 }),
               };
 
@@ -4716,6 +5111,7 @@ export class TaskService {
           invoices?: string[];
           receipts?: string[];
           artworks?: string[];
+          baseFiles?: string[];
         } = {};
 
         if (files && data.tasks.length > 0) {
@@ -4826,8 +5222,8 @@ export class TaskService {
               uploadedArtworkFileIds,
               null, // taskId - null since these artworks will be connected to multiple tasks
               null, // airbrushingId
-              undefined, // artworkStatuses - new uploads default to DRAFT
-              undefined, // userRole - not available in batch update
+              undefined, // artworkStatuses - new uploads default to DRAFT (frontend doesn't know File IDs yet)
+              userPrivilege,
               tx,
             );
 
@@ -4835,6 +5231,29 @@ export class TaskService {
             uploadedFileIds.artworks = artworkEntityIds;
             this.logger.log(
               `[batchUpdate] Created ${artworkEntityIds.length} Artwork entities for uploaded files`,
+            );
+          }
+
+          // Upload base files (shared across all tasks, like artworks)
+          if (files.baseFiles && files.baseFiles.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.baseFiles.length} base files`);
+            uploadedFileIds.baseFiles = [];
+            for (const baseFile of files.baseFiles) {
+              const baseFileRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                baseFile,
+                'taskBaseFiles',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.baseFiles.push(baseFileRecord.id);
+            }
+            this.logger.log(
+              `[batchUpdate] Uploaded ${uploadedFileIds.baseFiles.length} base files`,
             );
           }
 
@@ -4939,123 +5358,185 @@ export class TaskService {
               );
             }
           }
+        }
 
-          // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
-          // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
-          this.logger.log(
-            '[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs',
-          );
-          for (const update of updatesWithChangeTracking) {
-            if (
-              update.data.artworkIds &&
-              Array.isArray(update.data.artworkIds) &&
-              update.data.artworkIds.length > 0
-            ) {
+        // Extract artworkStatuses from each update before processing
+        // artworkStatuses is a map of File ID -> status ('DRAFT' | 'APPROVED' | 'REPROVED')
+        // IMPORTANT: This must run OUTSIDE the if(files) block so status-only updates work
+        const perUpdateArtworkStatuses = new Map<string, Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>>();
+        for (const update of updatesWithChangeTracking) {
+          const artworkStatuses = (update.data as any).artworkStatuses;
+          if (artworkStatuses) {
+            perUpdateArtworkStatuses.set(update.id, artworkStatuses);
+            delete (update.data as any).artworkStatuses;
+          }
+        }
+
+        // Convert artworkIds from File IDs to Artwork entity IDs for ALL tasks
+        // DEFENSIVE: Handle both File IDs and Artwork entity IDs (in case frontend sends wrong type)
+        this.logger.log(
+          '[batchUpdate] Converting artworkIds from File IDs to Artwork entity IDs',
+        );
+        for (const update of updatesWithChangeTracking) {
+          const artworkStatuses = perUpdateArtworkStatuses.get(update.id);
+
+          if (
+            update.data.artworkIds &&
+            Array.isArray(update.data.artworkIds) &&
+            update.data.artworkIds.length > 0
+          ) {
+            this.logger.log(
+              `[batchUpdate] Task ${update.id}: Processing ${update.data.artworkIds.length} artwork IDs: ${JSON.stringify(update.data.artworkIds)}`,
+            );
+
+            // DEFENSIVE CHECK: Determine if these are File IDs or Artwork entity IDs
+            // Try to find them as Artwork entities first
+            const existingArtworks = await tx.artwork.findMany({
+              where: {
+                id: { in: update.data.artworkIds },
+              },
+              select: { id: true, fileId: true },
+            });
+
+            this.logger.log(
+              `[batchUpdate] Task ${update.id}: Checked ${update.data.artworkIds.length} IDs as Artwork entities, found ${existingArtworks.length}`,
+            );
+
+            if (existingArtworks.length === update.data.artworkIds.length) {
+              // All IDs were found as Artwork entities - frontend sent Artwork entity IDs directly
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: Processing ${update.data.artworkIds.length} artwork IDs: ${JSON.stringify(update.data.artworkIds)}`,
+                `[batchUpdate] Task ${update.id}: ✅ All ${existingArtworks.length} IDs are valid Artwork entity IDs (no conversion needed)`,
+              );
+              // Keep artworkIds as-is, but still apply artworkStatuses if present
+              // artworkStatuses keys are File IDs, so use existingArtworks to map fileId -> status
+              if (artworkStatuses && Object.keys(artworkStatuses).length > 0) {
+                const fileIds = existingArtworks.map(a => a.fileId);
+                this.logger.log(
+                  `[batchUpdate] Task ${update.id}: Applying artworkStatuses to ${fileIds.length} existing artworks (File IDs: ${JSON.stringify(fileIds)})`,
+                );
+                await this.convertFileIdsToArtworkIds(fileIds, null, null, artworkStatuses, userPrivilege, tx);
+              }
+            } else if (existingArtworks.length > 0) {
+              // PARTIAL MATCH - some are Artwork IDs, some might be File IDs
+              this.logger.warn(
+                `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingArtworks.length}/${update.data.artworkIds.length} as Artwork entities`,
+              );
+              const foundIds = existingArtworks.map(a => a.id);
+              const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
+              this.logger.warn(
+                `[batchUpdate] Task ${update.id}: Missing Artwork entity IDs: ${JSON.stringify(missingIds)}`,
               );
 
-              // DEFENSIVE CHECK: Determine if these are File IDs or Artwork entity IDs
-              // Try to find them as Artwork entities first
-              const existingArtworks = await tx.artwork.findMany({
-                where: {
-                  id: { in: update.data.artworkIds },
-                },
-                select: { id: true, fileId: true },
-              });
-
+              // Try to convert missing IDs as File IDs
               this.logger.log(
-                `[batchUpdate] Task ${update.id}: Checked ${update.data.artworkIds.length} IDs as Artwork entities, found ${existingArtworks.length}`,
+                `[batchUpdate] Task ${update.id}: Attempting to convert ${missingIds.length} missing IDs as File IDs`,
+              );
+              const convertedIds = await this.convertFileIdsToArtworkIds(
+                missingIds,
+                null,
+                null,
+                artworkStatuses,
+                userPrivilege,
+                tx,
               );
 
-              if (existingArtworks.length === update.data.artworkIds.length) {
-                // All IDs were found as Artwork entities - frontend sent Artwork entity IDs directly
-                this.logger.log(
-                  `[batchUpdate] Task ${update.id}: ✅ All ${existingArtworks.length} IDs are valid Artwork entity IDs (no conversion needed)`,
-                );
-                // Keep them as-is - they're valid
-              } else if (existingArtworks.length > 0) {
-                // PARTIAL MATCH - some are Artwork IDs, some might be File IDs
-                this.logger.warn(
-                  `[batchUpdate] Task ${update.id}: ⚠️ PARTIAL MATCH: Found ${existingArtworks.length}/${update.data.artworkIds.length} as Artwork entities`,
-                );
-                const foundIds = existingArtworks.map(a => a.id);
-                const missingIds = update.data.artworkIds.filter(id => !foundIds.includes(id));
-                this.logger.warn(
-                  `[batchUpdate] Task ${update.id}: Missing Artwork entity IDs: ${JSON.stringify(missingIds)}`,
-                );
+              // Combine found Artwork IDs with newly converted ones
+              update.data.artworkIds = [...foundIds, ...convertedIds];
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.artworkIds.length} total`,
+              );
+            } else {
+              // Not all IDs were found as Artwork entities - they must be File IDs
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Artwork entity IDs (found ${existingArtworks.length} existing, converting ${update.data.artworkIds.length})`,
+              );
 
-                // Try to convert missing IDs as File IDs
-                this.logger.log(
-                  `[batchUpdate] Task ${update.id}: Attempting to convert ${missingIds.length} missing IDs as File IDs`,
-                );
-                const convertedIds = await this.convertFileIdsToArtworkIds(
-                  missingIds,
-                  null,
-                  null,
-                  undefined,
-                  undefined,
+              try {
+                const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+                  update.data.artworkIds,
+                  null, // taskId - null since these are shared artworks
+                  null, // airbrushingId
+                  artworkStatuses, // artworkStatuses from frontend
+                  userPrivilege,
                   tx,
                 );
 
-                // Combine found Artwork IDs with newly converted ones
-                update.data.artworkIds = [...foundIds, ...convertedIds];
-                this.logger.log(
-                  `[batchUpdate] Task ${update.id}: Combined result: ${foundIds.length} existing + ${convertedIds.length} converted = ${update.data.artworkIds.length} total`,
-                );
-              } else {
-                // Not all IDs were found as Artwork entities - they must be File IDs
-                this.logger.log(
-                  `[batchUpdate] Task ${update.id}: IDs are File IDs, converting to Artwork entity IDs (found ${existingArtworks.length} existing, converting ${update.data.artworkIds.length})`,
-                );
-
-                try {
-                  const artworkEntityIds = await this.convertFileIdsToArtworkIds(
-                    update.data.artworkIds,
-                    null, // taskId - null since these are shared artworks
-                    null, // airbrushingId
-                    undefined, // artworkStatuses
-                    undefined, // userRole - not available in batch update
-                    tx,
-                  );
-
-                  if (!artworkEntityIds || artworkEntityIds.length === 0) {
-                    this.logger.error(
-                      `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.artworkIds)}`,
-                    );
-                    // Keep original IDs as fallback (might be Artwork entity IDs that we missed)
-                  } else {
-                    update.data.artworkIds = artworkEntityIds;
-                    this.logger.log(
-                      `[batchUpdate] Task ${update.id}: Successfully converted to ${artworkEntityIds.length} Artwork entity IDs: ${JSON.stringify(artworkEntityIds)}`,
-                    );
-                  }
-                } catch (conversionError) {
+                if (!artworkEntityIds || artworkEntityIds.length === 0) {
                   this.logger.error(
-                    `[batchUpdate] Task ${update.id}: Conversion failed: ${conversionError.message}`,
+                    `[batchUpdate] Task ${update.id}: Conversion returned empty array! Input IDs: ${JSON.stringify(update.data.artworkIds)}`,
                   );
-                  this.logger.error(
-                    `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.artworkIds)}`,
-                  );
-                  // Try to verify if these IDs exist as Files
-                  const files = await tx.file.findMany({
-                    where: { id: { in: update.data.artworkIds } },
-                    select: { id: true },
-                  });
-                  this.logger.error(
-                    `[batchUpdate] Task ${update.id}: Found ${files.length} matching File records`,
-                  );
-                  throw new Error(
-                    `Failed to convert artwork IDs for task ${update.id}: ${conversionError.message}. ` +
-                      `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
-                      `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
+                  // Keep original IDs as fallback (might be Artwork entity IDs that we missed)
+                } else {
+                  update.data.artworkIds = artworkEntityIds;
+                  this.logger.log(
+                    `[batchUpdate] Task ${update.id}: Successfully converted to ${artworkEntityIds.length} Artwork entity IDs: ${JSON.stringify(artworkEntityIds)}`,
                   );
                 }
+              } catch (conversionError) {
+                this.logger.error(
+                  `[batchUpdate] Task ${update.id}: Conversion failed: ${conversionError.message}`,
+                );
+                this.logger.error(
+                  `[batchUpdate] Task ${update.id}: Input IDs that failed: ${JSON.stringify(update.data.artworkIds)}`,
+                );
+                // Try to verify if these IDs exist as Files
+                const files = await tx.file.findMany({
+                  where: { id: { in: update.data.artworkIds } },
+                  select: { id: true },
+                });
+                this.logger.error(
+                  `[batchUpdate] Task ${update.id}: Found ${files.length} matching File records`,
+                );
+                throw new Error(
+                  `Failed to convert artwork IDs for task ${update.id}: ${conversionError.message}. ` +
+                    `IDs provided: ${update.data.artworkIds.join(', ')}. ` +
+                    `These might be invalid File IDs or Artwork entity IDs that don't exist.`,
+                );
               }
             }
           }
+        }
 
-          // Add uploaded files to all tasks in the batch
+        // Handle status-only updates (artworkStatuses present but no artworkIds changes)
+        // This applies status changes to existing artworks without changing which artworks are connected
+        for (const update of updatesWithChangeTracking) {
+          const artworkStatuses = perUpdateArtworkStatuses.get(update.id);
+          if (artworkStatuses && !update.data.artworkIds) {
+            const existingTask = existingTaskStates.get(update.id);
+            // mapDatabaseEntityToEntity flattens artworks: a.id=FileID, no a.fileId
+            const currentFileIds = existingTask?.artworks?.map((a: any) => a.fileId || a.id).filter(Boolean) || [];
+            this.logger.log(
+              `[batchUpdate] Task ${update.id}: Status-only update path - artworkStatuses=${JSON.stringify(artworkStatuses)}, currentFileIds=${JSON.stringify(currentFileIds)}, userPrivilege=${userPrivilege}`,
+            );
+            if (currentFileIds.length > 0) {
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: Applying status-only updates to ${currentFileIds.length} existing artworks (canApprove=${this.canApproveArtworks(userPrivilege)})`,
+              );
+              const updatedArtworkIds = await this.convertFileIdsToArtworkIds(
+                currentFileIds,
+                null,
+                null,
+                artworkStatuses,
+                userPrivilege,
+                tx,
+              );
+              this.logger.log(
+                `[batchUpdate] Task ${update.id}: Status-only update completed, ${updatedArtworkIds.length} artworks processed`,
+              );
+            } else {
+              this.logger.warn(
+                `[batchUpdate] Task ${update.id}: No existing artworks found for status-only update`,
+              );
+            }
+          } else if (artworkStatuses && update.data.artworkIds) {
+            this.logger.log(
+              `[batchUpdate] Task ${update.id}: Skipping status-only path because artworkIds is set (${(update.data.artworkIds as string[]).length} IDs) - statuses applied during conversion`,
+            );
+          }
+        }
+
+        // Add uploaded files to all tasks in the batch (only when files were uploaded)
+        if (files && data.tasks.length > 0) {
           // We need to merge with existing files to avoid replacing them
           this.logger.log('[batchUpdate] Adding uploaded files to all tasks in batch');
           this.logger.log(
@@ -5075,6 +5556,7 @@ export class TaskService {
                 invoices: true,
                 receipts: true,
                 artworks: true,
+                baseFiles: true,
                 logoPaints: true,
                 cuts: true,
               },
@@ -5126,16 +5608,18 @@ export class TaskService {
               const hasExplicitArtworkIds = update.data.artworkIds !== undefined;
 
               if (!hasExplicitArtworkIds) {
-                // ADD mode: Merge uploaded files with current artworks
-                // Get current Artwork entity IDs and convert uploaded File IDs to match the same type
-                const currentArtworkFileIds =
-                  currentTask.artworks?.map(a => a.fileId).filter(Boolean) || [];
-                const mergedFileIds = [
-                  ...new Set([...currentArtworkFileIds, ...uploadedFileIds.artworks]),
+                // ADD mode: Merge uploaded artwork entities with current artwork entities
+                // IMPORTANT: Both arrays must use Artwork ENTITY IDs (not File IDs)
+                // uploadedFileIds.artworks already contains Artwork entity IDs (from convertFileIdsToArtworkIds)
+                // mapDatabaseEntityToEntity flattens artworks: a.id=FileID, a.artworkId=EntityID
+                const currentArtworkEntityIds =
+                  currentTask.artworks?.map((a: any) => a.artworkId || a.id) || [];
+                const mergedArtworkIds = [
+                  ...new Set([...currentArtworkEntityIds, ...uploadedFileIds.artworks]),
                 ];
-                update.data.artworkIds = mergedFileIds;
+                update.data.artworkIds = mergedArtworkIds;
                 this.logger.log(
-                  `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (merged with ${currentArtworkFileIds.length} existing, total: ${mergedFileIds.length} File IDs)`,
+                  `[batchUpdate] Adding ${uploadedFileIds.artworks.length} artworks to task ${update.id} (merged with ${currentArtworkEntityIds.length} existing, total: ${mergedArtworkIds.length} Artwork entity IDs)`,
                 );
               } else {
                 // SET/REPLACE mode: artworkIds was explicitly provided, so just add uploaded files to it
@@ -5147,6 +5631,34 @@ export class TaskService {
                 update.data.artworkIds = mergedIds;
                 this.logger.log(
                   `[batchUpdate] Artwork IDs explicitly provided (${currentArtworkIds.length}), adding ${uploadedFileIds.artworks.length} uploaded files (total: ${mergedIds.length})`,
+                );
+              }
+            }
+
+            // Merge uploaded base files with each task (same SET/ADD pattern as artworks)
+            if (uploadedFileIds.baseFiles && uploadedFileIds.baseFiles.length > 0) {
+              const hasExplicitBaseFileIds = update.data.baseFileIds !== undefined;
+
+              if (!hasExplicitBaseFileIds) {
+                // ADD mode: merge uploaded files with current base files
+                const currentBaseFileIds =
+                  currentTask.baseFiles?.map((f: any) => f.id) || [];
+                const mergedBaseFileIds = [
+                  ...new Set([...currentBaseFileIds, ...uploadedFileIds.baseFiles]),
+                ];
+                update.data.baseFileIds = mergedBaseFileIds;
+                this.logger.log(
+                  `[batchUpdate] Adding ${uploadedFileIds.baseFiles.length} base files to task ${update.id} (merged with ${currentBaseFileIds.length} existing, total: ${mergedBaseFileIds.length})`,
+                );
+              } else {
+                // SET/REPLACE mode: baseFileIds was explicitly provided, add uploaded files to it
+                const currentBaseFileIds = Array.isArray(update.data.baseFileIds)
+                  ? update.data.baseFileIds
+                  : [];
+                const mergedIds = [...new Set([...currentBaseFileIds, ...uploadedFileIds.baseFiles])];
+                update.data.baseFileIds = mergedIds;
+                this.logger.log(
+                  `[batchUpdate] Base file IDs explicitly provided (${currentBaseFileIds.length}), adding ${uploadedFileIds.baseFiles.length} uploaded files (total: ${mergedIds.length})`,
                 );
               }
             }
@@ -5226,17 +5738,47 @@ export class TaskService {
 
             // Remove cuts
             if (update.data.removeCutIds && update.data.removeCutIds.length > 0) {
+              const removeCutIds = update.data.removeCutIds;
               // Delete the cuts directly using prisma
               await tx.cut.deleteMany({
                 where: {
-                  id: { in: update.data.removeCutIds },
+                  id: { in: removeCutIds },
                   taskId: update.id,
                 },
               });
               delete update.data.removeCutIds;
               this.logger.log(
-                `[batchUpdate] Removing ${update.data.removeCutIds.length} cuts from task ${update.id}`,
+                `[batchUpdate] Removed ${removeCutIds.length} cuts from task ${update.id}`,
               );
+            }
+
+            // Handle new cuts additively (don't pass to repository which would do deleteMany+create)
+            if (update.data.cuts && Array.isArray(update.data.cuts) && update.data.cuts.length > 0) {
+              const cutsToAdd = update.data.cuts;
+              this.logger.log(
+                `[batchUpdate] Adding ${cutsToAdd.length} new cuts to task ${update.id} (additive)`,
+              );
+
+              for (const cutItem of cutsToAdd) {
+                if (!cutItem.fileId) continue;
+                const quantity = (cutItem as any).quantity || 1;
+                for (let i = 0; i < quantity; i++) {
+                  await tx.cut.create({
+                    data: {
+                      fileId: cutItem.fileId,
+                      type: cutItem.type as any,
+                      origin: (cutItem.origin || 'PLAN') as any,
+                      reason: cutItem.reason || null,
+                      status: CUT_STATUS.PENDING as any,
+                      statusOrder: 1,
+                      taskId: update.id,
+                    },
+                  });
+                }
+              }
+
+              // Remove cuts from update data so repository doesn't do deleteMany+create
+              delete update.data.cuts;
             }
 
             this.logger.log(
@@ -5296,6 +5838,12 @@ export class TaskService {
         }
 
         // Process consolidated truck data with layouts for each successfully updated task
+        // Phase 1: Collect all tasks that need layout updates and determine shared layout data
+        const tasksNeedingLayoutUpdate: Array<{
+          taskId: string;
+          truckData: any;
+        }> = [];
+
         for (const task of result.success) {
           const updateData = data.tasks.find(u => u.id === task.id)?.data;
           const truckData = (updateData as any)?.truck;
@@ -5303,11 +5851,120 @@ export class TaskService {
             truckData &&
             (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)
           ) {
-            this.logger.log(`[batchUpdate] Processing truck layouts for task ${task.id}`);
+            tasksNeedingLayoutUpdate.push({ taskId: task.id, truckData });
+          }
+        }
+
+        if (tasksNeedingLayoutUpdate.length > 0) {
+          this.logger.log(
+            `[batchUpdate] Processing shared layouts for ${tasksNeedingLayoutUpdate.length} tasks`,
+          );
+
+          // Create ONE shared layout per side (from the first task's layout data, since batch sends identical data)
+          const firstTruckData = tasksNeedingLayoutUpdate[0].truckData;
+          const sharedLayoutIds: {
+            leftSideLayoutId: string | null;
+            rightSideLayoutId: string | null;
+            backSideLayoutId: string | null;
+          } = {
+            leftSideLayoutId: null,
+            rightSideLayoutId: null,
+            backSideLayoutId: null,
+          };
+
+          // Helper to create a single shared layout for a side
+          const createSharedLayout = async (
+            layoutData: any,
+            sideName: string,
+          ): Promise<string | null> => {
+            if (!layoutData) return null;
+
+            this.logger.log(`[batchUpdate] Creating shared ${sideName} layout`);
+            const newLayout = await tx.layout.create({
+              data: {
+                height: layoutData.height,
+                ...(layoutData.photoId && {
+                  photo: { connect: { id: layoutData.photoId } },
+                }),
+                layoutSections: {
+                  create: layoutData.layoutSections.map((section: any, index: number) => ({
+                    width: section.width,
+                    isDoor: section.isDoor,
+                    doorHeight: section.doorHeight,
+                    position: section.position ?? index,
+                  })),
+                },
+              },
+            });
+            this.logger.log(`[batchUpdate] Shared ${sideName} layout created: ${newLayout.id}`);
+            return newLayout.id;
+          };
+
+          // Create shared layouts (one per side)
+          sharedLayoutIds.leftSideLayoutId = await createSharedLayout(
+            firstTruckData.leftSideLayout,
+            'left',
+          );
+          sharedLayoutIds.rightSideLayoutId = await createSharedLayout(
+            firstTruckData.rightSideLayout,
+            'right',
+          );
+          sharedLayoutIds.backSideLayoutId = await createSharedLayout(
+            firstTruckData.backSideLayout,
+            'back',
+          );
+
+          // Helper to safely disconnect a truck from a layout (check usage count before deleting)
+          const safeDisconnectLayout = async (
+            truckId: string,
+            existingLayoutId: string | null,
+            layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+            sideName: string,
+          ) => {
+            if (!existingLayoutId) return;
+
+            // Disconnect this truck from the layout first
+            await tx.truck.update({
+              where: { id: truckId },
+              data: { [layoutField]: null },
+            });
+
+            // Check if other trucks still reference this layout
+            const relationName =
+              layoutField === 'leftSideLayoutId'
+                ? 'trucksLeftSide'
+                : layoutField === 'rightSideLayoutId'
+                  ? 'trucksRightSide'
+                  : 'trucksBackSide';
+            const layoutWithRefs = await tx.layout.findUnique({
+              where: { id: existingLayoutId },
+              include: { [relationName]: { select: { id: true } } },
+            });
+
+            if (layoutWithRefs) {
+              const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+              if (remainingTrucks.length === 0) {
+                // No other trucks reference this layout - safe to delete
+                await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
+                await tx.layout.delete({ where: { id: existingLayoutId } });
+                this.logger.log(
+                  `[batchUpdate] Deleted orphaned ${sideName} layout: ${existingLayoutId}`,
+                );
+              } else {
+                this.logger.log(
+                  `[batchUpdate] Layout ${existingLayoutId} still shared by ${remainingTrucks.length} truck(s), only disconnected`,
+                );
+              }
+            }
+          };
+
+          // Phase 2: For each task, ensure truck exists, safely disconnect old layouts, point to shared layouts
+          for (const { taskId, truckData } of tasksNeedingLayoutUpdate) {
+            this.logger.log(`[batchUpdate] Processing truck layouts for task ${taskId}`);
 
             // Get the task with truck info
             const taskWithTruck = await tx.task.findUnique({
-              where: { id: task.id },
+              where: { id: taskId },
               include: {
                 truck: {
                   include: {
@@ -5321,15 +5978,12 @@ export class TaskService {
 
             // Get or create truck
             let truckId = taskWithTruck?.truck?.id;
-            const leftLayoutId = taskWithTruck?.truck?.leftSideLayoutId;
-            const rightLayoutId = taskWithTruck?.truck?.rightSideLayoutId;
-            const backLayoutId = taskWithTruck?.truck?.backSideLayoutId;
 
             if (!truckId) {
-              this.logger.log(`[batchUpdate] No truck exists for task ${task.id} - creating one`);
+              this.logger.log(`[batchUpdate] No truck exists for task ${taskId} - creating one`);
               const newTruck = await tx.truck.create({
                 data: {
-                  taskId: task.id,
+                  taskId: taskId,
                   plate: truckData.plate || null,
                   chassisNumber: truckData.chassisNumber || null,
                   category: truckData.category || null,
@@ -5343,61 +5997,44 @@ export class TaskService {
               this.logger.log(`[batchUpdate] Using existing truck: ${truckId}`);
             }
 
-            // Helper function to process layout updates
-            const processLayout = async (
-              layoutData: any,
-              existingLayoutId: string | null,
-              layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
-              sideName: string,
-            ) => {
-              if (!layoutData) return;
+            // Safely disconnect from old layouts (check usage count before deleting)
+            const existingLeftId = taskWithTruck?.truck?.leftSideLayoutId ?? null;
+            const existingRightId = taskWithTruck?.truck?.rightSideLayoutId ?? null;
+            const existingBackId = taskWithTruck?.truck?.backSideLayoutId ?? null;
 
-              // Delete existing layout if present
-              if (existingLayoutId) {
-                this.logger.log(
-                  `[batchUpdate] Deleting existing ${sideName} layout: ${existingLayoutId}`,
-                );
-                await tx.layoutSection.deleteMany({ where: { layoutId: existingLayoutId } });
-                await tx.layout.delete({ where: { id: existingLayoutId } });
-                await tx.truck.update({ where: { id: truckId! }, data: { [layoutField]: null } });
-              }
+            if (sharedLayoutIds.leftSideLayoutId && existingLeftId !== sharedLayoutIds.leftSideLayoutId) {
+              await safeDisconnectLayout(truckId, existingLeftId, 'leftSideLayoutId', 'left');
+            }
+            if (sharedLayoutIds.rightSideLayoutId && existingRightId !== sharedLayoutIds.rightSideLayoutId) {
+              await safeDisconnectLayout(truckId, existingRightId, 'rightSideLayoutId', 'right');
+            }
+            if (sharedLayoutIds.backSideLayoutId && existingBackId !== sharedLayoutIds.backSideLayoutId) {
+              await safeDisconnectLayout(truckId, existingBackId, 'backSideLayoutId', 'back');
+            }
 
-              // Create new layout
-              this.logger.log(`[batchUpdate] Creating new ${sideName} layout for task ${task.id}`);
-              const newLayout = await tx.layout.create({
-                data: {
-                  height: layoutData.height,
-                  ...(layoutData.photoId && {
-                    photo: { connect: { id: layoutData.photoId } },
-                  }),
-                  layoutSections: {
-                    create: layoutData.layoutSections.map((section: any, index: number) => ({
-                      width: section.width,
-                      isDoor: section.isDoor,
-                      doorHeight: section.doorHeight,
-                      position: section.position ?? index,
-                    })),
-                  },
-                },
-              });
+            // Point truck to the shared layouts
+            const layoutUpdate: any = {};
+            if (sharedLayoutIds.leftSideLayoutId) {
+              layoutUpdate.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
+            }
+            if (sharedLayoutIds.rightSideLayoutId) {
+              layoutUpdate.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
+            }
+            if (sharedLayoutIds.backSideLayoutId) {
+              layoutUpdate.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
+            }
+
+            if (Object.keys(layoutUpdate).length > 0) {
               await tx.truck.update({
-                where: { id: truckId! },
-                data: { [layoutField]: newLayout.id },
+                where: { id: truckId },
+                data: layoutUpdate,
               });
-              this.logger.log(`[batchUpdate] ${sideName} layout created: ${newLayout.id}`);
-            };
+              this.logger.log(
+                `[batchUpdate] Truck ${truckId} pointed to shared layouts: ${JSON.stringify(layoutUpdate)}`,
+              );
+            }
 
-            // Process each side using the consolidated format
-            await processLayout(truckData.leftSideLayout, leftLayoutId, 'leftSideLayoutId', 'left');
-            await processLayout(
-              truckData.rightSideLayout,
-              rightLayoutId,
-              'rightSideLayoutId',
-              'right',
-            );
-            await processLayout(truckData.backSideLayout, backLayoutId, 'backSideLayoutId', 'back');
-
-            this.logger.log(`[batchUpdate] Finished processing layouts for task ${task.id}`);
+            this.logger.log(`[batchUpdate] Finished processing layouts for task ${taskId}`);
           }
         }
 
@@ -6004,6 +6641,27 @@ export class TaskService {
         '[batchUpdate] Error stack:',
         error instanceof Error ? error.stack : 'No stack trace',
       );
+
+      // Clean up uploaded temp files to prevent orphans
+      if (files) {
+        const allFiles = [
+          ...(files.budgets || []),
+          ...(files.invoices || []),
+          ...(files.receipts || []),
+          ...(files.artworks || []),
+          ...(files.cutFiles || []),
+          ...(files.baseFiles || []),
+        ];
+        for (const file of allFiles) {
+          try {
+            const fs = await import('fs');
+            if (file.path) fs.unlinkSync(file.path);
+          } catch (cleanupError) {
+            this.logger.warn(`[batchUpdate] Failed to cleanup temp file: ${file.path}`);
+          }
+        }
+        this.logger.log(`[batchUpdate] Cleaned up ${allFiles.length} temp files after failure`);
+      }
 
       // Re-throw BadRequestException and other client errors as-is
       if (error instanceof BadRequestException) {
@@ -6745,6 +7403,11 @@ export class TaskService {
         }
       }
 
+      // Update commissionOrder when commission changes
+      if (fieldToRevert === 'commission' && convertedValue) {
+        updateData.commissionOrder = getCommissionStatusOrder(convertedValue as string);
+      }
+
       // 7. Update the task with relations included for proper response
       const updatedTask = await this.tasksRepository.updateWithTransaction(
         tx,
@@ -6906,16 +7569,37 @@ export class TaskService {
     const results: Task[] = [];
     const errors: Array<{ index: number; data: any; error: string }> = [];
 
-    for (let i = 0; i < data.updates.length; i++) {
-      const update = data.updates[i];
-      try {
-        const result = await this.updateTaskPosition(update.taskId, update, include, userId);
-        results.push(result.data);
-      } catch (error) {
+    // Wrap all position updates in a transaction for atomicity
+    // Either all succeed or none do, preventing partial position state
+    try {
+      await this.prisma.$transaction(async () => {
+        for (let i = 0; i < data.updates.length; i++) {
+          const update = data.updates[i];
+          try {
+            const result = await this.updateTaskPosition(update.taskId, update, include, userId);
+            results.push(result.data);
+          } catch (error) {
+            errors.push({
+              index: i,
+              data: update,
+              error: error.message || 'Erro desconhecido',
+            });
+          }
+        }
+
+        // If any errors, throw to roll back all changes
+        if (errors.length > 0) {
+          throw new Error(`${errors.length} position updates failed`);
+        }
+      });
+    } catch (txError) {
+      // If transaction failed, the errors array already has details
+      if (errors.length === 0) {
+        // Unexpected transaction error
         errors.push({
-          index: i,
-          data: update,
-          error: error.message || 'Erro desconhecido',
+          index: -1,
+          data: null,
+          error: txError.message || 'Erro na transação',
         });
       }
     }
@@ -6927,11 +7611,11 @@ export class TaskService {
           ? 'Todas as posições foram atualizadas com sucesso'
           : `${results.length} posições atualizadas, ${errors.length} falharam`,
       data: {
-        success: results,
+        success: errors.length === 0 ? results : [],
         failed: errors,
         totalProcessed: data.updates.length,
-        totalSuccess: results.length,
-        totalFailed: errors.length,
+        totalSuccess: errors.length === 0 ? results.length : 0,
+        totalFailed: errors.length > 0 ? data.updates.length : 0,
       },
     };
   }
@@ -8219,6 +8903,7 @@ export class TaskService {
             case 'commission':
               if (hasData(sourceTask.commission)) {
                 updateData.commission = sourceTask.commission;
+                updateData.commissionOrder = getCommissionStatusOrder(sourceTask.commission);
                 copiedFields.push(field);
                 details.commission = sourceTask.commission;
               }

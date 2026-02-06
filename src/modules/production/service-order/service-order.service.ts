@@ -306,14 +306,14 @@ export class ServiceOrderService {
       });
 
       // Emit events after successful creation
-      this.eventEmitter.emit('service-order.created', {
+      this.eventEmitter.emit('service_order.created', {
         serviceOrder,
         userId,
       });
 
       // If service order is assigned, emit assignment event
       if (serviceOrder.assignedToId) {
-        this.eventEmitter.emit('service-order.assigned', {
+        this.eventEmitter.emit('service_order.assigned', {
           serviceOrder,
           userId,
           assignedToId: serviceOrder.assignedToId,
@@ -463,6 +463,11 @@ export class ServiceOrderService {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
             updateData.finishedAt = new Date();
+          }
+          // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
+          if (!oldData.startedById) {
+            updateData.startedById = userId || null;
+            updateData.startedAt = updateData.finishedAt || new Date();
           }
         }
 
@@ -1315,7 +1320,7 @@ export class ServiceOrderService {
       // Emit events after successful update
       // Check if status changed
       if (serviceOrderExists.status !== serviceOrder.status) {
-        this.eventEmitter.emit('service-order.status.changed', {
+        this.eventEmitter.emit('service_order.status.changed', {
           serviceOrder,
           oldStatus: serviceOrderExists.status,
           newStatus: serviceOrder.status,
@@ -1324,7 +1329,7 @@ export class ServiceOrderService {
 
         // If status changed to COMPLETED
         if (serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED) {
-          this.eventEmitter.emit('service-order.completed', {
+          this.eventEmitter.emit('service_order.completed', {
             serviceOrder,
             userId,
           });
@@ -1335,7 +1340,7 @@ export class ServiceOrderService {
           serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
           serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
         ) {
-          this.eventEmitter.emit('service-order.artwork-waiting-approval', {
+          this.eventEmitter.emit('service_order.artwork_waiting_approval', {
             serviceOrder,
             userId,
           });
@@ -1346,7 +1351,7 @@ export class ServiceOrderService {
       if (serviceOrderExists.assignedToId !== serviceOrder.assignedToId) {
         // If assigned to someone new (or reassigned)
         if (serviceOrder.assignedToId) {
-          this.eventEmitter.emit('service-order.assigned', {
+          this.eventEmitter.emit('service_order.assigned', {
             serviceOrder,
             userId,
             assignedToId: serviceOrder.assignedToId,
@@ -1369,13 +1374,23 @@ export class ServiceOrderService {
           serviceOrderExists.type !== serviceOrder.type;
 
         if (hasOtherChanges) {
-          this.eventEmitter.emit('service-order.assigned-user-updated', {
+          this.eventEmitter.emit('service_order.assigned_user_updated', {
             serviceOrder,
             oldServiceOrder: serviceOrderExists,
             userId,
             assignedToId: serviceOrder.assignedToId,
           });
         }
+      }
+
+      // Emit observation change event if observation changed
+      if (serviceOrderExists.observation !== serviceOrder.observation) {
+        this.eventEmitter.emit('service_order.observation.changed', {
+          serviceOrder,
+          oldObservation: serviceOrderExists.observation,
+          newObservation: serviceOrder.observation,
+          userId,
+        });
       }
 
       // Emit task status changed event if task was auto-started
@@ -1777,14 +1792,14 @@ export class ServiceOrderService {
       // This must happen AFTER the transaction completes successfully
       for (const serviceOrder of result.success) {
         // Emit creation event
-        this.eventEmitter.emit('service-order.created', {
+        this.eventEmitter.emit('service_order.created', {
           serviceOrder,
           userId,
         });
 
         // If service order is assigned, emit assignment event
         if (serviceOrder.assignedToId) {
-          this.eventEmitter.emit('service-order.assigned', {
+          this.eventEmitter.emit('service_order.assigned', {
             serviceOrder,
             userId,
             assignedToId: serviceOrder.assignedToId,
@@ -1942,6 +1957,11 @@ export class ServiceOrderService {
           if (!oldData.completedById) {
             updateData.completedById = userId || null;
             updateData.finishedAt = new Date();
+          }
+          // Also set startedAt/startedById if not already set (e.g., skipped IN_PROGRESS)
+          if (!oldData.startedById) {
+            updateData.startedById = userId || null;
+            updateData.startedAt = updateData.finishedAt || new Date();
           }
         }
 
@@ -2836,7 +2856,7 @@ export class ServiceOrderService {
 
         // Emit status.changed event if status changed
         if (oldData.status !== serviceOrder.status) {
-          this.eventEmitter.emit('service-order.status.changed', {
+          this.eventEmitter.emit('service_order.status.changed', {
             serviceOrder,
             oldStatus: oldData.status,
             newStatus: serviceOrder.status,
@@ -2845,7 +2865,7 @@ export class ServiceOrderService {
 
           // If status changed to COMPLETED
           if (serviceOrder.status === SERVICE_ORDER_STATUS.COMPLETED) {
-            this.eventEmitter.emit('service-order.completed', {
+            this.eventEmitter.emit('service_order.completed', {
               serviceOrder,
               userId,
             });
@@ -2856,7 +2876,7 @@ export class ServiceOrderService {
             serviceOrder.status === SERVICE_ORDER_STATUS.WAITING_APPROVE &&
             serviceOrder.type === SERVICE_ORDER_TYPE.ARTWORK
           ) {
-            this.eventEmitter.emit('service-order.artwork-waiting-approval', {
+            this.eventEmitter.emit('service_order.artwork_waiting_approval', {
               serviceOrder,
               userId,
             });
@@ -2865,7 +2885,7 @@ export class ServiceOrderService {
 
         // Emit assigned event if assignedToId changed
         if (oldData.assignedToId !== serviceOrder.assignedToId) {
-          this.eventEmitter.emit('service-order.assigned', {
+          this.eventEmitter.emit('service_order.assigned', {
             serviceOrder,
             userId,
             assignedToId: serviceOrder.assignedToId,
@@ -2874,13 +2894,23 @@ export class ServiceOrderService {
 
           // Also emit assigned-user-updated if not a status change
           if (oldData.status === serviceOrder.status) {
-            this.eventEmitter.emit('service-order.assigned-user-updated', {
+            this.eventEmitter.emit('service_order.assigned_user_updated', {
               serviceOrder,
               oldServiceOrder: oldData,
               userId,
               assignedToId: serviceOrder.assignedToId,
             });
           }
+        }
+
+        // Emit observation change event if observation changed
+        if (oldData.observation !== serviceOrder.observation) {
+          this.eventEmitter.emit('service_order.observation.changed', {
+            serviceOrder,
+            oldObservation: oldData.observation,
+            newObservation: serviceOrder.observation,
+            userId,
+          });
         }
       }
 

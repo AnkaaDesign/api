@@ -82,7 +82,7 @@
                 <div class="info-row">
                     <span class="info-label">Dias até Esgotamento:</span>
                     <span class="info-value" style="color: #dc3545; font-weight: 700;">
-                        {{product.salesImpact.daysUntilStockOut}} dia(s)
+                        {{product.salesImpact.daysUntilStockOut}} {{#if (eq product.salesImpact.daysUntilStockOut 1)}}dia{{else}}dias{{/if}}
                     </span>
                 </div>
             {{/if}}
@@ -139,7 +139,7 @@
 {{else}}
     <div class="info-box danger">
         <h3 style="font-size: 18px; margin-bottom: 10px; color: #721c24;">
-            {{productCount}} produto(s) em situação crítica
+            {{productCount}} {{#if (eq productCount 1)}}produto{{else}}produtos{{/if}} em situação crítica
         </h3>
         <p style="margin: 0; color: #721c24; font-weight: 600;">
             Múltiplos produtos estão em nível crítico de estoque. Ação imediata é necessária!

@@ -231,8 +231,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 id: z.boolean().optional(),
                 name: z.boolean().optional(),
                 code: z.boolean().optional(),
-                hexColor: z.boolean().optional(),
-                hslColor: z.boolean().optional(),
+                hex: z.boolean().optional(),
                 finish: z.boolean().optional(),
                 isActive: z.boolean().optional(),
                 paintTypeId: z.boolean().optional(),
@@ -329,8 +328,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 id: z.boolean().optional(),
                 name: z.boolean().optional(),
                 code: z.boolean().optional(),
-                hexColor: z.boolean().optional(),
-                hslColor: z.boolean().optional(),
+                hex: z.boolean().optional(),
                 finish: z.boolean().optional(),
                 isActive: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
@@ -398,6 +396,94 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 implementType: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
+                // Layout relations with nested select support
+                leftSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      select: z
+                        .object({
+                          id: z.boolean().optional(),
+                          height: z.boolean().optional(),
+                          layoutSections: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                select: z
+                                  .object({
+                                    id: z.boolean().optional(),
+                                    width: z.boolean().optional(),
+                                    isDoor: z.boolean().optional(),
+                                    doorHeight: z.boolean().optional(),
+                                    position: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+                rightSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      select: z
+                        .object({
+                          id: z.boolean().optional(),
+                          height: z.boolean().optional(),
+                          layoutSections: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                select: z
+                                  .object({
+                                    id: z.boolean().optional(),
+                                    width: z.boolean().optional(),
+                                    isDoor: z.boolean().optional(),
+                                    doorHeight: z.boolean().optional(),
+                                    position: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+                backSideLayout: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      select: z
+                        .object({
+                          id: z.boolean().optional(),
+                          height: z.boolean().optional(),
+                          layoutSections: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                select: z
+                                  .object({
+                                    id: z.boolean().optional(),
+                                    width: z.boolean().optional(),
+                                    isDoor: z.boolean().optional(),
+                                    doorHeight: z.boolean().optional(),
+                                    position: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
               })
               .optional(),
           }),
@@ -524,7 +610,7 @@ export const taskSelectTable = {
       id: true,
       name: true,
       code: true,
-      hexColor: true,
+      hex: true,
       // No formulas for performance
     },
   },
@@ -605,8 +691,7 @@ export const taskSelectDetail = {
       id: true,
       name: true,
       code: true,
-      hexColor: true,
-      hslColor: true,
+      hex: true,
       finish: true,
       // Formulas excluded - use include if needed
     },
@@ -686,8 +771,7 @@ export const taskSelectDetail = {
       id: true,
       name: true,
       code: true,
-      hexColor: true,
-      hslColor: true,
+      hex: true,
       finish: true,
       // No formulas for performance
     },
@@ -816,7 +900,7 @@ export const taskSelectPreparation = {
     select: {
       id: true,
       name: true,
-      hexColor: true,
+      hex: true,
     },
   },
   serviceOrders: {
@@ -1342,6 +1426,7 @@ export const taskOrderBySchema = z
       status: orderByDirectionSchema.optional(),
       statusOrder: orderByDirectionSchema.optional(),
       serialNumber: orderByWithNullsSchema.optional(),
+      commissionOrder: orderByDirectionSchema.optional(),
       entryDate: orderByDirectionSchema.optional(),
       term: orderByDirectionSchema.optional(),
       startedAt: orderByDirectionSchema.optional(),
@@ -1357,6 +1442,7 @@ export const taskOrderBySchema = z
         status: orderByDirectionSchema.optional(),
         statusOrder: orderByDirectionSchema.optional(),
         serialNumber: orderByWithNullsSchema.optional(),
+        commissionOrder: orderByDirectionSchema.optional(),
         entryDate: orderByDirectionSchema.optional(),
         term: orderByDirectionSchema.optional(),
         startedAt: orderByDirectionSchema.optional(),
@@ -2522,10 +2608,14 @@ const taskTruckSchema = z
     // Truck specifications
     category: truckCategorySchema.nullable().optional(),
     implementType: implementTypeSchema.nullable().optional(),
-    // Layout data - embedded in truck for single payload
+    // Layout data - embedded in truck for single payload (new layouts)
     leftSideLayout: layoutSideSchema,
     rightSideLayout: layoutSideSchema,
     backSideLayout: layoutSideSchema,
+    // Shared layout IDs - for batch creation (connect to existing layouts)
+    leftSideLayoutId: z.string().uuid().nullable().optional(),
+    rightSideLayoutId: z.string().uuid().nullable().optional(),
+    backSideLayoutId: z.string().uuid().nullable().optional(),
   })
   .nullable()
   .optional();

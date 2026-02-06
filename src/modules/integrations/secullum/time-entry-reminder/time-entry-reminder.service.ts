@@ -1,8 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SecullumService } from '../secullum.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { NotificationGatewayService } from '@modules/common/notification/notification-gateway.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { isWeekend } from '../../../../utils/date';
 import { SectorPrivileges } from '@prisma/client';
 
@@ -91,8 +90,7 @@ export class TimeEntryReminderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secullumService: SecullumService,
-    private readonly notificationService: NotificationService,
-    private readonly notificationGatewayService: NotificationGatewayService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   /**
@@ -364,6 +362,9 @@ export class TimeEntryReminderService {
 
   /**
    * Send a time entry reminder notification to a user
+   * Config key: timeentry.reminder
+   * Uses dispatchByConfigurationToUsers for targeted user dispatch
+   * (checks config enablement + user notification preferences before sending).
    */
   async sendTimeEntryReminder(
     userId: string,
@@ -382,26 +383,35 @@ export class TimeEntryReminderService {
     const today = new Date().toLocaleDateString('pt-BR');
 
     try {
-      const notification = await this.notificationService.createNotification({
-        type: 'SERVICE',
-        title: 'Lembrete de Ponto',
-        body: `Você ainda não registrou sua ${entryLabel}. Horário esperado: ${expectedTime}.`,
-        importance: 'NORMAL',
-        userId,
-        actionUrl: '/pessoal/meus-pontos',
-        metadata: {
-          entryType,
-          expectedTime,
-          date: today,
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'timeentry.reminder',
+        'system', // Cron-triggered, no actor user
+        {
           entityType: 'TimeEntry',
-          notificationKey: 'timeentry.reminder',
+          entityId: userId, // Use userId as entity since there's no TimeEntry entity
+          action: 'reminder',
+          data: {
+            userName,
+            entryType,
+            entryLabel,
+            expectedTime,
+            date: today,
+          },
+          metadata: {
+            entryType,
+            expectedTime,
+            date: today,
+          },
+          overrides: {
+            actionUrl: '/pessoal/meus-pontos',
+            webUrl: '/pessoal/meus-pontos',
+            relatedEntityType: 'TIME_ENTRY',
+            title: 'Lembrete de Ponto',
+            body: `Você ainda não registrou sua ${entryLabel}. Horário esperado: ${expectedTime}.`,
+          },
         },
-      });
-
-      // Send via WebSocket for immediate delivery
-      if (notification) {
-        await this.notificationGatewayService.sendToUser(userId, notification);
-      }
+        [userId],
+      );
     } catch (error) {
       this.logger.error(`Failed to send notification to ${userName}: ${error.message}`);
       throw error;
