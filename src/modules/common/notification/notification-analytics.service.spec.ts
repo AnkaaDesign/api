@@ -95,8 +95,8 @@ describe('NotificationAnalyticsService', () => {
         .mockResolvedValueOnce(5); // failed
       mockPrismaService.seenNotification.count.mockResolvedValue(80);
       mockPrismaService.notification.groupBy.mockResolvedValue([
-        { type: 'TASK', _count: 50 },
-        { type: 'ORDER', _count: 50 },
+        { type: 'PRODUCTION', _count: 50 },
+        { type: 'STOCK', _count: 50 },
       ]);
       mockPrismaService.notification.findMany.mockResolvedValue([
         { channel: ['EMAIL', 'IN_APP'] },
@@ -366,7 +366,7 @@ describe('NotificationAnalyticsService', () => {
         {
           id: 'notif-1',
           title: 'Test Notification',
-          type: 'TASK',
+          type: 'PRODUCTION',
           importance: 'HIGH',
           userId: 'user-1',
           user: { id: 'user-1', name: 'John Doe', email: 'john@example.com' },

@@ -16,6 +16,7 @@ export class UploadInitService implements OnModuleInit {
 
   async onModuleInit() {
     await this.initializeUploadDirectory();
+    await this.initializeFilesDirectory();
     this.scheduleCleanupTasks();
     await this.logUploadStats();
   }
@@ -44,6 +45,64 @@ export class UploadInitService implements OnModuleInit {
       this.logger.error(`Failed to initialize upload directory: ${error.message}`);
       throw new Error(`Upload initialization failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Initialize files storage directory structure (mirrors production /srv/files)
+   * Skips initialization for absolute paths (production — managed externally)
+   */
+  private async initializeFilesDirectory(): Promise<void> {
+    const filesRoot = process.env.FILES_ROOT || './files';
+
+    // Skip if absolute path (production — managed externally)
+    if (filesRoot.startsWith('/')) {
+      this.logger.log(`Files root is absolute path (${filesRoot}), skipping auto-initialization`);
+      return;
+    }
+
+    const directories = [
+      'Projetos',
+      'Orcamentos/Tarefas',
+      'Orcamentos/Pedidos',
+      'Orcamentos/Aerografias',
+      'Notas Fiscais/Tarefas',
+      'Notas Fiscais/Pedidos',
+      'Notas Fiscais/Aerografias',
+      'Notas Fiscais/RetiradasExternas',
+      'Comprovantes/Tarefas',
+      'Comprovantes/Pedidos',
+      'Comprovantes/Aerografias',
+      'Comprovantes/RetiradasExternas',
+      'Reembolsos/Tarefas',
+      'Reembolsos/Pedidos',
+      'Reembolsos/Aerografias',
+      'Reembolsos/RetiradasExternas',
+      'Notas Fiscais Reembolso/Tarefas',
+      'Notas Fiscais Reembolso/Pedidos',
+      'Notas Fiscais Reembolso/Aerografias',
+      'Notas Fiscais Reembolso/RetiradasExternas',
+      'Colaboradores/Documentos',
+      'Logos/Clientes',
+      'Logos/Fornecedores',
+      'Aerografias',
+      'Plotter',
+      'Arquivos Clientes',
+      'Observacoes',
+      'Advertencias',
+      'Auxiliares/Traseiras/Fotos',
+      'Fotos',
+      'Layouts/Orcamentos',
+      'Thumbnails',
+      'Tintas',
+      'Mensagens',
+      'Uploads',
+    ];
+
+    this.ensureDirectoryExists(filesRoot);
+    for (const dir of directories) {
+      this.ensureDirectoryExists(join(filesRoot, dir));
+    }
+    this.logger.log(`Files storage initialized: ${filesRoot} (${directories.length} directories)`);
   }
 
   /**

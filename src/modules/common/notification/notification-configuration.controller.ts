@@ -29,6 +29,8 @@ import { AuthGuard } from '../auth/auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserId } from '../auth/decorators/user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationConfigurationService } from './notification-configuration.service';
+import { NotificationDispatchService } from './notification-dispatch.service';
 import {
   SECTOR_PRIVILEGES,
   NOTIFICATION_TYPE,
@@ -90,6 +92,7 @@ interface CreateNotificationConfigurationDto {
  */
 interface UpdateNotificationConfigurationDto {
   key?: string;
+  name?: string;
   notificationType?: NOTIFICATION_TYPE;
   eventType?: string;
   description?: string;
@@ -101,6 +104,12 @@ interface UpdateNotificationConfigurationDto {
   deduplicationWindow?: number;
   templates?: Record<string, any>;
   metadata?: Record<string, any>;
+  targetRule?: {
+    allowedSectors?: SECTOR_PRIVILEGES[];
+    excludeInactive?: boolean;
+    excludeOnVacation?: boolean;
+    customFilter?: string;
+  };
 }
 
 /**
@@ -160,7 +169,11 @@ interface UpdateSectorOverrideDto {
 export class NotificationConfigurationController {
   private readonly logger = new Logger(NotificationConfigurationController.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configurationService: NotificationConfigurationService,
+    private readonly dispatchService: NotificationDispatchService,
+  ) {}
 
   // =====================
   // CRUD Operations
@@ -256,6 +269,9 @@ export class NotificationConfigurationController {
           },
         });
       });
+
+      // Invalidate cache after creation
+      this.configurationService.invalidateCache(dto.key);
 
       return {
         success: true,
@@ -576,6 +592,12 @@ export class NotificationConfigurationController {
         },
       });
 
+      // Invalidate cache after update
+      this.configurationService.invalidateCache(existingConfig.key);
+      if (dto.key && dto.key !== existingConfig.key) {
+        this.configurationService.invalidateCache(dto.key);
+      }
+
       return {
         success: true,
         data: updatedConfiguration,
@@ -651,6 +673,9 @@ export class NotificationConfigurationController {
           where: { id },
         });
       });
+
+      // Invalidate cache after deletion
+      this.configurationService.invalidateCache(existingConfig.key);
 
       return {
         success: true,
@@ -983,43 +1008,29 @@ export class NotificationConfigurationController {
         if (rendered.body) body = rendered.body;
       }
 
-      // Create notifications for each user
-      const createdNotifications = await this.prisma.$transaction(async (tx) => {
-        const notifications = [];
-
-        for (const targetUserId of targetUserIds) {
-          const notification = await tx.notification.create({
-            data: {
-              userId: targetUserId,
-              title,
-              body,
-              type: configuration.notificationType,
-              importance: contextDto.importanceOverride || configuration.importance,
-              channel: channels,
-              actionUrl: contextDto.actionUrl,
-              scheduledAt: contextDto.scheduledAt ? new Date(contextDto.scheduledAt) : null,
-              metadata: contextDto.metadata ?? null,
-            },
-          });
-          notifications.push(notification);
-        }
-
-        return notifications;
-      });
+      // Use the proper dispatch service instead of raw creation
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        key,
+        userId,
+        {
+          entityType: (contextDto.metadata as any)?.entityType || 'System',
+          entityId: (contextDto.metadata as any)?.entityId || '',
+          action: 'manual_send',
+          data: contextDto.templateVariables || {},
+          metadata: contextDto.metadata ?? undefined,
+        },
+        targetUserIds,
+      );
 
       return {
         success: true,
         data: {
           configurationKey: key,
-          notificationsCreated: createdNotifications.length,
           targetUserIds,
           channels,
           scheduledAt: contextDto.scheduledAt || null,
-          notifications: createdNotifications.slice(0, 10), // Return first 10 for preview
         },
-        message: contextDto.scheduledAt
-          ? `${createdNotifications.length} notificações agendadas com sucesso.`
-          : `${createdNotifications.length} notificações criadas com sucesso.`,
+        message: `Notificações enviadas com sucesso para ${targetUserIds.length} destinatários.`,
       };
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof BadRequestException) {

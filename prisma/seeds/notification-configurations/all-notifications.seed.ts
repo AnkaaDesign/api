@@ -34,12 +34,12 @@ import {
  * 15. PPE/EPI (4)
  * 16. Alerts (0) - removed, no code emits alert events yet
  * 17. Cut/Recorte (5)
- * 18. Order/Pedido (5)
+ * 18. Order/Pedido (6)
  * 19. Item/Stock Detail (4)
  * 20. Artwork Approval (3)
  * 21. Time Entry Reminders (1)
  *
- * TOTAL: 112 notifications
+ * TOTAL: 113 notifications
  *
  * Last updated: 2026
  */
@@ -1539,13 +1539,13 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Layout lado esquerdo alterado: "{taskName}" #{serialNumber}',
-        push: 'Layout lado esquerdo alterado',
+        inApp: 'Layout do {sideLabel} alterado: "{taskName}" #{serialNumber} - {layoutChangeDescription}',
+        push: 'Layout {sideLabel} alterado - {layoutChangeDescription}',
         email: {
-          subject: 'Layout lado esquerdo alterado - Tarefa #{serialNumber}',
-          body: 'O layout do lado esquerdo do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+          subject: 'Layout {sideLabel} alterado - Tarefa #{serialNumber}',
+          body: 'O layout do {sideLabel} do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\n{layoutChangeDescription}\n\nAlterado por: {changedBy}',
         },
-        whatsapp: 'Layout lado esquerdo alterado na tarefa "{taskName}" #{serialNumber}.',
+        whatsapp: 'Layout do {sideLabel} alterado na tarefa "{taskName}" #{serialNumber}.\n\n{layoutChangeDescription}',
       },
     },
     metadata: { field: 'truck.leftSideLayoutId', category: 'PRODUCTION' },
@@ -1562,13 +1562,13 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Layout lado direito alterado: "{taskName}" #{serialNumber}',
-        push: 'Layout lado direito alterado',
+        inApp: 'Layout do {sideLabel} alterado: "{taskName}" #{serialNumber} - {layoutChangeDescription}',
+        push: 'Layout {sideLabel} alterado - {layoutChangeDescription}',
         email: {
-          subject: 'Layout lado direito alterado - Tarefa #{serialNumber}',
-          body: 'O layout do lado direito do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+          subject: 'Layout {sideLabel} alterado - Tarefa #{serialNumber}',
+          body: 'O layout do {sideLabel} do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\n{layoutChangeDescription}\n\nAlterado por: {changedBy}',
         },
-        whatsapp: 'Layout lado direito alterado na tarefa "{taskName}" #{serialNumber}.',
+        whatsapp: 'Layout do {sideLabel} alterado na tarefa "{taskName}" #{serialNumber}.\n\n{layoutChangeDescription}',
       },
     },
     metadata: { field: 'truck.rightSideLayoutId', category: 'PRODUCTION' },
@@ -1585,13 +1585,13 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
     workHoursOnly: true,
     templates: {
       updated: {
-        inApp: 'Layout traseira alterado: "{taskName}" #{serialNumber}',
-        push: 'Layout traseira alterado',
+        inApp: 'Layout do {sideLabel} alterado: "{taskName}" #{serialNumber} - {layoutChangeDescription}',
+        push: 'Layout {sideLabel} alterado - {layoutChangeDescription}',
         email: {
-          subject: 'Layout traseira alterado - Tarefa #{serialNumber}',
-          body: 'O layout da traseira do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\nAlterado por: {changedBy}',
+          subject: 'Layout {sideLabel} alterado - Tarefa #{serialNumber}',
+          body: 'O layout do {sideLabel} do caminhao foi alterado na tarefa "{taskName}" (#{serialNumber}).\n\n{layoutChangeDescription}\n\nAlterado por: {changedBy}',
         },
-        whatsapp: 'Layout traseira alterado na tarefa "{taskName}" #{serialNumber}.',
+        whatsapp: 'Layout do {sideLabel} alterado na tarefa "{taskName}" #{serialNumber}.\n\n{layoutChangeDescription}',
       },
     },
     metadata: { field: 'truck.backSideLayoutId', category: 'PRODUCTION' },
@@ -1601,7 +1601,7 @@ const TASK_TRUCK_FIELD_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 11. TASK NEGOTIATION FIELDS (3)
+// 11. TASK NEGOTIATION FIELDS (2)
 // ============================================================================
 
 const TASK_NEGOTIATION_FIELD_CONFIGS: NotificationConfig[] = [
@@ -1637,42 +1637,10 @@ const TASK_NEGOTIATION_FIELD_CONFIGS: NotificationConfig[] = [
     channelConfigs: CHANNELS_IN_APP_ONLY,
     targetRule: { allowedSectors: NEGOTIATION_SECTORS },
   },
-  {
-    key: 'task.field.negotiatingWith',
-    name: 'Negociando Com',
-    notificationType: 'PRODUCTION',
-    eventType: 'field.negotiatingWith',
-    description: 'Notificacao quando o contato de negociacao da tarefa e alterado (DEPRECATED)',
-    importance: 'NORMAL',
-    workHoursOnly: true,
-    templates: {
-      updated: {
-        inApp: 'Contato de negociacao atualizado: {newValue}',
-        push: 'Negociacao: {newValue}',
-        email: {
-          subject: 'Contato de negociacao - Tarefa #{serialNumber}',
-          body: 'O contato de negociacao da tarefa "{taskName}" foi atualizado para "{newValue}" por {changedBy}.',
-        },
-        whatsapp: 'Negociando tarefa #{serialNumber} com: {newValue}.',
-      },
-      cleared: {
-        inApp: 'Contato de negociacao removido',
-        push: 'Negociacao removida',
-        email: {
-          subject: 'Contato de negociacao removido - Tarefa #{serialNumber}',
-          body: 'O contato de negociacao da tarefa "{taskName}" foi removido por {changedBy}.',
-        },
-        whatsapp: 'Contato de negociacao da tarefa #{serialNumber} foi removido.',
-      },
-    },
-    metadata: { field: 'negotiatingWith', category: 'NEGOTIATION', deprecated: true, replacedBy: 'representatives' },
-    channelConfigs: CHANNELS_IN_APP_ONLY,
-    targetRule: { allowedSectors: NEGOTIATION_SECTORS },
-  },
 ];
 
 // ============================================================================
-// 12. SERVICE ORDER NOTIFICATIONS - TYPE-SPECIFIC (9 events x 5 types = 45)
+// 12. SERVICE ORDER NOTIFICATIONS - TYPE-SPECIFIC (8 events x 4 types + 9 events x 1 type = 41)
 // ============================================================================
 
 /**
@@ -1910,7 +1878,7 @@ const BORROW_CONFIGS: NotificationConfig[] = [
     },
     channelConfigs: CHANNELS_HIGH,
     targetRule: {
-      allowedSectors: ALL_SECTORS,
+      allowedSectors: PRODUCTION_SECTORS,
       customFilter: 'BORROWER',
     },
   },
@@ -1936,7 +1904,7 @@ const BORROW_CONFIGS: NotificationConfig[] = [
     },
     channelConfigs: CHANNELS_IN_APP_PUSH,
     targetRule: {
-      allowedSectors: ['ADMIN', 'PRODUCTION', 'LOGISTIC', 'MAINTENANCE', 'WAREHOUSE'],
+      allowedSectors: PRODUCTION_SECTORS,
       customFilter: 'SECTOR_MANAGER',
     },
   },
@@ -2204,7 +2172,7 @@ const CUT_CONFIGS: NotificationConfig[] = [
 ];
 
 // ============================================================================
-// 18. ORDER NOTIFICATIONS (5)
+// 18. ORDER NOTIFICATIONS (6)
 // ============================================================================
 
 const ORDER_CONFIGS: NotificationConfig[] = [
@@ -2318,6 +2286,28 @@ const ORDER_CONFIGS: NotificationConfig[] = [
     },
     channelConfigs: CHANNELS_HIGH,
     targetRule: { allowedSectors: ['ADMIN', 'WAREHOUSE', 'FINANCIAL'] },
+  },
+  {
+    key: 'order.item.entered_inventory',
+    name: 'Item do Pedido Entrou no Estoque',
+    notificationType: 'STOCK',
+    eventType: 'order.item.entered_inventory',
+    description: 'Notificacao enviada quando um item de um pedido entra no estoque via atividade de entrada',
+    importance: 'NORMAL',
+    workHoursOnly: true,
+    templates: {
+      updated: {
+        inApp: 'Item "{itemName}" do pedido #{orderNumber} entrou no estoque ({quantity} un.)',
+        push: 'Item entrou no estoque',
+        email: {
+          subject: 'Item Entrou no Estoque - Pedido #{orderNumber}',
+          body: 'Um item do pedido entrou no estoque:\n\nPedido: #{orderNumber}\nFornecedor: {supplierName}\nItem: {itemName}\nCodigo: {itemCode}\nQuantidade adicionada: {quantity} unidades\nEstoque atual: {currentStock} unidades\nCategoria: {categoryName}\n\nO estoque foi atualizado automaticamente.',
+        },
+        whatsapp: 'Item "{itemName}" do pedido #{orderNumber} entrou no estoque. Qtd: {quantity} un.',
+      },
+    },
+    channelConfigs: CHANNELS_IN_APP_PUSH,
+    targetRule: { allowedSectors: ['ADMIN', 'WAREHOUSE'] },
   },
 ];
 
@@ -2554,9 +2544,9 @@ const ALL_NOTIFICATION_CONFIGS: NotificationConfig[] = [
   ...TASK_ARTWORK_PRODUCTION_FIELD_CONFIGS,
   // Task Truck Fields (8)
   ...TASK_TRUCK_FIELD_CONFIGS,
-  // Task Negotiation Fields (3)
+  // Task Negotiation Fields (2)
   ...TASK_NEGOTIATION_FIELD_CONFIGS,
-  // Service Orders - Type-Specific (36)
+  // Service Orders - Type-Specific (41)
   ...SERVICE_ORDER_TYPE_CONFIGS,
   // Borrow (2)
   ...BORROW_CONFIGS,
@@ -2572,7 +2562,7 @@ const ALL_NOTIFICATION_CONFIGS: NotificationConfig[] = [
   ...ORDER_CONFIGS,
   // Item/Stock Detail (4)
   ...ITEM_STOCK_CONFIGS,
-  // Artwork Approval (5)
+  // Artwork Approval (3)
   ...ARTWORK_CONFIGS,
   // Time Entry Reminders (1)
   ...TIME_ENTRY_REMINDER_CONFIGS,

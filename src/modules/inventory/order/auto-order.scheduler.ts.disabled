@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AutoOrderService } from './auto-order.service';
 import { NotificationService } from '@modules/common/notification/notification.service';
-import { NOTIFICATION_TYPE } from '@/constants/enums';
+import { NOTIFICATION_TYPE, NOTIFICATION_IMPORTANCE } from '@/constants/enums';
 
 @Injectable()
 export class AutoOrderScheduler {
@@ -76,9 +76,9 @@ export class AutoOrderScheduler {
       await this.notificationService.create({
         title: '🔔 Recomendações de Pedidos Automáticos',
         message: message,
-        type: criticalItems.length > 0 ? NOTIFICATION_TYPE.WARNING : NOTIFICATION_TYPE.INFO,
-        priority:
-          criticalItems.length > 0 ? NOTIFICATION_PRIORITY.HIGH : NOTIFICATION_PRIORITY.MEDIUM,
+        type: NOTIFICATION_TYPE.STOCK,
+        importance:
+          criticalItems.length > 0 ? NOTIFICATION_IMPORTANCE.HIGH : NOTIFICATION_IMPORTANCE.NORMAL,
         link: '/inventory/orders/auto', // Link to auto-order page
         metadata: {
           totalRecommendations: recommendations.length,
@@ -96,8 +96,8 @@ export class AutoOrderScheduler {
       await this.notificationService.create({
         title: '❌ Erro na Análise de Pedidos Automáticos',
         message: 'Falha ao executar análise diária de pedidos automáticos. Verifique os logs.',
-        type: NOTIFICATION_TYPE.ERROR,
-        priority: NOTIFICATION_PRIORITY.HIGH,
+        type: NOTIFICATION_TYPE.SYSTEM,
+        importance: NOTIFICATION_IMPORTANCE.HIGH,
         metadata: {
           error: error instanceof Error ? error.message : String(error),
         },
@@ -151,8 +151,8 @@ export class AutoOrderScheduler {
           `${criticalItems.length} item(ns) com estoque crítico!\n\n` +
           `${itemList}${moreItems}\n\n` +
           `Acesse a página de pedidos automáticos para criar pedidos.`,
-        type: NOTIFICATION_TYPE.ERROR,
-        priority: NOTIFICATION_PRIORITY.URGENT,
+        type: NOTIFICATION_TYPE.STOCK,
+        importance: NOTIFICATION_IMPORTANCE.URGENT,
         link: '/inventory/orders/auto?filter=critical',
         metadata: {
           criticalItems: criticalItems.length,

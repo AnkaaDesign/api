@@ -1167,7 +1167,6 @@ model Task {
   sectorId              String?
   commission            CommissionStatus?
   commissionOrder       Int                  @default(3)
-  negotiatingWith       Json?
   createdById           String?
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
@@ -2051,6 +2050,7 @@ enum PantsSize {
   SIZE_44
   SIZE_46
   SIZE_48
+  SIZE_50
 }
 
 enum BootSize {

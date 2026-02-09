@@ -571,13 +571,13 @@ export class NotificationAdminController {
       // Get notifications by type
       const notificationsByType = await this.prisma.notification.groupBy({
         by: ['type'],
+        _count: { type: true },
         where: whereClause,
-        _count: true,
       });
 
       const byType: Record<string, number> = {};
       notificationsByType.forEach(item => {
-        byType[item.type] = item._count;
+        byType[item.type] = item._count.type;
       });
 
       // Get notifications by channel (this is more complex since channel is an array)

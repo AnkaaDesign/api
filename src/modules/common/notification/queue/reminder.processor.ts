@@ -133,7 +133,7 @@ export class ReminderProcessor {
         const notification = await this.prisma.notification.create({
           data: {
             userId,
-            type: 'REMINDER' as any,
+            type: 'SYSTEM',
             title,
             body,
             actionUrl: actionUrl || null,

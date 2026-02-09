@@ -615,12 +615,82 @@ export class CreateNotificationConfigurationDto {
 }
 
 /**
+ * DTO for updating target rule (partial update structure)
+ */
+export class UpdateTargetRuleDto {
+  @ApiPropertyOptional({
+    description: 'Target sectors (for SECTORS target type)',
+    enum: SECTOR_PRIVILEGES,
+    isArray: true,
+    example: [SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.MAINTENANCE],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(SECTOR_PRIVILEGES, { each: true })
+  allowedSectors?: SECTOR_PRIVILEGES[];
+
+  @ApiPropertyOptional({
+    description: 'Whether to exclude inactive users',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  excludeInactive?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Whether to exclude users on vacation',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  excludeOnVacation?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Custom filter expression',
+    example: "user.sector.privilege === 'PRODUCTION' && user.isActive",
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  customFilter?: string;
+}
+
+/**
  * DTO for updating a notification configuration
  * All fields are optional
  */
 export class UpdateNotificationConfigurationDto extends PartialType(
-  OmitType(CreateNotificationConfigurationDto, ['key'] as const),
-) {}
+  OmitType(CreateNotificationConfigurationDto, ['key', 'targetRule'] as const),
+) {
+  @ApiPropertyOptional({
+    description: 'Configuration key (usually not changed)',
+    example: 'task_assigned',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  key?: string;
+
+  @ApiPropertyOptional({
+    description: 'Human-readable name for this configuration (displayed to users)',
+    example: 'Tarefa Atribuída',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(100)
+  name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Target rule for notification delivery (partial update)',
+    type: UpdateTargetRuleDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateTargetRuleDto)
+  targetRule?: UpdateTargetRuleDto;
+}
 
 /**
  * DTO for testing a notification configuration

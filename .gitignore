@@ -39,6 +39,9 @@ coverage/
 # Uploads directory
 uploads/
 
+# Files storage directory (development mirror of /srv/files)
+files/
+
 # Database
 *.db
 *.sqlite

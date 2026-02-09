@@ -5,15 +5,11 @@ import { Layout } from '@prisma/client';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   ENTITY_TYPE,
   CHANGE_ACTION,
   CHANGE_TRIGGERED_BY,
-  NOTIFICATION_TYPE,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_CHANNEL,
-  SECTOR_PRIVILEGES,
 } from '../../../constants/enums';
 import type { LayoutCreateFormData, LayoutUpdateFormData } from '../../../schemas';
 import { LayoutPrismaRepository } from './repositories/layout-prisma.repository';
@@ -27,7 +23,7 @@ export class LayoutService {
     private readonly layoutRepository: LayoutPrismaRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
-    private readonly notificationService: NotificationService,
+    private readonly dispatchService: NotificationDispatchService,
   ) {}
 
   async findById(id: string, include?: any): Promise<Layout | null> {
@@ -257,6 +253,74 @@ export class LayoutService {
     };
   }
 
+  /**
+   * Format a layout summary string: "{totalWidth} x {height} {doorDescription}"
+   */
+  private formatLayoutSummary(
+    layout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> },
+  ): string {
+    const sections = layout.layoutSections || [];
+    const totalWidth = sections.reduce((sum, s) => sum + s.width, 0);
+    const doorCount = sections.filter(s => s.isDoor).length;
+    const doorText =
+      doorCount === 0
+        ? 'nenhuma porta'
+        : doorCount === 1
+          ? 'uma porta'
+          : `${doorCount} portas`;
+    return `${totalWidth} x ${layout.height} ${doorText}`;
+  }
+
+  /**
+   * Build a human-readable PT-BR description comparing old vs new layout
+   */
+  private formatLayoutChangeDescription(
+    side: 'left' | 'right' | 'back',
+    oldLayout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> } | null,
+    newLayout: { height: number; layoutSections?: Array<{ width: number; isDoor: boolean }> },
+  ): string {
+    const sideLabels: Record<string, string> = {
+      left: 'Motorista',
+      right: 'Sapo',
+      back: 'Traseira',
+    };
+    const sideLabel = sideLabels[side] || side;
+
+    if (!oldLayout || !oldLayout.layoutSections?.length) {
+      const newSummary = this.formatLayoutSummary(newLayout);
+      return `Layout ${sideLabel} definido: ${newSummary}`;
+    }
+
+    const oldSections = oldLayout.layoutSections || [];
+    const newSections = newLayout.layoutSections || [];
+
+    const oldWidth = oldSections.reduce((sum, s) => sum + s.width, 0);
+    const newWidth = newSections.reduce((sum, s) => sum + s.width, 0);
+    const oldDoors = oldSections.filter(s => s.isDoor).length;
+    const newDoors = newSections.filter(s => s.isDoor).length;
+
+    const dimensionsChanged = oldWidth !== newWidth || oldLayout.height !== newLayout.height;
+    const doorsChanged = oldDoors !== newDoors;
+
+    const oldSummary = this.formatLayoutSummary(oldLayout);
+    const newSummary = this.formatLayoutSummary(newLayout);
+
+    if (dimensionsChanged && doorsChanged) {
+      return `${oldSummary} para ${newSummary}`;
+    }
+
+    if (dimensionsChanged) {
+      return `Medidas alteradas de ${oldWidth} x ${oldLayout.height} para ${newWidth} x ${newLayout.height}`;
+    }
+
+    if (doorsChanged) {
+      const doorAction = newDoors > oldDoors ? 'Porta adicionada' : 'Porta removida';
+      return `${doorAction} no ${sideLabel} (medidas mantidas: ${oldWidth} x ${oldLayout.height})`;
+    }
+
+    return `Layout ${sideLabel} atualizado: ${newSummary}`;
+  }
+
   async createOrUpdateTruckLayout(
     truckId: string,
     side: 'left' | 'right' | 'back',
@@ -289,6 +353,8 @@ export class LayoutService {
       },
     });
 
+    let oldLayoutSnapshot: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null = null;
+
     const result = await this.prisma.$transaction(async tx => {
       this.logger.log('[BACKEND] Transaction started');
 
@@ -297,9 +363,9 @@ export class LayoutService {
       const truck = await tx.truck.findUnique({
         where: { id: truckId },
         include: {
-          leftSideLayout: true,
-          rightSideLayout: true,
-          backSideLayout: true,
+          leftSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
+          rightSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
+          backSideLayout: { include: { layoutSections: { orderBy: { position: 'asc' as const } } } },
         },
       });
 
@@ -332,6 +398,17 @@ export class LayoutService {
 
       const layoutField = layoutFieldMap[side];
       const existingLayout = existingLayoutMap[side];
+
+      // Capture old layout snapshot for notification comparison (before any modifications)
+      if (existingLayout && (existingLayout as any).layoutSections) {
+        oldLayoutSnapshot = {
+          height: existingLayout.height,
+          layoutSections: ((existingLayout as any).layoutSections as Array<{ width: number; isDoor: boolean }>).map(s => ({
+            width: s.width,
+            isDoor: s.isDoor,
+          })),
+        };
+      }
 
       this.logger.log(`[BACKEND] Side '${side}' - Checking existing layout:`, {
         hasExistingLayout: !!existingLayout,
@@ -582,12 +659,23 @@ export class LayoutService {
       return layout;
     });
 
+    // Build new layout snapshot for notification comparison
+    const newLayoutSnapshot = {
+      height: data.height,
+      layoutSections: (data.layoutSections || []).map(s => ({
+        width: s.width,
+        isDoor: s.isDoor,
+      })),
+    };
+
     // Send notifications for layout change (outside transaction to not block it)
     this.sendLayoutChangeNotifications(
       truckId,
       side,
       existingLayoutId ? 'assign' : 'update',
       userId,
+      oldLayoutSnapshot,
+      newLayoutSnapshot,
     ).catch(err => {
       this.logger.error('Error sending layout change notifications:', err);
     });
@@ -696,6 +784,8 @@ export class LayoutService {
     side: 'left' | 'right' | 'back',
     action: 'update' | 'assign',
     userId?: string,
+    oldLayout?: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null,
+    newLayout?: { height: number; layoutSections: Array<{ width: number; isDoor: boolean }> } | null,
   ): Promise<void> {
     const sideLabels: Record<string, string> = {
       left: 'Lado Motorista',
@@ -703,6 +793,13 @@ export class LayoutService {
       back: 'Traseira',
     };
     const sideLabel = sideLabels[side] || side;
+
+    // Build layout change description
+    const layoutChangeDescription = newLayout
+      ? this.formatLayoutChangeDescription(side, oldLayout || null, newLayout)
+      : `Layout ${sideLabel} alterado`;
+    const oldLayoutSummary = oldLayout ? this.formatLayoutSummary(oldLayout) : '';
+    const newLayoutSummary = newLayout ? this.formatLayoutSummary(newLayout) : '';
 
     // Find the task associated with this truck
     const truck = await this.prisma.truck.findUnique({
@@ -728,61 +825,49 @@ export class LayoutService {
     }
 
     const task = truck.task;
-    const title =
-      action === 'assign' ? `Layout atribuído - ${sideLabel}` : `Layout atualizado - ${sideLabel}`;
-    const message = `O layout do ${sideLabel} da tarefa "${task.name}" foi ${action === 'assign' ? 'atribuído' : 'atualizado'}.`;
 
-    // Collect target user IDs: sector manager + admin users
-    const targetUserIds = new Set<string>();
+    // Map side to existing notification configuration keys
+    const sideConfigKeys: Record<string, string> = {
+      left: 'task.field.truck.leftSideLayoutId',
+      right: 'task.field.truck.rightSideLayoutId',
+      back: 'task.field.truck.backSideLayoutId',
+    };
+    const configKey = sideConfigKeys[side];
 
-    if (task.sector?.managerId) {
-      targetUserIds.add(task.sector.managerId);
+    if (!configKey) {
+      this.logger.warn(`[sendLayoutChangeNotifications] Unknown side: ${side}`);
+      return;
     }
 
-    // Get admin users
-    const admins = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-        sector: {
-          privileges: SECTOR_PRIVILEGES.ADMIN,
-        },
-      },
-      select: { id: true },
-    });
-    admins.forEach(admin => targetUserIds.add(admin.id));
-
-    // Create notifications (skip the user who made the change)
-    for (const targetUserId of targetUserIds) {
-      if (targetUserId === userId) continue;
-
-      try {
-        await this.notificationService.createNotification({
-          type: NOTIFICATION_TYPE.PRODUCTION,
-          title,
-          body: message,
-          importance: NOTIFICATION_IMPORTANCE.NORMAL,
-          channel: [NOTIFICATION_CHANNEL.IN_APP],
-          userId: targetUserId,
-          relatedEntityId: task.id,
-          relatedEntityType: 'TASK',
-          metadata: {
-            taskId: task.id,
+    try {
+      await this.dispatchService.dispatchByConfiguration(
+        configKey,
+        userId || 'system',
+        {
+          entityType: 'Task',
+          entityId: task.id,
+          action,
+          data: {
+            taskName: task.name,
+            sideLabel,
             truckId,
             side,
-            action,
-            entityType: 'LAYOUT',
+            actorId: userId,
+            layoutChangeDescription,
+            oldLayoutSummary,
+            newLayoutSummary,
           },
-        });
-      } catch (err) {
-        this.logger.error(
-          `[sendLayoutChangeNotifications] Failed to notify user ${targetUserId}:`,
-          err,
-        );
-      }
-    }
+        },
+      );
 
-    this.logger.log(
-      `[sendLayoutChangeNotifications] Sent ${targetUserIds.size} notification(s) for layout ${action} on ${sideLabel}`,
-    );
+      this.logger.log(
+        `[sendLayoutChangeNotifications] Dispatched ${configKey} for layout ${action} on ${sideLabel}: ${layoutChangeDescription}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `[sendLayoutChangeNotifications] Failed to dispatch notification:`,
+        err,
+      );
+    }
   }
 }

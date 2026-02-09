@@ -471,6 +471,10 @@ export class PushService implements OnModuleInit {
   /**
    * Unregister a device token
    */
+  async findDeviceToken(token: string): Promise<DeviceToken | null> {
+    return this.prisma.deviceToken.findUnique({ where: { token } });
+  }
+
   async unregisterDeviceToken(token: string): Promise<boolean> {
     try {
       await this.prisma.deviceToken.delete({

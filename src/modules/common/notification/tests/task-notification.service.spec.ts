@@ -124,22 +124,6 @@ describe('TaskNotificationService', () => {
       expect(changes[0].fieldLabel).toBe('Anexos');
     });
 
-    it('should detect object changes', () => {
-      const oldTask = {
-        ...mockTask,
-        negotiatingWith: { name: 'John', phone: '123' },
-      } as Task;
-      const newTask = {
-        ...mockTask,
-        negotiatingWith: { name: 'Jane', phone: '456' },
-      } as Task;
-
-      const changes = service.trackTaskChanges(oldTask, newTask);
-
-      expect(changes).toHaveLength(1);
-      expect(changes[0].field).toBe('negotiatingWith');
-    });
-
     it('should handle null to value changes', () => {
       const oldTask = { ...mockTask, details: null };
       const newTask = { ...mockTask, details: 'New details' };

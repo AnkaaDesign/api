@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
@@ -74,6 +75,12 @@ export class PushController {
   })
   async unregisterDeviceToken(@UserId() userId: string, @Body() dto: UnregisterDeviceTokenDto) {
     this.logger.log(`Unregistering device token for user: ${userId}`);
+
+    // Verify token belongs to the requesting user
+    const token = await this.pushService.findDeviceToken(dto.token);
+    if (token && token.userId !== userId) {
+      throw new ForbiddenException('Cannot unregister a device token that does not belong to you');
+    }
 
     const success = await this.pushService.unregisterDeviceToken(dto.token);
 

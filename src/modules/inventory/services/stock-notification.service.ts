@@ -1,12 +1,10 @@
 // apps/api/src/modules/inventory/services/stock-notification.service.ts
 
 import { Injectable, Logger } from '@nestjs/common';
-import { NotificationService } from '@modules/common/notification/notification.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { DeepLinkService, DeepLinkEntity } from '@modules/common/notification/deep-link.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
-  NOTIFICATION_TYPE,
-  NOTIFICATION_CHANNEL,
   NOTIFICATION_IMPORTANCE,
   STOCK_LEVEL,
   SECTOR_PRIVILEGES,
@@ -69,7 +67,7 @@ export class StockNotificationService {
   private readonly NOTIFICATION_COOLDOWN = 5 * 60 * 1000;
 
   constructor(
-    private readonly notificationService: NotificationService,
+    private readonly dispatchService: NotificationDispatchService,
     private readonly deepLinkService: DeepLinkService,
     private readonly prisma: PrismaService,
   ) {}
@@ -327,48 +325,31 @@ export class StockNotificationService {
       `Creating stock notification for ${targetUsers.length} users (event: ${metadata.eventType})`,
     );
 
-    // Build notification content
-    const { title, body } = this.buildNotificationContent(metadata);
+    // Use configuration-based dispatch instead of direct notification creation
+    const configKeyMap: Record<string, string> = {
+      [STOCK_EVENT_TYPE.LOW]: 'item.low_stock',
+      [STOCK_EVENT_TYPE.CRITICAL]: 'item.low_stock',
+      [STOCK_EVENT_TYPE.OUT_OF_STOCK]: 'item.out_of_stock',
+      [STOCK_EVENT_TYPE.REPLENISHED]: 'item.reorder_required',
+    };
+    const configKey = configKeyMap[metadata.eventType] || 'item.low_stock';
 
-    // Build deep links with proper web, mobile, and universal link support
-    const deepLinks = this.deepLinkService.generateItemLinks(metadata.itemId);
+    try {
+      await this.dispatchService.dispatchByConfiguration(configKey, 'system', {
+        entityType: 'Item',
+        entityId: metadata.itemId,
+        action: metadata.eventType,
+        data: metadata as any,
+      });
 
-    // Create notification for each target user
-    // Use webPath (relative path) for actionUrl for backward compatibility
-    // This matches how task notifications work - actionUrl is relative, metadata.webUrl is full URL
-    for (const user of targetUsers) {
-      try {
-        await this.notificationService.createNotification(
-          {
-            userId: user.id,
-            title,
-            body,
-            type: NOTIFICATION_TYPE.STOCK,
-            channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-            importance: this.getImportance(metadata.eventType),
-            actionType: metadata.eventType,
-            actionUrl: deepLinks.webPath, // Use relative path for backward compatibility (like task notifications)
-            metadata: {
-              ...(metadata as any),
-              webUrl: deepLinks.web, // Full web URL for platforms that need it
-              mobileUrl: deepLinks.mobile, // Mobile app deep link
-              universalLink: deepLinks.universalLink, // Universal link for mobile
-            },
-          },
-          { user: true },
-          'system',
-        );
-
-        this.logger.debug(
-          `Created stock notification for user ${user.id}: ${metadata.itemName} - ${metadata.eventType}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to create notification for user ${user.id}: ${error.message}`,
-          error,
-        );
-        // Continue with other users
-      }
+      this.logger.log(
+        `Dispatched stock notification via config "${configKey}" for item ${metadata.itemName}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to dispatch stock notification via config "${configKey}": ${error.message}`,
+        error,
+      );
     }
   }
 

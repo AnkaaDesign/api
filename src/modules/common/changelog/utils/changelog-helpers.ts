@@ -446,7 +446,6 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   entryDate: 'data de entrada',
   forecastDate: 'data prevista',
   commission: 'comissão',
-  negotiatingWith: 'negociando com', // DEPRECATED - kept for historical data
   representatives: 'representantes',
   representativeIds: 'representantes',
   customerId: 'cliente',

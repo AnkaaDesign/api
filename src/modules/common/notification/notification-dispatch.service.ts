@@ -140,6 +140,16 @@ export class NotificationDispatchService {
         throw new NotFoundException(`Notification with ID ${notificationId} not found`);
       }
 
+      // 1.5. Check if the notification's configuration is still enabled
+      const configKey = (notification.metadata as any)?.configKey;
+      if (configKey) {
+        const config = await this.configurationService.getConfiguration(configKey);
+        if (config && !config.isEnabled) {
+          this.logger.log(`Skipping dispatch: config "${configKey}" is now disabled for notification ${notificationId}`);
+          return;
+        }
+      }
+
       // 2. Check if already sent
       if (notification.sentAt) {
         this.logger.warn(
@@ -190,11 +200,13 @@ export class NotificationDispatchService {
 
       // 5. Process each user and dispatch to their preferred channels
       const deliveryResults: ChannelDeliveryResult[] = [];
+      let successCount = 0;
 
       for (const user of targetUsers) {
         try {
           const userDeliveryResults = await this.dispatchToUser(notification, user);
           deliveryResults.push(...userDeliveryResults);
+          if (userDeliveryResults.some(r => r.success)) successCount++;
         } catch (error) {
           this.logger.error(
             `Failed to dispatch notification to user ${user.id}: ${error.message}`,
@@ -204,8 +216,12 @@ export class NotificationDispatchService {
         }
       }
 
-      // 6. Update notification as sent
-      await this.updateNotificationSentAt(notificationId);
+      // 6. Update notification as sent only if at least one delivery succeeded
+      if (successCount > 0) {
+        await this.updateNotificationSentAt(notificationId);
+      } else {
+        this.logger.warn(`No successful deliveries for notification ${notificationId}, not marking as sent`);
+      }
 
       // 7. Emit event for notification dispatched
       this.eventEmitter.emit('notification.dispatched', {
@@ -601,16 +617,15 @@ export class NotificationDispatchService {
     }
 
     // Try multiple possible fields where actor ID might be stored
+    // NOTE: metadata.userId, metadata.vacation?.userId, metadata.warning?.userId, metadata.ppe?.userId
+    // are intentionally excluded as they can refer to the TARGET user, not the actor
     return (
       metadata.actorId ||
-      metadata.userId ||
       metadata.changedById ||
+      metadata.triggeredById ||
       metadata.task?.createdById ||
       metadata.cut?.createdById ||
       metadata.order?.createdById ||
-      metadata.vacation?.userId ||
-      metadata.warning?.userId ||
-      metadata.ppe?.userId ||
       null
     );
   }
@@ -1422,7 +1437,7 @@ export class NotificationDispatchService {
 
       for (const user of targetUsers) {
         // Resolve channels for this user based on their preferences and config
-        const channels = await this.configurationService.resolveChannelsForUser(configKey, user);
+        const channels = await this.configurationService.resolveChannelsForUser(configKey, user as User);
 
         if (channels.length === 0) {
           this.logger.debug(`No enabled channels for user ${user.id}, skipping`);
@@ -1586,7 +1601,7 @@ export class NotificationDispatchService {
       let notificationsCreated = 0;
 
       for (const user of targetUsers) {
-        const channels = await this.configurationService.resolveChannelsForUser(configKey, user);
+        const channels = await this.configurationService.resolveChannelsForUser(configKey, user as User);
 
         if (channels.length === 0) {
           this.logger.debug(`No enabled channels for user ${user.id}, skipping`);

@@ -62,6 +62,8 @@ import {
 import { NotificationGatewayService } from './notification-gateway.service';
 import { NotificationTrackingService } from './notification-tracking.service';
 import { NotificationDispatchService } from './notification-dispatch.service';
+import { NotificationConfigurationService } from './notification-configuration.service';
+import { NotificationPreferenceService } from './notification-preference.service';
 
 @Injectable()
 export class NotificationService {
@@ -75,7 +77,10 @@ export class NotificationService {
     @Inject(forwardRef(() => NotificationGatewayService))
     private readonly gatewayService: NotificationGatewayService,
     private readonly trackingService: NotificationTrackingService,
+    @Inject(forwardRef(() => NotificationDispatchService))
     private readonly dispatchService: NotificationDispatchService,
+    private readonly configurationService: NotificationConfigurationService,
+    private readonly preferenceService: NotificationPreferenceService,
   ) {}
 
   /**
@@ -226,6 +231,40 @@ export class NotificationService {
     });
 
     try {
+      // Check NotificationConfiguration if configKey is provided in metadata
+      const configKey = (data.metadata as any)?.configKey as string | undefined;
+      if (configKey) {
+        const config = await this.configurationService.getConfiguration(configKey);
+        if (config && !config.isEnabled) {
+          this.logger.log(`Skipping notification creation: config "${configKey}" is disabled`);
+          return { success: true, data: null, message: 'Configuration is disabled' } as any;
+        }
+      }
+
+      // Check user preference - skip if user has disabled this notification type
+      if (data.userId) {
+        try {
+          const preferences = await this.preferenceService.getUserPreferences(data.userId);
+          const eventType = ((data.metadata as any)?.eventType as string) || null;
+          const typePreference = preferences.find(
+            p => p.notificationType === data.type && (p.eventType === eventType || p.eventType === null),
+          );
+          if (typePreference && !typePreference.enabled) {
+            this.logger.log(`Skipping notification: user ${data.userId} disabled type ${data.type}/${eventType}`);
+            return { success: true, data: null, message: 'User preference disabled' } as any;
+          }
+        } catch (err) {
+          this.logger.warn(`Could not check user preferences: ${err.message}`);
+        }
+      }
+
+      // Never send notification to the actor who triggered the action
+      const actorId = (data.metadata as any)?.actorId as string | undefined;
+      if (actorId && data.userId === actorId) {
+        this.logger.log(`Skipping notification: user ${data.userId} is the actor`);
+        return { success: true, data: null, message: 'Actor filtered out' } as any;
+      }
+
       const notification = await this.prisma.$transaction(async tx => {
         // Validate notification before creation
         await this.validateNotification(data, undefined, tx);
@@ -435,10 +474,55 @@ export class NotificationService {
     userId?: string,
   ): Promise<NotificationBatchCreateResponse<NotificationCreateFormData>> {
     try {
+      // Filter out notifications that should be skipped (config disabled, user preference, actor)
+      const filteredNotifications: NotificationCreateFormData[] = [];
+      for (const notification of data.notifications) {
+        const configKey = (notification.metadata as any)?.configKey as string | undefined;
+        if (configKey) {
+          const config = await this.configurationService.getConfiguration(configKey);
+          if (config && !config.isEnabled) {
+            this.logger.log(`Batch: skipping notification with disabled config "${configKey}"`);
+            continue;
+          }
+        }
+
+        if (notification.userId) {
+          try {
+            const preferences = await this.preferenceService.getUserPreferences(notification.userId);
+            const eventType = ((notification.metadata as any)?.eventType as string) || null;
+            const typePreference = preferences.find(
+              p => p.notificationType === notification.type && (p.eventType === eventType || p.eventType === null),
+            );
+            if (typePreference && !typePreference.enabled) {
+              this.logger.log(`Batch: skipping notification for user ${notification.userId} (preference disabled)`);
+              continue;
+            }
+          } catch (err) {
+            this.logger.warn(`Batch: could not check user preferences: ${err.message}`);
+          }
+        }
+
+        const actorId = (notification.metadata as any)?.actorId as string | undefined;
+        if (actorId && notification.userId === actorId) {
+          this.logger.log(`Batch: skipping notification for actor ${notification.userId}`);
+          continue;
+        }
+
+        filteredNotifications.push(notification);
+      }
+
+      if (filteredNotifications.length === 0) {
+        return {
+          success: true,
+          data: { success: [], failed: [], totalProcessed: 0, totalSuccess: 0, totalFailed: 0 },
+          message: 'All notifications were filtered out by configuration/preference checks.',
+        } as any;
+      }
+
       const result = await this.prisma.$transaction(async tx => {
         const batchResult = await this.notificationRepository.createManyWithTransaction(
           tx,
-          data.notifications,
+          filteredNotifications,
           { include },
         );
 

@@ -36,7 +36,7 @@ export class FileCleanupSchedulerService {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly prisma: PrismaService,
   ) {
-    this.filesRoot = process.env.FILES_ROOT || '/srv/files';
+    this.filesRoot = process.env.FILES_ROOT || './files';
     this.uploadDir = process.env.UPLOAD_DIR || './uploads';
   }
 

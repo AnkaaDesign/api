@@ -280,9 +280,9 @@ export class NotificationFilterService {
           return true;
         }
 
-        // Sector managers can see notifications for their team
+        // Sector managers should receive notifications for their team's activities
         if (user.managedSector) {
-          return false;
+          return true;
         }
 
         // Otherwise, rely on sector-based filtering
@@ -369,7 +369,12 @@ export class NotificationFilterService {
     if (checkPreferences && this.preferenceService) {
       try {
         const preferences = await this.preferenceService.getUserPreferences(user.id);
+        // Check event-specific preference first, then fall back to type-level
+        const metadata = notification.metadata as any;
+        const eventType = metadata?.configKey || metadata?.eventType || null;
         const typePreference = preferences.find(
+          p => p.notificationType === notification.type && p.eventType === eventType,
+        ) || preferences.find(
           p => p.notificationType === notification.type && p.eventType === null,
         );
 

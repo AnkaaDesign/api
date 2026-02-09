@@ -9,6 +9,7 @@ import {
   OrderOverdueEvent,
   OrderItemReceivedEvent,
   OrderCancelledEvent,
+  OrderItemEnteredInventoryEvent,
 } from './order.events';
 
 /**
@@ -21,6 +22,7 @@ import {
  * - order.overdue
  * - order.item.received
  * - order.cancelled
+ * - order.item.entered_inventory
  */
 @Injectable()
 export class OrderListener {
@@ -44,6 +46,10 @@ export class OrderListener {
     this.eventEmitter.on('order.overdue', this.handleOrderOverdue.bind(this));
     this.eventEmitter.on('order.item.received', this.handleOrderItemReceived.bind(this));
     this.eventEmitter.on('order.cancelled', this.handleOrderCancelled.bind(this));
+    this.eventEmitter.on(
+      'order.item.entered_inventory',
+      this.handleOrderItemEnteredInventory.bind(this),
+    );
 
     this.logger.log('Order event listeners registered successfully');
   }
@@ -454,6 +460,99 @@ export class OrderListener {
       );
     } catch (error) {
       this.logger.error('Error handling order cancelled event:', error);
+    }
+  }
+
+  /**
+   * Handle order item entered inventory event
+   * Triggered when an inbound activity with ORDER_RECEIVED reason is created,
+   * effectively moving an order item into inventory stock.
+   */
+  async handleOrderItemEnteredInventory(event: OrderItemEnteredInventoryEvent): Promise<void> {
+    try {
+      this.logger.log(
+        `Handling order item entered inventory event for order ${event.orderId}, item ${event.itemId}, quantity ${event.quantity}`,
+      );
+
+      // Fetch order with supplier and items
+      const order = await this.prisma.order.findUnique({
+        where: { id: event.orderId },
+        include: {
+          supplier: true,
+          items: {
+            include: {
+              item: true,
+            },
+          },
+        },
+      });
+
+      if (!order) {
+        this.logger.error(`Order ${event.orderId} not found`);
+        return;
+      }
+
+      // Fetch the specific item details
+      const item = await this.prisma.item.findUnique({
+        where: { id: event.itemId },
+        include: {
+          brand: true,
+          category: true,
+        },
+      });
+
+      if (!item) {
+        this.logger.error(`Item ${event.itemId} not found`);
+        return;
+      }
+
+      const supplierName = order.supplier?.fantasyName || 'Fornecedor não especificado';
+      const orderNumber = order.id.slice(-8).toUpperCase();
+      const itemName = item.name;
+      const itemCode = item.uniCode || '';
+      const categoryName = item.category?.name || '';
+
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+
+      const triggeringUserId = event.userId || 'system';
+
+      await this.dispatchService.dispatchByConfiguration(
+        'order.item.entered_inventory',
+        triggeringUserId,
+        {
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'item_entered_inventory',
+          data: {
+            orderNumber,
+            supplierName,
+            itemName,
+            itemCode,
+            categoryName,
+            quantity: event.quantity,
+            currentStock: item.quantity,
+            changedBy: triggeringUserId !== 'system' ? triggeringUserId : 'Sistema',
+          },
+          metadata: {
+            orderId: order.id,
+            orderNumber,
+            supplierName,
+            itemId: event.itemId,
+            itemName,
+            quantity: event.quantity,
+            activityId: event.activityId,
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Item Entrou no Estoque',
+            body: `O item "${itemName}"${itemCode ? ` (${itemCode})` : ''} do pedido #${orderNumber} (${supplierName}) entrou no estoque.\n\nQuantidade adicionada: ${event.quantity} unidades${categoryName ? `\nCategoria: ${categoryName}` : ''}\nEstoque atual: ${item.quantity} unidades`,
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Error handling order item entered inventory event:', error);
     }
   }
 }

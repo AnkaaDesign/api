@@ -54,3 +54,17 @@ export class OrderCancelledEvent {
     public readonly reason?: string,
   ) {}
 }
+
+/**
+ * Event emitted when an order item enters inventory via an inbound activity
+ */
+export class OrderItemEnteredInventoryEvent {
+  constructor(
+    public readonly orderId: string,
+    public readonly orderItemId: string,
+    public readonly itemId: string,
+    public readonly quantity: number,
+    public readonly activityId: string,
+    public readonly userId?: string,
+  ) {}
+}

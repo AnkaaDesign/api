@@ -1176,9 +1176,14 @@ export class NotificationConfigurationService {
   /**
    * Invalidate cache for a specific key
    */
-  private invalidateCache(key: string): void {
-    this.cache.delete(key);
-    this.logger.debug(`Cache invalidated for key: ${key}`);
+  public invalidateCache(key?: string): void {
+    if (key) {
+      this.cache.delete(key);
+      this.logger.debug(`Cache invalidated for key: ${key}`);
+    } else {
+      this.cache.clear();
+      this.logger.debug('Cache invalidated (all keys)');
+    }
   }
 
   /**

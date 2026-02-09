@@ -53,7 +53,6 @@ const TRACKED_FIELDS = [
   'forecastDate',
   'sectorId',
   'commission',
-  'negotiatingWith', // DEPRECATED - kept for backward compatibility
   'representatives',
   'artworks', // array of files
   'budgets', // array of files
@@ -215,7 +214,7 @@ export class TaskFieldTrackerService {
       return oldDate.getTime() !== newDate.getTime();
     }
 
-    // Handle objects (like negotiatingWith)
+    // Handle objects
     if (typeof oldValue === 'object' && typeof newValue === 'object') {
       return this.hasObjectChanged(oldValue, newValue);
     }
@@ -315,14 +314,6 @@ export class TaskFieldTrackerService {
       const oldIsEmpty = !oldObj || isEmptyObject(oldObj);
       const newIsEmpty = !newObj || isEmptyObject(newObj);
 
-      // Log for debugging negotiatingWith spam
-      if (oldObj !== null && newObj !== null) {
-        this.logger.debug(
-          `Object comparison - oldIsEmpty: ${oldIsEmpty}, newIsEmpty: ${newIsEmpty}, ` +
-            `old: ${JSON.stringify(oldObj)}, new: ${JSON.stringify(newObj)}`,
-        );
-      }
-
       // Both empty = no change
       if (oldIsEmpty && newIsEmpty) {
         this.logger.debug('Both objects empty - no change detected');
@@ -335,8 +326,7 @@ export class TaskFieldTrackerService {
         return true;
       }
 
-      // For JSON fields (like negotiatingWith), use stable JSON comparison
-      // to avoid false positives from object instance differences
+      // Use stable JSON comparison to avoid false positives from object instance differences
       const sortedOldJson = JSON.stringify(oldObj, Object.keys(oldObj || {}).sort());
       const sortedNewJson = JSON.stringify(newObj, Object.keys(newObj || {}).sort());
 

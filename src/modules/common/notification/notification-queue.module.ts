@@ -11,8 +11,6 @@ import { NotificationQueueHealthController } from './notification-queue-health.c
 import { PrismaModule } from '../prisma/prisma.module';
 import { MailerModule } from '../mailer/mailer.module';
 import { PushModule } from '../push/push.module';
-import { UserRepository } from '@modules/people/user/repositories/user.repository';
-import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { WhatsAppMessageFormatterService } from './whatsapp/whatsapp-message-formatter.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
@@ -58,10 +56,6 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     NotificationQueueHealthIndicator,
     WhatsAppNotificationService,
     WhatsAppMessageFormatterService,
-    {
-      provide: UserRepository,
-      useClass: UserPrismaRepository,
-    },
   ],
   exports: [
     NotificationQueueService,

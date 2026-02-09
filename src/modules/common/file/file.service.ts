@@ -71,8 +71,11 @@ export class FileService {
    * Transform file data to include generated URL
    */
   private transformFileWithUrl(file: File): File & { url: string } {
-    // Check if file is in files storage structure
-    const isStoredFile = file.path.includes(UPLOAD_CONFIG.filesRoot);
+    // Check if file is in files storage structure (use normalized startsWith to avoid
+    // false matches, e.g. './files' matching inside './uploads/files')
+    const normalizedPath = file.path.replace(/^\.\//, '');
+    const normalizedRoot = UPLOAD_CONFIG.filesRoot.replace(/^\.\//, '');
+    const isStoredFile = normalizedPath.startsWith(normalizedRoot);
 
     let url: string;
 
@@ -432,7 +435,7 @@ export class FileService {
   async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
     try {
       // Check environment configuration
-      const filesRoot = process.env.FILES_ROOT || './uploads/files';
+      const filesRoot = process.env.FILES_ROOT || './files';
       const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true';
 
       const file = await this.fileRepository.findById(id);

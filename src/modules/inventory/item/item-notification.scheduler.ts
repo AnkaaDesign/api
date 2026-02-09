@@ -2,14 +2,9 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { NotificationService } from '@modules/common/notification/notification.service';
-import { DeepLinkService, DeepLinkListPage } from '@modules/common/notification/deep-link.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import {
   SECTOR_PRIVILEGES,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_IMPORTANCE,
-  NOTIFICATION_TYPE,
-  NOTIFICATION_ACTION_TYPE,
 } from '../../../constants/enums';
 import { ItemReorderRequiredEvent } from './item.events';
 
@@ -30,8 +25,7 @@ export class ItemNotificationScheduler {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
-    private readonly deepLinkService: DeepLinkService,
+    private readonly dispatchService: NotificationDispatchService,
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
@@ -243,54 +237,28 @@ export class ItemNotificationScheduler {
 
       body += 'Acesse o sistema para mais detalhes e realizar pedidos de reposição.';
 
-      // Determine importance based on urgency
-      let importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      if (outOfStock.length > 0) {
-        importance = NOTIFICATION_IMPORTANCE.HIGH;
-      } else if (critical.length > 0) {
-        importance = NOTIFICATION_IMPORTANCE.NORMAL;
-      }
-
       const title = `Verificação Diária de Estoque - ${totalItems} ${totalItems === 1 ? 'item requer' : 'itens requerem'} atenção`;
 
-      // Generate proper action URL with both web and mobile links
-      // Web gets filters for stock levels, mobile navigates to item list page
-      const stockLevels = ['LOW', 'CRITICAL', 'OUT_OF_STOCK'];
-      const deepLinks = this.deepLinkService.generateListPageLinks(DeepLinkListPage.ItemList, {
-        stockLevels: JSON.stringify(stockLevels),
-        isActive: 'true',
+      // Use configuration-based dispatch instead of direct batch creation
+      const allItems = [...outOfStock, ...critical, ...low];
+      await this.dispatchService.dispatchByConfiguration('item.low_stock', 'system', {
+        entityType: 'Item',
+        entityId: allItems[0]?.id || '',
+        action: 'daily_stock_check',
+        data: {
+          title,
+          body,
+          totalItems,
+          outOfStockCount: outOfStock.length,
+          criticalCount: critical.length,
+          lowCount: low.length,
+        },
       });
 
-      // Create batch notifications
-      // Use webPath (relative path) for actionUrl for backward compatibility
-      // This matches how task notifications work - actionUrl is relative, metadata.webUrl is full URL
-      const notificationData = userIds.map(userId => ({
-        userId,
-        title,
-        body,
-        type: NOTIFICATION_TYPE.STOCK,
-        importance,
-        actionUrl: deepLinks.webPath, // Use relative path for backward compatibility (like task notifications)
-        actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-        channel: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.EMAIL],
-        sentAt: new Date(),
-        metadata: {
-          webUrl: deepLinks.web, // Full URL for platforms that need it
-          mobileUrl: deepLinks.mobile,
-          universalLink: deepLinks.universalLink,
-        },
-      }));
-
-      if (notificationData.length > 0) {
-        await this.notificationService.batchCreateNotifications({
-          notifications: notificationData,
-        });
-
-        this.notificationsSentToday.add(cacheKey);
-        this.logger.log(
-          `Sent aggregated low stock notification to ${notificationData.length} users`,
-        );
-      }
+      this.notificationsSentToday.add(cacheKey);
+      this.logger.log(
+        `Dispatched aggregated low stock notification via config "item.low_stock"`,
+      );
     } catch (error) {
       this.logger.error('Error sending aggregated low stock notification:', error);
     }

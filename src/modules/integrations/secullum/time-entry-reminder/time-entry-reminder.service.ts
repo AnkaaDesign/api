@@ -197,7 +197,7 @@ export class TimeEntryReminderService {
         payrollNumber: true,
         sector: {
           select: {
-            privilege: true,
+            privileges: true,
           },
         },
       },
@@ -209,7 +209,7 @@ export class TimeEntryReminderService {
       cpf: user.cpf,
       pis: user.pis,
       payrollNumber: user.payrollNumber,
-      sectorPrivilege: user.sector?.privilege || null,
+      sectorPrivilege: user.sector?.privileges || null,
     }));
   }
 

@@ -375,7 +375,6 @@ export type TaskTemplateKey =
   | 'task.invoice.added'
   | 'task.invoice.updated'
   | 'task.receipt.added'
-  | 'task.negotiatingWith'
   | 'task.commission.updated'
   | 'task.priority.changed'
   | 'task.completed'

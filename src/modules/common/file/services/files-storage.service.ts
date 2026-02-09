@@ -97,8 +97,8 @@ export class FilesStorageService {
 
   // Files storage root directory
   // Production: FILES_ROOT=/srv/files
-  // Development: FILES_ROOT=./uploads/files
-  private readonly filesRoot = process.env.FILES_ROOT || './uploads/files';
+  // Development: FILES_ROOT=./files
+  private readonly filesRoot = process.env.FILES_ROOT || './files';
 
   /**
    * Folder structure mapping - matches physical folder structure in /srv/files
