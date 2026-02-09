@@ -15,8 +15,8 @@ export const UPLOAD_CONFIG = {
 
   // Files storage configuration
   // Production: FILES_ROOT=/srv/files (served by nginx via arquivos.ankaadesign.com.br, accessible locally via Samba)
-  // Development: FILES_ROOT=./uploads/files
-  filesRoot: process.env.FILES_ROOT || './uploads/files',
+  // Development: FILES_ROOT=./files
+  filesRoot: process.env.FILES_ROOT || './files',
 
   // Allowed file types (MIME types)
   allowedMimeTypes: [
@@ -224,8 +224,11 @@ export function generateFileUrl(filename: string, filePath: string): string {
   const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
   const filesBaseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
 
-  // Check if file is in files storage structure
-  if (filePath.includes(UPLOAD_CONFIG.filesRoot)) {
+  // Check if file is in files storage structure (use normalized startsWith to avoid
+  // false matches, e.g. './files' matching inside './uploads/files')
+  const normalizedPath = filePath.replace(/^\.\//, '');
+  const normalizedRoot = UPLOAD_CONFIG.filesRoot.replace(/^\.\//, '');
+  if (normalizedPath.startsWith(normalizedRoot)) {
     // Generate files storage URL (served by nginx via arquivos.ankaadesign.com.br)
     const relativePath = filePath.replace(UPLOAD_CONFIG.filesRoot, '').replace(/\\/g, '/');
     const cleanPath = relativePath.startsWith('/') ? relativePath : `/${relativePath}`;

@@ -94,10 +94,16 @@ export class FileController {
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileCreateResponse> {
-    throw new BadRequestException(
-      'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
-        'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.',
-    );
+    if (!file) {
+      throw new BadRequestException('Nenhum arquivo enviado.');
+    }
+    return this.fileService.createFromUpload(file, query?.include, userId, {
+      fileContext: fileContext as any,
+      entityId,
+      entityType,
+      projectId,
+      projectName,
+    });
   }
 
   @Post('upload/multiple')
@@ -114,10 +120,30 @@ export class FileController {
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
-    throw new BadRequestException(
-      'Endpoint obsoleto: Arquivos devem ser enviados junto com a criação/atualização da entidade. ' +
-        'Use os endpoints específicos de cada entidade (POST /tasks, PUT /tasks/:id, etc) com FormData incluindo os arquivos.',
-    );
+    if (!files || files.length === 0) {
+      throw new BadRequestException('Nenhum arquivo enviado.');
+    }
+    const successful: any[] = [];
+    const failed: any[] = [];
+    for (const file of files) {
+      try {
+        const result = await this.fileService.createFromUpload(file, query?.include, userId, {
+          fileContext: fileContext as any,
+          entityId,
+          entityType,
+          projectId,
+          projectName,
+        });
+        if (result.data) successful.push(result.data);
+      } catch (error: any) {
+        failed.push({ file: file.originalname, error: error.message });
+      }
+    }
+    return {
+      success: true,
+      message: `${successful.length} arquivo(s) enviado(s) com sucesso.`,
+      data: { success: successful, failed, totalProcessed: successful.length + failed.length, totalSuccess: successful.length, totalFailed: failed.length },
+    };
   }
 
   // File Serving Endpoints - Public (no auth required)

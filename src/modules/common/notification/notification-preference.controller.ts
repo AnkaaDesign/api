@@ -113,7 +113,7 @@ export class NotificationPreferenceController {
           items: {
             type: 'object',
             properties: {
-              type: { type: 'string', description: 'Notification type (e.g., TASK, ORDER)' },
+              type: { type: 'string', description: 'Notification type (e.g., PRODUCTION, STOCK, USER, SYSTEM, GENERAL)' },
               eventType: { type: 'string', description: 'Event type (e.g., status, created)' },
               channels: { type: 'array', items: { type: 'string' } },
             },

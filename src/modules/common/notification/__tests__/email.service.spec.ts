@@ -456,11 +456,11 @@ describe('MailerService', () => {
   describe('addUnsubscribeLink', () => {
     it('should add unsubscribe link to email', () => {
       const html = '<html><body>Test content</body></html>';
-      const result = service.addUnsubscribeLink(html, 'user-123', 'TASK');
+      const result = service.addUnsubscribeLink(html, 'user-123', 'PRODUCTION');
 
       expect(result).toContain('unsubscribe');
       expect(result).toContain('userId=user-123');
-      expect(result).toContain('type=TASK');
+      expect(result).toContain('type=PRODUCTION');
     });
 
     it('should handle unsubscribe from all notifications', () => {

@@ -556,7 +556,7 @@ export const getFileUrl = (filePath: string): string => {
   }
 
   const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
-  const filesRoot = process.env.FILES_ROOT || './uploads/files';
+  const filesRoot = process.env.FILES_ROOT || './files';
 
   // Normalize paths by removing leading ./ to handle both ./uploads/... and uploads/... formats
   const normalizedFilePath = filePath.replace(/^\.\//, '');

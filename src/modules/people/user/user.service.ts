@@ -51,6 +51,7 @@ import { USER_STATUS_ORDER } from '../../../constants/sortOrders';
 import { isValidCPF, isValidPIS, isValidPhone } from '../../../utils';
 import { FileService } from '@modules/common/file/file.service';
 import { FolderRenameService } from '@modules/common/file/services/folder-rename.service';
+import { NotificationPreferenceInitService } from '@modules/common/notification/notification-preference-init.service';
 import { unlinkSync, existsSync } from 'fs';
 import * as bcrypt from 'bcrypt';
 
@@ -64,6 +65,7 @@ export class UserService {
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
     private readonly folderRenameService: FolderRenameService,
+    private readonly notificationPreferenceInitService: NotificationPreferenceInitService,
   ) {}
 
   /**
@@ -704,6 +706,11 @@ export class UserService {
 
         return newUser;
       });
+
+      // Initialize notification preferences (non-blocking)
+      this.notificationPreferenceInitService
+        .initializeForNewUser(user.id)
+        .catch(err => this.logger.error('Failed to init notification preferences:', err));
 
       // Remove password from response
       const { password, ...userWithoutPassword } = user;

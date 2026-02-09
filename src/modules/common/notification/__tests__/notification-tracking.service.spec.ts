@@ -720,7 +720,7 @@ describe('NotificationTrackingService', () => {
       const mockNotifications = [
         {
           id: 'notif-1',
-          type: 'TASK',
+          type: 'PRODUCTION',
           channel: [NOTIFICATION_CHANNEL.EMAIL],
           seenBy: [{ userId: 'user-1' }],
           deliveries: [
@@ -733,7 +733,7 @@ describe('NotificationTrackingService', () => {
         },
         {
           id: 'notif-2',
-          type: 'TASK',
+          type: 'PRODUCTION',
           channel: [NOTIFICATION_CHANNEL.PUSH],
           seenBy: [],
           deliveries: [
@@ -755,7 +755,7 @@ describe('NotificationTrackingService', () => {
       expect(stats.totalReceived).toBe(2);
       expect(stats.totalSeen).toBe(1);
       expect(stats.totalUnseen).toBe(1);
-      expect(stats.byType).toHaveProperty('TASK');
+      expect(stats.byType).toHaveProperty('PRODUCTION');
       expect(stats.byChannel).toHaveProperty(NOTIFICATION_CHANNEL.EMAIL);
     });
   });

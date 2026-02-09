@@ -323,6 +323,11 @@ export class TaskService {
       const preUploadedBaseFileIds = (data as any).baseFileIds ? [...((data as any).baseFileIds as string[])] : [];
       const artworkStatusesMap = (data as any).artworkStatuses || null;
 
+      this.logger.log(`[Task Create] Incoming data keys: ${Object.keys(data).join(', ')}`);
+      this.logger.log(`[Task Create] preUploadedArtworkFileIds: ${JSON.stringify(preUploadedArtworkFileIds)}`);
+      this.logger.log(`[Task Create] preUploadedBaseFileIds: ${JSON.stringify(preUploadedBaseFileIds)}`);
+      this.logger.log(`[Task Create] artworkStatusesMap: ${JSON.stringify(artworkStatusesMap)}`);
+
       // Check if this is a bulk create from serial number range
       const serialNumberFrom = (data as any).serialNumberFrom;
       const serialNumberTo = (data as any).serialNumberTo;
@@ -374,12 +379,16 @@ export class TaskService {
           }
         }
 
-        // Note: artworkIds/baseFileIds connection is handled AFTER task creation (post-create update)
-        // to guarantee it works regardless of how mapCreateFormDataToDatabaseCreateInput processes them.
-
+        // artworkIds/baseFileIds connection is handled AFTER task creation (post-create update).
+        // Strip them from data before repository processing because:
+        // - artworkIds are File IDs but mapCreateFormDataToDatabaseCreateInput tries to connect them as Artwork entity IDs
+        // - baseFileIds are stripped too to avoid double-processing (post-create update handles them)
         // Create the task first
         // Add createdById to data for service orders creation
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
+        delete (dataWithCreator as any).artworkIds;
+        delete (dataWithCreator as any).baseFileIds;
+        delete (dataWithCreator as any).artworkStatuses;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
           include,
         });
@@ -387,6 +396,7 @@ export class TaskService {
         // ======= EXPLICIT POST-CREATION: Connect pre-uploaded artworks and base files =======
         // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
         // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
+        this.logger.log(`[Task Create] Post-creation check: artworkFileIds=${preUploadedArtworkFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`);
         if (preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
           const postCreateUpdates: any = {};
 
@@ -802,8 +812,8 @@ export class TaskService {
           }
         }
 
-        // Re-fetch task if layouts were created/connected so response includes truck with layout IDs
-        if (hasLayouts || hasSharedLayoutIds) {
+        // Re-fetch task if layouts or artworks/baseFiles were created/connected so response includes them
+        if (hasLayouts || hasSharedLayoutIds || preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
             tx,
             newTask.id,
@@ -885,6 +895,7 @@ export class TaskService {
       receipts?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
+      baseFiles?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     // Calculate number of tasks to create
@@ -1008,19 +1019,22 @@ export class TaskService {
         // We do this ONCE and share the Artwork entities across all tasks (shared artworks).
         if (data.tasks.length > 0 && (data.tasks[0] as any).artworkIds?.length > 0) {
           const fileIds = (data.tasks[0] as any).artworkIds as string[];
+          const batchArtworkStatuses = (data.tasks[0] as any).artworkStatuses || undefined;
           this.logger.log(`[batchCreate] Converting ${fileIds.length} artwork File IDs to Artwork entity IDs`);
           const artworkEntityIds = await this.convertFileIdsToArtworkIds(
             fileIds,
             null,
             null,
-            undefined,
+            batchArtworkStatuses,
             undefined,
             tx,
           );
           this.logger.log(`[batchCreate] Converted to ${artworkEntityIds.length} Artwork entity IDs`);
           // Replace File IDs with Artwork entity IDs in all tasks
+          // and remove artworkStatuses (already processed above)
           for (const task of data.tasks) {
             (task as any).artworkIds = artworkEntityIds;
+            delete (task as any).artworkStatuses;
           }
         }
 
@@ -4102,11 +4116,16 @@ export class TaskService {
 
           // Update task with file IDs if any files were uploaded
           if (Object.keys(fileUpdates).length > 0) {
-            updatedTask = (await tx.task.update({
+            await tx.task.update({
               where: { id },
               data: fileUpdates,
+            });
+            // Refetch through repository to get consistent includes (DEFAULT_TASK_INCLUDE)
+            // This prevents false changelog entries for fields like representatives
+            updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
               include: {
                 ...include,
+                customer: true,
                 artworks: {
                   include: {
                     file: {
@@ -4117,11 +4136,14 @@ export class TaskService {
                       },
                     },
                   },
-                }, // Include for changelog tracking with file info
-                observation: { include: { files: true } }, // Include for changelog tracking
-                truck: true, // Include for truck field changelog tracking
+                },
+                baseFiles: true,
+                logoPaints: true,
+                observation: { include: { files: true } },
+                truck: true,
+                serviceOrders: true,
               },
-            })) as any;
+            });
           }
         }
 

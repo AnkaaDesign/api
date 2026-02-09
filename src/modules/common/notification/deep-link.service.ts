@@ -8,13 +8,13 @@ export type Platform = 'web' | 'mobile';
 
 /**
  * Entity types that can be deep linked
- * Maps to notification type prefixes:
- * - Task: TASK_* notifications
- * - Order: ORDER_* notifications
- * - Item: STOCK_*, ITEM_* notifications
- * - ServiceOrder: SERVICE_ORDER_* notifications
- * - Financial: FINANCIAL_* notifications
- * - User: USER_*, PROFILE_* notifications
+ * Maps to relatedEntityType strings on Notification:
+ * - Task: TASK_* entity types
+ * - Order: ORDER_* entity types
+ * - Item: STOCK_*, ITEM_* entity types
+ * - ServiceOrder: SERVICE_ORDER_* entity types
+ * - Financial: FINANCIAL_* entity types
+ * - User: USER_*, PROFILE_* entity types
  */
 export enum DeepLinkEntity {
   Task = 'Task',
@@ -76,7 +76,7 @@ export class DeepLinkService {
   // Route mappings for each entity type
   // Web routes match the actual web application routes
   // Mobile routes use entity shortcuts that the mobile app's ENTITY_ALIAS_MAP can parse
-  // These routes align with the notification type patterns:
+  // These routes align with relatedEntityType string patterns:
   // TASK_* → /producao/agenda/detalhes/:id (web) | task/:id (mobile)
   // ORDER_* → /estoque/pedidos/detalhes/:id (web) | order/:id (mobile)
   // STOCK_*, ITEM_* → /estoque/produtos/detalhes/:id (web) | item/:id (mobile)
@@ -673,11 +673,11 @@ export class DeepLinkService {
     entityType: DeepLinkEntity | string,
     entityId: string,
   ): { webPath: string; mobilePath: string } {
-    // Handle notification type strings (TASK_*, ORDER_*, etc.)
+    // Handle relatedEntityType strings (TASK_*, ORDER_*, etc.)
     let resolvedEntityType: DeepLinkEntity;
 
     if (typeof entityType === 'string') {
-      // Convert notification type strings to DeepLinkEntity
+      // Convert relatedEntityType strings to DeepLinkEntity
       if (entityType.startsWith('TASK_')) {
         resolvedEntityType = DeepLinkEntity.Task;
       } else if (entityType.startsWith('ORDER_')) {

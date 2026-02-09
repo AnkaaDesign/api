@@ -1,3 +1,9 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
+-- CreateEnum
+CREATE TYPE "RepresentativeRole" AS ENUM ('COMMERCIAL', 'MARKETING', 'COORDINATOR', 'FINANCIAL', 'FLEET_MANAGER');
+
 -- CreateEnum
 CREATE TYPE "UserStatus" AS ENUM ('EXPERIENCE_PERIOD_1', 'EXPERIENCE_PERIOD_2', 'EFFECTED', 'DISMISSED');
 
@@ -11,7 +17,7 @@ CREATE TYPE "CutRequestReason" AS ENUM ('WRONG_APPLY', 'LOST', 'WRONG');
 CREATE TYPE "CutOrigin" AS ENUM ('PLAN', 'REQUEST');
 
 -- CreateEnum
-CREATE TYPE "PpeType" AS ENUM ('SHIRT', 'PANTS', 'BOOTS', 'SLEEVES', 'MASK', 'GLOVES', 'RAIN_BOOTS', 'OTHERS');
+CREATE TYPE "PpeType" AS ENUM ('SHIRT', 'PANTS', 'BOOTS', 'SLEEVES', 'MASK', 'GLOVES', 'RAIN_BOOTS', 'OTHERS', 'SHORT');
 
 -- CreateEnum
 CREATE TYPE "PpeDeliveryMode" AS ENUM ('SCHEDULED', 'ON_DEMAND', 'BOTH');
@@ -20,7 +26,7 @@ CREATE TYPE "PpeDeliveryMode" AS ENUM ('SCHEDULED', 'ON_DEMAND', 'BOTH');
 CREATE TYPE "ShirtSize" AS ENUM ('P', 'M', 'G', 'GG', 'XG');
 
 -- CreateEnum
-CREATE TYPE "PantsSize" AS ENUM ('SIZE_36', 'SIZE_38', 'SIZE_40', 'SIZE_42', 'SIZE_44', 'SIZE_46', 'SIZE_48');
+CREATE TYPE "PantsSize" AS ENUM ('SIZE_36', 'SIZE_38', 'SIZE_40', 'SIZE_42', 'SIZE_44', 'SIZE_46', 'SIZE_48', 'SIZE_50');
 
 -- CreateEnum
 CREATE TYPE "BootSize" AS ENUM ('SIZE_36', 'SIZE_38', 'SIZE_40', 'SIZE_42', 'SIZE_44', 'SIZE_46', 'SIZE_48', 'SIZE_35', 'SIZE_37', 'SIZE_39', 'SIZE_41', 'SIZE_43', 'SIZE_45', 'SIZE_47');
@@ -41,7 +47,7 @@ CREATE TYPE "RainBootsSize" AS ENUM ('SIZE_36', 'SIZE_38', 'SIZE_40', 'SIZE_42',
 CREATE TYPE "PpeSizeEnum" AS ENUM ('P', 'M', 'G', 'GG', 'XG', 'SIZE_36', 'SIZE_38', 'SIZE_40', 'SIZE_42', 'SIZE_44', 'SIZE_46', 'SIZE_48', 'SIZE_35', 'SIZE_37', 'SIZE_39', 'SIZE_41', 'SIZE_43', 'SIZE_45', 'SIZE_47');
 
 -- CreateEnum
-CREATE TYPE "PpeDeliveryStatus" AS ENUM ('PENDING', 'APPROVED', 'DELIVERED', 'REPROVED', 'CANCELLED');
+CREATE TYPE "PpeDeliveryStatus" AS ENUM ('PENDING', 'APPROVED', 'DELIVERED', 'REPROVED', 'CANCELLED', 'WAITING_SIGNATURE', 'COMPLETED', 'SIGNATURE_REJECTED');
 
 -- CreateEnum
 CREATE TYPE "ActivityReason" AS ENUM ('ORDER_RECEIVED', 'PRODUCTION_USAGE', 'PPE_DELIVERY', 'BORROW', 'RETURN', 'EXTERNAL_WITHDRAWAL', 'EXTERNAL_WITHDRAWAL_RETURN', 'INVENTORY_COUNT', 'MANUAL_ADJUSTMENT', 'MAINTENANCE', 'DAMAGE', 'LOSS', 'PAINT_PRODUCTION', 'OTHER');
@@ -110,7 +116,7 @@ CREATE TYPE "WarningSeverity" AS ENUM ('VERBAL', 'WRITTEN', 'SUSPENSION', 'FINAL
 CREATE TYPE "WarningCategory" AS ENUM ('SAFETY', 'MISCONDUCT', 'INSUBORDINATION', 'POLICY_VIOLATION', 'ATTENDANCE', 'PERFORMANCE', 'BEHAVIOR', 'OTHER');
 
 -- CreateEnum
-CREATE TYPE "NotificationType" AS ENUM ('SYSTEM', 'TASK', 'ORDER', 'SERVICE_ORDER', 'PPE', 'VACATION', 'WARNING', 'STOCK', 'GENERAL', 'TASK_STATUS', 'TASK_DEADLINE', 'TASK_ASSIGNMENT', 'TASK_FIELD_UPDATE', 'ORDER_CREATED', 'ORDER_STATUS', 'ORDER_OVERDUE', 'STOCK_LOW', 'STOCK_OUT', 'STOCK_REORDER');
+CREATE TYPE "NotificationType" AS ENUM ('SYSTEM', 'PRODUCTION', 'STOCK', 'USER', 'GENERAL');
 
 -- CreateEnum
 CREATE TYPE "NotificationImportance" AS ENUM ('LOW', 'NORMAL', 'HIGH', 'URGENT');
@@ -161,22 +167,22 @@ CREATE TYPE "TRUCK_SPOT" AS ENUM ('B1_F1_V1', 'B1_F1_V2', 'B1_F1_V3', 'B1_F2_V1'
 CREATE TYPE "TruckCategory" AS ENUM ('MINI', 'VUC', 'THREE_QUARTER', 'RIGID', 'TRUCK', 'SEMI_TRAILER', 'B_DOUBLE');
 
 -- CreateEnum
-CREATE TYPE "ImplementType" AS ENUM ('CORRUGATED', 'INSULATED', 'CURTAIN_SIDE', 'TANK', 'FLATBED');
+CREATE TYPE "ImplementType" AS ENUM ('DRY_CARGO', 'REFRIGERATED', 'INSULATED', 'CURTAIN_SIDE', 'TANK', 'FLATBED');
 
 -- CreateEnum
 CREATE TYPE "OrderTriggerType" AS ENUM ('STOCK_LEVEL', 'CONSUMPTION_RATE', 'SCHEDULED');
 
 -- CreateEnum
-CREATE TYPE "ChangeLogTriggeredByType" AS ENUM ('TASK_CREATE', 'TASK_UPDATE', 'ITEM_UPDATE', 'USER_ACTION', 'BATCH_CREATE', 'BATCH_UPDATE', 'BATCH_DELETE', 'BATCH_OPERATION', 'SYSTEM', 'SYSTEM_GENERATED', 'USER', 'EXTERNAL_WITHDRAWAL', 'EXTERNAL_WITHDRAWAL_DELETE', 'EXTERNAL_WITHDRAWAL_RETURN', 'EXTERNAL_WITHDRAWAL_SYNC', 'EXTERNAL_WITHDRAWAL_ITEM', 'EXTERNAL_WITHDRAWAL_ITEM_UPDATE', 'EXTERNAL_WITHDRAWAL_ITEM_DELETE', 'PAINT_FORMULA_COMPONENT_CREATE', 'PAINT_FORMULA_COMPONENT_UPDATE', 'PAINT_FORMULA_COMPONENT_DELETE', 'PAINT_FORMULA_COMPONENT_BATCH_CREATE', 'PAINT_FORMULA_COMPONENT_BATCH_UPDATE', 'PAINT_FORMULA_COMPONENT_BATCH_DELETE', 'PAINT_PRODUCTION_CREATE', 'PAINT_PRODUCTION_UPDATE', 'PAINT_PRODUCTION_DELETE', 'PAINT_PRODUCTION_BATCH_CREATE', 'PAINT_PRODUCTION_BATCH_UPDATE', 'PAINT_PRODUCTION_BATCH_DELETE', 'PAINT_CREATE', 'PAINT_UPDATE', 'PAINT_DELETE', 'PAINT_BATCH_CREATE', 'PAINT_BATCH_UPDATE', 'PAINT_BATCH_DELETE', 'PAINT_FORMULA_CREATE', 'PAINT_FORMULA_UPDATE', 'PAINT_FORMULA_DELETE', 'PAINT_FORMULA_BATCH_CREATE', 'PAINT_FORMULA_BATCH_UPDATE', 'PAINT_FORMULA_BATCH_DELETE', 'PAINT_TYPE_CREATE', 'PAINT_TYPE_UPDATE', 'PAINT_TYPE_DELETE', 'PAINT_TYPE_BATCH_CREATE', 'PAINT_TYPE_BATCH_UPDATE', 'PAINT_TYPE_BATCH_DELETE', 'PAINT_BRAND_CREATE', 'PAINT_BRAND_UPDATE', 'PAINT_BRAND_DELETE', 'PAINT_BRAND_BATCH_CREATE', 'PAINT_BRAND_BATCH_UPDATE', 'PAINT_BRAND_BATCH_DELETE', 'PAINT_GROUND_CREATE', 'PAINT_GROUND_UPDATE', 'PAINT_GROUND_DELETE', 'PAINT_GROUND_BATCH_CREATE', 'PAINT_GROUND_BATCH_UPDATE', 'PAINT_GROUND_BATCH_DELETE', 'ORDER_UPDATE', 'ORDER_CREATE', 'ORDER_STATUS_CHANGE', 'ORDER_CANCEL', 'ORDER_ITEM_UPDATE', 'ORDER_ITEM_RECEIVED', 'ORDER_ITEM_SYNC', 'SCHEDULE', 'ACTIVITY_CREATE', 'ACTIVITY_UPDATE', 'ACTIVITY_DELETE', 'ACTIVITY_SYNC', 'INVENTORY_ADJUSTMENT', 'INVENTORY_COUNT', 'ITEM_MONTHLY_CONSUMPTION_UPDATE', 'AUTOMATIC_MIN_MAX_UPDATE', 'PPE_DELIVERY', 'SMS_VERIFICATION_CREATE', 'SMS_VERIFICATION_SEND', 'SMS_VERIFICATION_VERIFY', 'SMS_VERIFICATION_EXPIRE', 'SMS_VERIFICATION_CANCEL', 'EMAIL_SERVICE', 'VERIFICATION_CREATE', 'VERIFICATION_SEND', 'VERIFICATION_VERIFY', 'VERIFICATION_EXPIRE', 'VERIFICATION_CANCEL', 'VERIFICATION_RESEND', 'OBSERVATION_CREATE', 'OBSERVATION_DELETE', 'SCHEDULED_JOB', 'API', 'WEBHOOK', 'ADMIN');
+CREATE TYPE "ChangeLogTriggeredByType" AS ENUM ('TASK_CREATE', 'TASK_UPDATE', 'ITEM_UPDATE', 'USER_ACTION', 'BATCH_CREATE', 'BATCH_UPDATE', 'BATCH_DELETE', 'BATCH_OPERATION', 'SYSTEM', 'SYSTEM_GENERATED', 'USER', 'EXTERNAL_WITHDRAWAL', 'EXTERNAL_WITHDRAWAL_DELETE', 'EXTERNAL_WITHDRAWAL_RETURN', 'EXTERNAL_WITHDRAWAL_SYNC', 'EXTERNAL_WITHDRAWAL_ITEM', 'EXTERNAL_WITHDRAWAL_ITEM_UPDATE', 'EXTERNAL_WITHDRAWAL_ITEM_DELETE', 'PAINT_FORMULA_COMPONENT_CREATE', 'PAINT_FORMULA_COMPONENT_UPDATE', 'PAINT_FORMULA_COMPONENT_DELETE', 'PAINT_FORMULA_COMPONENT_BATCH_CREATE', 'PAINT_FORMULA_COMPONENT_BATCH_UPDATE', 'PAINT_FORMULA_COMPONENT_BATCH_DELETE', 'PAINT_PRODUCTION_CREATE', 'PAINT_PRODUCTION_UPDATE', 'PAINT_PRODUCTION_DELETE', 'PAINT_PRODUCTION_BATCH_CREATE', 'PAINT_PRODUCTION_BATCH_UPDATE', 'PAINT_PRODUCTION_BATCH_DELETE', 'PAINT_CREATE', 'PAINT_UPDATE', 'PAINT_DELETE', 'PAINT_BATCH_CREATE', 'PAINT_BATCH_UPDATE', 'PAINT_BATCH_DELETE', 'PAINT_FORMULA_CREATE', 'PAINT_FORMULA_UPDATE', 'PAINT_FORMULA_DELETE', 'PAINT_FORMULA_BATCH_CREATE', 'PAINT_FORMULA_BATCH_UPDATE', 'PAINT_FORMULA_BATCH_DELETE', 'PAINT_TYPE_CREATE', 'PAINT_TYPE_UPDATE', 'PAINT_TYPE_DELETE', 'PAINT_TYPE_BATCH_CREATE', 'PAINT_TYPE_BATCH_UPDATE', 'PAINT_TYPE_BATCH_DELETE', 'PAINT_BRAND_CREATE', 'PAINT_BRAND_UPDATE', 'PAINT_BRAND_DELETE', 'PAINT_BRAND_BATCH_CREATE', 'PAINT_BRAND_BATCH_UPDATE', 'PAINT_BRAND_BATCH_DELETE', 'PAINT_GROUND_CREATE', 'PAINT_GROUND_UPDATE', 'PAINT_GROUND_DELETE', 'PAINT_GROUND_BATCH_CREATE', 'PAINT_GROUND_BATCH_UPDATE', 'PAINT_GROUND_BATCH_DELETE', 'ORDER_UPDATE', 'ORDER_CREATE', 'ORDER_STATUS_CHANGE', 'ORDER_CANCEL', 'ORDER_ITEM_UPDATE', 'ORDER_ITEM_RECEIVED', 'ORDER_ITEM_SYNC', 'SCHEDULE', 'ACTIVITY_CREATE', 'ACTIVITY_UPDATE', 'ACTIVITY_DELETE', 'ACTIVITY_SYNC', 'INVENTORY_ADJUSTMENT', 'INVENTORY_COUNT', 'ITEM_MONTHLY_CONSUMPTION_UPDATE', 'AUTOMATIC_MIN_MAX_UPDATE', 'PPE_DELIVERY', 'SMS_VERIFICATION_CREATE', 'SMS_VERIFICATION_SEND', 'SMS_VERIFICATION_VERIFY', 'SMS_VERIFICATION_EXPIRE', 'SMS_VERIFICATION_CANCEL', 'EMAIL_SERVICE', 'VERIFICATION_CREATE', 'VERIFICATION_SEND', 'VERIFICATION_VERIFY', 'VERIFICATION_EXPIRE', 'VERIFICATION_CANCEL', 'VERIFICATION_RESEND', 'OBSERVATION_CREATE', 'OBSERVATION_DELETE', 'SCHEDULED_JOB', 'API', 'WEBHOOK', 'ADMIN', 'TASK_COPY_FROM_TASK');
 
 -- CreateEnum
-CREATE TYPE "ChangeLogEntityType" AS ENUM ('ABSENCE', 'ACTIVITY', 'AIRBRUSHING', 'BONUS', 'BORROW', 'CALCULATION', 'CALCULATION_DECOMPOSITION', 'CALCULATION_DETAIL', 'CATEGORY', 'COLLECTION', 'COMMISSION', 'CUSTOMER', 'CUT', 'CUT_ITEM', 'CUT_PLAN', 'CUT_REQUEST', 'DELIVERY', 'DEPLOYMENT', 'DISCOUNT', 'ECONOMIC_ACTIVITY', 'EXPENSE', 'EXTERNAL_WITHDRAWAL', 'EXTERNAL_WITHDRAWAL_ITEM', 'FILE', 'HOLIDAY', 'ITEM', 'ITEM_BRAND', 'ITEM_CATEGORY', 'LAYOUT', 'MAINTENANCE', 'MAINTENANCE_ITEM', 'MAINTENANCE_SCHEDULE', 'NOTIFICATION', 'NOTIFICATION_PREFERENCE', 'OBSERVATION', 'ORDER', 'ORDER_ITEM', 'ORDER_RULE', 'ORDER_SCHEDULE', 'PAINT', 'PAINT_FORMULA', 'PAINT_FORMULA_COMPONENT', 'PAINT_GROUND', 'PAINT_PRODUCTION', 'PAINT_TYPE', 'PARKING_SPOT', 'PAYROLL', 'PIECE', 'POSITION', 'PPE_CONFIG', 'PPE_DELIVERY', 'PPE_DELIVERY_ITEM', 'PPE_DELIVERY_SCHEDULE', 'PPE_REQUEST', 'PPE_SIZE', 'PRICE', 'PRODUCTION', 'PURCHASE', 'SECTOR', 'SEEN_NOTIFICATION', 'SERVICE', 'SERVICE_ORDER', 'SUPPLIER', 'TASK', 'TIME_CLOCK_ENTRY', 'TRUCK', 'USER', 'VACATION', 'VERIFICATION', 'WARNING');
+CREATE TYPE "ChangeLogEntityType" AS ENUM ('ABSENCE', 'ACTIVITY', 'AIRBRUSHING', 'BONUS', 'BORROW', 'CALCULATION', 'CALCULATION_DECOMPOSITION', 'CALCULATION_DETAIL', 'CATEGORY', 'COLLECTION', 'COMMISSION', 'CUSTOMER', 'CUT', 'CUT_ITEM', 'CUT_PLAN', 'CUT_REQUEST', 'DELIVERY', 'DEPLOYMENT', 'DISCOUNT', 'ECONOMIC_ACTIVITY', 'EXPENSE', 'EXTERNAL_WITHDRAWAL', 'EXTERNAL_WITHDRAWAL_ITEM', 'FILE', 'HOLIDAY', 'ITEM', 'ITEM_BRAND', 'ITEM_CATEGORY', 'LAYOUT', 'MAINTENANCE', 'MAINTENANCE_ITEM', 'MAINTENANCE_SCHEDULE', 'NOTIFICATION', 'NOTIFICATION_PREFERENCE', 'OBSERVATION', 'ORDER', 'ORDER_ITEM', 'ORDER_RULE', 'ORDER_SCHEDULE', 'PAINT', 'PAINT_FORMULA', 'PAINT_FORMULA_COMPONENT', 'PAINT_GROUND', 'PAINT_PRODUCTION', 'PAINT_TYPE', 'PARKING_SPOT', 'PAYROLL', 'PIECE', 'POSITION', 'PPE_CONFIG', 'PPE_DELIVERY', 'PPE_DELIVERY_ITEM', 'PPE_DELIVERY_SCHEDULE', 'PPE_REQUEST', 'PPE_SIZE', 'PRICE', 'PRODUCTION', 'PURCHASE', 'REPRESENTATIVE', 'SECTOR', 'SEEN_NOTIFICATION', 'SERVICE', 'SERVICE_ORDER', 'SUPPLIER', 'TASK', 'TIME_CLOCK_ENTRY', 'TRUCK', 'USER', 'VACATION', 'VERIFICATION', 'WARNING');
 
 -- CreateEnum
 CREATE TYPE "ChangeLogAction" AS ENUM ('CREATE', 'UPDATE', 'DELETE', 'RESTORE', 'ARCHIVE', 'UNARCHIVE', 'ACTIVATE', 'DEACTIVATE', 'APPROVE', 'REJECT', 'CANCEL', 'COMPLETE', 'ROLLBACK', 'RESCHEDULE', 'BATCH_CREATE', 'BATCH_UPDATE', 'BATCH_DELETE');
 
 -- CreateEnum
-CREATE TYPE "NotificationActionType" AS ENUM ('VIEW_DETAILS', 'APPROVE_REQUEST', 'REJECT_REQUEST', 'COMPLETE_TASK', 'TASK_CREATED', 'TASK_UPDATED', 'VIEW_ORDER', 'VIEW_REPORT', 'ACKNOWLEDGE', 'DISMISS');
+CREATE TYPE "NotificationActionType" AS ENUM ('VIEW_DETAILS', 'APPROVE_REQUEST', 'REJECT_REQUEST', 'COMPLETE_TASK', 'TASK_CREATED', 'TASK_UPDATED', 'VIEW_ORDER', 'VIEW_REPORT', 'ACKNOWLEDGE', 'DISMISS', 'VIEW_SERVICE_ORDER');
 
 -- CreateEnum
 CREATE TYPE "ActivityOperation" AS ENUM ('INBOUND', 'OUTBOUND');
@@ -240,6 +246,24 @@ CREATE TYPE "StreetType" AS ENUM ('STREET', 'AVENUE', 'ALLEY', 'CROSSING', 'SQUA
 
 -- CreateEnum
 CREATE TYPE "MessageStatus" AS ENUM ('DRAFT', 'SCHEDULED', 'ACTIVE', 'EXPIRED', 'ARCHIVED');
+
+-- CreateEnum
+CREATE TYPE "BackupType" AS ENUM ('DATABASE', 'FILES', 'SYSTEM', 'FULL');
+
+-- CreateEnum
+CREATE TYPE "BackupPriority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
+
+-- CreateEnum
+CREATE TYPE "BackupScheduleStatus" AS ENUM ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED');
+
+-- CreateEnum
+CREATE TYPE "BackupStatus" AS ENUM ('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED');
+
+-- CreateEnum
+CREATE TYPE "GDriveSyncStatus" AS ENUM ('PENDING', 'SYNCING', 'SYNCED', 'FAILED', 'DELETED');
+
+-- CreateEnum
+CREATE TYPE "GDriveDeleteStatus" AS ENUM ('PENDING', 'DELETED', 'FAILED', 'NOT_NEEDED');
 
 -- CreateTable
 CREATE TABLE "Activity" (
@@ -385,6 +409,20 @@ CREATE TABLE "BonusDiscount" (
 );
 
 -- CreateTable
+CREATE TABLE "BonusExtra" (
+    "id" TEXT NOT NULL,
+    "bonusId" TEXT NOT NULL,
+    "percentage" DECIMAL(5,2),
+    "value" DECIMAL(10,2),
+    "reference" TEXT NOT NULL,
+    "calculationOrder" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "BonusExtra_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "PayrollDiscount" (
     "id" TEXT NOT NULL,
     "percentage" DECIMAL(5,2),
@@ -490,6 +528,7 @@ CREATE TABLE "PpeSize" (
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "shorts" "PantsSize",
 
     CONSTRAINT "PpeSize_pkey" PRIMARY KEY ("id")
 );
@@ -509,6 +548,13 @@ CREATE TABLE "PpeDelivery" (
     "actualDeliveryDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "clicksignEnvelopeId" TEXT,
+    "clicksignDocumentKey" TEXT,
+    "clicksignRequestKey" TEXT,
+    "clicksignSignerKey" TEXT,
+    "clicksignSignedAt" TIMESTAMP(3),
+    "deliveryDocumentId" TEXT,
+    "signatureBatchId" TEXT,
 
     CONSTRAINT "PpeDelivery_pkey" PRIMARY KEY ("id")
 );
@@ -522,7 +568,6 @@ CREATE TABLE "PpeDeliverySchedule" (
     "frequency" "ScheduleFrequency" NOT NULL,
     "frequencyCount" INTEGER NOT NULL DEFAULT 1,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "ppeItems" JSONB NOT NULL,
     "specificDate" TIMESTAMP(3),
     "dayOfMonth" INTEGER,
     "dayOfWeek" "DayOfWeek",
@@ -535,8 +580,22 @@ CREATE TABLE "PpeDeliverySchedule" (
     "lastRun" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "name" TEXT NOT NULL DEFAULT 'Agendamento de EPI',
 
     CONSTRAINT "PpeDeliverySchedule_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PpeScheduleItem" (
+    "id" TEXT NOT NULL,
+    "scheduleId" TEXT NOT NULL,
+    "ppeType" "PpeType" NOT NULL,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "itemId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PpeScheduleItem_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -612,6 +671,9 @@ CREATE TABLE "Item" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "icms" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "ipi" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "isManualMaxQuantity" BOOLEAN NOT NULL DEFAULT false,
+    "isManualReorderPoint" BOOLEAN NOT NULL DEFAULT false,
+    "lastAutoOrderDate" TIMESTAMP(3),
 
     CONSTRAINT "Item_pkey" PRIMARY KEY ("id")
 );
@@ -842,6 +904,8 @@ CREATE TABLE "OrderItem" (
 -- CreateTable
 CREATE TABLE "OrderSchedule" (
     "id" TEXT NOT NULL,
+    "name" TEXT,
+    "description" TEXT,
     "frequency" "ScheduleFrequency" NOT NULL,
     "frequencyCount" INTEGER NOT NULL DEFAULT 1,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
@@ -998,17 +1062,6 @@ CREATE TABLE "Sector" (
 );
 
 -- CreateTable
-CREATE TABLE "Service" (
-    "id" TEXT NOT NULL,
-    "description" TEXT NOT NULL,
-    "type" "ServiceOrderType" NOT NULL DEFAULT 'PRODUCTION',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Service_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "ServiceOrder" (
     "id" TEXT NOT NULL,
     "status" "ServiceOrderStatus" NOT NULL DEFAULT 'PENDING',
@@ -1027,6 +1080,8 @@ CREATE TABLE "ServiceOrder" (
     "startedAt" TIMESTAMP(3),
     "approvedAt" TIMESTAMP(3),
     "finishedAt" TIMESTAMP(3),
+    "shouldSync" BOOLEAN NOT NULL DEFAULT true,
+    "position" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "ServiceOrder_pkey" PRIMARY KEY ("id")
 );
@@ -1034,23 +1089,23 @@ CREATE TABLE "ServiceOrder" (
 -- CreateTable
 CREATE TABLE "TaskPricing" (
     "id" TEXT NOT NULL,
-    "budgetNumber" INTEGER NOT NULL,
     "subtotal" DECIMAL(10,2) NOT NULL,
     "discountType" "DiscountType" NOT NULL DEFAULT 'NONE',
     "discountValue" DECIMAL(10,2),
     "total" DECIMAL(10,2) NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "status" "TaskPricingStatus" NOT NULL DEFAULT 'DRAFT',
-    "taskId" TEXT NOT NULL,
     "paymentCondition" "PaymentCondition",
     "downPaymentDate" TIMESTAMP(3),
     "customPaymentText" TEXT,
     "guaranteeYears" INTEGER,
     "customGuaranteeText" TEXT,
     "layoutFileId" TEXT,
-    "customerSignatureId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "budgetNumber" INTEGER NOT NULL,
+    "customerSignatureId" TEXT,
+    "customForecastDays" INTEGER,
 
     CONSTRAINT "TaskPricing_pkey" PRIMARY KEY ("id")
 );
@@ -1063,6 +1118,9 @@ CREATE TABLE "TaskPricingItem" (
     "pricingId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "observation" TEXT,
+    "shouldSync" BOOLEAN NOT NULL DEFAULT true,
+    "position" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "TaskPricingItem_pkey" PRIMARY KEY ("id")
 );
@@ -1111,11 +1169,13 @@ CREATE TABLE "Task" (
     "invoiceToId" TEXT,
     "sectorId" TEXT,
     "commission" "CommissionStatus",
+    "commissionOrder" INTEGER NOT NULL DEFAULT 3,
     "negotiatingWith" JSONB,
     "createdById" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "bonusDiscountId" TEXT,
+    "pricingId" TEXT,
 
     CONSTRAINT "Task_pkey" PRIMARY KEY ("id")
 );
@@ -1398,6 +1458,83 @@ CREATE TABLE "NotificationDelivery" (
 );
 
 -- CreateTable
+CREATE TABLE "NotificationConfiguration" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "name" TEXT,
+    "notificationType" "NotificationType" NOT NULL,
+    "eventType" TEXT NOT NULL,
+    "description" TEXT,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "importance" "NotificationImportance" NOT NULL DEFAULT 'NORMAL',
+    "workHoursOnly" BOOLEAN NOT NULL DEFAULT false,
+    "batchingEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "maxFrequencyPerDay" INTEGER,
+    "deduplicationWindow" INTEGER,
+    "templates" JSONB,
+    "metadata" JSONB,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationConfiguration_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationChannelConfig" (
+    "id" TEXT NOT NULL,
+    "configurationId" TEXT NOT NULL,
+    "channel" "NotificationChannel" NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "mandatory" BOOLEAN NOT NULL DEFAULT false,
+    "defaultOn" BOOLEAN NOT NULL DEFAULT true,
+    "minImportance" "NotificationImportance",
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationChannelConfig_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationSectorOverride" (
+    "id" TEXT NOT NULL,
+    "configurationId" TEXT NOT NULL,
+    "sector" "SectorPrivileges" NOT NULL,
+    "channelOverrides" JSONB,
+    "importanceOverride" "NotificationImportance",
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationSectorOverride_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationTargetRule" (
+    "id" TEXT NOT NULL,
+    "configurationId" TEXT NOT NULL,
+    "allowedSectors" "SectorPrivileges"[],
+    "excludeInactive" BOOLEAN NOT NULL DEFAULT true,
+    "excludeOnVacation" BOOLEAN NOT NULL DEFAULT true,
+    "customFilter" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationTargetRule_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NotificationRule" (
+    "id" TEXT NOT NULL,
+    "configurationId" TEXT NOT NULL,
+    "ruleType" TEXT NOT NULL,
+    "ruleConfig" JSONB NOT NULL,
+    "priority" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationRule_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "thumbnail_jobs" (
     "id" TEXT NOT NULL,
     "file_id" TEXT NOT NULL,
@@ -1576,6 +1713,94 @@ CREATE TABLE "MessageView" (
 );
 
 -- CreateTable
+CREATE TABLE "BackupSchedule" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "type" "BackupType" NOT NULL,
+    "description" TEXT,
+    "paths" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "cronExpression" TEXT NOT NULL,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "priority" "BackupPriority" NOT NULL DEFAULT 'MEDIUM',
+    "compressionLevel" INTEGER NOT NULL DEFAULT 6,
+    "encrypted" BOOLEAN NOT NULL DEFAULT false,
+    "autoDeleteEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "autoDeleteRetention" TEXT,
+    "bullJobId" TEXT,
+    "lastRunAt" TIMESTAMP(3),
+    "nextRunAt" TIMESTAMP(3),
+    "lastStatus" "BackupScheduleStatus" NOT NULL DEFAULT 'PENDING',
+    "lastError" TEXT,
+    "runCount" INTEGER NOT NULL DEFAULT 0,
+    "failureCount" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "createdById" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedById" TEXT,
+
+    CONSTRAINT "BackupSchedule_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Backup" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "type" "BackupType" NOT NULL,
+    "description" TEXT,
+    "paths" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "status" "BackupStatus" NOT NULL DEFAULT 'PENDING',
+    "priority" "BackupPriority" NOT NULL DEFAULT 'MEDIUM',
+    "compressionLevel" INTEGER NOT NULL DEFAULT 6,
+    "encrypted" BOOLEAN NOT NULL DEFAULT false,
+    "size" BIGINT NOT NULL DEFAULT 0,
+    "progress" INTEGER NOT NULL DEFAULT 0,
+    "error" TEXT,
+    "autoDeleteEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "autoDeleteRetention" TEXT,
+    "autoDeleteAfter" TIMESTAMP(3),
+    "filePath" TEXT,
+    "gdriveFileId" TEXT,
+    "gdriveStatus" "GDriveSyncStatus" NOT NULL DEFAULT 'PENDING',
+    "gdriveSyncedAt" TIMESTAMP(3),
+    "gdriveDeleteStatus" "GDriveDeleteStatus",
+    "gdriveDeleteError" TEXT,
+    "gdriveDeleteAttempts" INTEGER NOT NULL DEFAULT 0,
+    "scheduleId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "completedAt" TIMESTAMP(3),
+    "createdById" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedById" TEXT,
+
+    CONSTRAINT "Backup_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Representative" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "email" TEXT,
+    "phone" TEXT NOT NULL,
+    "password" TEXT,
+    "role" "RepresentativeRole" NOT NULL,
+    "customerId" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "verified" BOOLEAN NOT NULL DEFAULT false,
+    "verificationCode" TEXT,
+    "verificationExpiresAt" TIMESTAMP(3),
+    "sessionToken" TEXT,
+    "resetToken" TEXT,
+    "resetTokenExpiry" TIMESTAMP(3),
+    "lastLoginAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Representative_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "_AIRBRUSHING_BUDGETS" (
     "A" TEXT NOT NULL,
     "B" TEXT NOT NULL,
@@ -1696,6 +1921,14 @@ CREATE TABLE "_ORDER_REIMBURSEMENTS" (
 );
 
 -- CreateTable
+CREATE TABLE "_TASK_BASE_FILES" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL,
+
+    CONSTRAINT "_TASK_BASE_FILES_AB_pkey" PRIMARY KEY ("A","B")
+);
+
+-- CreateTable
 CREATE TABLE "_TASK_BUDGETS" (
     "A" TEXT NOT NULL,
     "B" TEXT NOT NULL,
@@ -1733,14 +1966,6 @@ CREATE TABLE "_TASK_REIMBURSEMENTS" (
     "B" TEXT NOT NULL,
 
     CONSTRAINT "_TASK_REIMBURSEMENTS_AB_pkey" PRIMARY KEY ("A","B")
-);
-
--- CreateTable
-CREATE TABLE "_TASK_BASE_FILES" (
-    "A" TEXT NOT NULL,
-    "B" TEXT NOT NULL,
-
-    CONSTRAINT "_TASK_BASE_FILES_AB_pkey" PRIMARY KEY ("A","B")
 );
 
 -- CreateTable
@@ -1829,6 +2054,14 @@ CREATE TABLE "_WITNESS_WARNING" (
     "B" TEXT NOT NULL,
 
     CONSTRAINT "_WITNESS_WARNING_AB_pkey" PRIMARY KEY ("A","B")
+);
+
+-- CreateTable
+CREATE TABLE "_TaskRepresentatives" (
+    "A" TEXT NOT NULL,
+    "B" TEXT NOT NULL,
+
+    CONSTRAINT "_TaskRepresentatives_AB_pkey" PRIMARY KEY ("A","B")
 );
 
 -- CreateIndex
@@ -1922,6 +2155,12 @@ CREATE INDEX "BonusDiscount_bonusId_idx" ON "BonusDiscount"("bonusId");
 CREATE INDEX "BonusDiscount_calculationOrder_idx" ON "BonusDiscount"("calculationOrder");
 
 -- CreateIndex
+CREATE INDEX "BonusExtra_bonusId_idx" ON "BonusExtra"("bonusId");
+
+-- CreateIndex
+CREATE INDEX "BonusExtra_calculationOrder_idx" ON "BonusExtra"("calculationOrder");
+
+-- CreateIndex
 CREATE INDEX "PayrollDiscount_payrollId_idx" ON "PayrollDiscount"("payrollId");
 
 -- CreateIndex
@@ -2012,6 +2251,12 @@ CREATE INDEX "PpeDelivery_status_statusOrder_idx" ON "PpeDelivery"("status", "st
 CREATE INDEX "PpeDelivery_reviewedBy_idx" ON "PpeDelivery"("reviewedBy");
 
 -- CreateIndex
+CREATE INDEX "PpeDelivery_clicksignDocumentKey_idx" ON "PpeDelivery"("clicksignDocumentKey");
+
+-- CreateIndex
+CREATE INDEX "PpeDelivery_signatureBatchId_idx" ON "PpeDelivery"("signatureBatchId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "PpeDeliverySchedule_weeklyConfigId_key" ON "PpeDeliverySchedule"("weeklyConfigId");
 
 -- CreateIndex
@@ -2028,6 +2273,18 @@ CREATE INDEX "PpeDeliverySchedule_isActive_idx" ON "PpeDeliverySchedule"("isActi
 
 -- CreateIndex
 CREATE INDEX "PpeDeliverySchedule_assignmentType_idx" ON "PpeDeliverySchedule"("assignmentType");
+
+-- CreateIndex
+CREATE INDEX "PpeScheduleItem_scheduleId_idx" ON "PpeScheduleItem"("scheduleId");
+
+-- CreateIndex
+CREATE INDEX "PpeScheduleItem_ppeType_idx" ON "PpeScheduleItem"("ppeType");
+
+-- CreateIndex
+CREATE INDEX "PpeScheduleItem_itemId_idx" ON "PpeScheduleItem"("itemId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PpeScheduleItem_scheduleId_ppeType_itemId_key" ON "PpeScheduleItem"("scheduleId", "ppeType", "itemId");
 
 -- CreateIndex
 CREATE INDEX "File_filename_idx" ON "File"("filename");
@@ -2088,6 +2345,15 @@ CREATE INDEX "Item_ppeType_idx" ON "Item"("ppeType");
 
 -- CreateIndex
 CREATE INDEX "Item_categoryId_ppeType_idx" ON "Item"("categoryId", "ppeType");
+
+-- CreateIndex
+CREATE INDEX "Item_isManualMaxQuantity_idx" ON "Item"("isManualMaxQuantity");
+
+-- CreateIndex
+CREATE INDEX "Item_isManualReorderPoint_idx" ON "Item"("isManualReorderPoint");
+
+-- CreateIndex
+CREATE INDEX "Item_lastAutoOrderDate_idx" ON "Item"("lastAutoOrderDate");
 
 -- CreateIndex
 CREATE INDEX "OrderRule_itemId_idx" ON "OrderRule"("itemId");
@@ -2291,12 +2557,6 @@ CREATE UNIQUE INDEX "Sector_managerId_key" ON "Sector"("managerId");
 CREATE INDEX "Sector_managerId_idx" ON "Sector"("managerId");
 
 -- CreateIndex
-CREATE INDEX "Service_type_idx" ON "Service"("type");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Service_description_type_key" ON "Service"("description", "type");
-
--- CreateIndex
 CREATE INDEX "ServiceOrder_taskId_idx" ON "ServiceOrder"("taskId");
 
 -- CreateIndex
@@ -2304,6 +2564,9 @@ CREATE INDEX "ServiceOrder_statusOrder_idx" ON "ServiceOrder"("statusOrder");
 
 -- CreateIndex
 CREATE INDEX "ServiceOrder_type_idx" ON "ServiceOrder"("type");
+
+-- CreateIndex
+CREATE INDEX "ServiceOrder_position_idx" ON "ServiceOrder"("position");
 
 -- CreateIndex
 CREATE INDEX "ServiceOrder_assignedToId_idx" ON "ServiceOrder"("assignedToId");
@@ -2322,12 +2585,6 @@ CREATE INDEX "ServiceOrder_completedById_idx" ON "ServiceOrder"("completedById")
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TaskPricing_budgetNumber_key" ON "TaskPricing"("budgetNumber");
-
--- CreateIndex
-CREATE UNIQUE INDEX "TaskPricing_taskId_key" ON "TaskPricing"("taskId");
-
--- CreateIndex
-CREATE INDEX "TaskPricing_taskId_idx" ON "TaskPricing"("taskId");
 
 -- CreateIndex
 CREATE INDEX "TaskPricing_status_idx" ON "TaskPricing"("status");
@@ -2372,6 +2629,9 @@ CREATE INDEX "Task_status_sectorId_idx" ON "Task"("status", "sectorId");
 CREATE INDEX "Task_statusOrder_idx" ON "Task"("statusOrder");
 
 -- CreateIndex
+CREATE INDEX "Task_commissionOrder_idx" ON "Task"("commissionOrder");
+
+-- CreateIndex
 CREATE INDEX "Task_term_idx" ON "Task"("term");
 
 -- CreateIndex
@@ -2388,6 +2648,9 @@ CREATE INDEX "Task_invoiceToId_idx" ON "Task"("invoiceToId");
 
 -- CreateIndex
 CREATE INDEX "Task_createdById_idx" ON "Task"("createdById");
+
+-- CreateIndex
+CREATE INDEX "Task_pricingId_idx" ON "Task"("pricingId");
 
 -- CreateIndex
 CREATE INDEX "TaskFieldChangeLog_taskId_idx" ON "TaskFieldChangeLog"("taskId");
@@ -2426,19 +2689,19 @@ CREATE UNIQUE INDEX "Truck_plate_key" ON "Truck"("plate");
 CREATE UNIQUE INDEX "Truck_taskId_key" ON "Truck"("taskId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Truck_backSideLayoutId_key" ON "Truck"("backSideLayoutId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Truck_leftSideLayoutId_key" ON "Truck"("leftSideLayoutId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Truck_rightSideLayoutId_key" ON "Truck"("rightSideLayoutId");
-
--- CreateIndex
 CREATE INDEX "Truck_spot_idx" ON "Truck"("spot");
 
 -- CreateIndex
 CREATE INDEX "Truck_plate_idx" ON "Truck"("plate");
+
+-- CreateIndex
+CREATE INDEX "Truck_backSideLayoutId_idx" ON "Truck"("backSideLayoutId");
+
+-- CreateIndex
+CREATE INDEX "Truck_leftSideLayoutId_idx" ON "Truck"("leftSideLayoutId");
+
+-- CreateIndex
+CREATE INDEX "Truck_rightSideLayoutId_idx" ON "Truck"("rightSideLayoutId");
 
 -- CreateIndex
 CREATE INDEX "LayoutSection_layoutId_position_idx" ON "LayoutSection"("layoutId", "position");
@@ -2567,6 +2830,63 @@ CREATE INDEX "NotificationDelivery_notificationId_idx" ON "NotificationDelivery"
 CREATE INDEX "NotificationDelivery_status_idx" ON "NotificationDelivery"("status");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "NotificationConfiguration_key_key" ON "NotificationConfiguration"("key");
+
+-- CreateIndex
+CREATE INDEX "NotificationConfiguration_notificationType_idx" ON "NotificationConfiguration"("notificationType");
+
+-- CreateIndex
+CREATE INDEX "NotificationConfiguration_eventType_idx" ON "NotificationConfiguration"("eventType");
+
+-- CreateIndex
+CREATE INDEX "NotificationConfiguration_enabled_idx" ON "NotificationConfiguration"("enabled");
+
+-- CreateIndex
+CREATE INDEX "NotificationConfiguration_notificationType_eventType_idx" ON "NotificationConfiguration"("notificationType", "eventType");
+
+-- CreateIndex
+CREATE INDEX "NotificationConfiguration_importance_idx" ON "NotificationConfiguration"("importance");
+
+-- CreateIndex
+CREATE INDEX "NotificationChannelConfig_configurationId_idx" ON "NotificationChannelConfig"("configurationId");
+
+-- CreateIndex
+CREATE INDEX "NotificationChannelConfig_channel_idx" ON "NotificationChannelConfig"("channel");
+
+-- CreateIndex
+CREATE INDEX "NotificationChannelConfig_enabled_idx" ON "NotificationChannelConfig"("enabled");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationChannelConfig_configurationId_channel_key" ON "NotificationChannelConfig"("configurationId", "channel");
+
+-- CreateIndex
+CREATE INDEX "NotificationSectorOverride_configurationId_idx" ON "NotificationSectorOverride"("configurationId");
+
+-- CreateIndex
+CREATE INDEX "NotificationSectorOverride_sector_idx" ON "NotificationSectorOverride"("sector");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationSectorOverride_configurationId_sector_key" ON "NotificationSectorOverride"("configurationId", "sector");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NotificationTargetRule_configurationId_key" ON "NotificationTargetRule"("configurationId");
+
+-- CreateIndex
+CREATE INDEX "NotificationTargetRule_configurationId_idx" ON "NotificationTargetRule"("configurationId");
+
+-- CreateIndex
+CREATE INDEX "NotificationRule_configurationId_idx" ON "NotificationRule"("configurationId");
+
+-- CreateIndex
+CREATE INDEX "NotificationRule_ruleType_idx" ON "NotificationRule"("ruleType");
+
+-- CreateIndex
+CREATE INDEX "NotificationRule_priority_idx" ON "NotificationRule"("priority");
+
+-- CreateIndex
+CREATE INDEX "NotificationRule_configurationId_priority_idx" ON "NotificationRule"("configurationId", "priority");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "thumbnail_jobs_file_id_key" ON "thumbnail_jobs"("file_id");
 
 -- CreateIndex
@@ -2675,6 +2995,75 @@ CREATE INDEX "MessageView_dismissedAt_idx" ON "MessageView"("dismissedAt");
 CREATE UNIQUE INDEX "MessageView_userId_messageId_key" ON "MessageView"("userId", "messageId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "BackupSchedule_bullJobId_key" ON "BackupSchedule"("bullJobId");
+
+-- CreateIndex
+CREATE INDEX "BackupSchedule_enabled_idx" ON "BackupSchedule"("enabled");
+
+-- CreateIndex
+CREATE INDEX "BackupSchedule_type_idx" ON "BackupSchedule"("type");
+
+-- CreateIndex
+CREATE INDEX "BackupSchedule_nextRunAt_idx" ON "BackupSchedule"("nextRunAt");
+
+-- CreateIndex
+CREATE INDEX "BackupSchedule_createdById_idx" ON "BackupSchedule"("createdById");
+
+-- CreateIndex
+CREATE INDEX "BackupSchedule_deletedAt_idx" ON "BackupSchedule"("deletedAt");
+
+-- CreateIndex
+CREATE INDEX "Backup_status_idx" ON "Backup"("status");
+
+-- CreateIndex
+CREATE INDEX "Backup_type_idx" ON "Backup"("type");
+
+-- CreateIndex
+CREATE INDEX "Backup_createdAt_idx" ON "Backup"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "Backup_autoDeleteAfter_idx" ON "Backup"("autoDeleteAfter");
+
+-- CreateIndex
+CREATE INDEX "Backup_scheduleId_idx" ON "Backup"("scheduleId");
+
+-- CreateIndex
+CREATE INDEX "Backup_createdById_idx" ON "Backup"("createdById");
+
+-- CreateIndex
+CREATE INDEX "Backup_deletedAt_idx" ON "Backup"("deletedAt");
+
+-- CreateIndex
+CREATE INDEX "Backup_gdriveStatus_idx" ON "Backup"("gdriveStatus");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Representative_email_key" ON "Representative"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Representative_phone_key" ON "Representative"("phone");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Representative_sessionToken_key" ON "Representative"("sessionToken");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Representative_resetToken_key" ON "Representative"("resetToken");
+
+-- CreateIndex
+CREATE INDEX "Representative_email_idx" ON "Representative"("email");
+
+-- CreateIndex
+CREATE INDEX "Representative_phone_idx" ON "Representative"("phone");
+
+-- CreateIndex
+CREATE INDEX "Representative_customerId_idx" ON "Representative"("customerId");
+
+-- CreateIndex
+CREATE INDEX "Representative_role_idx" ON "Representative"("role");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Representative_customerId_role_key" ON "Representative"("customerId", "role");
+
+-- CreateIndex
 CREATE INDEX "_AIRBRUSHING_BUDGETS_B_index" ON "_AIRBRUSHING_BUDGETS"("B");
 
 -- CreateIndex
@@ -2720,6 +3109,9 @@ CREATE INDEX "_ORDER_RECEIPTS_B_index" ON "_ORDER_RECEIPTS"("B");
 CREATE INDEX "_ORDER_REIMBURSEMENTS_B_index" ON "_ORDER_REIMBURSEMENTS"("B");
 
 -- CreateIndex
+CREATE INDEX "_TASK_BASE_FILES_B_index" ON "_TASK_BASE_FILES"("B");
+
+-- CreateIndex
 CREATE INDEX "_TASK_BUDGETS_B_index" ON "_TASK_BUDGETS"("B");
 
 -- CreateIndex
@@ -2733,9 +3125,6 @@ CREATE INDEX "_TASK_RECEIPTS_B_index" ON "_TASK_RECEIPTS"("B");
 
 -- CreateIndex
 CREATE INDEX "_TASK_REIMBURSEMENTS_B_index" ON "_TASK_REIMBURSEMENTS"("B");
-
--- CreateIndex
-CREATE INDEX "_TASK_BASE_FILES_B_index" ON "_TASK_BASE_FILES"("B");
 
 -- CreateIndex
 CREATE INDEX "_PAINT_BRAND_COMPONENT_ITEMS_B_index" ON "_PAINT_BRAND_COMPONENT_ITEMS"("B");
@@ -2770,6 +3159,9 @@ CREATE INDEX "_RelatedTasks_B_index" ON "_RelatedTasks"("B");
 -- CreateIndex
 CREATE INDEX "_WITNESS_WARNING_B_index" ON "_WITNESS_WARNING"("B");
 
+-- CreateIndex
+CREATE INDEX "_TaskRepresentatives_B_index" ON "_TaskRepresentatives"("B");
+
 -- AddForeignKey
 ALTER TABLE "Activity" ADD CONSTRAINT "Activity_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -2786,10 +3178,10 @@ ALTER TABLE "Activity" ADD CONSTRAINT "Activity_userId_fkey" FOREIGN KEY ("userI
 ALTER TABLE "Airbrushing" ADD CONSTRAINT "Airbrushing_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_airbrushingId_fkey" FOREIGN KEY ("airbrushingId") REFERENCES "Airbrushing"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_airbrushingId_fkey" FOREIGN KEY ("airbrushingId") REFERENCES "Airbrushing"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Artwork" ADD CONSTRAINT "Artwork_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Borrow" ADD CONSTRAINT "Borrow_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2816,10 +3208,13 @@ ALTER TABLE "Payroll" ADD CONSTRAINT "Payroll_userId_fkey" FOREIGN KEY ("userId"
 ALTER TABLE "BonusDiscount" ADD CONSTRAINT "BonusDiscount_bonusId_fkey" FOREIGN KEY ("bonusId") REFERENCES "Bonus"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PayrollDiscount" ADD CONSTRAINT "PayrollDiscount_taxTableId_fkey" FOREIGN KEY ("taxTableId") REFERENCES "TaxTable"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "BonusExtra" ADD CONSTRAINT "BonusExtra_bonusId_fkey" FOREIGN KEY ("bonusId") REFERENCES "Bonus"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PayrollDiscount" ADD CONSTRAINT "PayrollDiscount_payrollId_fkey" FOREIGN KEY ("payrollId") REFERENCES "Payroll"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PayrollDiscount" ADD CONSTRAINT "PayrollDiscount_taxTableId_fkey" FOREIGN KEY ("taxTableId") REFERENCES "TaxTable"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TaxBracket" ADD CONSTRAINT "TaxBracket_taxTableId_fkey" FOREIGN KEY ("taxTableId") REFERENCES "TaxTable"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2832,6 +3227,9 @@ ALTER TABLE "Customer" ADD CONSTRAINT "Customer_logoId_fkey" FOREIGN KEY ("logoI
 
 -- AddForeignKey
 ALTER TABLE "PpeSize" ADD CONSTRAINT "PpeSize_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PpeDelivery" ADD CONSTRAINT "PpeDelivery_deliveryDocumentId_fkey" FOREIGN KEY ("deliveryDocumentId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PpeDelivery" ADD CONSTRAINT "PpeDelivery_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2853,6 +3251,12 @@ ALTER TABLE "PpeDeliverySchedule" ADD CONSTRAINT "PpeDeliverySchedule_weeklyConf
 
 -- AddForeignKey
 ALTER TABLE "PpeDeliverySchedule" ADD CONSTRAINT "PpeDeliverySchedule_yearlyConfigId_fkey" FOREIGN KEY ("yearlyConfigId") REFERENCES "YearlyScheduleConfig"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PpeScheduleItem" ADD CONSTRAINT "PpeScheduleItem_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PpeScheduleItem" ADD CONSTRAINT "PpeScheduleItem_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "PpeDeliverySchedule"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "MonetaryValue" ADD CONSTRAINT "MonetaryValue_itemId_fkey" FOREIGN KEY ("itemId") REFERENCES "Item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -2969,10 +3373,13 @@ ALTER TABLE "Warning" ADD CONSTRAINT "Warning_supervisorId_fkey" FOREIGN KEY ("s
 ALTER TABLE "Sector" ADD CONSTRAINT "Sector_managerId_fkey" FOREIGN KEY ("managerId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_approvedById_fkey" FOREIGN KEY ("approvedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_assignedToId_fkey" FOREIGN KEY ("assignedToId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_completedById_fkey" FOREIGN KEY ("completedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -2981,19 +3388,13 @@ ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_createdById_fkey" FOREIG
 ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_startedById_fkey" FOREIGN KEY ("startedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_approvedById_fkey" FOREIGN KEY ("approvedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_completedById_fkey" FOREIGN KEY ("completedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "TaskPricing" ADD CONSTRAINT "TaskPricing_layoutFileId_fkey" FOREIGN KEY ("layoutFileId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "ServiceOrder" ADD CONSTRAINT "ServiceOrder_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TaskPricing" ADD CONSTRAINT "TaskPricing_customerSignatureId_fkey" FOREIGN KEY ("customerSignatureId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "TaskPricing" ADD CONSTRAINT "TaskPricing_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TaskPricing" ADD CONSTRAINT "TaskPricing_layoutFileId_fkey" FOREIGN KEY ("layoutFileId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TaskPricingItem" ADD CONSTRAINT "TaskPricingItem_pricingId_fkey" FOREIGN KEY ("pricingId") REFERENCES "TaskPricing"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -3017,13 +3418,16 @@ ALTER TABLE "Task" ADD CONSTRAINT "Task_invoiceToId_fkey" FOREIGN KEY ("invoiceT
 ALTER TABLE "Task" ADD CONSTRAINT "Task_paintId_fkey" FOREIGN KEY ("paintId") REFERENCES "Paint"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Task" ADD CONSTRAINT "Task_pricingId_fkey" FOREIGN KEY ("pricingId") REFERENCES "TaskPricing"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Task" ADD CONSTRAINT "Task_sectorId_fkey" FOREIGN KEY ("sectorId") REFERENCES "Sector"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "TaskFieldChangeLog" ADD CONSTRAINT "TaskFieldChangeLog_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "TaskFieldChangeLog" ADD CONSTRAINT "TaskFieldChangeLog_changedBy_fkey" FOREIGN KEY ("changedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "TaskFieldChangeLog" ADD CONSTRAINT "TaskFieldChangeLog_changedBy_fkey" FOREIGN KEY ("changedBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TaskFieldChangeLog" ADD CONSTRAINT "TaskFieldChangeLog_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Cut" ADD CONSTRAINT "Cut_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -3086,6 +3490,18 @@ ALTER TABLE "UserNotificationPreference" ADD CONSTRAINT "UserNotificationPrefere
 ALTER TABLE "NotificationDelivery" ADD CONSTRAINT "NotificationDelivery_notificationId_fkey" FOREIGN KEY ("notificationId") REFERENCES "Notification"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "NotificationChannelConfig" ADD CONSTRAINT "NotificationChannelConfig_configurationId_fkey" FOREIGN KEY ("configurationId") REFERENCES "NotificationConfiguration"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationSectorOverride" ADD CONSTRAINT "NotificationSectorOverride_configurationId_fkey" FOREIGN KEY ("configurationId") REFERENCES "NotificationConfiguration"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationTargetRule" ADD CONSTRAINT "NotificationTargetRule_configurationId_fkey" FOREIGN KEY ("configurationId") REFERENCES "NotificationConfiguration"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationRule" ADD CONSTRAINT "NotificationRule_configurationId_fkey" FOREIGN KEY ("configurationId") REFERENCES "NotificationConfiguration"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "thumbnail_jobs" ADD CONSTRAINT "thumbnail_jobs_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3126,6 +3542,24 @@ ALTER TABLE "MessageView" ADD CONSTRAINT "MessageView_messageId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "MessageView" ADD CONSTRAINT "MessageView_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BackupSchedule" ADD CONSTRAINT "BackupSchedule_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BackupSchedule" ADD CONSTRAINT "BackupSchedule_deletedById_fkey" FOREIGN KEY ("deletedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Backup" ADD CONSTRAINT "Backup_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Backup" ADD CONSTRAINT "Backup_deletedById_fkey" FOREIGN KEY ("deletedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Backup" ADD CONSTRAINT "Backup_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "BackupSchedule"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Representative" ADD CONSTRAINT "Representative_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_AIRBRUSHING_BUDGETS" ADD CONSTRAINT "_AIRBRUSHING_BUDGETS_A_fkey" FOREIGN KEY ("A") REFERENCES "Airbrushing"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -3218,6 +3652,12 @@ ALTER TABLE "_ORDER_REIMBURSEMENTS" ADD CONSTRAINT "_ORDER_REIMBURSEMENTS_A_fkey
 ALTER TABLE "_ORDER_REIMBURSEMENTS" ADD CONSTRAINT "_ORDER_REIMBURSEMENTS_B_fkey" FOREIGN KEY ("B") REFERENCES "Order"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "_TASK_BASE_FILES" ADD CONSTRAINT "_TASK_BASE_FILES_A_fkey" FOREIGN KEY ("A") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_TASK_BASE_FILES" ADD CONSTRAINT "_TASK_BASE_FILES_B_fkey" FOREIGN KEY ("B") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "_TASK_BUDGETS" ADD CONSTRAINT "_TASK_BUDGETS_A_fkey" FOREIGN KEY ("A") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -3246,12 +3686,6 @@ ALTER TABLE "_TASK_REIMBURSEMENTS" ADD CONSTRAINT "_TASK_REIMBURSEMENTS_A_fkey" 
 
 -- AddForeignKey
 ALTER TABLE "_TASK_REIMBURSEMENTS" ADD CONSTRAINT "_TASK_REIMBURSEMENTS_B_fkey" FOREIGN KEY ("B") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "_TASK_BASE_FILES" ADD CONSTRAINT "_TASK_BASE_FILES_A_fkey" FOREIGN KEY ("A") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "_TASK_BASE_FILES" ADD CONSTRAINT "_TASK_BASE_FILES_B_fkey" FOREIGN KEY ("B") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "_PAINT_BRAND_COMPONENT_ITEMS" ADD CONSTRAINT "_PAINT_BRAND_COMPONENT_ITEMS_A_fkey" FOREIGN KEY ("A") REFERENCES "Item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -3318,4 +3752,10 @@ ALTER TABLE "_WITNESS_WARNING" ADD CONSTRAINT "_WITNESS_WARNING_A_fkey" FOREIGN 
 
 -- AddForeignKey
 ALTER TABLE "_WITNESS_WARNING" ADD CONSTRAINT "_WITNESS_WARNING_B_fkey" FOREIGN KEY ("B") REFERENCES "Warning"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_TaskRepresentatives" ADD CONSTRAINT "_TaskRepresentatives_A_fkey" FOREIGN KEY ("A") REFERENCES "Representative"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "_TaskRepresentatives" ADD CONSTRAINT "_TaskRepresentatives_B_fkey" FOREIGN KEY ("B") REFERENCES "Task"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

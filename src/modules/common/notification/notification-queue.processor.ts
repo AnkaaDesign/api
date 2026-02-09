@@ -350,14 +350,7 @@ export class NotificationQueueProcessor implements OnModuleInit {
         error.message,
       );
 
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.EMAIL,
-        success: false,
-        error: error.message,
-        retryCount: job.attemptsMade,
-        processingTime,
-      };
+      throw error; // Let Bull handle retries
     }
   }
 
@@ -467,14 +460,7 @@ export class NotificationQueueProcessor implements OnModuleInit {
         error.message,
       );
 
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.PUSH,
-        success: false,
-        error: error.message,
-        retryCount: job.attemptsMade,
-        processingTime,
-      };
+      throw error; // Let Bull handle retries
     }
   }
 
@@ -589,14 +575,7 @@ export class NotificationQueueProcessor implements OnModuleInit {
         error.message,
       );
 
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.WHATSAPP,
-        success: false,
-        error: error.message,
-        retryCount: job.attemptsMade,
-        processingTime,
-      };
+      throw error; // Let Bull handle retries
     }
   }
 
@@ -653,14 +632,7 @@ export class NotificationQueueProcessor implements OnModuleInit {
         error.message,
       );
 
-      return {
-        notificationId,
-        channel: NOTIFICATION_CHANNEL.IN_APP,
-        success: false,
-        error: error.message,
-        retryCount: job.attemptsMade,
-        processingTime,
-      };
+      throw error; // Let Bull handle retries
     }
   }
 

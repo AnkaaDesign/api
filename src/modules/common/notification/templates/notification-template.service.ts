@@ -179,15 +179,6 @@ const TEMPLATES: Record<string, NotificationTemplate> = {
     channels: [NOTIFICATION_CHANNEL.IN_APP],
   },
 
-  'task.negotiatingWith': {
-    title: data => `Contato de Negociação Atualizado`,
-    body: data =>
-      `Contato de negociação da tarefa "${data.taskName}" foi atualizado para ${data.newContact}${data.changedBy ? ` por ${data.changedBy}` : ''}.`,
-    importance: NOTIFICATION_IMPORTANCE.NORMAL,
-    actionType: NOTIFICATION_ACTION_TYPE.VIEW_DETAILS,
-    channels: [NOTIFICATION_CHANNEL.IN_APP],
-  },
-
   'task.commission.updated': {
     title: data => `Status da Comissão Atualizado`,
     body: data =>

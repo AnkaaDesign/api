@@ -61,7 +61,6 @@ const FIELD_LABELS: Record<string, string> = {
   paintId: 'Pintura',
   customerId: 'Cliente',
   invoiceToId: 'Faturar Para',
-  negotiatingWith: 'Negociando Com', // DEPRECATED - kept for historical data
   representatives: 'Representantes',
   representativeIds: 'Representantes',
   budgets: 'Orçamentos',
@@ -698,10 +697,6 @@ export class TaskNotificationService {
 
     // Handle objects
     if (typeof value === 'object') {
-      // Special handling for negotiatingWith
-      if (fieldName === 'negotiatingWith' && value.name) {
-        return `${value.name}${value.phone ? ` (${value.phone})` : ''}`;
-      }
       return JSON.stringify(value);
     }
 

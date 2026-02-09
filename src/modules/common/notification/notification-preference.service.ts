@@ -573,14 +573,6 @@ export class NotificationPreferenceService {
         mandatoryChannels: [],
       },
 
-      // Negociando Com (Negotiating With) - DEPRECATED, kept for historical data
-      {
-        type: NOTIFICATION_TYPE.PRODUCTION,
-        eventType: 'task_negotiatingWith',
-        channels: [NOTIFICATION_CHANNEL.IN_APP],
-        mandatoryChannels: [],
-      },
-
       // Pintura Geral (General Painting)
       {
         type: NOTIFICATION_TYPE.PRODUCTION,

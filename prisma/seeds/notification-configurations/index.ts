@@ -13,7 +13,7 @@ import { seedAllNotificationConfigurations } from './all-notifications.seed';
  * - Consistent structure across all notifications
  * - No duplicate or conflicting configurations
  *
- * Total notifications: 70
+ * Total notifications: 112+ (including dynamically generated SO configs)
  * Categories:
  * - Task Lifecycle (3)
  * - Task Status Events (3)
@@ -24,13 +24,18 @@ import { seedAllNotificationConfigurations } from './all-notifications.seed';
  * - Task Assignment Fields (3)
  * - Task Financial Fields (6)
  * - Task Artwork/Production Fields (5)
- * - Task Truck Fields (3)
- * - Task Negotiation Fields (3)
- * - Service Orders (6)
+ * - Task Truck Fields (8)
+ * - Task Negotiation Fields (2)
+ * - Service Orders - Type-Specific (41)
  * - Borrow (2)
  * - Paint (1)
  * - PPE/EPI (4)
- * - Alerts (10)
+ * - Alerts (0)
+ * - Cut Notifications (5)
+ * - Order Notifications (5)
+ * - Item/Stock Detail (4)
+ * - Artwork Approval (3)
+ * - Time Entry Reminders (1)
  */
 
 export { seedAllNotificationConfigurations };

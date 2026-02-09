@@ -11,8 +11,7 @@ import type { PrismaTransaction } from '../repositories/file.repository';
 @Injectable()
 export class FolderRenameService {
   private readonly logger = new Logger(FolderRenameService.name);
-  private readonly filesRoot =
-    process.env.FILES_ROOT || process.env.UPLOAD_DIR || './uploads/files';
+  private readonly filesRoot = process.env.FILES_ROOT || './files';
 
   constructor(private readonly prisma: PrismaService) {}
 

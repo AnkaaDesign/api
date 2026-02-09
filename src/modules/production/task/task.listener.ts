@@ -129,7 +129,7 @@ export class TaskListener {
         'task.created',
         event.createdBy.id,
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'created',
           data: {
@@ -168,7 +168,7 @@ export class TaskListener {
 
     try {
       const notificationContext = {
-        entityType: 'task',
+        entityType: 'Task',
         entityId: event.task.id,
         action: 'field_updated',
         data: {
@@ -232,7 +232,7 @@ export class TaskListener {
         `task.field.${event.fieldName}`,
         event.updatedBy.id,
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'field_updated',
           data: {
@@ -282,7 +282,7 @@ export class TaskListener {
         `task.field.${event.field}`,
         event.changedBy,
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'field_changed',
           data: {
@@ -332,7 +332,7 @@ export class TaskListener {
         configKey,
         'system',
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'deadline_approaching',
           data: {
@@ -363,7 +363,7 @@ export class TaskListener {
         'task.overdue',
         'system',
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'overdue',
           data: {
@@ -406,7 +406,7 @@ export class TaskListener {
         configKey,
         'system',
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'forecast_approaching',
           data: {
@@ -440,7 +440,7 @@ export class TaskListener {
         'task.forecast_overdue',
         'system',
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: event.task.id,
           action: 'forecast_overdue',
           data: {
@@ -476,7 +476,7 @@ export class TaskListener {
         'task.ready_for_production',
         changedBy.id,
         {
-          entityType: 'task',
+          entityType: 'Task',
           entityId: task.id,
           action: 'ready_for_production',
           data: {

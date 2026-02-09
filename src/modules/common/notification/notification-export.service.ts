@@ -341,9 +341,14 @@ export class NotificationExportService {
   private async fetchNotifications(filters: ExportFilters): Promise<any[]> {
     const where: any = {};
 
-    // Apply filters
+    // Apply filters (map old enum values to new ones for backwards compatibility)
     if (filters.type) {
-      where.type = filters.type;
+      const typeMap: Record<string, string> = {
+        TASK: 'PRODUCTION', SERVICE_ORDER: 'PRODUCTION', CUT: 'PRODUCTION',
+        ORDER: 'STOCK',
+        PPE: 'USER', VACATION: 'USER', WARNING: 'USER',
+      };
+      where.type = typeMap[filters.type] || filters.type;
     }
 
     if (filters.channel) {

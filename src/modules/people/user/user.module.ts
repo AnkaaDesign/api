@@ -6,9 +6,10 @@ import { UserRepository } from './repositories/user.repository';
 import { UserPrismaRepository } from './repositories/user-prisma.repository';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
+import { NotificationModule } from '@modules/common/notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, forwardRef(() => FileModule)],
+  imports: [PrismaModule, ChangeLogModule, forwardRef(() => FileModule), NotificationModule],
   controllers: [UserController],
   providers: [
     UserService,

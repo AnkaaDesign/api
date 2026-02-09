@@ -6,7 +6,9 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  Inject,
 } from '@nestjs/common';
+import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ActivityRepository, PrismaTransaction } from './repositories/activity.repository';
 import type {
@@ -52,12 +54,14 @@ import {
   calculateSuggestedQuantities,
 } from '../../../utils';
 import { EXTERNAL_WITHDRAWAL_STATUS_ORDER } from '../../../constants/sortOrders';
+import { OrderItemEnteredInventoryEvent } from '../order/order.events';
 
 @Injectable()
 export class ActivityService {
   private readonly logger = new Logger(ActivityService.name);
 
   constructor(
+    @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly prisma: PrismaService,
     private readonly activityRepository: ActivityRepository,
     private readonly changeLogService: ChangeLogService,
@@ -323,13 +327,37 @@ export class ActivityService {
           transaction: tx,
         });
 
-        return newActivity;
+        return { activity: newActivity, orderId, orderItemId, determinedReason };
       });
+
+      // Emit event outside the transaction for order item entering inventory
+      if (
+        activity.determinedReason === ACTIVITY_REASON.ORDER_RECEIVED &&
+        data.operation === ACTIVITY_OPERATION.INBOUND &&
+        activity.orderId &&
+        activity.orderItemId
+      ) {
+        try {
+          this.eventEmitter.emit(
+            'order.item.entered_inventory',
+            new OrderItemEnteredInventoryEvent(
+              activity.orderId,
+              activity.orderItemId,
+              data.itemId,
+              data.quantity,
+              activity.activity.id,
+              userId,
+            ),
+          );
+        } catch (error) {
+          this.logger.error('Error emitting order item entered inventory event:', error);
+        }
+      }
 
       return {
         success: true,
         message: 'Atividade criada com sucesso',
-        data: activity,
+        data: activity.activity,
       };
     } catch (error: any) {
       this.logger.error('Erro ao criar atividade:', error);
@@ -911,6 +939,32 @@ export class ActivityService {
 
         return result;
       });
+
+      // Emit events for order items that entered inventory (outside transaction)
+      for (const activity of result.success) {
+        if (
+          activity.reason === ACTIVITY_REASON.ORDER_RECEIVED &&
+          activity.operation === ACTIVITY_OPERATION.INBOUND &&
+          activity.orderId &&
+          activity.orderItemId
+        ) {
+          try {
+            this.eventEmitter.emit(
+              'order.item.entered_inventory',
+              new OrderItemEnteredInventoryEvent(
+                activity.orderId,
+                activity.orderItemId,
+                activity.itemId,
+                activity.quantity,
+                activity.id,
+                userId,
+              ),
+            );
+          } catch (error) {
+            this.logger.error('Error emitting order item entered inventory event:', error);
+          }
+        }
+      }
 
       const successMessage =
         result.totalCreated === 1

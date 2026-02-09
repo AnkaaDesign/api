@@ -1292,7 +1292,10 @@ export class DashboardPrismaRepository implements DashboardRepository {
       this.prisma.notification.count({ where }),
       this.prisma.notification.groupBy({
         by: ['importance'],
-        where,
+        where: {
+          ...where,
+          importance: { in: Object.values(NOTIFICATION_IMPORTANCE) },
+        },
         _count: { id: true },
       }),
       this.prisma.notification.count({
@@ -1301,11 +1304,35 @@ export class DashboardPrismaRepository implements DashboardRepository {
           sentAt: { not: null },
         },
       }),
-      this.prisma.notification.groupBy({
-        by: ['type'],
-        where,
-        _count: { id: true },
-      }),
+      ((): Promise<Array<{ type: string; count: bigint }>> => {
+        const gte = where.createdAt.gte;
+        const lte = where.createdAt.lte;
+        if (gte && lte) {
+          return this.prisma.$queryRaw`
+            SELECT
+              CASE type::text
+                WHEN 'TASK' THEN 'PRODUCTION' WHEN 'SERVICE_ORDER' THEN 'PRODUCTION' WHEN 'CUT' THEN 'PRODUCTION'
+                WHEN 'ORDER' THEN 'STOCK'
+                WHEN 'PPE' THEN 'USER' WHEN 'VACATION' THEN 'USER' WHEN 'WARNING' THEN 'USER'
+                ELSE type::text
+              END AS type,
+              COUNT(id) AS count
+            FROM "Notification"
+            WHERE "createdAt" >= ${gte} AND "createdAt" <= ${lte}
+            GROUP BY 1`;
+        }
+        return this.prisma.$queryRaw`
+          SELECT
+            CASE type::text
+              WHEN 'TASK' THEN 'PRODUCTION' WHEN 'SERVICE_ORDER' THEN 'PRODUCTION' WHEN 'CUT' THEN 'PRODUCTION'
+              WHEN 'ORDER' THEN 'STOCK'
+              WHEN 'PPE' THEN 'USER' WHEN 'VACATION' THEN 'USER' WHEN 'WARNING' THEN 'USER'
+              ELSE type::text
+            END AS type,
+            COUNT(id) AS count
+          FROM "Notification"
+          GROUP BY 1`;
+      })(),
     ]);
 
     return {
@@ -1328,7 +1355,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
         datasets: [
           {
             label: 'Notificações',
-            data: byType.map(t => t._count.id),
+            data: byType.map(t => Number(t.count)),
           },
         ],
       },

@@ -505,8 +505,6 @@ export class TaskPricingService {
             include: {
               customer: true,
               truck: true,
-              // Note: negotiatingWith is a Json scalar field, not a relation
-              // It's automatically included in the task data
             },
           },
         },

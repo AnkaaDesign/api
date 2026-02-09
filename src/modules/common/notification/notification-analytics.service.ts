@@ -1038,13 +1038,13 @@ export class NotificationAnalyticsService {
   private async groupByType(dateRange?: DateRange): Promise<Record<string, number>> {
     const result = await this.prisma.notification.groupBy({
       by: ['type'],
+      _count: { type: true },
       where: this.buildDateFilter(dateRange),
-      _count: true,
     });
 
     const byType: Record<string, number> = {};
     result.forEach(item => {
-      byType[item.type] = item._count;
+      byType[item.type] = item._count.type;
     });
 
     return byType;

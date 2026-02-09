@@ -46,7 +46,6 @@ export interface Task extends BaseEntity {
   customerId: string | null;
   invoiceToId: string | null;
   sectorId: string | null;
-  // negotiatingWith: { name: string; phone: string } | null; // DEPRECATED - Migrated to Representatives
   budgetIds?: string[];
   invoiceIds?: string[];
   receiptIds?: string[];
