@@ -55,7 +55,7 @@ export interface User extends BaseEntity {
   pis: string | null;
   cpf: string | null;
   verified: boolean;
-  birth: Date; // Date of birth
+  birth: Date | null; // Date of birth (nullable in Prisma)
   performanceLevel: number;
   sectorId: string | null;
   address: string | null;
@@ -73,6 +73,12 @@ export interface User extends BaseEntity {
   lastLoginAt?: Date | null;
   sessionToken: string | null;
   payrollNumber: number | null;
+
+  // Payroll-related fields (from Prisma, available when fetched directly)
+  unionMember?: boolean;
+  unionAuthorizationDate?: Date | null;
+  dependentsCount?: number;
+  hasSimplifiedDeduction?: boolean;
 
   // Status timestamp tracking
   effectedAt: Date | null; // When user became permanently effected
@@ -161,6 +167,12 @@ export interface UserSelect {
   cpf?: boolean;
   birth?: boolean;
   performanceLevel?: boolean;
+
+  // Payroll fields
+  unionMember?: boolean;
+  unionAuthorizationDate?: boolean;
+  dependentsCount?: boolean;
+  hasSimplifiedDeduction?: boolean;
 
   // Address fields
   address?: boolean;
@@ -559,6 +571,10 @@ export interface UserOrderBy {
   verified?: ORDER_BY_DIRECTION;
   payrollNumber?: ORDER_BY_DIRECTION;
   birth?: ORDER_BY_DIRECTION;
+  unionMember?: ORDER_BY_DIRECTION;
+  unionAuthorizationDate?: ORDER_BY_DIRECTION;
+  dependentsCount?: ORDER_BY_DIRECTION;
+  hasSimplifiedDeduction?: ORDER_BY_DIRECTION;
   effectedAt?: ORDER_BY_DIRECTION;
   exp1StartAt?: ORDER_BY_DIRECTION;
   exp1EndAt?: ORDER_BY_DIRECTION;

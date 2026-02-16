@@ -7,6 +7,14 @@ import * as path from 'path';
 
 const execPromise = promisify(exec);
 
+import { env } from '../../../common/config/env.validation';
+
+// Configurable paths via environment variables (using validated env singleton)
+const FILES_ROOT = env.FILES_ROOT;
+const SYNC_SCRIPT_PATH = env.SYNC_SCRIPT_PATH;
+const SYNC_LOG_PATH = env.SYNC_LOG_PATH;
+const DB_SYNC_LOCK_PATH = path.join(os.tmpdir(), 'db-sync.lock');
+
 export interface SystemService {
   name: string;
   displayName: string;
@@ -337,8 +345,8 @@ export class ServerService {
 
   async getSharedFolders(): Promise<SharedFolder[]> {
     try {
-      // Use proper files storage mount point, fallback to samba if not available
-      const filesRoot = '/srv/files';
+      // Use proper files storage mount point from env
+      const filesRoot = FILES_ROOT;
 
       if (!fs.existsSync(filesRoot)) {
         this.logger.warn(`files storage root directory does not exist: ${filesRoot}`);
@@ -462,8 +470,8 @@ export class ServerService {
     parentPath?: string;
   }> {
     try {
-      // Use proper files storage mount point, fallback to samba if not available
-      const filesRoot = '/srv/files';
+      // Use proper files storage mount point from env
+      const filesRoot = FILES_ROOT;
       const basePath = path.join(filesRoot, folderName);
       // Decode URL-encoded path to handle special characters (spaces, etc.)
       const decodedSubPath = subPath ? decodeURIComponent(subPath) : undefined;
@@ -563,7 +571,7 @@ export class ServerService {
         let remoteUrl: string | undefined;
         if (!isDirectory) {
           const relativePath = path.relative(filesRoot, itemPath);
-          const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
+          const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.app';
           remoteUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
         }
 
@@ -686,7 +694,7 @@ export class ServerService {
       };
 
       // Generate remote URL
-      const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
+      const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.app';
       const remotePath = `${baseUrl}/${encodeURIComponent(folderName)}`;
 
       return {
@@ -2197,7 +2205,7 @@ export class ServerService {
       }
 
       // Execute the sync script in the background
-      const scriptPath = '/home/kennedy/repositories/sync-prod-to-test.sh';
+      const scriptPath = SYNC_SCRIPT_PATH;
 
       // Use spawn to run in background and don't wait for completion
       const { spawn } = require('child_process');
@@ -2229,7 +2237,7 @@ export class ServerService {
     recentLogs?: string;
   }> {
     try {
-      const logFile = '/home/kennedy/repositories/sync.log';
+      const logFile = SYNC_LOG_PATH;
       const isRunning = await this.isSyncRunning();
 
       let lastSync: Date | undefined;
@@ -2285,7 +2293,7 @@ export class ServerService {
 
   private async isSyncRunning(): Promise<boolean> {
     try {
-      const lockFile = '/tmp/db-sync.lock';
+      const lockFile = DB_SYNC_LOCK_PATH;
 
       // Check if lock file exists
       if (!fs.existsSync(lockFile)) {

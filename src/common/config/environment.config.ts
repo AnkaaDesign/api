@@ -26,7 +26,14 @@ export const environmentConfig = {
     // CORS settings per environment
     cors: {
       production: {
-        origin: process.env.CLIENT_HOST ? [process.env.CLIENT_HOST] : ['https://ankaa.app'],
+        origin: [
+          ...(process.env.CLIENT_HOST
+            ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
+            : []),
+          ...(process.env.CORS_ORIGINS
+            ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+            : []),
+        ],
         credentials: true,
         optionsSuccessStatus: 200,
       },
@@ -38,6 +45,9 @@ export const environmentConfig = {
           'http://localhost:5174',
           'http://127.0.0.1:3000',
           'http://127.0.0.1:5174',
+          ...(process.env.CORS_ORIGINS
+            ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+            : []),
         ],
         credentials: true,
         optionsSuccessStatus: 200,
@@ -73,7 +83,7 @@ export const environmentConfig = {
   // API configuration
   api: {
     host: process.env.HOST || '0.0.0.0',
-    port: parseInt(process.env.PORT || '3000'),
+    port: parseInt(process.env.PORT || '3030'),
     globalPrefix: process.env.API_PREFIX || 'api',
     version: process.env.API_VERSION || 'v1',
   },

@@ -1,5 +1,25 @@
 import type { Activity, Item, Order, OrderItem } from '@types';
-import { ACTIVITY_OPERATION, ORDER_STATUS, STOCK_LEVEL } from '@constants';
+import {
+  ACTIVITY_OPERATION,
+  ORDER_STATUS,
+  STOCK_LEVEL,
+  CONSUMPTION_ACTIVITY_REASONS,
+  MAX_STOCK_MONTHS,
+  STOCK_CRITICAL_THRESHOLD,
+  STOCK_LOW_THRESHOLD,
+  STOCK_ACTIVE_ORDER_ADJUSTMENT,
+  STOCK_OVERSTOCKED_DAYS,
+  SAFETY_FACTOR_VARIABLE,
+  SAFETY_FACTOR_STABLE,
+  CONSUMPTION_VARIABILITY_THRESHOLD,
+  REORDER_POINT_UPDATE_THRESHOLD,
+  DEFAULT_SAFETY_STOCK_DAYS,
+  DEFAULT_LEAD_TIME_DAYS,
+  getWorkingDaysInMonth,
+  STANDARD_WORKING_DAYS_PER_MONTH,
+  getSeasonalFactor,
+  isInVacationPeriod,
+} from '@constants';
 import { subDays, startOfDay } from 'date-fns';
 
 export interface StockHealthData {
@@ -23,7 +43,44 @@ export interface StockHealthCalculationOptions {
 }
 
 /**
- * Calculates the monthly consumption rate based on historical activities
+ * Filters activities to only include actual consumption reasons.
+ * Excludes inventory adjustments, damage, loss, manual corrections, etc.
+ * to prevent distortion of consumption metrics.
+ */
+export function filterConsumptionActivities(activities: Activity[]): Activity[] {
+  return activities.filter(
+    activity =>
+      activity.operation === ACTIVITY_OPERATION.OUTBOUND &&
+      CONSUMPTION_ACTIVITY_REASONS.includes(activity.reason as any),
+  );
+}
+
+/**
+ * Normalizes a month's consumption by working days, accounting for vacation periods.
+ * This prevents vacation months (Dec/Jan) from artificially lowering averages.
+ *
+ * Example: If December has only 14 working days (vs standard 22),
+ * a consumption of 100 would be normalized to 100 * (22/14) = 157.
+ */
+export function normalizeConsumptionByWorkingDays(
+  rawConsumption: number,
+  month: number,
+  year: number,
+): number {
+  const workingDays = getWorkingDaysInMonth(month, year);
+  if (workingDays >= STANDARD_WORKING_DAYS_PER_MONTH) {
+    return rawConsumption; // No normalization needed for full months
+  }
+  return rawConsumption * (STANDARD_WORKING_DAYS_PER_MONTH / workingDays);
+}
+
+/**
+ * Calculates the monthly consumption rate based on historical activities.
+ *
+ * Improvements over previous version:
+ * 1. Filters out non-consumption reasons (INVENTORY_COUNT, DAMAGE, LOSS, etc.)
+ * 2. Normalizes by working days (accounts for vacation periods)
+ * 3. Uses configurable constants instead of hardcoded values
  */
 export function calculateMonthlyConsumption(
   activities: Activity[],
@@ -31,15 +88,19 @@ export function calculateMonthlyConsumption(
 ): number {
   const cutoffDate = subDays(startOfDay(new Date()), lookbackDays);
 
-  // Filter outbound activities within the lookback period
-  const outboundActivities = activities.filter(
+  // Filter to only actual consumption activities within the lookback period
+  const consumptionActivities = activities.filter(
     activity =>
       activity.operation === ACTIVITY_OPERATION.OUTBOUND &&
+      CONSUMPTION_ACTIVITY_REASONS.includes(activity.reason as any) &&
       new Date(activity.createdAt) >= cutoffDate,
   );
 
   // Sum total consumption
-  const totalConsumption = outboundActivities.reduce((sum, activity) => sum + activity.quantity, 0);
+  const totalConsumption = consumptionActivities.reduce(
+    (sum, activity) => sum + activity.quantity,
+    0,
+  );
 
   // Calculate monthly average (30 days)
   const daysInPeriod = Math.min(
@@ -51,7 +112,8 @@ export function calculateMonthlyConsumption(
 }
 
 /**
- * Calculates consumption trend by comparing recent vs older consumption
+ * Calculates consumption trend by comparing recent vs older consumption.
+ * Uses only actual consumption reasons for accurate trend detection.
  */
 export function calculateConsumptionTrend(
   activities: Activity[],
@@ -111,12 +173,15 @@ export function hasActiveOrder(
 }
 
 /**
- * Calculates suggested min/max quantities based on consumption and lead time
+ * Calculates suggested min/max quantities based on consumption and lead time.
+ *
+ * Max quantity is capped at MAX_STOCK_MONTHS (6) months of monthly consumption.
+ * This prevents overstocking while ensuring sufficient supply.
  */
 export function calculateSuggestedQuantities(
   monthlyConsumption: number,
   leadTimeDays: number,
-  safetyStockDays: number = 7,
+  safetyStockDays: number = DEFAULT_SAFETY_STOCK_DAYS,
   consumptionTrend: 'increasing' | 'stable' | 'decreasing' = 'stable',
 ): { min: number; max: number } {
   if (monthlyConsumption === 0) {
@@ -135,14 +200,22 @@ export function calculateSuggestedQuantities(
     (leadTimeDays + safetyStockDays) * dailyConsumption * trendMultiplier,
   );
 
-  // Max = Min + One month of consumption
-  const maxQuantity = Math.ceil(minQuantity + monthlyConsumption * trendMultiplier);
+  // Max = capped at MAX_STOCK_MONTHS months of consumption
+  // This ensures we never stock more than 6 months worth
+  const maxFromFormula = Math.ceil(minQuantity + monthlyConsumption * trendMultiplier);
+  const maxFromCap = Math.ceil(monthlyConsumption * MAX_STOCK_MONTHS * trendMultiplier);
+  const maxQuantity = Math.min(maxFromFormula, maxFromCap);
 
-  return { min: minQuantity, max: maxQuantity };
+  return { min: minQuantity, max: Math.max(maxQuantity, minQuantity) };
 }
 
 /**
- * Determines stock health level based on current quantity and consumption
+ * Determines stock health level based on current quantity and consumption.
+ *
+ * Updated thresholds:
+ * - CRITICAL: quantity covers less than 50% of reorder point (was 90%)
+ * - LOW: quantity is at or below reorder point (was 110%)
+ * - OVERSTOCKED: more than 6 months of stock (was 3 months)
  */
 export function getStockHealthLevel(
   currentQuantity: number,
@@ -151,14 +224,19 @@ export function getStockHealthLevel(
   hasActiveOrder: boolean,
   maxQuantity?: number | null,
 ): STOCK_LEVEL {
-  // Handle negative stock (treat as out of stock)
-  if (currentQuantity <= 0) {
+  // Handle negative stock
+  if (currentQuantity < 0) {
+    return STOCK_LEVEL.NEGATIVE_STOCK;
+  }
+
+  // Handle zero stock
+  if (currentQuantity === 0) {
     return STOCK_LEVEL.OUT_OF_STOCK;
   }
 
   if (monthlyConsumption === 0) {
     // No consumption - check against static thresholds if available
-    if (maxQuantity && currentQuantity >= maxQuantity) {
+    if (maxQuantity && currentQuantity > maxQuantity) {
       return STOCK_LEVEL.OVERSTOCKED;
     }
     return STOCK_LEVEL.OPTIMAL;
@@ -168,7 +246,7 @@ export function getStockHealthLevel(
   const daysOfStock = currentQuantity / dailyConsumption;
 
   // If has active order, be less aggressive about low stock warnings
-  const orderAdjustment = hasActiveOrder ? 1.5 : 1;
+  const orderAdjustment = hasActiveOrder ? STOCK_ACTIVE_ORDER_ADJUSTMENT : 1;
 
   // Critical: Less than lead time / 2 (adjusted if order exists)
   if (daysOfStock < (leadTimeDays / 2) * orderAdjustment) {
@@ -176,12 +254,15 @@ export function getStockHealthLevel(
   }
 
   // Low: Less than lead time + safety (adjusted if order exists)
-  if (daysOfStock < (leadTimeDays + 7) * orderAdjustment) {
+  if (daysOfStock < (leadTimeDays + DEFAULT_SAFETY_STOCK_DAYS) * orderAdjustment) {
     return STOCK_LEVEL.LOW;
   }
 
-  // Overstocked: More than 3 months of stock
-  if (daysOfStock > 90) {
+  // Overstocked: More than MAX_STOCK_MONTHS months of stock
+  if (maxQuantity && currentQuantity > maxQuantity) {
+    return STOCK_LEVEL.OVERSTOCKED;
+  }
+  if (daysOfStock > STOCK_OVERSTOCKED_DAYS) {
     return STOCK_LEVEL.OVERSTOCKED;
   }
 
@@ -198,10 +279,10 @@ export function calculateStockHealth(options: StockHealthCalculationOptions): St
     activeOrders = [],
     orderItems = [],
     lookbackDays = 90,
-    safetyStockDays = 7,
+    safetyStockDays = DEFAULT_SAFETY_STOCK_DAYS,
   } = options;
 
-  // Calculate monthly consumption
+  // Calculate monthly consumption (using filtered activities)
   const monthlyConsumption = calculateMonthlyConsumption(activities, lookbackDays);
 
   // Calculate consumption trend
@@ -211,7 +292,7 @@ export function calculateStockHealth(options: StockHealthCalculationOptions): St
   const hasOrder = hasActiveOrder(item.id, activeOrders, orderItems);
 
   // Calculate suggested quantities
-  const leadTime = item.estimatedLeadTime || 30;
+  const leadTime = item.estimatedLeadTime || DEFAULT_LEAD_TIME_DAYS;
   const suggested = calculateSuggestedQuantities(
     monthlyConsumption,
     leadTime,
@@ -291,8 +372,10 @@ export function filterItemsByStockHealth(
 }
 
 /**
- * Calculates consumption variability to determine safety stock level
- * Returns coefficient of variation (standard deviation / mean)
+ * Calculates consumption variability to determine safety stock level.
+ * Returns coefficient of variation (standard deviation / mean).
+ *
+ * Now filters by consumption reasons only and normalizes by working days.
  */
 export function calculateConsumptionVariability(
   activities: Activity[],
@@ -315,15 +398,27 @@ export function calculateConsumptionVariability(
       const activityDate = new Date(activity.createdAt);
       return (
         activity.operation === ACTIVITY_OPERATION.OUTBOUND &&
+        CONSUMPTION_ACTIVITY_REASONS.includes(activity.reason as any) &&
         activityDate >= monthStart &&
         activityDate <= monthEnd &&
         activityDate >= cutoffDate
       );
     });
 
-    const monthConsumption = monthActivities.reduce((sum, activity) => sum + activity.quantity, 0);
-    if (monthConsumption > 0) {
-      monthlyConsumptions.push(monthConsumption);
+    const rawConsumption = monthActivities.reduce(
+      (sum, activity) => sum + activity.quantity,
+      0,
+    );
+
+    // Normalize by working days to account for vacation periods
+    const normalized = normalizeConsumptionByWorkingDays(
+      rawConsumption,
+      monthStart.getMonth(),
+      monthStart.getFullYear(),
+    );
+
+    if (normalized > 0) {
+      monthlyConsumptions.push(normalized);
     }
   }
 
@@ -347,14 +442,17 @@ export function calculateConsumptionVariability(
   // Calculate coefficient of variation
   const coefficientOfVariation = standardDeviation / mean;
 
-  // If CV > 0.3, consumption is considered variable
-  const isVariable = coefficientOfVariation > 0.3;
+  // If CV > threshold, consumption is considered variable
+  const isVariable = coefficientOfVariation > CONSUMPTION_VARIABILITY_THRESHOLD;
 
   return { coefficientOfVariation, isVariable };
 }
 
 /**
- * Automatically calculates and updates reorder point based on consumption patterns
+ * Automatically calculates reorder point based on consumption patterns.
+ *
+ * Formula: reorderPoint = (avgDailyConsumption * leadTime) * (1 + safetyFactor)
+ * Safety factor: 0.3 for variable demand, 0.2 for stable demand
  */
 export function calculateReorderPoint(
   item: Item,
@@ -383,16 +481,15 @@ export function calculateReorderPoint(
   }
 
   // Get lead time (default to 30 days if not specified)
-  const leadTime = item.estimatedLeadTime || 30;
+  const leadTime = item.estimatedLeadTime || DEFAULT_LEAD_TIME_DAYS;
 
   // Calculate consumption variability
   const { isVariable } = calculateConsumptionVariability(activities, lookbackDays);
 
   // Set safety factor based on variability
-  const safetyFactor = isVariable ? 0.3 : 0.2;
+  const safetyFactor = isVariable ? SAFETY_FACTOR_VARIABLE : SAFETY_FACTOR_STABLE;
 
   // Calculate reorder point
-  // Formula: reorderPoint = (avgDailyConsumption * leadTime) * (1 + safetyFactor)
   const calculatedReorderPoint = Math.ceil(avgDailyConsumption * leadTime * (1 + safetyFactor));
 
   // Determine if update is needed (>10% difference from current)
@@ -402,7 +499,7 @@ export function calculateReorderPoint(
       ? Math.abs((calculatedReorderPoint - currentReorderPoint) / currentReorderPoint)
       : 1; // Always update if current is 0
 
-  const shouldUpdate = percentageDifference > 0.1;
+  const shouldUpdate = percentageDifference > REORDER_POINT_UPDATE_THRESHOLD;
 
   return {
     reorderPoint: calculatedReorderPoint,
@@ -463,8 +560,8 @@ export function batchCalculateReorderPoints(
 }
 
 /**
- * Automatically calculates maxQuantity based on consumption patterns
- * MaxQuantity represents the maximum stock level we want to maintain
+ * Automatically calculates maxQuantity based on consumption patterns.
+ * MaxQuantity is capped at MAX_STOCK_MONTHS (6) months of monthly consumption.
  */
 export function calculateMaxQuantity(
   item: Item,
@@ -490,25 +587,27 @@ export function calculateMaxQuantity(
   }
 
   // Get lead time (default to 30 days if not specified)
-  const leadTime = item.estimatedLeadTime || 30;
+  const leadTime = item.estimatedLeadTime || DEFAULT_LEAD_TIME_DAYS;
 
   // Get consumption trend
   const trend = calculateConsumptionTrend(activities, lookbackDays);
 
-  // Calculate suggested max quantity using the existing formula
+  // Calculate suggested max quantity (now capped at 6 months)
   const { max: suggestedMax } = calculateSuggestedQuantities(
     monthlyConsumption,
     leadTime,
-    7, // safetyStockDays
+    DEFAULT_SAFETY_STOCK_DAYS,
     trend,
   );
 
   // Determine if update is needed (>10% difference from current)
   const currentMaxQuantity = item.maxQuantity || 0;
   const percentageDifference =
-    currentMaxQuantity > 0 ? Math.abs((suggestedMax - currentMaxQuantity) / currentMaxQuantity) : 1; // Always update if current is 0
+    currentMaxQuantity > 0
+      ? Math.abs((suggestedMax - currentMaxQuantity) / currentMaxQuantity)
+      : 1; // Always update if current is 0
 
-  const shouldUpdate = percentageDifference > 0.1;
+  const shouldUpdate = percentageDifference > REORDER_POINT_UPDATE_THRESHOLD;
 
   return {
     maxQuantity: suggestedMax,

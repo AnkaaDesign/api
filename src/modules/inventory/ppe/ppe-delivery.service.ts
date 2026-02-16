@@ -183,42 +183,29 @@ export class PpeDeliveryService {
 
         // Size validation is optional - we just log a warning if sizes don't match
         if (userInfo.ppeSize) {
-          // Map PPE type to user size field
-          let userSizeField: string | null = null;
-
           switch (item.ppeType) {
             case PPE_TYPE.SHIRT:
-              userSizeField = 'shirts';
               userSize = userInfo.ppeSize.shirts;
               break;
             case PPE_TYPE.PANTS:
-              userSizeField = 'pants';
               userSize = userInfo.ppeSize.pants;
               break;
             case PPE_TYPE.BOOTS:
-              userSizeField = 'boots';
               userSize = userInfo.ppeSize.boots;
               break;
             case PPE_TYPE.SLEEVES:
-              userSizeField = 'sleeves';
               userSize = userInfo.ppeSize.sleeves;
               break;
             case PPE_TYPE.MASK:
-              userSizeField = 'mask';
               userSize = userInfo.ppeSize.mask;
               break;
             case PPE_TYPE.GLOVES:
-              userSizeField = 'gloves';
               userSize = userInfo.ppeSize.gloves;
               break;
             case PPE_TYPE.RAIN_BOOTS:
-              userSizeField = 'rainBoots';
               userSize = userInfo.ppeSize.rainBoots;
               break;
           }
-
-          // Size validation is optional - we just log a warning if sizes don't match
-        } else {
         }
 
         // Check if PPE size matches user size via measures (optional - log only)
@@ -511,9 +498,9 @@ export class PpeDeliveryService {
       }
     }
 
-    // Validate observation length if provided
-    if ('observation' in data && data.observation !== undefined && data.observation !== null) {
-      if (typeof data.observation === 'string' && data.observation.length > 500) {
+    // Validate reason length if provided
+    if ('reason' in data && data.reason !== undefined && data.reason !== null) {
+      if (typeof data.reason === 'string' && data.reason.length > 500) {
         throw new BadRequestException('Observação deve ter no máximo 500 caracteres');
       }
     }
@@ -1221,7 +1208,7 @@ export class PpeDeliveryService {
         'scheduledDate',
         'actualDeliveryDate',
         'reviewedBy',
-        'observation',
+        'reason',
       ];
 
       await trackAndLogFieldChanges({
@@ -1361,6 +1348,21 @@ export class PpeDeliveryService {
         );
       }
 
+      // If delivery was already delivered, restore stock by creating an inbound activity
+      if (ppeDelivery.actualDeliveryDate) {
+        await this.activityService.create(
+          {
+            itemId: ppeDelivery.itemId,
+            userId: ppeDelivery.userId,
+            quantity: ppeDelivery.quantity,
+            operation: ACTIVITY_OPERATION.INBOUND,
+            reason: ACTIVITY_REASON.MANUAL_ADJUSTMENT,
+          },
+          undefined,
+          userId,
+        );
+      }
+
       const deletedPpeDelivery = await this.repository.delete(id);
 
       await this.changeLogService.logChange({
@@ -1372,7 +1374,7 @@ export class PpeDeliveryService {
         newValue: null,
         reason: `Entrega de EPI excluída - Status: ${ppeDelivery.status}`,
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-        triggeredById: deletedPpeDelivery.id,
+        triggeredById: userId || deletedPpeDelivery.id,
         userId: userId || null,
         transaction: transaction,
       });
@@ -1545,6 +1547,28 @@ export class PpeDeliveryService {
     userId?: string,
   ): Promise<PpeDeliveryBatchDeleteResponse> {
     return this.prisma.$transaction(async (transaction: PrismaTransaction) => {
+      // Fetch deliveries before deleting to check which ones need stock restoration
+      const deliveriesToDelete = await Promise.all(
+        data.ppeDeliveryIds.map((id) => this.repository.findById(id)),
+      );
+
+      // Restore stock for deliveries that were already delivered
+      for (const delivery of deliveriesToDelete) {
+        if (delivery && delivery.actualDeliveryDate) {
+          await this.activityService.create(
+            {
+              itemId: delivery.itemId,
+              userId: delivery.userId,
+              quantity: delivery.quantity,
+              operation: ACTIVITY_OPERATION.INBOUND,
+              reason: ACTIVITY_REASON.MANUAL_ADJUSTMENT,
+            },
+            undefined,
+            userId,
+          );
+        }
+      }
+
       const result = await this.repository.deleteMany(data.ppeDeliveryIds);
 
       // Log successful deletions
@@ -1559,7 +1583,7 @@ export class PpeDeliveryService {
             newValue: null,
             reason: 'Entrega de PPE removida em lote',
             triggeredBy: CHANGE_TRIGGERED_BY.BATCH_DELETE,
-            triggeredById: item.id,
+            triggeredById: userId || item.id,
             userId: userId || null,
             transaction: transaction,
           });
@@ -1602,6 +1626,12 @@ export class PpeDeliveryService {
         if (!oldDelivery) {
           throw new NotFoundException(
             'Entrega de PPE não encontrada. Verifique se o ID está correto.',
+          );
+        }
+
+        if (oldDelivery.status !== PPE_DELIVERY_STATUS.APPROVED) {
+          throw new BadRequestException(
+            'Apenas entregas com status APROVADO podem ser marcadas como entregues.',
           );
         }
 
@@ -2019,39 +2049,6 @@ export class PpeDeliveryService {
     return {
       success: true,
       message: 'Entregas do agendamento listadas com sucesso.',
-      data: result.data,
-    };
-  }
-
-  async findPendingDeliveries(include?: PpeDeliveryInclude): Promise<PpeDeliveryGetManyResponse> {
-    const result = await this.repository.findMany({
-      where: { actualDeliveryDate: null },
-      include,
-    });
-
-    return {
-      success: true,
-      message: 'Entregas pendentes listadas com sucesso.',
-      data: result.data,
-    };
-  }
-
-  async findByUserAndItem(
-    userId: string,
-    itemId: string,
-    include?: PpeDeliveryInclude,
-  ): Promise<PpeDeliveryGetManyResponse> {
-    const result = await this.repository.findMany({
-      where: {
-        userId,
-        itemId,
-      },
-      include,
-    });
-
-    return {
-      success: true,
-      message: 'Entregas do usuário para o item listadas com sucesso.',
       data: result.data,
     };
   }

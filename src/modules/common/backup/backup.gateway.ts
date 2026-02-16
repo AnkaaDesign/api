@@ -22,12 +22,6 @@ import { OnEvent } from '@nestjs/event-emitter';
     origin:
       process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
         ? [
-            'https://ankaadesign.com.br',
-            'https://www.ankaadesign.com.br',
-            'https://staging.ankaadesign.com.br',
-            'http://ankaadesign.com.br',
-            'http://www.ankaadesign.com.br',
-            'http://staging.ankaadesign.com.br',
             ...(process.env.CLIENT_HOST
               ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
               : []),

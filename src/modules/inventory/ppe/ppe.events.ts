@@ -1,5 +1,4 @@
 import { PpeDelivery, User, Item } from '../../../types';
-import { PPE_DELIVERY_STATUS } from '../../../constants/enums';
 
 /**
  * Event emitted when a PPE delivery is requested by a user
@@ -50,21 +49,6 @@ export class PpeDeliveredEvent {
     public readonly item: Item,
     public readonly deliveredTo: User,
     public readonly deliveredBy: User,
-  ) {}
-}
-
-/**
- * Event emitted when a PPE delivery status changes
- * Generic event for any status change
- */
-export class PpeStatusChangedEvent {
-  constructor(
-    public readonly delivery: PpeDelivery,
-    public readonly item: Item,
-    public readonly user: User,
-    public readonly oldStatus: PPE_DELIVERY_STATUS,
-    public readonly newStatus: PPE_DELIVERY_STATUS,
-    public readonly changedBy: User,
   ) {}
 }
 

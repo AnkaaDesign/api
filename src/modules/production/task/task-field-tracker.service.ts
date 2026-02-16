@@ -58,6 +58,7 @@ const TRACKED_FIELDS = [
   'budgets', // array of files
   'invoices', // array of files
   'receipts', // array of files
+  'bankSlips', // array of files
   'baseFiles', // array of files
   'logoPaints', // array of files/paints
   'reimbursements', // array of files
@@ -69,7 +70,6 @@ const TRACKED_FIELDS = [
   'startedAt',
   'finishedAt',
   'customerId',
-  'invoiceToId',
   'paintId',
   'serialNumber',
   // Truck fields (will be tracked when truck is updated as part of task)
@@ -92,6 +92,7 @@ const FILE_ARRAY_FIELDS = [
   'budgets',
   'invoices',
   'receipts',
+  'bankSlips',
   'baseFiles',
   'logoPaints',
   'reimbursements',

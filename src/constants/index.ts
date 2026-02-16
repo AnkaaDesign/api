@@ -4,6 +4,7 @@ export * from './routes';
 export * from './sortOrders';
 export * from './brazil';
 export * from './stock-thresholds';
+export * from './inventory-config';
 export * from './garage';
 export * from './service-descriptions';
 // Deployment enums are already exported from "./enums"

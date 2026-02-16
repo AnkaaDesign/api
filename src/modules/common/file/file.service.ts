@@ -23,6 +23,7 @@ import {
 } from '@modules/common/changelog/utils/changelog-helpers';
 import { Request, Response } from 'express';
 import { environmentConfig } from '../../../common/config/environment.config';
+import { env } from '../../../common/config/env.validation';
 import { generateFileUrl, validateFileSize, UPLOAD_CONFIG } from './config/upload.config';
 import { validateFileLimit } from './config/file-limits.config';
 import { ThumbnailService } from './thumbnail.service';
@@ -84,7 +85,7 @@ export class FileService {
       url = this.filesStorageService.getFileUrl(file.path);
     } else {
       // For local files (temp uploads, etc.), use the file serving endpoint
-      const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
+      const baseUrl = env.API_URL || `http://localhost:${env.PORT}`;
       url = `${baseUrl}/files/serve/${file.id}`;
     }
 
@@ -330,8 +331,8 @@ export class FileService {
    * Resolve the nginx internal path for X-Accel-Redirect
    */
   private resolveNginxInternalPath(filePath: string): string {
-    const filesRoot = process.env.FILES_ROOT || '/srv/files';
-    const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+    const filesRoot = env.FILES_ROOT;
+    const uploadsDir = env.UPLOAD_DIR;
 
     if (filePath.startsWith(filesRoot)) {
       const relativePath = filePath.replace(filesRoot, '');
@@ -380,14 +381,14 @@ export class FileService {
 
       if (useXAccelRedirect) {
         // Use X-Accel-Redirect for nginx to serve the file (10x faster than Node.js streaming)
-        const filesRoot = process.env.FILES_ROOT || '/srv/files';
-        const uploadsDir = process.env.UPLOAD_DIR || './uploads';
+        const filesRoot = env.FILES_ROOT;
+        const uploadsDir = env.UPLOAD_DIR;
 
         let nginxInternalPath: string;
 
         // Check if file is in files storage or local uploads
         if (file.path.startsWith(filesRoot)) {
-          // Files storage: Map /srv/files/... to /internal-files/...
+          // Files storage: Map FILES_ROOT/... to /internal-files/...
           const relativePath = file.path.replace(filesRoot, '');
           nginxInternalPath = `/internal-files${this.encodePathForNginx(relativePath)}`;
         } else if (
@@ -435,7 +436,7 @@ export class FileService {
   async serveThumbnailById(id: string, res: Response, size?: string): Promise<void> {
     try {
       // Check environment configuration
-      const filesRoot = process.env.FILES_ROOT || './files';
+      const filesRoot = env.FILES_ROOT;
       const useXAccelRedirect = process.env.USE_X_ACCEL_REDIRECT === 'true';
 
       const file = await this.fileRepository.findById(id);
@@ -607,7 +608,7 @@ export class FileService {
       // Development: Stream file directly with Node.js
       if (useXAccelRedirect) {
         let nginxInternalPath: string;
-        // Files storage: Map /srv/files/Thumbnails/... to /internal-thumbnails/...
+        // Files storage: Map FILES_ROOT/Thumbnails/... to /internal-thumbnails/...
         const thumbnailsDir = join(filesRoot, 'Thumbnails');
         const absolutePath = resolve(actualPath);
 
@@ -1799,7 +1800,7 @@ export class FileService {
         action: CHANGE_ACTION.UPDATE,
         field: 'thumbnailUrl',
         oldValue: file.thumbnailUrl,
-        newValue: `${process.env.API_BASE_URL || 'http://localhost:3030'}/files/thumbnail/${file.id}`,
+        newValue: `${env.API_URL || `http://localhost:${env.PORT}`}/files/thumbnail/${file.id}`,
         reason: 'Thumbnail regenerado',
         triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
         triggeredById: file.id,

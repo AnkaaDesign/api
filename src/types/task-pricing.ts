@@ -13,6 +13,7 @@ import type { ORDER_BY_DIRECTION } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { TaskPricingItem } from './task-pricing-item';
 import type { File } from './file';
+import type { Customer } from './customer';
 
 // =====================
 // TaskPricing Status Enum (mirrored from constants)
@@ -63,9 +64,14 @@ export interface TaskPricing extends BaseEntity {
   customerSignatureId: string | null;
   customerSignature?: File;
 
+  // New fields from Prisma migration
+  simultaneousTasks: number | null;
+  discountReference: string | null;
+
   // Relations
   tasks?: Task[]; // Many-to-many relationship with tasks
   items?: TaskPricingItem[];
+  invoicesToCustomers?: Customer[];
 }
 
 // =====================
@@ -87,6 +93,11 @@ export interface TaskPricingIncludes {
       };
   layoutFile?: boolean;
   customerSignature?: boolean;
+  invoicesToCustomers?:
+    | boolean
+    | {
+        select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean };
+      };
 }
 
 // Alias for backward compatibility
@@ -102,6 +113,8 @@ export interface TaskPricingOrderBy {
   expiresAt?: ORDER_BY_DIRECTION;
   status?: ORDER_BY_DIRECTION;
   taskId?: ORDER_BY_DIRECTION;
+  simultaneousTasks?: ORDER_BY_DIRECTION;
+  discountReference?: ORDER_BY_DIRECTION;
   createdAt?: ORDER_BY_DIRECTION;
   updatedAt?: ORDER_BY_DIRECTION;
   task?: TaskOrderBy;
@@ -116,6 +129,8 @@ export interface TaskPricingWhere {
   taskId?: string;
   status?: TASK_PRICING_STATUS | { in: TASK_PRICING_STATUS[] };
   expiresAt?: Date | { gte?: Date; lte?: Date };
+  simultaneousTasks?: number | { gte?: number; lte?: number; equals?: number };
+  discountReference?: string | { contains?: string; startsWith?: string; endsWith?: string };
   createdAt?: Date | { gte?: Date; lte?: Date };
 }
 

@@ -143,7 +143,9 @@ async function bootstrap() {
     // Capture raw body for webhook signature verification
     // This must be done BEFORE any JSON parsing
     app.use((req: any, res, next) => {
-      const isWebhookRoute = req.url === '/deployments/webhook' && req.method === 'POST';
+      const isWebhookRoute =
+        (req.url === '/deployments/webhook' || req.url === '/webhooks/clicksign') &&
+        req.method === 'POST';
 
       if (isWebhookRoute) {
         let data = '';
@@ -243,8 +245,7 @@ async function bootstrap() {
     }
 
     if (process.env.NODE_ENV !== 'production') {
-      const protocol = process.env.NODE_ENV === 'production' ? 'https' : 'http';
-      const host = process.env.API_URL || `http://localhost:${port}`;
+      const host = env.API_URL || `http://localhost:${port}`;
 
       console.log(`Application is running on port ${port}`);
       console.log(`HTTP API: ${host}`);

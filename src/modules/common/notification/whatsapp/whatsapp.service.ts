@@ -360,7 +360,7 @@ export class WhatsAppNotificationService {
     if (actionUrlToUse) {
       // Use WEB_APP_URL as the canonical base URL
       const baseUrl =
-        process.env.WEB_APP_URL || process.env.WEB_BASE_URL || 'https://ankaadesign.com.br';
+        process.env.WEB_APP_URL || process.env.CLIENT_HOST || 'https://ankaa.app';
 
       // Check if URL is already complete (has protocol)
       if (!actionUrlToUse.startsWith('http://') && !actionUrlToUse.startsWith('https://')) {

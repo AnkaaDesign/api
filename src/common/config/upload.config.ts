@@ -12,6 +12,7 @@ import {
 } from 'fs';
 import { Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import { env } from './env.validation';
 
 /**
  * File type detection by magic bytes (file signatures)
@@ -144,7 +145,7 @@ function checkDiskSpace(uploadPath: string, fileSize: number): void {
     // like 'check-disk-space' for more accurate disk space checking
 
     // For now, we'll just check if the file size is reasonable
-    const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '524288000'); // 500MB default
+    const maxFileSize = env.MAX_FILE_SIZE;
     const availableSpace = maxFileSize * 10; // Assume we have at least 10x the max file size
 
     if (fileSize > availableSpace) {
@@ -164,8 +165,8 @@ function checkDiskSpace(uploadPath: string, fileSize: number): void {
  * Upload configuration factory
  */
 export function createUploadConfig(): MulterOptions {
-  const uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
-  const maxFileSize = parseInt(process.env.MAX_FILE_SIZE || '524288000'); // 500MB
+  const uploadPath = env.UPLOAD_DIR;
+  const maxFileSize = env.MAX_FILE_SIZE;
   const allowedMimeTypes = [
     'image/jpeg',
     'image/png',

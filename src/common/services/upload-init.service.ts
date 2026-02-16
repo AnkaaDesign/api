@@ -4,6 +4,7 @@ import { CronJob } from 'cron';
 import { existsSync, mkdirSync, accessSync, constants } from 'fs';
 import { join } from 'path';
 import { cleanupTemporaryFiles, getUploadStats } from '../config/upload.config';
+import { env } from '../config/env.validation';
 
 @Injectable()
 export class UploadInitService implements OnModuleInit {
@@ -11,7 +12,7 @@ export class UploadInitService implements OnModuleInit {
   private readonly uploadPath: string;
 
   constructor(private schedulerRegistry: SchedulerRegistry) {
-    this.uploadPath = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
+    this.uploadPath = env.UPLOAD_DIR;
   }
 
   async onModuleInit() {
@@ -48,11 +49,11 @@ export class UploadInitService implements OnModuleInit {
   }
 
   /**
-   * Initialize files storage directory structure (mirrors production /srv/files)
+   * Initialize files storage directory structure (mirrors production FILES_ROOT)
    * Skips initialization for absolute paths (production — managed externally)
    */
   private async initializeFilesDirectory(): Promise<void> {
-    const filesRoot = process.env.FILES_ROOT || './files';
+    const filesRoot = env.FILES_ROOT;
 
     // Skip if absolute path (production — managed externally)
     if (filesRoot.startsWith('/')) {

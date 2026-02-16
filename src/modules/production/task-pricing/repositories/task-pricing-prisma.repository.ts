@@ -55,6 +55,8 @@ export class TaskPricingPrismaRepository
         ...item,
         amount: item.amount ? Number(item.amount) : 0,
       })),
+      // Pass through junction table data if present
+      invoicesToCustomers: databaseEntity.invoicesToCustomers,
     } as TaskPricing;
   }
 
@@ -81,8 +83,20 @@ export class TaskPricingPrismaRepository
       ...(formData.layoutFileId && {
         layoutFile: { connect: { id: formData.layoutFileId } },
       }),
+      // New fields
+      simultaneousTasks: (formData as any).simultaneousTasks || null,
+      discountReference: (formData as any).discountReference || null,
       // Tasks will be connected separately via many-to-many relationship
     };
+
+    // Handle invoicesToCustomers junction table (implicit many-to-many)
+    if ((formData as any).invoicesToCustomerIds && (formData as any).invoicesToCustomerIds.length > 0) {
+      createInput.invoicesToCustomers = {
+        connect: (formData as any).invoicesToCustomerIds.map((customerId: string) => ({
+          id: customerId,
+        })),
+      };
+    }
 
     // Handle items if provided
     if (formData.items && formData.items.length > 0) {
@@ -135,6 +149,21 @@ export class TaskPricingPrismaRepository
       }
     }
 
+    // New fields
+    if ((formData as any).simultaneousTasks !== undefined)
+      updateInput.simultaneousTasks = (formData as any).simultaneousTasks;
+    if ((formData as any).discountReference !== undefined)
+      updateInput.discountReference = (formData as any).discountReference;
+
+    // Handle invoicesToCustomers junction table (implicit many-to-many)
+    if ((formData as any).invoicesToCustomerIds !== undefined) {
+      updateInput.invoicesToCustomers = {
+        set: (formData as any).invoicesToCustomerIds.map((customerId: string) => ({
+          id: customerId,
+        })),
+      };
+    }
+
     return updateInput;
   }
 
@@ -158,6 +187,8 @@ export class TaskPricingPrismaRepository
     }
     if ((include as any).layoutFile !== undefined)
       mappedInclude.layoutFile = (include as any).layoutFile;
+    if ((include as any).invoicesToCustomers !== undefined)
+      mappedInclude.invoicesToCustomers = (include as any).invoicesToCustomers;
 
     return mappedInclude;
   }
@@ -177,7 +208,10 @@ export class TaskPricingPrismaRepository
   }
 
   protected getDefaultInclude(): Prisma.TaskPricingInclude | undefined {
-    return { items: { orderBy: { position: 'asc' } } };
+    return {
+      items: { orderBy: { position: 'asc' } },
+      invoicesToCustomers: true,
+    };
   }
 
   // Create with transaction
@@ -319,7 +353,10 @@ export class TaskPricingPrismaRepository
   async findByTaskId(taskId: string): Promise<TaskPricing | null> {
     const pricing = await this.prisma.taskPricing.findFirst({
       where: { tasks: { some: { id: taskId } } },
-      include: { items: { orderBy: { position: 'asc' } } },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        invoicesToCustomers: true,
+      },
     });
 
     return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;
@@ -331,7 +368,11 @@ export class TaskPricingPrismaRepository
   async findByStatus(status: string): Promise<TaskPricing[]> {
     const pricings = await this.prisma.taskPricing.findMany({
       where: { status: status as any },
-      include: { items: { orderBy: { position: 'asc' } }, tasks: true },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        tasks: true,
+        invoicesToCustomers: true,
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -350,7 +391,11 @@ export class TaskPricingPrismaRepository
           in: [TASK_PRICING_STATUS.DRAFT, TASK_PRICING_STATUS.APPROVED],
         },
       },
-      include: { items: { orderBy: { position: 'asc' } }, tasks: true },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        tasks: true,
+        invoicesToCustomers: true,
+      },
     });
 
     return pricings.map(p => this.mapDatabaseEntityToEntity(p));
@@ -365,7 +410,10 @@ export class TaskPricingPrismaRepository
         tasks: { some: { id: taskId } },
         status: TASK_PRICING_STATUS.APPROVED,
       },
-      include: { items: { orderBy: { position: 'asc' } } },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        invoicesToCustomers: true,
+      },
     });
 
     return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;

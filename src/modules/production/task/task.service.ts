@@ -82,6 +82,27 @@ import { TaskFieldTrackerService } from './task-field-tracker.service';
 import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
 
 /**
+ * Converts a layout + sections into a displayable summary for changelog entries.
+ */
+function formatLayoutForChangelog(layout: any) {
+  if (!layout) return null;
+  const sections = layout.layoutSections || [];
+  return {
+    id: layout.id || null,
+    height: layout.height || 0,
+    totalWidth: sections.reduce((sum: number, s: any) => sum + (s.width || 0), 0),
+    doorCount: sections.filter((s: any) => s.isDoor).length,
+    sectionCount: sections.length,
+    layoutSections: sections.map((s: any) => ({
+      width: s.width,
+      isDoor: s.isDoor,
+      doorHeight: s.doorHeight,
+      position: s.position,
+    })),
+  };
+}
+
+/**
  * Task Service
  *
  * Handles task operations. Commission creation logic has been removed.
@@ -311,6 +332,7 @@ export class TaskService {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
+      bankSlips?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
@@ -613,6 +635,26 @@ export class TaskService {
             fileUpdates.receipts = { connect: receiptIds.map(id => ({ id })) };
           }
 
+          // Bank slip files (multiple)
+          if (files.bankSlips && files.bankSlips.length > 0) {
+            const bankSlipIds: string[] = [];
+            for (const bankSlipFile of files.bankSlips) {
+              const bankSlipRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                bankSlipFile,
+                'taskBankSlips',
+                userId,
+                {
+                  entityId: newTask.id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              bankSlipIds.push(bankSlipRecord.id);
+            }
+            fileUpdates.bankSlips = { connect: bankSlipIds.map(id => ({ id })) };
+          }
+
           // Artwork files - Create File entities and then Artwork entities
           if (files.artworks && files.artworks.length > 0) {
             const artworkEntityIds: string[] = [];
@@ -856,6 +898,7 @@ export class TaskService {
           ...(files.budgets || []),
           ...(files.invoices || []),
           ...(files.receipts || []),
+          ...(files.bankSlips || []),
           ...(files.artworks || []),
           ...(files.cutFiles || []),
         ];
@@ -893,6 +936,7 @@ export class TaskService {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
+      bankSlips?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
@@ -1180,6 +1224,7 @@ export class TaskService {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
+      bankSlips?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
@@ -1423,6 +1468,21 @@ export class TaskService {
                   });
 
                   if (layoutWithRefs) {
+                    // Log layout removal to TASK entity changelog
+                    await this.changeLogService.logChange({
+                      entityType: ENTITY_TYPE.TASK,
+                      entityId: id,
+                      action: CHANGE_ACTION.UPDATE,
+                      field: 'layouts',
+                      oldValue: { [layoutField]: formatLayoutForChangelog(layoutWithRefs) },
+                      newValue: { [layoutField]: null },
+                      reason: `Layout ${layoutField} removido`,
+                      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                      triggeredById: id,
+                      userId: userId || '',
+                      transaction: tx,
+                    });
+
                     const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
                     if (remainingTrucks.length === 0) {
                       // No other trucks reference this layout - safe to delete
@@ -1492,6 +1552,21 @@ export class TaskService {
                     transaction: tx,
                   });
 
+                  // Log layout update to TASK entity changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'layouts',
+                    oldValue: { [layoutField]: formatLayoutForChangelog(existingLayout) },
+                    newValue: { [layoutField]: formatLayoutForChangelog(updatedLayout) },
+                    reason: `Layout ${layoutField} atualizado`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    triggeredById: id,
+                    userId: userId || '',
+                    transaction: tx,
+                  });
+
                   this.logger.log(
                     `[Task Update] ${layoutField} updated in-place: ${existingLayoutId} with changelog`,
                   );
@@ -1529,6 +1604,21 @@ export class TaskService {
                     userId: userId || '',
                     triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
                     reason: `Layout ${layoutField} criado`,
+                    transaction: tx,
+                  });
+
+                  // Log layout creation to TASK entity changelog
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK,
+                    entityId: id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'layouts',
+                    oldValue: { [layoutField]: null },
+                    newValue: { [layoutField]: formatLayoutForChangelog(newLayout) },
+                    reason: `Layout ${layoutField} criado`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                    triggeredById: id,
+                    userId: userId || '',
                     transaction: tx,
                   });
 
@@ -3726,6 +3816,33 @@ export class TaskService {
             );
           }
 
+          // Bank slip files (multiple)
+          if ((files?.bankSlips && files.bankSlips.length > 0) || data.bankSlipIds !== undefined) {
+            const bankSlipIds: string[] = data.bankSlipIds ? [...data.bankSlipIds] : [];
+
+            if (files.bankSlips && files.bankSlips.length > 0) {
+              for (const bankSlipFile of files.bankSlips) {
+                const bankSlipRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  bankSlipFile,
+                  'taskBankSlips',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                bankSlipIds.push(bankSlipRecord.id);
+              }
+            }
+
+            fileUpdates.bankSlips = { set: bankSlipIds.map(id => ({ id })) };
+            this.logger.log(
+              `[Task Update] Setting bankSlips to ${bankSlipIds.length} files (${data.bankSlipIds?.length || 0} existing + ${files.bankSlips?.length || 0} new)`,
+            );
+          }
+
           // Artwork files - CRITICAL FIX for Artwork entity
           // Frontend sends artworkIds as File IDs, we need to convert to Artwork entity IDs
           // Process if new files are being uploaded OR if artworkIds/fileIds is explicitly provided (for deletions)
@@ -4156,15 +4273,21 @@ export class TaskService {
           'customerId',
           'sectorId',
           'paintId',
+          'paintIds', // Logo paints (file array)
           'details',
           'name',
           'serialNumber',
           'term',
           'entryDate',
           'forecastDate',
-          'invoiceToId',
           'representatives',
           'bonusDiscountId',
+          'observation',
+          'baseFileIds', // Base files (file array)
+          'budgetIds', // Budget documents (file array)
+          'invoiceIds', // Invoice documents (file array)
+          'receiptIds', // Receipt documents (file array)
+          'bankSlipIds', // Bank slip documents (file array)
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
           // Note: chassisNumber and plate are now on Truck entity, not Task
@@ -4188,54 +4311,84 @@ export class TaskService {
           let oldPricingDetails: any = null;
           let newPricingDetails: any = null;
 
-          // Fetch old pricing details if it existed
+          // Fetch old pricing details if it existed (complete data for rollback restoration)
           if (existingTask.pricingId) {
             const oldPricing = await tx.taskPricing.findUnique({
               where: { id: existingTask.pricingId },
-              select: {
-                id: true,
-                budgetNumber: true,
-                total: true,
-                items: {
-                  select: {
-                    description: true,
-                    amount: true,
-                  },
-                },
+              include: {
+                items: { orderBy: { position: 'asc' } },
+                invoicesToCustomers: { select: { id: true } },
               },
             });
             if (oldPricing) {
               oldPricingDetails = {
                 id: oldPricing.id,
                 budgetNumber: oldPricing.budgetNumber,
+                subtotal: oldPricing.subtotal,
                 total: oldPricing.total,
-                items: oldPricing.items,
+                discountType: oldPricing.discountType,
+                discountValue: oldPricing.discountValue,
+                expiresAt: oldPricing.expiresAt,
+                status: oldPricing.status,
+                paymentCondition: oldPricing.paymentCondition,
+                downPaymentDate: oldPricing.downPaymentDate,
+                customPaymentText: oldPricing.customPaymentText,
+                guaranteeYears: oldPricing.guaranteeYears,
+                customGuaranteeText: oldPricing.customGuaranteeText,
+                customForecastDays: oldPricing.customForecastDays,
+                simultaneousTasks: oldPricing.simultaneousTasks,
+                discountReference: oldPricing.discountReference,
+                layoutFileId: oldPricing.layoutFileId,
+                customerSignatureId: oldPricing.customerSignatureId,
+                items: oldPricing.items.map(item => ({
+                  description: item.description,
+                  amount: item.amount,
+                  observation: item.observation,
+                  shouldSync: item.shouldSync,
+                  position: item.position,
+                })),
+                invoicesToCustomerIds: oldPricing.invoicesToCustomers.map((c: any) => c.id),
               };
             }
           }
 
-          // Fetch new pricing details if exists
+          // Fetch new pricing details if exists (complete data for rollback restoration)
           if (updatedTask.pricingId) {
             const newPricing = await tx.taskPricing.findUnique({
               where: { id: updatedTask.pricingId },
-              select: {
-                id: true,
-                budgetNumber: true,
-                total: true,
-                items: {
-                  select: {
-                    description: true,
-                    amount: true,
-                  },
-                },
+              include: {
+                items: { orderBy: { position: 'asc' } },
+                invoicesToCustomers: { select: { id: true } },
               },
             });
             if (newPricing) {
               newPricingDetails = {
                 id: newPricing.id,
                 budgetNumber: newPricing.budgetNumber,
+                subtotal: newPricing.subtotal,
                 total: newPricing.total,
-                items: newPricing.items,
+                discountType: newPricing.discountType,
+                discountValue: newPricing.discountValue,
+                expiresAt: newPricing.expiresAt,
+                status: newPricing.status,
+                paymentCondition: newPricing.paymentCondition,
+                downPaymentDate: newPricing.downPaymentDate,
+                customPaymentText: newPricing.customPaymentText,
+                guaranteeYears: newPricing.guaranteeYears,
+                customGuaranteeText: newPricing.customGuaranteeText,
+                customForecastDays: newPricing.customForecastDays,
+                simultaneousTasks: newPricing.simultaneousTasks,
+                discountReference: newPricing.discountReference,
+                layoutFileId: newPricing.layoutFileId,
+                customerSignatureId: newPricing.customerSignatureId,
+                items: newPricing.items.map(item => ({
+                  description: item.description,
+                  amount: item.amount,
+                  observation: item.observation,
+                  shouldSync: item.shouldSync,
+                  position: item.position,
+                })),
+                invoicesToCustomerIds: newPricing.invoicesToCustomers.map((c: any) => c.id),
               };
             }
           }
@@ -4345,6 +4498,7 @@ export class TaskService {
                     'budgets',
                     'invoices',
                     'receipts',
+                    'bankSlips',
                     'reimbursements',
                     'invoiceReimbursements',
                   ].includes(change.field);
@@ -4435,66 +4589,10 @@ export class TaskService {
           }
         }
 
-        // Track services array changes
-        // NOTE: We skip creating TASK "services" changelog when service orders are only ADDED
-        // because individual SERVICE_ORDER CREATE changelogs are already created above.
-        // We only create this changelog when service orders are REMOVED to track deletions.
-        // CRITICAL: Only track if user explicitly sent serviceOrders data AND there were actual removals
-        if (data.serviceOrders !== undefined && Array.isArray(data.serviceOrders)) {
-          const oldServices = existingTask.serviceOrders || [];
-          const newServices = updatedTask?.serviceOrders || [];
-
-          this.logger.log(
-            `[Task Update Changelog] Old services count: ${oldServices.length}, New services count: ${newServices.length}`,
-          );
-          this.logger.log(
-            `[Task Update Changelog] updatedTask has serviceOrders?: ${!!updatedTask?.serviceOrders}`,
-          );
-
-          // Skip if both are empty - no point in tracking "nothing changed"
-          if (oldServices.length === 0 && newServices.length === 0) {
-            this.logger.log(
-              `[Task Update Changelog] Skipping serviceOrders changelog - both old and new are empty`,
-            );
-          } else {
-            // Check if any service orders were removed (by comparing IDs)
-            const oldServiceIds = new Set(oldServices.map((s: any) => s.id));
-            const newServiceIds = new Set(newServices.map((s: any) => s.id));
-            const removedServices = oldServices.filter((s: any) => !newServiceIds.has(s.id));
-
-            this.logger.log(
-              `[Task Update Changelog] Removed services count: ${removedServices.length}`,
-            );
-
-            // Only create TASK services changelog if service orders were REMOVED
-            // Service order ADDITIONS are already covered by individual SERVICE_ORDER CREATE changelogs
-            if (removedServices.length > 0) {
-              // Serialize services for changelog - store full data for rollback support
-              const serializeServices = (services: any[]) => {
-                return services.map((s: any) => ({
-                  description: s.description,
-                  status: s.status,
-                  ...(s.startedAt && { startedAt: s.startedAt }),
-                  ...(s.finishedAt && { finishedAt: s.finishedAt }),
-                }));
-              };
-
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'serviceOrders',
-                oldValue: serializeServices(oldServices),
-                newValue: serializeServices(newServices),
-                reason: `${removedServices.length} ordem(ns) de serviço removida(s)`,
-                triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-            }
-          }
-        }
+        // Service order changes are NOT tracked as TASK field changelogs.
+        // Individual SERVICE_ORDER CREATE/UPDATE/DELETE changelogs already cover all changes.
+        // Previously this created a "serviceOrders" field changelog when services were removed,
+        // but that was redundant and caused confusing "Nenhuma/Nenhuma" entries.
 
         // Track artworks array changes
         // CRITICAL: Only check if the request artworkIds are DIFFERENT from existing ones
@@ -4936,6 +5034,7 @@ export class TaskService {
           ...(files.budgets || []),
           ...(files.invoices || []),
           ...(files.receipts || []),
+          ...(files.bankSlips || []),
           ...(files.artworks || []),
           ...(files.cutFiles || []),
         ];
@@ -4970,6 +5069,7 @@ export class TaskService {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
       receipts?: Express.Multer.File[];
+      bankSlips?: Express.Multer.File[];
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
@@ -5049,6 +5149,7 @@ export class TaskService {
               budgets: true,
               invoices: true,
               receipts: true,
+              bankSlips: true,
               logoPaints: true,
               generalPainting: true,
               cuts: { include: { file: true } },
@@ -5062,6 +5163,7 @@ export class TaskService {
               budgets: existingTask.budgets ? [...existingTask.budgets] : [],
               invoices: existingTask.invoices ? [...existingTask.invoices] : [],
               receipts: existingTask.receipts ? [...existingTask.receipts] : [],
+              bankSlips: existingTask.bankSlips ? [...existingTask.bankSlips] : [],
               logoPaints: existingTask.logoPaints ? [...existingTask.logoPaints] : [],
               cuts: existingTask.cuts ? [...existingTask.cuts] : [],
             });
@@ -5132,6 +5234,7 @@ export class TaskService {
           budgets?: string[];
           invoices?: string[];
           receipts?: string[];
+          bankSlips?: string[];
           artworks?: string[];
           baseFiles?: string[];
         } = {};
@@ -5210,6 +5313,26 @@ export class TaskService {
                 },
               );
               uploadedFileIds.receipts.push(receiptRecord.id);
+            }
+          }
+
+          // Upload bank slips
+          if (files.bankSlips && files.bankSlips.length > 0) {
+            this.logger.log(`[batchUpdate] Uploading ${files.bankSlips.length} bank slip files`);
+            uploadedFileIds.bankSlips = [];
+            for (const bankSlipFile of files.bankSlips) {
+              const bankSlipRecord = await this.fileService.createFromUploadWithTransaction(
+                tx,
+                bankSlipFile,
+                'taskBankSlips',
+                userId,
+                {
+                  entityId: data.tasks[0].id,
+                  entityType: 'TASK',
+                  customerName,
+                },
+              );
+              uploadedFileIds.bankSlips.push(bankSlipRecord.id);
             }
           }
 
@@ -5577,6 +5700,7 @@ export class TaskService {
                 budgets: true,
                 invoices: true,
                 receipts: true,
+                bankSlips: true,
                 artworks: true,
                 baseFiles: true,
                 logoPaints: true,
@@ -5620,6 +5744,17 @@ export class TaskService {
               update.data.receiptIds = mergedReceiptIds;
               this.logger.log(
                 `[batchUpdate] Adding ${uploadedFileIds.receipts.length} receipts to task ${update.id} (total: ${mergedReceiptIds.length})`,
+              );
+            }
+
+            if (uploadedFileIds.bankSlips && uploadedFileIds.bankSlips.length > 0) {
+              const currentBankSlipIds = currentTask.bankSlips?.map(f => f.id) || [];
+              const mergedBankSlipIds = [
+                ...new Set([...currentBankSlipIds, ...uploadedFileIds.bankSlips]),
+              ];
+              update.data.bankSlipIds = mergedBankSlipIds;
+              this.logger.log(
+                `[batchUpdate] Adding ${uploadedFileIds.bankSlips.length} bank slips to task ${update.id} (total: ${mergedBankSlipIds.length})`,
               );
             }
 
@@ -6054,6 +6189,61 @@ export class TaskService {
               this.logger.log(
                 `[batchUpdate] Truck ${truckId} pointed to shared layouts: ${JSON.stringify(layoutUpdate)}`,
               );
+
+              // Track layout changes in changelog with formatted summaries
+              const sides = [];
+              const oldValues: Record<string, any> = {};
+              const newValues: Record<string, any> = {};
+
+              // Fetch old layouts with sections for meaningful before data
+              const layoutSidePairs: Array<{ field: string; oldId: string | null; newId: string; sideName: string }> = [];
+              if (layoutUpdate.leftSideLayoutId) {
+                layoutSidePairs.push({ field: 'leftSideLayoutId', oldId: existingLeftId, newId: layoutUpdate.leftSideLayoutId, sideName: 'Motorista' });
+              }
+              if (layoutUpdate.rightSideLayoutId) {
+                layoutSidePairs.push({ field: 'rightSideLayoutId', oldId: existingRightId, newId: layoutUpdate.rightSideLayoutId, sideName: 'Sapo' });
+              }
+              if (layoutUpdate.backSideLayoutId) {
+                layoutSidePairs.push({ field: 'backSideLayoutId', oldId: existingBackId, newId: layoutUpdate.backSideLayoutId, sideName: 'Traseira' });
+              }
+
+              for (const pair of layoutSidePairs) {
+                sides.push(pair.sideName);
+                // Fetch old layout with sections (if exists)
+                const oldLayout = pair.oldId ? await tx.layout.findUnique({
+                  where: { id: pair.oldId },
+                  include: { layoutSections: true },
+                }) : null;
+                // Fetch new layout with sections
+                const newLayout = await tx.layout.findUnique({
+                  where: { id: pair.newId },
+                  include: { layoutSections: true },
+                });
+                oldValues[pair.field] = formatLayoutForChangelog(oldLayout);
+                newValues[pair.field] = formatLayoutForChangelog(newLayout);
+              }
+
+              await this.changeLogService.logChange({
+                entityType: ENTITY_TYPE.TASK,
+                entityId: taskId,
+                action: CHANGE_ACTION.UPDATE,
+                field: 'layouts',
+                oldValue: oldValues,
+                newValue: newValues,
+                reason: `Layouts aplicados (${sides.join(', ')}) via operação em lote`,
+                triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
+                triggeredById: taskId,
+                userId: userId || '',
+                transaction: tx,
+                metadata: {
+                  sides: sides,
+                  sharedLayoutIds: layoutUpdate,
+                },
+              });
+
+              this.logger.log(
+                `[batchUpdate] Changelog created for task ${taskId}: layouts applied for ${sides.join(', ')}`,
+              );
             }
 
             this.logger.log(`[batchUpdate] Finished processing layouts for task ${taskId}`);
@@ -6083,6 +6273,7 @@ export class TaskService {
               budgets: true,
               invoices: true,
               receipts: true,
+              bankSlips: true,
               logoPaints: true,
               generalPainting: true,
               cuts: { include: { file: true } },
@@ -6670,6 +6861,7 @@ export class TaskService {
           ...(files.budgets || []),
           ...(files.invoices || []),
           ...(files.receipts || []),
+          ...(files.bankSlips || []),
           ...(files.artworks || []),
           ...(files.cutFiles || []),
           ...(files.baseFiles || []),
@@ -6947,6 +7139,7 @@ export class TaskService {
       'chassis',
       'nfeIds',
       'receiptIds',
+      'bankSlipIds',
       'serviceOrders', // Financial can manage COMMERCIAL, LOGISTIC, FINANCIAL service orders
       'artworkIds', // Sent by form to preserve existing artwork state (Financial can't add/remove artworks via UI)
       'artworkStatuses', // Sent by form to preserve existing artwork statuses
@@ -6976,6 +7169,7 @@ export class TaskService {
       'budgetIds', // Cannot edit financial documents
       'nfeIds', // Cannot edit financial documents
       'receiptIds', // Cannot edit financial documents
+      'bankSlipIds', // Cannot edit financial documents
       'cuts', // Cannot edit cut plans
     ];
 
@@ -7115,11 +7309,115 @@ export class TaskService {
         throw new NotFoundException('Entrada de changelog não encontrada');
       }
 
-      if (changeLog.entityType !== 'TASK') {
-        throw new BadRequestException('Entrada de changelog não é de uma tarefa');
+      // Support TASK, SERVICE_ORDER, and TRUCK entity types
+      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK'];
+      if (!supportedEntityTypes.includes(changeLog.entityType)) {
+        throw new BadRequestException(
+          `Rollback não suportado para entidade do tipo '${changeLog.entityType}'`,
+        );
       }
 
-      // 2. Get current task
+      // Handle SERVICE_ORDER and TRUCK rollback with generic field update
+      if (changeLog.entityType === 'SERVICE_ORDER') {
+        const fieldToRevert = changeLog.field;
+        if (!fieldToRevert) {
+          throw new BadRequestException('Não é possível reverter: campo não especificado');
+        }
+
+        // statusOrder is derived - skip direct rollback
+        if (fieldToRevert === 'statusOrder') {
+          throw new BadRequestException('statusOrder é calculado automaticamente a partir do status');
+        }
+
+        let convertedValue: any = changeLog.oldValue;
+        if (convertedValue === null || convertedValue === undefined || convertedValue === '') {
+          convertedValue = null;
+        } else if (
+          ['startedAt', 'finishedAt', 'approvedAt', 'completedAt'].includes(fieldToRevert)
+        ) {
+          convertedValue = new Date(convertedValue as string);
+        }
+
+        const updateData: any = { [fieldToRevert]: convertedValue };
+
+        // When rolling back status, also update statusOrder
+        if (fieldToRevert === 'status' && convertedValue) {
+          const statusOrderMap: Record<string, number> = {
+            PENDING: 1,
+            IN_PROGRESS: 2,
+            WAITING_APPROVE: 3,
+            COMPLETED: 4,
+            CANCELLED: 5,
+          };
+          updateData.statusOrder = statusOrderMap[convertedValue] ?? 1;
+        }
+
+        await tx.serviceOrder.update({
+          where: { id: changeLog.entityId },
+          data: updateData,
+        });
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.SERVICE_ORDER,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: null,
+        };
+      }
+
+      if (changeLog.entityType === 'TRUCK') {
+        const fieldToRevert = changeLog.field;
+        if (!fieldToRevert) {
+          throw new BadRequestException('Não é possível reverter: campo não especificado');
+        }
+
+        let convertedValue: any = changeLog.oldValue;
+        if (convertedValue === null || convertedValue === undefined || convertedValue === '') {
+          convertedValue = null;
+        }
+
+        await tx.truck.update({
+          where: { id: changeLog.entityId },
+          data: { [fieldToRevert]: convertedValue },
+        });
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TRUCK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: null,
+        };
+      }
+
+      // 2. Get current task (TASK entity type)
       const currentTask = await this.tasksRepository.findByIdWithTransaction(
         tx,
         changeLog.entityId,
@@ -7148,7 +7446,7 @@ export class TaskService {
       }
       // Handle date fields
       else if (
-        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt'].includes(
+        ['startedAt', 'finishedAt', 'entryDate', 'term', 'createdAt', 'updatedAt', 'forecastDate'].includes(
           fieldToRevert,
         )
       ) {
@@ -7160,7 +7458,7 @@ export class TaskService {
         convertedValue = typeof oldValue === 'number' ? oldValue : parseInt(oldValue as string, 10);
       }
       // Handle enum fields (status, commission) - must not be empty string
-      else if (['status', 'commission'].includes(fieldToRevert)) {
+      else if (['status', 'commission', 'priority'].includes(fieldToRevert)) {
         convertedValue = oldValue as string;
       }
       // Handle UUID/string fields - convert empty strings to null for optional fields
@@ -7173,6 +7471,8 @@ export class TaskService {
           'bonusDiscountId',
           'serialNumber',
           'details',
+          'invoiceToId',
+          'negotiatingWith',
         ].includes(fieldToRevert)
       ) {
         convertedValue = oldValue;
@@ -7296,15 +7596,34 @@ export class TaskService {
 
       // 5b. Special handling for file relationship fields (many-to-many with File)
       // These are the File[] relations on Task that need Prisma's { set: [...] } syntax
+      // Map tracked field names (from changelog) to Prisma relation names
+      const trackedToRelationMap: Record<string, string> = {
+        'budgetIds': 'budgets',
+        'invoiceIds': 'invoices',
+        'receiptIds': 'receipts',
+        'bankSlipIds': 'bankSlips',
+        'baseFileIds': 'baseFiles',
+        'paintIds': 'logoPaints',
+        'reimbursementIds': 'reimbursements',
+        'reimbursementInvoiceIds': 'invoiceReimbursements',
+        'artworkIds': 'artworks',
+      };
       const fileRelationFields = [
         'artworks',
         'budgets',
         'invoices',
         'invoiceReimbursements',
         'receipts',
+        'bankSlips',
         'reimbursements',
+        'baseFiles',
+        'logoPaints',
       ];
-      if (fileRelationFields.includes(fieldToRevert)) {
+
+      // Resolve tracked name to Prisma relation name
+      const resolvedRelationField = trackedToRelationMap[fieldToRevert] || fieldToRevert;
+
+      if (fileRelationFields.includes(resolvedRelationField)) {
         this.logger.log(
           `[Rollback] Starting ${fieldToRevert} rollback for task ${changeLog.entityId}`,
         );
@@ -7335,14 +7654,14 @@ export class TaskService {
         }
 
         this.logger.log(
-          `[Rollback] Setting ${fieldToRevert} to ${fileIds.length} files: ${fileIds.join(', ')}`,
+          `[Rollback] Setting ${resolvedRelationField} (tracked as ${fieldToRevert}) to ${fileIds.length} files: ${fileIds.join(', ')}`,
         );
 
-        // Update the task using Prisma's relationship set syntax
+        // Update the task using Prisma's relationship set syntax with the resolved relation name
         await tx.task.update({
           where: { id: changeLog.entityId },
           data: {
-            [fieldToRevert]: {
+            [resolvedRelationField]: {
               set: fileIds.map(id => ({ id })),
             },
           },
@@ -7390,6 +7709,415 @@ export class TaskService {
           message: `Campo '${fieldNamePt}' revertido com sucesso`,
           data: updatedTask,
         };
+      }
+
+      // 5c. Special handling for pricingId - oldValue may be a full JSON pricing object
+      if (fieldToRevert === 'pricingId') {
+        this.logger.log(`[Rollback] Starting pricingId rollback for task ${changeLog.entityId}`);
+
+        let pricingIdToRestore: string | null = null;
+
+        // Parse the oldValue - it might be a JSON object, a UUID string, or null
+        if (oldValue) {
+          let parsedValue = oldValue;
+          if (typeof oldValue === 'string') {
+            try {
+              parsedValue = JSON.parse(oldValue);
+            } catch {
+              // Not JSON, use as-is (might be a UUID directly)
+              parsedValue = oldValue;
+            }
+          }
+
+          if (typeof parsedValue === 'object' && parsedValue !== null && (parsedValue as any).id) {
+            // It's a full pricing object - extract the ID
+            pricingIdToRestore = (parsedValue as any).id;
+
+            // Check if the TaskPricing record still exists
+            const existingPricing = await tx.taskPricing.findUnique({
+              where: { id: pricingIdToRestore },
+            });
+
+            if (!existingPricing) {
+              // Recreate the TaskPricing from the stored data
+              this.logger.log(`[Rollback] TaskPricing ${pricingIdToRestore} not found, recreating`);
+              const pricingData = parsedValue as any;
+
+              const recreatedPricing = await tx.taskPricing.create({
+                data: {
+                  id: pricingIdToRestore,
+                  budgetNumber: pricingData.budgetNumber || 0,
+                  subtotal: pricingData.subtotal || pricingData.total || '0',
+                  total: pricingData.total || '0',
+                  discountType: pricingData.discountType || 'NONE',
+                  discountValue: pricingData.discountValue ?? null,
+                  expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  status: pricingData.status || 'DRAFT',
+                  paymentCondition: pricingData.paymentCondition ?? null,
+                  downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
+                  customPaymentText: pricingData.customPaymentText ?? null,
+                  guaranteeYears: pricingData.guaranteeYears ?? null,
+                  customGuaranteeText: pricingData.customGuaranteeText ?? null,
+                  customForecastDays: pricingData.customForecastDays ?? null,
+                  simultaneousTasks: pricingData.simultaneousTasks ?? null,
+                  discountReference: pricingData.discountReference ?? null,
+                  layoutFileId: pricingData.layoutFileId ?? null,
+                  customerSignatureId: pricingData.customerSignatureId ?? null,
+                  ...(pricingData.invoicesToCustomerIds?.length > 0 && {
+                    invoicesToCustomers: {
+                      connect: pricingData.invoicesToCustomerIds.map((cId: string) => ({ id: cId })),
+                    },
+                  }),
+                },
+              });
+
+              this.logger.log(`[Rollback] Recreated TaskPricing ${recreatedPricing.id}`);
+
+              // Recreate items if available
+              if (pricingData.items && Array.isArray(pricingData.items)) {
+                for (let i = 0; i < pricingData.items.length; i++) {
+                  const item = pricingData.items[i];
+                  await tx.taskPricingItem.create({
+                    data: {
+                      description: item.description || '',
+                      amount: item.amount || '0',
+                      pricingId: pricingIdToRestore,
+                      observation: item.observation ?? null,
+                      shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+                      position: item.position !== undefined ? item.position : i,
+                    },
+                  });
+                }
+                this.logger.log(`[Rollback] Recreated ${pricingData.items.length} pricing items`);
+              }
+            }
+          } else if (typeof parsedValue === 'string') {
+            // It's a UUID string directly
+            pricingIdToRestore = parsedValue;
+          }
+        }
+
+        // Update the task's pricingId
+        await tx.task.update({
+          where: { id: changeLog.entityId },
+          data: { pricingId: pricingIdToRestore },
+        });
+
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+              pricing: { include: { items: true } },
+            },
+          },
+        );
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        this.logger.log(
+          `Field '${fieldToRevert}' rolled back for task ${changeLog.entityId} by user ${userId}`,
+        );
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
+      }
+
+      // 5d. Special handling for nested truck fields
+      if (fieldToRevert.startsWith('truck.')) {
+        const truckField = fieldToRevert.replace('truck.', '');
+        const taskWithTruck = await tx.task.findUnique({
+          where: { id: changeLog.entityId },
+          include: { truck: true },
+        });
+
+        if (!taskWithTruck?.truck) {
+          throw new BadRequestException('Tarefa não possui caminhão associado');
+        }
+
+        await tx.truck.update({
+          where: { id: taskWithTruck.truck.id },
+          data: { [truckField]: convertedValue },
+        });
+
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(
+          tx,
+          changeLog.entityId,
+          {
+            include: {
+              customer: true,
+              sector: true,
+              generalPainting: true,
+              truck: true,
+              createdBy: true,
+            },
+          },
+        );
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: updatedTask,
+        };
+      }
+
+      // 5e. Special handling for representatives (many-to-many relation)
+      if (fieldToRevert === 'representatives') {
+        this.logger.log(`[Rollback] Starting representatives rollback for task ${changeLog.entityId}`);
+
+        let parsedOldValue = oldValue;
+        if (typeof oldValue === 'string') {
+          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = oldValue; }
+        }
+
+        let repIds: string[] = [];
+        if (parsedOldValue && Array.isArray(parsedOldValue)) {
+          repIds = parsedOldValue
+            .map((item: any) => typeof item === 'string' ? item : item.id)
+            .filter((id: string) => id);
+        }
+
+        await tx.task.update({
+          where: { id: changeLog.entityId },
+          data: {
+            representatives: { set: repIds.map(id => ({ id })) },
+          },
+        });
+
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
+          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, representatives: true },
+        });
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
+      }
+
+      // 5f. Special handling for observation (1-to-1 relation)
+      if (fieldToRevert === 'observation') {
+        this.logger.log(`[Rollback] Starting observation rollback for task ${changeLog.entityId}`);
+
+        let parsedOldValue = oldValue;
+        if (typeof oldValue === 'string') {
+          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = oldValue; }
+        }
+
+        // Get the existing observation for this task
+        const existingObs = await tx.observation.findUnique({ where: { taskId: changeLog.entityId } });
+
+        if (parsedOldValue && typeof parsedOldValue === 'object') {
+          const obsData = parsedOldValue as any;
+          if (existingObs) {
+            await tx.observation.update({
+              where: { taskId: changeLog.entityId },
+              data: { description: obsData.description || '' },
+            });
+          } else {
+            await tx.observation.create({
+              data: { taskId: changeLog.entityId, description: obsData.description || '' },
+            });
+          }
+        } else if (parsedOldValue === null && existingObs) {
+          await tx.observation.delete({ where: { taskId: changeLog.entityId } });
+        }
+
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
+          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, observation: true },
+        });
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
+      }
+
+      // 5g. Special handling for layouts (composite relation on truck)
+      if (fieldToRevert === 'layouts') {
+        this.logger.log(`[Rollback] Starting layouts rollback for task ${changeLog.entityId}`);
+
+        let parsedOldValue = oldValue;
+        if (typeof oldValue === 'string') {
+          try { parsedOldValue = JSON.parse(oldValue); } catch { parsedOldValue = null; }
+        }
+        if (parsedOldValue === undefined) parsedOldValue = null;
+
+        // Find the truck for this task
+        const truck = await tx.truck.findUnique({
+          where: { taskId: changeLog.entityId },
+          include: {
+            leftSideLayout: { include: { layoutSections: true } },
+            rightSideLayout: { include: { layoutSections: true } },
+            backSideLayout: { include: { layoutSections: true } },
+          },
+        });
+
+        if (!truck) {
+          throw new BadRequestException('Tarefa não possui caminhão associado para reverter layouts');
+        }
+
+        const layoutSides: Array<{
+          key: string;
+          field: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId';
+          relationName: string;
+          sideName: string;
+        }> = [
+          { key: 'leftSideLayoutId', field: 'leftSideLayoutId', relationName: 'trucksLeftSide', sideName: 'left' },
+          { key: 'rightSideLayoutId', field: 'rightSideLayoutId', relationName: 'trucksRightSide', sideName: 'right' },
+          { key: 'backSideLayoutId', field: 'backSideLayoutId', relationName: 'trucksBackSide', sideName: 'back' },
+        ];
+
+        for (const { key, field, relationName, sideName } of layoutSides) {
+          // Only process sides that appear in the old value
+          if (parsedOldValue !== null && parsedOldValue[key] === undefined) continue;
+
+          const oldSideLayout = parsedOldValue?.[key] ?? null;
+          const currentLayoutId = truck[field] as string | null;
+
+          // Disconnect current layout with orphan cleanup
+          if (currentLayoutId) {
+            await tx.truck.update({
+              where: { id: truck.id },
+              data: { [field]: null },
+            });
+
+            const layoutWithRefs = await tx.layout.findUnique({
+              where: { id: currentLayoutId },
+              include: { [relationName]: { select: { id: true } } },
+            });
+
+            if (layoutWithRefs) {
+              const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+              if (remainingTrucks.length === 0) {
+                await tx.layoutSection.deleteMany({ where: { layoutId: currentLayoutId } });
+                await tx.layout.delete({ where: { id: currentLayoutId } });
+                this.logger.log(`[Rollback] Deleted orphaned ${sideName} layout: ${currentLayoutId}`);
+              }
+            }
+          }
+
+          // Reconnect or recreate old layout
+          if (oldSideLayout) {
+            let targetLayoutId: string | null = null;
+
+            // Try to reconnect by id if the layout still exists
+            if (oldSideLayout.id) {
+              const existing = await tx.layout.findUnique({ where: { id: oldSideLayout.id } });
+              if (existing) {
+                targetLayoutId = existing.id;
+                this.logger.log(`[Rollback] Reconnecting to existing ${sideName} layout: ${targetLayoutId}`);
+              }
+            }
+
+            // If layout doesn't exist anymore, recreate from stored sections
+            if (!targetLayoutId && oldSideLayout.layoutSections?.length > 0) {
+              const newLayout = await tx.layout.create({
+                data: {
+                  height: oldSideLayout.height || 0,
+                  layoutSections: {
+                    create: oldSideLayout.layoutSections.map((s: any, idx: number) => ({
+                      width: s.width || 0,
+                      isDoor: s.isDoor || false,
+                      doorHeight: s.doorHeight ?? null,
+                      position: s.position ?? idx,
+                    })),
+                  },
+                },
+              });
+              targetLayoutId = newLayout.id;
+              this.logger.log(`[Rollback] Recreated ${sideName} layout: ${targetLayoutId}`);
+            }
+
+            if (targetLayoutId) {
+              await tx.truck.update({
+                where: { id: truck.id },
+                data: { [field]: targetLayoutId },
+              });
+            }
+          }
+        }
+
+        const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
+          include: { customer: true, sector: true, generalPainting: true, truck: { include: { leftSideLayout: { include: { layoutSections: true } }, rightSideLayout: { include: { layoutSections: true } }, backSideLayout: { include: { layoutSections: true } } } }, createdBy: true },
+        });
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return { success: true, message: `Campo '${fieldNamePt}' revertido com sucesso`, data: updatedTask };
       }
 
       // 6. Create update data with just the field being rolled back
@@ -7817,16 +8545,26 @@ export class TaskService {
       }
 
       // Verify all artwork files exist
-      const artworks = await tx.file.findMany({
+      const artworkFiles = await tx.file.findMany({
         where: { id: { in: artworkIds } },
         select: { id: true },
       });
 
-      if (artworks.length !== artworkIds.length) {
-        const foundIds = artworks.map(a => a.id);
+      if (artworkFiles.length !== artworkIds.length) {
+        const foundIds = artworkFiles.map(a => a.id);
         const missingIds = artworkIds.filter(id => !foundIds.includes(id));
         throw new NotFoundException(`Artes não encontradas: ${missingIds.join(', ')}`);
       }
+
+      // Convert File IDs to Artwork entity IDs (creates Artwork records if needed)
+      const artworkEntityIds = await this.convertFileIdsToArtworkIds(
+        artworkIds, // File IDs from request
+        null, // taskId not needed for bulk operation
+        null, // airbrushingId
+        undefined, // artworkStatuses (all will default to DRAFT)
+        undefined, // userRole
+        tx, // transaction
+      );
 
       // Add artworks to each task
       for (const task of tasks) {
@@ -7834,14 +8572,18 @@ export class TaskService {
           // Get current artworks for this task
           const currentTask = await tx.task.findUnique({
             where: { id: task.id },
-            include: { artworks: { select: { id: true } } },
+            include: { artworks: { select: { id: true, fileId: true } } },
           });
 
-          // Merge current artwork IDs with new ones (avoid duplicates)
+          // Get current artwork entity IDs
           const currentArtworkIds = currentTask?.artworks?.map(a => a.id) || [];
-          const mergedArtworkIds = [...new Set([...currentArtworkIds, ...artworkIds])];
+          // Get current file IDs (for changelog)
+          const currentFileIds = currentTask?.artworks?.map(a => a.fileId) || [];
 
-          // Update task with merged artwork IDs
+          // Merge current Artwork entity IDs with new ones (avoid duplicates)
+          const mergedArtworkIds = [...new Set([...currentArtworkIds, ...artworkEntityIds])];
+
+          // Update task with merged Artwork entity IDs
           await tx.task.update({
             where: { id: task.id },
             data: {
@@ -7851,27 +8593,30 @@ export class TaskService {
             },
           });
 
-          // Log the change
+          // Merge File IDs for changelog (File IDs are what the UI expects)
+          const mergedFileIds = [...new Set([...currentFileIds, ...artworkIds])];
+
+          // Log the change (use File IDs for changelog, not Artwork entity IDs)
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: task.id,
             action: CHANGE_ACTION.UPDATE,
             field: 'artworks',
-            oldValue: currentArtworkIds,
-            newValue: mergedArtworkIds,
-            reason: `Campo artes atualizado`,
+            oldValue: currentFileIds,
+            newValue: mergedFileIds,
+            reason: `Campo artes atualizado via operação em lote`,
             triggeredBy: CHANGE_TRIGGERED_BY.BATCH_UPDATE,
             triggeredById: task.id,
             userId: userId || '',
             transaction: tx,
           });
 
-          // Store for event emission
+          // Store for event emission (use File IDs)
           fieldChangesForEvents.push({
             taskId: task.id,
             task: currentTask,
-            oldValue: currentArtworkIds,
-            newValue: mergedArtworkIds,
+            oldValue: currentFileIds,
+            newValue: mergedFileIds,
           });
 
           successCount++;
@@ -8367,7 +9112,7 @@ export class TaskService {
    */
   async bulkUploadFiles(
     taskIds: string[],
-    fileType: 'budgets' | 'invoices' | 'receipts' | 'artworks',
+    fileType: 'budgets' | 'invoices' | 'receipts' | 'bankSlips' | 'artworks',
     files: Express.Multer.File[],
     userId: string,
     include?: TaskInclude,
@@ -8389,6 +9134,7 @@ export class TaskService {
       budgets: 'budgets',
       invoices: 'invoices',
       receipts: 'receipts',
+      bankSlips: 'bankSlips',
       artworks: 'artworks',
     };
     const relationName = relationMap[fileType];
@@ -8398,6 +9144,7 @@ export class TaskService {
       budgets: 'taskBudgets',
       invoices: 'taskInvoices',
       receipts: 'taskReceipts',
+      bankSlips: 'taskBankSlips',
       artworks: 'tasksArtworks',
     };
     const category = categoryMap[fileType];
@@ -8655,6 +9402,7 @@ export class TaskService {
             budgets: { select: { id: true } },
             invoices: { select: { id: true } },
             receipts: { select: { id: true } },
+            bankSlips: { select: { id: true } },
             reimbursements: { select: { id: true } },
             invoiceReimbursements: { select: { id: true } },
             baseFiles: {
@@ -8805,7 +9553,6 @@ export class TaskService {
           commission: destinationTask.commission,
           representatives: destinationTask.representatives?.map(r => r.id) || [],
           customerId: destinationTask.customerId,
-          invoiceToId: destinationTask.invoiceToId,
           // Store enriched pricing data for changelog display (not just UUID)
           pricingId: destinationTask.pricing
             ? {
@@ -8954,14 +9701,6 @@ export class TaskService {
                 updateData.customerId = sourceTask.customerId;
                 copiedFields.push(field);
                 details.customerId = sourceTask.customerId;
-              }
-              break;
-
-            case 'invoiceToId':
-              if (hasData(sourceTask.invoiceToId)) {
-                updateData.invoiceToId = sourceTask.invoiceToId;
-                copiedFields.push(field);
-                details.invoiceToId = sourceTask.invoiceToId;
               }
               break;
 
@@ -9247,7 +9986,9 @@ export class TaskService {
                     type: true,
                     observation: true,
                     assignedToId: true,
+                    position: true,
                   },
+                  orderBy: { position: 'asc' },
                 });
 
                 // Create new service order records with PENDING status
@@ -9260,6 +10001,7 @@ export class TaskService {
                         type: so.type,
                         observation: so.observation,
                         assignedToId: so.assignedToId,
+                        position: so.position,
                         status: SERVICE_ORDER_STATUS.PENDING,
                         statusOrder: 1, // PENDING order
                         createdById: userId,

@@ -68,6 +68,7 @@ export class NotificationGateway
 
   constructor(
     private readonly jwtService: JwtService,
+    @Inject(forwardRef(() => UserRepository))
     private readonly userRepository: UserRepository,
     private readonly eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => NotificationRepository))

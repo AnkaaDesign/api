@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bull';
 import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { EventEmitterModule as NestEventEmitterModule } from '@nestjs/event-emitter';
+import { getRedisConfig } from '@common/config/redis.config';
 import { NotificationQueueProcessor } from './notification-queue.processor';
 import { NotificationQueueService } from './notification-queue.service';
 import { NotificationQueueMonitorService } from './notification-queue-monitor.service';
@@ -14,6 +15,7 @@ import { PushModule } from '../push/push.module';
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { WhatsAppMessageFormatterService } from './whatsapp/whatsapp-message-formatter.service';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
+import { UserModule } from '@modules/people/user/user.module';
 
 @Module({
   imports: [
@@ -21,18 +23,14 @@ import { WhatsAppModule } from '../whatsapp/whatsapp.module';
     MailerModule,
     PushModule,
     WhatsAppModule,
+    forwardRef(() => UserModule),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'default-secret',
       signOptions: { expiresIn: '7d' },
     }),
     BullModule.registerQueue({
       name: 'notification',
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
-        db: parseInt(process.env.REDIS_DB || '0'),
-      },
+      redis: getRedisConfig(),
       defaultJobOptions: {
         attempts: 3,
         backoff: {

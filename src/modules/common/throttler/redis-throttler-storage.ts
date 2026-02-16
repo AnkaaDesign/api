@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import Redis from 'ioredis';
+import { getRedisConfig } from '@common/config/redis.config';
 
 interface ThrottlerStorageRecord {
   totalHits: number;
@@ -18,10 +19,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     this.redis =
       redis ||
       new Redis({
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
-        db: parseInt(process.env.REDIS_DB || '0'),
+        ...getRedisConfig(),
         keyPrefix: 'throttler:',
       });
   }

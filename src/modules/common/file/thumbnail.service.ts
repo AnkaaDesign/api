@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { FilesStorageService } from './services/files-storage.service';
 import { THUMBNAIL_CONFIG } from './config/thumbnail.config';
+import { env } from '../../../common/config/env.validation';
 
 const execAsync = promisify(exec);
 
@@ -1012,7 +1013,7 @@ export class ThumbnailService {
 
     // Generate API endpoint URL for thumbnail
     // This works in both development and production
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
+    const baseUrl = env.API_URL || `http://localhost:${env.PORT}`;
     return `${baseUrl}/files/thumbnail/${fileId}`;
   }
 

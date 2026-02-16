@@ -9,6 +9,17 @@ import {
   ACTIVITY_OPERATION,
   ACTIVITY_REASON,
 } from '@/constants/enums';
+import {
+  CONSUMPTION_ACTIVITY_REASONS,
+  CONSUMPTION_LOOKBACK_MONTHS,
+  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
+  BALANCE_DISTRIBUTION_ENABLED,
+  BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
+  MAX_STOCK_MONTHS,
+  getSeasonalFactor,
+  getWorkingDaysInMonth,
+  STANDARD_WORKING_DAYS_PER_MONTH,
+} from '@/constants/inventory-config';
 import { subDays, subMonths, differenceInDays } from 'date-fns';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 
@@ -114,7 +125,7 @@ export class AutoOrderService {
         },
         activities: {
           where: {
-            createdAt: { gte: subMonths(new Date(), 12) }, // Last 12 months
+            createdAt: { gte: subMonths(new Date(), CONSUMPTION_LOOKBACK_MONTHS) },
             operation: ACTIVITY_OPERATION.OUTBOUND,
           },
           orderBy: { createdAt: 'desc' },
@@ -162,12 +173,15 @@ export class AutoOrderService {
   }
 
   /**
-   * Enhanced monthly consumption with exponential weighting
-   * Recent months get higher weight for better trend responsiveness
+   * Enhanced monthly consumption with:
+   * - Filtering by consumption-only activity reasons
+   * - Distribution of INVENTORY_COUNT adjustments across months
+   * - Working day normalization (vacation handling)
+   * - Seasonal de-adjustment
+   * - Exponential decay weighting (recent months matter more)
    */
   private calculateWeightedMonthlyConsumption(
     activities: any[],
-    lookbackMonths: number = 12,
   ): {
     weightedMonthly: number;
     trend: 'increasing' | 'stable' | 'decreasing';
@@ -175,14 +189,63 @@ export class AutoOrderService {
     monthlyData: WeightedConsumption[];
   } {
     const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    // Separate consumption vs inventory count activities
+    const consumptionActivities = activities.filter(a =>
+      CONSUMPTION_ACTIVITY_REASONS.includes(a.reason as any),
+    );
+    const inventoryCountActivities = activities.filter(
+      a => a.reason === ACTIVITY_REASON.INVENTORY_COUNT,
+    );
+
     const monthlyConsumption = new Map<string, number>();
 
-    // Group activities by month
-    activities.forEach(activity => {
+    // Group consumption activities by month
+    consumptionActivities.forEach(activity => {
       const monthKey = `${activity.createdAt.getFullYear()}-${String(activity.createdAt.getMonth() + 1).padStart(2, '0')}`;
       const current = monthlyConsumption.get(monthKey) || 0;
       monthlyConsumption.set(monthKey, current + activity.quantity);
     });
+
+    // Distribute INVENTORY_COUNT adjustments across months since last balance
+    if (BALANCE_DISTRIBUTION_ENABLED && inventoryCountActivities.length > 0) {
+      // Sort oldest first so distribution is correct
+      const sorted = [...inventoryCountActivities].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+
+      for (let idx = 0; idx < sorted.length; idx++) {
+        const activity = sorted[idx];
+        const activityDate = new Date(activity.createdAt);
+
+        let monthsSinceLastBalance: number;
+        if (idx > 0) {
+          const prevDate = new Date(sorted[idx - 1].createdAt);
+          monthsSinceLastBalance = Math.max(
+            1,
+            (activityDate.getFullYear() - prevDate.getFullYear()) * 12 +
+              (activityDate.getMonth() - prevDate.getMonth()),
+          );
+        } else {
+          monthsSinceLastBalance = BALANCE_DISTRIBUTION_DEFAULT_MONTHS;
+        }
+
+        const monthlyPortion = activity.quantity / monthsSinceLastBalance;
+        const lookbackDate = subMonths(now, CONSUMPTION_LOOKBACK_MONTHS);
+
+        for (let i = 0; i < monthsSinceLastBalance; i++) {
+          const targetDate = new Date(activityDate);
+          targetDate.setMonth(targetDate.getMonth() - i);
+          if (targetDate < lookbackDate) break;
+
+          const monthKey = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+          const current = monthlyConsumption.get(monthKey) || 0;
+          monthlyConsumption.set(monthKey, current + monthlyPortion);
+        }
+      }
+    }
 
     if (monthlyConsumption.size === 0) {
       return {
@@ -193,8 +256,7 @@ export class AutoOrderService {
       };
     }
 
-    // Calculate weighted average with exponential decay
-    // More recent months have higher weight: weight = e^(-age/3)
+    // Calculate weighted average with normalization and seasonal de-adjustment
     let weightedSum = 0;
     let totalWeight = 0;
     const monthlyData: WeightedConsumption[] = [];
@@ -203,29 +265,40 @@ export class AutoOrderService {
       b[0].localeCompare(a[0]),
     ); // Newest first
 
-    sortedMonths.forEach(([month, quantity], index) => {
-      // Exponential decay: recent months weighted more heavily
-      // weight = e^(-monthsAgo / 3)
-      // 0 months ago = weight 1.0
-      // 3 months ago = weight ~0.37
-      // 6 months ago = weight ~0.14
-      const monthsAgo = index;
-      const weight = Math.exp(-monthsAgo / 3);
+    sortedMonths.forEach(([monthStr, rawQuantity]) => {
+      const [year, monthNum] = monthStr.split('-').map(Number);
+      const month0 = monthNum - 1; // Convert to 0-indexed
 
-      weightedSum += quantity * weight;
+      // Normalize by working days (handles vacation periods)
+      const workingDays = getWorkingDaysInMonth(month0, year);
+      const normalizedQuantity = workingDays < STANDARD_WORKING_DAYS_PER_MONTH
+        ? rawQuantity * (STANDARD_WORKING_DAYS_PER_MONTH / workingDays)
+        : rawQuantity;
+
+      // De-season the data (remove seasonal patterns to get base consumption)
+      const seasonalFactor = getSeasonalFactor(month0);
+      const deseasonedQuantity = seasonalFactor > 0
+        ? normalizedQuantity / seasonalFactor
+        : normalizedQuantity;
+
+      // Exponential decay weighting: weight = 0.5^(monthsDiff / halfLife)
+      const monthsDiff = (currentYear - year) * 12 + (currentMonth - month0);
+      const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
+
+      weightedSum += deseasonedQuantity * weight;
       totalWeight += weight;
 
       monthlyData.push({
-        month,
-        quantity,
+        month: monthStr,
+        quantity: rawQuantity,
         weight,
-        weightedQuantity: quantity * weight,
+        weightedQuantity: deseasonedQuantity * weight,
       });
     });
 
     const weightedMonthly = totalWeight > 0 ? weightedSum / totalWeight : 0;
 
-    // Analyze trend: compare recent 3 months vs previous 3 months
+    // Analyze trend: compare recent 3 months vs previous 3 months (using de-seasoned data)
     const recentMonths = sortedMonths.slice(0, 3);
     const olderMonths = sortedMonths.slice(3, 6);
 
@@ -423,7 +496,11 @@ export class AutoOrderService {
   }
 
   /**
-   * Smart order quantity calculation with trend awareness
+   * Smart order quantity calculation with:
+   * - Trend awareness (increasing/decreasing demand)
+   * - Seasonal forecasting (apply future month's seasonal factor)
+   * - 6-month max cap (MAX_STOCK_MONTHS)
+   * - Lead time coverage + buffer
    */
   private calculateSmartOrderQuantity(
     currentStock: number,
@@ -445,37 +522,51 @@ export class AutoOrderService {
     let trendMultiplier = 1.0;
 
     if (trend === 'increasing') {
-      // For increasing demand, order more (scale with trend strength)
       trendMultiplier = 1.0 + Math.min(trendPercentage / 100, 0.5); // Cap at 50% increase
     } else if (trend === 'decreasing') {
-      // For decreasing demand, order less (but not too little)
       trendMultiplier = Math.max(0.7, 1.0 + trendPercentage / 100); // Min 70% of normal
     }
 
+    // Apply seasonal forecasting: adjust order quantity for expected demand
+    // in the months the order will cover (arrival month + next months)
+    const now = new Date();
+    const arrivalMonth = new Date(now);
+    arrivalMonth.setDate(arrivalMonth.getDate() + estimatedLeadTime);
+    const arrivalMonthIndex = arrivalMonth.getMonth();
+
+    // Average seasonal factor for the next 3 months after arrival
+    let seasonalForecast = 0;
+    for (let i = 0; i < 3; i++) {
+      seasonalForecast += getSeasonalFactor((arrivalMonthIndex + i) % 12);
+    }
+    seasonalForecast /= 3;
+
+    // Apply seasonal forecast to consumption (de-seasoned base × upcoming season factor)
+    const forecastedMonthlyConsumption = monthlyConsumption * seasonalForecast * trendMultiplier;
+
     // Calculate quantity needed to cover lead time + 1 month buffer
-    const dailyConsumption = monthlyConsumption / 30;
+    const dailyConsumption = forecastedMonthlyConsumption / 30;
     const leadTimeConsumption = dailyConsumption * estimatedLeadTime;
-    const bufferConsumption = monthlyConsumption; // 1 month buffer
+    const bufferConsumption = forecastedMonthlyConsumption; // 1 month buffer
 
     let targetQuantity = Math.ceil(
-      (leadTimeConsumption + bufferConsumption - currentStock) * trendMultiplier,
+      leadTimeConsumption + bufferConsumption - currentStock,
     );
 
-    // Ensure we don't exceed max quantity (if set and not manual)
-    if (maxQuantity && !isManualMaxQuantity) {
-      const availableSpace = maxQuantity - currentStock;
-      targetQuantity = Math.min(targetQuantity, availableSpace);
-    }
+    // Cap at MAX_STOCK_MONTHS of consumption (automatic max)
+    const autoMaxQuantity = Math.ceil(forecastedMonthlyConsumption * MAX_STOCK_MONTHS);
+    const effectiveMax = isManualMaxQuantity && maxQuantity
+      ? maxQuantity
+      : Math.min(maxQuantity || autoMaxQuantity, autoMaxQuantity);
 
-    // If manually set max quantity, respect it but warn if insufficient
-    if (maxQuantity && isManualMaxQuantity) {
-      const availableSpace = maxQuantity - currentStock;
-      if (targetQuantity > availableSpace) {
+    const availableSpace = effectiveMax - currentStock;
+    if (targetQuantity > availableSpace) {
+      if (isManualMaxQuantity && maxQuantity) {
         this.logger.warn(
           `Item has manual maxQuantity (${maxQuantity}) that may be insufficient for demand trend`,
         );
-        targetQuantity = availableSpace;
       }
+      targetQuantity = Math.max(0, availableSpace);
     }
 
     // Minimum order quantity: at least enough to reach reorder point
@@ -652,7 +743,7 @@ export class AutoOrderService {
           },
           activities: {
             where: {
-              createdAt: { gte: subMonths(new Date(), 12) },
+              createdAt: { gte: subMonths(new Date(), CONSUMPTION_LOOKBACK_MONTHS) },
               operation: ACTIVITY_OPERATION.OUTBOUND,
             },
             orderBy: { createdAt: 'desc' },
@@ -733,10 +824,10 @@ export class AutoOrderService {
         // If syncQuantity <= 0, the item already has enough stock to last beyond target date
         if (syncQuantity <= 0) continue;
 
-        // Cap at maxQuantity if defined
-        const recommendedQuantity = item.maxQuantity
-          ? Math.min(syncQuantity, item.maxQuantity - currentStock)
-          : syncQuantity;
+        // Cap at maxQuantity or MAX_STOCK_MONTHS of consumption
+        const autoMax = Math.ceil(monthlyConsumption * MAX_STOCK_MONTHS);
+        const effectiveMax = item.maxQuantity ? Math.min(item.maxQuantity, autoMax) : autoMax;
+        const recommendedQuantity = Math.min(syncQuantity, Math.max(0, effectiveMax - currentStock));
 
         // Skip if final quantity is not meaningful
         if (recommendedQuantity < 1) continue;

@@ -216,24 +216,29 @@ export const securityConfig = {
   cors: {
     origin:
       process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'staging'
-        ? [
-            'https://ankaadesign.com.br',
-            'https://www.ankaadesign.com.br',
-            'https://staging.ankaadesign.com.br',
-            'http://ankaadesign.com.br',
-            'http://www.ankaadesign.com.br',
-            'http://staging.ankaadesign.com.br',
-            // Add CLIENT_HOST (supports comma-separated values for local network access)
-            ...(process.env.CLIENT_HOST
-              ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
-              : []),
-            // Add CORS_ORIGINS (supports comma-separated values)
-            ...(process.env.CORS_ORIGINS
-              ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
-              : []),
-          ]
+        ? (() => {
+            // Build production CORS origins from environment variables
+            const origins = [
+              ...(process.env.CLIENT_HOST
+                ? process.env.CLIENT_HOST.split(',').map(h => h.trim())
+                : []),
+              ...(process.env.CORS_ORIGINS
+                ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+                : []),
+            ];
+
+            if (origins.length === 0) {
+              console.warn(
+                '[CORS] WARNING: No CORS origins configured in production/staging. ' +
+                  'All cross-origin requests will be blocked. ' +
+                  'Set CLIENT_HOST or CORS_ORIGINS env vars.',
+              );
+            }
+
+            return origins;
+          })()
         : (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-            // In development, allow localhost and any local network IP (192.168.0.*)
+            // In development, allow localhost and any local network IP
             if (!origin) {
               // Allow requests with no origin (mobile apps, Postman, etc.)
               callback(null, true);
@@ -244,16 +249,19 @@ export const securityConfig = {
             const allowedPatterns = [
               /^http:\/\/localhost:\d+$/, // localhost with any port
               /^http:\/\/127\.0\.0\.1:\d+$/, // 127.0.0.1 with any port
-              /^http:\/\/192\.168\.0\.\d{1,3}(:\d+)?$/, // Local network IPs (192.168.0.*)
-              /^http:\/\/192\.168\.1\.\d{1,3}(:\d+)?$/, // Alternative local network (192.168.1.*)
-              /^http:\/\/192\.168\.10\.\d{1,3}(:\d+)?$/, // Server local network (192.168.10.*)
-              /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$/, // 10.x.x.x network
-              /^https:\/\/(www\.)?ankaadesign\.com\.br$/, // Production domain
-              /^https:\/\/staging\.ankaadesign\.com\.br$/, // Staging domain
+              /^http:\/\/192\.168\.\d{1,3}\.\d{1,3}(:\d+)?$/, // Local network IPs (192.168.*.*)
+              /^http:\/\/10\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/, // 10.x.x.x network
             ];
 
-            // Check if origin matches any allowed pattern
-            const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+            // Also allow any origins specified via CORS_ORIGINS env var in development
+            const extraOrigins = process.env.CORS_ORIGINS
+              ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+              : [];
+
+            // Check if origin matches any allowed pattern or extra origins
+            const isAllowed =
+              allowedPatterns.some(pattern => pattern.test(origin)) ||
+              extraOrigins.includes(origin);
 
             if (isAllowed) {
               callback(null, true);

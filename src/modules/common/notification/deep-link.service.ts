@@ -129,7 +129,10 @@ export class DeepLinkService {
 
   constructor(private readonly configService: ConfigService) {
     // Load configuration from environment variables with fallbacks
-    this.webAppUrl = this.configService.get<string>('WEB_APP_URL') || 'https://ankaadesign.com.br';
+    this.webAppUrl =
+      this.configService.get<string>('WEB_APP_URL') ||
+      this.configService.get<string>('CLIENT_HOST') ||
+      'https://ankaa.app';
     this.mobileAppScheme = this.configService.get<string>('MOBILE_APP_SCHEME') || 'ankaadesign';
     this.universalLinkDomain =
       this.configService.get<string>('UNIVERSAL_LINK_DOMAIN') || this.webAppUrl;

@@ -305,11 +305,12 @@ model Customer {
   updatedAt          DateTime            @updatedAt
   economicActivityId String?
   registrationStatus RegistrationStatus?
+  stateRegistration  String?
   streetType         StreetType?
   economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]              @relation("TaskCustomer")
-  invoiceTasks       Task[]              @relation("TaskInvoiceTo")
+  pricingInvoices    TaskPricing[]       @relation("TaskPricingInvoiceTo")
   representatives    Representative[]    @relation("CustomerRepresentatives")
 
   @@index([fantasyName])
@@ -351,11 +352,9 @@ model PpeDelivery {
   updatedAt            DateTime             @updatedAt
   clicksignEnvelopeId  String?
   clicksignDocumentKey String?
-  clicksignRequestKey  String?
   clicksignSignerKey   String?
   clicksignSignedAt    DateTime?
   deliveryDocumentId   String?
-  signatureBatchId     String?
   deliveryDocument     File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
   item                 Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
   ppeSchedule          PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
@@ -369,7 +368,6 @@ model PpeDelivery {
   @@index([status, statusOrder])
   @@index([reviewedBy])
   @@index([clicksignDocumentKey])
-  @@index([signatureBatchId])
 }
 
 model PpeDeliverySchedule {
@@ -464,6 +462,7 @@ model File {
   taskInvoiceReimbursements               Task[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
+  taskBankSlips                           Task[]               @relation("TASK_BANK_SLIPS")
 
   @@index([filename])
   @@index([originalName])
@@ -537,6 +536,9 @@ model Item {
   isManualMaxQuantity            Boolean                  @default(false)
   isManualReorderPoint           Boolean                  @default(false)
   lastAutoOrderDate              DateTime?
+  lastUsedAt                     DateTime?
+  deactivatedAt                  DateTime?
+  deactivationReason             String?
   activities                     Activity[]               @relation("ACTIVITY_ITEM")
   borrows                        Borrow[]
   externalWithdrawalItems        ExternalWithdrawalItem[]
@@ -570,6 +572,8 @@ model Item {
   @@index([isManualMaxQuantity])
   @@index([isManualReorderPoint])
   @@index([lastAutoOrderDate])
+  @@index([lastUsedAt])
+  @@index([deactivatedAt])
 }
 
 model WeeklyScheduleConfig {
@@ -1091,10 +1095,13 @@ model TaskPricing {
   budgetNumber        Int               @unique
   customerSignatureId String?
   customForecastDays  Int?
+  simultaneousTasks   Int?
+  discountReference   String?
   tasks               Task[]            @relation("TASK_PRICING")
   customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
   items               TaskPricingItem[] @relation("PRICING_ITEMS")
+  invoicesToCustomers Customer[]        @relation("TaskPricingInvoiceTo")
 
   @@index([status])
   @@index([expiresAt])
@@ -1163,7 +1170,6 @@ model Task {
   forecastDate          DateTime?
   paintId               String?
   customerId            String?
-  invoiceToId           String?
   sectorId              String?
   commission            CommissionStatus?
   commissionOrder       Int                  @default(3)
@@ -1179,7 +1185,6 @@ model Task {
   bonusDiscount         BonusDiscount?       @relation(fields: [bonusDiscountId], references: [id])
   createdBy             User?                @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
   customer              Customer?            @relation("TaskCustomer", fields: [customerId], references: [id])
-  invoiceTo             Customer?            @relation("TaskInvoiceTo", fields: [invoiceToId], references: [id])
   generalPainting       Paint?               @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
   pricing               TaskPricing?         @relation("TASK_PRICING", fields: [pricingId], references: [id])
   sector                Sector?              @relation(fields: [sectorId], references: [id])
@@ -1194,6 +1199,7 @@ model Task {
   invoiceReimbursements File[]               @relation("TASK_INVOICE_REIMBURSEMENTS")
   logoPaints            Paint[]              @relation("TASK_LOGO_PAINT")
   receipts              File[]               @relation("TASK_RECEIPTS")
+  bankSlips             File[]               @relation("TASK_BANK_SLIPS")
   reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
   artworks              Artwork[]            @relation("TaskArtworks")
   representatives       Representative[]     @relation("TaskRepresentatives")
@@ -1205,7 +1211,6 @@ model Task {
   @@index([forecastDate])
   @@index([createdAt])
   @@index([customerId])
-  @@index([invoiceToId])
   @@index([createdById])
   @@index([pricingId])
 }
@@ -1349,7 +1354,6 @@ model User {
   site                    String?
   birth                   DateTime?
   verified                Boolean                      @default(false)
-  admissional             DateTime?
   sectorId                String?
   requirePasswordChange   Boolean                      @default(false)
   lastLoginAt             DateTime?
@@ -1427,7 +1431,6 @@ model User {
   @@index([verificationType])
   @@index([sessionToken])
   @@index([verified])
-  @@index([admissional])
 }
 
 model Vacation {
@@ -1978,7 +1981,6 @@ model Representative {
   customer              Customer?          @relation("CustomerRepresentatives", fields: [customerId], references: [id])
   tasks                 Task[]             @relation("TaskRepresentatives")
 
-  @@unique([customerId, role])
   @@index([email])
   @@index([phone])
   @@index([customerId])
@@ -2721,6 +2723,7 @@ enum ChangeLogEntityType {
   SERVICE_ORDER
   SUPPLIER
   TASK
+  TASK_PRICING
   TIME_CLOCK_ENTRY
   TRUCK
   USER
@@ -2998,4 +3001,26 @@ enum GDriveDeleteStatus {
   DELETED
   FAILED
   NOT_NEEDED
+}
+
+// =====================
+// Inventory Analytics
+// =====================
+
+model ConsumptionSnapshot {
+  id                   String   @id @default(uuid())
+  itemId               String
+  year                 Int
+  month                Int      // 0-indexed (0 = January, 11 = December)
+  totalConsumption     Float    @default(0)
+  consumptionCount     Int      @default(0) // Number of outbound activities
+  normalizedConsumption Float   @default(0) // Adjusted for working days
+  workingDays          Int      @default(22)
+  seasonalFactor       Float    @default(1.0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([itemId, year, month])
+  @@index([itemId])
+  @@index([year, month])
 }

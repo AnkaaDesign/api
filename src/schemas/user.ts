@@ -38,6 +38,10 @@ export const userSelectSchema = z
     isActive: z.boolean().optional(),
     payrollNumber: z.boolean().optional(),
     birth: z.boolean().optional(),
+    unionMember: z.boolean().optional(),
+    unionAuthorizationDate: z.boolean().optional(),
+    dependentsCount: z.boolean().optional(),
+    hasSimplifiedDeduction: z.boolean().optional(),
     effectedAt: z.boolean().optional(),
     exp1StartAt: z.boolean().optional(),
     exp1EndAt: z.boolean().optional(),
@@ -671,6 +675,10 @@ export const userOrderBySchema = z.union([
       verified: orderByDirectionSchema.optional(),
       payrollNumber: orderByDirectionSchema.optional(),
       birth: orderByDirectionSchema.optional(),
+      unionMember: orderByDirectionSchema.optional(),
+      unionAuthorizationDate: orderByDirectionSchema.optional(),
+      dependentsCount: orderByDirectionSchema.optional(),
+      hasSimplifiedDeduction: orderByDirectionSchema.optional(),
       effectedAt: orderByDirectionSchema.optional(),
       exp1StartAt: orderByDirectionSchema.optional(),
       exp1EndAt: orderByDirectionSchema.optional(),
@@ -730,6 +738,10 @@ export const userOrderBySchema = z.union([
         verified: orderByDirectionSchema.optional(),
         payrollNumber: orderByDirectionSchema.optional(),
         birth: orderByDirectionSchema.optional(),
+        unionMember: orderByDirectionSchema.optional(),
+        unionAuthorizationDate: orderByDirectionSchema.optional(),
+        dependentsCount: orderByDirectionSchema.optional(),
+        hasSimplifiedDeduction: orderByDirectionSchema.optional(),
         effectedAt: orderByDirectionSchema.optional(),
         exp1StartAt: orderByDirectionSchema.optional(),
         exp1EndAt: orderByDirectionSchema.optional(),
@@ -947,13 +959,65 @@ export const userWhereSchema: z.ZodSchema = z.lazy(() =>
       birth: z
         .union([
           z.date(),
+          z.null(),
           z.object({
-            equals: z.date().optional(),
-            not: z.date().optional(),
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
             gte: z.coerce.date().optional(),
             gt: z.coerce.date().optional(),
             lte: z.coerce.date().optional(),
             lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      unionMember: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
+          }),
+        ])
+        .optional(),
+
+      unionAuthorizationDate: z
+        .union([
+          z.date(),
+          z.null(),
+          z.object({
+            equals: z.union([z.date(), z.null()]).optional(),
+            not: z.union([z.date(), z.null()]).optional(),
+            gte: z.coerce.date().optional(),
+            gt: z.coerce.date().optional(),
+            lte: z.coerce.date().optional(),
+            lt: z.coerce.date().optional(),
+          }),
+        ])
+        .optional(),
+
+      dependentsCount: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            not: z.number().optional(),
+            in: z.array(z.number()).optional(),
+            notIn: z.array(z.number()).optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+          }),
+        ])
+        .optional(),
+
+      hasSimplifiedDeduction: z
+        .union([
+          z.boolean(),
+          z.object({
+            equals: z.boolean().optional(),
+            not: z.boolean().optional(),
           }),
         ])
         .optional(),
@@ -1531,15 +1595,25 @@ export const userCreateSchema = z
         message: 'URL inválida',
       }),
 
-    // Additional dates - birth is required
-    birth: z.coerce.date().refine(
-      date => {
-        const eighteenYearsAgo = new Date();
-        eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
-        return date <= eighteenYearsAgo;
-      },
-      { message: 'O colaborador deve ter pelo menos 18 anos' },
-    ),
+    // Additional dates - birth is nullable in Prisma
+    birth: z.coerce
+      .date()
+      .refine(
+        date => {
+          const eighteenYearsAgo = new Date();
+          eighteenYearsAgo.setFullYear(eighteenYearsAgo.getFullYear() - 18);
+          return date <= eighteenYearsAgo;
+        },
+        { message: 'O colaborador deve ter pelo menos 18 anos' },
+      )
+      .nullable()
+      .optional(),
+
+    // Payroll fields
+    unionMember: z.boolean().default(false),
+    unionAuthorizationDate: nullableDate.optional(),
+    dependentsCount: z.number().int().min(0).default(0),
+    hasSimplifiedDeduction: z.boolean().default(true),
 
     // Status timestamp tracking
     effectedAt: nullableDate.optional(),
@@ -1625,7 +1699,14 @@ export const userUpdateSchema = z
         },
         { message: 'O colaborador deve ter pelo menos 18 anos' },
       )
+      .nullable()
       .optional(),
+
+    // Payroll fields
+    unionMember: z.boolean().optional(),
+    unionAuthorizationDate: nullableDate.optional(),
+    dependentsCount: z.number().int().min(0).optional(),
+    hasSimplifiedDeduction: z.boolean().optional(),
 
     // Status timestamp tracking
     effectedAt: nullableDate.optional(),
@@ -1905,7 +1986,7 @@ export const mapUserToFormData = createMapToFormDataHelper<User, UserUpdateFormD
   // site: user.site || undefined,
 
   // Additional dates - use birth and dismissedAt
-  birth: user.birth,
+  birth: user.birth || undefined,
   dismissedAt: user.dismissedAt || undefined,
 
   // Payroll info

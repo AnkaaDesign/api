@@ -47,7 +47,6 @@ export const artworkIncludeSchema = z
             .object({
               sector: z.boolean().optional(),
               customer: z.boolean().optional(),
-              invoiceTo: z.boolean().optional(),
               budgets: z.boolean().optional(),
               invoices: z.boolean().optional(),
               receipts: z.boolean().optional(),

@@ -179,7 +179,7 @@ export interface HRDashboardData {
     totalEmployees: DashboardMetric;
     activeEmployees: DashboardMetric; // status = ACTIVE
     inactiveEmployees: DashboardMetric; // status = INACTIVE
-    newHires: DashboardMetric; // hireDate in last 30 days
+    newHires: DashboardMetric; // exp1StartAt in last 30 days
     employeesByPerformanceLevel: DashboardChartData; // grouped by performanceLevel
   };
   sectorAnalysis: {

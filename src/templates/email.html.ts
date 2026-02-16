@@ -1,9 +1,17 @@
+const DEFAULT_LOGO_URL =
+  'https://firebasestorage.googleapis.com/v0/b/ankaa-files.appspot.com/o/images%2Flogo.png?alt=media&token=b0603036-dca9-4df8-ab17-18dfd83e0814';
+const DEFAULT_SUPPORT_PHONE = '+554384190989';
+
 export const generateTemplate = (
   title: string,
   url: string,
   text: string,
   buttonText: string = 'Confirmar email',
 ) => {
+  const logoUrl = process.env.EMAIL_LOGO_URL || DEFAULT_LOGO_URL;
+  const supportPhone = process.env.SUPPORT_PHONE || DEFAULT_SUPPORT_PHONE;
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${encodeURIComponent(supportPhone)}&text=Ol%C3%A1+preciso+de+ajuda`;
+
   return `<!DOCTYPE html>
       <html>
       
@@ -126,7 +134,7 @@ export const generateTemplate = (
                       <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px;">
                           <tr>
                               <td bgcolor="#ffffff" align="center" valign="top" style="padding: 40px 20px 20px 20px; border-radius: 4px 4px 0px 0px; color: #111111; font-family: 'Lato', Helvetica, Arial, sans-serif; font-size: 48px; font-weight: 400; letter-spacing: 4px; line-height: 48px;">
-                                  <h1 style="font-size: 48px; font-weight: 400; margin: 2;">${title}</h1> <img src="https://firebasestorage.googleapis.com/v0/b/ankaa-files.appspot.com/o/images%2Flogo.png?alt=media&token=b0603036-dca9-4df8-ab17-18dfd83e0814" width="140" height="35" style="display: block; border: 0px;" />
+                                  <h1 style="font-size: 48px; font-weight: 400; margin: 2;">${title}</h1> <img src="${logoUrl}" width="140" height="35" style="display: block; border: 0px;" />
                               </td>
                           </tr>
                       </table>
@@ -181,7 +189,7 @@ export const generateTemplate = (
                           <tr>
                               <td bgcolor="#E6F7FF" align="center" style="padding: 30px 30px 30px 30px; border-radius: 4px 4px 4px 4px; color: #666666; font-family: 'Lato', Helvetica, Arial, sans-serif; font-size: 18px; font-weight: 400; line-height: 25px;">
                                   <h2 style="font-size: 20px; font-weight: 400; color: #111111; margin: 0;">Precisa de mais ajuda?</h2>
-                                  <p style="margin: 0;"><a href="https://api.whatsapp.com/send?phone=+554384190989&text=Ol%C3%A1+preciso+de+ajuda" target="_blank" style="color: #FA8C16;">Entrar em contato via whatsapp</a></p>
+                                  <p style="margin: 0;"><a href="${whatsappUrl}" target="_blank" style="color: #FA8C16;">Entrar em contato via whatsapp</a></p>
                               </td>
                           </tr>
                       </table>

@@ -450,6 +450,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   representativeIds: 'representantes',
   customerId: 'cliente',
   invoiceToId: 'faturar para',
+  invoicesToCustomerIds: 'clientes para faturamento',
   pricingId: 'orçamento',
   artworkIds: 'artes',
   artworks: 'artes',
@@ -464,6 +465,13 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   details: 'detalhes',
   finishedAt: 'finalizado em',
   priority: 'prioridade',
+
+  // Service Order fields
+  startedById: 'iniciado por',
+  approvedAt: 'aprovado em',
+  approvedById: 'aprovado por',
+  completedById: 'finalizado por',
+  assignedToId: 'responsável',
 };
 
 /**

@@ -96,6 +96,20 @@ export const taskPricingIncludeSchema = z
     items: z.boolean().optional(),
     layoutFile: z.boolean().optional(),
     customerSignature: z.boolean().optional(),
+    invoicesToCustomers: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              fantasyName: z.boolean().optional(),
+              cnpj: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
   })
   .partial();
 
@@ -112,6 +126,8 @@ export const taskPricingOrderBySchema = z
         expiresAt: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
+        simultaneousTasks: orderByDirectionSchema.optional(),
+        discountReference: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
         task: z
@@ -139,6 +155,8 @@ export const taskPricingOrderBySchema = z
           expiresAt: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
+          simultaneousTasks: orderByDirectionSchema.optional(),
+          discountReference: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -212,6 +230,32 @@ export const taskPricingWhereSchema: z.ZodSchema = z.lazy(() =>
             equals: z.string().optional(),
             in: z.array(z.string()).optional(),
             notIn: z.array(z.string()).optional(),
+            not: z.string().optional(),
+          }),
+        ])
+        .optional(),
+      simultaneousTasks: z
+        .union([
+          z.number(),
+          z.object({
+            equals: z.number().optional(),
+            gt: z.number().optional(),
+            gte: z.number().optional(),
+            lt: z.number().optional(),
+            lte: z.number().optional(),
+            not: z.number().optional(),
+          }),
+        ])
+        .optional(),
+      discountReference: z
+        .union([
+          z.string(),
+          z.object({
+            equals: z.string().optional(),
+            contains: z.string().optional(),
+            startsWith: z.string().optional(),
+            endsWith: z.string().optional(),
+            mode: z.enum(['default', 'insensitive']).optional(),
             not: z.string().optional(),
           }),
         ])
@@ -357,6 +401,45 @@ export const taskPricingGetManySchema = z
 // Nested Schemas for Relations
 // =====================
 
+// InvoicesToCustomers nested schema (array of customer IDs)
+export const invoicesToCustomerIdsSchema = z
+  .preprocess(
+    val => {
+      // Handle empty string, null, undefined
+      if (val === '' || val === null || val === undefined) return [];
+      // If already an array, return it
+      if (Array.isArray(val)) return val;
+      // If string, try to parse as JSON
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    },
+    z.array(z.string().uuid('ID de cliente inválido')),
+  )
+  .optional();
+
+// Simultaneous tasks schema
+export const simultaneousTasksSchema = z
+  .number()
+  .int('Deve ser um número inteiro')
+  .min(1, 'Deve ter no mínimo 1 tarefa simultânea')
+  .max(100, 'Deve ter no máximo 100 tarefas simultâneas')
+  .nullable()
+  .optional();
+
+// Discount reference schema
+export const discountReferenceSchema = z
+  .string()
+  .max(500, 'Máximo de 500 caracteres atingido')
+  .nullable()
+  .optional();
+
 // TaskPricingItem nested schema
 // Amount is optional and defaults to 0 (courtesy items)
 export const taskPricingItemCreateNestedSchema = z.object({
@@ -411,6 +494,11 @@ export const taskPricingCreateNestedSchema = z.object({
 
   // Layout File
   layoutFileId: z.string().uuid().optional().nullable(),
+
+  // New fields
+  simultaneousTasks: simultaneousTasksSchema,
+  discountReference: discountReferenceSchema,
+  invoicesToCustomerIds: invoicesToCustomerIdsSchema,
 });
 
 // =====================
@@ -451,6 +539,11 @@ export const taskPricingCreateSchema = z
 
     // Layout File
     layoutFileId: z.string().uuid().optional().nullable(),
+
+    // New fields
+    simultaneousTasks: simultaneousTasksSchema,
+    discountReference: discountReferenceSchema,
+    invoicesToCustomerIds: invoicesToCustomerIdsSchema,
   })
   .superRefine((data, ctx) => {
     // Discount validation
@@ -508,6 +601,11 @@ export const taskPricingUpdateSchema = z
 
     // Customer Signature (uploaded by customer on public page)
     customerSignatureId: z.string().uuid().optional().nullable(),
+
+    // New fields
+    simultaneousTasks: simultaneousTasksSchema,
+    discountReference: discountReferenceSchema,
+    invoicesToCustomerIds: invoicesToCustomerIdsSchema,
   })
   .superRefine((data, ctx) => {
     // Discount validation

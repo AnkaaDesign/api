@@ -458,13 +458,15 @@ export class PpeController {
     @Query(new ZodQueryValidationPipe(ppeDeliveryGetManySchema)) query: PpeDeliveryGetManyFormData,
     @UserId() userId: string,
   ): Promise<PpeDeliveryGetManyResponse> {
-    // Filter for deliveries that are linked to schedules and are pending
+    // Filter for deliveries that are linked to schedules and are pending/approved
+    // Exclude CANCELLED/REPROVED deliveries from the scheduled list
     const scheduledQuery: PpeDeliveryGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         ppeScheduleId: { not: null },
         actualDeliveryDate: null,
+        status: { in: [PPE_DELIVERY_STATUS.PENDING, PPE_DELIVERY_STATUS.APPROVED] },
       },
     };
     return this.ppeDeliveryService.findMany(scheduledQuery);

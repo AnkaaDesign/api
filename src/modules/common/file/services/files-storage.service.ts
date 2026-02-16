@@ -18,6 +18,7 @@ export interface FilesFolderMapping {
   taskBudgets: string;
   taskInvoices: string;
   taskReceipts: string;
+  taskBankSlips: string;
   taskReimbursements: string;
   taskNfeReimbursements: string;
   cutFiles: string;
@@ -109,6 +110,7 @@ export class FilesStorageService {
     taskBudgets: 'Orcamentos/Tarefas',
     taskInvoices: 'Notas Fiscais/Tarefas',
     taskReceipts: 'Comprovantes/Tarefas',
+    taskBankSlips: 'Boletos/Tarefas',
     taskReimbursements: 'Reembolsos/Tarefas',
     taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
     cutFiles: 'Plotter',
@@ -608,6 +610,7 @@ export class FilesStorageService {
         'taskBudgets',
         'taskInvoices',
         'taskReceipts',
+        'taskBankSlips',
         'taskReimbursements',
         'taskNfeReimbursements',
       ],

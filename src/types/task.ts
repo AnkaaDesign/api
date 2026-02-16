@@ -44,11 +44,11 @@ export interface Task extends BaseEntity {
   forecastDate: Date | null;
   paintId: string | null;
   customerId: string | null;
-  invoiceToId: string | null;
   sectorId: string | null;
   budgetIds?: string[];
   invoiceIds?: string[];
   receiptIds?: string[];
+  bankSlipIds?: string[];
   reimbursementIds?: string[];
   reimbursementInvoiceIds?: string[];
   baseFileIds?: string[];
@@ -57,10 +57,10 @@ export interface Task extends BaseEntity {
   // Relations
   sector?: Sector;
   customer?: Customer;
-  invoiceTo?: Customer;
   budgets?: File[];
   invoices?: File[];
   receipts?: File[];
+  bankSlips?: File[];
   reimbursements?: File[];
   invoiceReimbursements?: File[];
   baseFiles?: File[]; // Files used as base for artwork design
@@ -102,7 +102,6 @@ export interface TaskSelectFields {
   forecastDate?: boolean;
   paintId?: boolean;
   customerId?: boolean;
-  invoiceToId?: boolean;
   sectorId?: boolean;
   createdById?: boolean;
   pricingId?: boolean;
@@ -116,7 +115,6 @@ export interface TaskSelectFields {
 export type TaskSelect = TaskSelectFields & {
   sector?: boolean | { select?: { id?: boolean; name?: boolean } };
   customer?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
-  invoiceTo?: boolean | { select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean } };
   budgets?:
     | boolean
     | {
@@ -142,6 +140,18 @@ export type TaskSelect = TaskSelectFields & {
         };
       };
   receipts?:
+    | boolean
+    | {
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  bankSlips?:
     | boolean
     | {
         select?: {
@@ -323,7 +333,6 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   forecastDate: true,
   paintId: true,
   customerId: true,
-  invoiceToId: true,
   sectorId: true,
   createdById: true,
   pricingId: true,
@@ -334,9 +343,6 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
     select: { id: true, name: true },
   },
   customer: {
-    select: { id: true, fantasyName: true, cnpj: true },
-  },
-  invoiceTo: {
     select: { id: true, fantasyName: true, cnpj: true },
   },
   budgets: {
@@ -360,6 +366,16 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
     },
   },
   receipts: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  bankSlips: {
     select: {
       id: true,
       filename: true,
@@ -513,14 +529,12 @@ export interface TaskDetailed extends BaseEntity {
   forecastDate: Date | null;
   paintId: string | null;
   customerId: string | null;
-  invoiceToId: string | null;
   sectorId: string | null;
   createdById: string | null;
   pricingId: string | null;
 
   sector?: { id: string; name: string } | null;
   customer?: { id: string; fantasyName: string; cnpj: string | null } | null;
-  invoiceTo?: { id: string; fantasyName: string; cnpj: string | null } | null;
   budgets?: Array<{
     id: string;
     filename: string;
@@ -538,6 +552,14 @@ export interface TaskDetailed extends BaseEntity {
     thumbnailUrl: string | null;
   }>;
   receipts?: Array<{
+    id: string;
+    filename: string;
+    path: string;
+    mimetype: string;
+    size: number;
+    thumbnailUrl: string | null;
+  }>;
+  bankSlips?: Array<{
     id: string;
     filename: string;
     path: string;
@@ -606,12 +628,6 @@ export interface TaskIncludes {
         include?: CustomerIncludes;
         select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean };
       };
-  invoiceTo?:
-    | boolean
-    | {
-        include?: CustomerIncludes;
-        select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean };
-      };
   budgets?:
     | boolean
     | {
@@ -639,6 +655,19 @@ export interface TaskIncludes {
         };
       };
   receipts?:
+    | boolean
+    | {
+        include?: FileIncludes;
+        select?: {
+          id?: boolean;
+          filename?: boolean;
+          path?: boolean;
+          mimetype?: boolean;
+          size?: boolean;
+          thumbnailUrl?: boolean;
+        };
+      };
+  bankSlips?:
     | boolean
     | {
         include?: FileIncludes;
