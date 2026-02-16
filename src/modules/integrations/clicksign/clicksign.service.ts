@@ -329,8 +329,7 @@ export class ClickSignService {
     }
 
     try {
-      // Configure notification channel - using email for testing
-      // TODO: Change back to WhatsApp for production: const notificationChannel = input.phoneNumber ? 'whatsapp' : 'email';
+      // Configure notification channel
       const notificationChannel = 'email';
 
       const signerAttributes: any = {
@@ -531,10 +530,9 @@ export class ClickSignService {
       // If it's a relative path, construct the full URL
       // ClickSign API v3 may return relative paths like /2023/03/13/file.pdf
       if (signedFileUrl.startsWith('/')) {
-        // Use the production ClickSign domain for downloads
-        const baseUrl = this.apiUrl.includes('sandbox')
-          ? 'https://sandbox.clicksign.com'
-          : 'https://app.clicksign.com';
+        // Derive the base domain from the configured API URL
+        const parsedApiUrl = new URL(this.apiUrl);
+        const baseUrl = parsedApiUrl.origin;
         downloadUrl = `${baseUrl}${signedFileUrl}`;
         this.logger.debug(`Constructed download URL: ${downloadUrl}`);
       }
@@ -621,9 +619,8 @@ export class ClickSignService {
    * Get signer's signature URL (for direct access)
    * Note: In API v3, the URL is typically sent via email only
    */
+  // ClickSign API v3 does not provide individual signer URLs - signatures are done via email link
   async getSignerUrl(envelopeId: string, signerId: string): Promise<string> {
-    // API v3 doesn't provide direct signing URL - return empty
-    // The URL will be captured from the requirement response if available
     return '';
   }
 
@@ -677,8 +674,7 @@ export class ClickSignService {
 
     await this.delay(3000);
 
-    // Step 4: Create requirement - using email for testing
-    // TODO: Change back to WhatsApp for production: const authMethod = signer.phoneNumber ? 'whatsapp' : 'email';
+    // Step 4: Create requirement
     const authMethod = 'email';
     const requirement = await this.createRequirement({
       envelopeId: envelope.id,

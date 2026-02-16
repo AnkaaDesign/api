@@ -1,3 +1,5 @@
+import { getRedisConfig } from '@common/config/redis.config';
+
 export interface ThumbnailConfig {
   // Redis Configuration
   redis: {
@@ -45,12 +47,7 @@ export interface ThumbnailConfig {
 }
 
 export const THUMBNAIL_CONFIG: ThumbnailConfig = {
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379'),
-    password: process.env.REDIS_PASSWORD,
-    db: parseInt(process.env.REDIS_DB || '0'),
-  },
+  redis: getRedisConfig(),
 
   queue: {
     concurrency: parseInt(process.env.THUMBNAIL_CONCURRENCY || '2'),

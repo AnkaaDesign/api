@@ -4,19 +4,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import type { FilesFolderMapping } from '../services/files-storage.service';
+import { env } from '../../../../common/config/env.validation';
 
 // Upload configuration
 export const UPLOAD_CONFIG = {
   // Maximum file size (default: 500MB)
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '524288000'), // 500MB in bytes
+  maxFileSize: env.MAX_FILE_SIZE,
 
   // Upload directory (temporary staging before files storage)
-  uploadDir: process.env.UPLOAD_DIR || './uploads',
+  uploadDir: env.UPLOAD_DIR,
 
   // Files storage configuration
-  // Production: FILES_ROOT=/srv/files (served by nginx via arquivos.ankaadesign.com.br, accessible locally via Samba)
+  // Production: FILES_ROOT is set to an absolute path (served by nginx, accessible locally via Samba)
   // Development: FILES_ROOT=./files
-  filesRoot: process.env.FILES_ROOT || './files',
+  filesRoot: env.FILES_ROOT,
 
   // Allowed file types (MIME types)
   allowedMimeTypes: [
@@ -221,8 +222,8 @@ export const multerConfig = {
 
 // Helper function to generate public URL for files
 export function generateFileUrl(filename: string, filePath: string): string {
-  const baseUrl = process.env.API_BASE_URL || 'http://localhost:3030';
-  const filesBaseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
+  const baseUrl = env.API_URL || `http://localhost:${env.PORT}`;
+  const filesBaseUrl = env.FILES_BASE_URL || 'https://arquivos.ankaadesign.com.br';
 
   // Check if file is in files storage structure (use normalized startsWith to avoid
   // false matches, e.g. './files' matching inside './uploads/files')

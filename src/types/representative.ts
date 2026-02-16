@@ -13,22 +13,22 @@ export interface Representative extends PrismaRepresentative {
 export type RepresentativeResponse = Representative;
 
 export interface RepresentativeCreateFormData {
-  email?: string; // Optional - can be added later
+  email?: string | null; // Optional - can be added later
   phone: string;
   name: string;
-  password?: string; // Optional - only required for system access
-  customerId?: string; // Optional - representative can exist without customer
+  password?: string | null; // Optional - only required for system access
+  customerId?: string | null; // Optional - representative can exist without customer
   role: RepresentativeRole;
   isActive?: boolean;
 }
 
 export interface RepresentativeUpdateFormData {
-  email?: string;
+  email?: string | null;
   phone?: string;
   name?: string;
   role?: RepresentativeRole;
   isActive?: boolean;
-  customerId?: string;
+  customerId?: string | null;
 }
 
 export interface RepresentativeLoginFormData {

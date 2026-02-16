@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
+import { getRedisConfig } from '@common/config/redis.config';
 
 @Injectable()
 export class ThrottlerService {
@@ -7,12 +8,7 @@ export class ThrottlerService {
   private readonly keyPrefix = 'throttler:';
 
   constructor() {
-    this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0'),
-    });
+    this.redis = new Redis(getRedisConfig());
   }
 
   private formatTTL(seconds: number): string {

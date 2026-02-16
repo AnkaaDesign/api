@@ -1,12 +1,17 @@
-import { STOCK_LEVEL } from '@constants';
+import {
+  STOCK_LEVEL,
+  STOCK_CRITICAL_THRESHOLD,
+  STOCK_LOW_THRESHOLD,
+  STOCK_ACTIVE_ORDER_ADJUSTMENT,
+} from '@constants';
 
 /**
  * Determines the stock level based on quantity, reorder point, and active order status
  *
- * Thresholds (inclusive boundaries):
- * - CRITICAL: quantity <= 90% of reorder point
- * - LOW: 90% < quantity <= 110% of reorder point
- * - OPTIMAL: 110% < quantity <= max quantity (or no max)
+ * Updated thresholds:
+ * - CRITICAL: quantity <= 50% of reorder point (half of safety stock consumed)
+ * - LOW: quantity <= 100% of reorder point (at or below reorder trigger)
+ * - OPTIMAL: above reorder point and below max quantity
  * - OVERSTOCKED: quantity > max quantity
  *
  * When hasActiveOrder is true, thresholds are adjusted by 1.5x to reduce urgency
@@ -45,16 +50,16 @@ export function determineStockLevel(
   }
 
   // Adjust thresholds if there's an active order (less urgency)
-  const adjustmentFactor = hasActiveOrder ? 1.5 : 1;
-  const adjustedCriticalThreshold = reorderPoint * 0.9 * adjustmentFactor;
-  const adjustedLowThreshold = reorderPoint * 1.1 * adjustmentFactor;
+  const adjustmentFactor = hasActiveOrder ? STOCK_ACTIVE_ORDER_ADJUSTMENT : 1;
+  const adjustedCriticalThreshold = reorderPoint * STOCK_CRITICAL_THRESHOLD * adjustmentFactor;
+  const adjustedLowThreshold = reorderPoint * STOCK_LOW_THRESHOLD * adjustmentFactor;
 
-  // Check critical level (inclusive boundary)
+  // Check critical level: quantity at or below 50% of reorder point
   if (quantity <= adjustedCriticalThreshold) {
     return STOCK_LEVEL.CRITICAL;
   }
 
-  // Check low level (inclusive boundary)
+  // Check low level: quantity at or below reorder point
   if (quantity <= adjustedLowThreshold) {
     return STOCK_LEVEL.LOW;
   }
@@ -192,11 +197,11 @@ export function getStockLevelMessage(
       return 'Item sem estoque. Necessário reposição urgente.';
     case STOCK_LEVEL.CRITICAL:
       return reorderPoint !== null
-        ? `Estoque crítico. Quantidade (${quantity}) está em ou abaixo de 90% do ponto de pedido (${reorderPoint}).`
+        ? `Estoque crítico. Quantidade (${quantity}) está em ou abaixo de 50% do ponto de pedido (${reorderPoint}).`
         : `Estoque crítico com ${quantity} unidades.`;
     case STOCK_LEVEL.LOW:
       return reorderPoint !== null
-        ? `Estoque baixo. Quantidade (${quantity}) está entre 90% e 110% do ponto de pedido (${reorderPoint}).`
+        ? `Estoque baixo. Quantidade (${quantity}) está em ou abaixo do ponto de pedido (${reorderPoint}).`
         : `Estoque baixo com ${quantity} unidades.`;
     case STOCK_LEVEL.OPTIMAL:
       return `Estoque em nível adequado com ${quantity} unidades.`;

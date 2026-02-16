@@ -206,8 +206,14 @@ const getApiBaseUrl = (): string => {
     return process.env.VITE_API_URL;
   }
 
-  // Default fallback
-  return 'http://localhost:3030';
+  // Check for server-side API_URL (set in .env for the API server)
+  if (typeof process !== 'undefined' && process.env?.API_URL) {
+    return process.env.API_URL;
+  }
+
+  // Default fallback for local development
+  const port = (typeof process !== 'undefined' && process.env?.PORT) || '3030';
+  return `http://localhost:${port}`;
 };
 
 export const getFileUrl = (file: File, baseUrl?: string): string => {

@@ -52,8 +52,12 @@ export class ClickSignController {
 
     try {
       // Validate webhook signature if secret is configured
+      // Use the raw body buffer captured by middleware in main.ts for accurate HMAC validation
+      // (JSON.stringify(body) may not match the original bytes due to parsing/serialization differences)
       const signature = req.headers['x-clicksign-signature'] as string;
-      const rawBody = JSON.stringify(body);
+      const rawBody = (req as any).rawBody
+        ? (req as any).rawBody.toString('utf8')
+        : JSON.stringify(body);
 
       if (signature && !this.clickSignService.validateWebhookSignature(rawBody, signature)) {
         this.logger.warn('Invalid webhook signature');
@@ -122,8 +126,10 @@ export class ClickSignController {
     const signedDocUrl = this.clickSignService.getSignedDocumentUrl(event);
     const signedAt = this.clickSignService.getEventTimestamp(event);
 
+    // envelopeId is not present in the webhook event payload (ClickSign only sends document data).
+    // handleSignatureCompletion uses documentKey as the primary lookup, so envelopeId is unused.
     await this.ppeSignatureService.handleSignatureCompletion({
-      envelopeId: '', // Not used in document-based lookup
+      envelopeId: documentKey, // Webhook events don't include envelopeId; documentKey is the primary lookup key
       documentKey,
       signedAt,
       signedDocumentUrl: signedDocUrl,

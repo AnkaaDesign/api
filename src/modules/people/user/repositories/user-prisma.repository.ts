@@ -52,13 +52,12 @@ export class UserPrismaRepository
 
   // Mapping methods
   protected mapDatabaseEntityToEntity(databaseEntity: any): User {
-    const { birth, admissional, ...restUser } = databaseEntity;
+    const { birth, ...restUser } = databaseEntity;
 
     const user = {
       ...restUser,
       // Map database field names to entity field names
       birth: birth || null,
-      hireDate: admissional || null,
     } as User;
 
     // Calculate virtual remuneration field for the position if it exists

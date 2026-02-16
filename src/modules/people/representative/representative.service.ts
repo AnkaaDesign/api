@@ -50,19 +50,6 @@ export class RepresentativeService {
       throw new BadRequestException('Telefone já cadastrado');
     }
 
-    // Check if representative already exists for this customer and role (only if customerId is provided)
-    if (data.customerId) {
-      const existingRole = await this.repository.findByCustomerIdAndRole(
-        data.customerId,
-        data.role,
-      );
-      if (existingRole) {
-        throw new BadRequestException(
-          `Já existe um representante ${this.getRoleLabel(data.role)} para este cliente`,
-        );
-      }
-    }
-
     // Hash password if provided (only required for system access)
     let hashedPassword: string | undefined;
     if (data.password) {
@@ -223,19 +210,6 @@ export class RepresentativeService {
       const phoneExists = await this.repository.findByPhone(data.phone);
       if (phoneExists) {
         throw new BadRequestException('Telefone já cadastrado');
-      }
-    }
-
-    // If updating role, check if another representative exists for that role
-    if (data.role && data.role !== existing.role && existing.customerId) {
-      const roleExists = await this.repository.findByCustomerIdAndRole(
-        existing.customerId,
-        data.role,
-      );
-      if (roleExists && roleExists.id !== id) {
-        throw new BadRequestException(
-          `Já existe um representante ${this.getRoleLabel(data.role)} para este cliente`,
-        );
       }
     }
 

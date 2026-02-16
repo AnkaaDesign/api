@@ -31,6 +31,8 @@ import {
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   DISCOUNT_TYPE,
+  ENTITY_TYPE,
+  CHANGE_ACTION,
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
@@ -166,6 +168,20 @@ export class TaskPricingService {
         throw new BadRequestException('Tarefa não encontrada.');
       }
 
+      // Validate invoicesToCustomerIds if provided
+      if (data.invoicesToCustomerIds && data.invoicesToCustomerIds.length > 0) {
+        const customers = await this.prisma.customer.findMany({
+          where: { id: { in: data.invoicesToCustomerIds } },
+          select: { id: true },
+        });
+
+        if (customers.length !== data.invoicesToCustomerIds.length) {
+          throw new BadRequestException(
+            'Um ou mais clientes selecionados para faturamento não foram encontrados.',
+          );
+        }
+      }
+
       // NOTE: Removed validation that prevented pricing reuse
       // Pricing can now be shared across multiple tasks (one-to-many relationship)
       // The task will be linked to pricing via task.pricingId field
@@ -216,7 +232,19 @@ export class TaskPricingService {
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,
             // Layout File
-            layoutFileId: data.layoutFileId || null,
+            ...(data.layoutFileId && {
+              layoutFile: { connect: { id: data.layoutFileId } },
+            }),
+            // New fields
+            simultaneousTasks: data.simultaneousTasks || null,
+            discountReference: data.discountReference || null,
+            // Invoice To Customers (many-to-many relationship)
+            ...(data.invoicesToCustomerIds &&
+              data.invoicesToCustomerIds.length > 0 && {
+                invoicesToCustomers: {
+                  connect: data.invoicesToCustomerIds.map(customerId => ({ id: customerId })),
+                },
+              }),
             items: {
               create: data.items.map((item, index) => ({
                 amount: item.amount || 0,
@@ -227,7 +255,12 @@ export class TaskPricingService {
               })),
             },
           },
-          include: { items: { orderBy: { position: 'asc' } }, tasks: true, layoutFile: true },
+          include: {
+            items: { orderBy: { position: 'asc' } },
+            tasks: true,
+            layoutFile: true,
+            invoicesToCustomers: true,
+          },
         });
 
         // Log change
@@ -267,11 +300,28 @@ export class TaskPricingService {
   ): Promise<TaskPricingUpdateResponse> {
     try {
       const existing = await this.taskPricingRepository.findById(id, {
-        include: { items: { orderBy: { position: 'asc' } } },
+        include: {
+          items: { orderBy: { position: 'asc' } },
+          invoicesToCustomers: true,
+        },
       });
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+      }
+
+      // Validate invoicesToCustomerIds if provided
+      if (data.invoicesToCustomerIds && data.invoicesToCustomerIds.length > 0) {
+        const customers = await this.prisma.customer.findMany({
+          where: { id: { in: data.invoicesToCustomerIds } },
+          select: { id: true },
+        });
+
+        if (customers.length !== data.invoicesToCustomerIds.length) {
+          throw new BadRequestException(
+            'Um ou mais clientes selecionados para faturamento não foram encontrados.',
+          );
+        }
       }
 
       // Determine current or new values
@@ -323,7 +373,22 @@ export class TaskPricingService {
               customGuaranteeText: data.customGuaranteeText,
             }),
             // Layout File
-            ...(data.layoutFileId !== undefined && { layoutFileId: data.layoutFileId }),
+            ...(data.layoutFileId !== undefined && {
+              layoutFile: data.layoutFileId
+                ? { connect: { id: data.layoutFileId } }
+                : { disconnect: true },
+            }),
+            // New fields
+            ...(data.simultaneousTasks !== undefined && {
+              simultaneousTasks: data.simultaneousTasks,
+            }),
+            ...(data.discountReference !== undefined && { discountReference: data.discountReference }),
+            // Invoice To Customers (many-to-many relationship - disconnect all + connect new)
+            ...(data.invoicesToCustomerIds !== undefined && {
+              invoicesToCustomers: {
+                set: data.invoicesToCustomerIds.map(customerId => ({ id: customerId })),
+              },
+            }),
             ...(data.items && {
               items: {
                 deleteMany: {},
@@ -337,20 +402,134 @@ export class TaskPricingService {
               },
             }),
           },
-          include: { items: { orderBy: { position: 'asc' } }, tasks: true, layoutFile: true },
+          include: {
+            items: { orderBy: { position: 'asc' } },
+            tasks: true,
+            layoutFile: true,
+            invoicesToCustomers: true,
+          },
         });
 
-        // Log change
-        await this.changeLogService.logChange({
-          entityType: CHANGE_LOG_ENTITY_TYPE.TASK as any,
+        // Track individual field changes
+        const { trackAndLogFieldChanges } = await import(
+          '@modules/common/changelog/utils/changelog-helpers'
+        );
+
+        await trackAndLogFieldChanges({
+          changeLogService: this.changeLogService,
+          entityType: ENTITY_TYPE.TASK_PRICING,
           entityId: id,
-          action: CHANGE_LOG_ACTION.UPDATE as any,
-          userId,
-          reason: 'Atualização de orçamento',
-          triggeredBy: CHANGE_TRIGGERED_BY.USER,
-          triggeredById: userId,
+          oldEntity: existing,
+          newEntity: updatedPricing,
+          fieldsToTrack: [
+            'subtotal',
+            'discountType',
+            'discountValue',
+            'total',
+            'expiresAt',
+            'status',
+            'paymentCondition',
+            'downPaymentDate',
+            'customPaymentText',
+            'guaranteeYears',
+            'customGuaranteeText',
+            'layoutFileId',
+            'customerSignatureId',
+            'customForecastDays',
+            'budgetNumber',
+            'simultaneousTasks',
+            'discountReference',
+          ],
+          userId: userId || '',
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
           transaction: tx,
         });
+
+        // Special handling for invoicesToCustomers many-to-many changes
+        if (data.invoicesToCustomerIds !== undefined) {
+          const oldCustomers = (existing as any).invoicesToCustomers || [];
+          const oldCustomerIds = oldCustomers.map((customer: any) => customer.id);
+          const newCustomerIds = data.invoicesToCustomerIds;
+
+          // Check if the arrays are different
+          const oldSet = new Set(oldCustomerIds);
+          const newSet = new Set(newCustomerIds);
+          const hasChanged =
+            oldSet.size !== newSet.size ||
+            ![...oldSet].every((id: string) => newSet.has(id));
+
+          if (hasChanged) {
+            // Build readable values for changelog display
+            const oldNames = oldCustomers
+              .map((c: any) => c.fantasyName || c.corporateName || c.id)
+              .join(', ') || 'Nenhum';
+            const newCustomerData = (updatedPricing as any).invoicesToCustomers || [];
+            const newNames = newCustomerData
+              .map((c: any) => c.fantasyName || c.corporateName || c.id)
+              .join(', ') || 'Nenhum';
+
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK_PRICING,
+              entityId: id,
+              action: CHANGE_LOG_ACTION.UPDATE as any,
+              field: 'invoicesToCustomerIds',
+              oldValue: oldNames,
+              newValue: newNames,
+              userId: userId || '',
+              reason: 'Atualização de clientes para faturamento',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: userId,
+              transaction: tx,
+            });
+          }
+        }
+
+        // Track pricing items changes
+        if (data.items !== undefined) {
+          const oldItems = (existing as any).items || [];
+          const newItems = (updatedPricing as any).items || [];
+
+          // Format items for comparison: description + amount
+          const formatItem = (item: any) =>
+            `${item.description || ''}: R$ ${Number(item.amount || 0).toFixed(2)}`;
+          const oldItemsSummary = oldItems.map(formatItem);
+          const newItemsSummary = newItems.map(formatItem);
+
+          // Check if items actually changed
+          const itemsChanged =
+            oldItemsSummary.length !== newItemsSummary.length ||
+            oldItemsSummary.some((s: string, i: number) => s !== newItemsSummary[i]);
+
+          if (itemsChanged) {
+            await this.changeLogService.logChange({
+              entityType: CHANGE_LOG_ENTITY_TYPE.TASK_PRICING as any,
+              entityId: id,
+              action: CHANGE_LOG_ACTION.UPDATE as any,
+              field: 'items',
+              oldValue: {
+                count: oldItems.length,
+                items: oldItems.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount),
+                  observation: item.observation,
+                })),
+              },
+              newValue: {
+                count: newItems.length,
+                items: newItems.map((item: any) => ({
+                  description: item.description,
+                  amount: Number(item.amount),
+                  observation: item.observation,
+                })),
+              },
+              userId: userId || '',
+              reason: 'Atualização dos itens do orçamento',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: userId,
+              transaction: tx,
+            });
+          }
+        }
 
         return updatedPricing;
       });
@@ -374,23 +553,88 @@ export class TaskPricingService {
    */
   async delete(id: string, userId: string): Promise<TaskPricingDeleteResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id);
+      const existing = await this.prisma.taskPricing.findUnique({
+        where: { id },
+        include: {
+          items: { orderBy: { position: 'asc' } },
+          tasks: { select: { id: true } },
+          invoicesToCustomers: { select: { id: true } },
+        },
+      });
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
+      // Store the full pricing data for changelog (enables rollback restoration)
+      const pricingSnapshot = {
+        id: existing.id,
+        budgetNumber: existing.budgetNumber,
+        subtotal: existing.subtotal,
+        total: existing.total,
+        discountType: existing.discountType,
+        discountValue: existing.discountValue,
+        expiresAt: existing.expiresAt,
+        status: existing.status,
+        paymentCondition: existing.paymentCondition,
+        downPaymentDate: existing.downPaymentDate,
+        customPaymentText: existing.customPaymentText,
+        guaranteeYears: existing.guaranteeYears,
+        customGuaranteeText: existing.customGuaranteeText,
+        customForecastDays: existing.customForecastDays,
+        simultaneousTasks: existing.simultaneousTasks,
+        discountReference: existing.discountReference,
+        layoutFileId: existing.layoutFileId,
+        customerSignatureId: existing.customerSignatureId,
+        items: existing.items.map(item => ({
+          description: item.description,
+          amount: item.amount,
+          observation: item.observation,
+          shouldSync: item.shouldSync,
+          position: item.position,
+        })),
+        invoicesToCustomerIds: existing.invoicesToCustomers.map(c => c.id),
+      };
+
+      const taskIds = existing.tasks.map(t => t.id);
+
       await this.prisma.$transaction(async tx => {
+        // Nullify pricingId on all associated tasks before deleting
+        if (taskIds.length > 0) {
+          await tx.task.updateMany({
+            where: { pricingId: id },
+            data: { pricingId: null },
+          });
+
+          // Log the pricingId change on each associated task
+          for (const taskId of taskIds) {
+            await this.changeLogService.logChange({
+              entityType: ENTITY_TYPE.TASK,
+              entityId: taskId,
+              action: CHANGE_ACTION.UPDATE,
+              field: 'pricingId',
+              oldValue: pricingSnapshot,
+              newValue: null,
+              userId,
+              reason: 'Orçamento removido (exclusão do orçamento)',
+              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+              triggeredById: id,
+              transaction: tx,
+            });
+          }
+        }
+
         await tx.taskPricing.delete({ where: { id } });
 
-        // Log change
+        // Log the pricing deletion itself
         await this.changeLogService.logChange({
-          entityType: CHANGE_LOG_ENTITY_TYPE.TASK as any,
+          entityType: ENTITY_TYPE.TASK_PRICING,
           entityId: id,
-          action: CHANGE_LOG_ACTION.DELETE as any,
+          action: CHANGE_ACTION.DELETE,
+          oldValue: pricingSnapshot,
           userId,
           reason: 'Exclusão de orçamento',
-          triggeredBy: CHANGE_TRIGGERED_BY.USER,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
           triggeredById: userId,
           transaction: tx,
         });
@@ -501,10 +745,12 @@ export class TaskPricingService {
           items: true,
           layoutFile: true,
           customerSignature: true,
+          invoicesToCustomers: true,
           tasks: {
             include: {
               customer: true,
               truck: true,
+              representatives: true,
             },
           },
         },

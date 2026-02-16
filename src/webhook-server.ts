@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import Redis from 'ioredis';
+import { getRedisConfig } from './common/config/redis.config';
 
 /**
  * Dedicated Webhook Server for backup progress
@@ -13,17 +14,15 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ['https://ankaadesign.com.br', 'https://app.ankaadesign.com.br'],
+    origin: process.env.CORS_ORIGINS
+      ? process.env.CORS_ORIGINS.split(',').map(h => h.trim())
+      : ['https://ankaadesign.com.br', 'https://app.ankaadesign.com.br'],
     credentials: true,
   },
 });
 
 // Redis for pub/sub between API and webhook server
-const redis = new Redis({
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
-  password: process.env.REDIS_PASSWORD,
-});
+const redis = new Redis(getRedisConfig());
 
 const redisSub = redis.duplicate();
 

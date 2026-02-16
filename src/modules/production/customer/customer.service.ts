@@ -64,6 +64,8 @@ export class CustomerService {
     'site',
     'tags',
     'logoId',
+    'registrationStatus',
+    'stateRegistration',
   ];
 
   constructor(

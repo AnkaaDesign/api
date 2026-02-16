@@ -70,12 +70,10 @@ export class RepresentativePrismaRepository extends RepresentativeRepository {
     tx?: PrismaTransaction,
   ): Promise<Representative | null> {
     const client = tx || this.prisma;
-    return await client.representative.findUnique({
+    return await client.representative.findFirst({
       where: {
-        customerId_role: {
-          customerId,
-          role: role as any,
-        },
+        customerId,
+        role: role as any,
       },
     });
   }

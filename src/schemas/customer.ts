@@ -74,6 +74,8 @@ export const customerSelectSchema = z
     site: z.boolean().optional(),
     logoId: z.boolean().optional(),
     economicActivityId: z.boolean().optional(),
+    registrationStatus: z.boolean().optional(),
+    stateRegistration: z.boolean().optional(),
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
 
@@ -140,6 +142,8 @@ export const customerOrderBySchema = z
         zipCode: orderByDirectionSchema.optional(),
         site: orderByDirectionSchema.optional(),
         logoId: orderByDirectionSchema.optional(),
+        registrationStatus: orderByDirectionSchema.optional(),
+        stateRegistration: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -162,6 +166,8 @@ export const customerOrderBySchema = z
           state: orderByDirectionSchema.optional(),
           zipCode: orderByDirectionSchema.optional(),
           site: orderByDirectionSchema.optional(),
+          registrationStatus: orderByDirectionSchema.optional(),
+          stateRegistration: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -394,6 +400,32 @@ export const customerWhereSchema: z.ZodType<any> = z
       .optional(),
 
     site: z
+      .union([
+        z.string().nullable(),
+        z.object({
+          equals: z.string().nullable().optional(),
+          not: z.string().nullable().optional(),
+          contains: z.string().optional(),
+          startsWith: z.string().optional(),
+          endsWith: z.string().optional(),
+          mode: z.enum(['default', 'insensitive']).optional(),
+        }),
+      ])
+      .optional(),
+
+    registrationStatus: z
+      .union([
+        z.string().nullable(),
+        z.object({
+          equals: z.string().nullable().optional(),
+          not: z.string().nullable().optional(),
+          in: z.array(z.string()).optional(),
+          notIn: z.array(z.string()).optional(),
+        }),
+      ])
+      .optional(),
+
+    stateRegistration: z
       .union([
         z.string().nullable(),
         z.object({
@@ -811,6 +843,7 @@ export const customerCreateSchema = z
       .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
       .nullable()
       .optional(),
+    stateRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData)
   .refine(
@@ -883,6 +916,7 @@ export const customerQuickCreateSchema = z
       .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
       .nullable()
       .optional(),
+    stateRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData);
 
@@ -951,6 +985,7 @@ export const customerUpdateSchema = z
       .enum(['ACTIVE', 'SUSPENDED', 'UNFIT', 'ACTIVE_NOT_REGULAR', 'DEREGISTERED'])
       .nullable()
       .optional(),
+    stateRegistration: z.string().nullable().optional(),
   })
   .transform(toFormData);
 
@@ -1064,5 +1099,6 @@ export const mapCustomerToFormData = createMapToFormDataHelper<Customer, Custome
       | 'ACTIVE_NOT_REGULAR'
       | 'DEREGISTERED'
       | null,
+    stateRegistration: customer.stateRegistration,
   }),
 );

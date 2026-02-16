@@ -6,7 +6,6 @@ import * as Handlebars from 'handlebars';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DeepLinkService, DeepLinkEntity } from '../deep-link.service';
-import { NotificationTrackingService } from '../notification-tracking.service';
 
 /**
  * Email sending options
@@ -167,9 +166,13 @@ export class MailerService {
       : path.join(__dirname, '..');
 
     this.templatesPath = path.join(baseDir, 'templates', 'email', 'notification');
-    this.trackingBaseUrl = this.configService.get<string>('API_URL') || 'http://localhost:3030';
+    this.trackingBaseUrl =
+      this.configService.get<string>('API_URL') ||
+      `http://localhost:${process.env.PORT || '3030'}`;
     this.unsubscribeBaseUrl =
-      this.configService.get<string>('WEB_APP_URL') || 'http://localhost:3000';
+      this.configService.get<string>('WEB_APP_URL') ||
+      this.configService.get<string>('CLIENT_HOST') ||
+      'http://localhost:3000';
     this.templateCache = new Map();
 
     // Register Handlebars helpers

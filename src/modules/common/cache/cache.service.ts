@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { getRedisConfig } from '@common/config/redis.config';
 
 @Injectable()
 export class CacheService implements OnModuleDestroy {
@@ -7,10 +8,7 @@ export class CacheService implements OnModuleDestroy {
 
   constructor() {
     this.redis = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD,
-      db: parseInt(process.env.REDIS_DB || '0'),
+      ...getRedisConfig(),
       keyPrefix: 'cache:',
     });
   }

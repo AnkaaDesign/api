@@ -95,7 +95,7 @@ export class ProfileService {
       }
 
       // Upload new avatar file using FileService
-      // This will store it in: /srv/files/Colaboradores/{userName}/avatar.ext
+      // This will store it in: {FILES_ROOT}/Colaboradores/{userName}/avatar.ext
       const uploadedFile = await this.fileService.createFromUpload(
         photo,
         undefined, // No includes needed for File entity

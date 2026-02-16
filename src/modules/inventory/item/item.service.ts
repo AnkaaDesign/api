@@ -49,6 +49,16 @@ import {
   PPE_SIZE,
   PPE_DELIVERY_MODE,
 } from '../../../constants/enums';
+import {
+  CONSUMPTION_ACTIVITY_REASONS,
+  CONSUMPTION_LOOKBACK_MONTHS,
+  CONSUMPTION_DECAY_HALF_LIFE_MONTHS,
+  BALANCE_DISTRIBUTION_ENABLED,
+  BALANCE_DISTRIBUTION_DEFAULT_MONTHS,
+  getSeasonalFactor,
+  getWorkingDaysInMonth,
+  STANDARD_WORKING_DAYS_PER_MONTH,
+} from '../../../constants/inventory-config';
 import { PPE_SIZE_ORDER } from '../../../constants/sortOrders';
 import {
   calculateBatchStockHealth,
@@ -57,6 +67,7 @@ import {
   batchCalculateMaxQuantities,
   type ReorderPointUpdateResult,
   determineStockLevel,
+  normalizeConsumptionByWorkingDays,
 } from '../../../utils';
 import { hasValueChanged } from '@modules/common/changelog/utils/serialize-changelog-value';
 import { logEntityChange } from '@modules/common/changelog/utils/changelog-helpers';
@@ -2071,17 +2082,22 @@ export class ItemService {
   }
 
   /**
-   * Calculate weighted average monthly consumption for an item based on recent activities
-   * Uses exponential decay: weight = 0.5^((currentMonth - activityMonth) / 3)
-   * This means the weight halves every 3 months
+   * Calculate weighted average monthly consumption for an item based on recent activities.
+   *
+   * Key improvements:
+   * 1. Filters out non-consumption reasons (INVENTORY_COUNT, DAMAGE, LOSS, etc.)
+   * 2. Distributes INVENTORY_COUNT outbounds across months since last balance
+   * 3. Normalizes by working days (accounts for Dec 20 - Jan 10 vacation)
+   * 4. Applies seasonal adjustment factors for month-of-year patterns
+   *
+   * Uses exponential decay: weight = 0.5^((currentMonth - activityMonth) / halfLife)
    */
   async calculateItemMonthlyConsumption(itemId: string, tx?: PrismaTransaction): Promise<number> {
     const prismaClient = tx || this.prisma;
 
     try {
-      // Get activities from the last 12 months
-      const twelveMonthsAgo = new Date();
-      twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+      const lookbackDate = new Date();
+      lookbackDate.setMonth(lookbackDate.getMonth() - CONSUMPTION_LOOKBACK_MONTHS);
 
       // Verify item exists
       const item = await prismaClient.item.findUnique({
@@ -2092,61 +2108,123 @@ export class ItemService {
         throw new NotFoundException('Item não encontrado');
       }
 
-      // Get all OUTBOUND activities from the last 12 months
-      const activities = await prismaClient.activity.findMany({
+      // Get all OUTBOUND activities from the lookback period
+      const allActivities = await prismaClient.activity.findMany({
         where: {
           itemId,
           operation: ACTIVITY_OPERATION.OUTBOUND,
-          createdAt: {
-            gte: twelveMonthsAgo,
-          },
+          createdAt: { gte: lookbackDate },
         },
         orderBy: { createdAt: 'desc' },
       });
 
-      if (activities.length === 0) {
+      // Separate consumption activities from adjustment activities
+      const consumptionActivities = allActivities.filter(a =>
+        CONSUMPTION_ACTIVITY_REASONS.includes(a.reason as any),
+      );
+
+      // Handle INVENTORY_COUNT activities separately: distribute across months since last balance
+      const inventoryCountActivities = allActivities.filter(
+        a => a.reason === ACTIVITY_REASON.INVENTORY_COUNT,
+      );
+
+      if (consumptionActivities.length === 0 && inventoryCountActivities.length === 0) {
         return 0;
       }
 
-      // Group activities by month
+      // Group consumption activities by month
       const currentDate = new Date();
       const currentYear = currentDate.getFullYear();
       const currentMonth = currentDate.getMonth();
-
       const monthlyConsumption = new Map<string, number>();
 
-      activities.forEach(activity => {
+      consumptionActivities.forEach(activity => {
         const activityDate = new Date(activity.createdAt);
         const year = activityDate.getFullYear();
         const month = activityDate.getMonth();
         const monthKey = `${year}-${month}`;
 
-        // Calculate quantity consumed for this activity
-        const consumedQuantity = activity.quantity;
-
-        // Accumulate by month
-        const currentMonthConsumption = monthlyConsumption.get(monthKey) || 0;
-        monthlyConsumption.set(monthKey, currentMonthConsumption + consumedQuantity);
+        const current = monthlyConsumption.get(monthKey) || 0;
+        monthlyConsumption.set(monthKey, current + activity.quantity);
       });
 
-      // Calculate weighted average
+      // Distribute inventory count adjustments across months since last balance
+      if (BALANCE_DISTRIBUTION_ENABLED && inventoryCountActivities.length > 0) {
+        for (const activity of inventoryCountActivities) {
+          const activityDate = new Date(activity.createdAt);
+
+          // Find the previous inventory count for this item
+          const previousCount = await prismaClient.activity.findFirst({
+            where: {
+              itemId,
+              reason: ACTIVITY_REASON.INVENTORY_COUNT,
+              createdAt: { lt: activityDate },
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
+          // Calculate months since last balance
+          let monthsSinceLastBalance: number;
+          if (previousCount) {
+            const prevDate = new Date(previousCount.createdAt);
+            monthsSinceLastBalance = Math.max(
+              1,
+              (activityDate.getFullYear() - prevDate.getFullYear()) * 12 +
+                (activityDate.getMonth() - prevDate.getMonth()),
+            );
+          } else {
+            monthsSinceLastBalance = BALANCE_DISTRIBUTION_DEFAULT_MONTHS;
+          }
+
+          // Distribute the adjustment quantity evenly across those months
+          const monthlyPortion = activity.quantity / monthsSinceLastBalance;
+
+          for (let i = 0; i < monthsSinceLastBalance; i++) {
+            const targetDate = new Date(activityDate);
+            targetDate.setMonth(targetDate.getMonth() - i);
+
+            // Only distribute within our lookback window
+            if (targetDate < lookbackDate) break;
+
+            const year = targetDate.getFullYear();
+            const month = targetDate.getMonth();
+            const monthKey = `${year}-${month}`;
+
+            const current = monthlyConsumption.get(monthKey) || 0;
+            monthlyConsumption.set(monthKey, current + monthlyPortion);
+          }
+        }
+      }
+
+      // Calculate weighted average with vacation normalization and seasonal adjustment
       let weightedSum = 0;
       let totalWeight = 0;
 
-      monthlyConsumption.forEach((consumption, monthKey) => {
+      monthlyConsumption.forEach((rawConsumption, monthKey) => {
         const [year, month] = monthKey.split('-').map(Number);
 
-        // Calculate months difference
+        // Normalize by working days (handles Dec 20 - Jan 10 vacation)
+        const normalizedConsumption = normalizeConsumptionByWorkingDays(
+          rawConsumption,
+          month,
+          year,
+        );
+
+        // Calculate months difference for decay weighting
         const monthsDiff = (currentYear - year) * 12 + (currentMonth - month);
 
-        // Calculate weight: 0.5^(monthsDiff / 3)
-        const weight = Math.pow(0.5, monthsDiff / 3);
+        // Exponential decay weight: 0.5^(monthsDiff / halfLife)
+        const weight = Math.pow(0.5, monthsDiff / CONSUMPTION_DECAY_HALF_LIFE_MONTHS);
 
-        weightedSum += consumption * weight;
+        // Apply seasonal adjustment: de-season the data to get base consumption rate
+        const seasonalFactor = getSeasonalFactor(month);
+        const adjustedConsumption =
+          seasonalFactor > 0 ? normalizedConsumption / seasonalFactor : normalizedConsumption;
+
+        weightedSum += adjustedConsumption * weight;
         totalWeight += weight;
       });
 
-      // Return weighted average monthly consumption
       return totalWeight > 0 ? weightedSum / totalWeight : 0;
     } catch (error) {
       this.logger.error(`Erro ao calcular consumo mensal do item ${itemId}:`, error);

@@ -11,9 +11,9 @@ export const representativeContactSchema = z.object({
 
 export const representativeCreateSchema = z.object({
   name: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  email: z.string().email('Email inválido').optional(), // Optional for contact-only representatives
+  email: z.string().email('Email inválido').optional().nullable(), // Optional for contact-only representatives
   phone: z.string().regex(/^\d{10,11}$/, 'Telefone inválido'),
-  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(), // Optional if no system access needed
+  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional().nullable(), // Optional if no system access needed
   customerId: z.string().uuid('ID do cliente inválido').optional().nullable(), // Optional - can create representative without customer
   role: representativeRoleSchema,
   isActive: z.boolean().optional().default(true),

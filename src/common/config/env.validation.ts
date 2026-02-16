@@ -67,10 +67,39 @@ export const envSchema = z.object({
   API_URL: z.string().url().optional(),
   CLIENT_HOST: z.string().optional(),
 
+  // Application URLs
+  WEB_APP_URL: z.string().url().optional(),
+  FILES_BASE_URL: z.string().url().optional(),
+  WEBHOOK_URL: z.string().url().optional(),
+
+  // CORS
+  CORS_ORIGINS: z.string().optional(),
+
   // ClickSign Digital Signature (API 3.0)
   CLICKSIGN_API_URL: z.string().url().default('https://sandbox.clicksign.com/api/v3'),
   CLICKSIGN_ACCESS_TOKEN: z.string().optional(),
   CLICKSIGN_WEBHOOK_SECRET: z.string().optional(),
+
+  // File Storage
+  FILES_ROOT: z.string().default('./files'),
+
+  // Secullum Auth URL (OAuth2 token endpoint)
+  SECULLUM_AUTH_URL: z.string().url().default('https://autenticador.secullum.com.br/Token'),
+
+  // Backup & Sync
+  BACKUP_PATH: z.string().default('/mnt/backup'),
+  PRODUCTION_BASE_PATH: z.string().default('/home/kennedy/ankaa'),
+  SYNC_SCRIPT_PATH: z.string().default('/home/kennedy/repositories/sync-prod-to-test.sh'),
+  SYNC_LOG_PATH: z.string().default('/home/kennedy/repositories/sync.log'),
+
+  // Email Template
+  SUPPORT_PHONE: z.string().default('+554384190989'),
+  EMAIL_LOGO_URL: z
+    .string()
+    .url()
+    .default(
+      'https://firebasestorage.googleapis.com/v0/b/ankaa-files.appspot.com/o/images%2Flogo.png?alt=media&token=b0603036-dca9-4df8-ab17-18dfd83e0814',
+    ),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

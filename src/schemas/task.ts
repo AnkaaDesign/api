@@ -79,7 +79,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
       // Foreign keys
       paintId: z.boolean().optional(),
       customerId: z.boolean().optional(),
-      invoiceToId: z.boolean().optional(),
       sectorId: z.boolean().optional(),
       createdById: z.boolean().optional(),
       pricingId: z.boolean().optional(),
@@ -121,25 +120,6 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 state: z.boolean().optional(),
                 zipCode: z.boolean().optional(),
                 isActive: z.boolean().optional(),
-                createdAt: z.boolean().optional(),
-                updatedAt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-
-      invoiceTo: z
-        .union([
-          z.boolean(),
-          z.object({
-            select: z
-              .object({
-                id: z.boolean().optional(),
-                fantasyName: z.boolean().optional(),
-                corporateName: z.boolean().optional(),
-                cnpj: z.boolean().optional(),
-                cpf: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
               })
@@ -490,7 +470,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      airbrushing: z
+      airbrushings: z
         .union([
           z.boolean(),
           z.object({
@@ -643,7 +623,6 @@ export const taskSelectDetail = {
   updatedAt: true,
   paintId: true,
   customerId: true,
-  invoiceToId: true,
   sectorId: true,
   createdById: true,
   pricingId: true,
@@ -667,15 +646,6 @@ export const taskSelectDetail = {
       city: true,
       state: true,
       zipCode: true,
-    },
-  },
-  invoiceTo: {
-    select: {
-      id: true,
-      fantasyName: true,
-      corporateName: true,
-      cnpj: true,
-      cpf: true,
     },
   },
   createdBy: {
@@ -717,7 +687,7 @@ export const taskSelectDetail = {
   budgets: {
     select: {
       id: true,
-      name: true,
+      filename: true,
       path: true,
       mimetype: true,
       size: true,
@@ -726,7 +696,7 @@ export const taskSelectDetail = {
   invoices: {
     select: {
       id: true,
-      name: true,
+      filename: true,
       path: true,
       mimetype: true,
       size: true,
@@ -735,7 +705,7 @@ export const taskSelectDetail = {
   receipts: {
     select: {
       id: true,
-      name: true,
+      filename: true,
       path: true,
       mimetype: true,
       size: true,
@@ -749,7 +719,7 @@ export const taskSelectDetail = {
       file: {
         select: {
           id: true,
-          name: true,
+          filename: true,
           path: true,
           mimetype: true,
           size: true,
@@ -760,7 +730,7 @@ export const taskSelectDetail = {
   baseFiles: {
     select: {
       id: true,
-      name: true,
+      filename: true,
       path: true,
       mimetype: true,
       size: true,
@@ -838,7 +808,6 @@ export const taskSelectForm = {
   forecastDate: true,
   paintId: true,
   customerId: true,
-  invoiceToId: true,
   sectorId: true,
   createdById: true,
   pricingId: true,
@@ -1016,19 +985,6 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
       customer: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                logo: z.boolean().optional(),
-                tasks: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      invoiceTo: z
         .union([
           z.boolean(),
           z.object({
@@ -1356,7 +1312,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      airbrushing: z
+      airbrushings: z
         .union([
           z.boolean(),
           z.object({
@@ -1523,12 +1479,14 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
       paintId: z.union([z.string(), z.object({ in: z.array(z.string()).optional() })]).optional(),
       invoiceIds: z.array(z.string()).optional(),
       receiptIds: z.array(z.string()).optional(),
+      bankSlipIds: z.array(z.string()).optional(),
       // Relations
       sector: z.any().optional(),
       customer: z.any().optional(),
       budgets: z.any().optional(),
       invoices: z.any().optional(),
       receipts: z.any().optional(),
+      bankSlips: z.any().optional(),
       observation: z.any().optional(),
       generalPainting: z.any().optional(),
       createdBy: z.any().optional(),
@@ -1561,7 +1519,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         })
         .optional(),
       truck: z.any().optional(),
-      airbrushing: z
+      airbrushings: z
         .object({
           some: z.any().optional(),
           every: z.any().optional(),
@@ -1874,10 +1832,10 @@ const taskTransform = (data: any): any => {
   }
 
   if (data.hasAirbrushing === true) {
-    andConditions.push({ airbrushing: { some: {} } });
+    andConditions.push({ airbrushings: { some: {} } });
     delete data.hasAirbrushing;
   } else if (data.hasAirbrushing === false) {
-    andConditions.push({ airbrushing: { none: {} } });
+    andConditions.push({ airbrushings: { none: {} } });
     delete data.hasAirbrushing;
   }
 
@@ -2664,7 +2622,6 @@ export const taskCreateSchema = z
     forecastDate: nullableDate.optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
-    invoiceToId: z.string().uuid('Cliente para faturamento inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
@@ -2695,6 +2652,7 @@ export const taskCreateSchema = z
     budgetIds: uuidArraySchema('Orçamento inválido'),
     invoiceIds: uuidArraySchema('NFe inválida'),
     receiptIds: uuidArraySchema('Recibo inválido'),
+    bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
@@ -2884,7 +2842,6 @@ export const taskUpdateSchema = z
     forecastDate: nullableDate.optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
-    invoiceToId: z.string().uuid('Cliente para faturamento inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
     commission: z
       .enum(Object.values(COMMISSION_STATUS) as [string, ...string[]], {
@@ -2914,6 +2871,7 @@ export const taskUpdateSchema = z
     budgetIds: uuidArraySchema('Orçamento inválido'),
     invoiceIds: uuidArraySchema('NFe inválida'),
     receiptIds: uuidArraySchema('Recibo inválido'),
+    bankSlipIds: uuidArraySchema('Boleto inválido'),
     reimbursementIds: uuidArraySchema('Reimbursement inválido'),
     reimbursementInvoiceIds: uuidArraySchema('NFe de reimbursement inválida'),
     artworkIds: uuidArraySchema('Arquivo inválido'),
@@ -3145,6 +3103,7 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
   budgetIds: task.budgets?.map(budget => budget.id),
   invoiceIds: task.invoices?.map(invoice => invoice.id),
   receiptIds: task.receipts?.map(receipt => receipt.id),
+  bankSlipIds: task.bankSlips?.map(bankSlip => bankSlip.id),
   reimbursementIds: task.reimbursements?.map(reimbursement => reimbursement.id),
   reimbursementInvoiceIds: task.invoiceReimbursements?.map(
     reimbursementInvoice => reimbursementInvoice.id,

@@ -166,9 +166,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     statusOrder: 'Ordem do Status',
     verified: 'Verificado',
     requirePasswordChange: 'Requer Mudança de Senha',
-    hireDate: 'Data de Contratação',
+    exp1StartAt: 'Data de Admissão',
     birthDate: 'Data de Nascimento',
-    admissional: 'Data de Admissão',
     dismissal: 'Data de Demissão',
     verificationCode: 'Código de Verificação',
     verificationExpiresAt: 'Expiração da Verificação',
@@ -196,7 +195,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     price: 'Preço',
     statusOrder: 'Ordem do Status',
     customerId: 'Cliente',
-    invoiceToId: 'Faturar Para',
     representatives: 'Representantes',
     representativeIds: 'Representantes',
     sectorId: 'Setor',
@@ -210,7 +208,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     // Relationship fields
     sector: 'Setor',
     customer: 'Cliente',
-    invoiceTo: 'Faturar Para',
     budget: 'Orçamento',
     nfe: 'Nota Fiscal',
     receipt: 'Recibo',
@@ -237,7 +234,6 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'customer.fantasyName': 'Nome Fantasia do Cliente',
     'customer.corporateName': 'Razão Social do Cliente',
     'customer.cnpj': 'CNPJ do Cliente',
-    'invoiceTo.fantasyName': 'Nome Fantasia (Faturar Para)',
     'sector.name': 'Nome do Setor',
     'truck.plate': 'Placa do Caminhão',
     'truck.chassisNumber': 'Chassi do Caminhão',
@@ -550,6 +546,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     site: 'Site',
     tags: 'Tags',
     logoId: 'Logo',
+    registrationStatus: 'Status de Registro',
+    stateRegistration: 'Inscrição Estadual',
     // Nested relationship fields
     'logo.filename': 'Nome do Logo',
     'tasks.length': 'Quantidade de Tarefas',
@@ -761,6 +759,27 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     year: 'Ano',
     color: 'Cor',
     notes: 'Observações',
+  },
+  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING]: {
+    subtotal: 'Subtotal',
+    discountType: 'Tipo de Desconto',
+    discountValue: 'Valor do Desconto',
+    total: 'Total',
+    expiresAt: 'Data de Expiração',
+    status: 'Status',
+    paymentCondition: 'Condição de Pagamento',
+    downPaymentDate: 'Data de Entrada',
+    customPaymentText: 'Texto Personalizado de Pagamento',
+    guaranteeYears: 'Anos de Garantia',
+    customGuaranteeText: 'Texto Personalizado de Garantia',
+    layoutFileId: 'Arquivo de Layout',
+    budgetNumber: 'Número do Orçamento',
+    customerSignatureId: 'Assinatura do Cliente',
+    customForecastDays: 'Dias de Previsão Personalizados',
+    simultaneousTasks: 'Tarefas Simultâneas',
+    discountReference: 'Referência do Desconto',
+    // Nested relationship fields
+    'items.length': 'Quantidade de Itens',
   },
   // Add more entity-specific mappings as needed
 };
@@ -1823,7 +1842,6 @@ export function formatFieldValue(
     field === 'actualDeliveryDate' ||
     field === 'nextRun' ||
     field === 'lastRun' ||
-    field === 'hireDate' ||
     field === 'birthDate' ||
     field === 'verificationExpiresAt' ||
     field === 'lastLoginAt' ||
@@ -1835,7 +1853,13 @@ export function formatFieldValue(
     field === 'productionDate' ||
     field === 'sentAt' ||
     field === 'scheduledAt' ||
-    field === 'seenAt'
+    field === 'seenAt' ||
+    field === 'effectedAt' ||
+    field === 'exp1StartAt' ||
+    field === 'exp1EndAt' ||
+    field === 'exp2StartAt' ||
+    field === 'exp2EndAt' ||
+    field === 'dismissedAt'
   ) {
     const date = new Date(value as any);
     if (!isNaN(date.getTime())) {

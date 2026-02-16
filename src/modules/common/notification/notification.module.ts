@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -57,10 +57,9 @@ import { NotificationConfigurationController } from './notification-configuratio
 import { WhatsAppNotificationService } from './whatsapp/whatsapp.service';
 import { WhatsAppMessageFormatterService } from './whatsapp/whatsapp-message-formatter.service';
 import { NotificationTemplateRendererService } from './notification-template-renderer.service';
-import { UserRepository } from '@modules/people/user/repositories/user.repository';
-import { UserPrismaRepository } from '@modules/people/user/repositories/user-prisma.repository';
 import { NotificationQueueModule } from './notification-queue.module';
 import { PushModule } from '../push/push.module';
+import { UserModule } from '@modules/people/user/user.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MailerModule } from '../mailer/mailer.module';
 
@@ -71,6 +70,7 @@ import { MailerModule } from '../mailer/mailer.module';
     CacheModule,
     ConfigModule,
     MailerModule,
+    forwardRef(() => UserModule),
     NotificationQueueModule,
     PushModule,
     WhatsAppModule,
@@ -140,10 +140,6 @@ import { MailerModule } from '../mailer/mailer.module';
     {
       provide: NotificationConfigurationRepository,
       useClass: NotificationConfigurationPrismaRepository,
-    },
-    {
-      provide: UserRepository,
-      useClass: UserPrismaRepository,
     },
   ],
   exports: [

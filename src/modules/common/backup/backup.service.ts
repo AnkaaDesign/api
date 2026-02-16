@@ -11,9 +11,11 @@ import { Queue } from 'bull';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
+import * as os from 'os';
 import * as path from 'path';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from 'eventemitter2';
+import { env } from '../../../common/config/env.validation';
 import { BackupRepository } from './backup.repository';
 import { BackupScheduleRepository } from './backup-schedule.repository';
 import { GDriveSyncService } from './gdrive-sync.service';
@@ -85,10 +87,11 @@ export interface CreateBackupDto {
 @Injectable()
 export class BackupService implements OnModuleInit {
   private readonly logger = new Logger(BackupService.name);
-  private readonly filesRoot = '/srv/files';
-  private readonly backupBasePath = process.env.BACKUP_PATH || '/mnt/backup';
-  private readonly isDevelopment = process.env.NODE_ENV !== 'production';
-  private readonly productionBasePath = '/home/kennedy/ankaa';
+  private readonly filesRoot = env.FILES_ROOT;
+  private readonly backupBasePath = env.BACKUP_PATH;
+  private readonly isDevelopment = env.NODE_ENV !== 'production';
+  private readonly productionBasePath = env.PRODUCTION_BASE_PATH;
+  private readonly restoreTempDir = path.join(os.tmpdir(), 'ankaa_restore');
 
   // RAID-aware and priority-based backup paths (production only)
   private readonly criticalPaths = this.isDevelopment
@@ -793,7 +796,7 @@ export class BackupService implements OnModuleInit {
         {
           backupId,
           backupPath,
-          targetPath: targetPath || '/tmp/ankaa_restore',
+          targetPath: targetPath || this.restoreTempDir,
           metadata,
         },
         {
@@ -929,10 +932,12 @@ export class BackupService implements OnModuleInit {
    * Send progress update via webhook
    */
   private async sendProgressWebhook(backupId: string, progressData: any): Promise<void> {
-    // Use subdomain webhook URL or fallback to configured URL
-    const webhookUrl =
+    // Use WEBHOOK_URL env var or fallback to localhost webhook server
+    const webhookBaseUrl =
+      this.configService.get<string>('WEBHOOK_URL') ||
       this.configService.get<string>('BACKUP_PROGRESS_WEBHOOK_URL') ||
-      'https://webhook.ankaadesign.com.br/backup/progress';
+      `http://localhost:${process.env.WEBHOOK_PORT || '3001'}`;
+    const webhookUrl = `${webhookBaseUrl.replace(/\/+$/, '')}/backup/progress`;
 
     try {
       // Create HMAC signature if secret is configured
@@ -997,7 +1002,7 @@ export class BackupService implements OnModuleInit {
       const backupDir = await this.ensureDateBasedDirectory('database', backupId);
 
       const backupFileName = `${backupId}.tar.gz`;
-      const tempSqlFile = `/tmp/${backupId}.sql`;
+      const tempSqlFile = path.join(os.tmpdir(), `${backupId}.sql`);
       const finalBackupPath = path.join(backupDir, backupFileName);
 
       // Extract database connection details from URL
@@ -1032,7 +1037,7 @@ export class BackupService implements OnModuleInit {
 
       // Compress the SQL dump with verbose output for progress tracking
       // Use -v flag to get list of files being compressed
-      const compressCommand = `tar -czvf ${finalBackupPath} -C /tmp ${backupId}.sql 2>&1`;
+      const compressCommand = `tar -czvf ${finalBackupPath} -C "${os.tmpdir()}" ${backupId}.sql 2>&1`;
 
       // For database backups, we know it's a single file, so we can use pv (pipe viewer) if available
       // or track based on tar verbose output
@@ -1220,7 +1225,7 @@ export class BackupService implements OnModuleInit {
         name: path.basename(dbBackupPath),
       });
 
-      // 2. Create files storage backup (all of /srv/files excluding Backup folder)
+      // 2. Create files storage backup (all of FILES_ROOT excluding Backup folder)
       let filesBackupPath: string | null = null;
       try {
         const filesEntries = await fs.readdir(this.filesRoot);

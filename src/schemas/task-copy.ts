@@ -15,7 +15,6 @@ export const COPYABLE_TASK_FIELDS = [
   'representatives',
   // Reference IDs
   'customerId',
-  'invoiceToId',
   'pricingId',
   'paintId',
   // Shared file IDs (many-to-many relations)
@@ -69,9 +68,6 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
 
   // Commission - disabled for Financial, Designer, Logistic, Warehouse
   commission: ['ADMIN', 'COMMERCIAL', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
-
-  // Invoice To - disabled for Financial, Warehouse, Designer, Logistic
-  invoiceToId: ['ADMIN', 'COMMERCIAL', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
 
   // Pricing - only visible to ADMIN, FINANCIAL, COMMERCIAL (canViewPricingSections)
   pricingId: ['ADMIN', 'FINANCIAL', 'COMMERCIAL'],

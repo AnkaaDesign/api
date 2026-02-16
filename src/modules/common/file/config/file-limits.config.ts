@@ -34,6 +34,10 @@ export const ENTITY_FILE_LIMITS: Record<string, FileLimitConfig> = {
     maxFiles: 10,
     description: 'Máximo de 10 recibos por tarefa',
   },
+  taskBankSlips: {
+    maxFiles: 10,
+    description: 'Máximo de 10 boletos por tarefa',
+  },
 
   // Customer relationships
   customerLogo: {

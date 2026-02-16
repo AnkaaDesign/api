@@ -288,8 +288,8 @@ export class PpeListener {
 
       this.logger.log('[PPE EVENT] PPE delivered dispatch completed');
 
-      // Note: Signature workflow is handled by the batch event (ppe.batch.delivered)
-      // to avoid duplicate signature requests
+      // Initiate signature workflow for single delivery (same as batch handler)
+      await this.initiateSignatureForDeliveries([event.delivery.id]);
     } catch (error) {
       this.logger.error('[PPE EVENT] Error handling PPE delivered event:', error.message);
     }

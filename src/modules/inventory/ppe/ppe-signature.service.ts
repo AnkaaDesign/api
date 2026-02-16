@@ -61,13 +61,9 @@ export class PpeSignatureService {
     @Inject('WhatsAppService')
     private readonly whatsappService: BaileysWhatsAppService,
   ) {
-    // File storage root - use UPLOAD_DIR for development, FILES_ROOT for production
-    const uploadDir = this.configService.get<string>('UPLOAD_DIR');
-    const filesRoot = this.configService.get<string>('FILES_ROOT');
-    const isDev = this.configService.get<string>('NODE_ENV') === 'development';
-
-    // In development, use uploads folder; in production, use /srv/files
-    this.filesRoot = isDev ? uploadDir || './uploads' : filesRoot || '/srv/files';
+    // File storage root - FILES_ROOT is validated by env.validation.ts (defaults to './files')
+    // In production this is typically set to an absolute path (e.g. /srv/files)
+    this.filesRoot = this.configService.get<string>('FILES_ROOT') || './files';
   }
 
   /**
@@ -225,7 +221,6 @@ export class PpeSignatureService {
         statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.WAITING_SIGNATURE],
         clicksignEnvelopeId: signatureResult.envelopeId,
         clicksignDocumentKey: signatureResult.documentKey,
-        clicksignRequestKey: signatureResult.requirementId,
         clicksignSignerKey: signatureResult.signerKey,
         deliveryDocumentId: savedFile.id,
       },
@@ -705,7 +700,7 @@ Entre em contato com o setor responsável para mais informações.`;
 
   /**
    * Save PDF buffer to file storage and create database record
-   * Path structure: /srv/files/Colaboradores/[User Name]/EPI's/YY/MM/
+   * Path structure: {FILES_ROOT}/Colaboradores/[User Name]/EPI's/YY/MM/
    */
   private async savePdfToStorage(
     pdfBuffer: Buffer,
@@ -713,7 +708,7 @@ Entre em contato com o setor responsável para mais informações.`;
     userName: string,
     deliveryId: string,
   ): Promise<{ id: string; path: string }> {
-    // Create directory structure: /srv/files/Colaboradores/[User Name]/EPI's/YY/MM/
+    // Create directory structure: {FILES_ROOT}/Colaboradores/[User Name]/EPI's/YY/MM/
     const now = new Date();
     const year = now.getFullYear().toString().slice(-2); // Last 2 digits (YY)
     const month = (now.getMonth() + 1).toString().padStart(2, '0');

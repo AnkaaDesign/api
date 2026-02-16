@@ -31,6 +31,7 @@ export class SecullumService {
   private readonly logger = new Logger(SecullumService.name);
   private readonly apiClient: AxiosInstance;
   private readonly baseUrl: string;
+  private readonly authUrl: string;
   private readonly email: string;
   private readonly password: string;
   private readonly databaseId: string;
@@ -43,6 +44,8 @@ export class SecullumService {
     private readonly prismaService: PrismaService,
   ) {
     this.baseUrl = process.env.SECULLUM_BASE_URL || 'https://pontoweb.secullum.com.br';
+    this.authUrl =
+      process.env.SECULLUM_AUTH_URL || 'https://autenticador.secullum.com.br/Token';
     this.email = process.env.SECULLUM_EMAIL!;
     this.password = process.env.SECULLUM_PASSWORD!;
     this.databaseId = process.env.SECULLUM_DATABASE_ID || '4c8681f2e79a4b7ab58cc94503106736';
@@ -191,7 +194,7 @@ export class SecullumService {
         }
 
         const authResponse = await axios.post(
-          'https://autenticador.secullum.com.br/Token',
+          this.authUrl,
           formData.toString(),
           {
             headers: {
@@ -303,7 +306,7 @@ export class SecullumService {
       }
 
       const refreshResponse = await axios.post(
-        'https://autenticador.secullum.com.br/Token',
+        this.authUrl,
         formData.toString(),
         {
           headers: {

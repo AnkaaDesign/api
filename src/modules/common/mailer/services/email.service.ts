@@ -216,7 +216,7 @@ export class EmailService {
       companyName: 'Ankaa',
       supportEmail: process.env.EMAIL_USER || 'suporte@ankaa.com',
       supportPhone: process.env.TWILIO_PHONE_NUMBER || '+55 11 99999-9999',
-      supportUrl: `${process.env.API_URL || 'http://localhost:3030'}/suporte`,
+      supportUrl: `${process.env.API_URL || `http://localhost:${process.env.PORT || '3030'}`}/suporte`,
       userName,
     };
   }

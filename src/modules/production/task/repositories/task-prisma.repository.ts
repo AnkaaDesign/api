@@ -219,11 +219,18 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
-  invoiceTo: { select: { id: true, fantasyName: true } }, // Removed cnpj - not displayed anywhere
   pricing: {
     include: {
       items: { orderBy: { position: 'asc' } },
       layoutFile: true,
+      invoicesToCustomers: {
+        select: {
+          id: true,
+          fantasyName: true,
+          corporateName: true,
+          cnpj: true,
+        },
+      },
     },
   },
   budgets: {
@@ -622,7 +629,6 @@ export class TaskPrismaRepository
       forecastDate,
       paintId,
       customerId,
-      invoiceToId,
       sectorId,
       commission,
       budgetIds,
@@ -659,7 +665,6 @@ export class TaskPrismaRepository
     if (forecastDate !== undefined) taskData.forecastDate = forecastDate;
 
     if (customerId) taskData.customer = { connect: { id: customerId } };
-    if (invoiceToId) taskData.invoiceTo = { connect: { id: invoiceToId } };
     if (paintId) taskData.generalPainting = { connect: { id: paintId } };
     if (sectorId) taskData.sector = { connect: { id: sectorId } };
 
@@ -886,7 +891,6 @@ export class TaskPrismaRepository
       forecastDate,
       paintId,
       customerId,
-      invoiceToId,
       sectorId,
       commission,
       budgetIds,
@@ -929,9 +933,6 @@ export class TaskPrismaRepository
 
     if (customerId !== undefined) {
       updateData.customer = customerId ? { connect: { id: customerId } } : { disconnect: true };
-    }
-    if (invoiceToId !== undefined) {
-      updateData.invoiceTo = invoiceToId ? { connect: { id: invoiceToId } } : { disconnect: true };
     }
     if (paintId !== undefined) {
       updateData.generalPainting = paintId ? { connect: { id: paintId } } : { disconnect: true };
@@ -1352,7 +1353,17 @@ export class TaskPrismaRepository
             guaranteeYears: pricingData.guaranteeYears || null,
             customGuaranteeText: pricingData.customGuaranteeText || null,
             customForecastDays: pricingData.customForecastDays || null,
+            simultaneousTasks: pricingData.simultaneousTasks ?? null,
+            discountReference: pricingData.discountReference || null,
             ...layoutFileConnect,
+            ...(pricingData.invoicesToCustomerIds &&
+              pricingData.invoicesToCustomerIds.length > 0 && {
+                invoicesToCustomers: {
+                  connect: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
+                    id: customerId,
+                  })),
+                },
+              }),
             items: {
               create: pricingData.items.map((item: any) => ({
                 description: item.description,
@@ -1548,7 +1559,22 @@ export class TaskPrismaRepository
                   pricingData.customForecastDays !== undefined
                     ? pricingData.customForecastDays
                     : undefined,
+                simultaneousTasks:
+                  pricingData.simultaneousTasks !== undefined
+                    ? pricingData.simultaneousTasks
+                    : undefined,
+                discountReference:
+                  pricingData.discountReference !== undefined
+                    ? pricingData.discountReference
+                    : undefined,
                 ...layoutFileUpdate,
+                ...(pricingData.invoicesToCustomerIds !== undefined && {
+                  invoicesToCustomers: {
+                    set: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
+                      id: customerId,
+                    })),
+                  },
+                }),
                 items: {
                   deleteMany: {},
                   create: pricingData.items.map((item: any, index: number) => ({
@@ -1591,7 +1617,17 @@ export class TaskPrismaRepository
                 guaranteeYears: pricingData.guaranteeYears || null,
                 customGuaranteeText: pricingData.customGuaranteeText || null,
                 customForecastDays: pricingData.customForecastDays || null,
+                simultaneousTasks: pricingData.simultaneousTasks ?? null,
+                discountReference: pricingData.discountReference || null,
                 ...layoutFileConnect,
+                ...(pricingData.invoicesToCustomerIds &&
+                  pricingData.invoicesToCustomerIds.length > 0 && {
+                    invoicesToCustomers: {
+                      connect: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
+                        id: customerId,
+                      })),
+                    },
+                  }),
                 items: {
                   create: pricingData.items.map((item: any, index: number) => ({
                     description: item.description,

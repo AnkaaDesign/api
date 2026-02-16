@@ -1,6 +1,6 @@
 // modules/file/file.module.ts
 
-import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer, forwardRef } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
@@ -32,7 +32,7 @@ if (!existsSync(uploadDir)) {
   imports: [
     PrismaModule,
     ChangeLogModule,
-    UserModule,
+    forwardRef(() => UserModule),
     FilesStorageModule,
     ThumbnailQueueModule,
     MulterModule.register({

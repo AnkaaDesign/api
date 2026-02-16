@@ -897,12 +897,12 @@ const ppeDeliveryTransform = (data: any) => {
   }
 
   if (data.isCancelled === true) {
-    andConditions.push({ status: PPE_DELIVERY_STATUS.REPROVED });
+    andConditions.push({ status: PPE_DELIVERY_STATUS.CANCELLED });
     delete data.isCancelled;
   }
 
   if (data.isCompleted === true) {
-    andConditions.push({ status: PPE_DELIVERY_STATUS.DELIVERED });
+    andConditions.push({ status: PPE_DELIVERY_STATUS.COMPLETED });
     delete data.isCompleted;
   }
 
