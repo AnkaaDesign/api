@@ -9,10 +9,19 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
 import { TimeEntryReminderService } from './time-entry-reminder/time-entry-reminder.service';
 import { TimeEntryReminderScheduler } from './time-entry-reminder/time-entry-reminder.scheduler';
 import { TimeEntryReminderController } from './time-entry-reminder/time-entry-reminder.controller';
+import { HOLIDAY_PROVIDER } from '@modules/common/notification/work-schedule.service';
 
 @Module({
   imports: [ScheduleModule.forRoot(), CacheModule, UserModule, PrismaModule, NotificationModule],
-  providers: [SecullumService, TimeEntryReminderService, TimeEntryReminderScheduler],
+  providers: [
+    SecullumService,
+    TimeEntryReminderService,
+    TimeEntryReminderScheduler,
+    {
+      provide: HOLIDAY_PROVIDER,
+      useExisting: SecullumService,
+    },
+  ],
   controllers: [SecullumController, TimeEntryReminderController],
   exports: [SecullumService, TimeEntryReminderService, TimeEntryReminderScheduler],
 })

@@ -18,6 +18,7 @@ import {
 } from '../../../constants';
 import { logEntityChange, trackAndLogFieldChanges } from '../changelog/utils/changelog-helpers';
 import { User, UserNotificationPreference } from '../../../types';
+import { WorkScheduleService } from './work-schedule.service';
 
 // =====================
 // Interfaces
@@ -204,6 +205,7 @@ export class NotificationConfigurationService {
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly workScheduleService: WorkScheduleService,
   ) {}
 
   // =====================
@@ -917,16 +919,16 @@ export class NotificationConfigurationService {
       };
     }
 
-    // Check work hours if configured
-    if (config.respectWorkHours && config.importance !== NOTIFICATION_IMPORTANCE.URGENT) {
-      const workHoursCheck = this.isWithinWorkHours();
-      if (!workHoursCheck) {
-        const nextWorkStart = this.getNextWorkHourStart();
+    // Check working day + work hours if configured — weekends, holidays, and off-hours blocked
+    if (config.respectWorkHours) {
+      const canSend = await this.workScheduleService.canSendNow();
+      if (!canSend) {
+        const nextSendableTime = await this.workScheduleService.getNextSendableTime();
         return {
           allowed: false,
-          reason: 'Outside work hours (7:30-18:00)',
+          reason: 'Outside working hours/day (weekends, holidays, or off-hours)',
           shouldReschedule: true,
-          rescheduleTime: nextWorkStart,
+          rescheduleTime: nextSendableTime,
         };
       }
     }

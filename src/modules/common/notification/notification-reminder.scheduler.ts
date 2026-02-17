@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationGatewayService } from './notification-gateway.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants';
 import { ChangeLogService } from '../changelog/changelog.service';
+import { WorkScheduleService } from './work-schedule.service';
 
 /**
  * Scheduler for processing notification reminders
@@ -18,6 +19,7 @@ export class NotificationReminderScheduler {
     private readonly prisma: PrismaService,
     private readonly gatewayService: NotificationGatewayService,
     private readonly changeLogService: ChangeLogService,
+    private readonly workScheduleService: WorkScheduleService,
   ) {}
 
   /**
@@ -87,6 +89,20 @@ export class NotificationReminderScheduler {
    * Re-sends the notification and clears the reminder
    */
   private async processReminder(reminder: any): Promise<void> {
+    // Check working day + work hours before processing
+    const canSend = await this.workScheduleService.canSendNow();
+    if (!canSend) {
+      const nextTime = await this.workScheduleService.getNextSendableTime();
+      this.logger.log(
+        `Reminder ${reminder.id} blocked outside working hours/day, rescheduling to ${nextTime.toISOString()}`,
+      );
+      await this.prisma.seenNotification.update({
+        where: { id: reminder.id },
+        data: { remindAt: nextTime },
+      });
+      return;
+    }
+
     await this.prisma.$transaction(async tx => {
       const notification = reminder.notification;
       const user = reminder.user;

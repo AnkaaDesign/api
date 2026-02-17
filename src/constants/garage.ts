@@ -186,10 +186,6 @@ export function parseSpot(spot: TRUCK_SPOT): {
   lane: LaneId | null;
   spotNumber: SpotNumber | null;
 } {
-  if (spot === TRUCK_SPOT.PATIO) {
-    return { garage: null, lane: null, spotNumber: null };
-  }
-
   // Format: B1_F1_V1, B2_F2_V2, etc.
   const match = spot.match(/^B(\d)_F(\d)_V(\d)$/);
   if (!match) {
@@ -217,7 +213,7 @@ export function buildSpot(garage: GarageId, lane: LaneId, spotNumber: SpotNumber
 export function getGarageSpots(garage: GarageId): TRUCK_SPOT[] {
   const prefix = `${garage}_`;
   return Object.values(TRUCK_SPOT).filter(
-    spot => spot.startsWith(prefix) && spot !== TRUCK_SPOT.PATIO,
+    spot => spot.startsWith(prefix),
   );
 }
 
@@ -312,8 +308,6 @@ export const SPOT_LABELS: Record<TRUCK_SPOT, string> = {
   [TRUCK_SPOT.B3_F3_V1]: 'B3-F3-V1',
   [TRUCK_SPOT.B3_F3_V2]: 'B3-F3-V2',
   [TRUCK_SPOT.B3_F3_V3]: 'B3-F3-V3',
-  // Yard/Patio
-  [TRUCK_SPOT.PATIO]: 'Pátio',
 };
 
 /**

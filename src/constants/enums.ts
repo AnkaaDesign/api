@@ -739,7 +739,7 @@ export enum PAINT_BASE_TYPE {
 /**
  * Truck parking spots in garages (Barracões)
  * Format: B{garage}_F{lane}_V{spot} where garage=1-3, lane=1-3, spot=1-3
- * PATIO = trucks in the company but not assigned to a garage spot yet
+ * null spot = trucks in the company but not assigned to a garage spot (patio)
  *
  * Static garage configuration:
  * - 3 Garages: B1, B2, B3
@@ -778,8 +778,6 @@ export enum TRUCK_SPOT {
   B3_F3_V1 = 'B3_F3_V1',
   B3_F3_V2 = 'B3_F3_V2',
   B3_F3_V3 = 'B3_F3_V3',
-  // Patio (outside, not assigned to a garage spot)
-  PATIO = 'PATIO',
 }
 
 export enum TRUCK_MANUFACTURER {
@@ -899,6 +897,7 @@ export enum ENTITY_TYPE {
   SUPPLIER = 'SUPPLIER',
   TASK = 'TASK',
   TASK_PRICING = 'TASK_PRICING',
+  TASK_PRICING_ITEM = 'TASK_PRICING_ITEM',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
   TRUCK = 'TRUCK',
   USER = 'USER',
@@ -1515,6 +1514,7 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   SUPPLIER = 'SUPPLIER',
   TASK = 'TASK',
   TASK_PRICING = 'TASK_PRICING',
+  TASK_PRICING_ITEM = 'TASK_PRICING_ITEM',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
   TRUCK = 'TRUCK',
   USER = 'USER',

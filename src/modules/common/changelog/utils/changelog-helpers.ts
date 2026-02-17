@@ -466,6 +466,27 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   finishedAt: 'finalizado em',
   priority: 'prioridade',
 
+  // Task Pricing fields
+  subtotal: 'subtotal',
+  total: 'total',
+  discountType: 'tipo de desconto',
+  discountValue: 'valor do desconto',
+  expiresAt: 'data de validade',
+  paymentCondition: 'condição de pagamento',
+  downPaymentDate: 'data de entrada',
+  customPaymentText: 'texto de pagamento personalizado',
+  guaranteeYears: 'anos de garantia',
+  customGuaranteeText: 'texto de garantia personalizado',
+  customForecastDays: 'prazo de entrega personalizado',
+  simultaneousTasks: 'tarefas simultâneas',
+  discountReference: 'referência do desconto',
+  customerSignatureId: 'assinatura do cliente',
+  budgetNumber: 'número do orçamento',
+  // Task Pricing Item fields
+  amount: 'valor',
+  shouldSync: 'sincronizar com O.S.',
+  position: 'posição',
+
   // Service Order fields
   startedById: 'iniciado por',
   approvedAt: 'aprovado em',

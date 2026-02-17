@@ -276,7 +276,7 @@ const truckTransform = (data: any): any => {
   if (data.garageNumber && typeof data.garageNumber === 'string') {
     const prefix = `B${data.garageNumber}_`;
     const garageSpots = Object.values(TRUCK_SPOT).filter(
-      spot => spot.startsWith(prefix) && spot !== 'PATIO',
+      spot => spot.startsWith(prefix),
     );
     if (garageSpots.length > 0) {
       andConditions.push({ spot: { in: garageSpots } });
@@ -286,9 +286,7 @@ const truckTransform = (data: any): any => {
 
   // Filter trucks in patio (not assigned to a garage spot)
   if (data.inPatio === true) {
-    andConditions.push({
-      OR: [{ spot: null }, { spot: TRUCK_SPOT.PATIO }],
-    });
+    andConditions.push({ spot: null });
     delete data.inPatio;
   }
 
@@ -387,7 +385,6 @@ export const truckGetManySchema = z
     // Boolean relation filters
     hasTask: z.boolean().optional(),
     hasSpot: z.boolean().optional(),
-    inPatio: z.boolean().optional(),
     // Spot filters
     spots: z.array(truckSpotSchema).optional(),
     garageNumber: z.enum(['1', '2', '3']).optional(),

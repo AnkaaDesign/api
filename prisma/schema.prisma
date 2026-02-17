@@ -2530,7 +2530,6 @@ enum TRUCK_SPOT {
   B3_F3_V1
   B3_F3_V2
   B3_F3_V3
-  PATIO
 }
 
 enum TruckCategory {
@@ -2724,6 +2723,7 @@ enum ChangeLogEntityType {
   SUPPLIER
   TASK
   TASK_PRICING
+  TASK_PRICING_ITEM
   TIME_CLOCK_ENTRY
   TRUCK
   USER

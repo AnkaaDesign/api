@@ -602,6 +602,8 @@ export class ZodValidationPipe implements PipeTransform {
       // Commission fields
       'commission',
       'rate',
+      // Payment fields
+      'paymentDueDays',
     ];
     return numericFields.includes(fieldName);
   }

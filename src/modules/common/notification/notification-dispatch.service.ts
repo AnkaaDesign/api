@@ -33,6 +33,7 @@ import { PushService } from '../push/push.service';
 import { BaileysWhatsAppService } from '../whatsapp/baileys-whatsapp.service';
 import { NotificationFilterService } from './notification-filter.service';
 import { NotificationAggregationService } from './notification-aggregation.service';
+import { WorkScheduleService } from './work-schedule.service';
 
 /**
  * Context object passed to configuration-based dispatch
@@ -120,6 +121,7 @@ export class NotificationDispatchService {
     private readonly aggregationService: NotificationAggregationService,
     private readonly deepLinkService: DeepLinkService,
     private readonly configurationService: NotificationConfigurationService,
+    private readonly workScheduleService: WorkScheduleService,
   ) {}
 
   /**
@@ -166,19 +168,32 @@ export class NotificationDispatchService {
         return;
       }
 
-      // 3.5. Check work hours restriction (7:30 - 18:00)
-      // Only apply to non-urgent notifications to allow critical alerts
-      if (notification.importance !== 'URGENT' && !this.isWithinWorkHours()) {
-        const nextWorkHourStart = this.getNextWorkHourStart();
+      // 3.5. Check working day + work hours restriction (7:30-18:00, weekdays only, no holidays)
+      // All notifications respect this — no exceptions
+      const canSend = await this.workScheduleService.canSendNow();
+      if (!canSend) {
+        const metadata = notification.metadata as any;
+
+        // Time-sensitive notifications (e.g., time entry reminders) should be dropped, not rescheduled
+        if (metadata?.noReschedule) {
+          this.logger.log(
+            `Notification ${notificationId} blocked outside working hours and has noReschedule flag — dropping`,
+          );
+          // Mark as sent so it won't be re-processed
+          await this.updateNotificationSentAt(notificationId);
+          return;
+        }
+
+        const nextSendableTime = await this.workScheduleService.getNextSendableTime();
         this.logger.warn(
-          `Notification ${notificationId} blocked - outside work hours (7:30-18:00). ` +
-            `Rescheduling for ${nextWorkHourStart.toISOString()}`,
+          `Notification ${notificationId} blocked - outside working hours/day. ` +
+            `Rescheduling for ${nextSendableTime.toISOString()}`,
         );
 
-        // Reschedule for next work period
+        // Reschedule for next working period
         await this.prisma.notification.update({
           where: { id: notificationId },
-          data: { scheduledAt: nextWorkHourStart },
+          data: { scheduledAt: nextSendableTime },
         });
 
         return;
@@ -1404,9 +1419,22 @@ export class NotificationDispatchService {
       this.logger.log(`Found ${targetUsers.length} target users for ${configKey}`);
 
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
-      const deepLinks = context.overrides?.actionUrl
+      let deepLinks = context.overrides?.actionUrl
         ? null // actionUrl already provided
         : this.generateDeepLinksForEntity(context.entityType, context.entityId);
+
+      // If actionUrl override is a JSON string with deep links, parse it to extract universalLink/mobile
+      let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null = null;
+      if (context.overrides?.actionUrl) {
+        try {
+          const parsed = JSON.parse(context.overrides.actionUrl);
+          if (parsed && typeof parsed === 'object' && (parsed.universalLink || parsed.web)) {
+            parsedOverrideLinks = parsed;
+          }
+        } catch {
+          // Not JSON, that's fine — it's a plain URL string
+        }
+      }
 
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
       const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${context.entityId}`;
@@ -1463,12 +1491,13 @@ export class NotificationDispatchService {
             channel: channels,
             metadata: {
               webUrl,
-              mobileUrl: deepLinks?.mobile,
-              universalLink: deepLinks?.universalLink,
+              mobileUrl: deepLinks?.mobile || parsedOverrideLinks?.mobile,
+              universalLink: deepLinks?.universalLink || parsedOverrideLinks?.universalLink,
               configKey: configKey,
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
               entityType: context.entityType,
               entityId: context.entityId,
+              ...context.data,
               ...context.metadata,
             },
           },

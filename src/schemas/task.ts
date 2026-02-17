@@ -1366,6 +1366,32 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      bankSlips: z
+        .union([
+          z.boolean(),
+          z.object({
+            include: z
+              .object({
+                tasksArtworks: z.boolean().optional(),
+                customerLogo: z.boolean().optional(),
+                taskBudget: z.boolean().optional(),
+                taskNfe: z.boolean().optional(),
+                supplierLogo: z.boolean().optional(),
+                orderNfe: z.boolean().optional(),
+                orderBudget: z.boolean().optional(),
+                orderReceipt: z.boolean().optional(),
+                observations: z.boolean().optional(),
+                airbrushingReceipts: z.boolean().optional(),
+                airbrushingInvoices: z.boolean().optional(),
+                vacation: z.boolean().optional(),
+                externalWithdrawalBudget: z.boolean().optional(),
+                externalWithdrawalNfe: z.boolean().optional(),
+                externalWithdrawalReceipt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
     })
     .partial(),
 );
@@ -1461,6 +1487,9 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
         .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
         .optional(),
       startedAt: z
+        .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
+        .optional(),
+      forecastDate: z
         .object({ gte: z.coerce.date().optional(), lte: z.coerce.date().optional() })
         .optional(),
       finishedAt: z

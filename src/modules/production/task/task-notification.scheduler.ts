@@ -62,7 +62,7 @@ export class TaskNotificationScheduler {
   /**
    * Run hourly to check for production tasks with deadlines within 1 hour
    */
-  @Cron('0 * * * *') // Every hour at minute 0
+  @Cron('0 * * * *', { timeZone: 'America/Sao_Paulo' }) // Every hour at minute 0
   async checkUrgentDeadlines1Hour() {
     this.logger.log('Running hourly urgent deadline check (1 hour)...');
 
@@ -111,7 +111,7 @@ export class TaskNotificationScheduler {
   /**
    * Run hourly to check for production tasks with deadlines within 4 hours
    */
-  @Cron('0 * * * *') // Every hour at minute 0
+  @Cron('0 * * * *', { timeZone: 'America/Sao_Paulo' }) // Every hour at minute 0
   async checkUrgentDeadlines4Hours() {
     this.logger.log('Running hourly urgent deadline check (4 hours)...');
 
@@ -163,7 +163,7 @@ export class TaskNotificationScheduler {
    * Run daily at 9:00 AM to check for production tasks with upcoming term deadlines
    * Checks for tasks with term in 1, 3, and 7 days
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkUpcomingTermDeadlines() {
     this.logger.log('Running daily term deadline check...');
 
@@ -225,7 +225,7 @@ export class TaskNotificationScheduler {
   /**
    * Run daily at 9:00 AM to check for overdue production tasks (term)
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkOverdueTermTasks() {
     this.logger.log('Running daily overdue term task check...');
 
@@ -289,7 +289,7 @@ export class TaskNotificationScheduler {
    * Run daily at 9:00 AM to check for preparation tasks with forecast approaching
    * Checks for: 10 days, 7 days, 3 days, 1 day, today, and overdue
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkForecastDeadlines() {
     this.logger.log('Running daily forecast deadline check...');
 
@@ -377,7 +377,7 @@ export class TaskNotificationScheduler {
   /**
    * Run daily at 9:00 AM to check for overdue forecast tasks
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkOverdueForecastTasks() {
     this.logger.log('Running daily overdue forecast task check...');
 
@@ -505,7 +505,7 @@ export class TaskNotificationScheduler {
    * Run daily at 9:00 AM to check for artworks pending approval > 24 hours
    * Sends reminders to COMMERCIAL and ADMIN users to approve/reject pending artworks
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkPendingArtworks() {
     this.logger.log('Running daily pending artwork approval check...');
 
@@ -596,7 +596,7 @@ export class TaskNotificationScheduler {
   /**
    * Run weekly on Monday at 8:00 AM to provide weekly summary
    */
-  @Cron('0 8 * * 1')
+  @Cron('0 8 * * 1', { timeZone: 'America/Sao_Paulo' })
   async sendWeeklySummary() {
     this.logger.log('Running weekly task summary...');
 

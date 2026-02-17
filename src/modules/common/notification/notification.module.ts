@@ -62,6 +62,7 @@ import { PushModule } from '../push/push.module';
 import { UserModule } from '@modules/people/user/user.module';
 import { WhatsAppModule } from '../whatsapp/whatsapp.module';
 import { MailerModule } from '../mailer/mailer.module';
+import { WorkScheduleService, HOLIDAY_PROVIDER } from './work-schedule.service';
 
 @Module({
   imports: [
@@ -125,6 +126,11 @@ import { MailerModule } from '../mailer/mailer.module';
     NotificationConfigurationService,
     NotificationRecipientResolverService,
     NotificationChannelResolverService,
+    WorkScheduleService,
+    {
+      provide: HOLIDAY_PROVIDER,
+      useValue: null, // Will be overridden when SecullumModule provides it
+    },
     {
       provide: NotificationRepository,
       useClass: NotificationPrismaRepository,
@@ -161,6 +167,7 @@ import { MailerModule } from '../mailer/mailer.module';
     WhatsAppNotificationService,
     WhatsAppMessageFormatterService,
     NotificationTemplateRendererService,
+    WorkScheduleService,
   ],
 })
 export class NotificationModule {}

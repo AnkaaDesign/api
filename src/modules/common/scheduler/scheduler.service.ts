@@ -44,7 +44,7 @@ export class SchedulerService {
    * Run a weekly comprehensive analysis on Sundays at 3 AM
    * This provides a more thorough analysis with a longer lookback period
    */
-  @Cron('0 3 * * 0') // Every Sunday at 3 AM
+  @Cron('0 3 * * 0', { timeZone: 'America/Sao_Paulo' }) // Every Sunday at 3 AM
   async weeklyReorderPointAnalysis() {
     this.logger.log('Starting weekly comprehensive reorder point analysis...');
 
@@ -83,7 +83,7 @@ export class SchedulerService {
    * Run maxQuantity updates daily at 2:30 AM
    * This ensures the calculation runs during low-traffic hours, after reorder point update
    */
-  @Cron('30 2 * * *') // Every day at 2:30 AM
+  @Cron('30 2 * * *', { timeZone: 'America/Sao_Paulo' }) // Every day at 2:30 AM
   async updateMaxQuantities() {
     this.logger.log('Starting automatic maxQuantity update...');
 
@@ -114,7 +114,7 @@ export class SchedulerService {
    * Run a weekly comprehensive maxQuantity analysis on Sundays at 3:30 AM
    * This provides a more thorough analysis with a longer lookback period
    */
-  @Cron('30 3 * * 0') // Every Sunday at 3:30 AM
+  @Cron('30 3 * * 0', { timeZone: 'America/Sao_Paulo' }) // Every Sunday at 3:30 AM
   async weeklyMaxQuantityAnalysis() {
     this.logger.log('Starting weekly comprehensive maxQuantity analysis...');
 

@@ -20,7 +20,7 @@ export class BonusCronService {
   // Period being saved: 26th of previous month to 25th of current month
   // Example: December 6th saves November period (Oct 26 - Nov 25)
   // The period just closed on the 25th, and now after the 5th grace period we save it
-  @Cron('0 0 6 * *')
+  @Cron('0 0 6 * *', { timeZone: 'America/Sao_Paulo' })
   async handleMonthlyBonusAndPayrollFinalization() {
     this.logger.log('Starting monthly bonus and payroll finalization...');
 

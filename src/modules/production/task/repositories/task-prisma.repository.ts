@@ -263,6 +263,16 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       thumbnailUrl: true,
     },
   },
+  bankSlips: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
   observation: {
     include: {
       files: {

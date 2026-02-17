@@ -22,7 +22,7 @@ export class OrderNotificationScheduler {
    * Check for overdue orders daily at 8 AM
    * Emits OrderOverdueEvent for each overdue order
    */
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkOverdueOrders(): Promise<void> {
     this.logger.log('Starting daily overdue orders check...');
 
@@ -94,7 +94,7 @@ export class OrderNotificationScheduler {
    * Check for orders approaching their forecast date (1 day before)
    * This runs daily at 9 AM
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkUpcomingOrders(): Promise<void> {
     this.logger.log('Starting upcoming orders check...');
 

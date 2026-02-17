@@ -272,14 +272,16 @@ ${data.url}`;
   formatStockOut(data: {
     itemName: string;
     categoryName?: string;
+    category?: string;
     lastMovement?: string;
     url: string;
   }): WhatsAppMessageFormat {
+    const categoryName = data.categoryName || data.category;
     const text = `🚨 *ESTOQUE ESGOTADO*
 
 ⛔ *SEM ESTOQUE DISPONÍVEL*
 
-📦 *Item:* ${data.itemName}${data.categoryName ? `\n🏷️ *Categoria:* ${data.categoryName}` : ''}${data.lastMovement ? `\n🕐 *Última movimentação:* ${data.lastMovement}` : ''}
+📦 *Item:* ${data.itemName}${categoryName ? `\n🏷️ *Categoria:* ${categoryName}` : ''}${data.lastMovement ? `\n🕐 *Última movimentação:* ${data.lastMovement}` : ''}
 
 📊 *Quantidade:* 🔴 *0 unidades*
 
@@ -500,17 +502,27 @@ ${data.url}`;
       lines.push(data.body);
     }
 
-    // Add metadata fields (excluding title, body, and url)
+    // Add metadata fields (only user-facing ones)
     if (data.metadata) {
+      // Internal/system keys that should never be displayed to users
+      const internalKeys = new Set([
+        'title', 'body', 'url',
+        'webUrl', 'mobileUrl', 'universalLink',
+        'configKey', 'actorId',
+        'entityType', 'entityId',
+        'itemId', 'taskId', 'orderId', 'serviceOrderId', 'userId',
+        'relatedEntityType', 'relatedEntityId',
+        'actionUrl', 'action',
+      ]);
+
       const metadataLines: string[] = [];
       Object.entries(data.metadata).forEach(([key, value]) => {
-        // Skip title, body, and url as they're handled separately
-        if (key === 'title' || key === 'body' || key === 'url') {
+        if (internalKeys.has(key)) {
           return;
         }
 
-        // Only add non-empty values
-        if (value !== null && value !== undefined && value !== '') {
+        // Only add non-empty, non-object values
+        if (value !== null && value !== undefined && value !== '' && typeof value !== 'object') {
           const label = this.getMetadataLabel(key);
           metadataLines.push(`${label}: ${value}`);
         }

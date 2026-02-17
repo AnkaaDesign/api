@@ -389,16 +389,16 @@ export class NotificationConfigurationController {
         where.AND = andConditions;
       }
 
-      // Calculate pagination
-      const skip = (page - 1) * limit;
+      // Convert query params from strings to numbers
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+      const skip = (pageNum - 1) * limitNum;
 
       // Build orderBy from sortBy/sortOrder params
       const allowedSortFields = ['key', 'name', 'notificationType', 'eventType', 'importance', 'enabled', 'createdAt', 'updatedAt'];
       const orderBy = sortBy && allowedSortFields.includes(sortBy)
         ? { [sortBy]: sortOrder || 'asc' }
         : { createdAt: 'desc' as const };
-
-      // Execute query
       const [configurations, total] = await Promise.all([
         this.prisma.notificationConfiguration.findMany({
           where,
@@ -409,23 +409,22 @@ export class NotificationConfigurationController {
           },
           orderBy,
           skip,
-          take: limit,
+          take: limitNum,
         }),
         this.prisma.notificationConfiguration.count({ where }),
       ]);
-
-      const totalPages = Math.ceil(total / limit);
+      const totalPages = Math.ceil(total / limitNum);
 
       return {
         success: true,
         data: configurations,
         meta: {
-          total,
-          page,
-          limit,
+          totalRecords: total,
+          page: pageNum,
+          take: limitNum,
           totalPages,
-          hasNextPage: page < totalPages,
-          hasPreviousPage: page > 1,
+          hasNextPage: pageNum < totalPages,
+          hasPreviousPage: pageNum > 1,
         },
         message: 'Configurações carregadas com sucesso.',
       };
