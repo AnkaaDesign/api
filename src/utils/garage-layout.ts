@@ -196,7 +196,7 @@ export interface PatioLayout {
  * Creates a dynamic grid based on the number of trucks
  */
 export function calculatePatioLayout(trucks: TruckForLayout[]): PatioLayout {
-  const patioTrucks = trucks.filter(t => !t.spot || t.spot === TRUCK_SPOT.PATIO);
+  const patioTrucks = trucks.filter(t => !t.spot);
 
   if (patioTrucks.length === 0) {
     return {

@@ -401,6 +401,7 @@ export class TimeEntryReminderService {
             entryType,
             expectedTime,
             date: today,
+            noReschedule: true, // Time entry reminders are time-sensitive — drop if outside work hours
           },
           overrides: {
             actionUrl: '/pessoal/meus-pontos',

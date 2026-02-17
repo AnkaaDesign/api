@@ -31,6 +31,8 @@ import {
   extractEssentialFields,
   translateFieldName,
 } from '@modules/common/changelog/utils/changelog-helpers';
+import { logPricingItemChanges } from '@modules/common/changelog/utils/pricing-item-changelog';
+import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import {
   TASK_STATUS,
   CHANGE_TRIGGERED_BY,
@@ -1272,6 +1274,7 @@ export class TaskService {
               },
             }, // Include truck with layouts for file naming with measures
             serviceOrders: true, // Include for services field changelog tracking
+            pricing: { include: { items: { orderBy: { position: 'asc' } } } }, // Include for pricing changelog tracking
           },
         });
 
@@ -3424,6 +3427,10 @@ export class TaskService {
 
               // Create missing pricing items from service orders
               if (syncActions.pricingItemsToCreate.length > 0 && currentPricing?.id) {
+                // Capture old totals for changelog
+                const oldSubtotal = Number(currentPricing.subtotal || 0);
+                const oldTotal = Number(currentPricing.total || 0);
+
                 for (const itemToCreate of syncActions.pricingItemsToCreate) {
                   this.logger.log(
                     `[PRICING↔SO SYNC] Creating pricing item: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
@@ -3437,6 +3444,26 @@ export class TaskService {
                       amount: itemToCreate.amount,
                       shouldSync: true, // Items created by sync should participate in sync
                     },
+                  });
+
+                  // Log per-item TASK_PRICING_ITEM CREATE entry
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK_PRICING_ITEM,
+                    entityId: currentPricing.id,
+                    action: CHANGE_ACTION.CREATE,
+                    field: null,
+                    newValue: serializeChangelogValue({
+                      description: itemToCreate.description,
+                      amount: Number(itemToCreate.amount),
+                      observation: itemToCreate.observation || null,
+                      shouldSync: true,
+                    }),
+                    userId: userId || null,
+                    reason: `Item '${itemToCreate.description}' adicionado via sincronização com O.S.`,
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: null,
+                    transaction: tx,
+                    metadata: { itemDescription: itemToCreate.description },
                   });
                 }
 
@@ -3456,6 +3483,38 @@ export class TaskService {
                     total: newSubtotal, // Assuming no discount, adjust if needed
                   },
                 });
+
+                // Log subtotal/total changes on TASK_PRICING if values changed
+                if (oldSubtotal !== newSubtotal) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK_PRICING,
+                    entityId: currentPricing.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'subtotal',
+                    oldValue: oldSubtotal,
+                    newValue: newSubtotal,
+                    userId: userId || null,
+                    reason: 'Subtotal atualizado via sincronização com O.S.',
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: null,
+                    transaction: tx,
+                  });
+                }
+                if (oldTotal !== newSubtotal) {
+                  await this.changeLogService.logChange({
+                    entityType: ENTITY_TYPE.TASK_PRICING,
+                    entityId: currentPricing.id,
+                    action: CHANGE_ACTION.UPDATE,
+                    field: 'total',
+                    oldValue: oldTotal,
+                    newValue: newSubtotal,
+                    userId: userId || null,
+                    reason: 'Total atualizado via sincronização com O.S.',
+                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+                    triggeredById: null,
+                    transaction: tx,
+                  });
+                }
 
                 this.logger.log(
                   `[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`,
@@ -4406,6 +4465,58 @@ export class TaskService {
             userId: userId || '',
             transaction: tx,
           });
+        }
+
+        // Track pricing item and scalar field changes when pricing is updated inline (via task edit form)
+        // This handles the case where pricingId stays the same but pricing content changes
+        if ((data as any).pricing && updatedTask.pricingId && !hasValueChanged(existingTask.pricingId, updatedTask.pricingId)) {
+          const oldPricingItems = (existingTask as any).pricing?.items || [];
+          const updatedPricingState = await tx.taskPricing.findUnique({
+            where: { id: updatedTask.pricingId },
+            include: { items: { orderBy: { position: 'asc' } } },
+          });
+          const newPricingItems = updatedPricingState?.items || [];
+
+          // Log per-item changes (added, removed, field updates)
+          await logPricingItemChanges({
+            changeLogService: this.changeLogService,
+            pricingId: updatedTask.pricingId,
+            oldItems: oldPricingItems,
+            newItems: newPricingItems,
+            userId: userId || '',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            transaction: tx,
+          });
+
+          // Track scalar pricing field changes (subtotal, total, discountType, etc.)
+          const oldPricing = (existingTask as any).pricing;
+          if (oldPricing && updatedPricingState) {
+            const pricingFieldsToTrack = [
+              'subtotal', 'total', 'discountType', 'discountValue', 'expiresAt',
+              'status', 'paymentCondition', 'downPaymentDate', 'customPaymentText',
+              'guaranteeYears', 'customGuaranteeText', 'customForecastDays',
+              'simultaneousTasks', 'discountReference', 'budgetNumber',
+            ];
+            for (const field of pricingFieldsToTrack) {
+              const oldVal = oldPricing[field];
+              const newVal = (updatedPricingState as any)[field];
+              if (hasValueChanged(oldVal, newVal, field)) {
+                await this.changeLogService.logChange({
+                  entityType: ENTITY_TYPE.TASK_PRICING,
+                  entityId: updatedTask.pricingId,
+                  action: CHANGE_ACTION.UPDATE,
+                  field,
+                  oldValue: serializeChangelogValue(oldVal),
+                  newValue: serializeChangelogValue(newVal),
+                  userId: userId || '',
+                  reason: `Campo '${translateFieldName(field)}' do orçamento atualizado`,
+                  triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+                  triggeredById: userId || '',
+                  transaction: tx,
+                });
+              }
+            }
+          }
         }
 
         // Emit field update events for important fields
@@ -7310,7 +7421,7 @@ export class TaskService {
       }
 
       // Support TASK, SERVICE_ORDER, and TRUCK entity types
-      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK'];
+      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_PRICING', 'TASK_PRICING_ITEM'];
       if (!supportedEntityTypes.includes(changeLog.entityType)) {
         throw new BadRequestException(
           `Rollback não suportado para entidade do tipo '${changeLog.entityType}'`,
@@ -7335,12 +7446,13 @@ export class TaskService {
         } else if (
           ['startedAt', 'finishedAt', 'approvedAt', 'completedAt'].includes(fieldToRevert)
         ) {
-          convertedValue = new Date(convertedValue as string);
+          const parsed = new Date(convertedValue as string);
+          convertedValue = isNaN(parsed.getTime()) ? null : parsed;
         }
 
         const updateData: any = { [fieldToRevert]: convertedValue };
 
-        // When rolling back status, also update statusOrder
+        // When rolling back status, also update statusOrder and clear progress data if going back to PENDING
         if (fieldToRevert === 'status' && convertedValue) {
           const statusOrderMap: Record<string, number> = {
             PENDING: 1,
@@ -7350,6 +7462,23 @@ export class TaskService {
             CANCELLED: 5,
           };
           updateData.statusOrder = statusOrderMap[convertedValue] ?? 1;
+
+          // If reverting to PENDING, clear all progress data
+          if (convertedValue === 'PENDING') {
+            updateData.startedById = null;
+            updateData.startedAt = null;
+            updateData.approvedById = null;
+            updateData.approvedAt = null;
+            updateData.completedById = null;
+            updateData.finishedAt = null;
+          }
+        }
+
+        // When rolling back startedById to null, also revert status to PENDING and clear progress timestamps
+        if (fieldToRevert === 'startedById' && convertedValue === null) {
+          updateData.status = 'PENDING';
+          updateData.statusOrder = 1;
+          updateData.startedAt = null;
         }
 
         await tx.serviceOrder.update({
@@ -7417,6 +7546,202 @@ export class TaskService {
         };
       }
 
+      // Handle TASK_PRICING rollback
+      if (changeLog.entityType === 'TASK_PRICING') {
+        const fieldToRevert = changeLog.field;
+        if (!fieldToRevert) {
+          throw new BadRequestException('Não é possível reverter: campo não especificado');
+        }
+
+        // Legacy bulk items rollback
+        if (fieldToRevert === 'items' || fieldToRevert === 'items_snapshot') {
+          let parsedOldValue: any = changeLog.oldValue;
+          if (typeof parsedOldValue === 'string') {
+            try { parsedOldValue = JSON.parse(parsedOldValue); } catch { /* use as-is */ }
+          }
+
+          if (parsedOldValue && typeof parsedOldValue === 'object' && Array.isArray(parsedOldValue.items)) {
+            // Delete all current items
+            await tx.taskPricingItem.deleteMany({ where: { pricingId: changeLog.entityId } });
+
+            // Recreate from old snapshot
+            for (let i = 0; i < parsedOldValue.items.length; i++) {
+              const item = parsedOldValue.items[i];
+              await tx.taskPricingItem.create({
+                data: {
+                  pricingId: changeLog.entityId,
+                  description: item.description || '',
+                  amount: item.amount || 0,
+                  observation: item.observation ?? null,
+                  shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+                  position: item.position !== undefined ? item.position : i,
+                },
+              });
+            }
+
+            // Recalculate totals
+            const allItems = await tx.taskPricingItem.findMany({ where: { pricingId: changeLog.entityId } });
+            const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+            const pricing = await tx.taskPricing.findUnique({ where: { id: changeLog.entityId } });
+            const discountType = pricing?.discountType || 'NONE';
+            const discountValue = Number(pricing?.discountValue || 0);
+            let newTotal = newSubtotal;
+            if (discountType === 'PERCENTAGE' && discountValue > 0) {
+              newTotal = Math.max(0, Math.round((newSubtotal - (newSubtotal * discountValue / 100)) * 100) / 100);
+            } else if (discountType === 'FIXED_VALUE' && discountValue > 0) {
+              newTotal = Math.max(0, Math.round((newSubtotal - discountValue) * 100) / 100);
+            }
+
+            await tx.taskPricing.update({
+              where: { id: changeLog.entityId },
+              data: { subtotal: newSubtotal, total: newTotal },
+            });
+          }
+        } else {
+          // Scalar field rollback
+          let convertedValue: any = changeLog.oldValue;
+          if (convertedValue === null || convertedValue === undefined || convertedValue === '') {
+            convertedValue = null;
+          } else if (['subtotal', 'total', 'discountValue', 'guaranteeYears', 'customForecastDays', 'simultaneousTasks', 'budgetNumber'].includes(fieldToRevert)) {
+            convertedValue = Number(convertedValue);
+          } else if (['expiresAt', 'downPaymentDate'].includes(fieldToRevert)) {
+            const parsed = new Date(convertedValue as string);
+            convertedValue = isNaN(parsed.getTime()) ? null : parsed;
+          }
+
+          await tx.taskPricing.update({
+            where: { id: changeLog.entityId },
+            data: { [fieldToRevert]: convertedValue },
+          });
+        }
+
+        const fieldNamePt = translateFieldName(fieldToRevert);
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_PRICING,
+          entityId: changeLog.entityId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: fieldToRevert,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Campo '${fieldNamePt}' revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: changeLog.entityId,
+          userId,
+          transaction: tx,
+        });
+
+        return {
+          success: true,
+          message: `Campo '${fieldNamePt}' revertido com sucesso`,
+          data: null,
+        };
+      }
+
+      // Handle TASK_PRICING_ITEM rollback
+      if (changeLog.entityType === 'TASK_PRICING_ITEM') {
+        const pricingId = changeLog.entityId; // entityId is the pricingId
+        const metadata = changeLog.metadata as any;
+        const itemDescription = metadata?.itemDescription;
+
+        if (!itemDescription) {
+          throw new BadRequestException('Não é possível reverter: descrição do item não encontrada nos metadados');
+        }
+
+        const recalculateTotals = async () => {
+          const allItems = await tx.taskPricingItem.findMany({ where: { pricingId } });
+          const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+          const pricing = await tx.taskPricing.findUnique({ where: { id: pricingId } });
+          const discountType = pricing?.discountType || 'NONE';
+          const discountValue = Number(pricing?.discountValue || 0);
+          let newTotal = newSubtotal;
+          if (discountType === 'PERCENTAGE' && discountValue > 0) {
+            newTotal = Math.max(0, Math.round((newSubtotal - (newSubtotal * discountValue / 100)) * 100) / 100);
+          } else if (discountType === 'FIXED_VALUE' && discountValue > 0) {
+            newTotal = Math.max(0, Math.round((newSubtotal - discountValue) * 100) / 100);
+          }
+          await tx.taskPricing.update({
+            where: { id: pricingId },
+            data: { subtotal: newSubtotal, total: newTotal },
+          });
+        };
+
+        if (changeLog.action === 'CREATE') {
+          // Undo item addition — find and delete the item
+          const item = await tx.taskPricingItem.findFirst({
+            where: { pricingId, description: itemDescription },
+          });
+          if (item) {
+            await tx.taskPricingItem.delete({ where: { id: item.id } });
+            await recalculateTotals();
+          }
+        } else if (changeLog.action === 'DELETE') {
+          // Undo item removal — recreate item from oldValue
+          let parsedOldValue = changeLog.oldValue;
+          if (typeof parsedOldValue === 'string') {
+            try { parsedOldValue = JSON.parse(parsedOldValue); } catch { /* use as-is */ }
+          }
+          if (parsedOldValue && typeof parsedOldValue === 'object') {
+            const itemData = parsedOldValue as any;
+            await tx.taskPricingItem.create({
+              data: {
+                pricingId,
+                description: itemData.description || itemDescription,
+                amount: itemData.amount || 0,
+                observation: itemData.observation ?? null,
+                shouldSync: itemData.shouldSync !== undefined ? itemData.shouldSync : true,
+                position: itemData.position ?? 0,
+              },
+            });
+            await recalculateTotals();
+          }
+        } else if (changeLog.action === 'UPDATE') {
+          // Undo field change on an existing item
+          const field = changeLog.field;
+          if (!field) {
+            throw new BadRequestException('Não é possível reverter: campo não especificado');
+          }
+
+          const item = await tx.taskPricingItem.findFirst({
+            where: { pricingId, description: itemDescription },
+          });
+          if (item) {
+            let convertedValue: any = changeLog.oldValue;
+            if (field === 'amount') {
+              convertedValue = Number(convertedValue);
+            }
+            await tx.taskPricingItem.update({
+              where: { id: item.id },
+              data: { [field]: convertedValue },
+            });
+            if (field === 'amount') {
+              await recalculateTotals();
+            }
+          }
+        }
+
+        const fieldNamePt = changeLog.field ? translateFieldName(changeLog.field) : 'item';
+        await this.changeLogService.logChange({
+          entityType: ENTITY_TYPE.TASK_PRICING_ITEM,
+          entityId: pricingId,
+          action: CHANGE_ACTION.ROLLBACK,
+          field: changeLog.field || null,
+          oldValue: changeLog.newValue,
+          newValue: changeLog.oldValue,
+          reason: `Item '${itemDescription}' — ${fieldNamePt} revertido via changelog ${changeLogId}`,
+          triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+          triggeredById: pricingId,
+          userId,
+          transaction: tx,
+          metadata: { itemDescription },
+        });
+
+        return {
+          success: true,
+          message: `Item '${itemDescription}' revertido com sucesso`,
+          data: null,
+        };
+      }
+
       // 2. Get current task (TASK entity type)
       const currentTask = await this.tasksRepository.findByIdWithTransaction(
         tx,
@@ -7451,7 +7776,8 @@ export class TaskService {
         )
       ) {
         // Dates must be either a valid Date object or null, never empty string
-        convertedValue = new Date(oldValue as string);
+        const parsed = new Date(oldValue as string);
+        convertedValue = isNaN(parsed.getTime()) ? null : parsed;
       }
       // Handle number fields
       else if (['statusOrder'].includes(fieldToRevert)) {
@@ -8242,10 +8568,9 @@ export class TaskService {
         throw new BadRequestException(`Tarefa ${taskId} não possui caminhão associado`);
       }
 
-      // Validate that truck has layout before positioning (except for PATIO)
+      // Validate that truck has layout before positioning
       if (
         positionData.spot &&
-        positionData.spot !== TRUCK_SPOT.PATIO &&
         !task.truck.leftSideLayout &&
         !task.truck.rightSideLayout &&
         !task.truck.backSideLayout
@@ -8256,7 +8581,7 @@ export class TaskService {
       }
 
       // Validate spot availability (check if spot is already occupied)
-      if (positionData.spot && positionData.spot !== TRUCK_SPOT.PATIO) {
+      if (positionData.spot) {
         const existingTruck = await tx.truck.findFirst({
           where: {
             spot: positionData.spot,

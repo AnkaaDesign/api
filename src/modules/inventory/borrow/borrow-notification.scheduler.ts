@@ -49,7 +49,7 @@ export class BorrowNotificationScheduler {
    * Run daily at 17:20 to check for unreturned borrows
    * Sends reminders to users and their sector managers
    */
-  @Cron('20 17 * * *') // 17:20 every day
+  @Cron('20 17 * * *', { timeZone: 'America/Sao_Paulo' }) // 17:20 every day
   async checkUnreturnedBorrows() {
     this.logger.log('Running daily unreturned borrow check...');
 

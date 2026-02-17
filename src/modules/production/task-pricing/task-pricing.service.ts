@@ -36,6 +36,8 @@ import {
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
+import { logPricingItemChanges } from '@modules/common/changelog/utils/pricing-item-changelog';
+import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 
 /**
  * Calculate discount amount based on discount type and value
@@ -265,11 +267,23 @@ export class TaskPricingService {
 
         // Log change
         await this.changeLogService.logChange({
-          entityType: CHANGE_LOG_ENTITY_TYPE.TASK as any,
+          entityType: ENTITY_TYPE.TASK_PRICING,
           entityId: newPricing.id,
-          action: CHANGE_LOG_ACTION.CREATE as any,
+          action: CHANGE_ACTION.CREATE,
           userId,
           reason: 'Criação de orçamento',
+          newValue: serializeChangelogValue({
+            id: newPricing.id,
+            budgetNumber: nextBudgetNumber,
+            subtotal: data.subtotal,
+            total: data.total,
+            status: data.status || TASK_PRICING_STATUS.DRAFT,
+            items: data.items.map(item => ({
+              description: item.description,
+              amount: item.amount,
+              observation: item.observation || null,
+            })),
+          }),
           triggeredBy: CHANGE_TRIGGERED_BY.USER,
           triggeredById: userId,
           transaction: tx,
@@ -484,50 +498,94 @@ export class TaskPricingService {
           }
         }
 
-        // Track pricing items changes
+        // Track pricing items changes (per-item granular tracking)
         if (data.items !== undefined) {
           const oldItems = (existing as any).items || [];
           const newItems = (updatedPricing as any).items || [];
 
-          // Format items for comparison: description + amount
+          // Log per-item changes (added, removed, field updates)
+          await logPricingItemChanges({
+            changeLogService: this.changeLogService,
+            pricingId: id,
+            oldItems,
+            newItems,
+            userId: userId || '',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            transaction: tx,
+          });
+
+          // Also keep a bulk snapshot for backward compatibility (field: 'items_snapshot')
           const formatItem = (item: any) =>
             `${item.description || ''}: R$ ${Number(item.amount || 0).toFixed(2)}`;
           const oldItemsSummary = oldItems.map(formatItem);
           const newItemsSummary = newItems.map(formatItem);
-
-          // Check if items actually changed
           const itemsChanged =
             oldItemsSummary.length !== newItemsSummary.length ||
             oldItemsSummary.some((s: string, i: number) => s !== newItemsSummary[i]);
 
           if (itemsChanged) {
             await this.changeLogService.logChange({
-              entityType: CHANGE_LOG_ENTITY_TYPE.TASK_PRICING as any,
+              entityType: ENTITY_TYPE.TASK_PRICING,
               entityId: id,
-              action: CHANGE_LOG_ACTION.UPDATE as any,
-              field: 'items',
-              oldValue: {
+              action: CHANGE_ACTION.UPDATE,
+              field: 'items_snapshot',
+              oldValue: serializeChangelogValue({
                 count: oldItems.length,
                 items: oldItems.map((item: any) => ({
                   description: item.description,
                   amount: Number(item.amount),
                   observation: item.observation,
                 })),
-              },
-              newValue: {
+              }),
+              newValue: serializeChangelogValue({
                 count: newItems.length,
                 items: newItems.map((item: any) => ({
                   description: item.description,
                   amount: Number(item.amount),
                   observation: item.observation,
                 })),
-              },
+              }),
               userId: userId || '',
-              reason: 'Atualização dos itens do orçamento',
+              reason: 'Atualização dos itens do orçamento (snapshot)',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: userId,
               transaction: tx,
             });
+          }
+
+          // Fix R$ 0,00 snapshot: update pricingId changelog when real amounts are set
+          const allOldAmountsZero = oldItems.every((item: any) => Number(item.amount) === 0);
+          const anyNewAmountNonZero = newItems.some((item: any) => Number(item.amount) > 0);
+
+          if (allOldAmountsZero && anyNewAmountNonZero) {
+            const updatedWithTasks = await tx.taskPricing.findUnique({
+              where: { id },
+              include: { tasks: { select: { id: true } }, items: { orderBy: { position: 'asc' } } },
+            });
+
+            for (const task of updatedWithTasks?.tasks || []) {
+              const pricingIdLog = await tx.changeLog.findFirst({
+                where: { entityType: 'TASK', entityId: task.id, field: 'pricingId' },
+                orderBy: { createdAt: 'desc' },
+              });
+              if (pricingIdLog) {
+                const realSnapshot = serializeChangelogValue({
+                  id,
+                  budgetNumber: (updatedWithTasks as any).budgetNumber,
+                  subtotal: (updatedWithTasks as any).subtotal,
+                  total: (updatedWithTasks as any).total,
+                  discountType: (updatedWithTasks as any).discountType,
+                  discountValue: (updatedWithTasks as any).discountValue,
+                  status: (updatedWithTasks as any).status,
+                  items: updatedWithTasks!.items.map(item => ({
+                    description: item.description,
+                    amount: Number(item.amount),
+                    observation: item.observation,
+                  })),
+                });
+                await tx.changeLog.update({ where: { id: pricingIdLog.id }, data: { newValue: realSnapshot } });
+              }
+            }
           }
         }
 
@@ -851,6 +909,20 @@ export class TaskPricingService {
             // Ignore errors when deleting old file
           });
       }
+
+      // Log signature changelog
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.TASK_PRICING,
+        entityId: id,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'customerSignatureId',
+        oldValue: pricing.customerSignatureId || null,
+        newValue: signatureFile.id,
+        userId: null,
+        reason: 'Assinatura do cliente enviada',
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+        triggeredById: null,
+      });
 
       this.logger.log(`Customer signature uploaded for pricing ${id}`);
 

@@ -265,16 +265,16 @@ export class WhatsAppNotificationService {
       }
 
       // Stock notifications
-      if (type === 'stock.low') {
+      if (type === 'stock.low' || type === 'item.low_stock') {
         return this.formatter.formatStockLow(data);
       }
-      if (type === 'stock.critical') {
+      if (type === 'stock.critical' || type === 'item.critical_stock') {
         return this.formatter.formatStockCritical(data);
       }
-      if (type === 'stock.out') {
+      if (type === 'stock.out' || type === 'item.out_of_stock') {
         return this.formatter.formatStockOut(data);
       }
-      if (type === 'stock.reorder' || type === 'item.needing.order') {
+      if (type === 'stock.reorder' || type === 'item.needing.order' || type === 'item.reorder_required') {
         return this.formatter.formatItemNeedingOrder(data);
       }
 

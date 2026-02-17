@@ -31,7 +31,7 @@ export class TimeEntryReminderScheduler {
    * Check ENTRADA1 (first entry) - runs at 7:30 AM
    * For employees with 07:15 schedule (PINTURA, etc.)
    */
-  @Cron('30 7 * * 1-5') // Monday to Friday at 7:30 AM
+  @Cron('30 7 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 7:30 AM
   async checkEntrada1Early(): Promise<void> {
     await this.runEntrada1Check('07:30');
   }
@@ -40,7 +40,7 @@ export class TimeEntryReminderScheduler {
    * Check ENTRADA1 (first entry) - runs at 8:15 AM
    * For employees with 08:00 schedule (ADMINISTRAÇÃO, etc.)
    */
-  @Cron('15 8 * * 1-5') // Monday to Friday at 8:15 AM
+  @Cron('15 8 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 8:15 AM
   async checkEntrada1Late(): Promise<void> {
     await this.runEntrada1Check('08:15');
   }
@@ -77,7 +77,7 @@ export class TimeEntryReminderScheduler {
    * Check SAIDA1 (first exit/lunch) - runs at 11:45 AM
    * For employees with 11:30 schedule
    */
-  @Cron('45 11 * * 1-5') // Monday to Friday at 11:45 AM
+  @Cron('45 11 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 11:45 AM
   async checkSaida1Early(): Promise<void> {
     await this.runSaida1Check('11:45');
   }
@@ -86,7 +86,7 @@ export class TimeEntryReminderScheduler {
    * Check SAIDA1 (first exit/lunch) - runs at 12:15 PM
    * For employees with 12:00 schedule
    */
-  @Cron('15 12 * * 1-5') // Monday to Friday at 12:15 PM
+  @Cron('15 12 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 12:15 PM
   async checkSaida1Late(): Promise<void> {
     await this.runSaida1Check('12:15');
   }
@@ -123,7 +123,7 @@ export class TimeEntryReminderScheduler {
    * Check ENTRADA2 (return from lunch) - runs at 13:15 PM
    * Most schedules have 13:00 as lunch return
    */
-  @Cron('15 13 * * 1-5') // Monday to Friday at 1:15 PM
+  @Cron('15 13 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 1:15 PM
   async checkEntrada2(): Promise<void> {
     if (this.isProcessingEntrada2) {
       this.logger.warn('ENTRADA2 check already in progress, skipping');
@@ -153,7 +153,7 @@ export class TimeEntryReminderScheduler {
    * Check SAIDA2 (end of work) - runs at 17:45 PM
    * For employees with 17:30 schedule
    */
-  @Cron('45 17 * * 1-5') // Monday to Friday at 5:45 PM
+  @Cron('45 17 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 5:45 PM
   async checkSaida2Early(): Promise<void> {
     await this.runSaida2Check('17:45');
   }
@@ -162,7 +162,7 @@ export class TimeEntryReminderScheduler {
    * Check SAIDA2 (end of work) - runs at 18:15 PM
    * For employees with 18:00 schedule
    */
-  @Cron('15 18 * * 1-5') // Monday to Friday at 6:15 PM
+  @Cron('15 18 * * 1-5', { timeZone: 'America/Sao_Paulo' }) // Monday to Friday at 6:15 PM
   async checkSaida2Late(): Promise<void> {
     await this.runSaida2Check('18:15');
   }

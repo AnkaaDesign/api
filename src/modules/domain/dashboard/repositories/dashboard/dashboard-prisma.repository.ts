@@ -2414,9 +2414,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       select: { spot: true },
     });
 
-    // Count trucks by garage (B1, B2, B3, PATIO)
-    // PATIO only counts trucks with explicit 'PATIO' spot assignment
-    // Trucks without spot (null) are NOT counted - they haven't been assigned yet
+    // Count trucks by garage (B1, B2, B3) or patio (null spot)
     const garageNames = ['Pátio', 'Barracão 1', 'Barracão 2', 'Barracão 3'];
     const garageCounts = {
       PATIO: 0,
@@ -2433,7 +2431,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
       } else if (truck.spot?.startsWith('B3_')) {
         garageCounts.B3++;
       } else {
-        // Trucks with null spot or 'PATIO' are in the patio (at the company but not in a garage)
+        // Trucks with null spot are in the patio (at the company but not in a garage)
         garageCounts.PATIO++;
       }
     }
@@ -2443,7 +2441,7 @@ export class DashboardPrismaRepository implements DashboardRepository {
     // B2: Width 18.5m, Length 30.5m
     // B3: Width 20m, Length 40m
     // Each garage has 3 lanes with 2 spots each = 6 spots per garage (typical capacity)
-    const totalGarages = 4; // PATIO + B1 + B2 + B3
+    const totalGarages = 4; // Patio + B1 + B2 + B3
     const totalLanes = 9; // 3 garages x 3 lanes each
     const totalParkingSpots = 18; // 6 spots per garage x 3 garages = 18 total garage spots (2 per lane)
     const occupiedSpots = garageCounts.B1 + garageCounts.B2 + garageCounts.B3; // Only count garage spots, not patio

@@ -5,6 +5,7 @@ import { NotificationDispatchService } from './notification-dispatch.service';
 import { NotificationGatewayService } from './notification-gateway.service';
 import { ChangeLogService } from '../changelog/changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../constants';
+import { WorkScheduleService } from './work-schedule.service';
 
 /**
  * Reminder time interval options
@@ -91,6 +92,7 @@ export class NotificationReminderSchedulerService {
     private readonly dispatchService: NotificationDispatchService,
     private readonly gatewayService: NotificationGatewayService,
     private readonly changeLogService: ChangeLogService,
+    private readonly workScheduleService: WorkScheduleService,
   ) {}
 
   /**
@@ -207,11 +209,8 @@ export class NotificationReminderSchedulerService {
       // 6. Calculate reminder time
       let remindAt = this.calculateReminderTime(interval);
 
-      // 6.5. Validate work hours for non-urgent notifications
-      // If reminder would trigger outside work hours, adjust to next 7:30 AM
-      if (notification.importance !== 'URGENT') {
-        remindAt = this.adjustReminderForWorkHours(remindAt);
-      }
+      // 6.5. Validate working day + work hours — adjust if needed
+      remindAt = await this.adjustReminderForWorkSchedule(remindAt);
 
       // 7. Update SeenNotification with reminder time
       const updated = await (tx as any).seenNotification.update({
@@ -447,6 +446,20 @@ export class NotificationReminderSchedulerService {
    * @param reminder - The reminder to process
    */
   private async processSingleReminder(reminder: any): Promise<void> {
+    // Check working day + work hours before processing
+    const canSend = await this.workScheduleService.canSendNow();
+    if (!canSend) {
+      const nextTime = await this.workScheduleService.getNextSendableTime();
+      this.logger.log(
+        `Reminder ${reminder.id} blocked outside working hours/day, rescheduling to ${nextTime.toISOString()}`,
+      );
+      await this.prisma.seenNotification.update({
+        where: { id: reminder.id },
+        data: { remindAt: nextTime },
+      });
+      return;
+    }
+
     await this.prisma.$transaction(async tx => {
       const notification = reminder.notification;
       const user = reminder.user;
@@ -918,51 +931,30 @@ export class NotificationReminderSchedulerService {
   }
 
   /**
-   * Adjust reminder time to respect work hours (7:30 AM - 6:00 PM)
-   * If reminder would trigger outside work hours, reschedule to next 7:30 AM
-   *
-   * @param reminderTime - The originally calculated reminder time
-   * @returns Adjusted reminder time within work hours
+   * Adjust reminder time to respect working schedule (weekdays, non-holidays, 7:30-18:00)
+   * Uses WorkScheduleService for consistent logic across all notification paths
    */
-  private adjustReminderForWorkHours(reminderTime: Date): Date {
-    // Get reminder time in São Paulo timezone
+  private async adjustReminderForWorkSchedule(reminderTime: Date): Promise<Date> {
+    // Quick check: is the reminder time during a valid working period?
     const saoPauloTime = new Date(
       reminderTime.toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }),
     );
     const hours = saoPauloTime.getHours();
     const minutes = saoPauloTime.getMinutes();
-
-    // Work hours: 7:30 (7.5) to 18:00 (18.0)
     const currentTimeInHours = hours + minutes / 60;
-    const workStartHour = 7.5; // 7:30
-    const workEndHour = 18.0; // 18:00
+    const day = saoPauloTime.getDay();
 
-    // Check if within work hours
-    const isWithinWorkHours =
-      currentTimeInHours >= workStartHour && currentTimeInHours < workEndHour;
-
-    if (isWithinWorkHours) {
-      // Already within work hours, return as-is
-      this.logger.debug(
-        `Reminder time ${reminderTime.toISOString()} is within work hours, no adjustment needed`,
-      );
+    // If it's a weekday and within work hours, it's likely fine
+    // (holiday check will happen at dispatch time as a second gate)
+    if (day !== 0 && day !== 6 && currentTimeInHours >= 7.5 && currentTimeInHours < 18.0) {
       return reminderTime;
     }
 
-    // Outside work hours - calculate next 7:30 AM
-    const next730 = new Date(saoPauloTime);
-    next730.setHours(7, 30, 0, 0);
-
-    // If current time is past 7:30 today (or at/after 18:00), schedule for tomorrow
-    if (currentTimeInHours >= 7.5) {
-      next730.setDate(next730.getDate() + 1);
-    }
-
+    // Outside working schedule — get next sendable time
+    const nextTime = await this.workScheduleService.getNextSendableTime();
     this.logger.log(
-      `Reminder time ${reminderTime.toISOString()} is outside work hours (${hours}:${minutes.toString().padStart(2, '0')}). ` +
-        `Adjusted to ${next730.toISOString()} (next 7:30 AM)`,
+      `Reminder time ${reminderTime.toISOString()} adjusted to ${nextTime.toISOString()} (next working day)`,
     );
-
-    return next730;
+    return nextTime;
   }
 }

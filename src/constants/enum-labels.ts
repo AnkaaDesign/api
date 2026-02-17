@@ -380,8 +380,6 @@ export const TRUCK_SPOT_LABELS: Record<TRUCK_SPOT, string> = {
   [TRUCK_SPOT.B3_F3_V1]: 'B3-F3-V1',
   [TRUCK_SPOT.B3_F3_V2]: 'B3-F3-V2',
   [TRUCK_SPOT.B3_F3_V3]: 'B3-F3-V3',
-  // Yard/Patio
-  [TRUCK_SPOT.PATIO]: 'Pátio',
 };
 
 // =====================
@@ -1072,6 +1070,7 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.SUPPLIER]: 'Fornecedor',
   [ENTITY_TYPE.TASK]: 'Task',
   [ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
+  [ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
   [ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [ENTITY_TYPE.TRUCK]: 'Caminhão',
   [ENTITY_TYPE.USER]: 'Usuário',
@@ -1450,6 +1449,7 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.SUPPLIER]: 'Fornecedor',
   [CHANGE_LOG_ENTITY_TYPE.TASK]: 'Task',
   [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
   [CHANGE_LOG_ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [CHANGE_LOG_ENTITY_TYPE.USER]: 'Usuário',
   [CHANGE_LOG_ENTITY_TYPE.VACATION]: 'Vacation',

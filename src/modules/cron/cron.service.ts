@@ -34,7 +34,7 @@ export class CronService {
    * - Logs all changes to the changelog system
    * - Catches users even if they were missed on previous days (e.g., server downtime, user created after cron ran)
    */
-  @Cron('0 1 * * *')
+  @Cron('0 1 * * *', { timeZone: 'America/Sao_Paulo' })
   async processUserStatusTransitions() {
     this.logger.log('Starting automatic user status transitions cron job...');
 
@@ -93,7 +93,7 @@ export class CronService {
    * - Updates their status to OVERDUE
    * - Logs all changes to the changelog system
    */
-  @Cron('0 0 * * *')
+  @Cron('0 0 * * *', { timeZone: 'America/Sao_Paulo' })
   async updateOverdueOrders() {
     this.logger.log('Starting overdue orders update cron job...');
 
@@ -193,7 +193,7 @@ export class CronService {
    * - Recalculates nextRun for recurring schedules
    * - Deactivates ONCE schedules after execution
    */
-  @Cron('0 7 * * *')
+  @Cron('0 7 * * *', { timeZone: 'America/Sao_Paulo' })
   async processDuePpeDeliverySchedules() {
     this.logger.log('Starting PPE delivery schedule processing cron job...');
 

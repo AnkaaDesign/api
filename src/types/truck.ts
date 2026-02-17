@@ -23,7 +23,7 @@ export interface Truck extends BaseEntity {
   chassisNumber: string | null;
   category: TRUCK_CATEGORY | null; // Type of truck (mini, vuc, 3/4, toco, truck, semi-trailer, b-double)
   implementType: IMPLEMENT_TYPE | null; // Type of body/implement (dry-cargo, refrigerated, insulated, curtain-side, tank, flatbed)
-  spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) or PATIO
+  spot: TRUCK_SPOT | null; // Parking spot in garage (B1_F1_V1, B1_F2_V1, etc.) — null means patio
   taskId: string;
   backSideLayoutId: string | null;
   leftSideLayoutId: string | null;

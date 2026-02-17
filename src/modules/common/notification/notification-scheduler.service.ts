@@ -97,7 +97,7 @@ export class NotificationSchedulerService {
    * Check task deadlines daily at 8 AM
    * Sends notifications for tasks due in 7, 3, or 1 day(s)
    */
-  @Cron('0 8 * * *')
+  @Cron('0 8 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkTaskDeadlines(): Promise<void> {
     const startTime = Date.now();
     let notificationCount = 0;
@@ -146,7 +146,7 @@ export class NotificationSchedulerService {
    * Check overdue tasks daily at 9 AM
    * Sends notifications for tasks that are past their deadline
    */
-  @Cron('0 9 * * *')
+  @Cron('0 9 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkOverdueTasks(): Promise<void> {
     const startTime = Date.now();
     let notificationCount = 0;
@@ -195,7 +195,7 @@ export class NotificationSchedulerService {
    * Check stock levels daily at 10 AM
    * Sends notifications for items with low stock
    */
-  @Cron('0 10 * * *')
+  @Cron('0 10 * * *', { timeZone: 'America/Sao_Paulo' })
   async checkStockLevels(): Promise<void> {
     const startTime = Date.now();
     let notificationCount = 0;
@@ -360,7 +360,7 @@ export class NotificationSchedulerService {
    * Clean old notifications monthly
    * Removes notifications older than 30 days
    */
-  @Cron('0 0 1 * *')
+  @Cron('0 0 1 * *', { timeZone: 'America/Sao_Paulo' })
   async cleanOldNotifications(): Promise<void> {
     const startTime = Date.now();
     let deletedCount = 0;

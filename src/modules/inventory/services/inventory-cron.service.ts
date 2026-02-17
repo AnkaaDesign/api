@@ -40,7 +40,7 @@ export class InventoryCronService {
    * - Seasonal pattern detection
    * - Historical trend analysis
    */
-  @Cron('0 2 1 * *')
+  @Cron('0 2 1 * *', { timeZone: 'America/Sao_Paulo' })
   async createMonthlyConsumptionSnapshots(): Promise<{
     total: number;
     created: number;
@@ -150,7 +150,7 @@ export class InventoryCronService {
    * 2. Item is currently active
    * 3. A similar item (by name) exists that IS being used recently
    */
-  @Cron('0 3 * * 0')
+  @Cron('0 3 * * 0', { timeZone: 'America/Sao_Paulo' })
   async detectAndDisableDormantItems(): Promise<{
     scanned: number;
     dormantFound: number;
@@ -274,7 +274,7 @@ export class InventoryCronService {
    * Updates lastUsedAt for all active items based on their most recent consumption activity.
    * Runs daily at 2:30 AM.
    */
-  @Cron('30 2 * * *')
+  @Cron('30 2 * * *', { timeZone: 'America/Sao_Paulo' })
   async updateLastUsedDates(): Promise<void> {
     this.logger.log('Starting lastUsedAt update for all items...');
 
