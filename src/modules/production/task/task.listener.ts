@@ -271,11 +271,20 @@ export class TaskListener {
 
       const changedByName = changedByUser?.name || 'Sistema';
 
-      // Calculate count for file arrays
+      // Calculate counts and formatted description for file arrays
       let count: number | undefined;
+      let addedCount: number | undefined;
+      let removedCount: number | undefined;
+      let fileChangeDescription: string | undefined;
+
       if (event.isFileArray && event.fileChange) {
         const { added, removed } = event.fileChange;
-        count = added > 0 ? added : -removed; // Positive for added, negative for removed
+        addedCount = added;
+        removedCount = removed;
+        count = added > 0 ? added : removed; // Total count for backwards compatibility
+
+        // Build formatted description in Portuguese with proper grammar
+        fileChangeDescription = this.formatFileChangeDescription(added, removed);
       }
 
       await this.dispatchService.dispatchByConfiguration(
@@ -294,6 +303,9 @@ export class TaskListener {
             newValue: event.newValue,
             changedBy: changedByName,
             count,
+            addedCount,
+            removedCount,
+            fileChangeDescription,
           },
         },
       );
@@ -302,6 +314,32 @@ export class TaskListener {
     } catch (error) {
       this.logger.error('Error handling task field changed event:', error);
     }
+  }
+
+  /**
+   * Format file change description with proper Portuguese grammar
+   * Handles singular/plural forms for added and removed files
+   */
+  private formatFileChangeDescription(added: number, removed: number): string {
+    const parts: string[] = [];
+
+    if (added > 0) {
+      if (added === 1) {
+        parts.push('1 arte adicionada');
+      } else {
+        parts.push(`${added} artes adicionadas`);
+      }
+    }
+
+    if (removed > 0) {
+      if (removed === 1) {
+        parts.push('1 arte removida');
+      } else {
+        parts.push(`${removed} artes removidas`);
+      }
+    }
+
+    return parts.join(' e ');
   }
 
   /**

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as Handlebars from 'handlebars';
 import {
   TASK_STATUS,
   COMMISSION_STATUS,
@@ -177,6 +178,79 @@ const SERVICE_ORDER_TYPE_LABELS: Record<SERVICE_ORDER_TYPE, string> = {
 @Injectable()
 export class NotificationTemplateRendererService {
   private readonly logger = new Logger(NotificationTemplateRendererService.name);
+  private readonly handlebars: typeof Handlebars;
+
+  constructor() {
+    // Create isolated Handlebars instance
+    this.handlebars = Handlebars.create();
+    this.registerHandlebarsHelpers();
+  }
+
+  /**
+   * Register custom Handlebars helpers for notification templates
+   */
+  private registerHandlebarsHelpers(): void {
+    // Date formatting helper
+    this.handlebars.registerHelper('formatDate', (date: Date | string, format?: string) => {
+      if (!date) return '';
+      const dateObj = typeof date === 'string' ? new Date(date) : date;
+      if (isNaN(dateObj.getTime())) return String(date);
+
+      if (format === 'short') {
+        return dateObj.toLocaleDateString('pt-BR');
+      } else if (format === 'long') {
+        return dateObj.toLocaleDateString('pt-BR', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      } else if (format === 'datetime') {
+        return dateObj.toLocaleString('pt-BR');
+      }
+      return dateObj.toLocaleDateString('pt-BR');
+    });
+
+    // Currency formatting helper
+    this.handlebars.registerHelper('formatCurrency', (value: number, currency = 'BRL') => {
+      if (value === null || value === undefined) return '';
+      return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: currency,
+      }).format(value);
+    });
+
+    // Conditional equality helper
+    this.handlebars.registerHelper('eq', (a: any, b: any) => a === b);
+    this.handlebars.registerHelper('neq', (a: any, b: any) => a !== b);
+    this.handlebars.registerHelper('gt', (a: number, b: number) => a > b);
+    this.handlebars.registerHelper('lt', (a: number, b: number) => a < b);
+
+    // Logical helpers
+    this.handlebars.registerHelper('or', (...args: any[]) => {
+      const values = args.slice(0, -1);
+      return values.some(val => !!val);
+    });
+    this.handlebars.registerHelper('and', (...args: any[]) => {
+      const values = args.slice(0, -1);
+      return values.every(val => !!val);
+    });
+
+    // String helpers
+    this.handlebars.registerHelper('uppercase', (str: string) => str ? str.toUpperCase() : '');
+    this.handlebars.registerHelper('lowercase', (str: string) => str ? str.toLowerCase() : '');
+    this.handlebars.registerHelper('capitalize', (str: string) => {
+      if (!str) return '';
+      return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    });
+
+    // Default value helper
+    this.handlebars.registerHelper('default', (value: any, defaultValue: any) => {
+      return value !== null && value !== undefined && value !== '' ? value : defaultValue;
+    });
+
+    this.logger.log('Handlebars helpers registered for notification templates');
+  }
 
   /**
    * Render all templates for all channels with the given context
@@ -237,11 +311,10 @@ export class NotificationTemplateRendererService {
   /**
    * Render a single template string with variables
    *
-   * Replaces {variableName} with actual values from variables object.
-   * Supports nested access: {task.name}
-   * Handles missing variables gracefully (leaves as-is or empty)
+   * Supports both Handlebars syntax ({{variable}}, {{#if}}, etc.)
+   * and simple curly brace syntax ({variable}) for backwards compatibility.
    *
-   * @param template - Template string with {variable} placeholders
+   * @param template - Template string with {{variable}} or {variable} placeholders
    * @param variables - Variables to replace in the template
    * @returns Rendered template string
    */
@@ -251,20 +324,26 @@ export class NotificationTemplateRendererService {
     }
 
     try {
-      // Replace {variableName} patterns with actual values
-      return template.replace(/\{([^}]+)\}/g, (match, path) => {
-        const value = this.getNestedValue(variables, path.trim());
+      // Check if template uses Handlebars syntax (double curly braces)
+      const usesHandlebars = /\{\{[^}]+\}\}/.test(template);
 
-        // If value is undefined or null, leave placeholder as-is for debugging
-        // or return empty string for cleaner output
-        if (value === undefined || value === null) {
-          this.logger.debug(`Variable not found: ${path}`);
-          return ''; // Return empty string for missing variables
-        }
+      if (usesHandlebars) {
+        // Use Handlebars for rendering
+        const compiled = this.handlebars.compile(template, { strict: false });
+        return compiled(variables);
+      } else {
+        // Legacy: Replace {variableName} patterns with actual values
+        return template.replace(/\{([^}]+)\}/g, (match, path) => {
+          const value = this.getNestedValue(variables, path.trim());
 
-        // Convert value to string
-        return String(value);
-      });
+          if (value === undefined || value === null) {
+            this.logger.debug(`Variable not found: ${path}`);
+            return '';
+          }
+
+          return String(value);
+        });
+      }
     } catch (error) {
       this.logger.error(`Error rendering template: ${template}`, error);
       return template; // Return original template on error

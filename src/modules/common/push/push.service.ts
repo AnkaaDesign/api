@@ -124,7 +124,9 @@ export class PushService implements OnModuleInit {
   }
 
   /**
-   * Send push notification to a single device token
+   * Send push notification to a single device token (HYBRID - supports both Expo and FCM tokens)
+   * This is the recommended method for sending to a single token as it automatically
+   * routes Expo tokens to Expo Push Service and FCM tokens to Firebase.
    */
   async sendPushNotification(
     token: string,
@@ -132,13 +134,36 @@ export class PushService implements OnModuleInit {
     body: string,
     data?: any,
   ): Promise<PushNotificationResult> {
+    // Check if this is an Expo token - route to Expo Push Service
+    if (this.isExpoPushToken(token)) {
+      this.logger.log(`[PUSH] Detected Expo token, routing to Expo Push Service`);
+      const expoResult = await this.expoPushService.sendPushNotification(token, title, body, data);
+
+      if (expoResult.success) {
+        return {
+          success: true,
+          messageId: expoResult.ticket?.status === 'ok' ? (expoResult.ticket as any).id : undefined,
+        };
+      } else {
+        // Check if we should deactivate the token
+        if (expoResult.error?.includes('DeviceNotRegistered') || expoResult.error?.includes('InvalidCredentials')) {
+          await this.deactivateToken(token);
+        }
+        return {
+          success: false,
+          error: expoResult.error,
+        };
+      }
+    }
+
+    // FCM token - send via Firebase
     if (!this.firebaseApp) {
       this.logger.warn('Firebase not initialized. Cannot send notification.');
       return { success: false, error: 'Firebase not initialized' };
     }
 
     try {
-      this.logger.log(`Sending push notification to token: ${token.substring(0, 10)}...`);
+      this.logger.log(`[PUSH] Sending FCM notification to token: ${token.substring(0, 10)}...`);
 
       const message: admin.messaging.Message = {
         token,
@@ -179,14 +204,14 @@ export class PushService implements OnModuleInit {
 
       const messageId = await admin.messaging().send(message);
 
-      this.logger.log(`Successfully sent notification: ${messageId}`);
+      this.logger.log(`Successfully sent FCM notification: ${messageId}`);
 
       return {
         success: true,
         messageId,
       };
     } catch (error) {
-      this.logger.error(`Failed to send notification: ${error.message}`, error.stack);
+      this.logger.error(`Failed to send FCM notification: ${error.message}`, error.stack);
 
       // Check if token is invalid and mark it as inactive
       if (this.isInvalidTokenError(error)) {
