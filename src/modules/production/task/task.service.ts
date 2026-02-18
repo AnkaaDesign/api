@@ -597,13 +597,13 @@ export class TaskService {
             fileUpdates.budgets = { connect: budgetIds.map(id => ({ id })) };
           }
 
-          // NFe files (multiple)
+          // Invoice files (multiple)
           if (files.invoices && files.invoices.length > 0) {
-            const nfeIds: string[] = [];
-            for (const nfeFile of files.invoices) {
-              const nfeRecord = await this.fileService.createFromUploadWithTransaction(
+            const invoiceIds: string[] = [];
+            for (const invoiceFile of files.invoices) {
+              const invoiceRecord = await this.fileService.createFromUploadWithTransaction(
                 tx,
-                nfeFile,
+                invoiceFile,
                 'taskInvoices',
                 userId,
                 {
@@ -612,9 +612,9 @@ export class TaskService {
                   customerName,
                 },
               );
-              nfeIds.push(nfeRecord.id);
+              invoiceIds.push(invoiceRecord.id);
             }
-            fileUpdates.invoices = { connect: nfeIds.map(id => ({ id })) };
+            fileUpdates.invoices = { connect: invoiceIds.map(id => ({ id })) };
           }
 
           // Receipt files (multiple)
@@ -3811,7 +3811,7 @@ export class TaskService {
             );
           }
 
-          // NFe files (multiple)
+          // Invoice files (multiple)
           // Process if new files are being uploaded OR if invoiceIds is explicitly provided (for deletions)
           if ((files?.invoices && files.invoices.length > 0) || data.invoiceIds !== undefined) {
             // Start with the invoiceIds provided in the form data (files that should be kept)
@@ -7244,16 +7244,25 @@ export class TaskService {
    */
   private validateFinancialSectorAccess(data: TaskUpdateFormData): void {
     const allowedFields = [
+      // Financial documents - can add/remove
       'budgetIds',
+      'invoiceIds', // Invoice/NFe files
+      'receiptIds',
+      'bankSlipIds',
+      // Customer and vehicle info
       'customerId',
       'serialNumber',
       'chassis',
-      'nfeIds',
-      'receiptIds',
-      'bankSlipIds',
-      'serviceOrders', // Financial can manage COMMERCIAL, LOGISTIC, FINANCIAL service orders
-      'artworkIds', // Sent by form to preserve existing artwork state (Financial can't add/remove artworks via UI)
-      'artworkStatuses', // Sent by form to preserve existing artwork statuses
+      // Service orders - Financial can manage COMMERCIAL, LOGISTIC, FINANCIAL service orders
+      'serviceOrders',
+      // Pricing - Financial can fully edit pricing information
+      'pricing',
+      // Fields sent by form to preserve existing state (Financial can't add/remove via UI)
+      'artworkIds',
+      'artworkStatuses',
+      'baseFileIds',
+      // Marker field sent when form has files but no other changes
+      '_hasFiles',
       // Note: budget/invoice/receipt file uploads are handled separately via files parameter
     ];
 
@@ -7273,12 +7282,12 @@ export class TaskService {
    * Commercial can access: agenda, cronograma, history, customer, garages, observation, airbrushing, paint basic catalogue
    * Commercial can create and update tasks
    * Commercial CAN edit: truck (plate, chassisNumber, category, implementType, spot, layouts), base files
-   * Commercial CANNOT edit: financial (budgets, invoices, receipts, NFEs), cut plan (cuts)
+   * Commercial CANNOT edit: financial (budgets, invoices, receipts), cut plan (cuts)
    */
   private validateCommercialSectorAccess(data: TaskUpdateFormData): void {
     const disallowedFields = [
       'budgetIds', // Cannot edit financial documents
-      'nfeIds', // Cannot edit financial documents
+      'invoiceIds', // Cannot edit financial documents (invoices)
       'receiptIds', // Cannot edit financial documents
       'bankSlipIds', // Cannot edit financial documents
       'cuts', // Cannot edit cut plans
@@ -7295,7 +7304,7 @@ export class TaskService {
     if (blockedFields.length > 0) {
       throw new BadRequestException(
         `Setor Comercial não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
-          `Campos bloqueados: financeiro (orçamentos, NFEs, recibos), plano de corte.`,
+          `Campos bloqueados: financeiro (orçamentos, notas fiscais, recibos), plano de corte.`,
       );
     }
   }
