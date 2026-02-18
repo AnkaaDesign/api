@@ -6,6 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import * as Handlebars from 'handlebars';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChangeLogService } from '../changelog/changelog.service';
 import {
@@ -1116,9 +1117,10 @@ export class NotificationConfigurationService {
   }
 
   /**
-   * Render a single template string by replacing {{var}} placeholders
+   * Render a single template string using Handlebars
+   * Supports {{var}}, {{#if condition}}...{{/if}}, and other Handlebars syntax
    *
-   * @param template - Template string with {{var}} placeholders
+   * @param template - Template string with Handlebars syntax
    * @param variables - Variables to replace
    * @returns Rendered string
    */
@@ -1127,19 +1129,25 @@ export class NotificationConfigurationService {
       return '';
     }
 
-    return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
-      // Support nested paths like {{user.name}}
-      const value = path.split('.').reduce((obj: any, key: string) => {
-        return obj && obj[key] !== undefined ? obj[key] : undefined;
-      }, variables);
+    try {
+      // Use Handlebars for rendering to support conditionals like {{#if serialNumber}}
+      const compiled = Handlebars.compile(template, { strict: false });
+      return compiled(variables);
+    } catch (error) {
+      this.logger.warn(`Error rendering template with Handlebars: ${error.message}`);
+      // Fallback to simple replacement for backwards compatibility
+      return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
+        const value = path.split('.').reduce((obj: any, key: string) => {
+          return obj && obj[key] !== undefined ? obj[key] : undefined;
+        }, variables);
 
-      if (value === undefined || value === null) {
-        this.logger.warn(`Template variable not found: ${path}`);
-        return match; // Keep original placeholder if not found
-      }
+        if (value === undefined || value === null) {
+          return '';
+        }
 
-      return String(value);
-    });
+        return String(value);
+      });
+    }
   }
 
   // =====================
