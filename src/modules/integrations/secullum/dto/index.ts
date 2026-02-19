@@ -356,3 +356,21 @@ export interface SecullumHorarioDetailResponse {
   message: string;
   data?: SecullumHorario;
 }
+
+export interface SecullumHorarioDia {
+  DiaSemana: number; // 0=Sun, 1=Mon, ..., 6=Sat
+  Entrada1: string | null;
+  Saida1: string | null;
+  Entrada2: string | null;
+  Saida2: string | null;
+  Carga: number; // minutes
+}
+
+export interface SecullumHorarioRaw {
+  Id: number;
+  Numero?: number;
+  Descricao: string;
+  Desativar?: boolean;
+  Tipo?: number;
+  Dias: SecullumHorarioDia[];
+}

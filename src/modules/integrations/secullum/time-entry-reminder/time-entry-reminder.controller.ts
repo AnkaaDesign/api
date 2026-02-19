@@ -58,7 +58,6 @@ export class TimeEntryReminderController {
       users: users.map((u) => ({
         id: u.id,
         name: u.name,
-        sector: u.sectorPrivilege,
         hasMapping: !!(u.cpf || u.pis || u.payrollNumber),
       })),
     };
@@ -145,7 +144,6 @@ export class TimeEntryReminderController {
       user: {
         id: user.id,
         name: user.name,
-        sector: user.sectorPrivilege,
       },
       entryType,
       result,

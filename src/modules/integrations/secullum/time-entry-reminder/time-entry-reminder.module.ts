@@ -4,6 +4,7 @@ import { TimeEntryReminderService } from './time-entry-reminder.service';
 import { TimeEntryReminderScheduler } from './time-entry-reminder.scheduler';
 import { TimeEntryReminderController } from './time-entry-reminder.controller';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
+import { CacheModule } from '@modules/common/cache/cache.module';
 import { SecullumModule } from '../secullum.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
 
@@ -11,6 +12,7 @@ import { NotificationModule } from '@modules/common/notification/notification.mo
   imports: [
     ScheduleModule.forRoot(),
     PrismaModule,
+    CacheModule,
     forwardRef(() => SecullumModule),
     NotificationModule,
   ],

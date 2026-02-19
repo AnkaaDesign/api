@@ -89,10 +89,10 @@ export class TaskPricingPaymentScheduler {
           status: 'APPROVED',
           paymentCondition: { notIn: ['CUSTOM'] },
           downPaymentDate: { not: null },
+          task: { status: { not: 'CANCELLED' } },
         },
         include: {
-          tasks: {
-            where: { status: { not: 'CANCELLED' } },
+          task: {
             select: {
               id: true,
               name: true,
@@ -113,7 +113,7 @@ export class TaskPricingPaymentScheduler {
 
       for (const pricing of pricings) {
         if (!pricing.downPaymentDate || !pricing.paymentCondition) continue;
-        if (pricing.tasks.length === 0) continue;
+        if (!pricing.task) continue;
 
         const installments = this.getInstallmentDueDates(
           pricing.paymentCondition,
@@ -127,36 +127,34 @@ export class TaskPricingPaymentScheduler {
             .map((c) => c.fantasyName)
             .join(', ');
 
-          for (const task of pricing.tasks) {
-            const installmentLabel = installment.totalInstallments === 1
-              ? 'Parcela unica'
-              : `Parcela ${installment.installmentNumber}/${installment.totalInstallments}`;
+          const installmentLabel = installment.totalInstallments === 1
+            ? 'Parcela unica'
+            : `Parcela ${installment.installmentNumber}/${installment.totalInstallments}`;
 
-            const dueDate = installment.date.toLocaleDateString('pt-BR', {
-              timeZone: 'America/Sao_Paulo',
-            });
+          const dueDate = installment.date.toLocaleDateString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+          });
 
-            await this.dispatchService.dispatchByConfiguration(
-              'task_pricing.payment_due',
-              'system',
-              {
-                entityType: 'TaskPricing',
-                entityId: pricing.id,
-                action: 'payment_due',
-                data: {
-                  taskName: task.name,
-                  serialNumber: task.serialNumber,
-                  customerName: customerNames || 'N/A',
-                  installmentLabel,
-                  dueDate,
-                  totalAmount: pricing.total.toString(),
-                  budgetNumber: pricing.budgetNumber,
-                },
+          await this.dispatchService.dispatchByConfiguration(
+            'task_pricing.payment_due',
+            'system',
+            {
+              entityType: 'TaskPricing',
+              entityId: pricing.id,
+              action: 'payment_due',
+              data: {
+                taskName: pricing.task.name,
+                serialNumber: pricing.task.serialNumber,
+                customerName: customerNames || 'N/A',
+                installmentLabel,
+                dueDate,
+                totalAmount: pricing.total.toString(),
+                budgetNumber: pricing.budgetNumber,
               },
-            );
+            },
+          );
 
-            notificationsSent++;
-          }
+          notificationsSent++;
         }
       }
 

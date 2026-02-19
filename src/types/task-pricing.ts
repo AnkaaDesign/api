@@ -69,7 +69,7 @@ export interface TaskPricing extends BaseEntity {
   discountReference: string | null;
 
   // Relations
-  tasks?: Task[]; // Many-to-many relationship with tasks
+  task?: Task; // One-to-one relationship with task
   items?: TaskPricingItem[];
   invoicesToCustomers?: Customer[];
 }
@@ -79,7 +79,7 @@ export interface TaskPricing extends BaseEntity {
 // =====================
 
 export interface TaskPricingIncludes {
-  tasks?:
+  task?:
     | boolean
     | {
         include?: TaskIncludes;

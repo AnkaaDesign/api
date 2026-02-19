@@ -1383,6 +1383,53 @@ export class BonusService {
    * @param month The month (1-12)
    * @returns Live calculated bonus data for all eligible users
    */
+  /**
+   * Get lightweight period task stats for the bonus simulation.
+   * Returns only task counts and averages WITHOUT Secullum integration.
+   */
+  async getPeriodTaskStats(year: number, month: number) {
+    const startDate = getPeriodStart(year, month);
+    const endDate = getPeriodEnd(year, month);
+
+    // Count eligible users (bonifiable + performanceLevel > 0)
+    const eligibleUsers = await this.prisma.user.count({
+      where: {
+        status: USER_STATUS.EFFECTED,
+        position: { bonifiable: true },
+        performanceLevel: { gt: 0 },
+      },
+    });
+
+    // Get tasks in period
+    const allTasks = await this.prisma.task.findMany({
+      where: {
+        commission: {
+          in: [
+            COMMISSION_STATUS.FULL_COMMISSION,
+            COMMISSION_STATUS.PARTIAL_COMMISSION,
+            COMMISSION_STATUS.SUSPENDED_COMMISSION,
+          ],
+        },
+        finishedAt: { gte: startDate, lte: endDate },
+        status: TASK_STATUS.COMPLETED,
+      },
+      select: { id: true, commission: true },
+    });
+
+    const totalRawTaskCount = calculateRawTaskCount(allTasks);
+    const totalWeightedTasks = calculatePonderedTaskCount(allTasks);
+    const totalSuspendedTasks = countSuspendedTasks(allTasks);
+
+    return {
+      totalRawTaskCount,
+      totalWeightedTasks,
+      totalSuspendedTasks,
+      eligibleUsers,
+      averageTasksPerEmployee: eligibleUsers > 0 ? roundAverage(totalWeightedTasks / eligibleUsers) : 0,
+      rawAverageTasksPerEmployee: eligibleUsers > 0 ? roundAverage(totalRawTaskCount / eligibleUsers) : 0,
+    };
+  }
+
   async calculateLiveBonuses(year: number, month: number): Promise<LiveBonusCalculationResult> {
     try {
       // Get period dates (26th to 25th) - computed from year/month

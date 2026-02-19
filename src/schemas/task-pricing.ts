@@ -325,11 +325,11 @@ const taskPricingTransform = (data: any) => {
     delete transformed.searchingFor;
   }
 
-  // Handle taskId filter
+  // Handle taskId filter (FK lives on Task, not TaskPricing)
   if (data.taskId) {
     transformed.where = {
       ...transformed.where,
-      taskId: data.taskId,
+      task: { id: data.taskId },
     };
     delete transformed.taskId;
   }
@@ -338,7 +338,7 @@ const taskPricingTransform = (data: any) => {
   if (data.hasTask !== undefined) {
     transformed.where = {
       ...transformed.where,
-      taskId: data.hasTask ? { not: null } : null,
+      task: data.hasTask ? { isNot: null } : null,
     };
     delete transformed.hasTask;
   }

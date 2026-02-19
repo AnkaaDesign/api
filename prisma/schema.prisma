@@ -1097,7 +1097,7 @@ model TaskPricing {
   customForecastDays  Int?
   simultaneousTasks   Int?
   discountReference   String?
-  tasks               Task[]            @relation("TASK_PRICING")
+  task                Task?             @relation("TASK_PRICING")
   customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
   items               TaskPricingItem[] @relation("PRICING_ITEMS")
@@ -1177,7 +1177,7 @@ model Task {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
-  pricingId             String?
+  pricingId             String?              @unique
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
@@ -1212,7 +1212,6 @@ model Task {
   @@index([createdAt])
   @@index([customerId])
   @@index([createdById])
-  @@index([pricingId])
 }
 
 model TaskFieldChangeLog {
