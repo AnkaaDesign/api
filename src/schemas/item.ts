@@ -106,11 +106,91 @@ export const itemSelectSchema = z
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
     // Relations
-    brand: z.boolean().optional(),
-    category: z.boolean().optional(),
-    supplier: z.boolean().optional(),
-    prices: z.boolean().optional(),
-    measures: z.boolean().optional(),
+    brand: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    category: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              type: z.boolean().optional(),
+              typeOrder: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    supplier: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              name: z.boolean().optional(),
+              fantasyName: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    prices: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              value: z.boolean().optional(),
+              createdAt: z.boolean().optional(),
+              updatedAt: z.boolean().optional(),
+            })
+            .optional(),
+          orderBy: z
+            .object({
+              createdAt: z.enum(['asc', 'desc']).optional(),
+              updatedAt: z.enum(['asc', 'desc']).optional(),
+            })
+            .optional(),
+          take: z.number().optional(),
+        }),
+      ])
+      .optional(),
+    measures: z
+      .union([
+        z.boolean(),
+        z.object({
+          select: z
+            .object({
+              id: z.boolean().optional(),
+              value: z.boolean().optional(),
+              unit: z.boolean().optional(),
+              measureType: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
     activities: z.boolean().optional(),
     borrows: z.boolean().optional(),
     orderItems: z.boolean().optional(),
