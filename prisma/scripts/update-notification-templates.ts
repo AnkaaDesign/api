@@ -133,15 +133,15 @@ const TASK_DEADLINE_TEMPLATES: TemplateConfig[] = [
     templates: {
       inApp: {
         title: 'Tarefa Atrasada',
-        body: 'A tarefa "{{taskName}}" {{serialNumber}} esta atrasada ha {{daysOverdue}} dia(s). Acao imediata necessaria.',
+        body: 'A tarefa "{{taskName}}" {{serialNumber}} esta atrasada ha {{daysOverdue}}. Acao imediata necessaria.',
       },
       push: {
         title: 'ATRASADA: {{taskName}}',
-        body: '{{serialNumber}} - {{daysOverdue}} dia(s) de atraso',
+        body: '{{serialNumber}} - {{daysOverdue}} de atraso',
       },
       email: {
         subject: '[URGENTE] Tarefa Atrasada - {{taskName}}',
-        body: 'ATENCAO: Uma tarefa esta atrasada e requer acao imediata.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nDias de atraso: {{daysOverdue}}\n\nPor favor, verifique a situacao e tome as providencias necessarias.',
+        body: 'ATENCAO: Uma tarefa esta atrasada e requer acao imediata.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nTempo de atraso: {{daysOverdue}}\n\nPor favor, verifique a situacao e tome as providencias necessarias.',
       },
     },
   },
@@ -334,15 +334,15 @@ const TASK_FORECAST_TEMPLATES: TemplateConfig[] = [
     templates: {
       inApp: {
         title: 'Previsao de Liberacao Atrasada',
-        body: 'A tarefa "{{taskName}}" {{serialNumber}} esta com a previsao de liberacao atrasada em {{daysOverdue}} dia(s).',
+        body: 'A tarefa "{{taskName}}" {{serialNumber}} esta com a previsao de liberacao atrasada em {{daysOverdue}}.',
       },
       push: {
         title: 'Liberacao Atrasada',
-        body: '{{taskName}} {{serialNumber}} - {{daysOverdue}} dia(s) de atraso',
+        body: '{{taskName}} {{serialNumber}} - {{daysOverdue}} de atraso',
       },
       email: {
         subject: '[ATENCAO] Previsao de Liberacao Atrasada - {{taskName}}',
-        body: 'A previsao de liberacao desta tarefa esta atrasada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nDias de atraso: {{daysOverdue}}',
+        body: 'A previsao de liberacao desta tarefa esta atrasada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nTempo de atraso: {{daysOverdue}}',
       },
     },
   },

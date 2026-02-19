@@ -76,9 +76,9 @@ export class TaskDeadlineApproachingEvent {
    */
   getTimeRemainingLabel(): string {
     if (this.hoursRemaining !== undefined && this.hoursRemaining < 24) {
-      return `${this.hoursRemaining} hora(s)`;
+      return `${this.hoursRemaining} ${this.hoursRemaining === 1 ? 'hora' : 'horas'}`;
     }
-    return `${this.daysRemaining} dia(s)`;
+    return `${this.daysRemaining} ${this.daysRemaining === 1 ? 'dia' : 'dias'}`;
   }
 
   /**
@@ -118,7 +118,7 @@ export class TaskForecastApproachingEvent {
     if (this.daysRemaining === 0) {
       return 'hoje';
     }
-    return `${this.daysRemaining} dia(s)`;
+    return `${this.daysRemaining} ${this.daysRemaining === 1 ? 'dia' : 'dias'}`;
   }
 
   /**

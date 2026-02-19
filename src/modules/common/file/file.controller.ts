@@ -141,7 +141,9 @@ export class FileController {
     }
     return {
       success: true,
-      message: `${successful.length} arquivo(s) enviado(s) com sucesso.`,
+      message: successful.length === 1
+        ? '1 arquivo enviado com sucesso.'
+        : `${successful.length} arquivos enviados com sucesso.`,
       data: { success: successful, failed, totalProcessed: successful.length + failed.length, totalSuccess: successful.length, totalFailed: failed.length },
     };
   }

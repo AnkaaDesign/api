@@ -1463,16 +1463,10 @@ export class ServiceOrderService {
             `[AUTO-TRANSITION] Emitted task.status.changed event for task ${taskAutoTransitionedToWaitingProduction.taskId} (PREPARATION → WAITING_PRODUCTION)`,
           );
 
-          // Emit task.created event to notify production sector users
-          // For production users, WAITING_PRODUCTION is effectively the "new task" status
-          this.eventEmitter.emit('task.created', {
-            task: updatedTask,
-            createdBy: changedByUser || { id: 'system', name: 'Sistema' },
-          });
-
-          this.logger.log(
-            `[AUTO-TRANSITION] Emitted task.created event for task ${taskAutoTransitionedToWaitingProduction.taskId} (notifying production sector users)`,
-          );
+          // NOTE: We previously emitted task.created here, but this was REMOVED because the
+          // task.status.changed event already triggers 'task.ready_for_production' notification
+          // via the TaskListener.handleTaskStatusChanged() method. Emitting task.created caused
+          // DUPLICATE notifications for production users.
         }
       }
 
@@ -2980,16 +2974,10 @@ export class ServiceOrderService {
             `[AUTO-TRANSITION BATCH] Emitted task.status.changed event for task ${taskAutoTransitioned.taskId} (PREPARATION → WAITING_PRODUCTION)`,
           );
 
-          // Emit task.created event to notify production sector users
-          // For production users, WAITING_PRODUCTION is effectively the "new task" status
-          this.eventEmitter.emit('task.created', {
-            task: updatedTask,
-            createdBy: changedByUser || { id: 'system', name: 'Sistema' },
-          });
-
-          this.logger.log(
-            `[AUTO-TRANSITION BATCH] Emitted task.created event for task ${taskAutoTransitioned.taskId} (notifying production sector users)`,
-          );
+          // NOTE: We previously emitted task.created here, but this was REMOVED because the
+          // task.status.changed event already triggers 'task.ready_for_production' notification
+          // via the TaskListener.handleTaskStatusChanged() method. Emitting task.created caused
+          // DUPLICATE notifications for production users.
         }
       }
 
