@@ -358,6 +358,8 @@ const orderScheduleFilters = {
   itemIds: z.array(z.string().uuid('Item inválido')).optional(),
   isActive: z.boolean().optional(),
   hasReschedules: z.boolean().optional(),
+  nextRunRange: dateRangeSchema.optional(),
+  lastRunRange: dateRangeSchema.optional(),
   specificDateRange: dateRangeSchema.optional(),
   finishedAtRange: dateRangeSchema.optional(),
   createdAtRange: dateRangeSchema.optional(),
@@ -418,6 +420,60 @@ const orderScheduleTransform = (data: any) => {
   if (data.hasReschedules === true) {
     andConditions.push({ rescheduleCount: { gt: 0 } });
     delete data.hasReschedules;
+  }
+
+  // Handle nextRunRange filter
+  if (data.nextRunRange && typeof data.nextRunRange === 'object') {
+    const nextRunCondition: any = {};
+    if (data.nextRunRange.gte) {
+      const fromDate =
+        data.nextRunRange.gte instanceof Date
+          ? data.nextRunRange.gte
+          : new Date(data.nextRunRange.gte);
+      // Set to start of day (00:00:00)
+      fromDate.setHours(0, 0, 0, 0);
+      nextRunCondition.gte = fromDate;
+    }
+    if (data.nextRunRange.lte) {
+      const toDate =
+        data.nextRunRange.lte instanceof Date
+          ? data.nextRunRange.lte
+          : new Date(data.nextRunRange.lte);
+      // Set to end of day (23:59:59.999)
+      toDate.setHours(23, 59, 59, 999);
+      nextRunCondition.lte = toDate;
+    }
+    if (Object.keys(nextRunCondition).length > 0) {
+      andConditions.push({ nextRun: nextRunCondition });
+    }
+    delete data.nextRunRange;
+  }
+
+  // Handle lastRunRange filter
+  if (data.lastRunRange && typeof data.lastRunRange === 'object') {
+    const lastRunCondition: any = {};
+    if (data.lastRunRange.gte) {
+      const fromDate =
+        data.lastRunRange.gte instanceof Date
+          ? data.lastRunRange.gte
+          : new Date(data.lastRunRange.gte);
+      // Set to start of day (00:00:00)
+      fromDate.setHours(0, 0, 0, 0);
+      lastRunCondition.gte = fromDate;
+    }
+    if (data.lastRunRange.lte) {
+      const toDate =
+        data.lastRunRange.lte instanceof Date
+          ? data.lastRunRange.lte
+          : new Date(data.lastRunRange.lte);
+      // Set to end of day (23:59:59.999)
+      toDate.setHours(23, 59, 59, 999);
+      lastRunCondition.lte = toDate;
+    }
+    if (Object.keys(lastRunCondition).length > 0) {
+      andConditions.push({ lastRun: lastRunCondition });
+    }
+    delete data.lastRunRange;
   }
 
   // Handle specificDateRange filter
@@ -604,8 +660,14 @@ export const orderScheduleCreateSchema = z
         case SCHEDULE_FREQUENCY.ONCE:
           return !!data.specificDate;
         case SCHEDULE_FREQUENCY.WEEKLY:
+        case SCHEDULE_FREQUENCY.BIWEEKLY:
           return !!data.dayOfWeek || !!data.weeklyConfigId;
         case SCHEDULE_FREQUENCY.MONTHLY:
+        case SCHEDULE_FREQUENCY.BIMONTHLY:
+        case SCHEDULE_FREQUENCY.QUARTERLY:
+        case SCHEDULE_FREQUENCY.TRIANNUAL:
+        case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
           return !!data.dayOfMonth || !!data.monthlyConfigId;
         case SCHEDULE_FREQUENCY.ANNUAL:
           return (!!data.dayOfMonth && !!data.month) || !!data.yearlyConfigId;
