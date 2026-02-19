@@ -2246,6 +2246,18 @@ export class OrderService {
       if (!tx) {
         throw new Error('Transaction is required for creating order from schedule');
       }
+
+      // Clear orderScheduleId on the completed order to release the unique constraint.
+      // Only the active/current order should link to the schedule at any time.
+      await tx.order.update({
+        where: { id: completedOrder.id },
+        data: { orderScheduleId: null },
+      });
+
+      this.logger.log(
+        `Cleared orderScheduleId on completed order ${completedOrder.id} to allow new order creation`,
+      );
+
       const newOrder = await this.orderRepository.createWithTransaction(tx, orderData);
 
       // Log the auto-creation
@@ -2261,31 +2273,13 @@ export class OrderService {
         transaction: tx,
       });
 
-      // Update the order schedule to mark it as having created this order
-      const nextRunDate = new Date(orderData.forecast);
-      await tx?.orderSchedule.update({
-        where: { id: completedOrder.orderScheduleId },
-        data: {
-          lastRun: new Date(),
-          lastRunId: newOrder.id,
-          nextRun: nextRunDate,
-        },
-      });
-
-      // Log the schedule update
-      await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.ORDER_SCHEDULE,
-        entityId: completedOrder.orderScheduleId,
-        action: CHANGE_ACTION.UPDATE,
-        field: 'lastRunId',
-        oldValue: null,
-        newValue: newOrder.id,
-        reason: `Agendamento atualizado após criação automática do pedido ${newOrder.id}`,
-        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
-        triggeredById: completedOrder.id,
-        userId: userId || null,
-        transaction: tx,
-      });
+      // Update the schedule: nextRun, lastRun, lastRunId, and slide date config
+      await this.orderScheduleService.handleOrderCompletion(
+        completedOrder.orderScheduleId,
+        newOrder.id,
+        userId,
+        tx,
+      );
 
       this.logger.log(
         `Successfully created next order ${newOrder.id} from schedule ${completedOrder.orderScheduleId} with ${orderData.items.length} items`,

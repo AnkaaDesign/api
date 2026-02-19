@@ -58,7 +58,7 @@ export class OrderScheduleService {
    */
   private calculateNextRunDate(schedule: OrderSchedule, fromDate?: Date): Date | null {
     const baseDate = fromDate || new Date();
-    const nextRun = new Date(baseDate);
+    let nextRun = new Date(baseDate);
     const interval = schedule.frequencyCount || 1;
 
     switch (schedule.frequency) {
@@ -91,6 +91,57 @@ export class OrderScheduleService {
         }
         break;
 
+      case SCHEDULE_FREQUENCY.BIWEEKLY:
+        // Biweekly with interval (every 2 × X weeks)
+        nextRun.setDate(nextRun.getDate() + 14 * interval);
+        if (schedule.dayOfWeek) {
+          const targetDay = this.getDayOfWeekNumber(schedule.dayOfWeek);
+          const currentDay = nextRun.getDay();
+          const daysToAdd = (targetDay - currentDay + 7) % 7;
+          nextRun.setDate(nextRun.getDate() + daysToAdd);
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.BIMONTHLY:
+        // Bimonthly with interval (every 2 × X months)
+        nextRun.setMonth(nextRun.getMonth() + 2 * interval);
+        if (schedule.dayOfMonth) {
+          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.QUARTERLY:
+        // Quarterly with interval (every 3 × X months)
+        nextRun.setMonth(nextRun.getMonth() + 3 * interval);
+        if (schedule.dayOfMonth) {
+          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.TRIANNUAL:
+        // Triannual with interval (every 4 × X months)
+        nextRun.setMonth(nextRun.getMonth() + 4 * interval);
+        if (schedule.dayOfMonth) {
+          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.QUADRIMESTRAL:
+        // Quadrimestral with interval (every 4 × X months)
+        nextRun.setMonth(nextRun.getMonth() + 4 * interval);
+        if (schedule.dayOfMonth) {
+          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
+        }
+        break;
+
+      case SCHEDULE_FREQUENCY.SEMI_ANNUAL:
+        // Semi-annual with interval (every 6 × X months)
+        nextRun.setMonth(nextRun.getMonth() + 6 * interval);
+        if (schedule.dayOfMonth) {
+          nextRun.setDate(Math.min(schedule.dayOfMonth, this.getDaysInMonth(nextRun)));
+        }
+        break;
+
       case SCHEDULE_FREQUENCY.ANNUAL:
         // Annual with interval (every X years)
         nextRun.setFullYear(nextRun.getFullYear() + interval);
@@ -114,6 +165,12 @@ export class OrderScheduleService {
         this.logger.warn(`Unknown schedule frequency: ${schedule.frequency}`);
         nextRun.setMonth(nextRun.getMonth() + 1); // Default to monthly
     }
+
+    // Set time to 13:00 (1 PM)
+    nextRun = this.setDefaultScheduleTime(nextRun);
+
+    // Adjust for weekends - move to nearest weekday
+    nextRun = this.adjustForWeekend(nextRun);
 
     return nextRun;
   }
@@ -154,6 +211,35 @@ export class OrderScheduleService {
 
   private getDaysInMonth(date: Date): number {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  }
+
+  /**
+   * Adjust date if it falls on a weekend to the nearest weekday
+   * Saturday -> Friday, Sunday -> Monday
+   * Preserves the time component
+   */
+  private adjustForWeekend(date: Date): Date {
+    const adjustedDate = new Date(date);
+    const dayOfWeek = adjustedDate.getDay();
+
+    if (dayOfWeek === 0) {
+      // Sunday -> move to Monday
+      adjustedDate.setDate(adjustedDate.getDate() + 1);
+    } else if (dayOfWeek === 6) {
+      // Saturday -> move to Friday
+      adjustedDate.setDate(adjustedDate.getDate() - 1);
+    }
+
+    return adjustedDate;
+  }
+
+  /**
+   * Set time to 13:00:00 (1 PM) for schedule scheduling
+   */
+  private setDefaultScheduleTime(date: Date): Date {
+    const newDate = new Date(date);
+    newDate.setHours(13, 0, 0, 0);
+    return newDate;
   }
 
   /**
@@ -276,6 +362,14 @@ export class OrderScheduleService {
       const orderSchedule = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Validate entity
         await this.orderScheduleValidation(data, undefined, tx);
+
+        // Calculate next run date if not provided
+        if (!data.nextRun) {
+          const nextRun = this.calculateNextRunDate(data as unknown as OrderSchedule);
+          if (nextRun) {
+            data.nextRun = nextRun;
+          }
+        }
 
         // Create the order schedule
         const newOrderSchedule = await this.orderScheduleRepository.createWithTransaction(
@@ -530,6 +624,16 @@ export class OrderScheduleService {
           try {
             // Validate entity
             await this.orderScheduleValidation(scheduleData, undefined, tx);
+
+            // Calculate next run date if not provided (mirrors single create behavior)
+            if (!scheduleData.nextRun) {
+              const nextRun = this.calculateNextRunDate(
+                scheduleData as unknown as OrderSchedule,
+              );
+              if (nextRun) {
+                scheduleData.nextRun = nextRun;
+              }
+            }
 
             // Create the order schedule
             const newOrderSchedule = await this.orderScheduleRepository.createWithTransaction(
@@ -1178,7 +1282,7 @@ export class OrderScheduleService {
       const newScheduleData: any = {
         frequency: finishedSchedule.frequency,
         frequencyCount: finishedSchedule.frequencyCount,
-        isActive: finishedSchedule.isActive,
+        isActive: true,
         items: finishedSchedule.items,
 
         // Schedule configuration
@@ -1271,6 +1375,134 @@ export class OrderScheduleService {
   }
 
   /**
+   * Handle order completion - update schedule and prepare for next cycle
+   * Mirrors maintenance's handleMaintenanceCompletion pattern:
+   * - Fetches schedule fresh from DB (not a stale object)
+   * - Calculates next run from completion date (schedule "slides")
+   * - Updates schedule's nextRun, lastRun, lastRunId and date config fields
+   */
+  async handleOrderCompletion(
+    scheduleId: string,
+    newOrderId: string,
+    userId?: string,
+    tx?: PrismaTransaction,
+  ): Promise<void> {
+    try {
+      const transaction = tx || this.prisma;
+
+      // 1. Fetch schedule fresh from DB (like maintenance pattern)
+      const schedule = await transaction.orderSchedule.findUnique({
+        where: { id: scheduleId },
+      });
+
+      if (!schedule) {
+        this.logger.warn(`Schedule ${scheduleId} not found during order completion handling`);
+        return;
+      }
+
+      if (!schedule.isActive) {
+        this.logger.log(`Schedule ${scheduleId} is inactive, skipping chain continuation`);
+        return;
+      }
+
+      // 2. Calculate next run from completion date (schedule slides based on actual completion)
+      const baseDate = new Date();
+      const nextRunDate = this.calculateNextRunDate(schedule as OrderSchedule, baseDate);
+
+      if (!nextRunDate) {
+        this.logger.log(
+          `No next run date for schedule ${scheduleId} (frequency: ${schedule.frequency}) - chain ends`,
+        );
+        return;
+      }
+
+      // 3. Build schedule update with date config sliding (like maintenance)
+      const scheduleUpdateData: Record<string, any> = {
+        nextRun: nextRunDate,
+        lastRun: new Date(),
+        lastRunId: newOrderId,
+      };
+
+      // Slide date config fields to match actual completion date
+      if (
+        schedule.frequency === SCHEDULE_FREQUENCY.WEEKLY ||
+        schedule.frequency === SCHEDULE_FREQUENCY.BIWEEKLY
+      ) {
+        const completionDay = baseDate.getDay();
+        const dayNames = [
+          'SUNDAY',
+          'MONDAY',
+          'TUESDAY',
+          'WEDNESDAY',
+          'THURSDAY',
+          'FRIDAY',
+          'SATURDAY',
+        ];
+        scheduleUpdateData.dayOfWeek = dayNames[completionDay];
+      } else if (
+        [
+          SCHEDULE_FREQUENCY.MONTHLY,
+          SCHEDULE_FREQUENCY.BIMONTHLY,
+          SCHEDULE_FREQUENCY.QUARTERLY,
+          SCHEDULE_FREQUENCY.TRIANNUAL,
+          SCHEDULE_FREQUENCY.QUADRIMESTRAL,
+          SCHEDULE_FREQUENCY.SEMI_ANNUAL,
+        ].includes(schedule.frequency as SCHEDULE_FREQUENCY)
+      ) {
+        scheduleUpdateData.dayOfMonth = baseDate.getDate();
+      } else if (schedule.frequency === SCHEDULE_FREQUENCY.ANNUAL) {
+        const monthNames = [
+          'JANUARY',
+          'FEBRUARY',
+          'MARCH',
+          'APRIL',
+          'MAY',
+          'JUNE',
+          'JULY',
+          'AUGUST',
+          'SEPTEMBER',
+          'OCTOBER',
+          'NOVEMBER',
+          'DECEMBER',
+        ];
+        scheduleUpdateData.month = monthNames[baseDate.getMonth()];
+        scheduleUpdateData.dayOfMonth = baseDate.getDate();
+      }
+
+      // 4. Persist schedule update
+      await transaction.orderSchedule.update({
+        where: { id: scheduleId },
+        data: scheduleUpdateData,
+      });
+
+      // 5. Log the schedule chain update
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.ORDER_SCHEDULE,
+        entityId: scheduleId,
+        action: CHANGE_ACTION.UPDATE,
+        field: 'schedule_chain',
+        oldValue: schedule.nextRun?.toISOString() || null,
+        newValue: nextRunDate.toISOString(),
+        reason: `Agendamento atualizado após recebimento do pedido. Próxima execução: ${nextRunDate.toLocaleDateString('pt-BR')}`,
+        triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM,
+        triggeredById: newOrderId,
+        userId: userId || null,
+        transaction: tx,
+      });
+
+      this.logger.log(
+        `Schedule ${scheduleId} updated: nextRun=${nextRunDate.toISOString()}, lastRunId=${newOrderId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to handle order completion for schedule ${scheduleId}:`,
+        error,
+      );
+      // Don't throw to prevent breaking the main order status update transaction
+    }
+  }
+
+  /**
    * Finish a schedule and auto-create the next instance
    */
   async finishSchedule(id: string, userId?: string): Promise<OrderScheduleUpdateResponse> {
@@ -1322,7 +1554,8 @@ export class OrderScheduleService {
         });
 
         // Handle auto-creation of next schedule instance
-        await this.handleScheduleFinishAutoCreation(updatedSchedule, userId, tx);
+        // Pass existingSchedule (still has isActive=true) instead of updatedSchedule (already deactivated)
+        await this.handleScheduleFinishAutoCreation(existingSchedule, userId, tx);
 
         return updatedSchedule;
       });

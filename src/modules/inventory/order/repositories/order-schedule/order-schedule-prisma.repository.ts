@@ -7,7 +7,6 @@ import {
   Prisma,
   ScheduleFrequency,
   Month,
-  MonthOccurrence,
   DayOfWeek,
 } from '@prisma/client';
 import { OrderScheduleRepository } from './order-schedule.repository';
@@ -59,67 +58,20 @@ export class OrderSchedulePrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: OrderScheduleCreateFormData,
   ): Prisma.OrderScheduleCreateInput {
-    const {
-      frequency,
-      weeklySchedule,
-      monthlySchedule,
-      yearlySchedule,
-      dayOfWeek,
-      month,
-      ...rest
-    } = formData;
+    const { frequency, dayOfWeek, month, ...rest } = formData;
 
-    const createInput: Prisma.OrderScheduleCreateInput = {
+    return {
       ...rest,
       frequency: frequency as ScheduleFrequency,
-      // Cast flat enum fields to proper Prisma types
       dayOfWeek: dayOfWeek ? (dayOfWeek as DayOfWeek) : undefined,
       month: month ? (month as Month) : undefined,
     };
-
-    // Handle nested schedule configs based on frequency (for backwards compatibility)
-    if (weeklySchedule) {
-      createInput.weeklyConfig = {
-        create: weeklySchedule,
-      };
-    }
-
-    if (monthlySchedule) {
-      createInput.monthlyConfig = {
-        create: {
-          ...monthlySchedule,
-          occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-          dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-        },
-      };
-    }
-
-    if (yearlySchedule) {
-      createInput.yearlyConfig = {
-        create: {
-          ...yearlySchedule,
-          month: yearlySchedule.month as Month,
-          occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-          dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-        },
-      };
-    }
-
-    return createInput;
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
     formData: OrderScheduleUpdateFormData,
   ): Prisma.OrderScheduleUpdateInput {
-    const {
-      weeklySchedule,
-      frequency,
-      monthlySchedule,
-      yearlySchedule,
-      dayOfWeek,
-      month,
-      ...rest
-    } = formData;
+    const { frequency, dayOfWeek, month, ...rest } = formData;
 
     const updateInput: Prisma.OrderScheduleUpdateInput = {
       ...rest,
@@ -129,59 +81,12 @@ export class OrderSchedulePrismaRepository
       updateInput.frequency = frequency as ScheduleFrequency;
     }
 
-    // Handle flat enum fields
     if (dayOfWeek !== undefined) {
       updateInput.dayOfWeek = dayOfWeek ? (dayOfWeek as DayOfWeek) : null;
     }
 
     if (month !== undefined) {
       updateInput.month = month ? (month as Month) : null;
-    }
-
-    // Handle nested schedule config updates (for backwards compatibility)
-    if (weeklySchedule !== undefined) {
-      updateInput.weeklyConfig = {
-        upsert: {
-          create: weeklySchedule,
-          update: weeklySchedule,
-        },
-      };
-    }
-
-    if (monthlySchedule !== undefined) {
-      updateInput.monthlyConfig = {
-        upsert: {
-          create: {
-            ...monthlySchedule,
-            occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-          update: {
-            ...monthlySchedule,
-            occurrence: monthlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: monthlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-        },
-      };
-    }
-
-    if (yearlySchedule !== undefined) {
-      updateInput.yearlyConfig = {
-        upsert: {
-          create: {
-            ...yearlySchedule,
-            month: yearlySchedule.month as Month,
-            occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-          update: {
-            ...yearlySchedule,
-            month: yearlySchedule.month as Month,
-            occurrence: yearlySchedule.occurrence as MonthOccurrence | null | undefined,
-            dayOfWeek: yearlySchedule.dayOfWeek as DayOfWeek | null | undefined,
-          },
-        },
-      };
     }
 
     return updateInput;
