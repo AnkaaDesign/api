@@ -184,9 +184,8 @@ export class TaskPricingService {
         }
       }
 
-      // NOTE: Removed validation that prevented pricing reuse
-      // Pricing can now be shared across multiple tasks (one-to-many relationship)
-      // The task will be linked to pricing via task.pricingId field
+      // NOTE: Each task has its own independent pricing record.
+      // When copying pricing (e.g. via copyFromTask), a new TaskPricing is created as a deep copy.
 
       // Validate items exist
       if (!data.items || data.items.length === 0) {
@@ -225,7 +224,6 @@ export class TaskPricingService {
             total: data.total,
             expiresAt: data.expiresAt,
             status: data.status || TASK_PRICING_STATUS.DRAFT,
-            // Tasks will be connected via many-to-many relationship separately if needed
             // Payment Terms (simplified)
             paymentCondition: data.paymentCondition || null,
             downPaymentDate: data.downPaymentDate || null,
@@ -259,10 +257,16 @@ export class TaskPricingService {
           },
           include: {
             items: { orderBy: { position: 'asc' } },
-            tasks: true,
+            task: true,
             layoutFile: true,
             invoicesToCustomers: true,
           },
+        });
+
+        // Connect the task to this pricing (one-to-one via Task.pricingId FK)
+        await tx.task.update({
+          where: { id: data.taskId },
+          data: { pricingId: newPricing.id },
         });
 
         // Log change
@@ -418,7 +422,7 @@ export class TaskPricingService {
           },
           include: {
             items: { orderBy: { position: 'asc' } },
-            tasks: true,
+            task: true,
             layoutFile: true,
             invoicesToCustomers: true,
           },
@@ -517,8 +521,8 @@ export class TaskPricingService {
           // Also keep a bulk snapshot for backward compatibility (field: 'items_snapshot')
           const formatItem = (item: any) =>
             `${item.description || ''}: R$ ${Number(item.amount || 0).toFixed(2)}`;
-          const oldItemsSummary = oldItems.map(formatItem);
-          const newItemsSummary = newItems.map(formatItem);
+          const oldItemsSummary = oldItems.map(formatItem).sort();
+          const newItemsSummary = newItems.map(formatItem).sort();
           const itemsChanged =
             oldItemsSummary.length !== newItemsSummary.length ||
             oldItemsSummary.some((s: string, i: number) => s !== newItemsSummary[i]);
@@ -558,26 +562,27 @@ export class TaskPricingService {
           const anyNewAmountNonZero = newItems.some((item: any) => Number(item.amount) > 0);
 
           if (allOldAmountsZero && anyNewAmountNonZero) {
-            const updatedWithTasks = await tx.taskPricing.findUnique({
+            const updatedWithTask = await tx.taskPricing.findUnique({
               where: { id },
-              include: { tasks: { select: { id: true } }, items: { orderBy: { position: 'asc' } } },
+              include: { task: { select: { id: true } }, items: { orderBy: { position: 'asc' } } },
             });
 
-            for (const task of updatedWithTasks?.tasks || []) {
+            const taskRef = updatedWithTask?.task;
+            if (taskRef) {
               const pricingIdLog = await tx.changeLog.findFirst({
-                where: { entityType: 'TASK', entityId: task.id, field: 'pricingId' },
+                where: { entityType: 'TASK', entityId: taskRef.id, field: 'pricingId' },
                 orderBy: { createdAt: 'desc' },
               });
               if (pricingIdLog) {
                 const realSnapshot = serializeChangelogValue({
                   id,
-                  budgetNumber: (updatedWithTasks as any).budgetNumber,
-                  subtotal: (updatedWithTasks as any).subtotal,
-                  total: (updatedWithTasks as any).total,
-                  discountType: (updatedWithTasks as any).discountType,
-                  discountValue: (updatedWithTasks as any).discountValue,
-                  status: (updatedWithTasks as any).status,
-                  items: updatedWithTasks!.items.map(item => ({
+                  budgetNumber: (updatedWithTask as any).budgetNumber,
+                  subtotal: (updatedWithTask as any).subtotal,
+                  total: (updatedWithTask as any).total,
+                  discountType: (updatedWithTask as any).discountType,
+                  discountValue: (updatedWithTask as any).discountValue,
+                  status: (updatedWithTask as any).status,
+                  items: updatedWithTask!.items.map(item => ({
                     description: item.description,
                     amount: Number(item.amount),
                     observation: item.observation,
@@ -615,7 +620,7 @@ export class TaskPricingService {
         where: { id },
         include: {
           items: { orderBy: { position: 'asc' } },
-          tasks: { select: { id: true } },
+          task: { select: { id: true } },
           invoicesToCustomers: { select: { id: true } },
         },
       });
@@ -654,32 +659,29 @@ export class TaskPricingService {
         invoicesToCustomerIds: existing.invoicesToCustomers.map(c => c.id),
       };
 
-      const taskIds = existing.tasks.map(t => t.id);
+      const taskId = existing.task?.id;
 
       await this.prisma.$transaction(async tx => {
-        // Nullify pricingId on all associated tasks before deleting
-        if (taskIds.length > 0) {
-          await tx.task.updateMany({
-            where: { pricingId: id },
+        // Nullify pricingId on the associated task before deleting
+        if (taskId) {
+          await tx.task.update({
+            where: { id: taskId },
             data: { pricingId: null },
           });
 
-          // Log the pricingId change on each associated task
-          for (const taskId of taskIds) {
-            await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK,
-              entityId: taskId,
-              action: CHANGE_ACTION.UPDATE,
-              field: 'pricingId',
-              oldValue: pricingSnapshot,
-              newValue: null,
-              userId,
-              reason: 'Orçamento removido (exclusão do orçamento)',
-              triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-              triggeredById: id,
-              transaction: tx,
-            });
-          }
+          await this.changeLogService.logChange({
+            entityType: ENTITY_TYPE.TASK,
+            entityId: taskId,
+            action: CHANGE_ACTION.UPDATE,
+            field: 'pricingId',
+            oldValue: pricingSnapshot,
+            newValue: null,
+            userId,
+            reason: 'Orçamento removido (exclusão do orçamento)',
+            triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+            triggeredById: id,
+            transaction: tx,
+          });
         }
 
         await tx.taskPricing.delete({ where: { id } });
@@ -804,7 +806,7 @@ export class TaskPricingService {
           layoutFile: true,
           customerSignature: true,
           invoicesToCustomers: true,
-          tasks: {
+          task: {
             include: {
               customer: true,
               truck: true,
@@ -826,13 +828,9 @@ export class TaskPricingService {
         );
       }
 
-      // Transform tasks array to single task for frontend compatibility
-      const { tasks, ...pricingData } = pricing;
-      const task = tasks && tasks.length > 0 ? tasks[0] : null;
-
       return {
         success: true,
-        data: { ...pricingData, task } as any,
+        data: pricing as any,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
@@ -891,7 +889,7 @@ export class TaskPricingService {
           items: true,
           layoutFile: true,
           customerSignature: true,
-          tasks: {
+          task: {
             include: {
               customer: true,
             },

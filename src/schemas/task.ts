@@ -2696,8 +2696,8 @@ export const taskCreateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-MANY: one task has one pricing, but pricing can be shared across tasks
-    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-many: one pricing can be shared across multiple tasks)
+    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
+    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
@@ -2954,8 +2954,8 @@ export const taskUpdateSchema = z
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-MANY: one task has one pricing, but pricing can be shared across tasks
-    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-many: one pricing can be shared across multiple tasks)
+    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
+    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts

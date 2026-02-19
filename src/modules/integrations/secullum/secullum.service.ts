@@ -24,6 +24,7 @@ import {
   SecullumRequest,
   SecullumHorario,
   SecullumHorariosResponse,
+  SecullumHorarioRaw,
 } from './dto';
 
 @Injectable()
@@ -1086,6 +1087,32 @@ export class SecullumService {
     }
   }
 
+  /**
+   * Fetch raw schedule data by ID, preserving the Dias array for per-day lookups.
+   */
+  async getHorarioRawById(id: number): Promise<SecullumHorarioRaw | null> {
+    try {
+      this.logger.log(`Fetching raw Secullum schedule by ID: ${id}`);
+
+      const data = await this.makeAuthenticatedRequest<SecullumHorarioRaw>(
+        'GET',
+        `/Horarios/${id}`,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      if (!data) {
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      this.logger.error(`Error fetching raw schedule ${id} from Secullum`, error);
+      return null;
+    }
+  }
+
   async syncUser(userData: SecullumSyncUserRequest): Promise<SecullumSyncUserResponse> {
     try {
       const response = await this.apiClient.post('/sync-user', userData);
@@ -1502,6 +1529,7 @@ export class SecullumService {
           departamento: matchingEmployee.DepartamentoDescricao,
           funcaoId: matchingEmployee.FuncaoId,
           departamentoId: matchingEmployee.DepartamentoId,
+          horarioId: matchingEmployee.HorarioId,
         },
       };
     } catch (error) {

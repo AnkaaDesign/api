@@ -205,6 +205,27 @@ export class BonusController {
   // =====================
 
   /**
+   * Get lightweight period task stats for the bonus simulation.
+   * Returns only task counts and averages WITHOUT Secullum integration.
+   */
+  @Roles(SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
+  @Get('period-stats/:year/:month')
+  async getPeriodTaskStats(
+    @Param('year', ParseIntPipe) year: number,
+    @Param('month', ParseIntPipe) month: number,
+  ) {
+    if (month < 1 || month > 12) {
+      throw new Error('Mês deve estar entre 1 e 12');
+    }
+    if (year < 2020 || year > 2030) {
+      throw new Error('Ano deve estar entre 2020 e 2030');
+    }
+
+    const stats = await this.bonusService.getPeriodTaskStats(year, month);
+    return { success: true, data: stats };
+  }
+
+  /**
    * Get live bonus calculations for a specific period
    * Calculates bonuses in real-time without saving to database
    */

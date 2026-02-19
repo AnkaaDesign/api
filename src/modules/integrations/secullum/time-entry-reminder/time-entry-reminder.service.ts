@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
+import { CacheService } from '@modules/common/cache/cache.service';
 import { SecullumService } from '../secullum.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { isWeekend } from '../../../../utils/date';
-import { SectorPrivileges } from '@prisma/client';
+import { SecullumHorarioRaw } from '../dto';
 
 /**
  * Entry type for time clock reminders
@@ -11,64 +12,14 @@ import { SectorPrivileges } from '@prisma/client';
 export type TimeEntryType = 'ENTRADA1' | 'SAIDA1' | 'ENTRADA2' | 'SAIDA2';
 
 /**
- * Schedule configuration mapping sectors to their expected schedules
+ * Resolved schedule times for a given day
  */
-interface ScheduleConfig {
-  sectorPrivileges: SectorPrivileges[];
-  scheduleCode?: string;
-  scheduleDescription?: string;
-  entrada1?: string; // HH:mm format
-  saida1?: string;
-  entrada2?: string;
-  saida2?: string;
+interface ScheduleTimes {
+  entrada1: string | null; // HH:mm
+  saida1: string | null;
+  entrada2: string | null;
+  saida2: string | null;
 }
-
-/**
- * Default schedule configurations by sector
- * These map our system's sectors to expected work times
- */
-const SECTOR_SCHEDULE_CONFIGS: ScheduleConfig[] = [
-  {
-    // PINTURA schedule - 07:15 to 17:30 with lunch break
-    sectorPrivileges: ['PRODUCTION', 'WAREHOUSE', 'MAINTENANCE'],
-    scheduleCode: '1',
-    scheduleDescription: 'PINTURA',
-    entrada1: '07:15',
-    saida1: '11:30',
-    entrada2: '13:00',
-    saida2: '17:30',
-  },
-  {
-    // ADMINISTRAÇÃO schedule - 08:00 to 18:00 with lunch break
-    sectorPrivileges: ['ADMIN', 'HUMAN_RESOURCES', 'FINANCIAL', 'COMMERCIAL'],
-    scheduleCode: '2',
-    scheduleDescription: 'ADMINISTRACAO',
-    entrada1: '08:00',
-    saida1: '12:00',
-    entrada2: '13:00',
-    saida2: '18:00',
-  },
-  {
-    // DESIGNER/PLOTTING schedule - 08:00 to 17:30 with lunch break
-    sectorPrivileges: ['DESIGNER', 'PLOTTING'],
-    scheduleCode: '3',
-    scheduleDescription: 'DESIGNER',
-    entrada1: '08:00',
-    saida1: '12:00',
-    entrada2: '13:00',
-    saida2: '17:30',
-  },
-  {
-    // LOGISTIC schedule - 07:00 to 17:00 with lunch break
-    sectorPrivileges: ['LOGISTIC'],
-    scheduleCode: '4',
-    scheduleDescription: 'LOGISTICA',
-    entrada1: '07:00',
-    saida1: '11:00',
-    entrada2: '12:00',
-    saida2: '17:00',
-  },
-];
 
 /**
  * Result of checking a user's time entry
@@ -87,21 +38,61 @@ interface TimeEntryCheckResult {
 export class TimeEntryReminderService {
   private readonly logger = new Logger(TimeEntryReminderService.name);
 
+  /** In-memory schedule cache, cleared at the start of each checkAndNotifyMissingEntries run */
+  private scheduleCache = new Map<number, ScheduleTimes | null>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly secullumService: SecullumService,
     private readonly dispatchService: NotificationDispatchService,
+    private readonly cacheService: CacheService,
   ) {}
 
   /**
-   * Get the schedule configuration for a user's sector
+   * Convert "HH:mm:ss" to "HH:mm", or return as-is if already "HH:mm"
    */
-  private getScheduleConfigForSector(sectorPrivilege: SectorPrivileges): ScheduleConfig | null {
-    return (
-      SECTOR_SCHEDULE_CONFIGS.find((config) =>
-        config.sectorPrivileges.includes(sectorPrivilege),
-      ) || null
-    );
+  private normalizeTime(time: string | null): string | null {
+    if (!time) return null;
+    // Handle "HH:mm:ss" -> "HH:mm"
+    const parts = time.split(':');
+    if (parts.length >= 2) {
+      return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+    }
+    return time;
+  }
+
+  /**
+   * Fetch and cache schedule times for today from Secullum by horarioId
+   */
+  private async getScheduleTimesForToday(horarioId: number): Promise<ScheduleTimes | null> {
+    // Check in-memory cache first
+    if (this.scheduleCache.has(horarioId)) {
+      return this.scheduleCache.get(horarioId)!;
+    }
+
+    const raw: SecullumHorarioRaw | null = await this.secullumService.getHorarioRawById(horarioId);
+    if (!raw || !raw.Dias || raw.Dias.length === 0) {
+      this.scheduleCache.set(horarioId, null);
+      return null;
+    }
+
+    const todayDow = new Date().getDay(); // 0=Sun .. 6=Sat
+    const dayEntry = raw.Dias.find((d) => d.DiaSemana === todayDow);
+
+    if (!dayEntry) {
+      this.scheduleCache.set(horarioId, null);
+      return null;
+    }
+
+    const times: ScheduleTimes = {
+      entrada1: this.normalizeTime(dayEntry.Entrada1),
+      saida1: this.normalizeTime(dayEntry.Saida1),
+      entrada2: this.normalizeTime(dayEntry.Entrada2),
+      saida2: this.normalizeTime(dayEntry.Saida2),
+    };
+
+    this.scheduleCache.set(horarioId, times);
+    return times;
   }
 
   /**
@@ -120,6 +111,13 @@ export class TimeEntryReminderService {
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const expectedMinutes = this.timeToMinutes(expectedTime);
     return currentMinutes >= expectedMinutes + toleranceMinutes;
+  }
+
+  /**
+   * Redis dedup key for a reminder
+   */
+  private dedupKey(date: string, userId: string, entryType: TimeEntryType): string {
+    return `time-entry-reminder:${date}:${userId}:${entryType}`;
   }
 
   /**
@@ -169,7 +167,6 @@ export class TimeEntryReminderService {
       cpf: string | null;
       pis: string | null;
       payrollNumber: number | null;
-      sectorPrivilege: SectorPrivileges | null;
     }>
   > {
     const users = await this.prisma.user.findMany({
@@ -195,11 +192,6 @@ export class TimeEntryReminderService {
         cpf: true,
         pis: true,
         payrollNumber: true,
-        sector: {
-          select: {
-            privileges: true,
-          },
-        },
       },
     });
 
@@ -209,8 +201,35 @@ export class TimeEntryReminderService {
       cpf: user.cpf,
       pis: user.pis,
       payrollNumber: user.payrollNumber,
-      sectorPrivilege: user.sector?.privileges || null,
     }));
+  }
+
+  /**
+   * Match a user to a Secullum employee from a pre-fetched employee list (avoids N+1)
+   */
+  private matchEmployeeInList(
+    user: { cpf: string | null; pis: string | null; payrollNumber: number | null },
+    employees: any[],
+  ): any | null {
+    const normalizeCpf = (cpf: string): string => (cpf ? cpf.replace(/[.-]/g, '') : '');
+
+    const userCpf = user.cpf ? normalizeCpf(user.cpf) : '';
+    const userPis = user.pis || '';
+    const userPayrollNumber = user.payrollNumber?.toString() || '';
+
+    return (
+      employees.find((emp: any) => {
+        const empCpf = normalizeCpf(emp.Cpf || '');
+        const empPis = emp.NumeroPis || '';
+        const empPayrollNumber = emp.NumeroFolha || '';
+
+        const cpfMatch = userCpf && empCpf === userCpf;
+        const pisMatch = userPis && empPis === userPis;
+        const payrollMatch = userPayrollNumber && empPayrollNumber === userPayrollNumber;
+
+        return cpfMatch || pisMatch || payrollMatch;
+      }) || null
+    );
   }
 
   /**
@@ -223,46 +242,75 @@ export class TimeEntryReminderService {
       cpf: string | null;
       pis: string | null;
       payrollNumber: number | null;
-      sectorPrivilege: SectorPrivileges | null;
     },
     entryType: TimeEntryType,
+    preloadedEmployees?: any[],
   ): Promise<TimeEntryCheckResult | null> {
-    // Get schedule config for user's sector
-    if (!user.sectorPrivilege) {
-      this.logger.debug(`User ${user.name} has no sector, skipping`);
+    // Find Secullum employee (from preloaded list or via API)
+    let secullumEmployee: any;
+    let horarioId: number | undefined;
+
+    if (preloadedEmployees) {
+      const match = this.matchEmployeeInList(user, preloadedEmployees);
+      if (!match) {
+        this.logger.debug(`No Secullum mapping for user ${user.name}`);
+        return null;
+      }
+      secullumEmployee = {
+        secullumId: match.Id,
+        nome: match.Nome,
+        horarioId: match.HorarioId,
+      };
+      horarioId = match.HorarioId;
+    } else {
+      try {
+        const result = await this.secullumService.findSecullumEmployee({
+          cpf: user.cpf || undefined,
+          pis: user.pis || undefined,
+          payrollNumber: user.payrollNumber || undefined,
+        });
+
+        if (!result.success || !result.data) {
+          this.logger.debug(`No Secullum mapping for user ${user.name}`);
+          return null;
+        }
+        secullumEmployee = result.data;
+        horarioId = result.data.horarioId;
+      } catch (error) {
+        this.logger.warn(`Failed to find Secullum employee for ${user.name}: ${error.message}`);
+        return null;
+      }
+    }
+
+    // Must have a horarioId to look up schedule
+    if (!horarioId) {
+      this.logger.debug(`User ${user.name} has no horarioId in Secullum`);
       return null;
     }
 
-    const scheduleConfig = this.getScheduleConfigForSector(user.sectorPrivilege);
-    if (!scheduleConfig) {
-      this.logger.debug(`No schedule config for sector ${user.sectorPrivilege}`);
+    // Get schedule times for today
+    const scheduleTimes = await this.getScheduleTimesForToday(horarioId);
+    if (!scheduleTimes) {
+      this.logger.debug(`No schedule found for horarioId ${horarioId} on today's day of week`);
       return null;
     }
 
     // Get expected time for this entry type
-    const expectedTimeKey = entryType.toLowerCase() as keyof ScheduleConfig;
-    const expectedTime = scheduleConfig[expectedTimeKey] as string | undefined;
+    const entryTypeToKey: Record<TimeEntryType, keyof ScheduleTimes> = {
+      ENTRADA1: 'entrada1',
+      SAIDA1: 'saida1',
+      ENTRADA2: 'entrada2',
+      SAIDA2: 'saida2',
+    };
+    const expectedTime = scheduleTimes[entryTypeToKey[entryType]];
 
     if (!expectedTime) {
-      this.logger.debug(`No ${entryType} time configured for sector ${user.sectorPrivilege}`);
+      this.logger.debug(`No ${entryType} time in schedule for user ${user.name}`);
       return null;
     }
 
-    // Find Secullum employee
-    let secullumEmployee;
-    try {
-      secullumEmployee = await this.secullumService.findSecullumEmployee({
-        cpf: user.cpf || undefined,
-        pis: user.pis || undefined,
-        payrollNumber: user.payrollNumber || undefined,
-      });
-
-      if (!secullumEmployee.success || !secullumEmployee.data) {
-        this.logger.debug(`No Secullum mapping for user ${user.name}`);
-        return null;
-      }
-    } catch (error) {
-      this.logger.warn(`Failed to find Secullum employee for ${user.name}: ${error.message}`);
+    // Check if current time is past expected + tolerance
+    if (!this.isTimePastEntry(expectedTime, 15)) {
       return null;
     }
 
@@ -271,7 +319,7 @@ export class TimeEntryReminderService {
     let timeEntries;
     try {
       timeEntries = await this.secullumService.getTimeEntriesBySecullumId(
-        secullumEmployee.data.secullumId,
+        secullumEmployee.secullumId,
         today,
         today,
       );
@@ -296,7 +344,7 @@ export class TimeEntryReminderService {
     return {
       userId: user.id,
       userName: user.name,
-      secullumId: secullumEmployee.data.secullumId,
+      secullumId: secullumEmployee.secullumId,
       entryType,
       expectedTime,
       isMissing,
@@ -305,15 +353,17 @@ export class TimeEntryReminderService {
   }
 
   /**
-   * Check all users for missing time entries and send notifications
+   * Check all users for missing time entries and send notifications.
+   * Called for each entry type. Uses Redis dedup to avoid duplicate notifications.
    */
   async checkAndNotifyMissingEntries(entryType: TimeEntryType): Promise<{
     checked: number;
     missing: number;
     notified: number;
+    skippedDedup: number;
     errors: number;
   }> {
-    const stats = { checked: 0, missing: 0, notified: 0, errors: 0 };
+    const stats = { checked: 0, missing: 0, notified: 0, skippedDedup: 0, errors: 0 };
 
     this.logger.log(`Starting time entry check for ${entryType}`);
 
@@ -324,23 +374,55 @@ export class TimeEntryReminderService {
       return stats;
     }
 
+    // Clear in-memory schedule cache at the start of each run
+    this.scheduleCache.clear();
+
+    // Fetch all Secullum employees once (avoid N+1)
+    let allSecullumEmployees: any[] = [];
+    try {
+      const empResponse = await this.secullumService.getEmployees();
+      if (empResponse.success && Array.isArray(empResponse.data)) {
+        allSecullumEmployees = empResponse.data;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to fetch Secullum employees: ${error.message}`);
+      return stats;
+    }
+
     // Get active users
     const users = await this.getActiveUsersForTimeCheck();
     this.logger.log(`Found ${users.length} active users to check`);
+
+    const today = new Date().toISOString().split('T')[0];
 
     // Check each user
     for (const user of users) {
       try {
         stats.checked++;
 
-        const result = await this.checkUserTimeEntry(user, entryType);
+        const result = await this.checkUserTimeEntry(user, entryType, allSecullumEmployees);
         if (!result) continue;
 
         if (result.isMissing) {
           stats.missing++;
 
+          // Redis dedup check
+          const key = this.dedupKey(today, user.id, entryType);
+          const alreadySent = await this.cacheService.exists(key);
+          if (alreadySent) {
+            stats.skippedDedup++;
+            this.logger.debug(
+              `Skipping duplicate ${entryType} reminder for ${user.name} (already sent today)`,
+            );
+            continue;
+          }
+
           // Send notification
           await this.sendTimeEntryReminder(user.id, user.name, entryType, result.expectedTime);
+
+          // Mark as sent (24h TTL)
+          await this.cacheService.set(key, '1', 24 * 60 * 60);
+
           stats.notified++;
 
           this.logger.log(
@@ -354,7 +436,7 @@ export class TimeEntryReminderService {
     }
 
     this.logger.log(
-      `Time entry check completed: checked=${stats.checked}, missing=${stats.missing}, notified=${stats.notified}, errors=${stats.errors}`,
+      `Time entry check completed: checked=${stats.checked}, missing=${stats.missing}, notified=${stats.notified}, skippedDedup=${stats.skippedDedup}, errors=${stats.errors}`,
     );
 
     return stats;
@@ -420,41 +502,50 @@ export class TimeEntryReminderService {
   }
 
   /**
-   * Get schedule summary for debugging/admin purposes
+   * Get schedule summary for debugging/admin purposes.
+   * Now shows actual Secullum schedules instead of hardcoded configs.
    */
   async getScheduleSummary(): Promise<{
-    schedules: Array<{
-      code: string;
-      description: string;
-      sectors: SectorPrivileges[];
-      times: { entrada1?: string; saida1?: string; entrada2?: string; saida2?: string };
+    secullumSchedules: Array<{
+      id: number;
+      descricao: string;
+      dias: Array<{
+        diaSemana: number;
+        entrada1: string | null;
+        saida1: string | null;
+        entrada2: string | null;
+        saida2: string | null;
+      }>;
     }>;
-    secullumSchedules: any[];
   }> {
-    // Get our configured schedules
-    const schedules = SECTOR_SCHEDULE_CONFIGS.map((config) => ({
-      code: config.scheduleCode || 'N/A',
-      description: config.scheduleDescription || 'N/A',
-      sectors: config.sectorPrivileges,
-      times: {
-        entrada1: config.entrada1,
-        saida1: config.saida1,
-        entrada2: config.entrada2,
-        saida2: config.saida2,
-      },
-    }));
-
-    // Get Secullum schedules
     let secullumSchedules: any[] = [];
     try {
       const response = await this.secullumService.getHorarios();
       if (response.success && response.data) {
-        secullumSchedules = response.data;
+        // Fetch raw data for each to get the Dias array
+        const rawSchedules = await Promise.all(
+          response.data.map(async (h) => {
+            const raw = await this.secullumService.getHorarioRawById(h.Id);
+            if (!raw) return null;
+            return {
+              id: raw.Id,
+              descricao: raw.Descricao,
+              dias: (raw.Dias || []).map((d) => ({
+                diaSemana: d.DiaSemana,
+                entrada1: this.normalizeTime(d.Entrada1),
+                saida1: this.normalizeTime(d.Saida1),
+                entrada2: this.normalizeTime(d.Entrada2),
+                saida2: this.normalizeTime(d.Saida2),
+              })),
+            };
+          }),
+        );
+        secullumSchedules = rawSchedules.filter(Boolean);
       }
     } catch (error) {
       this.logger.warn(`Failed to fetch Secullum schedules: ${error.message}`);
     }
 
-    return { schedules, secullumSchedules };
+    return { secullumSchedules };
   }
 }

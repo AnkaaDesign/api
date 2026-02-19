@@ -75,6 +75,7 @@ import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import {
   getBidirectionalSyncActions,
   combineServiceOrderToPricingDescription,
+  normalizeDescription,
   type SyncServiceOrder,
   type SyncPricingItem,
 } from '../../../utils/task-pricing-service-order-sync';
@@ -1099,17 +1100,24 @@ export class TaskService {
               },
             );
 
-            // Connect shared layouts to the truck (repository doesn't handle layout IDs)
-            if (hasSharedLayouts) {
+            // Connect layouts to the truck (repository doesn't handle layout IDs)
+            // Supports both: pre-created shared layouts AND direct layout IDs from the task data
+            const taskTruckData = (task as any).truck;
+            const directLayoutIds = taskTruckData && (taskTruckData.leftSideLayoutId || taskTruckData.rightSideLayoutId || taskTruckData.backSideLayoutId);
+            if (hasSharedLayouts || directLayoutIds) {
               const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
                 const layoutUpdate: any = {};
+                // Prefer shared layout IDs (from pre-created layouts), fall back to direct IDs from task data
                 if (sharedLayoutIds.leftSideLayoutId) layoutUpdate.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
+                else if (taskTruckData?.leftSideLayoutId) layoutUpdate.leftSideLayoutId = taskTruckData.leftSideLayoutId;
                 if (sharedLayoutIds.rightSideLayoutId) layoutUpdate.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
+                else if (taskTruckData?.rightSideLayoutId) layoutUpdate.rightSideLayoutId = taskTruckData.rightSideLayoutId;
                 if (sharedLayoutIds.backSideLayoutId) layoutUpdate.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
+                else if (taskTruckData?.backSideLayoutId) layoutUpdate.backSideLayoutId = taskTruckData.backSideLayoutId;
                 if (Object.keys(layoutUpdate).length > 0) {
                   await tx.truck.update({ where: { id: truck.id }, data: layoutUpdate });
-                  this.logger.log(`[batchCreate] Connected shared layouts to truck ${truck.id} for task ${createdTask.id}`);
+                  this.logger.log(`[batchCreate] Connected layouts to truck ${truck.id} for task ${createdTask.id}`);
                 }
               }
             }
@@ -2026,7 +2034,8 @@ export class TaskService {
           );
 
           // Process creates/updates for each service order in the submitted data
-          for (const serviceOrderData of serviceOrdersData) {
+          for (let soIndex = 0; soIndex < serviceOrdersData.length; soIndex++) {
+            const serviceOrderData = serviceOrdersData[soIndex];
             // Check if this is an existing service order (has an ID) or a new one
             if (serviceOrderData.id) {
               // UPDATE existing service order - preserve existing data
@@ -2042,6 +2051,7 @@ export class TaskService {
               if (oldServiceOrder) {
                 // Only update fields that are explicitly provided
                 const updatePayload: any = {};
+                updatePayload.position = soIndex;
                 if (serviceOrderData.type !== undefined) updatePayload.type = serviceOrderData.type;
                 if (serviceOrderData.status !== undefined)
                   updatePayload.status = serviceOrderData.status;
@@ -2256,6 +2266,7 @@ export class TaskService {
                 );
 
                 const updatePayload: any = {};
+                updatePayload.position = soIndex;
                 if (
                   serviceOrderData.status !== undefined &&
                   serviceOrderData.status !== existingMatch.status
@@ -2453,6 +2464,7 @@ export class TaskService {
                     observation: serviceOrderData.observation || null,
                     assignedToId: serviceOrderData.assignedToId || null,
                     createdById: userId || '',
+                    position: soIndex,
                     shouldSync: (serviceOrderData as any).shouldSync !== false, // Preserve shouldSync flag (default true)
                   },
                 });
@@ -2617,9 +2629,7 @@ export class TaskService {
               const matchingPricingItems = await tx.taskPricingItem.findMany({
                 where: {
                   pricing: {
-                    tasks: {
-                      some: { id: id },
-                    },
+                    task: { id: id },
                   },
                 },
               });
@@ -3324,20 +3334,35 @@ export class TaskService {
         // - PRODUCTION SO → Pricing Item (description + observation → item description)
         // - Pricing Item → PRODUCTION SO (item description → SO description + observation)
         // =====================================================================
-        // CRITICAL: Only run sync if NEW items are being ADDED (items without IDs)
-        // This prevents the sync from running when the form just sends existing data back
-        // without any actual changes to pricing or service orders.
+        // CRITICAL: Only run sync if genuinely NEW items are being ADDED.
+        // Items resubmitted without IDs (e.g. from form re-serialization during reorder)
+        // are detected by matching their description against existing items.
+        const existingPricingDescriptions = new Set<string>(
+          (existingTask.pricing?.items || [])
+            .filter((item: any) => item.shouldSync !== false)
+            .map((item: any) => normalizeDescription(item.description)),
+        );
+        const existingSODescriptions = new Set<string>(
+          (existingTask.serviceOrders || [])
+            .filter((so: any) => so.shouldSync !== false && so.type === 'PRODUCTION')
+            .map((so: any) => normalizeDescription(so.description)),
+        );
+
         const hasNewServiceOrders =
           serviceOrdersData &&
           Array.isArray(serviceOrdersData) &&
           serviceOrdersData.length > 0 &&
-          serviceOrdersData.some((so: any) => !so.id); // NEW service orders have no ID
+          serviceOrdersData.some(
+            (so: any) => !so.id && !existingPricingDescriptions.has(normalizeDescription(so.description)),
+          );
 
         const hasNewPricingItems =
           (data as any).pricing?.items &&
           Array.isArray((data as any).pricing.items) &&
           (data as any).pricing.items.length > 0 &&
-          (data as any).pricing.items.some((item: any) => !item.id); // NEW pricing items have no ID
+          (data as any).pricing.items.some(
+            (item: any) => !item.id && !existingSODescriptions.has(normalizeDescription(item.description)),
+          );
 
         if (hasNewServiceOrders || hasNewPricingItems) {
           try {
@@ -9622,6 +9647,87 @@ export class TaskService {
   }
 
   /**
+   * Duplicate a TaskPricing record (deep copy with items and invoice connections).
+   * Creates a new independent pricing with a new budgetNumber.
+   * Does NOT copy customerSignatureId (signature is specific to the original budget).
+   */
+  private async duplicateTaskPricing(
+    sourcePricingId: string,
+    tx: PrismaTransaction,
+  ): Promise<string> {
+    const sourcePricing = await tx.taskPricing.findUnique({
+      where: { id: sourcePricingId },
+      include: {
+        items: {
+          select: {
+            description: true,
+            amount: true,
+            observation: true,
+            shouldSync: true,
+            position: true,
+          },
+        },
+        invoicesToCustomers: {
+          select: { id: true },
+        },
+      },
+    });
+
+    if (!sourcePricing) {
+      throw new NotFoundException(
+        `Precificação de origem não encontrada (ID: ${sourcePricingId})`,
+      );
+    }
+
+    // Get next budget number
+    const maxBudgetNumber = await tx.taskPricing.aggregate({
+      _max: { budgetNumber: true },
+    });
+    const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
+
+    const newPricing = await tx.taskPricing.create({
+      data: {
+        budgetNumber: nextBudgetNumber,
+        subtotal: sourcePricing.subtotal,
+        discountType: sourcePricing.discountType,
+        discountValue: sourcePricing.discountValue,
+        total: sourcePricing.total,
+        expiresAt: sourcePricing.expiresAt,
+        status: sourcePricing.status,
+        paymentCondition: sourcePricing.paymentCondition,
+        downPaymentDate: sourcePricing.downPaymentDate,
+        customPaymentText: sourcePricing.customPaymentText,
+        guaranteeYears: sourcePricing.guaranteeYears,
+        customGuaranteeText: sourcePricing.customGuaranteeText,
+        simultaneousTasks: sourcePricing.simultaneousTasks,
+        discountReference: sourcePricing.discountReference,
+        customForecastDays: sourcePricing.customForecastDays,
+        ...(sourcePricing.layoutFileId
+          ? { layoutFile: { connect: { id: sourcePricing.layoutFileId } } }
+          : {}),
+        items: {
+          create: sourcePricing.items.map(item => ({
+            description: item.description,
+            amount: item.amount,
+            observation: item.observation,
+            shouldSync: item.shouldSync,
+            position: item.position,
+          })),
+        },
+        ...(sourcePricing.invoicesToCustomers.length > 0
+          ? {
+              invoicesToCustomers: {
+                connect: sourcePricing.invoicesToCustomers.map(c => ({ id: c.id })),
+              },
+            }
+          : {}),
+      },
+    });
+
+    return newPricing.id;
+  }
+
+  /**
    * Copy fields from one task to another
    *
    * @param destinationTaskId - Task to copy fields to
@@ -9636,6 +9742,7 @@ export class TaskService {
     fields: CopyableTaskField[],
     userId: string,
     userPrivilege?: string,
+    _retryCount = 0,
   ): Promise<{
     success: boolean;
     message: string;
@@ -10040,11 +10147,13 @@ export class TaskService {
 
             case 'pricingId':
               if (hasData(sourceTask.pricingId)) {
-                updateData.pricingId = sourceTask.pricingId;
+                // Create an independent copy of the pricing (never share pricing across tasks)
+                const newPricingId = await this.duplicateTaskPricing(sourceTask.pricingId, tx);
+                updateData.pricingId = newPricingId;
                 copiedFields.push(field);
                 // Store pricing info for changelog display
                 details.pricingId = {
-                  id: sourceTask.pricingId,
+                  id: newPricingId,
                   budgetNumber: sourceTask.pricing?.budgetNumber || null,
                   total: sourceTask.pricing?.total || null,
                   items: sourceTask.pricing?.items || [],
@@ -10496,6 +10605,20 @@ export class TaskService {
         details: transactionResult.details,
       };
     } catch (error) {
+      // If the transaction failed due to budgetNumber unique constraint,
+      // retry the entire operation with a fresh transaction
+      const isPrismaUniqueError =
+        error?.code === 'P2002' &&
+        (error?.meta?.target?.includes?.('budgetNumber') ||
+          error?.meta?.target?.includes?.('TaskPricing_budgetNumber_key'));
+
+      if (isPrismaUniqueError && _retryCount < 3) {
+        this.logger.warn(
+          `[copyFromTask] Transaction failed due to budgetNumber conflict (attempt ${_retryCount + 1}), retrying...`,
+        );
+        return this.copyFromTask(destinationTaskId, sourceTaskId, fields, userId, userPrivilege, _retryCount + 1);
+      }
+
       this.logger.error(
         `[copyFromTask] Error copying fields from task ${sourceTaskId} to ${destinationTaskId}:`,
         error,

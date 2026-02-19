@@ -71,7 +71,7 @@ export interface Task extends BaseEntity {
   logoPaints?: Paint[];
   serviceOrders?: ServiceOrder[]; // Prisma relation field
   pricingId?: string | null; // Foreign key to TaskPricing
-  pricing?: TaskPricing; // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
+  pricing?: TaskPricing; // Task pricing (each task has its own independent pricing record)
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;
@@ -727,7 +727,7 @@ export interface TaskIncludes {
       };
   pricing?:
     | boolean
-    | { include?: { items?: boolean; layoutFile?: boolean; customerSignature?: boolean } }; // Task pricing (one-to-many: one pricing can be shared across multiple tasks)
+    | { include?: { items?: boolean; layoutFile?: boolean; customerSignature?: boolean } }; // Task pricing (each task has its own independent pricing record)
   airbrushings?:
     | boolean
     | {

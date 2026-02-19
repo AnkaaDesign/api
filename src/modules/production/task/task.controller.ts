@@ -210,7 +210,7 @@ export class TaskController {
 
   // Batch Operations
   @Post('batch')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async batchCreate(
     @Body(new ZodValidationPipe(taskBatchCreateSchema)) data: TaskBatchCreateFormData,
