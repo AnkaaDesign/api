@@ -68,15 +68,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Nova Ordem de Servico ${typeName}`,
-          body: `Uma nova ordem de servico de ${typeName.toLowerCase()} foi criada para a tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}}. Criado por {{createdBy}}.`,
+          body: `Nova ordem de servico "{{description}}" (${typeName.toLowerCase()}) criada para a tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} por {{createdBy}}.`,
         },
         push: {
-          title: `Nova Ordem de Servico ${typeName}`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Nova ordem criada`,
+          title: `Nova OS ${typeName}`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Nova Ordem de Servico ${typeName} - {{taskName}}`,
-          body: `Uma nova ordem de servico de ${typeName.toLowerCase()} foi criada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Criado por: {{createdBy}}\nData: {{createdAt}}`,
+          body: `Uma nova ordem de servico de ${typeName.toLowerCase()} foi criada.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Criado por: {{createdBy}}`,
         },
       },
     });
@@ -88,15 +88,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Ordem de Servico ${typeName} Atribuida`,
-          body: `Voce foi atribuido a uma ordem de servico de ${typeName.toLowerCase()} para a tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}}. Atribuido por {{assignedBy}}.`,
+          body: `Voce foi atribuido a ordem "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} por {{assignedBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName} Atribuida`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Voce foi atribuido`,
+          title: `OS ${typeName} Atribuida`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Ordem de Servico ${typeName} Atribuida - {{taskName}}`,
-          body: `Voce foi atribuido a uma ordem de servico de ${typeName.toLowerCase()}.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Atribuido por: {{assignedBy}}`,
+          body: `Voce foi atribuido a uma ordem de servico de ${typeName.toLowerCase()}.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Atribuido por: {{assignedBy}}`,
         },
       },
     });
@@ -108,15 +108,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Ordem de Servico ${typeName} Iniciada`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} foi iniciada por {{startedBy}}.`,
+          body: `A ordem "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi iniciada por {{startedBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName} Iniciada`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Ordem iniciada`,
+          title: `OS ${typeName} Iniciada`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Ordem de Servico ${typeName} Iniciada - {{taskName}}`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} foi iniciada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Iniciada por: {{startedBy}}\nInicio: {{startedAt}}`,
+          body: `A ordem de servico de ${typeName.toLowerCase()} foi iniciada.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Iniciada por: {{startedBy}}`,
         },
       },
     });
@@ -128,15 +128,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Ordem de Servico ${typeName} Concluida`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} foi concluida por {{completedBy}}.`,
+          body: `A ordem de servico "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi concluida por {{completedBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName} Concluida`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Ordem concluida`,
+          title: `OS ${typeName} Concluida`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Ordem de Servico ${typeName} Concluida - {{taskName}}`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} foi concluida.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Concluida por: {{completedBy}}\nConclusao: {{completedAt}}`,
+          body: `A ordem de servico de ${typeName.toLowerCase()} foi concluida.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Concluida por: {{completedBy}}`,
         },
       },
     });
@@ -148,15 +148,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Ordem de Servico ${typeName} Cancelada`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} foi cancelada por {{cancelledBy}}.`,
+          body: `A ordem "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi cancelada por {{cancelledBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName} Cancelada`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Ordem cancelada`,
+          title: `OS ${typeName} Cancelada`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Ordem de Servico ${typeName} Cancelada - {{taskName}}`,
-          body: `A ordem de servico de ${typeName.toLowerCase()} foi cancelada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Cancelada por: {{cancelledBy}}`,
+          body: `A ordem de servico de ${typeName.toLowerCase()} foi cancelada.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Cancelada por: {{cancelledBy}}`,
         },
       },
     });
@@ -168,15 +168,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Observacao da Ordem de Servico ${typeName} Alterada`,
-          body: `A observacao da ordem de servico de ${typeName.toLowerCase()} da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} foi alterada por {{changedBy}}.`,
+          body: `A observacao da ordem "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi alterada por {{changedBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName}: Observacao`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Observacao alterada`,
+          title: `OS ${typeName}: Observacao`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Observacao da Ordem de Servico ${typeName} Alterada - {{taskName}}`,
-          body: `A observacao da ordem de servico de ${typeName.toLowerCase()} foi alterada.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Alterada por: {{changedBy}}\n\nNova observacao:\n{{observation}}`,
+          body: `A observacao da ordem de servico de ${typeName.toLowerCase()} foi alterada.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Alterada por: {{changedBy}}\n\nNova observacao:\n{{newObservation}}`,
         },
       },
     });
@@ -188,15 +188,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
       templates: {
         inApp: {
           title: `Status da Ordem de Servico ${typeName} Alterado`,
-          body: `O status da ordem de servico de ${typeName.toLowerCase()} da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} foi alterado para "{{newStatus}}" por {{changedBy}}.`,
+          body: `O status da ordem "{{description}}" (${typeName.toLowerCase()}) da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} foi alterado para "{{newStatus}}" por {{changedBy}}.`,
         },
         push: {
-          title: `Ordem de Servico ${typeName}: {{newStatus}}`,
-          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Status alterado`,
+          title: `OS ${typeName}: {{newStatus}}`,
+          body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
         },
         email: {
           subject: `Status da Ordem de Servico ${typeName} Alterado - {{taskName}}`,
-          body: `O status da ordem de servico de ${typeName.toLowerCase()} foi alterado.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Status anterior: {{oldStatus}}\nNovo status: {{newStatus}}\nAlterado por: {{changedBy}}`,
+          body: `O status da ordem de servico de ${typeName.toLowerCase()} foi alterado.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}Status anterior: {{oldStatus}}\nNovo status: {{newStatus}}\nAlterado por: {{changedBy}}`,
         },
       },
     });
@@ -209,15 +209,15 @@ function generateServiceOrderTemplates(): NotificationTemplate[] {
     templates: {
       inApp: {
         title: 'Ordem de Servico Arte Aguardando Aprovacao',
-        body: 'A ordem de servico de arte da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} esta aguardando aprovacao.',
+        body: 'A ordem de arte "{{description}}" da tarefa "{{taskName}}"{{#if serialNumber}} #{{serialNumber}}{{/if}} esta aguardando aprovacao.',
       },
       push: {
-        title: 'Ordem de Servico Arte: Aguardando Aprovacao',
-        body: '{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}}{{#if plate}} ({{plate}}){{/if}} - Aprovacao necessaria',
+        title: 'OS Arte: Aguardando Aprovacao',
+        body: `{{taskName}}{{#if serialNumber}} #{{serialNumber}}{{/if}} - {{description}}`,
       },
       email: {
         subject: 'Ordem de Servico Arte Aguardando Aprovacao - {{taskName}}',
-        body: 'A ordem de servico de arte esta aguardando sua aprovacao.\n\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}',
+        body: 'A ordem de servico de arte esta aguardando sua aprovacao.\n\nOrdem: {{description}}\nTarefa: {{taskName}}\n{{#if serialNumber}}Numero de Serie: {{serialNumber}}\n{{/if}}{{#if plate}}Placa: {{plate}}\n{{/if}}',
       },
     },
   });

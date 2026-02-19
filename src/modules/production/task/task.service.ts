@@ -79,10 +79,10 @@ import {
   type SyncServiceOrder,
   type SyncPricingItem,
 } from '../../../utils/task-pricing-service-order-sync';
-import { TaskCreatedEvent, TaskStatusChangedEvent, TaskFieldUpdatedEvent } from './task.events';
+import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
-import { TaskNotificationService } from '@modules/common/notification/task-notification.service';
+// NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
  * Converts a layout + sections into a displayable summary for changelog entries.
@@ -122,7 +122,7 @@ export class TaskService {
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
     private readonly fieldTracker: TaskFieldTrackerService,
-    private readonly taskNotificationService: TaskNotificationService,
+    // NOTE: TaskNotificationService injection removed - legacy notification path was deprecated
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
   ) {}
 
@@ -4593,28 +4593,11 @@ export class TaskService {
                 );
               }
 
-              // Emit events for other important field changes
-              const importantFields = ['term', 'forecastDate', 'sectorId', 'details'];
-
-              for (const field of importantFields) {
-                if (
-                  hasValueChanged(
-                    existingTask[field as keyof typeof existingTask],
-                    updatedTask[field as keyof typeof updatedTask],
-                  )
-                ) {
-                  this.eventEmitter.emit(
-                    'task.field.updated',
-                    new TaskFieldUpdatedEvent(
-                      updatedTask as Task,
-                      field,
-                      existingTask[field as keyof typeof existingTask],
-                      updatedTask[field as keyof typeof updatedTask],
-                      updatedByUser as any,
-                    ),
-                  );
-                }
-              }
+              // NOTE: Legacy 'task.field.updated' events for importantFields (term, sectorId, details, forecastDate)
+              // were removed. All field change notifications are now handled via the fieldTracker:
+              // fieldTracker.emitFieldChangeEvents() → 'task.field.changed' → task.listener.ts → dispatchByConfiguration
+              // This prevents duplicate notifications since both 'task.field.updated' and 'task.field.changed'
+              // were being handled by the same listener dispatching to the same config keys.
             }
 
             // Track field changes with the field tracker service
@@ -4684,38 +4667,10 @@ export class TaskService {
                   existingTask as Task,
                 );
 
-                // Track changes using TaskNotificationService for granular field-level notifications
-                try {
-                  const taskChanges = this.taskNotificationService.trackTaskChanges(
-                    existingTask as Task,
-                    updatedTask as Task,
-                  );
-
-                  if (taskChanges.length > 0) {
-                    this.logger.log(
-                      `Detected ${taskChanges.length} field changes for notification tracking`,
-                    );
-
-                    // Get target users for notifications: sector manager + admins
-                    const targetUsers = await this.getTargetUsersForNotification(updatedTask, tx);
-
-                    // Create notifications for each target user
-                    for (const targetUserId of targetUsers) {
-                      // Skip notifying the user who made the change
-                      if (targetUserId === userId) continue;
-
-                      await this.taskNotificationService.createFieldChangeNotifications(
-                        updatedTask as Task,
-                        taskChanges,
-                        targetUserId,
-                        userId,
-                        userId, // Pass userId as actorId for self-action filtering
-                      );
-                    }
-                  }
-                } catch (notificationError) {
-                  this.logger.error('Error creating task field notifications:', notificationError);
-                }
+                // NOTE: Legacy TaskNotificationService.createFieldChangeNotifications() was removed.
+                // All field change notifications are now handled via the event-based system:
+                // fieldTracker.emitFieldChangeEvents() → task.field.changed → task.listener.ts → dispatchByConfiguration
+                // This prevents duplicate notifications.
               }
             } catch (error) {
               this.logger.error('Error tracking field changes:', error);
@@ -4765,10 +4720,14 @@ export class TaskService {
             if (addedArtworks.length > 0 || removedArtworks.length > 0) {
               const changeDescription = [];
               if (addedArtworks.length > 0) {
-                changeDescription.push(`${addedArtworks.length} arte(s) adicionada(s)`);
+                changeDescription.push(addedArtworks.length === 1
+                  ? '1 arte adicionada'
+                  : `${addedArtworks.length} artes adicionadas`);
               }
               if (removedArtworks.length > 0) {
-                changeDescription.push(`${removedArtworks.length} arte(s) removida(s)`);
+                changeDescription.push(removedArtworks.length === 1
+                  ? '1 arte removida'
+                  : `${removedArtworks.length} artes removidas`);
               }
 
               await this.changeLogService.logChange({
@@ -4820,10 +4779,14 @@ export class TaskService {
             if (addedBaseFiles.length > 0 || removedBaseFiles.length > 0) {
               const changeDescription = [];
               if (addedBaseFiles.length > 0) {
-                changeDescription.push(`${addedBaseFiles.length} arquivo(s) base adicionado(s)`);
+                changeDescription.push(addedBaseFiles.length === 1
+                  ? '1 arquivo base adicionado'
+                  : `${addedBaseFiles.length} arquivos base adicionados`);
               }
               if (removedBaseFiles.length > 0) {
-                changeDescription.push(`${removedBaseFiles.length} arquivo(s) base removido(s)`);
+                changeDescription.push(removedBaseFiles.length === 1
+                  ? '1 arquivo base removido'
+                  : `${removedBaseFiles.length} arquivos base removidos`);
               }
 
               await this.changeLogService.logChange({
@@ -4871,10 +4834,14 @@ export class TaskService {
             if (addedPaintIds.length > 0 || removedPaintIds.length > 0) {
               const changeReasons = [];
               if (addedPaintIds.length > 0) {
-                changeReasons.push(`${addedPaintIds.length} tinta(s) adicionada(s)`);
+                changeReasons.push(addedPaintIds.length === 1
+                  ? '1 tinta adicionada'
+                  : `${addedPaintIds.length} tintas adicionadas`);
               }
               if (removedPaintIds.length > 0) {
-                changeReasons.push(`${removedPaintIds.length} tinta(s) removida(s)`);
+                changeReasons.push(removedPaintIds.length === 1
+                  ? '1 tinta removida'
+                  : `${removedPaintIds.length} tintas removidas`);
               }
 
               await this.changeLogService.logChange({
@@ -5139,21 +5106,10 @@ export class TaskService {
           changedBy: changedByUser || { id: 'system', name: 'Sistema' },
         });
 
-        // Send notification to production sector users about new task ready for production
-        // This is like a "task created" notification for them since WAITING_PRODUCTION is the first status they see
-        try {
-          // Emit task.created event to notify production sector users
-          // For production users, WAITING_PRODUCTION is effectively the "new task" status
-          this.eventEmitter.emit(
-            'task.created',
-            new TaskCreatedEvent(updatedTask as Task, changedByUser as any),
-          );
-          this.logger.log(
-            `[Task Update] Emitted task.created event for task ${id} (auto-transitioned to WAITING_PRODUCTION)`,
-          );
-        } catch (notificationError) {
-          this.logger.warn(`[Task Update] Failed to emit task notification: ${notificationError}`);
-        }
+        // NOTE: We previously emitted task.created here for auto-transitioned tasks, but this was REMOVED
+        // because the task.status.changed event (emitted above) already triggers 'task.ready_for_production'
+        // notification via the TaskListener.handleTaskStatusChanged() method. Emitting task.created here
+        // caused DUPLICATE notifications for production users.
       }
 
       return {
@@ -9576,7 +9532,9 @@ export class TaskService {
             field: relationName,
             oldValue: JSON.stringify(currentFileIds),
             newValue: JSON.stringify(mergedFileIds),
-            reason: `${files.length} arquivo(s) de ${fileType} adicionado(s) em lote`,
+            reason: files.length === 1
+              ? `1 arquivo de ${fileType} adicionado em lote`
+              : `${files.length} arquivos de ${fileType} adicionados em lote`,
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: task.id,
             userId: userId || '',
@@ -9602,49 +9560,9 @@ export class TaskService {
     };
   }
 
-  /**
-   * Get target users for task notifications
-   * Returns: assigned user (sector manager) + admin users
-   */
-  private async getTargetUsersForNotification(
-    task: any,
-    tx?: PrismaTransaction,
-  ): Promise<string[]> {
-    const userIds = new Set<string>();
-    const prismaClient = tx || this.prisma;
-
-    // Get sector manager (assigned user)
-    if (task.sectorId) {
-      const sector = await prismaClient.sector.findUnique({
-        where: { id: task.sectorId },
-        select: { managerId: true },
-      });
-
-      if (sector?.managerId) {
-        userIds.add(sector.managerId);
-      }
-    }
-
-    // Get admin users (users with admin positions)
-    // Note: 'position' is an optional relation, so we use 'is' to filter on its fields
-    const admins = await prismaClient.user.findMany({
-      where: {
-        isActive: true,
-        position: {
-          is: {
-            name: {
-              in: ['Admin', 'Super Admin', 'Administrador', 'Super Administrador'],
-            },
-          },
-        },
-      },
-      select: { id: true },
-    });
-
-    admins.forEach(admin => userIds.add(admin.id));
-
-    return Array.from(userIds);
-  }
+  // NOTE: getTargetUsersForNotification() was REMOVED because the legacy
+  // TaskNotificationService notification path was deprecated. All notifications
+  // now go through the event-based system with configuration-based targeting.
 
   /**
    * Duplicate a TaskPricing record (deep copy with items and invoice connections).
@@ -10544,7 +10462,9 @@ export class TaskService {
 
         return {
           success: true,
-          message: `${copiedFields.length} campo(s) copiado(s) com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
+          message: copiedFields.length === 1
+            ? `1 campo copiado com sucesso da tarefa ${sourceTask.name || sourceTaskId}`
+            : `${copiedFields.length} campos copiados com sucesso da tarefa ${sourceTask.name || sourceTaskId}`,
           copiedFields,
           details,
           fieldChangesForEvents,

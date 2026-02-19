@@ -96,6 +96,11 @@ export class ServiceOrderListener {
             taskName: task?.name,
             createdBy: serviceOrderWithCreator?.createdBy?.name || event.user?.name || 'Sistema',
           },
+          // Override to navigate to the task, not the service order
+          overrides: {
+            webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+            relatedEntityType: 'Task',
+          },
         },
       );
 
@@ -154,9 +159,15 @@ export class ServiceOrderListener {
           data: {
             serviceOrderId: event.serviceOrder.id,
             description: event.serviceOrder.description,
+            taskId: event.serviceOrder.taskId,
             assignedTo: assignedUser?.name || event.assignedTo?.name,
             assignedBy: assignedByUser?.name || event.user?.name,
             taskName: task?.name || event.task?.name,
+          },
+          // Override to navigate to the task, not the service order
+          overrides: {
+            webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
+            relatedEntityType: 'Task',
           },
         },
       );
@@ -246,6 +257,11 @@ export class ServiceOrderListener {
             approvedBy: serviceOrderWithUsers?.approvedBy?.name,
             completedBy: serviceOrderWithUsers?.completedBy?.name,
           },
+          // Override to navigate to the task, not the service order
+          overrides: {
+            webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+            relatedEntityType: 'Task',
+          },
         },
       );
 
@@ -277,6 +293,11 @@ export class ServiceOrderListener {
               oldStatus,
               newStatus,
               changedBy: changedByUser?.name || 'Sistema',
+            },
+            // Override to navigate to the task, not the service order
+            overrides: {
+              webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+              relatedEntityType: 'Task',
             },
           },
           [soWithCreator.createdById],
@@ -345,6 +366,11 @@ export class ServiceOrderListener {
             oldObservation: oldObservation || '(vazio)',
             newObservation: newObservation || '(vazio)',
             changedBy: changedByUser?.name || 'Sistema',
+          },
+          // Override to navigate to the task, not the service order
+          overrides: {
+            webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
+            relatedEntityType: 'Task',
           },
         },
       );

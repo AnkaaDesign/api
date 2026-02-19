@@ -57,7 +57,9 @@ const FIELD_LABELS: Record<string, string> = {
   entryDate: 'Data de Entrada',
   startedAt: 'Data de Início',
   finishedAt: 'Data de Conclusão',
-  forecastDate: 'Data Prevista',
+  // NOTE: 'forecastDate' is NOT included here because it's already tracked by
+  // the TaskFieldTrackerService which emits 'task.field.changed' events.
+  // Including it here would cause DUPLICATE notifications.
   paintId: 'Pintura',
   customerId: 'Cliente',
   invoiceToId: 'Faturar Para',

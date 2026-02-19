@@ -5,7 +5,7 @@ import { PrismaService } from '@modules/common/prisma/prisma.service';
 import {
   TaskCreatedEvent,
   TaskStatusChangedEvent,
-  TaskFieldUpdatedEvent,
+  // TaskFieldUpdatedEvent removed - no longer used (event was deprecated)
   TaskFieldChangedEvent,
   TaskDeadlineApproachingEvent,
   TaskOverdueEvent,
@@ -48,9 +48,12 @@ function getForecastConfigKey(daysRemaining: number): string | null {
 
 /**
  * Maps task status to specific notification configuration keys.
+ * NOTE: WAITING_PRODUCTION is NOT included here because it has a dedicated handler
+ * (notifyProductionUsersTaskReady) that dispatches 'task.ready_for_production'.
+ * Including it here would cause DUPLICATE notifications.
  */
 const STATUS_CONFIG_MAP: Partial<Record<TASK_STATUS, string>> = {
-  [TASK_STATUS.WAITING_PRODUCTION]: 'task.waiting_production',
+  // WAITING_PRODUCTION is handled by notifyProductionUsersTaskReady() → 'task.ready_for_production'
   [TASK_STATUS.IN_PRODUCTION]: 'task.in_production',
   [TASK_STATUS.COMPLETED]: 'task.completed',
 };
@@ -80,8 +83,8 @@ export class TaskListener {
     this.eventEmitter.on('task.status.changed', this.handleTaskStatusChanged.bind(this));
     this.logger.log('[TASK LISTENER] ✅ Registered: task.status.changed');
 
-    this.eventEmitter.on('task.field.updated', this.handleTaskFieldUpdated.bind(this));
-    this.logger.log('[TASK LISTENER] ✅ Registered: task.field.updated');
+    // NOTE: 'task.field.updated' handler was REMOVED because the event is no longer emitted.
+    // All field changes now go through 'task.field.changed' via the TaskFieldTrackerService.
 
     this.eventEmitter.on('task.field.changed', this.handleTaskFieldChanged.bind(this));
     this.logger.log('[TASK LISTENER] ✅ Registered: task.field.changed');
@@ -220,38 +223,9 @@ export class TaskListener {
     }
   }
 
-  /**
-   * Handle task field update event
-   * Uses configuration-based dispatch for role-based targeting
-   */
-  private async handleTaskFieldUpdated(event: TaskFieldUpdatedEvent): Promise<void> {
-    try {
-      this.logger.log(`Task field updated: ${event.task.id} - ${event.fieldName} changed`);
-
-      await this.dispatchService.dispatchByConfiguration(
-        `task.field.${event.fieldName}`,
-        event.updatedBy.id,
-        {
-          entityType: 'Task',
-          entityId: event.task.id,
-          action: 'field_updated',
-          data: {
-            taskId: event.task.id,
-            taskName: event.task.name,
-            serialNumber: event.task.serialNumber,
-            fieldName: event.fieldName,
-            oldValue: event.oldValue,
-            newValue: event.newValue,
-            changedBy: event.updatedBy?.name || 'Sistema',
-          },
-        },
-      );
-
-      this.logger.log(`Field update notification dispatched for: ${event.fieldName}`);
-    } catch (error) {
-      this.logger.error('Error handling task field updated event:', error);
-    }
-  }
+  // NOTE: handleTaskFieldUpdated() was REMOVED because the 'task.field.updated' event
+  // is no longer emitted. All field changes now go through 'task.field.changed' via
+  // the TaskFieldTrackerService, which provides richer change information.
 
   /**
    * Handle task field changed event from field tracker
@@ -351,8 +325,8 @@ export class TaskListener {
     try {
       const isHourBased = event.hoursRemaining !== undefined && event.hoursRemaining < 24;
       const timeLabel = isHourBased
-        ? `${event.hoursRemaining} hora(s)`
-        : `${event.daysRemaining} dia(s)`;
+        ? `${event.hoursRemaining} ${event.hoursRemaining === 1 ? 'hora' : 'horas'}`
+        : `${event.daysRemaining} ${event.daysRemaining === 1 ? 'dia' : 'dias'}`;
 
       this.logger.log(`Task deadline approaching: ${event.task.id} - ${timeLabel} remaining`);
 

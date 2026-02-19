@@ -218,7 +218,9 @@ export class ObservationService {
             field: 'files',
             oldValue: null,
             newValue: data.fileIds,
-            reason: `${data.fileIds.length} arquivo(s) anexado(s)`,
+            reason: data.fileIds.length === 1
+              ? '1 arquivo anexado'
+              : `${data.fileIds.length} arquivos anexados`,
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
             triggeredById: newObservation.id,
             userId: userId || null,
@@ -474,7 +476,9 @@ export class ObservationService {
                 field: 'files',
                 oldValue: null,
                 newValue: observationData.fileIds,
-                reason: `${observationData.fileIds.length} arquivo(s) anexado(s) em lote`,
+                reason: observationData.fileIds.length === 1
+                  ? '1 arquivo anexado em lote'
+                  : `${observationData.fileIds.length} arquivos anexados em lote`,
                 triggeredBy: CHANGE_TRIGGERED_BY.BATCH_CREATE,
                 triggeredById: newObservation.id,
                 userId: userId || null,

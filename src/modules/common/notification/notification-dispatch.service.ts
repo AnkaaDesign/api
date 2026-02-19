@@ -1441,16 +1441,19 @@ export class NotificationDispatchService {
       const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
 
       // Render templates from database configuration
+      // IMPORTANT: Spread raw data FIRST, then override with formatted values
+      // This ensures proper formatting of dates, arrays, and other complex types
       const templateVars = {
+        ...context.data, // Raw data first (will be overwritten by formatted values below)
         taskName: context.data.taskName || '',
         serialNumber: context.data.serialNumber || '',
-        oldValue: context.data.oldValue !== undefined ? String(context.data.oldValue) : 'N/A',
-        newValue: context.data.newValue !== undefined ? String(context.data.newValue) : 'N/A',
-        changedBy: context.data.changedBy || 'Sistema',
-        daysOverdue: context.data.daysOverdue?.toString() || '',
-        daysRemaining: context.data.daysRemaining?.toString() || '',
+        oldValue: this.formatNotificationValue(context.data.oldValue),
+        newValue: this.formatNotificationValue(context.data.newValue),
+        changedBy: this.formatUserName(context.data.changedBy),
+        daysOverdue: this.formatDaysWithPlural(context.data.daysOverdue, 'dia', 'dias'),
+        daysRemaining: this.formatDaysWithPlural(context.data.daysRemaining, 'dia', 'dias'),
         count: context.data.count?.toString() || '',
-        ...context.data,
+        fileChangeDescription: context.data.fileChangeDescription || this.formatFileChange(context.data.addedCount, context.data.removedCount),
       };
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
@@ -1612,13 +1615,15 @@ export class NotificationDispatchService {
       const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
 
       // Render templates
+      // IMPORTANT: Spread raw data FIRST, then override with formatted values
       const templateVars = {
+        ...context.data, // Raw data first
         taskName: context.data.taskName || '',
         serialNumber: context.data.serialNumber || '',
-        oldValue: context.data.oldValue !== undefined ? String(context.data.oldValue) : 'N/A',
-        newValue: context.data.newValue !== undefined ? String(context.data.newValue) : 'N/A',
-        changedBy: context.data.changedBy || 'Sistema',
-        ...context.data,
+        oldValue: this.formatNotificationValue(context.data.oldValue),
+        newValue: this.formatNotificationValue(context.data.newValue),
+        changedBy: this.formatUserName(context.data.changedBy),
+        fileChangeDescription: context.data.fileChangeDescription || this.formatFileChange(context.data.addedCount, context.data.removedCount),
       };
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
@@ -1778,6 +1783,152 @@ export class NotificationDispatchService {
         // Fallback to task links for task-related entities (Cut, Artwork, etc.)
         return this.deepLinkService.generateTaskLinks(entityId);
     }
+  }
+
+  // =====================================================
+  // VALUE FORMATTING HELPERS
+  // =====================================================
+
+  /**
+   * Format any notification value for display
+   * Handles dates, arrays, objects, null/undefined, etc.
+   */
+  private formatNotificationValue(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+
+    // Handle Date objects - format to pt-BR
+    if (value instanceof Date) {
+      return this.formatDatePtBR(value);
+    }
+
+    // Handle date strings (ISO format)
+    if (typeof value === 'string' && this.isISODateString(value)) {
+      return this.formatDatePtBR(new Date(value));
+    }
+
+    // Handle arrays (file arrays, etc.) - summarize, don't stringify
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '';
+      }
+      // For file arrays, just show count
+      return `${value.length} ${value.length === 1 ? 'item' : 'itens'}`;
+    }
+
+    // Handle objects with name property (users, customers, etc.)
+    if (typeof value === 'object' && value !== null) {
+      if (value.name) {
+        return String(value.name);
+      }
+      if (value.fantasyName) {
+        return String(value.fantasyName);
+      }
+      // Don't stringify complex objects - return empty or a summary
+      return '';
+    }
+
+    // Handle booleans
+    if (typeof value === 'boolean') {
+      return value ? 'Sim' : 'Não';
+    }
+
+    return String(value);
+  }
+
+  /**
+   * Format a Date to Brazilian Portuguese format (DD/MM/YYYY HH:mm)
+   */
+  private formatDatePtBR(date: Date): string {
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Sao_Paulo',
+    });
+  }
+
+  /**
+   * Check if a string looks like an ISO date
+   */
+  private isISODateString(value: string): boolean {
+    // Match ISO 8601 date patterns
+    return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/.test(value);
+  }
+
+  /**
+   * Format user name - extract first name if full name provided
+   */
+  private formatUserName(value: any): string {
+    if (!value) {
+      return 'Sistema';
+    }
+
+    if (typeof value === 'object' && value.name) {
+      return this.getFirstName(value.name);
+    }
+
+    if (typeof value === 'string') {
+      return this.getFirstName(value);
+    }
+
+    return 'Sistema';
+  }
+
+  /**
+   * Get first name from full name
+   */
+  private getFirstName(fullName: string): string {
+    if (!fullName) return '';
+    const parts = fullName.trim().split(' ');
+    return parts[0] || fullName;
+  }
+
+  /**
+   * Format days count with proper Portuguese pluralization
+   */
+  private formatDaysWithPlural(count: number | undefined, singular: string, plural: string): string {
+    if (count === undefined || count === null) {
+      return '';
+    }
+    const num = Number(count);
+    if (isNaN(num)) {
+      return '';
+    }
+    return `${num} ${num === 1 ? singular : plural}`;
+  }
+
+  /**
+   * Format file change description with proper Portuguese grammar
+   */
+  private formatFileChange(addedCount: number | undefined, removedCount: number | undefined): string {
+    const parts: string[] = [];
+    const added = addedCount || 0;
+    const removed = removedCount || 0;
+
+    if (added > 0) {
+      if (added === 1) {
+        parts.push('1 arquivo adicionado');
+      } else {
+        parts.push(`${added} arquivos adicionados`);
+      }
+    }
+
+    if (removed > 0) {
+      if (removed === 1) {
+        parts.push('1 arquivo removido');
+      } else {
+        parts.push(`${removed} arquivos removidos`);
+      }
+    }
+
+    return parts.join(' e ') || '';
   }
 
 }

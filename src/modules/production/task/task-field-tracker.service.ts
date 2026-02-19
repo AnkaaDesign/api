@@ -471,13 +471,22 @@ export class TaskFieldTrackerService {
   getChangeDescription(change: FieldChange): string {
     if (this.isFileArrayField(change.field)) {
       const fileChange = this.analyzeFileArrayChange(change.oldValue || [], change.newValue || []);
+      const parts: string[] = [];
 
-      if (fileChange.added > 0 && fileChange.removed > 0) {
-        return `${fileChange.added} arquivo(s) adicionado(s), ${fileChange.removed} arquivo(s) removido(s)`;
-      } else if (fileChange.added > 0) {
-        return `${fileChange.added} arquivo(s) adicionado(s)`;
-      } else if (fileChange.removed > 0) {
-        return `${fileChange.removed} arquivo(s) removido(s)`;
+      if (fileChange.added > 0) {
+        parts.push(fileChange.added === 1
+          ? '1 arquivo adicionado'
+          : `${fileChange.added} arquivos adicionados`);
+      }
+
+      if (fileChange.removed > 0) {
+        parts.push(fileChange.removed === 1
+          ? '1 arquivo removido'
+          : `${fileChange.removed} arquivos removidos`);
+      }
+
+      if (parts.length > 0) {
+        return parts.join(' e ');
       }
     }
 
@@ -492,20 +501,68 @@ export class TaskFieldTrackerService {
    */
   private formatValue(value: any): string {
     if (value === null || value === undefined) {
-      return 'N/A';
+      return '';
     }
 
+    // Handle Date objects
+    if (value instanceof Date) {
+      return this.formatDatePtBR(value);
+    }
+
+    // Handle date strings (ISO format)
+    if (typeof value === 'string' && this.isISODateString(value)) {
+      return this.formatDatePtBR(new Date(value));
+    }
+
+    // Handle arrays
     if (Array.isArray(value)) {
-      return `${value.length} item(ns)`;
+      if (value.length === 0) {
+        return 'nenhum';
+      }
+      return value.length === 1 ? '1 item' : `${value.length} itens`;
     }
 
+    // Handle objects with name property
     if (typeof value === 'object') {
-      if (value instanceof Date) {
-        return value.toLocaleDateString('pt-BR');
+      if (value.name) {
+        return String(value.name);
       }
-      return JSON.stringify(value);
+      if (value.fantasyName) {
+        return String(value.fantasyName);
+      }
+      // Don't stringify complex objects
+      return '';
+    }
+
+    // Handle booleans
+    if (typeof value === 'boolean') {
+      return value ? 'Sim' : 'Não';
     }
 
     return String(value);
+  }
+
+  /**
+   * Format a Date to Brazilian Portuguese format
+   */
+  private formatDatePtBR(date: Date): string {
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'America/Sao_Paulo',
+    });
+  }
+
+  /**
+   * Check if a string looks like an ISO date
+   */
+  private isISODateString(value: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/.test(value);
   }
 }
