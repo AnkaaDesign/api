@@ -268,6 +268,43 @@ export class TruckService {
 
     // Use transaction to update all trucks atomically and log changes
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      // Collect all target spots and truck IDs in this batch
+      const batchTruckIds = new Set(updates.map((u) => u.truckId));
+      const targetSpots = updates
+        .map((u) => u.spot)
+        .filter((s): s is string => s !== null);
+
+      // Clear conflicting spots: any OTHER truck (not in this batch) that occupies
+      // a spot we're about to assign should have its spot cleared.
+      // This prevents duplicate trucks sharing the same spot.
+      if (targetSpots.length > 0) {
+        const conflictingTrucks = await tx.truck.findMany({
+          where: {
+            spot: { in: targetSpots as any },
+            id: { notIn: Array.from(batchTruckIds) },
+          },
+        });
+
+        for (const conflicting of conflictingTrucks) {
+          await tx.truck.update({
+            where: { id: conflicting.id },
+            data: { spot: null },
+          });
+
+          await trackAndLogFieldChanges({
+            changeLogService: this.changeLogService,
+            entityType: ENTITY_TYPE.TRUCK,
+            entityId: conflicting.id,
+            oldEntity: conflicting,
+            newEntity: { ...conflicting, spot: null },
+            fieldsToTrack: ['spot'],
+            userId: userId || '',
+            triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
+            transaction: tx,
+          });
+        }
+      }
+
       for (const update of updates) {
         // Get existing truck
         const existing = await tx.truck.findUnique({

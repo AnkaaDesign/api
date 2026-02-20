@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { RepresentativeController } from './representative.controller';
-import { RepresentativeService } from './representative.service';
-import { RepresentativeRepository } from './repositories/representative.repository';
-import { RepresentativePrismaRepository } from './repositories/representative-prisma.repository';
+import { ResponsibleController } from './responsible.controller';
+import { ResponsibleService } from './responsible.service';
+import { ResponsibleRepository } from './repositories/responsible.repository';
+import { ResponsiblePrismaRepository } from './repositories/responsible-prisma.repository';
 import { HashModule } from '@/modules/common/hash/hash.module';
 import { ChangeLogModule } from '@/modules/common/changelog/changelog.module';
 import { PrismaModule } from '@/modules/common/prisma/prisma.module';
@@ -27,14 +27,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       }),
     }),
   ],
-  controllers: [RepresentativeController],
+  controllers: [ResponsibleController],
   providers: [
-    RepresentativeService,
+    ResponsibleService,
     {
-      provide: RepresentativeRepository,
-      useClass: RepresentativePrismaRepository,
+      provide: ResponsibleRepository,
+      useClass: ResponsiblePrismaRepository,
     },
   ],
-  exports: [RepresentativeService, RepresentativeRepository],
+  exports: [ResponsibleService, ResponsibleRepository],
 })
-export class RepresentativeModule {}
+export class ResponsibleModule {}

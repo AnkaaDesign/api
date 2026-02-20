@@ -74,7 +74,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'cuts',
     'relatedTasks',
     'relatedTo',
-    'representatives',
+    'responsibles',
   ],
   Customer: [
     'id',
@@ -85,7 +85,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'logo',
     'economicActivity',
     'tasks',
-    'representatives',
+    'responsibles',
   ],
   Order: [
     'id',
@@ -99,7 +99,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'invoiceReimbursements',
     'activities',
   ],
-  Representative: ['id', 'name', 'phone', 'email', 'role', 'isActive', 'customer', 'tasks'],
+  Responsible: ['id', 'name', 'phone', 'email', 'role', 'isActive', 'company', 'tasks'],
 };
 
 /**
@@ -168,7 +168,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'cuts',
     'relatedTasks',
     'relatedTo',
-    'representatives',
+    'responsibles',
   ],
   Customer: [
     'id',
@@ -183,7 +183,7 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'logo',
     'economicActivity',
     'tasks',
-    'representatives',
+    'responsibles',
   ],
   Order: [
     'id',
@@ -201,17 +201,17 @@ const SELECT_WHITELIST: Record<string, string[]> = {
     'invoiceReimbursements',
     'activities',
   ],
-  Representative: [
+  Responsible: [
     'id',
     'name',
     'phone',
     'email',
     'role',
     'isActive',
-    'customerId',
+    'companyId',
     'createdAt',
     'updatedAt',
-    'customer',
+    'company',
   ],
 };
 

@@ -12,34 +12,34 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { RepresentativeService } from './representative.service';
+import { ResponsibleService } from './responsible.service';
 import { AuthGuard } from '@/modules/common/auth/auth.guard';
 import { Roles } from '@/modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@/constants/enums';
 import { Public } from '@/modules/common/auth/decorators/public.decorator';
 import { ZodValidationPipe } from '@/modules/common/pipes/zod-validation.pipe';
 import {
-  representativeCreateSchema,
-  representativeUpdateSchema,
-  representativeLoginSchema,
-  representativeRegisterSchema,
-  representativeGetManySchema,
-  RepresentativeCreateFormData,
-  RepresentativeUpdateFormData,
-  RepresentativeLoginFormData,
-  RepresentativeRegisterFormData,
-} from '@/schemas/representative';
+  responsibleCreateSchema,
+  responsibleUpdateSchema,
+  responsibleLoginSchema,
+  responsibleRegisterSchema,
+  responsibleGetManySchema,
+  ResponsibleCreateFormData,
+  ResponsibleUpdateFormData,
+  ResponsibleLoginFormData,
+  ResponsibleRegisterFormData,
+} from '@/schemas/responsible';
 
-@Controller('representatives')
-export class RepresentativeController {
-  constructor(private readonly service: RepresentativeService) {}
+@Controller('responsibles')
+export class ResponsibleController {
+  constructor(private readonly service: ResponsibleService) {}
 
   @Post()
   @UseGuards(AuthGuard)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async create(
-    @Body(new ZodValidationPipe(representativeCreateSchema))
-    data: RepresentativeCreateFormData,
+    @Body(new ZodValidationPipe(responsibleCreateSchema))
+    data: ResponsibleCreateFormData,
   ) {
     return await this.service.create(data);
   }
@@ -47,7 +47,7 @@ export class RepresentativeController {
   @Get()
   @UseGuards(AuthGuard)
   async findMany(
-    @Query(new ZodValidationPipe(representativeGetManySchema))
+    @Query(new ZodValidationPipe(responsibleGetManySchema))
     query: any,
   ) {
     return await this.service.findMany(query);
@@ -75,25 +75,25 @@ export class RepresentativeController {
   @UseGuards(AuthGuard)
   async findById(@Param('id') id: string) {
     return await this.service.findById(id, {
-      include: { customer: { include: { logo: true } }, tasks: true },
+      include: { company: { include: { logo: true } }, tasks: true },
     });
   }
 
-  @Get('customer/:customerId')
+  @Get('company/:companyId')
   @UseGuards(AuthGuard)
-  async findByCustomerId(@Param('customerId') customerId: string) {
-    return await this.service.findByCustomerId(customerId, {
+  async findByCompanyId(@Param('companyId') companyId: string) {
+    return await this.service.findByCompanyId(companyId, {
       include: { tasks: true },
     });
   }
 
-  @Get('customer/:customerId/role/:role')
+  @Get('company/:companyId/role/:role')
   @UseGuards(AuthGuard)
-  async findByCustomerIdAndRole(
-    @Param('customerId') customerId: string,
+  async findByCompanyIdAndRole(
+    @Param('companyId') companyId: string,
     @Param('role') role: string,
   ) {
-    return await this.service.findByCustomerIdAndRole(customerId, role);
+    return await this.service.findByCompanyIdAndRole(companyId, role);
   }
 
   @Put(':id')
@@ -101,8 +101,8 @@ export class RepresentativeController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async update(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(representativeUpdateSchema))
-    data: RepresentativeUpdateFormData,
+    @Body(new ZodValidationPipe(responsibleUpdateSchema))
+    data: ResponsibleUpdateFormData,
   ) {
     return await this.service.update(id, data);
   }
@@ -125,15 +125,15 @@ export class RepresentativeController {
   @Post('batch')
   @UseGuards(AuthGuard)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async batchCreate(@Body() data: { representatives: RepresentativeCreateFormData[] }) {
-    return await this.service.batchCreate(data.representatives);
+  async batchCreate(@Body() data: { responsibles: ResponsibleCreateFormData[] }) {
+    return await this.service.batchCreate(data.responsibles);
   }
 
   @Put('batch')
   @UseGuards(AuthGuard)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async batchUpdate(
-    @Body() data: { updates: Array<{ id: string; data: RepresentativeUpdateFormData }> },
+    @Body() data: { updates: Array<{ id: string; data: ResponsibleUpdateFormData }> },
   ) {
     return await this.service.batchUpdate(data.updates);
   }
@@ -149,8 +149,8 @@ export class RepresentativeController {
   @Post('login')
   @Public()
   async login(
-    @Body(new ZodValidationPipe(representativeLoginSchema))
-    data: RepresentativeLoginFormData,
+    @Body(new ZodValidationPipe(responsibleLoginSchema))
+    data: ResponsibleLoginFormData,
   ) {
     return await this.service.login(data);
   }
@@ -158,8 +158,8 @@ export class RepresentativeController {
   @Post('register')
   @Public()
   async register(
-    @Body(new ZodValidationPipe(representativeRegisterSchema))
-    data: RepresentativeRegisterFormData,
+    @Body(new ZodValidationPipe(responsibleRegisterSchema))
+    data: ResponsibleRegisterFormData,
   ) {
     return await this.service.register(data);
   }
@@ -167,14 +167,14 @@ export class RepresentativeController {
   @Post('logout')
   @UseGuards(AuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  async logout(@Body('representativeId') representativeId: string) {
-    await this.service.logout(representativeId);
+  async logout(@Body('responsibleId') responsibleId: string) {
+    await this.service.logout(responsibleId);
   }
 
   @Post('verify-email')
   @Public()
-  async verifyEmail(@Body() data: { representativeId: string; verificationCode: string }) {
-    return await this.service.verifyEmail(data.representativeId, data.verificationCode);
+  async verifyEmail(@Body() data: { responsibleId: string; verificationCode: string }) {
+    return await this.service.verifyEmail(data.responsibleId, data.verificationCode);
   }
 
   @Post('reset-password')

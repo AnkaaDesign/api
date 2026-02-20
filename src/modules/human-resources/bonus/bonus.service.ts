@@ -363,8 +363,9 @@ export class BonusService {
       }
 
       // ========================================================================
-      // NO SAVED BONUS - CALCULATE LIVE
-      // Returns data in the EXACT SAME STRUCTURE as saved bonus from database
+      // NO SAVED BONUS - CALCULATE LIVE (SINGLE USER OPTIMIZED)
+      // Only calculates bonus + Secullum for the requested user
+      // Period-level stats (task counts, averages) still use all users/tasks
       // ========================================================================
 
       this.logger.log(`Calculating live bonus for user ${userId.slice(0, 8)} for ${month}/${year}`);
@@ -387,36 +388,171 @@ export class BonusService {
         throw new BadRequestException('Usuário não está em um cargo bonificável.');
       }
 
-      // Get live calculation for all users to get period-level data
-      const liveData = await this.calculateLiveBonuses(year, month);
+      // ========================================================================
+      // PERIOD-LEVEL DATA (lightweight DB queries, no Secullum)
+      // ========================================================================
 
-      // Find this user's bonus in the calculated list
-      const userLiveBonus = liveData.bonuses.find(b => b.userId === userId);
+      const startDate = getPeriodStart(year, month);
+      const endDate = getPeriodEnd(year, month);
 
-      // Format current date for createdAt/updatedAt (same as saved bonus)
+      // Get all bonifiable users (for user count + eligible users list)
+      const allBonifiableUsers = await this.prisma.user.findMany({
+        where: {
+          status: USER_STATUS.EFFECTED,
+          position: { bonifiable: true },
+        },
+        select: {
+          id: true,
+          name: true,
+          performanceLevel: true,
+          cpf: true,
+          pis: true,
+          payrollNumber: true,
+          position: { select: { id: true, name: true, bonifiable: true } },
+          sector: { select: { id: true, name: true } },
+        },
+      });
+
+      // Get ALL tasks in the period
+      const allTasks = await this.prisma.task.findMany({
+        where: {
+          commission: {
+            in: [
+              COMMISSION_STATUS.FULL_COMMISSION,
+              COMMISSION_STATUS.PARTIAL_COMMISSION,
+              COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            ],
+          },
+          finishedAt: { gte: startDate, lte: endDate },
+          status: TASK_STATUS.COMPLETED,
+        },
+        select: {
+          id: true,
+          name: true,
+          commission: true,
+          finishedAt: true,
+          status: true,
+          createdById: true,
+          customer: { select: { id: true, fantasyName: true } },
+          sector: { select: { id: true, name: true } },
+        },
+      });
+
+      // Calculate period stats
+      const totalRawTaskCount = calculateRawTaskCount(allTasks);
+      const totalWeightedTasks = calculatePonderedTaskCount(allTasks);
+      const totalSuspendedTasks = countSuspendedTasks(allTasks);
+      const usersWithPerformance = allBonifiableUsers.filter(u => u.performanceLevel > 0);
+      const totalEligibleUsers = usersWithPerformance.length;
+      const rawAverageTasksPerUser =
+        totalEligibleUsers > 0 ? roundAverage(totalRawTaskCount / totalEligibleUsers) : 0;
+      const averageTasksPerUser =
+        totalEligibleUsers > 0 ? roundAverage(totalWeightedTasks / totalEligibleUsers) : 0;
+
+      this.logger.log(
+        `Period ${month}/${year} (single-user): ${totalWeightedTasks} weighted tasks, avg: ${averageTasksPerUser.toFixed(2)}, ${totalEligibleUsers} eligible users`,
+      );
+
+      // ========================================================================
+      // SINGLE USER BONUS CALCULATION
+      // ========================================================================
+
+      const positionName = user.position?.name || 'DEFAULT';
+
+      // BASE bonus (suspended = 1.0)
+      const baseBonusValue = this.exactBonusCalculationService.calculateBonus(
+        positionName,
+        user.performanceLevel,
+        rawAverageTasksPerUser,
+      );
+
+      // NET bonus (suspended = 0.0)
+      const calculatedNetBonus = this.exactBonusCalculationService.calculateBonus(
+        positionName,
+        user.performanceLevel,
+        averageTasksPerUser,
+      );
+      const netBonusValue = Math.min(baseBonusValue, calculatedNetBonus);
+      const suspendedTasksDiscount = roundCurrency(
+        Math.max(0, roundCurrency(baseBonusValue) - roundCurrency(netBonusValue)),
+      );
+
+      // ========================================================================
+      // SECULLUM ANALYSIS (ONLY FOR THIS SINGLE USER)
+      // ========================================================================
+
+      let secullumAnalysis: SecullumBonusAnalysis | undefined;
+      let bonusExtraPercentage = 0;
+      let bonusExtraValue = 0;
+
+      try {
+        const secullumAnalysisMap = await this.secullumBonusIntegrationService.analyzeAllUsers(
+          year,
+          month,
+          // Pass ONLY the single user instead of all 16
+          [{
+            id: user.id,
+            name: user.name,
+            cpf: (user as any).cpf || undefined,
+            pis: (user as any).pis || undefined,
+            payrollNumber: (user as any).payrollNumber || undefined,
+          }],
+        );
+        secullumAnalysis = secullumAnalysisMap.get(userId);
+
+        if (secullumAnalysis) {
+          bonusExtraPercentage = secullumAnalysis.extraPercentage;
+          bonusExtraValue = roundCurrency((roundCurrency(baseBonusValue) * bonusExtraPercentage) / 100);
+        }
+      } catch (error) {
+        this.logger.error(
+          'Secullum bonus integration failed for single user, continuing without it:',
+          error?.stack || error?.message || error,
+        );
+      }
+
+      // ========================================================================
+      // RECALCULATE NET BONUS WITH SECULLUM DISCOUNTS (cascading)
+      // ========================================================================
+
+      let finalNetBonus = roundCurrency(baseBonusValue);
+
+      // Add extras
+      finalNetBonus += bonusExtraValue;
+
+      // Apply discounts in order: suspended tasks → atestado → unjustified
+      const discountsToApply: { value: number | null; percentage: number | null; order: number }[] = [];
+
+      if (suspendedTasksDiscount > 0) {
+        discountsToApply.push({ value: suspendedTasksDiscount, percentage: null, order: 1 });
+      }
+      if (secullumAnalysis?.atestadoDiscountPercentage && secullumAnalysis.atestadoDiscountPercentage > 0) {
+        discountsToApply.push({ value: null, percentage: secullumAnalysis.atestadoDiscountPercentage, order: 2 });
+      }
+      if (secullumAnalysis?.unjustifiedDiscountPercentage && secullumAnalysis.unjustifiedDiscountPercentage > 0) {
+        discountsToApply.push({ value: null, percentage: secullumAnalysis.unjustifiedDiscountPercentage, order: 3 });
+      }
+
+      discountsToApply.sort((a, b) => a.order - b.order);
+      for (const discount of discountsToApply) {
+        if (discount.percentage !== null) {
+          finalNetBonus = Math.max(0, finalNetBonus - finalNetBonus * (discount.percentage / 100));
+        } else if (discount.value !== null) {
+          finalNetBonus = Math.max(0, finalNetBonus - Math.min(discount.value, finalNetBonus));
+        }
+      }
+      finalNetBonus = roundCurrency(finalNetBonus);
+
+      // ========================================================================
+      // BUILD LIVE BONUS RESPONSE (same structure as saved bonus)
+      // ========================================================================
+
       const now = new Date();
-
-      // Get all eligible users for the users relation
-      const allEligibleUsers = liveData.bonuses.map(b => ({
-        id: b.userId,
-        name: b.userName,
-      }));
-
-      // ========================================================================
-      // BUILD LIVE BONUS IN EXACT SAME STRUCTURE AS SAVED BONUS
-      // ========================================================================
-      // This structure matches what Prisma returns for a saved bonus with includes
-      // For live bonus, position comes from current user.position (real-time)
-      // Note: Period dates are NOT stored - they can be calculated from year/month
-      // Period is always: 26th of (month-1) to 25th of (month)
-
-      // Build "Tarefas Suspensas" discount if applicable
-      const suspendedTasksDiscount = userLiveBonus?.suspendedTasksDiscount || 0;
+      const liveBonusId = `live-${userId}-${year}-${month}`;
       const bonusDiscounts: any[] = [];
       const bonusExtras: any[] = [];
-      const liveBonusId = `live-${userId}-${year}-${month}`;
 
-      if (suspendedTasksDiscount > 0 && liveData.totalSuspendedTasks > 0) {
+      if (suspendedTasksDiscount > 0 && totalSuspendedTasks > 0) {
         bonusDiscounts.push({
           id: `live-discount-suspended-${userId}-${year}-${month}`,
           bonusId: liveBonusId,
@@ -424,72 +560,67 @@ export class BonusService {
           value: suspendedTasksDiscount,
           percentage: null,
           calculationOrder: 1,
-          suspendedTasks: (userLiveBonus?.tasks || []).filter(
+          suspendedTasks: allTasks.filter(
             (t: any) => t.commission === COMMISSION_STATUS.SUSPENDED_COMMISSION,
           ),
         });
       }
 
-      // Build Secullum-based extras and absence discounts
-      if (userLiveBonus?.secullumAnalysis) {
-        if (userLiveBonus.bonusExtraValue && userLiveBonus.bonusExtraValue > 0) {
+      if (secullumAnalysis) {
+        if (bonusExtraValue > 0) {
           bonusExtras.push({
             id: `live-extra-ponto-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
             reference: 'Assiduidade do Ponto Eletrônico',
-            percentage: userLiveBonus.bonusExtraPercentage,
-            value: userLiveBonus.bonusExtraValue,
+            percentage: bonusExtraPercentage,
+            value: bonusExtraValue,
             calculationOrder: 1,
           });
         }
-        if (userLiveBonus.secullumAnalysis.atestadoDiscountPercentage > 0) {
-          const tierLabel = userLiveBonus.secullumAnalysis.atestadoTierLabel;
+        if (secullumAnalysis.atestadoDiscountPercentage > 0) {
+          const tierLabel = secullumAnalysis.atestadoTierLabel;
           bonusDiscounts.push({
             id: `live-discount-atestado-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
             reference: tierLabel ? `Faltas - Atestado (${tierLabel})` : 'Faltas - Atestado',
-            percentage: userLiveBonus.secullumAnalysis.atestadoDiscountPercentage,
+            percentage: secullumAnalysis.atestadoDiscountPercentage,
             value: null,
             calculationOrder: 2,
           });
         }
-        if (userLiveBonus.secullumAnalysis.unjustifiedDiscountPercentage > 0) {
-          const tierLabel = userLiveBonus.secullumAnalysis.unjustifiedTierLabel;
+        if (secullumAnalysis.unjustifiedDiscountPercentage > 0) {
+          const tierLabel = secullumAnalysis.unjustifiedTierLabel;
           bonusDiscounts.push({
             id: `live-discount-unjustified-${userId}-${year}-${month}`,
             bonusId: liveBonusId,
             reference: tierLabel
               ? `Faltas - Sem Justificativa (${tierLabel})`
               : 'Faltas - Sem Justificativa',
-            percentage: userLiveBonus.secullumAnalysis.unjustifiedDiscountPercentage,
+            percentage: secullumAnalysis.unjustifiedDiscountPercentage,
             value: null,
             calculationOrder: 3,
           });
         }
       }
 
+      const allEligibleUsers = allBonifiableUsers.map(u => ({
+        id: u.id,
+        name: u.name,
+      }));
+
       const liveBonus = {
-        // Core bonus fields (same as database columns)
-        id: `live-${userId}-${year}-${month}`,
+        id: liveBonusId,
         userId,
         year,
         month,
-        performanceLevel: userLiveBonus?.performanceLevel || user.performanceLevel || 0,
-        baseBonus: userLiveBonus?.baseBonus || 0,
-        netBonus: userLiveBonus?.netBonus ?? 0,
-        weightedTasks: liveData.totalWeightedTasks,
-        averageTaskPerUser: liveData.averageTasksPerEmployee,
+        performanceLevel: user.performanceLevel || 0,
+        baseBonus: roundCurrency(baseBonusValue),
+        netBonus: finalNetBonus,
+        weightedTasks: totalWeightedTasks,
+        averageTaskPerUser: averageTasksPerUser,
         payrollId: null,
-
-        // Timestamps (same structure as saved bonus)
         createdAt: now,
         updatedAt: now,
-
-        // ========================================================================
-        // RELATIONS (same structure as Prisma includes)
-        // ========================================================================
-
-        // User relation (same as saved bonus with include)
         user: {
           id: user.id,
           name: user.name,
@@ -497,14 +628,8 @@ export class BonusService {
           position: user.position,
           sector: user.sector,
         },
-
-        // Position field for frontend consistency
-        // For live bonus, use current user position (real-time value)
         position: user.position,
-
-        // Tasks relation (same structure as saved bonus with include)
-        // ALL users share the same task pool
-        tasks: (userLiveBonus?.tasks || []).map((task: any) => ({
+        tasks: allTasks.map((task: any) => ({
           id: task.id,
           name: task.name,
           status: task.status,
@@ -513,19 +638,13 @@ export class BonusService {
           customer: task.customer || null,
           sector: task.sector || null,
         })),
-
-        // BonusDiscounts relation - includes "Tarefas Suspensas" and absence discounts
         bonusDiscounts,
-
-        // BonusExtras relation - includes "Ponto Eletrônico" if applicable
         bonusExtras,
-
-        // Users relation (all bonifiable users for this period)
         users: allEligibleUsers,
       };
 
       this.logger.log(
-        `Live bonus calculated for user ${userId.slice(0, 8)}: R$ ${liveBonus.baseBonus}`,
+        `Live bonus calculated for user ${userId.slice(0, 8)}: R$ ${liveBonus.baseBonus} (net: R$ ${liveBonus.netBonus})`,
       );
 
       return liveBonus;

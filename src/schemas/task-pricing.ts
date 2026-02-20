@@ -110,6 +110,7 @@ export const taskPricingIncludeSchema = z
         }),
       ])
       .optional(),
+    responsible: z.boolean().optional(),
   })
   .partial();
 
@@ -495,6 +496,9 @@ export const taskPricingCreateNestedSchema = z.object({
   // Layout File
   layoutFileId: z.string().uuid().optional().nullable(),
 
+  // Budget responsible
+  responsibleId: z.string().uuid().optional().nullable(),
+
   // New fields
   simultaneousTasks: simultaneousTasksSchema,
   discountReference: discountReferenceSchema,
@@ -539,6 +543,9 @@ export const taskPricingCreateSchema = z
 
     // Layout File
     layoutFileId: z.string().uuid().optional().nullable(),
+
+    // Budget responsible
+    responsibleId: z.string().uuid().optional().nullable(),
 
     // New fields
     simultaneousTasks: simultaneousTasksSchema,
@@ -601,6 +608,9 @@ export const taskPricingUpdateSchema = z
 
     // Customer Signature (uploaded by customer on public page)
     customerSignatureId: z.string().uuid().optional().nullable(),
+
+    // Budget responsible
+    responsibleId: z.string().uuid().optional().nullable(),
 
     // New fields
     simultaneousTasks: simultaneousTasksSchema,

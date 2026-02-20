@@ -4,38 +4,64 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { RepresentativeRepository } from './repositories/representative.repository';
+import { ResponsibleRepository } from './repositories/responsible.repository';
 import { HashService } from '@/modules/common/hash/hash.service';
 import { ChangeLogService } from '@/modules/common/changelog/changelog.service';
 import {
-  Representative,
-  RepresentativeInclude,
-  RepresentativeOrderBy,
-  RepresentativeWhere,
-  RepresentativeResponse,
-} from '@/types/representative';
+  Responsible,
+  ResponsibleInclude,
+  ResponsibleOrderBy,
+  ResponsibleWhere,
+  ResponsibleResponse,
+} from '@/types/responsible';
 import {
-  RepresentativeCreateFormData,
-  RepresentativeUpdateFormData,
-  RepresentativeLoginFormData,
-  RepresentativeRegisterFormData,
-} from '@/schemas/representative';
+  ResponsibleCreateFormData,
+  ResponsibleUpdateFormData,
+  ResponsibleLoginFormData,
+  ResponsibleRegisterFormData,
+} from '@/schemas/responsible';
 import { ENTITY_TYPE, CHANGE_ACTION } from '@/constants/enums';
 import { PrismaService } from '@/modules/common/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { JwtService } from '@nestjs/jwt';
 
+export const RESPONSIBLE_ROLE = {
+  COMMERCIAL: 'COMMERCIAL',
+  OWNER: 'OWNER',
+  SELLER: 'SELLER',
+  REPRESENTATIVE: 'REPRESENTATIVE',
+  COORDINATOR: 'COORDINATOR',
+  MARKETING: 'MARKETING',
+  FINANCIAL: 'FINANCIAL',
+  FLEET_MANAGER: 'FLEET_MANAGER',
+  DRIVER: 'DRIVER',
+} as const;
+
+export type ResponsibleRole = (typeof RESPONSIBLE_ROLE)[keyof typeof RESPONSIBLE_ROLE];
+
+export const RESPONSIBLE_ROLE_LABELS: Record<ResponsibleRole, string> = {
+  COMMERCIAL: 'Comercial',
+  OWNER: 'Proprietário',
+  SELLER: 'Vendedor',
+  REPRESENTATIVE: 'Representante',
+  COORDINATOR: 'Coordenador',
+  MARKETING: 'Marketing',
+  FINANCIAL: 'Financeiro',
+  FLEET_MANAGER: 'Gestor de Frota',
+  DRIVER: 'Motorista',
+};
+
 @Injectable()
-export class RepresentativeService {
+export class ResponsibleService {
   constructor(
-    private readonly repository: RepresentativeRepository,
+    private readonly repository: ResponsibleRepository,
     private readonly hashService: HashService,
     private readonly changelogService: ChangeLogService,
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {}
 
-  async create(data: RepresentativeCreateFormData): Promise<RepresentativeResponse> {
+  async create(data: ResponsibleCreateFormData): Promise<ResponsibleResponse> {
     // Check if email is provided and already exists
     if (data.email) {
       const existingEmail = await this.repository.findByEmail(data.email);
@@ -56,66 +82,66 @@ export class RepresentativeService {
       hashedPassword = await this.hashService.hash(data.password);
     }
 
-    // Create representative
-    const representative = await this.repository.create(
+    // Create responsible
+    const responsible = await this.repository.create(
       {
         ...data,
         password: hashedPassword,
       } as any,
       {
-        include: { customer: { include: { logo: true } } },
+        include: { company: { include: { logo: true } } },
       },
     );
 
     // Log creation
     await this.changelogService.logChange({
-      entityId: representative.id,
-      entityType: ENTITY_TYPE.REPRESENTATIVE,
+      entityId: responsible.id,
+      entityType: ENTITY_TYPE.RESPONSIBLE,
       action: CHANGE_ACTION.CREATE,
-      newValue: representative,
-      reason: 'Representante criado',
+      newValue: responsible,
+      reason: 'Responsável criado',
       triggeredBy: null,
       triggeredById: null,
       userId: null,
     });
 
-    return representative;
+    return responsible;
   }
 
   async findById(
     id: string,
-    options?: { include?: RepresentativeInclude },
-  ): Promise<RepresentativeResponse> {
-    const representative = await this.repository.findById(id, options);
-    if (!representative) {
-      throw new NotFoundException('Representante não encontrado');
+    options?: { include?: ResponsibleInclude },
+  ): Promise<ResponsibleResponse> {
+    const responsible = await this.repository.findById(id, options);
+    if (!responsible) {
+      throw new NotFoundException('Responsável não encontrado');
     }
-    return representative;
+    return responsible;
   }
 
-  async findByEmail(email: string): Promise<RepresentativeResponse | null> {
+  async findByEmail(email: string): Promise<ResponsibleResponse | null> {
     return await this.repository.findByEmail(email);
   }
 
-  async findByPhone(phone: string): Promise<RepresentativeResponse | null> {
+  async findByPhone(phone: string): Promise<ResponsibleResponse | null> {
     return await this.repository.findByPhone(phone);
   }
 
-  async findByCustomerIdAndRole(
-    customerId: string,
+  async findByCompanyIdAndRole(
+    companyId: string,
     role: string,
-  ): Promise<RepresentativeResponse | null> {
-    return await this.repository.findByCustomerIdAndRole(customerId, role);
+  ): Promise<ResponsibleResponse | null> {
+    return await this.repository.findByCompanyIdAndRole(companyId, role);
   }
 
-  async findByCustomerId(
-    customerId: string,
+  async findByCompanyId(
+    companyId: string,
     options?: {
-      include?: RepresentativeInclude;
-      orderBy?: RepresentativeOrderBy;
+      include?: ResponsibleInclude;
+      orderBy?: ResponsibleOrderBy;
     },
-  ): Promise<RepresentativeResponse[]> {
-    return await this.repository.findByCustomerId(customerId, options);
+  ): Promise<ResponsibleResponse[]> {
+    return await this.repository.findByCompanyId(companyId, options);
   }
 
   async findMany(options?: {
@@ -124,14 +150,14 @@ export class RepresentativeService {
     page?: number;
     pageSize?: number;
     search?: string;
-    customerId?: string;
+    companyId?: string;
     role?: string;
     isActive?: boolean;
-    where?: RepresentativeWhere;
-    orderBy?: RepresentativeOrderBy;
-    include?: RepresentativeInclude;
+    where?: ResponsibleWhere;
+    orderBy?: ResponsibleOrderBy;
+    include?: ResponsibleInclude;
   }): Promise<{
-    data: RepresentativeResponse[];
+    data: ResponsibleResponse[];
     meta: {
       total: number;
       page: number;
@@ -146,11 +172,11 @@ export class RepresentativeService {
     const take = pageSize;
 
     // Build where clause from direct filters and search
-    let where: RepresentativeWhere = { ...options?.where };
+    let where: ResponsibleWhere = { ...options?.where };
 
     // Apply direct filters
-    if (options?.customerId) {
-      where.customerId = options.customerId;
+    if (options?.companyId) {
+      where.companyId = options.companyId;
     }
     if (options?.role) {
       where.role = options.role as any;
@@ -177,7 +203,7 @@ export class RepresentativeService {
         take,
         where,
         orderBy: options?.orderBy || { createdAt: 'desc' },
-        include: options?.include || { customer: { include: { logo: true } } },
+        include: options?.include || { company: { include: { logo: true } } },
       }),
       this.repository.count(where),
     ]);
@@ -185,7 +211,7 @@ export class RepresentativeService {
     const pageCount = Math.ceil(total / pageSize);
 
     return {
-      data: data as RepresentativeResponse[],
+      data: data as ResponsibleResponse[],
       meta: {
         total,
         page,
@@ -195,7 +221,7 @@ export class RepresentativeService {
     };
   }
 
-  async update(id: string, data: RepresentativeUpdateFormData): Promise<RepresentativeResponse> {
+  async update(id: string, data: ResponsibleUpdateFormData): Promise<ResponsibleResponse> {
     const existing = await this.findById(id);
 
     // Validate unique constraints
@@ -213,9 +239,9 @@ export class RepresentativeService {
       }
     }
 
-    // Update representative
+    // Update responsible
     const updated = await this.repository.update(id, data, {
-      include: { customer: { include: { logo: true } } },
+      include: { company: { include: { logo: true } } },
     });
 
     // Log changes
@@ -223,7 +249,7 @@ export class RepresentativeService {
     for (const change of changes) {
       await this.changelogService.logChange({
         entityId: id,
-        entityType: ENTITY_TYPE.REPRESENTATIVE,
+        entityType: ENTITY_TYPE.RESPONSIBLE,
         action: CHANGE_ACTION.UPDATE,
         field: change.field,
         oldValue: change.oldValue,
@@ -239,26 +265,26 @@ export class RepresentativeService {
   }
 
   async delete(id: string): Promise<void> {
-    const representative = await this.findById(id);
+    const responsible = await this.findById(id);
 
     await this.repository.delete(id);
 
     // Log deletion
     await this.changelogService.logChange({
       entityId: id,
-      entityType: ENTITY_TYPE.REPRESENTATIVE,
+      entityType: ENTITY_TYPE.RESPONSIBLE,
       action: CHANGE_ACTION.DELETE,
-      oldValue: representative,
-      reason: 'Representante removido',
+      oldValue: responsible,
+      reason: 'Responsável removido',
       triggeredBy: null,
       triggeredById: null,
       userId: null,
     });
   }
 
-  async toggleActive(id: string): Promise<RepresentativeResponse> {
-    const representative = await this.findById(id);
-    const newStatus = !representative.isActive;
+  async toggleActive(id: string): Promise<ResponsibleResponse> {
+    const responsible = await this.findById(id);
+    const newStatus = !responsible.isActive;
 
     const updated = await this.repository.update(
       id,
@@ -266,19 +292,19 @@ export class RepresentativeService {
         isActive: newStatus,
       } as any,
       {
-        include: { customer: { include: { logo: true } } },
+        include: { company: { include: { logo: true } } },
       },
     );
 
     // Log status change
     await this.changelogService.logChange({
       entityId: id,
-      entityType: ENTITY_TYPE.REPRESENTATIVE,
+      entityType: ENTITY_TYPE.RESPONSIBLE,
       action: newStatus ? CHANGE_ACTION.ACTIVATE : CHANGE_ACTION.DEACTIVATE,
       field: 'isActive',
       oldValue: String(!newStatus),
       newValue: String(newStatus),
-      reason: newStatus ? 'Representante ativado' : 'Representante desativado',
+      reason: newStatus ? 'Responsável ativado' : 'Responsável desativado',
       triggeredBy: null,
       triggeredById: null,
       userId: null,
@@ -300,17 +326,17 @@ export class RepresentativeService {
   }
 
   async batchCreate(
-    representatives: RepresentativeCreateFormData[],
-  ): Promise<RepresentativeResponse[]> {
-    const results: RepresentativeResponse[] = [];
+    responsibles: ResponsibleCreateFormData[],
+  ): Promise<ResponsibleResponse[]> {
+    const results: ResponsibleResponse[] = [];
 
-    for (const data of representatives) {
+    for (const data of responsibles) {
       try {
         const created = await this.create(data);
         results.push(created);
       } catch (error) {
         // Log error but continue with other items
-        console.error(`Failed to create representative: ${data.name}`, error);
+        console.error(`Failed to create responsible: ${data.name}`, error);
       }
     }
 
@@ -318,16 +344,16 @@ export class RepresentativeService {
   }
 
   async batchUpdate(
-    updates: Array<{ id: string; data: RepresentativeUpdateFormData }>,
-  ): Promise<RepresentativeResponse[]> {
-    const results: RepresentativeResponse[] = [];
+    updates: Array<{ id: string; data: ResponsibleUpdateFormData }>,
+  ): Promise<ResponsibleResponse[]> {
+    const results: ResponsibleResponse[] = [];
 
     for (const { id, data } of updates) {
       try {
         const updated = await this.update(id, data);
         results.push(updated);
       } catch (error) {
-        console.error(`Failed to update representative: ${id}`, error);
+        console.error(`Failed to update responsible: ${id}`, error);
       }
     }
 
@@ -339,78 +365,78 @@ export class RepresentativeService {
       try {
         await this.delete(id);
       } catch (error) {
-        console.error(`Failed to delete representative: ${id}`, error);
+        console.error(`Failed to delete responsible: ${id}`, error);
       }
     }
   }
 
-  async login(data: RepresentativeLoginFormData): Promise<{
-    representative: RepresentativeResponse;
+  async login(data: ResponsibleLoginFormData): Promise<{
+    responsible: ResponsibleResponse;
     token: string;
   }> {
-    // Find representative by email or phone
-    let representative: Representative | null = null;
+    // Find responsible by email or phone
+    let responsible: Responsible | null = null;
 
     if (data.contact.includes('@')) {
-      representative = await this.repository.findByEmail(data.contact);
+      responsible = await this.repository.findByEmail(data.contact);
     } else {
-      representative = await this.repository.findByPhone(data.contact);
+      responsible = await this.repository.findByPhone(data.contact);
     }
 
-    if (!representative) {
+    if (!responsible) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    // Check if representative has password (required for login)
-    if (!representative.password) {
+    // Check if responsible has password (required for login)
+    if (!responsible.password) {
       throw new UnauthorizedException(
-        'Este representante não possui acesso ao sistema. Entre em contato com o administrador.',
+        'Este responsável não possui acesso ao sistema. Entre em contato com o administrador.',
       );
     }
 
     // Check password
-    const isPasswordValid = await this.hashService.compare(data.password, representative.password);
+    const isPasswordValid = await this.hashService.compare(data.password, responsible.password);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
     // Check if active
-    if (!representative.isActive) {
+    if (!responsible.isActive) {
       throw new UnauthorizedException('Conta desativada');
     }
 
     // Check if email is verified (only if email exists)
-    if (representative.email && !representative.verified) {
+    if (responsible.email && !responsible.verified) {
       throw new UnauthorizedException('Conta não verificada');
     }
 
     // Generate session token
     const sessionToken = uuidv4();
-    await this.repository.updateSessionToken(representative.id, sessionToken);
+    await this.repository.updateSessionToken(responsible.id, sessionToken);
 
     // Generate JWT
     const token = this.jwtService.sign({
-      id: representative.id,
-      email: representative.email,
-      role: representative.role,
-      customerId: representative.customerId,
-      type: 'representative',
+      id: responsible.id,
+      email: responsible.email,
+      role: responsible.role,
+      companyId: responsible.companyId,
+      type: 'responsible',
     });
 
     return {
-      representative: await this.findById(representative.id, {
-        include: { customer: { include: { logo: true } } },
+      responsible: await this.findById(responsible.id, {
+        include: { company: { include: { logo: true } } },
       }),
       token,
     };
   }
 
-  async logout(representativeId: string): Promise<void> {
-    await this.repository.updateSessionToken(representativeId, null);
+  async logout(responsibleId: string): Promise<void> {
+    await this.repository.updateSessionToken(responsibleId, null);
   }
 
-  async register(data: RepresentativeRegisterFormData): Promise<RepresentativeResponse> {
+  async register(data: ResponsibleRegisterFormData): Promise<ResponsibleResponse> {
     const { passwordConfirmation, ...createData } = data;
 
     // Email is required for registration (system access)
@@ -423,43 +449,43 @@ export class RepresentativeService {
       throw new BadRequestException('Senha é obrigatória para registro no sistema');
     }
 
-    // Create representative with system access
-    const representative = await this.create(createData);
+    // Create responsible with system access
+    const responsible = await this.create(createData);
 
     // Generate verification code
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const verificationExpiresAt = new Date();
     verificationExpiresAt.setHours(verificationExpiresAt.getHours() + 1);
 
-    await this.repository.update(representative.id, {
+    await this.repository.update(responsible.id, {
       verificationCode,
       verificationExpiresAt,
     } as any);
 
     // TODO: Send verification email
 
-    return representative;
+    return responsible;
   }
 
   async verifyEmail(
-    representativeId: string,
+    responsibleId: string,
     verificationCode: string,
-  ): Promise<RepresentativeResponse> {
-    const representative = await this.findById(representativeId);
+  ): Promise<ResponsibleResponse> {
+    const responsible = await this.findById(responsibleId);
 
-    if (representative.verified) {
+    if (responsible.verified) {
       throw new BadRequestException('Conta já verificada');
     }
 
-    if (representative.verificationCode !== verificationCode) {
+    if (responsible.verificationCode !== verificationCode) {
       throw new BadRequestException('Código de verificação inválido');
     }
 
-    if (representative.verificationExpiresAt && representative.verificationExpiresAt < new Date()) {
+    if (responsible.verificationExpiresAt && responsible.verificationExpiresAt < new Date()) {
       throw new BadRequestException('Código de verificação expirado');
     }
 
-    return await this.repository.update(representativeId, {
+    return await this.repository.update(responsibleId, {
       verified: true,
       verificationCode: null,
       verificationExpiresAt: null,
@@ -467,18 +493,18 @@ export class RepresentativeService {
   }
 
   async changePassword(
-    representativeId: string,
+    responsibleId: string,
     oldPassword: string,
     newPassword: string,
   ): Promise<void> {
-    const representative = await this.findById(representativeId);
+    const responsible = await this.findById(responsibleId);
 
-    if (!representative.password) {
-      throw new BadRequestException('Este representante não possui senha definida');
+    if (!responsible.password) {
+      throw new BadRequestException('Este responsável não possui senha definida');
     }
 
     // Verify old password
-    const isOldPasswordValid = await this.hashService.compare(oldPassword, representative.password);
+    const isOldPasswordValid = await this.hashService.compare(oldPassword, responsible.password);
 
     if (!isOldPasswordValid) {
       throw new BadRequestException('Senha atual incorreta');
@@ -487,31 +513,31 @@ export class RepresentativeService {
     // Hash new password
     const hashedPassword = await this.hashService.hash(newPassword);
 
-    await this.repository.update(representativeId, {
+    await this.repository.update(responsibleId, {
       password: hashedPassword,
     } as any);
   }
 
-  async setPassword(representativeId: string, password: string): Promise<void> {
-    const representative = await this.findById(representativeId);
+  async setPassword(responsibleId: string, password: string): Promise<void> {
+    const responsible = await this.findById(responsibleId);
 
-    if (representative.password) {
+    if (responsible.password) {
       throw new BadRequestException(
-        'Este representante já possui senha. Use a opção de alterar senha.',
+        'Este responsável já possui senha. Use a opção de alterar senha.',
       );
     }
 
     // Hash password
     const hashedPassword = await this.hashService.hash(password);
 
-    await this.repository.update(representativeId, {
+    await this.repository.update(responsibleId, {
       password: hashedPassword,
     } as any);
   }
 
   async resetPassword(email: string): Promise<void> {
-    const representative = await this.repository.findByEmail(email);
-    if (!representative) {
+    const responsible = await this.repository.findByEmail(email);
+    if (!responsible) {
       // Don't reveal if email exists
       return;
     }
@@ -521,7 +547,7 @@ export class RepresentativeService {
     const resetTokenExpiry = new Date();
     resetTokenExpiry.setHours(resetTokenExpiry.getHours() + 1);
 
-    await this.repository.update(representative.id, {
+    await this.repository.update(responsible.id, {
       resetToken,
       resetTokenExpiry,
     } as any);
@@ -530,22 +556,22 @@ export class RepresentativeService {
   }
 
   async confirmResetPassword(resetToken: string, newPassword: string): Promise<void> {
-    const representative = await this.prisma.representative.findUnique({
+    const responsible = await this.prisma.responsible.findUnique({
       where: { resetToken },
     });
 
-    if (!representative) {
+    if (!responsible) {
       throw new BadRequestException('Token inválido');
     }
 
-    if (representative.resetTokenExpiry && representative.resetTokenExpiry < new Date()) {
+    if (responsible.resetTokenExpiry && responsible.resetTokenExpiry < new Date()) {
       throw new BadRequestException('Token expirado');
     }
 
     // Hash new password
     const hashedPassword = await this.hashService.hash(newPassword);
 
-    await this.repository.update(representative.id, {
+    await this.repository.update(responsible.id, {
       password: hashedPassword,
       resetToken: null,
       resetTokenExpiry: null,
@@ -553,14 +579,7 @@ export class RepresentativeService {
   }
 
   private getRoleLabel(role: string): string {
-    const labels = {
-      COMMERCIAL: 'Comercial',
-      MARKETING: 'Marketing',
-      COORDINATOR: 'Coordenador',
-      FINANCIAL: 'Financeiro',
-      FLEET_MANAGER: 'Gestor de Frota',
-    };
-    return labels[role] || role;
+    return RESPONSIBLE_ROLE_LABELS[role as ResponsibleRole] || role;
   }
 
   private getChangedFields(
@@ -568,7 +587,7 @@ export class RepresentativeService {
     newData: any,
   ): Array<{ field: string; oldValue: string; newValue: string }> {
     const changes: Array<{ field: string; oldValue: string; newValue: string }> = [];
-    const fields = ['name', 'email', 'phone', 'role', 'isActive', 'customerId'];
+    const fields = ['name', 'email', 'phone', 'role', 'isActive', 'companyId'];
 
     for (const field of fields) {
       if (oldData[field] !== newData[field]) {

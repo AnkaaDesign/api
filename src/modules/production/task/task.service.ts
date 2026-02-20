@@ -1787,6 +1787,7 @@ export class TaskService {
               data.startedAt = new Date();
             }
           }
+
         }
 
         // =====================
@@ -4322,7 +4323,7 @@ export class TaskService {
               data: fileUpdates,
             });
             // Refetch through repository to get consistent includes (DEFAULT_TASK_INCLUDE)
-            // This prevents false changelog entries for fields like representatives
+            // This prevents false changelog entries for fields like responsibles
             updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
               include: {
                 ...include,
@@ -4364,7 +4365,7 @@ export class TaskService {
           'term',
           'entryDate',
           'forecastDate',
-          'representatives',
+          'responsibles',
           'bonusDiscountId',
           'observation',
           'baseFileIds', // Base files (file array)
@@ -8214,9 +8215,9 @@ export class TaskService {
         };
       }
 
-      // 5e. Special handling for representatives (many-to-many relation)
-      if (fieldToRevert === 'representatives') {
-        this.logger.log(`[Rollback] Starting representatives rollback for task ${changeLog.entityId}`);
+      // 5e. Special handling for responsibles (many-to-many relation)
+      if (fieldToRevert === 'responsibles') {
+        this.logger.log(`[Rollback] Starting responsibles rollback for task ${changeLog.entityId}`);
 
         let parsedOldValue = oldValue;
         if (typeof oldValue === 'string') {
@@ -8233,12 +8234,12 @@ export class TaskService {
         await tx.task.update({
           where: { id: changeLog.entityId },
           data: {
-            representatives: { set: repIds.map(id => ({ id })) },
+            responsibles: { set: repIds.map(id => ({ id })) },
           },
         });
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, changeLog.entityId, {
-          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, representatives: true },
+          include: { customer: true, sector: true, generalPainting: true, truck: true, createdBy: true, responsibles: true },
         });
 
         const fieldNamePt = translateFieldName(fieldToRevert);
@@ -9808,7 +9809,7 @@ export class TaskService {
                 },
               },
             },
-            representatives: {
+            responsibles: {
               select: {
                 id: true,
                 name: true,
@@ -9880,7 +9881,7 @@ export class TaskService {
                 },
               },
             },
-            representatives: {
+            responsibles: {
               select: {
                 id: true,
                 name: true,
@@ -9910,7 +9911,7 @@ export class TaskService {
           entryDate: destinationTask.entryDate,
           forecastDate: destinationTask.forecastDate,
           commission: destinationTask.commission,
-          representatives: destinationTask.representatives?.map(r => r.id) || [],
+          responsibles: destinationTask.responsibles?.map(r => r.id) || [],
           customerId: destinationTask.customerId,
           // Store enriched pricing data for changelog display (not just UUID)
           pricingId: destinationTask.pricing
@@ -10037,14 +10038,14 @@ export class TaskService {
               }
               break;
 
-            case 'representatives':
-              if (hasData(sourceTask.representatives)) {
-                const representativeIds = sourceTask.representatives.map(r => r.id);
-                updateData.representatives = {
-                  set: representativeIds.map(id => ({ id })),
+            case 'responsibles':
+              if (hasData(sourceTask.responsibles)) {
+                const responsibleIds = sourceTask.responsibles.map(r => r.id);
+                updateData.responsibles = {
+                  set: responsibleIds.map(id => ({ id })),
                 };
                 copiedFields.push(field);
-                details.representatives = sourceTask.representatives.map(r => ({
+                details.responsibles = sourceTask.responsibles.map(r => ({
                   id: r.id,
                   name: r.name,
                   role: r.role,

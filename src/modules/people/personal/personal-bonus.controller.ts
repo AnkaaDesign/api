@@ -2,7 +2,7 @@
 // Controller for user-specific personal bonus endpoints
 // Uses the /bonuses route prefix for personal (non-admin) bonus access
 
-import { Controller, Get, Param, Query, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Logger, BadRequestException } from '@nestjs/common';
 import { PersonalService } from './personal.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { AuthGuard } from '@modules/common/auth/auth.guard';
@@ -139,5 +139,30 @@ export class PersonalBonusController {
     );
 
     return this.personalService.getMyLiveBonus(userId, targetYear, targetMonth);
+  }
+
+  /**
+   * Get period task stats for bonus simulation (no admin privileges required)
+   * Returns lightweight task counts and averages (no Secullum)
+   * Accessible to all bonifiable users for the simulation page
+   */
+  @Get('my-period-stats/:year/:month')
+  @ReadRateLimit()
+  @Roles(...ALL_ROLES)
+  async getMyPeriodTaskStats(
+    @Param('year') yearParam: string,
+    @Param('month') monthParam: string,
+  ) {
+    const year = parseInt(yearParam, 10);
+    const month = parseInt(monthParam, 10);
+
+    if (isNaN(month) || month < 1 || month > 12) {
+      throw new BadRequestException('Mês deve estar entre 1 e 12');
+    }
+    if (isNaN(year) || year < 2020 || year > 2030) {
+      throw new BadRequestException('Ano deve estar entre 2020 e 2030');
+    }
+
+    return this.personalService.getPeriodTaskStats(year, month);
   }
 }

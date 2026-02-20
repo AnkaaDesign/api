@@ -508,7 +508,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      representatives: z
+      responsibles: z
         .union([
           z.boolean(),
           z.object({
@@ -520,7 +520,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 email: z.boolean().optional(),
                 role: z.boolean().optional(),
                 isActive: z.boolean().optional(),
-                customerId: z.boolean().optional(),
+                companyId: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
               })
@@ -778,7 +778,7 @@ export const taskSelectDetail = {
       },
     },
   },
-  representatives: {
+  responsibles: {
     select: {
       id: true,
       name: true,
@@ -1354,13 +1354,13 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      representatives: z
+      responsibles: z
         .union([
           z.boolean(),
           z.object({
             include: z
               .object({
-                customer: z.boolean().optional(),
+                company: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -2659,11 +2659,11 @@ export const taskCreateSchema = z
       .nullable()
       .optional(),
 
-    // Relations - Representatives
-    representativeIds: uuidArraySchema('ID de representante inválido'),
+    // Relations - Responsibles
+    responsibleIds: uuidArraySchema('ID de responsável inválido'),
 
-    // New representatives to create inline
-    newRepresentatives: z
+    // New responsibles to create inline
+    newResponsibles: z
       .array(
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
@@ -2671,7 +2671,7 @@ export const taskCreateSchema = z
           email: z.string().email('Email inválido').optional().or(z.literal('')),
           role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
           isActive: z.boolean().default(true),
-          customerId: z.string().uuid('ID do cliente inválido').optional(),
+          companyId: z.string().uuid('ID da empresa inválido').optional(),
         }),
       )
       .optional(),
@@ -2878,11 +2878,11 @@ export const taskUpdateSchema = z
       })
       .nullable()
       .optional(),
-    // Relations - Representatives
-    representativeIds: uuidArraySchema('ID de representante inválido'),
+    // Relations - Responsibles
+    responsibleIds: uuidArraySchema('ID de responsável inválido'),
 
-    // New representatives to create inline
-    newRepresentatives: z
+    // New responsibles to create inline
+    newResponsibles: z
       .array(
         z.object({
           name: z.string().min(1, 'Nome é obrigatório'),
@@ -2890,7 +2890,7 @@ export const taskUpdateSchema = z
           email: z.string().email('Email inválido').optional().or(z.literal('')),
           role: z.enum(['COMMERCIAL', 'TECHNICAL', 'FINANCIAL', 'ADMINISTRATIVE']),
           isActive: z.boolean().default(true),
-          customerId: z.string().uuid('ID do cliente inválido').optional(),
+          companyId: z.string().uuid('ID da empresa inválido').optional(),
         }),
       )
       .optional(),
