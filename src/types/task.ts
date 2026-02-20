@@ -23,7 +23,7 @@ import type { TaskPricing } from './task-pricing';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
 import type { Truck, TruckIncludes } from './truck';
-import type { Representative, RepresentativeResponse } from './representative';
+import type { Responsible, ResponsibleResponse } from './responsible';
 
 // =====================
 // Task Interface
@@ -77,7 +77,7 @@ export interface Task extends BaseEntity {
   truck?: Truck;
   relatedTasks?: Task[];
   relatedTo?: Task[];
-  representatives?: Representative[] | RepresentativeResponse[];
+  responsibles?: Responsible[] | ResponsibleResponse[];
 }
 
 // =====================
@@ -254,7 +254,7 @@ export type TaskSelect = TaskSelectFields & {
       };
   relatedTasks?: boolean | { select?: TaskSelect };
   relatedTo?: boolean | { select?: TaskSelect };
-  representatives?:
+  responsibles?:
     | boolean
     | {
         select?: { id?: boolean; name?: boolean; phone?: boolean; email?: boolean; role?: boolean };
@@ -449,7 +449,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       category: true,
     },
   },
-  representatives: {
+  responsibles: {
     select: {
       id: true,
       name: true,
@@ -602,7 +602,7 @@ export interface TaskDetailed extends BaseEntity {
     spot: string | null;
     category: string | null;
   } | null;
-  representatives?: Array<{
+  responsibles?: Array<{
     id: string;
     name: string;
     phone: string;
@@ -753,11 +753,11 @@ export interface TaskIncludes {
     | {
         include?: TaskIncludes;
       };
-  representatives?:
+  responsibles?:
     | boolean
     | {
         include?: {
-          customer?: boolean;
+          company?: boolean;
         };
       };
 }

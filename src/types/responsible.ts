@@ -1,47 +1,47 @@
 import {
-  Representative as PrismaRepresentative,
-  RepresentativeRole,
+  Responsible as PrismaResponsible,
+  ResponsibleRole,
   Customer,
   Task,
 } from '@prisma/client';
 
-export interface Representative extends PrismaRepresentative {
-  customer?: Customer;
+export interface Responsible extends PrismaResponsible {
+  company?: Customer;
   tasks?: Task[];
 }
 
-export type RepresentativeResponse = Representative;
+export type ResponsibleResponse = Responsible;
 
-export interface RepresentativeCreateFormData {
+export interface ResponsibleCreateFormData {
   email?: string | null; // Optional - can be added later
   phone: string;
   name: string;
   password?: string | null; // Optional - only required for system access
-  customerId?: string | null; // Optional - representative can exist without customer
-  role: RepresentativeRole;
+  companyId?: string | null; // Optional - responsible can exist without company
+  role: ResponsibleRole;
   isActive?: boolean;
 }
 
-export interface RepresentativeUpdateFormData {
+export interface ResponsibleUpdateFormData {
   email?: string | null;
   phone?: string;
   name?: string;
-  role?: RepresentativeRole;
+  role?: ResponsibleRole;
   isActive?: boolean;
-  customerId?: string | null;
+  companyId?: string | null;
 }
 
-export interface RepresentativeLoginFormData {
+export interface ResponsibleLoginFormData {
   contact: string; // email or phone
   password: string;
 }
 
-export interface RepresentativeRegisterFormData extends RepresentativeCreateFormData {
+export interface ResponsibleRegisterFormData extends ResponsibleCreateFormData {
   passwordConfirmation: string;
 }
 
-export interface RepresentativeInclude {
-  customer?:
+export interface ResponsibleInclude {
+  company?:
     | boolean
     | {
         include?: {
@@ -58,25 +58,25 @@ export interface RepresentativeInclude {
       };
 }
 
-export interface RepresentativeOrderBy {
+export interface ResponsibleOrderBy {
   name?: 'asc' | 'desc';
   role?: 'asc' | 'desc';
   createdAt?: 'asc' | 'desc';
   email?: 'asc' | 'desc';
 }
 
-export interface RepresentativeWhere {
+export interface ResponsibleWhere {
   id?: string;
   email?: string | { contains?: string; mode?: 'insensitive' | 'default' };
   phone?: string | { contains?: string };
   name?: { contains?: string; mode?: 'insensitive' | 'default' };
-  customerId?: string;
-  role?: RepresentativeRole;
+  companyId?: string;
+  role?: ResponsibleRole;
   isActive?: boolean;
   verified?: boolean;
-  customer?: {
+  company?: {
     fantasyName?: { contains?: string; mode?: 'insensitive' | 'default' };
   };
-  OR?: RepresentativeWhere[];
-  AND?: RepresentativeWhere[];
+  OR?: ResponsibleWhere[];
+  AND?: ResponsibleWhere[];
 }

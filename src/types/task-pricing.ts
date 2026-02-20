@@ -14,6 +14,7 @@ import type { Task, TaskIncludes, TaskOrderBy } from './task';
 import type { TaskPricingItem } from './task-pricing-item';
 import type { File } from './file';
 import type { Customer } from './customer';
+import type { Responsible } from './responsible';
 
 // =====================
 // TaskPricing Status Enum (mirrored from constants)
@@ -68,6 +69,10 @@ export interface TaskPricing extends BaseEntity {
   simultaneousTasks: number | null;
   discountReference: string | null;
 
+  // Budget responsible
+  responsibleId: string | null;
+  responsible?: Responsible;
+
   // Relations
   task?: Task; // One-to-one relationship with task
   items?: TaskPricingItem[];
@@ -98,6 +103,7 @@ export interface TaskPricingIncludes {
     | {
         select?: { id?: boolean; fantasyName?: boolean; cnpj?: boolean };
       };
+  responsible?: boolean;
 }
 
 // Alias for backward compatibility

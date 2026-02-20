@@ -311,7 +311,7 @@ model Customer {
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]              @relation("TaskCustomer")
   pricingInvoices    TaskPricing[]       @relation("TaskPricingInvoiceTo")
-  representatives    Representative[]    @relation("CustomerRepresentatives")
+  responsibles      Responsible[]       @relation("CompanyResponsibles")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -1097,9 +1097,11 @@ model TaskPricing {
   customForecastDays  Int?
   simultaneousTasks   Int?
   discountReference   String?
+  responsibleId       String?
   task                Task?             @relation("TASK_PRICING")
   customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
+  responsible         Responsible?      @relation("PRICING_RESPONSIBLE", fields: [responsibleId], references: [id])
   items               TaskPricingItem[] @relation("PRICING_ITEMS")
   invoicesToCustomers Customer[]        @relation("TaskPricingInvoiceTo")
 
@@ -1107,6 +1109,7 @@ model TaskPricing {
   @@index([expiresAt])
   @@index([layoutFileId])
   @@index([customerSignatureId])
+  @@index([responsibleId])
 }
 
 model TaskPricingItem {
@@ -1202,7 +1205,7 @@ model Task {
   bankSlips             File[]               @relation("TASK_BANK_SLIPS")
   reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
   artworks              Artwork[]            @relation("TaskArtworks")
-  representatives       Representative[]     @relation("TaskRepresentatives")
+  responsibles          Responsible[]        @relation("TaskResponsibles")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1959,14 +1962,14 @@ model Backup {
   @@index([gdriveStatus])
 }
 
-model Representative {
+model Responsible {
   id                    String             @id @default(uuid())
   name                  String
   email                 String?            @unique
   phone                 String             @unique
   password              String?
-  role                  RepresentativeRole
-  customerId            String?
+  role                  ResponsibleRole
+  companyId             String?            @map("customerId")
   isActive              Boolean            @default(true)
   verified              Boolean            @default(false)
   verificationCode      String?
@@ -1977,21 +1980,30 @@ model Representative {
   lastLoginAt           DateTime?
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
-  customer              Customer?          @relation("CustomerRepresentatives", fields: [customerId], references: [id])
-  tasks                 Task[]             @relation("TaskRepresentatives")
+  company               Customer?          @relation("CompanyResponsibles", fields: [companyId], references: [id])
+  tasks                 Task[]             @relation("TaskResponsibles")
+  pricings              TaskPricing[]      @relation("PRICING_RESPONSIBLE")
 
   @@index([email])
   @@index([phone])
-  @@index([customerId])
+  @@index([companyId])
   @@index([role])
+
+  @@map("Representative")
 }
 
-enum RepresentativeRole {
+enum ResponsibleRole {
   COMMERCIAL
-  MARKETING
+  OWNER
+  SELLER
+  REPRESENTATIVE
   COORDINATOR
+  MARKETING
   FINANCIAL
   FLEET_MANAGER
+  DRIVER
+
+  @@map("RepresentativeRole")
 }
 
 enum UserStatus {
@@ -2715,6 +2727,7 @@ enum ChangeLogEntityType {
   PRODUCTION
   PURCHASE
   REPRESENTATIVE
+  RESPONSIBLE
   SECTOR
   SEEN_NOTIFICATION
   SERVICE

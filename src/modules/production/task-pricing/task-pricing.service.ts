@@ -235,6 +235,10 @@ export class TaskPricingService {
             ...(data.layoutFileId && {
               layoutFile: { connect: { id: data.layoutFileId } },
             }),
+            // Budget responsible
+            ...(data.responsibleId && {
+              responsible: { connect: { id: data.responsibleId } },
+            }),
             // New fields
             simultaneousTasks: data.simultaneousTasks || null,
             discountReference: data.discountReference || null,
@@ -260,6 +264,7 @@ export class TaskPricingService {
             task: true,
             layoutFile: true,
             invoicesToCustomers: true,
+            responsible: true,
           },
         });
 
@@ -396,6 +401,12 @@ export class TaskPricingService {
                 ? { connect: { id: data.layoutFileId } }
                 : { disconnect: true },
             }),
+            // Budget responsible (allow setting and clearing)
+            ...(data.responsibleId !== undefined && {
+              responsible: data.responsibleId
+                ? { connect: { id: data.responsibleId } }
+                : { disconnect: true },
+            }),
             // New fields
             ...(data.simultaneousTasks !== undefined && {
               simultaneousTasks: data.simultaneousTasks,
@@ -425,6 +436,7 @@ export class TaskPricingService {
             task: true,
             layoutFile: true,
             invoicesToCustomers: true,
+            responsible: true,
           },
         });
 
@@ -457,6 +469,7 @@ export class TaskPricingService {
             'budgetNumber',
             'simultaneousTasks',
             'discountReference',
+            'responsibleId',
           ],
           userId: userId || '',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
@@ -647,6 +660,7 @@ export class TaskPricingService {
         customForecastDays: existing.customForecastDays,
         simultaneousTasks: existing.simultaneousTasks,
         discountReference: existing.discountReference,
+        responsibleId: existing.responsibleId,
         layoutFileId: existing.layoutFileId,
         customerSignatureId: existing.customerSignatureId,
         items: existing.items.map(item => ({
@@ -806,11 +820,12 @@ export class TaskPricingService {
           layoutFile: true,
           customerSignature: true,
           invoicesToCustomers: true,
+          responsible: true,
           task: {
             include: {
               customer: true,
               truck: true,
-              representatives: true,
+              responsibles: true,
             },
           },
         },

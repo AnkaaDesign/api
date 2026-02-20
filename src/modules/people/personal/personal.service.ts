@@ -380,7 +380,36 @@ export class PersonalService {
     data: any;
     message: string;
   }> {
-    // First get the bonus
+    const { isLiveId, parseLiveId } = await import('../../../utils/bonus');
+
+    // For live IDs, always use the authenticated userId for security
+    // This prevents users from accessing other users' live bonus data
+    // by embedding a different userId in the URL
+    if (isLiveId(bonusId)) {
+      const parsed = parseLiveId(bonusId);
+      if (!parsed) {
+        throw new NotFoundException('Bônus não encontrado.');
+      }
+
+      // Calculate live bonus using AUTHENTICATED userId, not the one from the URL
+      const liveBonus = await this.bonusService.calculateLiveBonusData(
+        userId,
+        parsed.year,
+        parsed.month,
+      );
+
+      if (!liveBonus) {
+        throw new NotFoundException('Bônus não encontrado.');
+      }
+
+      return {
+        success: true,
+        data: liveBonus,
+        message: 'Bônus carregado com sucesso.',
+      };
+    }
+
+    // Regular UUID - fetch from database
     const bonus = await this.bonusService.findByIdOrLive(bonusId, include, userId);
 
     // Verify the bonus belongs to the authenticated user
@@ -462,6 +491,11 @@ export class PersonalService {
             calculationOrder: 'asc',
           },
         },
+        bonusExtras: {
+          orderBy: {
+            calculationOrder: 'asc',
+          },
+        },
         users: {
           select: {
             id: true,
@@ -519,5 +553,14 @@ export class PersonalService {
 
       throw error;
     }
+  }
+
+  /**
+   * Get period task stats for bonus simulation (no admin privileges required)
+   * Delegates to BonusService.getPeriodTaskStats which is lightweight (no Secullum)
+   */
+  async getPeriodTaskStats(year: number, month: number) {
+    const stats = await this.bonusService.getPeriodTaskStats(year, month);
+    return { success: true, data: stats };
   }
 }

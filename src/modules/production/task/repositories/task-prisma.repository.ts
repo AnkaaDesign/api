@@ -442,7 +442,7 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
     },
     orderBy: { createdAt: 'desc' },
   },
-  representatives: {
+  responsibles: {
     select: {
       id: true,
       name: true,
@@ -585,41 +585,43 @@ export class TaskPrismaRepository
     return task;
   }
 
-  // Override create to handle newRepresentatives
+  // Override create to handle newResponsibles
   async create(
     data: TaskCreateFormData,
     options?: CreateOptions<TaskInclude>,
     tx?: PrismaTransaction,
   ): Promise<Task> {
     const prismaClient = tx || this.prisma;
-    const { newRepresentatives, ...dataWithoutNewReps } = data as any;
+    const { newResponsibles, ...dataWithoutNewResponsibles } = data as any;
 
-    // If there are new representatives to create, create them first
-    let additionalRepIds: string[] = [];
-    if (newRepresentatives && newRepresentatives.length > 0) {
-      const createdReps = await Promise.all(
-        newRepresentatives.map(repData =>
-          prismaClient.representative.create({
+    // If there are new responsibles to create, create them first
+    let additionalResponsibleIds: string[] = [];
+    if (newResponsibles && newResponsibles.length > 0) {
+      const createdResponsibles = await Promise.all(
+        newResponsibles.map(async responsibleData => {
+          const companyId = responsibleData.companyId || data.customerId;
+
+          return prismaClient.responsible.create({
             data: {
-              ...repData,
-              customerId: repData.customerId || data.customerId,
-              password: repData.password || null,
+              ...responsibleData,
+              companyId,
+              password: responsibleData.password || null,
             },
-          }),
-        ),
+          });
+        }),
       );
 
-      additionalRepIds = createdReps.map(rep => rep.id);
+      additionalResponsibleIds = createdResponsibles.map(responsible => responsible.id);
     }
 
-    // Add the new representative IDs to the existing ones
-    if (additionalRepIds.length > 0) {
-      const existingRepIds = (dataWithoutNewReps.representativeIds || []) as string[];
-      dataWithoutNewReps.representativeIds = [...existingRepIds, ...additionalRepIds];
+    // Add the new responsible IDs to the existing ones
+    if (additionalResponsibleIds.length > 0) {
+      const existingResponsibleIds = (dataWithoutNewResponsibles.responsibleIds || []) as string[];
+      dataWithoutNewResponsibles.responsibleIds = [...existingResponsibleIds, ...additionalResponsibleIds];
     }
 
     // Call the concrete implementation (not super, since it's abstract in base)
-    return this.createWithTransaction(tx || this.prisma, dataWithoutNewReps, options);
+    return this.createWithTransaction(tx || this.prisma, dataWithoutNewResponsibles, options);
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
@@ -650,7 +652,7 @@ export class TaskPrismaRepository
       baseFileIds,
       pricingId,
       paintIds,
-      representativeIds,
+      responsibleIds,
       serviceOrders,
       observation,
       truck,
@@ -705,8 +707,8 @@ export class TaskPrismaRepository
     if (paintIds && paintIds.length > 0) {
       taskData.logoPaints = { connect: paintIds.map(id => ({ id })) };
     }
-    if (representativeIds && representativeIds.length > 0) {
-      taskData.representatives = { connect: representativeIds.map(id => ({ id })) };
+    if (responsibleIds && responsibleIds.length > 0) {
+      taskData.responsibles = { connect: responsibleIds.map(id => ({ id })) };
     }
 
     if (observation) {
@@ -837,7 +839,7 @@ export class TaskPrismaRepository
     return taskData;
   }
 
-  // Override update to handle newRepresentatives
+  // Override update to handle newResponsibles
   async update(
     id: string,
     data: TaskUpdateFormData,
@@ -845,37 +847,39 @@ export class TaskPrismaRepository
     tx?: PrismaTransaction,
   ): Promise<Task> {
     const prismaClient = tx || this.prisma;
-    const { newRepresentatives, ...dataWithoutNewReps } = data as any;
+    const { newResponsibles, ...dataWithoutNewResponsibles } = data as any;
 
-    let additionalRepIds: string[] = [];
-    if (newRepresentatives && newRepresentatives.length > 0) {
+    let additionalResponsibleIds: string[] = [];
+    if (newResponsibles && newResponsibles.length > 0) {
       const task = await prismaClient.task.findUnique({
         where: { id },
         select: { customerId: true },
       });
 
-      const createdReps = await Promise.all(
-        newRepresentatives.map(repData =>
-          prismaClient.representative.create({
+      const createdResponsibles = await Promise.all(
+        newResponsibles.map(async responsibleData => {
+          const companyId = responsibleData.companyId || task?.customerId;
+
+          return prismaClient.responsible.create({
             data: {
-              ...repData,
-              customerId: repData.customerId || task?.customerId,
-              password: repData.password || null,
+              ...responsibleData,
+              companyId,
+              password: responsibleData.password || null,
             },
-          }),
-        ),
+          });
+        }),
       );
 
-      additionalRepIds = createdReps.map(rep => rep.id);
+      additionalResponsibleIds = createdResponsibles.map(responsible => responsible.id);
     }
 
-    if (additionalRepIds.length > 0) {
-      const existingRepIds = (dataWithoutNewReps.representativeIds || []) as string[];
-      dataWithoutNewReps.representativeIds = [...existingRepIds, ...additionalRepIds];
+    if (additionalResponsibleIds.length > 0) {
+      const existingResponsibleIds = (dataWithoutNewResponsibles.responsibleIds || []) as string[];
+      dataWithoutNewResponsibles.responsibleIds = [...existingResponsibleIds, ...additionalResponsibleIds];
     }
 
     // Call the concrete implementation (not super, since it's abstract in base)
-    return this.updateWithTransaction(tx || this.prisma, id, dataWithoutNewReps, options);
+    return this.updateWithTransaction(tx || this.prisma, id, dataWithoutNewResponsibles, options);
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
@@ -912,7 +916,7 @@ export class TaskPrismaRepository
       baseFileIds,
       pricingId,
       paintIds,
-      representativeIds,
+      responsibleIds,
       serviceOrders,
       observation,
       truck,
@@ -978,8 +982,8 @@ export class TaskPrismaRepository
     if (paintIds !== undefined) {
       updateData.logoPaints = { set: paintIds.map(id => ({ id })) };
     }
-    if (representativeIds !== undefined) {
-      updateData.representatives = { set: representativeIds.map(id => ({ id })) };
+    if (responsibleIds !== undefined) {
+      updateData.responsibles = { set: responsibleIds.map(id => ({ id })) };
     }
 
     if (observation !== undefined) {

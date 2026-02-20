@@ -565,10 +565,10 @@ export class NotificationPreferenceService {
         mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
       },
 
-      // Representantes (Representatives)
+      // Responsáveis (Responsibles)
       {
         type: NOTIFICATION_TYPE.PRODUCTION,
-        eventType: 'task_representatives',
+        eventType: 'task_responsibles',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],
       },

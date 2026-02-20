@@ -53,7 +53,7 @@ const TRACKED_FIELDS = [
   'forecastDate',
   'sectorId',
   'commission',
-  'representatives',
+  'responsibles',
   'artworks', // array of files
   'budgets', // array of files
   'invoices', // array of files
