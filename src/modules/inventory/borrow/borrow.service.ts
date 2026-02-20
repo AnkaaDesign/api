@@ -350,9 +350,10 @@ export class BorrowService {
   /**
    * Buscar um empréstimo por ID
    */
-  async findById(id: string, include?: BorrowInclude): Promise<BorrowGetUniqueResponse> {
+  async findById(id: string, include?: BorrowInclude, select?: any): Promise<BorrowGetUniqueResponse> {
     try {
-      const borrow = await this.borrowRepository.findById(id, { include });
+      const queryOptions = select ? { select } : { include };
+      const borrow = await this.borrowRepository.findById(id, queryOptions);
 
       if (!borrow) {
         throw new NotFoundException('Empréstimo não encontrado');
