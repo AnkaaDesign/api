@@ -135,7 +135,7 @@ export class BorrowController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(borrowQuerySchema)) query: BorrowQueryFormData,
   ): Promise<BorrowGetUniqueResponse> {
-    return this.borrowService.findById(id, query.include);
+    return this.borrowService.findById(id, query.include, query.select);
   }
 
   @Put(':id')
