@@ -178,6 +178,27 @@ export const GARAGES: Garage[] = [
 // Spot Helpers
 // =====================
 
+// =====================
+// Yard & Garage Spot Helpers
+// =====================
+
+export const YARD_SPOTS = [TRUCK_SPOT.YARD_WAIT, TRUCK_SPOT.YARD_EXIT] as const;
+
+/**
+ * Check if a spot is a yard spot (YARD_WAIT or YARD_EXIT)
+ */
+export function isYardSpot(spot: TRUCK_SPOT | string | null | undefined): boolean {
+  return spot === TRUCK_SPOT.YARD_WAIT || spot === TRUCK_SPOT.YARD_EXIT;
+}
+
+/**
+ * Check if a spot is a garage spot (B1/B2/B3 lane spots)
+ */
+export function isGarageSpot(spot: TRUCK_SPOT | string | null | undefined): boolean {
+  if (!spot) return false;
+  return /^B\d_F\d_V\d$/.test(spot);
+}
+
 /**
  * Parse a TRUCK_SPOT enum value to extract garage, lane, and spot number
  */
@@ -278,6 +299,9 @@ export function calculateLayoutSectionsSum(layoutSections: { width: number }[]):
 // =====================
 
 export const SPOT_LABELS: Record<TRUCK_SPOT, string> = {
+  // Yard
+  [TRUCK_SPOT.YARD_WAIT]: 'Pátio de Espera',
+  [TRUCK_SPOT.YARD_EXIT]: 'Pátio de Saída',
   // Garage 1
   [TRUCK_SPOT.B1_F1_V1]: 'B1-F1-V1',
   [TRUCK_SPOT.B1_F1_V2]: 'B1-F1-V2',
@@ -313,7 +337,27 @@ export const SPOT_LABELS: Record<TRUCK_SPOT, string> = {
 /**
  * Get the display label for a spot
  */
-export function getSpotLabel(spot: TRUCK_SPOT | null | undefined): string {
+export function getSpotLabel(spot: TRUCK_SPOT | string | null | undefined): string {
   if (!spot) return 'Não atribuído';
-  return SPOT_LABELS[spot] || spot;
+  return SPOT_LABELS[spot as TRUCK_SPOT] || spot;
+}
+
+// =====================
+// Sector-Garage Mapping
+// =====================
+
+/**
+ * Get the garage ID for a sector name (e.g., "Producao 1" → "B1")
+ */
+export function getGarageForSectorName(sectorName: string): GarageId | null {
+  const match = sectorName.match(/Produ[cç][aã]o\s*(\d)/i);
+  if (match) return `B${match[1]}` as GarageId;
+  return null;
+}
+
+/**
+ * Get the sector name for a garage ID (e.g., "B1" → "Produção 1")
+ */
+export function getSectorNameForGarage(garageId: GarageId): string {
+  return `Produção ${garageId.slice(1)}`;
 }

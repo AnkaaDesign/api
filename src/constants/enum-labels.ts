@@ -350,6 +350,9 @@ export const IMPLEMENT_TYPE_LABELS: Record<IMPLEMENT_TYPE, string> = {
 };
 
 export const TRUCK_SPOT_LABELS: Record<TRUCK_SPOT, string> = {
+  // Yard
+  [TRUCK_SPOT.YARD_WAIT]: 'Pátio de Espera',
+  [TRUCK_SPOT.YARD_EXIT]: 'Pátio de Saída',
   // Garage 1
   [TRUCK_SPOT.B1_F1_V1]: 'B1-F1-V1',
   [TRUCK_SPOT.B1_F1_V2]: 'B1-F1-V2',
@@ -1061,7 +1064,7 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.PRICE]: 'Preço',
   [ENTITY_TYPE.PRODUCTION]: 'Production',
   [ENTITY_TYPE.PURCHASE]: 'Compra',
-  [ENTITY_TYPE.REPRESENTATIVE]: 'Representante',
+  [ENTITY_TYPE.RESPONSIBLE]: 'Responsável',
   [ENTITY_TYPE.WARNING]: 'Warning',
   [ENTITY_TYPE.SECTOR]: 'Setor',
   [ENTITY_TYPE.SEEN_NOTIFICATION]: 'Notificação Vista',
@@ -1443,7 +1446,7 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.POSITION]: 'Cargo',
   [CHANGE_LOG_ENTITY_TYPE.PRODUCTION]: 'Production',
   [CHANGE_LOG_ENTITY_TYPE.PURCHASE]: 'Compra',
-  [CHANGE_LOG_ENTITY_TYPE.REPRESENTATIVE]: 'Representante',
+  [CHANGE_LOG_ENTITY_TYPE.RESPONSIBLE]: 'Responsável',
   [CHANGE_LOG_ENTITY_TYPE.SECTOR]: 'Setor',
   [CHANGE_LOG_ENTITY_TYPE.SERVICE_ORDER]: 'Ordem de Serviço',
   [CHANGE_LOG_ENTITY_TYPE.SUPPLIER]: 'Fornecedor',

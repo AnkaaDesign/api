@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
 import {
   GARAGE_CONFIGS,
@@ -8,6 +9,11 @@ import {
   parseSpot,
   getGarageSpots,
   calculateTruckGarageLength,
+  isYardSpot,
+  isGarageSpot,
+  getGarageForSectorName,
+  getSectorNameForGarage,
+  getSpotLabel,
   type GarageId,
   type LaneId,
   type SpotNumber,
@@ -46,6 +52,7 @@ export class TruckService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly changeLogService: ChangeLogService,
+    private readonly notificationDispatchService: NotificationDispatchService,
   ) {}
 
   async findAll(query?: any) {
@@ -266,6 +273,8 @@ export class TruckService {
       return { success: true, updated: 0 };
     }
 
+    // Note: null spot means "remove from patio entirely" (truck left the facility)
+
     // Use transaction to update all trucks atomically and log changes
     await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       // Collect all target spots and truck IDs in this batch
@@ -277,10 +286,12 @@ export class TruckService {
       // Clear conflicting spots: any OTHER truck (not in this batch) that occupies
       // a spot we're about to assign should have its spot cleared.
       // This prevents duplicate trucks sharing the same spot.
-      if (targetSpots.length > 0) {
+      // Exclude yard spots from conflict detection (multiple trucks can be in YARD_WAIT/YARD_EXIT)
+      const nonYardTargetSpots = targetSpots.filter(s => !isYardSpot(s));
+      if (nonYardTargetSpots.length > 0) {
         const conflictingTrucks = await tx.truck.findMany({
           where: {
-            spot: { in: targetSpots as any },
+            spot: { in: nonYardTargetSpots as any },
             id: { notIn: Array.from(batchTruckIds) },
           },
         });
@@ -302,6 +313,54 @@ export class TruckService {
             triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
             transaction: tx,
           });
+        }
+      }
+
+      // Validate sector-garage matching for garage spots
+      for (const update of updates) {
+        if (!update.spot || isYardSpot(update.spot)) continue;
+        if (!isGarageSpot(update.spot)) continue;
+
+        const parsed = parseSpot(update.spot as any);
+        if (!parsed.garage) continue;
+
+        // Fetch the truck's task and sector
+        const truckWithTask = await tx.truck.findUnique({
+          where: { id: update.truckId },
+          include: {
+            task: {
+              select: {
+                id: true,
+                sector: { select: { id: true, name: true } },
+                sectorId: true,
+              },
+            },
+          },
+        });
+
+        const task = truckWithTask?.task;
+        if (!task) continue;
+
+        if (task.sector) {
+          // Task has a sector — validate garage matches
+          const expectedGarage = getGarageForSectorName(task.sector.name);
+          if (expectedGarage && expectedGarage !== parsed.garage) {
+            throw new BadRequestException(
+              `Este caminhão pertence ao setor ${task.sector.name} e só pode ir no Barracão ${expectedGarage.slice(1)}`,
+            );
+          }
+        } else if (!task.sectorId) {
+          // Task has no sector — auto-assign matching sector
+          const expectedSectorName = getSectorNameForGarage(parsed.garage);
+          const sector = await tx.sector.findFirst({
+            where: { name: { contains: expectedSectorName, mode: 'insensitive' } },
+          });
+          if (sector) {
+            await tx.task.update({
+              where: { id: task.id },
+              data: { sectorId: sector.id },
+            });
+          }
         }
       }
 
@@ -367,5 +426,43 @@ export class TruckService {
     );
 
     return results;
+  }
+
+  /**
+   * Request a truck movement (for production managers who can't directly move trucks)
+   * Sends a notification to logistics team for approval
+   */
+  async requestMovement(
+    data: { taskId: string; truckId: string; taskName: string; fromSpot: string | null; toSpot: string | null },
+    userId: string,
+  ): Promise<{ success: boolean }> {
+    // Get the user who made the request
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
+    });
+
+    const fromLabel = getSpotLabel(data.fromSpot);
+    const toLabel = getSpotLabel(data.toSpot);
+
+    // Dispatch notification to logistics
+    await this.notificationDispatchService.dispatchByConfiguration(
+      'truck.movement_request',
+      userId,
+      {
+        entityType: 'TRUCK',
+        entityId: data.truckId,
+        action: 'movement_request',
+        data: {
+          changedBy: user?.name || 'Usuário',
+          taskName: data.taskName,
+          taskId: data.taskId,
+          fromSpot: fromLabel,
+          toSpot: toLabel,
+        },
+      },
+    );
+
+    return { success: true };
   }
 }
