@@ -3453,10 +3453,6 @@ export class TaskService {
 
               // Create missing pricing items from service orders
               if (syncActions.pricingItemsToCreate.length > 0 && currentPricing?.id) {
-                // Capture old totals for changelog
-                const oldSubtotal = Number(currentPricing.subtotal || 0);
-                const oldTotal = Number(currentPricing.total || 0);
-
                 for (const itemToCreate of syncActions.pricingItemsToCreate) {
                   this.logger.log(
                     `[PRICING↔SO SYNC] Creating pricing item: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
@@ -3510,37 +3506,9 @@ export class TaskService {
                   },
                 });
 
-                // Log subtotal/total changes on TASK_PRICING if values changed
-                if (oldSubtotal !== newSubtotal) {
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK_PRICING,
-                    entityId: currentPricing.id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'subtotal',
-                    oldValue: oldSubtotal,
-                    newValue: newSubtotal,
-                    userId: userId || null,
-                    reason: 'Subtotal atualizado via sincronização com O.S.',
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: null,
-                    transaction: tx,
-                  });
-                }
-                if (oldTotal !== newSubtotal) {
-                  await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK_PRICING,
-                    entityId: currentPricing.id,
-                    action: CHANGE_ACTION.UPDATE,
-                    field: 'total',
-                    oldValue: oldTotal,
-                    newValue: newSubtotal,
-                    userId: userId || null,
-                    reason: 'Total atualizado via sincronização com O.S.',
-                    triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                    triggeredById: null,
-                    transaction: tx,
-                  });
-                }
+                // NOTE: subtotal/total changelog entries are NOT logged here to avoid duplicates.
+                // The scalar field tracking at the end of the update method (pricingFieldsToTrack loop)
+                // already detects and logs subtotal/total changes for TASK_PRICING.
 
                 this.logger.log(
                   `[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`,
