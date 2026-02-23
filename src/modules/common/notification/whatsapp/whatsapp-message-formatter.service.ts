@@ -505,7 +505,9 @@ ${data.url}`;
     // Add metadata fields (only user-facing ones)
     if (data.metadata) {
       // Internal/system keys that should never be displayed to users
+      // These are either system metadata or data already rendered in title/body
       const internalKeys = new Set([
+        // System/routing metadata
         'title', 'body', 'url',
         'webUrl', 'mobileUrl', 'universalLink',
         'configKey', 'actorId',
@@ -513,6 +515,18 @@ ${data.url}`;
         'itemId', 'taskId', 'orderId', 'serviceOrderId', 'userId',
         'relatedEntityType', 'relatedEntityId',
         'actionUrl', 'action',
+        // Task/notification data fields (already rendered in body text)
+        'taskName', 'serialNumber', 'changedBy', 'changedById',
+        'fieldName', 'oldValue', 'newValue',
+        'addedCount', 'removedCount', 'count',
+        'fileChangeDescription', 'addedFiles', 'removedFiles',
+        'oldStatus', 'newStatus', 'status',
+        'description', 'type', 'createdBy', 'createdById',
+        'assignedTo', 'assignedBy', 'startedBy', 'approvedBy', 'completedBy',
+        'oldObservation', 'newObservation',
+        'daysOverdue', 'daysRemaining', 'dueDate',
+        'customerName', 'sectorName', 'priority',
+        'noReschedule',
       ]);
 
       const metadataLines: string[] = [];

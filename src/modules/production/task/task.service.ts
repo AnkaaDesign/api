@@ -4578,6 +4578,54 @@ export class TaskService {
                 userId,
               );
 
+              // Filter out auto-filled date fields when status changed to IN_PRODUCTION or COMPLETED
+              // These dates are auto-set as part of the status transition and the status-specific
+              // notification (task.in_production / task.completed) is sufficient — sending separate
+              // date change notifications would be redundant noise.
+              const statusChanged = existingTask.status !== updatedTask.status;
+              const newStatus = updatedTask.status as TASK_STATUS;
+              if (statusChanged && fieldChanges.length > 0) {
+                const autoFilledFields = new Set<string>();
+
+                if (newStatus === TASK_STATUS.IN_PRODUCTION || newStatus === TASK_STATUS.COMPLETED) {
+                  // startedAt is auto-filled when entering IN_PRODUCTION or COMPLETED (if not already set)
+                  if (!existingTask.startedAt) {
+                    autoFilledFields.add('startedAt');
+                  }
+                }
+                if (newStatus === TASK_STATUS.COMPLETED) {
+                  // finishedAt is auto-filled when entering COMPLETED
+                  if (!existingTask.finishedAt) {
+                    autoFilledFields.add('finishedAt');
+                  }
+                }
+
+                // entryDate and forecastDate are auto-cascaded from startedAt when they were empty
+                if (autoFilledFields.has('startedAt')) {
+                  if (!existingTask.entryDate) {
+                    autoFilledFields.add('entryDate');
+                  }
+                  if (!existingTask.forecastDate) {
+                    autoFilledFields.add('forecastDate');
+                  }
+                }
+
+                if (autoFilledFields.size > 0) {
+                  const removed = fieldChanges.filter(c => autoFilledFields.has(c.field)).map(c => c.field);
+                  if (removed.length > 0) {
+                    this.logger.log(
+                      `[Task Update] Filtering auto-filled date fields from notifications on status → ${newStatus}: ${removed.join(', ')}`,
+                    );
+                    // Remove auto-filled fields from the array (mutate in place)
+                    for (let i = fieldChanges.length - 1; i >= 0; i--) {
+                      if (autoFilledFields.has(fieldChanges[i].field)) {
+                        fieldChanges.splice(i, 1);
+                      }
+                    }
+                  }
+                }
+              }
+
               if (fieldChanges.length > 0) {
                 // Store field changes in database
                 for (const change of fieldChanges) {

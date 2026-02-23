@@ -61,6 +61,8 @@ export interface NotificationContext {
     webUrl?: string;
     /** Related entity type for the notification record */
     relatedEntityType?: string;
+    /** Related entity ID override (e.g., use taskId instead of serviceOrderId) */
+    relatedEntityId?: string;
     /** Custom title (overrides template-rendered title) */
     title?: string;
     /** Custom body (overrides template-rendered body) */
@@ -1418,10 +1420,15 @@ export class NotificationDispatchService {
 
       this.logger.log(`Found ${targetUsers.length} target users for ${configKey}`);
 
+      // When overrides specify a different entity type/id (e.g., Task instead of ServiceOrder),
+      // use the overridden values for deep link generation so all URLs point to the correct entity
+      const effectiveEntityType = context.overrides?.relatedEntityType || context.entityType;
+      const effectiveEntityId = context.overrides?.relatedEntityId || context.entityId;
+
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
       let deepLinks = context.overrides?.actionUrl
         ? null // actionUrl already provided
-        : this.generateDeepLinksForEntity(context.entityType, context.entityId);
+        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
 
       // If actionUrl override is a JSON string with deep links, parse it to extract universalLink/mobile
       let parsedOverrideLinks: { universalLink?: string; mobile?: string; web?: string } | null = null;
@@ -1437,23 +1444,32 @@ export class NotificationDispatchService {
       }
 
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
-      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${context.entityId}`;
-      const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
+      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${effectiveEntityId}`;
+      const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates from database configuration
       // IMPORTANT: Spread raw data FIRST, then override with formatted values
       // This ensures proper formatting of dates, arrays, and other complex types
+      // Determine add/remove/change verb for field changes (empty→value, value→empty, value→value)
+      const formattedOldValue = this.formatNotificationValue(context.data.oldValue);
+      const formattedNewValue = this.formatNotificationValue(context.data.newValue);
+      const isAdded = !formattedOldValue && !!formattedNewValue;
+      const isRemoved = !!formattedOldValue && !formattedNewValue;
+
       const templateVars = {
         ...context.data, // Raw data first (will be overwritten by formatted values below)
         taskName: context.data.taskName || '',
         serialNumber: context.data.serialNumber || '',
-        oldValue: this.formatNotificationValue(context.data.oldValue),
-        newValue: this.formatNotificationValue(context.data.newValue),
+        oldValue: formattedOldValue,
+        newValue: formattedNewValue,
         changedBy: this.formatUserName(context.data.changedBy),
         daysOverdue: this.formatDaysWithPlural(context.data.daysOverdue, 'dia', 'dias'),
         daysRemaining: this.formatDaysWithPlural(context.data.daysRemaining, 'dia', 'dias'),
         count: context.data.count?.toString() || '',
         fileChangeDescription: context.data.fileChangeDescription || this.formatFileChange(context.data.addedCount, context.data.removedCount),
+        isAdded,
+        isRemoved,
+        changeVerb: isAdded ? 'adicionado' : isRemoved ? 'removido' : 'alterado',
       };
 
       const renderedTemplates = this.configurationService.renderTemplates(dbConfig, templateVars);
@@ -1489,7 +1505,7 @@ export class NotificationDispatchService {
             body,
             actionType: actionType as NotificationActionType,
             actionUrl,
-            relatedEntityId: context.entityId,
+            relatedEntityId: effectiveEntityId,
             relatedEntityType: relatedEntityType,
             channel: channels,
             metadata: {
@@ -1605,14 +1621,18 @@ export class NotificationDispatchService {
         return;
       }
 
+      // When overrides specify a different entity type/id, use those for deep links
+      const effectiveEntityType = context.overrides?.relatedEntityType || context.entityType;
+      const effectiveEntityId = context.overrides?.relatedEntityId || context.entityId;
+
       // Generate deep links — use overrides if provided, otherwise generate based on entity type
       const deepLinks = context.overrides?.actionUrl
         ? null
-        : this.generateDeepLinksForEntity(context.entityType, context.entityId);
+        : this.generateDeepLinksForEntity(effectiveEntityType, effectiveEntityId);
 
       const actionUrl = context.overrides?.actionUrl || JSON.stringify(deepLinks);
-      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${context.entityId}`;
-      const relatedEntityType = context.overrides?.relatedEntityType || context.entityType || 'TASK';
+      const webUrl = context.overrides?.webUrl || deepLinks?.webPath || `/producao/agenda/detalhes/${effectiveEntityId}`;
+      const relatedEntityType = effectiveEntityType || 'TASK';
 
       // Render templates
       // IMPORTANT: Spread raw data FIRST, then override with formatted values
@@ -1651,7 +1671,7 @@ export class NotificationDispatchService {
             body,
             actionType: actionType as NotificationActionType,
             actionUrl,
-            relatedEntityId: context.entityId,
+            relatedEntityId: effectiveEntityId,
             relatedEntityType: relatedEntityType,
             channel: channels,
             metadata: {
@@ -1662,6 +1682,7 @@ export class NotificationDispatchService {
               actorId: triggeringUserId === 'system' ? undefined : triggeringUserId,
               entityType: context.entityType,
               entityId: context.entityId,
+              ...context.data,
               ...context.metadata,
             },
           },

@@ -100,6 +100,7 @@ export class ServiceOrderListener {
           overrides: {
             webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
             relatedEntityType: 'Task',
+            relatedEntityId: event.serviceOrder.taskId,
           },
         },
       );
@@ -168,6 +169,7 @@ export class ServiceOrderListener {
           overrides: {
             webUrl: `/producao/agenda/detalhes/${event.serviceOrder.taskId}`,
             relatedEntityType: 'Task',
+            relatedEntityId: event.serviceOrder.taskId,
           },
         },
       );
