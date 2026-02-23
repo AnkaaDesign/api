@@ -121,8 +121,14 @@ export class LayoutController {
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.ADMIN,
   )
-  async findByTruckId(@Param('truckId') truckId: string, @UserId() userId: string) {
-    const layouts = await this.layoutService.findByTruckId(truckId);
+  async findByTruckId(
+    @Param('truckId') truckId: string,
+    @Query('includePhoto') includePhoto: string,
+    @UserId() userId: string,
+  ) {
+    const layouts = await this.layoutService.findByTruckId(truckId, {
+      includePhoto: includePhoto === 'true',
+    });
 
     return {
       success: true,
