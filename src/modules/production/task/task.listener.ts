@@ -185,17 +185,11 @@ export class TaskListener {
         },
       };
 
-      // 1. Generic field-level status change notification
-      await this.dispatchService.dispatchByConfiguration(
-        'task.field.status',
-        event.changedBy.id,
-        notificationContext,
-      );
-      this.logger.log('[TASK EVENT] Generic task.field.status notification dispatched');
-
-      // 2. Status-specific notification (e.g., task.waiting_production, task.in_production, task.completed)
+      // Check if a status-specific notification config exists (e.g., task.in_production, task.completed)
       const statusConfigKey = STATUS_CONFIG_MAP[event.newStatus as TASK_STATUS];
+
       if (statusConfigKey) {
+        // Status-specific notification is more descriptive — skip the generic one to avoid duplicates
         await this.dispatchService.dispatchByConfiguration(
           statusConfigKey,
           event.changedBy.id,
@@ -204,7 +198,15 @@ export class TaskListener {
             action: event.newStatus.toLowerCase(),
           },
         );
-        this.logger.log(`[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey}`);
+        this.logger.log(`[TASK EVENT] Status-specific notification dispatched: ${statusConfigKey} (generic task.field.status skipped)`);
+      } else {
+        // No status-specific config — use the generic field-level status change notification
+        await this.dispatchService.dispatchByConfiguration(
+          'task.field.status',
+          event.changedBy.id,
+          notificationContext,
+        );
+        this.logger.log('[TASK EVENT] Generic task.field.status notification dispatched (no status-specific config)');
       }
 
       // 3. Special case: When status changes TO WAITING_PRODUCTION, also notify PRODUCTION users

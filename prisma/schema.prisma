@@ -3000,6 +3000,7 @@ enum BackupStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
+  DELETED
 }
 
 enum GDriveSyncStatus {

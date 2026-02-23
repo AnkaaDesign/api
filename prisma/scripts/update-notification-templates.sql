@@ -18,6 +18,9 @@
 --   {{daysOverdue}}          - Days past deadline
 --   {{daysRemaining}}        - Days until deadline
 --   {{hoursRemaining}}       - Hours until deadline
+--   {{isAdded}}              - Boolean: true when field goes from empty to having a value
+--   {{isRemoved}}            - Boolean: true when field goes from having a value to empty
+--   {{changeVerb}}           - "adicionado" | "removido" | "alterado"
 --
 -- Run this script against your database:
 --   psql -d your_database -f update-notification-templates.sql
@@ -385,16 +388,16 @@ WHERE "key" = 'task.field.status';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Previsao de Liberacao Atualizada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a previsao de liberacao alterada de {{oldValue}} para {{newValue}} por {{changedBy}}."
+    "title": "Previsao de Liberacao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Atualizada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a previsao de liberacao {{#if isAdded}}adicionada: {{newValue}}{{else if isRemoved}}removida (era {{oldValue}}){{else}}alterada de {{oldValue}} para {{newValue}}{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Previsao Atualizada",
-    "body": "{{taskName}} {{serialNumber}}: {{oldValue}} -> {{newValue}}"
+    "title": "Previsao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Atualizada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{oldValue}} -> {{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Previsao de Liberacao Atualizada - {{taskName}}",
-    "body": "A previsao de liberacao foi atualizada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nData anterior: {{oldValue}}\nNova data: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Previsao de Liberacao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Atualizada{{/if}} - {{taskName}}",
+    "body": "A previsao de liberacao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova data: {{newValue}}{{else if isRemoved}}Data removida: {{oldValue}}{{else}}Data anterior: {{oldValue}}\nNova data: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -404,16 +407,16 @@ WHERE "key" = 'task.field.forecastDate';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Prazo da Tarefa Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o prazo alterado de {{oldValue}} para {{newValue}} por {{changedBy}}."
+    "title": "Prazo da Tarefa {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o prazo {{#if isAdded}}adicionado: {{newValue}}{{else if isRemoved}}removido (era {{oldValue}}){{else}}alterado de {{oldValue}} para {{newValue}}{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Prazo Alterado",
-    "body": "{{taskName}} {{serialNumber}}: {{oldValue}} -> {{newValue}}"
+    "title": "Prazo {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removido{{else}}{{oldValue}} -> {{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Prazo Alterado - {{taskName}}",
-    "body": "O prazo da tarefa foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nPrazo anterior: {{oldValue}}\nNovo prazo: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Prazo da Tarefa {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O prazo da tarefa foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Novo prazo: {{newValue}}{{else if isRemoved}}Prazo removido: {{oldValue}}{{else}}Prazo anterior: {{oldValue}}\nNovo prazo: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -518,16 +521,16 @@ WHERE "key" = 'task.field.name';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Numero de Serie Alterado",
-    "body": "A tarefa \"{{taskName}}\" teve o numero de serie alterado de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Numero de Serie {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" teve o numero de serie {{#if isAdded}}adicionado: \"{{newValue}}\"{{else if isRemoved}}removido (era \"{{oldValue}}\"){{else}}alterado de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Serie Alterada",
-    "body": "{{taskName}}: {{oldValue}} -> {{newValue}}"
+    "title": "Serie {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removido{{else}}{{oldValue}} -> {{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Numero de Serie Alterado - {{taskName}}",
-    "body": "O numero de serie foi alterado.\n\nTarefa: {{taskName}}\nNumero anterior: {{oldValue}}\nNovo numero: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Numero de Serie {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O numero de serie foi {{changeVerb}}.\n\nTarefa: {{taskName}}\n{{#if isAdded}}Novo numero: {{newValue}}{{else if isRemoved}}Numero removido: {{oldValue}}{{else}}Numero anterior: {{oldValue}}\nNovo numero: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -537,16 +540,16 @@ WHERE "key" = 'task.field.serialNumber';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Cliente da Tarefa Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o cliente alterado por {{changedBy}}."
+    "title": "Cliente da Tarefa {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o cliente {{#if isAdded}}adicionado{{else if isRemoved}}removido{{else}}alterado{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Cliente Alterado",
+    "title": "Cliente {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
     "body": "{{taskName}} {{serialNumber}}"
   },
   "email": {
-    "subject": "Cliente Alterado - {{taskName}}",
-    "body": "O cliente da tarefa foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
+    "subject": "Cliente da Tarefa {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O cliente da tarefa foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -556,16 +559,16 @@ WHERE "key" = 'task.field.customerId';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Tinta da Tarefa Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a tinta alterada por {{changedBy}}."
+    "title": "Tinta da Tarefa {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a tinta {{#if isAdded}}adicionada{{else if isRemoved}}removida{{else}}alterada{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Tinta Alterada",
+    "title": "Tinta {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
     "body": "{{taskName}} {{serialNumber}}"
   },
   "email": {
-    "subject": "Tinta Alterada - {{taskName}}",
-    "body": "A tinta da tarefa foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
+    "subject": "Tinta da Tarefa {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A tinta da tarefa foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -575,16 +578,16 @@ WHERE "key" = 'task.field.paintId';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Data de Entrada Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de entrada alterada de {{oldValue}} para {{newValue}} por {{changedBy}}."
+    "title": "Data de Entrada {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de entrada {{#if isAdded}}adicionada: {{newValue}}{{else if isRemoved}}removida (era {{oldValue}}){{else}}alterada de {{oldValue}} para {{newValue}}{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Data de Entrada",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Data de Entrada {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Data de Entrada Alterada - {{taskName}}",
-    "body": "A data de entrada foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nData anterior: {{oldValue}}\nNova data: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Data de Entrada {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A data de entrada foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova data: {{newValue}}{{else if isRemoved}}Data removida: {{oldValue}}{{else}}Data anterior: {{oldValue}}\nNova data: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -594,16 +597,16 @@ WHERE "key" = 'task.field.entryDate';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Data de Inicio Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de inicio alterada de {{oldValue}} para {{newValue}} por {{changedBy}}."
+    "title": "Data de Inicio {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de inicio {{#if isAdded}}adicionada: {{newValue}}{{else if isRemoved}}removida (era {{oldValue}}){{else}}alterada de {{oldValue}} para {{newValue}}{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Data de Inicio",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Data de Inicio {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Data de Inicio Alterada - {{taskName}}",
-    "body": "A data de inicio foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nData anterior: {{oldValue}}\nNova data: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Data de Inicio {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A data de inicio foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova data: {{newValue}}{{else if isRemoved}}Data removida: {{oldValue}}{{else}}Data anterior: {{oldValue}}\nNova data: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -613,16 +616,16 @@ WHERE "key" = 'task.field.startedAt';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Data de Conclusao Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de conclusao alterada de {{oldValue}} para {{newValue}} por {{changedBy}}."
+    "title": "Data de Conclusao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a data de conclusao {{#if isAdded}}adicionada: {{newValue}}{{else if isRemoved}}removida (era {{oldValue}}){{else}}alterada de {{oldValue}} para {{newValue}}{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Data de Conclusao",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Data de Conclusao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Data de Conclusao Alterada - {{taskName}}",
-    "body": "A data de conclusao foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nData anterior: {{oldValue}}\nNova data: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Data de Conclusao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A data de conclusao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova data: {{newValue}}{{else if isRemoved}}Data removida: {{oldValue}}{{else}}Data anterior: {{oldValue}}\nNova data: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -674,16 +677,16 @@ WHERE "key" = 'task.field.representatives';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Placa do Caminhao Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a placa alterada de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Placa do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a placa {{#if isAdded}}adicionada: \"{{newValue}}\"{{else if isRemoved}}removida (era \"{{oldValue}}\"){{else}}alterada de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Placa Alterada",
-    "body": "{{taskName}} {{serialNumber}}: {{oldValue}} -> {{newValue}}"
+    "title": "Placa {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{oldValue}} -> {{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Placa do Caminhao Alterada - {{taskName}}",
-    "body": "A placa do caminhao foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nPlaca anterior: {{oldValue}}\nNova placa: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Placa do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A placa do caminhao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova placa: {{newValue}}{{else if isRemoved}}Placa removida: {{oldValue}}{{else}}Placa anterior: {{oldValue}}\nNova placa: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -693,16 +696,16 @@ WHERE "key" = 'task.field.truck.plate';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Chassi do Caminhao Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o chassi alterado de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Chassi do Caminhao {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o chassi {{#if isAdded}}adicionado: \"{{newValue}}\"{{else if isRemoved}}removido (era \"{{oldValue}}\"){{else}}alterado de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Chassi Alterado",
-    "body": "{{taskName}} {{serialNumber}}: {{oldValue}} -> {{newValue}}"
+    "title": "Chassi {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removido{{else}}{{oldValue}} -> {{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Chassi do Caminhao Alterado - {{taskName}}",
-    "body": "O chassi do caminhao foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nChassi anterior: {{oldValue}}\nNovo chassi: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Chassi do Caminhao {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O chassi do caminhao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Novo chassi: {{newValue}}{{else if isRemoved}}Chassi removido: {{oldValue}}{{else}}Chassi anterior: {{oldValue}}\nNovo chassi: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -712,16 +715,16 @@ WHERE "key" = 'task.field.truck.chassisNumber';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Categoria do Caminhao Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a categoria do caminhao alterada de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Categoria do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a categoria do caminhao {{#if isAdded}}adicionada: \"{{newValue}}\"{{else if isRemoved}}removida (era \"{{oldValue}}\"){{else}}alterada de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Categoria Alterada",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Categoria {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Categoria do Caminhao Alterada - {{taskName}}",
-    "body": "A categoria do caminhao foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nCategoria anterior: {{oldValue}}\nNova categoria: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Categoria do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A categoria do caminhao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova categoria: {{newValue}}{{else if isRemoved}}Categoria removida: {{oldValue}}{{else}}Categoria anterior: {{oldValue}}\nNova categoria: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -731,16 +734,16 @@ WHERE "key" = 'task.field.truck.category';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Tipo de Implemento Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o tipo de implemento alterado de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Tipo de Implemento {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o tipo de implemento {{#if isAdded}}adicionado: \"{{newValue}}\"{{else if isRemoved}}removido (era \"{{oldValue}}\"){{else}}alterado de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Implemento Alterado",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Implemento {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removido{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Tipo de Implemento Alterado - {{taskName}}",
-    "body": "O tipo de implemento foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nTipo anterior: {{oldValue}}\nNovo tipo: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Tipo de Implemento {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O tipo de implemento foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Novo tipo: {{newValue}}{{else if isRemoved}}Tipo removido: {{oldValue}}{{else}}Tipo anterior: {{oldValue}}\nNovo tipo: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -750,16 +753,16 @@ WHERE "key" = 'task.field.truck.implementType';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Vaga do Caminhao Alterada",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a vaga alterada de \"{{oldValue}}\" para \"{{newValue}}\" por {{changedBy}}."
+    "title": "Vaga do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve a vaga {{#if isAdded}}adicionada: \"{{newValue}}\"{{else if isRemoved}}removida (era \"{{oldValue}}\"){{else}}alterada de \"{{oldValue}}\" para \"{{newValue}}\"{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Vaga Alterada",
-    "body": "{{taskName}} {{serialNumber}}: {{newValue}}"
+    "title": "Vaga {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}: {{#if isAdded}}{{newValue}}{{else if isRemoved}}removida{{else}}{{newValue}}{{/if}}"
   },
   "email": {
-    "subject": "Vaga do Caminhao Alterada - {{taskName}}",
-    "body": "A vaga do caminhao foi alterada.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nVaga anterior: {{oldValue}}\nNova vaga: {{newValue}}\nAlterado por: {{changedBy}}"
+    "subject": "Vaga do Caminhao {{#if isAdded}}Adicionada{{else if isRemoved}}Removida{{else}}Alterada{{/if}} - {{taskName}}",
+    "body": "A vaga do caminhao foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\n{{#if isAdded}}Nova vaga: {{newValue}}{{else if isRemoved}}Vaga removida: {{oldValue}}{{else}}Vaga anterior: {{oldValue}}\nNova vaga: {{newValue}}{{/if}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -773,16 +776,16 @@ WHERE "key" = 'task.field.truck.spot';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Layout Lado Esquerdo Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout do lado esquerdo alterado por {{changedBy}}."
+    "title": "Layout Lado Esquerdo {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout do lado esquerdo {{#if isAdded}}adicionado{{else if isRemoved}}removido{{else}}alterado{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Layout Esquerdo",
-    "body": "{{taskName}} {{serialNumber}} - Layout atualizado"
+    "title": "Layout Esquerdo {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}"
   },
   "email": {
-    "subject": "Layout Lado Esquerdo Alterado - {{taskName}}",
-    "body": "O layout do lado esquerdo foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
+    "subject": "Layout Lado Esquerdo {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O layout do lado esquerdo foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -792,16 +795,16 @@ WHERE "key" = 'task.field.truck.leftSideLayoutId';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Layout Lado Direito Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout do lado direito alterado por {{changedBy}}."
+    "title": "Layout Lado Direito {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout do lado direito {{#if isAdded}}adicionado{{else if isRemoved}}removido{{else}}alterado{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Layout Direito",
-    "body": "{{taskName}} {{serialNumber}} - Layout atualizado"
+    "title": "Layout Direito {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}"
   },
   "email": {
-    "subject": "Layout Lado Direito Alterado - {{taskName}}",
-    "body": "O layout do lado direito foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
+    "subject": "Layout Lado Direito {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O layout do lado direito foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
@@ -811,16 +814,16 @@ WHERE "key" = 'task.field.truck.rightSideLayoutId';
 UPDATE "NotificationConfiguration"
 SET "templates" = '{
   "inApp": {
-    "title": "Layout Traseira Alterado",
-    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout da traseira alterado por {{changedBy}}."
+    "title": "Layout Traseira {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "A tarefa \"{{taskName}}\" {{serialNumber}} teve o layout da traseira {{#if isAdded}}adicionado{{else if isRemoved}}removido{{else}}alterado{{/if}} por {{changedBy}}."
   },
   "push": {
-    "title": "Layout Traseira",
-    "body": "{{taskName}} {{serialNumber}} - Layout atualizado"
+    "title": "Layout Traseira {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}}",
+    "body": "{{taskName}} {{serialNumber}}"
   },
   "email": {
-    "subject": "Layout Traseira Alterado - {{taskName}}",
-    "body": "O layout da traseira foi alterado.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
+    "subject": "Layout Traseira {{#if isAdded}}Adicionado{{else if isRemoved}}Removido{{else}}Alterado{{/if}} - {{taskName}}",
+    "body": "O layout da traseira foi {{changeVerb}}.\n\nTarefa: {{taskName}}\nIdentificador: {{serialNumber}}\nAlterado por: {{changedBy}}"
   }
 }'::jsonb,
     "updatedAt" = NOW()
