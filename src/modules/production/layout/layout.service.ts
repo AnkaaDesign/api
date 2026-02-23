@@ -30,12 +30,12 @@ export class LayoutService {
     return this.layoutRepository.findById(id, include);
   }
 
-  async findByTruckId(truckId: string): Promise<{
+  async findByTruckId(truckId: string, options?: { includePhoto?: boolean }): Promise<{
     leftSideLayout: Layout | null;
     rightSideLayout: Layout | null;
     backSideLayout: Layout | null;
   }> {
-    return this.layoutRepository.findByTruckId(truckId);
+    return this.layoutRepository.findByTruckId(truckId, options);
   }
 
   /**
