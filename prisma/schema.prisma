@@ -1271,7 +1271,7 @@ model Truck {
   chassisNumber     String?
   category          TruckCategory?
   implementType     ImplementType?
-  spot              TRUCK_SPOT?
+  spot              TRUCK_SPOT?    @default(YARD_WAIT)
   taskId            String         @unique
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -2514,6 +2514,8 @@ enum MonthOccurrence {
 }
 
 enum TRUCK_SPOT {
+  YARD_WAIT
+  YARD_EXIT
   B1_F1_V1
   B1_F1_V2
   B1_F1_V3

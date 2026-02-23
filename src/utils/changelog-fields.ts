@@ -140,7 +140,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     'order.status': 'Status do Pedido',
     totalPrice: 'Valor Total',
   },
-  [CHANGE_LOG_ENTITY_TYPE.REPRESENTATIVE]: {
+  [CHANGE_LOG_ENTITY_TYPE.RESPONSIBLE]: {
     name: 'Nome',
     email: 'E-mail',
     phone: 'Telefone',

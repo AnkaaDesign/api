@@ -951,6 +951,31 @@ const FILE_ARRAY_TEMPLATES: TemplateConfig[] = [
   },
 ];
 
+// Truck movement request template
+const TRUCK_MOVEMENT_TEMPLATES: TemplateConfig[] = [
+  {
+    key: 'truck.movement_request',
+    name: 'Solicitação de Movimentação de Caminhão',
+    templates: {
+      inApp: {
+        title: 'Solicitação de Movimentação',
+        body: '{{changedBy}} solicitou a movimentação do caminhão "{{taskName}}" de {{fromSpot}} para {{toSpot}}.',
+      },
+      push: {
+        title: 'Solicitação de Movimentação',
+        body: '{{taskName}} - De {{fromSpot}} para {{toSpot}}',
+      },
+      email: {
+        subject: 'Solicitação de Movimentação - {{taskName}}',
+        body: '{{changedBy}} solicitou a movimentação do caminhão "{{taskName}}" de {{fromSpot}} para {{toSpot}}.',
+      },
+      whatsapp: {
+        body: '🚛 Solicitação de movimentação: "{{taskName}}" de {{fromSpot}} para {{toSpot}}. Solicitado por {{changedBy}}.',
+      },
+    },
+  },
+];
+
 // Combine all templates
 const ALL_TEMPLATES: TemplateConfig[] = [
   ...TASK_LIFECYCLE_TEMPLATES,
@@ -959,6 +984,7 @@ const ALL_TEMPLATES: TemplateConfig[] = [
   ...TASK_FIELD_TEMPLATES,
   ...TRUCK_FIELD_TEMPLATES,
   ...FILE_ARRAY_TEMPLATES,
+  ...TRUCK_MOVEMENT_TEMPLATES,
 ];
 
 // =============================================================================

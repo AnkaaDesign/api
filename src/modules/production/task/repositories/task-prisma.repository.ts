@@ -750,7 +750,8 @@ export class TaskPrismaRepository
       const truckData: any = {};
       if (truck.plate !== undefined) truckData.plate = truck.plate;
       if (truck.chassisNumber !== undefined) truckData.chassisNumber = truck.chassisNumber;
-      if (truck.spot !== undefined) truckData.spot = truck.spot;
+      // Default to YARD_WAIT if no spot explicitly set
+      truckData.spot = truck.spot !== undefined ? truck.spot : 'YARD_WAIT';
       if (truck.category !== undefined && truck.category !== null) {
         truckData.category = truck.category;
       }
@@ -1091,6 +1092,10 @@ export class TaskPrismaRepository
         if (truck.spot !== undefined) {
           truckCreateData.spot = truck.spot;
           truckUpdateData.spot = truck.spot;
+        }
+        // Default to YARD_WAIT when creating a new truck via upsert
+        if (truckCreateData.spot === undefined) {
+          truckCreateData.spot = 'YARD_WAIT';
         }
         if (truck.category !== undefined && truck.category !== '') {
           truckCreateData.category = truck.category;

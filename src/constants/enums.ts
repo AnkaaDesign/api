@@ -748,6 +748,9 @@ export enum PAINT_BASE_TYPE {
  * - Minimum spacing between trucks: 2m
  */
 export enum TRUCK_SPOT {
+  // Yard (Patio)
+  YARD_WAIT = 'YARD_WAIT',
+  YARD_EXIT = 'YARD_EXIT',
   // Garage 1 (B1)
   B1_F1_V1 = 'B1_F1_V1',
   B1_F1_V2 = 'B1_F1_V2',

@@ -16,6 +16,7 @@ import { SECTOR_PRIVILEGES } from '../../../constants/enums';
 import { TruckService } from './truck.service';
 import type { TruckUpdateFormData } from '../../../schemas/truck';
 import type { GarageId } from '../../../constants/garage';
+import { getGarageForSectorName, getSectorNameForGarage } from '../../../constants/garage';
 import type { UserPayload } from '@modules/common/auth/decorators/user.decorator';
 
 @Controller('trucks')
@@ -40,6 +41,31 @@ export class TruckController {
   }
 
   /**
+   * Get the static sector-garage mapping for client-side validation
+   */
+  @Get('sector-garage-mapping')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async getSectorGarageMapping() {
+    const mapping = (['B1', 'B2', 'B3'] as GarageId[]).map((garageId) => ({
+      garageId,
+      sectorName: getSectorNameForGarage(garageId),
+    }));
+
+    return {
+      success: true,
+      message: 'Mapeamento setor-barracão retornado com sucesso',
+      data: mapping,
+    };
+  }
+
+  /**
    * Get availability for all garages
    * Used by the spot selector to show which garages can fit a truck
    * NOTE: Must be defined BEFORE :id route to avoid route collision
@@ -50,7 +76,6 @@ export class TruckController {
     SECTOR_PRIVILEGES.WAREHOUSE,
     SECTOR_PRIVILEGES.FINANCIAL,
     SECTOR_PRIVILEGES.COMMERCIAL,
-    SECTOR_PRIVILEGES.LOGISTIC,
     SECTOR_PRIVILEGES.ADMIN,
   )
   async getAllGaragesAvailability(
@@ -129,6 +154,31 @@ export class TruckController {
     return {
       success: true,
       message: `${result.updated} caminhoes atualizados com sucesso`,
+      data: result,
+    };
+  }
+
+  /**
+   * Request a truck movement (for production managers)
+   * Sends notification to logistics team
+   */
+  @Post('request-movement')
+  @Roles(
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async requestMovement(
+    @Body() body: { taskId: string; truckId: string; taskName: string; fromSpot: string | null; toSpot: string | null },
+    @UserId() userId: string,
+  ) {
+    const result = await this.truckService.requestMovement(body, userId);
+    return {
+      success: true,
+      message: 'Solicitação de movimentação enviada com sucesso',
       data: result,
     };
   }
