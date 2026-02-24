@@ -1117,7 +1117,11 @@ export class ItemService {
     query: ItemGetManyFormData,
     stockHealthLevels: STOCK_LEVEL[],
   ): Promise<ItemGetManyResponse> {
-    // Remove stock level filters from query for database query
+    // Remove stock level filters and pagination from query for database query.
+    // We handle pagination ourselves after in-memory filtering.
+    // IMPORTANT: `limit` must be deleted because the repository prioritizes
+    // `limit` over `take` (see: `take: options.limit || options.take`),
+    // which would override our batch `take` value.
     const dbQuery = { ...query };
     delete (dbQuery as any).stockLevels;
     delete (dbQuery as any).criticalStock;
@@ -1126,6 +1130,10 @@ export class ItemService {
     delete (dbQuery as any).outOfStock;
     delete (dbQuery as any).overStock;
     delete (dbQuery as any).negativeStock;
+    delete (dbQuery as any).limit;
+    delete (dbQuery as any).page;
+    delete (dbQuery as any).take;
+    delete (dbQuery as any).skip;
 
     // Build a rough database filter to reduce the dataset
     // This will over-select items but dramatically reduce the in-memory processing
@@ -1138,26 +1146,76 @@ export class ItemService {
       ORDER_STATUS.PARTIALLY_RECEIVED,
     ];
 
-    // First pass: Get items with rough filtering
-    const roughQuery = {
-      ...dbQuery,
-      where: {
-        ...dbQuery.where,
-        isActive: true,
-        ...(roughStockConditions.length > 0 ? { OR: roughStockConditions } : {}),
-      },
-      // Ensure stable ordering to prevent duplicates when paginating
-      // Use the query's orderBy if provided, otherwise default to 'id' for consistency
-      orderBy: dbQuery.orderBy || { id: 'asc' as const },
-      // Fetch more items than needed to account for post-filtering
-      // We'll fetch 3x the requested limit to ensure we have enough after filtering
-      take: (query.limit || 20) * 3,
-      skip: 0, // We'll handle pagination after filtering
+    const roughWhere = {
+      ...dbQuery.where,
+      isActive: true,
+      ...(roughStockConditions.length > 0 ? { OR: roughStockConditions } : {}),
     };
 
-    const roughItems = await this.itemRepository.findMany(roughQuery);
+    // Fetch ALL items matching rough conditions in page-based batches,
+    // then apply precise in-memory filtering.
+    // The repository ignores `skip` and calculates it from `page` and `take`,
+    // so we must use page-based pagination to advance through results.
+    const batchSize = 200;
+    let currentPage = 1;
+    let allFilteredItems: any[] = [];
+    const itemsWithActiveOrders = new Set<string>();
+    const maxPages = 50; // Safety limit
 
-    if (!roughItems.data || roughItems.data.length === 0) {
+    while (currentPage <= maxPages) {
+      const batchQuery = {
+        ...dbQuery,
+        where: roughWhere,
+        orderBy: dbQuery.orderBy || { id: 'asc' as const },
+        page: currentPage,
+        take: batchSize,
+      };
+
+      const batchResult = await this.itemRepository.findMany(batchQuery);
+
+      if (!batchResult.data || batchResult.data.length === 0) {
+        break;
+      }
+
+      // Get active orders for this batch
+      const batchItemIds = batchResult.data.map(item => item.id);
+      const batchOrderItems = await this.prisma.orderItem.findMany({
+        where: {
+          itemId: { in: batchItemIds },
+          order: {
+            status: { in: activeOrderStatuses },
+          },
+        },
+        select: {
+          itemId: true,
+        },
+      });
+
+      batchOrderItems.forEach(oi => itemsWithActiveOrders.add(oi.itemId));
+
+      // Apply precise stock level filtering on this batch
+      const filtered = batchResult.data.filter(item => {
+        const hasActiveOrder = itemsWithActiveOrders.has(item.id);
+        const stockLevel = determineStockLevel(
+          item.quantity,
+          item.reorderPoint,
+          item.maxQuantity,
+          hasActiveOrder,
+        );
+        return stockHealthLevels.includes(stockLevel);
+      });
+
+      allFilteredItems.push(...filtered);
+
+      // If this batch returned fewer items than requested, we've reached the end
+      if (batchResult.data.length < batchSize) {
+        break;
+      }
+
+      currentPage++;
+    }
+
+    if (allFilteredItems.length === 0) {
       return {
         success: true,
         data: [],
@@ -1173,114 +1231,22 @@ export class ItemService {
       };
     }
 
-    // Get active orders for these items
-    const itemIds = roughItems.data.map(item => item.id);
-    const orderItems = await this.prisma.orderItem.findMany({
-      where: {
-        itemId: { in: itemIds },
-        order: {
-          status: { in: activeOrderStatuses },
-        },
-      },
-      select: {
-        itemId: true,
-      },
-    });
-
-    // Create set of items with active orders
-    const itemsWithActiveOrders = new Set<string>(orderItems.map(oi => oi.itemId));
-
-    // Apply precise stock level filtering
-    const preciselyFilteredItems = roughItems.data.filter(item => {
-      const hasActiveOrder = itemsWithActiveOrders.has(item.id);
-      const stockLevel = determineStockLevel(
-        item.quantity,
-        item.reorderPoint,
-        item.maxQuantity,
-        hasActiveOrder,
-      );
-      return stockHealthLevels.includes(stockLevel);
-    });
-
-    // If we don't have enough items after filtering, we need to fetch more
-    const page = query.page || 1;
-    const limit = query.limit || 20;
-    const startIndex = (page - 1) * limit;
-
-    let finalItems = preciselyFilteredItems;
-    let totalFilteredCount = preciselyFilteredItems.length;
-
-    // If we need more items (for pagination), fetch additional batches
-    if (preciselyFilteredItems.length < startIndex + limit) {
-      // We need to fetch more items to satisfy pagination
-      let offset = roughItems.data.length;
-      const batchSize = limit * 5; // Fetch in larger batches
-      let attempts = 0;
-      const maxAttempts = 5; // Prevent infinite loops
-
-      while (finalItems.length < startIndex + limit && attempts < maxAttempts) {
-        const additionalQuery = {
-          ...roughQuery,
-          skip: offset,
-          take: batchSize,
-        };
-
-        const additionalItems = await this.itemRepository.findMany(additionalQuery);
-
-        if (!additionalItems.data || additionalItems.data.length === 0) {
-          break; // No more items to fetch
-        }
-
-        // Get active orders for additional items
-        const additionalItemIds = additionalItems.data.map(item => item.id);
-        const additionalOrderItems = await this.prisma.orderItem.findMany({
-          where: {
-            itemId: { in: additionalItemIds },
-            order: {
-              status: { in: activeOrderStatuses },
-            },
-          },
-          select: {
-            itemId: true,
-          },
-        });
-
-        // Update the set of items with active orders
-        additionalOrderItems.forEach(oi => itemsWithActiveOrders.add(oi.itemId));
-
-        // Filter additional items
-        const additionalFiltered = additionalItems.data.filter(item => {
-          const hasActiveOrder = itemsWithActiveOrders.has(item.id);
-          const stockLevel = determineStockLevel(
-            item.quantity,
-            item.reorderPoint,
-            item.maxQuantity,
-            hasActiveOrder,
-          );
-          return stockHealthLevels.includes(stockLevel);
-        });
-
-        finalItems = [...finalItems, ...additionalFiltered];
-        offset += additionalItems.data.length;
-        attempts++;
-      }
-
-      totalFilteredCount = finalItems.length;
-    }
-
     // Deduplicate items by ID (in case any duplicates slipped through)
     const seenIds = new Set<string>();
-    finalItems = finalItems.filter(item => {
+    allFilteredItems = allFilteredItems.filter(item => {
       if (seenIds.has(item.id)) {
         return false;
       }
       seenIds.add(item.id);
       return true;
     });
-    totalFilteredCount = finalItems.length;
 
     // Apply pagination to the filtered results
-    const paginatedItems = finalItems.slice(startIndex, startIndex + limit);
+    const page = query.page || 1;
+    const limit = query.limit || 20;
+    const startIndex = (page - 1) * limit;
+    const totalFilteredCount = allFilteredItems.length;
+    const paginatedItems = allFilteredItems.slice(startIndex, startIndex + limit);
     const hasNextPage = startIndex + limit < totalFilteredCount;
     const totalPages = Math.ceil(totalFilteredCount / limit);
 
