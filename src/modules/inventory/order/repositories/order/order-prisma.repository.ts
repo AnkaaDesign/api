@@ -547,6 +547,8 @@ export class OrderPrismaRepository
       _count: databaseOrder._count as any,
       createdAt: databaseOrder.createdAt,
       updatedAt: databaseOrder.updatedAt,
+      paymentResponsibleId: databaseOrder.paymentResponsibleId as any,
+      paymentAssignedById: databaseOrder.paymentAssignedById as any,
     };
   }
 

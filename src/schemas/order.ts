@@ -63,7 +63,7 @@ export const orderIncludeSchema = z
         }),
       ])
       .optional(),
-    epiSchedule: z.boolean().optional(),
+    ppeSchedule: z.boolean().optional(),
     items: z
       .union([
         z.boolean(),
@@ -287,6 +287,7 @@ export const orderItemOrderBySchema = z.union([
       icms: orderByDirectionSchema.optional(),
       ipi: orderByDirectionSchema.optional(),
       receivedAt: orderByDirectionSchema.optional(),
+      fulfilledAt: orderByDirectionSchema.optional(),
       createdAt: orderByDirectionSchema.optional(),
       updatedAt: orderByDirectionSchema.optional(),
     })
@@ -300,6 +301,10 @@ export const orderItemOrderBySchema = z.union([
         orderedQuantity: orderByDirectionSchema.optional(),
         receivedQuantity: orderByDirectionSchema.optional(),
         price: orderByDirectionSchema.optional(),
+        icms: orderByDirectionSchema.optional(),
+        ipi: orderByDirectionSchema.optional(),
+        receivedAt: orderByDirectionSchema.optional(),
+        fulfilledAt: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
       })
@@ -1969,6 +1974,10 @@ export const mapOrderToFormData = createMapToFormDataHelper<Order, OrderUpdateFo
     reimbursementInvoice => reimbursementInvoice.id,
   ),
   notes: order.notes || undefined,
+  paymentMethod: order.paymentMethod || undefined,
+  paymentPix: order.paymentPix || undefined,
+  paymentDueDays: order.paymentDueDays || undefined,
+  paymentResponsibleId: order.paymentResponsibleId || undefined,
 }));
 
 export const mapOrderItemToFormData = createMapToFormDataHelper<OrderItem, OrderItemUpdateFormData>(
