@@ -78,6 +78,8 @@ const DEFAULT_ORDER_INCLUDE: Prisma.OrderInclude = {
     },
   },
   supplier: { select: { id: true, fantasyName: true, cnpj: true } },
+  paymentResponsible: { select: { id: true, name: true, email: true } },
+  paymentAssignedBy: { select: { id: true, name: true, email: true } },
   orderSchedule: true,
   ppeSchedule: true,
   items: {
@@ -155,6 +157,12 @@ export class OrderPrismaRepository
     if (orderData.supplierId) {
       createData.supplier = { connect: { id: orderData.supplierId } };
     }
+    if ((orderData as any).paymentResponsibleId) {
+      createData.paymentResponsible = { connect: { id: (orderData as any).paymentResponsibleId } };
+    }
+    if ((orderData as any).paymentAssignedById) {
+      createData.paymentAssignedBy = { connect: { id: (orderData as any).paymentAssignedById } };
+    }
     if (orderData.orderScheduleId) {
       createData.orderSchedule = { connect: { id: orderData.orderScheduleId } };
     }
@@ -230,6 +238,18 @@ export class OrderPrismaRepository
       updateData.paymentMethod = formData.paymentMethod as any;
     if (formData.paymentPix !== undefined) updateData.paymentPix = formData.paymentPix;
     if (formData.paymentDueDays !== undefined) updateData.paymentDueDays = formData.paymentDueDays;
+
+    // Handle payment responsible relation
+    if ((formData as any).paymentResponsibleId !== undefined) {
+      updateData.paymentResponsible = (formData as any).paymentResponsibleId
+        ? { connect: { id: (formData as any).paymentResponsibleId } }
+        : { disconnect: true };
+    }
+    if ((formData as any).paymentAssignedById !== undefined) {
+      updateData.paymentAssignedBy = (formData as any).paymentAssignedById
+        ? { connect: { id: (formData as any).paymentAssignedById } }
+        : { disconnect: true };
+    }
 
     // Handle optional relations with connect/disconnect
     if (formData.supplierId !== undefined) {

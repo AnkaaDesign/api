@@ -111,6 +111,8 @@ export const orderIncludeSchema = z
         }),
       ])
       .optional(),
+    paymentResponsible: z.boolean().optional(),
+    paymentAssignedBy: z.boolean().optional(),
     _count: z
       .union([
         z.boolean(),
@@ -1311,6 +1313,7 @@ export const orderCreateSchema = z
       .positive('Prazo de vencimento deve ser positivo')
       .nullable()
       .optional(),
+    paymentResponsibleId: z.string().uuid({ message: 'Responsável pelo pagamento inválido' }).nullable().optional(),
     // File arrays
     budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
     invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),
@@ -1410,6 +1413,7 @@ export const orderUpdateSchema = z
       .positive('Prazo de vencimento deve ser positivo')
       .nullable()
       .optional(),
+    paymentResponsibleId: z.string().uuid({ message: 'Responsável pelo pagamento inválido' }).nullable().optional(),
     // File arrays
     budgetIds: z.array(z.string().uuid('Orçamento inválido')).optional(),
     invoiceIds: z.array(z.string().uuid('NFe inválida')).optional(),

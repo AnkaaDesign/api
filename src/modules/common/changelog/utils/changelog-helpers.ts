@@ -493,6 +493,13 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   approvedById: 'aprovado por',
   completedById: 'finalizado por',
   assignedToId: 'responsável',
+
+  // Order payment fields
+  paymentMethod: 'método de pagamento',
+  paymentPix: 'chave pix',
+  paymentDueDays: 'prazo de vencimento',
+  paymentResponsibleId: 'responsável pelo pagamento',
+  paymentAssignedById: 'atribuído por',
 };
 
 /**
