@@ -523,6 +523,35 @@ export class FilesStorageService {
   }
 
   /**
+   * Move file within storage (for file organization)
+   * Handles cross-filesystem moves by copying then deleting
+   */
+  async moveWithinStorage(sourcePath: string, targetPath: string): Promise<void> {
+    const targetDir = dirname(targetPath);
+    await this.ensureDirectory(targetDir);
+
+    try {
+      await fs.rename(sourcePath, targetPath);
+    } catch (error: any) {
+      if (error.code === 'EXDEV') {
+        // Cross-filesystem: copy then delete
+        await fs.copyFile(sourcePath, targetPath);
+        await fs.unlink(sourcePath);
+      } else {
+        throw error;
+      }
+    }
+
+    try {
+      await fs.chmod(targetPath, 0o664);
+    } catch (chmodError: any) {
+      this.logger.warn(`Could not set permissions for ${targetPath}: ${chmodError.message}`);
+    }
+
+    this.logger.log(`File moved within storage: ${sourcePath} -> ${targetPath}`);
+  }
+
+  /**
    * Get public URL for file access (served by nginx via arquivos.ankaadesign.com.br)
    */
   getFileUrl(filePath: string): string {

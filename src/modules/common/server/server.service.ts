@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
+import { PrismaService } from '@modules/common/prisma/prisma.service';
 
 const execPromise = promisify(exec);
 
@@ -195,6 +196,8 @@ export interface RaidStatus {
 @Injectable()
 export class ServerService {
   private readonly logger = new Logger(ServerService.name);
+
+  constructor(private readonly prisma: PrismaService) {}
 
   async getSystemServices(): Promise<SystemService[]> {
     try {
@@ -464,6 +467,12 @@ export class ServerService {
       remoteUrl?: string;
       fileCount?: number;
       folderCount?: number;
+      // Database file fields (when matched)
+      dbFileId?: string;
+      dbFilePath?: string;
+      dbThumbnailUrl?: string;
+      dbMimeType?: string;
+      dbFileSize?: number;
     }>;
     totalFiles: number;
     totalSize: string;
@@ -489,8 +498,21 @@ export class ServerService {
       const { stdout: lsOutput } = await execPromise(`ls -la "${targetPath}"`);
       const lines = lsOutput.split('\n').slice(1); // Skip the "total" line
 
-      const files = [];
-      let totalFiles = 0;
+      // First pass: collect all file paths to query database in batch
+      const filePaths: string[] = [];
+      const fileInfoMap = new Map<
+        string,
+        {
+          name: string;
+          permissions: string;
+          owner: string;
+          group: string;
+          sizeBytes: string;
+          isDirectory: boolean;
+          itemPath: string;
+          stats: fs.Stats;
+        }
+      >();
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -522,6 +544,65 @@ export class ServerService {
         const stats = fs.statSync(itemPath);
         const isDirectory = permissions.startsWith('d');
 
+        fileInfoMap.set(itemPath, {
+          name: fileName,
+          permissions,
+          owner,
+          group,
+          sizeBytes,
+          isDirectory,
+          itemPath,
+          stats,
+        });
+
+        // Collect file paths for batch database query
+        if (!isDirectory) {
+          filePaths.push(itemPath);
+        }
+      }
+
+      // Batch query database for matching file records
+      const dbFilesMap = new Map<
+        string,
+        { id: string; path: string; thumbnailUrl: string | null; mimetype: string; size: number }
+      >();
+
+      if (filePaths.length > 0) {
+        try {
+          const dbFiles = await this.prisma.file.findMany({
+            where: {
+              path: {
+                in: filePaths,
+              },
+            },
+            select: {
+              id: true,
+              path: true,
+              thumbnailUrl: true,
+              mimetype: true,
+              size: true,
+            },
+          });
+
+          for (const dbFile of dbFiles) {
+            dbFilesMap.set(dbFile.path, dbFile);
+          }
+
+          this.logger.debug(
+            `Matched ${dbFiles.length} of ${filePaths.length} files with database records`,
+          );
+        } catch (error) {
+          this.logger.warn('Failed to query database for file records:', error);
+          // Continue without database info
+        }
+      }
+
+      const files = [];
+      let totalFiles = 0;
+
+      for (const [itemPath, fileInfo] of fileInfoMap) {
+        const { name: fileName, permissions, owner, group, sizeBytes, isDirectory, stats } = fileInfo;
+
         let size: string;
         let fileCount: number | undefined;
         let folderCount: number | undefined;
@@ -537,8 +618,8 @@ export class ServerService {
             // Count files and folders inside this directory
             try {
               const dirContents = fs.readdirSync(itemPath);
-              let files = 0;
-              let folders = 0;
+              let filesCount = 0;
+              let foldersCount = 0;
 
               for (const item of dirContents) {
                 // Skip hidden files
@@ -548,14 +629,14 @@ export class ServerService {
                 const itemStats = fs.statSync(itemFullPath);
 
                 if (itemStats.isDirectory()) {
-                  folders++;
+                  foldersCount++;
                 } else {
-                  files++;
+                  filesCount++;
                 }
               }
 
-              fileCount = files;
-              folderCount = folders;
+              fileCount = filesCount;
+              folderCount = foldersCount;
             } catch {
               // If we can't read the directory, leave counts undefined
             }
@@ -575,6 +656,9 @@ export class ServerService {
           remoteUrl = `${baseUrl}/${encodeURIComponent(relativePath.replace(/\\/g, '/'))}`;
         }
 
+        // Get database file info if available
+        const dbFile = dbFilesMap.get(itemPath);
+
         files.push({
           name: fileName,
           type: isDirectory ? ('directory' as const) : ('file' as const),
@@ -586,6 +670,14 @@ export class ServerService {
           remoteUrl,
           fileCount,
           folderCount,
+          // Include database file info when available
+          ...(dbFile && {
+            dbFileId: dbFile.id,
+            dbFilePath: dbFile.path,
+            dbThumbnailUrl: dbFile.thumbnailUrl,
+            dbMimeType: dbFile.mimetype,
+            dbFileSize: dbFile.size,
+          }),
         });
       }
 
