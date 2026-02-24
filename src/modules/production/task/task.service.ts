@@ -1300,6 +1300,11 @@ export class TaskService {
           this.validateCommercialSectorAccess(data);
         }
 
+        // Field-level access control for PRODUCTION sector
+        if (userPrivilege === 'PRODUCTION') {
+          this.validateProductionSectorAccess(data);
+        }
+
         // Validate task data
         await this.validateTask(data, id, tx);
 
@@ -4631,10 +4636,12 @@ export class TaskService {
                 for (const change of fieldChanges) {
                   const isFileArray = [
                     'artworks',
+                    'baseFiles',
                     'budgets',
                     'invoices',
                     'receipts',
                     'bankSlips',
+                    'logoPaints',
                     'reimbursements',
                     'invoiceReimbursements',
                   ].includes(change.field);
@@ -7282,6 +7289,46 @@ export class TaskService {
    * Commercial CAN edit: truck (plate, chassisNumber, category, implementType, spot, layouts), base files
    * Commercial CANNOT edit: financial (budgets, invoices, receipts), cut plan (cuts)
    */
+  /**
+   * Validate field-level access for PRODUCTION sector
+   * Production CAN edit: status, observation, started/finished dates, cuts
+   * Production CANNOT edit: base files, financial documents, customer, pricing, truck, artworks, service orders
+   */
+  private validateProductionSectorAccess(data: TaskUpdateFormData): void {
+    const disallowedFields = [
+      'baseFileIds', // Cannot edit base files (managed by Commercial/Designer/Logistic)
+      'budgetIds', // Cannot edit financial documents
+      'invoiceIds', // Cannot edit financial documents
+      'receiptIds', // Cannot edit financial documents
+      'bankSlipIds', // Cannot edit financial documents
+      'customerId', // Cannot change customer
+      'serialNumber', // Cannot change serial number
+      'name', // Cannot change task name
+      'pricing', // Cannot edit pricing
+      'serviceOrders', // Cannot edit service orders
+      'artworkIds', // Cannot edit artworks (managed by Designer)
+      'artworkStatuses', // Cannot edit artwork statuses
+      'truck', // Cannot edit truck info (managed by Commercial/Logistic)
+      'paintIds', // Cannot edit logo paints
+      'paintId', // Cannot change paint
+      'reimbursementIds', // Cannot edit reimbursements
+      'reimbursementInvoiceIds', // Cannot edit reimbursement invoices
+    ];
+
+    // Only block fields that have actual values (not empty arrays or undefined)
+    const blockedFields = disallowedFields.filter(field => {
+      const value = (data as any)[field];
+      return value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0);
+    });
+
+    if (blockedFields.length > 0) {
+      throw new BadRequestException(
+        `Setor Produção não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
+          `Campos permitidos: status, observação, datas de início/término, plano de corte.`,
+      );
+    }
+  }
+
   private validateCommercialSectorAccess(data: TaskUpdateFormData): void {
     const disallowedFields = [
       'budgetIds', // Cannot edit financial documents
