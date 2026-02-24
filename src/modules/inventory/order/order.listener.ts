@@ -50,6 +50,8 @@ export class OrderListener {
       'order.item.entered_inventory',
       this.handleOrderItemEnteredInventory.bind(this),
     );
+    this.eventEmitter.on('order.payment.assigned', this.handleOrderPaymentAssigned.bind(this));
+    this.eventEmitter.on('order.payment.fulfilled', this.handleOrderPaymentFulfilled.bind(this));
 
     this.logger.log('Order event listeners registered successfully');
   }
@@ -553,6 +555,130 @@ export class OrderListener {
       );
     } catch (error) {
       this.logger.error('Error handling order item entered inventory event:', error);
+    }
+  }
+
+  /**
+   * Handle order payment assigned event
+   * Notifies the assigned payment responsible user
+   */
+  async handleOrderPaymentAssigned(event: {
+    order: any;
+    paymentResponsibleId: string;
+    assignedById: string;
+  }): Promise<void> {
+    try {
+      this.logger.log(
+        `Handling order payment assigned event for order ${event.order.id}`,
+      );
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: event.order.id },
+        include: {
+          supplier: true,
+          paymentResponsible: true,
+          paymentAssignedBy: true,
+        },
+      });
+
+      if (!order || !order.paymentResponsible) {
+        this.logger.error(`Order ${event.order.id} or payment responsible not found`);
+        return;
+      }
+
+      const orderNumber = order.id.slice(-8).toUpperCase();
+      const supplierName = order.supplier?.fantasyName || 'Fornecedor não especificado';
+      const assignedByName = order.paymentAssignedBy?.name || 'Sistema';
+
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'order.payment.assigned',
+        event.assignedById,
+        {
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'payment_assigned',
+          data: {
+            orderNumber,
+            supplierName,
+            assignedBy: assignedByName,
+            paymentResponsible: order.paymentResponsible.name,
+            description: order.description || 'Sem descrição',
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Pagamento Atribuído',
+            body: `Você foi designado como responsável pelo pagamento do pedido #${orderNumber} (${supplierName}). Atribuído por ${assignedByName}.`,
+          },
+        },
+        [event.paymentResponsibleId],
+      );
+    } catch (error) {
+      this.logger.error('Error handling order payment assigned event:', error);
+    }
+  }
+
+  /**
+   * Handle order payment fulfilled event
+   * Notifies the user who assigned payment responsibility that the order was fulfilled/paid
+   */
+  async handleOrderPaymentFulfilled(event: {
+    order: any;
+    paymentAssignedById: string;
+    paymentResponsibleId: string;
+  }): Promise<void> {
+    try {
+      this.logger.log(
+        `Handling order payment fulfilled event for order ${event.order.id}`,
+      );
+
+      const order = await this.prisma.order.findUnique({
+        where: { id: event.order.id },
+        include: {
+          supplier: true,
+          paymentResponsible: true,
+        },
+      });
+
+      if (!order) {
+        this.logger.error(`Order ${event.order.id} not found`);
+        return;
+      }
+
+      const orderNumber = order.id.slice(-8).toUpperCase();
+      const supplierName = order.supplier?.fantasyName || 'Fornecedor não especificado';
+      const paymentResponsibleName = order.paymentResponsible?.name || 'Responsável';
+
+      const deepLinks = this.deepLinkService.generateOrderLinks(order.id);
+
+      await this.dispatchService.dispatchByConfigurationToUsers(
+        'order.payment.fulfilled',
+        event.paymentResponsibleId,
+        {
+          entityType: 'Order',
+          entityId: order.id,
+          action: 'payment_fulfilled',
+          data: {
+            orderNumber,
+            supplierName,
+            paymentResponsible: paymentResponsibleName,
+            description: order.description || 'Sem descrição',
+          },
+          overrides: {
+            actionUrl: JSON.stringify(deepLinks),
+            webUrl: `/estoque/pedidos/${order.id}`,
+            relatedEntityType: 'ORDER',
+            title: 'Pagamento Realizado',
+            body: `O pedido #${orderNumber} (${supplierName}) que você atribuiu a ${paymentResponsibleName} foi marcado como atendido.`,
+          },
+        },
+        [event.paymentAssignedById],
+      );
+    } catch (error) {
+      this.logger.error('Error handling order payment fulfilled event:', error);
     }
   }
 }

@@ -798,27 +798,33 @@ model Order {
   orderRuleId           String?
   ppeScheduleId         String?
   notes                 String?
-  paymentMethod         PaymentMethod?
-  paymentPix            String?
-  paymentDueDays        Int?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  activities            Activity[]           @relation("ACTIVITY_ORDER")
-  orderSchedule         OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
-  ppeSchedule           PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
-  supplier              Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
-  items                 OrderItem[]
-  budgets               File[]               @relation("ORDER_BUDGETS")
-  invoices              File[]               @relation("ORDER_INVOICES")
-  invoiceReimbursements File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
-  receipts              File[]               @relation("ORDER_RECEIPTS")
-  reimbursements        File[]               @relation("ORDER_REIMBURSEMENTS")
+  paymentMethod            PaymentMethod?
+  paymentPix               String?
+  paymentDueDays           Int?
+  paymentResponsibleId     String?
+  paymentAssignedById      String?
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  activities               Activity[]           @relation("ACTIVITY_ORDER")
+  orderSchedule            OrderSchedule?       @relation("ORDER_TO_SCHEDULE", fields: [orderScheduleId], references: [id])
+  ppeSchedule              PpeDeliverySchedule? @relation("PPE_AUTO_ORDER", fields: [ppeScheduleId], references: [id])
+  supplier                 Supplier?            @relation("ORDER_SUPPLIER", fields: [supplierId], references: [id])
+  paymentResponsible       User?                @relation("ORDER_PAYMENT_RESPONSIBLE", fields: [paymentResponsibleId], references: [id])
+  paymentAssignedBy        User?                @relation("ORDER_PAYMENT_ASSIGNED_BY", fields: [paymentAssignedById], references: [id])
+  items                    OrderItem[]
+  budgets                  File[]               @relation("ORDER_BUDGETS")
+  invoices                 File[]               @relation("ORDER_INVOICES")
+  invoiceReimbursements    File[]               @relation("ORDER_INVOICE_REIMBURSEMENTS")
+  receipts                 File[]               @relation("ORDER_RECEIPTS")
+  reimbursements           File[]               @relation("ORDER_REIMBURSEMENTS")
 
   @@index([status])
   @@index([statusOrder])
   @@index([supplierId])
   @@index([createdAt])
   @@index([ppeScheduleId])
+  @@index([paymentResponsibleId])
+  @@index([paymentAssignedById])
 }
 
 model OrderItem {
@@ -1414,7 +1420,9 @@ model User {
   warningsSupervisor      Warning[]                    @relation("SUPERVISOR_WARNING")
   deployments             Deployment[]                 @relation("DEPLOYMENT_USER")
   bonusesInPeriod         Bonus[]                      @relation("BonusPeriodUsers")
-  warningsWitness         Warning[]                    @relation("WITNESS_WARNING")
+  warningsWitness                Warning[]                    @relation("WITNESS_WARNING")
+  paymentResponsibleOrders       Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
+  paymentAssignedByOrders        Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
 
   @@index([status, sectorId])
   @@index([statusOrder])

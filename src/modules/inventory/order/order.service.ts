@@ -330,10 +330,15 @@ export class OrderService {
         await this.validateOrder(data, undefined, tx);
 
         // Ensure statusOrder is set correctly
-        const orderData = {
+        const orderData: any = {
           ...data,
           statusOrder: getStatusOrder((data.status as ORDER_STATUS) || ORDER_STATUS.CREATED),
         };
+
+        // Auto-set paymentAssignedById when paymentResponsibleId is provided
+        if (orderData.paymentResponsibleId && userId) {
+          orderData.paymentAssignedById = userId;
+        }
 
         // Create the order with items
         const newOrder = await this.orderRepository.createWithTransaction(tx, orderData);
@@ -379,6 +384,15 @@ export class OrderService {
 
         if (user) {
           this.eventEmitter.emit('order.created', new OrderCreatedEvent(order, user as User));
+        }
+
+        // Emit payment assigned event if paymentResponsibleId was set
+        if ((data as any).paymentResponsibleId && userId) {
+          this.eventEmitter.emit('order.payment.assigned', {
+            order,
+            paymentResponsibleId: (data as any).paymentResponsibleId,
+            assignedById: userId,
+          });
         }
       } catch (error) {
         this.logger.error('Error emitting order created event:', error);
@@ -642,6 +656,17 @@ export class OrderService {
         // Handle special case: CREATED → RECEIVED should go through FULFILLED first
         const currentStatus = existingOrder.status as ORDER_STATUS;
         actualUpdateData = { ...data };
+
+        // Auto-set paymentAssignedById when paymentResponsibleId changes
+        if ((actualUpdateData as any).paymentResponsibleId !== undefined) {
+          if ((actualUpdateData as any).paymentResponsibleId && userId) {
+            // Assigning a responsible: set the assigner
+            (actualUpdateData as any).paymentAssignedById = userId;
+          } else if (!(actualUpdateData as any).paymentResponsibleId) {
+            // Unassigning: clear the assigner too
+            (actualUpdateData as any).paymentAssignedById = null;
+          }
+        }
 
         if (currentStatus === ORDER_STATUS.CREATED && data.status === ORDER_STATUS.RECEIVED) {
           // First, update to FULFILLED status with fulfilled dates
@@ -956,6 +981,11 @@ export class OrderService {
           'budgetId',
           'nfeId',
           'receiptId',
+          'paymentMethod',
+          'paymentPix',
+          'paymentDueDays',
+          'paymentResponsibleId',
+          'paymentAssignedById',
         ];
 
         await trackAndLogFieldChanges({
@@ -1021,6 +1051,36 @@ export class OrderService {
       } catch (error) {
         this.logger.error('Error emitting order status changed event:', error);
         // Don't fail the order update if event emission fails
+      }
+
+      // Emit payment responsible events
+      try {
+        const newPaymentResponsibleId = (actualUpdateData as any).paymentResponsibleId;
+        const oldPaymentResponsibleId = existingOrder.paymentResponsibleId;
+
+        // Payment was newly assigned or changed
+        if (newPaymentResponsibleId && newPaymentResponsibleId !== oldPaymentResponsibleId && userId) {
+          this.eventEmitter.emit('order.payment.assigned', {
+            order: updatedOrder,
+            paymentResponsibleId: newPaymentResponsibleId,
+            assignedById: userId,
+          });
+        }
+
+        // Order status changed to FULFILLED and has a paymentAssignedById — notify the assigner
+        if (
+          actualUpdateData.status === ORDER_STATUS.FULFILLED &&
+          (existingOrder.status as ORDER_STATUS) !== ORDER_STATUS.FULFILLED &&
+          updatedOrder.paymentAssignedById
+        ) {
+          this.eventEmitter.emit('order.payment.fulfilled', {
+            order: updatedOrder,
+            paymentAssignedById: updatedOrder.paymentAssignedById,
+            paymentResponsibleId: updatedOrder.paymentResponsibleId,
+          });
+        }
+      } catch (error) {
+        this.logger.error('Error emitting payment events:', error);
       }
 
       return { success: true, message: 'Pedido atualizado com sucesso.', data: updatedOrder };
@@ -1468,6 +1528,11 @@ export class OrderService {
               'budgetId',
               'nfeId',
               'receiptId',
+              'paymentMethod',
+              'paymentPix',
+              'paymentDueDays',
+              'paymentResponsibleId',
+              'paymentAssignedById',
             ];
 
             await trackAndLogFieldChanges({

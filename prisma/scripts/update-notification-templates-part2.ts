@@ -618,6 +618,42 @@ const orderTemplates: NotificationTemplate[] = [
       },
     },
   },
+  {
+    key: 'order.payment.assigned',
+    name: 'Responsável pelo Pagamento Atribuído',
+    templates: {
+      inApp: {
+        title: 'Pagamento Atribuído',
+        body: 'Você foi designado como responsável pelo pagamento do pedido #{{orderNumber}}. {{#if supplierName}}Fornecedor: {{supplierName}}.{{/if}} Atribuído por {{assignedBy}}.',
+      },
+      push: {
+        title: 'Pagamento Atribuído',
+        body: 'Pedido #{{orderNumber}} - Você é o responsável pelo pagamento',
+      },
+      email: {
+        subject: 'Pagamento Atribuído - Pedido #{{orderNumber}}',
+        body: 'Você foi designado como responsável pelo pagamento.\n\nPedido: #{{orderNumber}}\n{{#if supplierName}}Fornecedor: {{supplierName}}\n{{/if}}Atribuído por: {{assignedBy}}',
+      },
+    },
+  },
+  {
+    key: 'order.payment.fulfilled',
+    name: 'Pagamento do Pedido Realizado',
+    templates: {
+      inApp: {
+        title: 'Pagamento Realizado',
+        body: 'O pedido #{{orderNumber}} que você atribuiu a {{paymentResponsible}} foi marcado como atendido. {{#if supplierName}}Fornecedor: {{supplierName}}.{{/if}}',
+      },
+      push: {
+        title: 'Pagamento Realizado',
+        body: 'Pedido #{{orderNumber}} foi atendido por {{paymentResponsible}}',
+      },
+      email: {
+        subject: 'Pagamento Realizado - Pedido #{{orderNumber}}',
+        body: 'O pedido que você atribuiu foi marcado como atendido.\n\nPedido: #{{orderNumber}}\n{{#if supplierName}}Fornecedor: {{supplierName}}\n{{/if}}Responsável: {{paymentResponsible}}',
+      },
+    },
+  },
 ];
 
 // =============================================================================

@@ -22,6 +22,7 @@ import {
 import type { Supplier, SupplierIncludes, SupplierOrderBy } from './supplier';
 import type { Item, ItemIncludes, ItemOrderBy, ItemWhere } from './item';
 import type { File, FileIncludes } from './file';
+import type { User } from './user';
 import type {
   PpeDeliverySchedule,
   PpeDeliveryScheduleIncludes,
@@ -145,6 +146,8 @@ export interface Order extends BaseEntity {
   paymentMethod: PAYMENT_METHOD | null;
   paymentPix: string | null;
   paymentDueDays: number | null;
+  paymentResponsibleId: string | null;
+  paymentAssignedById: string | null;
 
   // Relations (optional, populated based on query)
   budgets?: File[];
@@ -153,6 +156,8 @@ export interface Order extends BaseEntity {
   reimbursements?: File[];
   invoiceReimbursements?: File[];
   supplier?: Supplier;
+  paymentResponsible?: User;
+  paymentAssignedBy?: User;
   orderSchedule?: OrderSchedule;
   ppeSchedule?: PpeDeliverySchedule;
   items?: OrderItem[];
@@ -228,6 +233,8 @@ export interface OrderIncludes {
         take?: number;
         skip?: number;
       };
+  paymentResponsible?: boolean;
+  paymentAssignedBy?: boolean;
 }
 
 export interface OrderItemIncludes {
