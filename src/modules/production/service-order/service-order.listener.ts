@@ -263,6 +263,7 @@ export class ServiceOrderListener {
           overrides: {
             webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
             relatedEntityType: 'Task',
+            relatedEntityId: serviceOrder.taskId,
           },
         },
       );
@@ -300,6 +301,7 @@ export class ServiceOrderListener {
             overrides: {
               webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
               relatedEntityType: 'Task',
+              relatedEntityId: serviceOrder.taskId,
             },
           },
           [soWithCreator.createdById],
@@ -373,6 +375,7 @@ export class ServiceOrderListener {
           overrides: {
             webUrl: `/producao/agenda/detalhes/${serviceOrder.taskId}`,
             relatedEntityType: 'Task',
+            relatedEntityId: serviceOrder.taskId,
           },
         },
       );

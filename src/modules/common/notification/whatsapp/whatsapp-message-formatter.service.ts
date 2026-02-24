@@ -512,7 +512,7 @@ ${data.url}`;
         'webUrl', 'mobileUrl', 'universalLink',
         'configKey', 'actorId',
         'entityType', 'entityId',
-        'itemId', 'taskId', 'orderId', 'serviceOrderId', 'userId',
+        'itemId', 'taskId', 'orderId', 'serviceOrderId', 'userId', 'artworkId',
         'relatedEntityType', 'relatedEntityId',
         'actionUrl', 'action',
         // Task/notification data fields (already rendered in body text)

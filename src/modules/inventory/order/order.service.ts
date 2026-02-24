@@ -748,29 +748,45 @@ export class OrderService {
           const requestedItems = actualUpdateData.items || [];
           const existingItems = existingOrder.items || [];
 
-          // Create maps for easier lookup
-          const requestedItemsMap = new Map(requestedItems.map(item => [item.itemId, item]));
-          const existingItemsMap = new Map(existingItems.map(item => [item.itemId, item]));
+          // Separate inventory items (with itemId) from temporary items (without itemId)
+          const existingInventoryItems = existingItems.filter(item => item.itemId);
+          const existingTemporaryItems = existingItems.filter(item => !item.itemId);
 
-          // Determine items to delete (existing items not in requested items)
-          const itemsToDelete = existingItems.filter(item => !requestedItemsMap.has(item.itemId));
+          const requestedInventoryItems = requestedItems.filter(item => item.itemId);
+          const requestedTemporaryItems = requestedItems.filter(item => !item.itemId);
 
-          // Determine items to add (requested items not in existing items)
-          const itemsToAdd = requestedItems.filter(item => !existingItemsMap.has(item.itemId));
+          // Create maps for inventory items lookup (by itemId)
+          const requestedInventoryMap = new Map(requestedInventoryItems.map(item => [item.itemId, item]));
+          const existingInventoryMap = new Map(existingInventoryItems.map(item => [item.itemId, item]));
 
-          // Determine items to update (requested items that exist in both)
-          const itemsToUpdate = requestedItems.filter(item => existingItemsMap.has(item.itemId));
+          // Determine inventory items to delete, add, update
+          const inventoryItemsToDelete = existingInventoryItems.filter(item => !requestedInventoryMap.has(item.itemId));
+          const inventoryItemsToAdd = requestedInventoryItems.filter(item => !existingInventoryMap.has(item.itemId));
+          const inventoryItemsToUpdate = requestedInventoryItems.filter(item => existingInventoryMap.has(item.itemId));
 
-          // Delete removed items
-          for (const item of itemsToDelete) {
+          // For temporary items: delete all existing and recreate from request
+          // This is the safest approach since temporary items don't have a stable identifier
+          const temporaryItemsToDelete = existingTemporaryItems;
+          const temporaryItemsToAdd = requestedTemporaryItems;
+
+          // Delete removed inventory items
+          for (const item of inventoryItemsToDelete) {
             await tx.orderItem.delete({
               where: { id: item.id },
             });
-            this.logger.log(`Deleted order item ${item.id} (itemId: ${item.itemId})`);
+            this.logger.log(`Deleted inventory order item ${item.id} (itemId: ${item.itemId})`);
           }
 
-          // Add new items
-          for (const item of itemsToAdd) {
+          // Delete all existing temporary items (will be recreated)
+          for (const item of temporaryItemsToDelete) {
+            await tx.orderItem.delete({
+              where: { id: item.id },
+            });
+            this.logger.log(`Deleted temporary order item ${item.id} (description: ${item.temporaryItemDescription})`);
+          }
+
+          // Add new inventory items
+          for (const item of inventoryItemsToAdd) {
             await tx.orderItem.create({
               data: {
                 orderId: id,
@@ -781,12 +797,30 @@ export class OrderService {
                 ipi: item.ipi || 0,
               },
             });
-            this.logger.log(`Added order item for itemId: ${item.itemId}`);
+            this.logger.log(`Added inventory order item for itemId: ${item.itemId}`);
           }
+
+          // Add temporary items (including temporaryItemDescription)
+          for (const item of temporaryItemsToAdd) {
+            await tx.orderItem.create({
+              data: {
+                orderId: id,
+                temporaryItemDescription: item.temporaryItemDescription,
+                orderedQuantity: item.orderedQuantity,
+                price: item.price,
+                icms: item.icms || 0,
+                ipi: item.ipi || 0,
+              },
+            });
+            this.logger.log(`Added temporary order item: ${item.temporaryItemDescription}`);
+          }
+
+          // Alias for inventory items to update (keeping variable name for changelog logic below)
+          const itemsToUpdate = inventoryItemsToUpdate;
 
           // Update existing items
           for (const item of itemsToUpdate) {
-            const existingItem = existingItemsMap.get(item.itemId) as any;
+            const existingItem = existingInventoryMap.get(item.itemId) as any;
             if (existingItem) {
               // Track changes for changelog
               const hasOrderedQuantityChange =
@@ -879,7 +913,8 @@ export class OrderService {
 
           // After modifying items, check if order status should be automatically updated
           // This handles the case where items are removed and all remaining items are received
-          if (itemsToDelete.length > 0 || itemsToUpdate.length > 0) {
+          const hasItemChanges = inventoryItemsToDelete.length > 0 || temporaryItemsToDelete.length > 0 || itemsToUpdate.length > 0 || temporaryItemsToAdd.length > 0;
+          if (hasItemChanges) {
             this.logger.log(
               `Checking order received status after item modifications for order ${id}`,
             );
