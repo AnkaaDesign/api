@@ -23,6 +23,8 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Request, Response } from 'express';
 import { FileService } from './file.service';
 import { FilesStorageService } from './services/files-storage.service';
+import { FileOrganizationSchedulerService } from './services/file-organization-scheduler.service';
+import { FileMigrationService } from './services/file-migration.service';
 import { multerConfig } from './config/upload.config';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
@@ -76,6 +78,8 @@ export class FileController {
   constructor(
     private readonly fileService: FileService,
     private readonly filesStorageService: FilesStorageService,
+    private readonly fileOrganizationScheduler: FileOrganizationSchedulerService,
+    private readonly fileMigrationService: FileMigrationService,
   ) {}
 
   // File Upload Endpoints - Static routes first
@@ -91,6 +95,10 @@ export class FileController {
     @Query('entityType') entityType?: string,
     @Query('projectId') projectId?: string,
     @Query('projectName') projectName?: string,
+    @Query('customerName') customerName?: string,
+    @Query('supplierName') supplierName?: string,
+    @Query('userName') userName?: string,
+    @Query('cutType') cutType?: string,
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileCreateResponse> {
@@ -103,6 +111,10 @@ export class FileController {
       entityType,
       projectId,
       projectName,
+      customerName,
+      supplierName,
+      userName,
+      cutType,
     });
   }
 
@@ -117,6 +129,10 @@ export class FileController {
     @Query('entityType') entityType?: string,
     @Query('projectId') projectId?: string,
     @Query('projectName') projectName?: string,
+    @Query('customerName') customerName?: string,
+    @Query('supplierName') supplierName?: string,
+    @Query('userName') userName?: string,
+    @Query('cutType') cutType?: string,
     @Query(new ZodQueryValidationPipe(fileQuerySchema)) query?: FileQueryFormData,
     @UserId() userId?: string,
   ): Promise<FileBatchCreateResponse<FileCreateFormData>> {
@@ -133,6 +149,10 @@ export class FileController {
           entityType,
           projectId,
           projectName,
+          customerName,
+          supplierName,
+          userName,
+          cutType,
         });
         if (result.data) successful.push(result.data);
       } catch (error: any) {
@@ -266,6 +286,130 @@ export class FileController {
     @UserId() userId: string,
   ): Promise<FileBatchDeleteResponse> {
     return this.fileService.batchDelete(data, userId);
+  }
+
+  // File Organization Endpoints
+  @Get('organization/status')
+  @WriteRateLimit()
+  async getOrganizationStatus(): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const report = await this.fileOrganizationScheduler.getOrganizationReport();
+    return {
+      success: true,
+      data: report,
+      message: 'Relatório de organização de arquivos gerado.',
+    };
+  }
+
+  @Post('organization/trigger')
+  @HttpCode(HttpStatus.OK)
+  @WriteRateLimit()
+  async triggerOrganization(): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const result = await this.fileOrganizationScheduler.triggerManualOrganization();
+    return {
+      success: result.success,
+      data: result.stats,
+      message: result.message,
+    };
+  }
+
+  // File Migration Endpoints
+  @Get('migration/analysis')
+  @WriteRateLimit()
+  async getMigrationAnalysis(): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const report = await this.fileMigrationService.getStorageAnalysisReport();
+    return {
+      success: true,
+      data: report,
+      message: 'Relatório de análise de armazenamento gerado.',
+    };
+  }
+
+  @Get('migration/root-files')
+  @WriteRateLimit()
+  async getRootFiles(): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const report = await this.fileMigrationService.scanRootFiles();
+    return {
+      success: true,
+      data: report,
+      message: 'Arquivos na raiz escaneados.',
+    };
+  }
+
+  @Get('migration/duplicates')
+  @WriteRateLimit()
+  async getDuplicateCustomers(): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const report = await this.fileMigrationService.findDuplicateCustomers();
+    return {
+      success: true,
+      data: report,
+      message: 'Clientes duplicados identificados.',
+    };
+  }
+
+  @Post('migration/run')
+  @HttpCode(HttpStatus.OK)
+  @WriteRateLimit()
+  async runMigration(
+    @Query('dryRun') dryRun?: string,
+  ): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const isDryRun = dryRun !== 'false';
+    const result = await this.fileMigrationService.migrateRootFiles(isDryRun);
+    return {
+      success: result.errors.length === 0,
+      data: result,
+      message: isDryRun
+        ? `Simulação de migração: ${result.matched} arquivos podem ser movidos.`
+        : `Migração concluída: ${result.moved} arquivos movidos.`,
+    };
+  }
+
+  @Post('migration/consolidate')
+  @HttpCode(HttpStatus.OK)
+  @WriteRateLimit()
+  async consolidateCustomers(
+    @Body() body: { primaryCustomerId: string; secondaryCustomerIds: string[]; dryRun?: boolean },
+  ): Promise<{
+    success: boolean;
+    data: any;
+    message: string;
+  }> {
+    const isDryRun = body.dryRun !== false;
+    const result = await this.fileMigrationService.consolidateCustomerFolders(
+      body.primaryCustomerId,
+      body.secondaryCustomerIds,
+      isDryRun,
+    );
+    return {
+      success: result.errors.length === 0,
+      data: result,
+      message: isDryRun
+        ? `Simulação: ${result.matched} arquivos podem ser consolidados.`
+        : `Consolidação concluída: ${result.moved} arquivos movidos.`,
+    };
   }
 
   // Dynamic routes last
