@@ -130,6 +130,9 @@ export class TaskController {
         { name: 'bankSlips', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
+        { name: 'projectFiles', maxCount: 30 },
+        { name: 'checkinFiles', maxCount: 20 },
+        { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
@@ -231,6 +234,9 @@ export class TaskController {
         { name: 'bankSlips', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
+        { name: 'projectFiles', maxCount: 30 },
+        { name: 'checkinFiles', maxCount: 20 },
+        { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         // Layout photos for bulk layout operations
         { name: 'layoutPhotos.leftSide', maxCount: 1 },
@@ -638,6 +644,9 @@ export class TaskController {
         { name: 'bankSlips', maxCount: 10 },
         { name: 'artworks', maxCount: 10 },
         { name: 'baseFiles', maxCount: 30 },
+        { name: 'projectFiles', maxCount: 30 },
+        { name: 'checkinFiles', maxCount: 20 },
+        { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
         // Pricing layout file

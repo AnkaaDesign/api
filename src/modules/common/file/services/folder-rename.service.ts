@@ -125,87 +125,17 @@ export class FolderRenameService {
       return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
     }
 
-    let totalFoldersRenamed = 0;
-    let totalFilesUpdated = 0;
+    // Entity-first layout: single rename of Clientes/{customerName}
+    const oldPath = join(this.filesRoot, 'Clientes', oldSanitized);
+    const newPath = join(this.filesRoot, 'Clientes', newSanitized);
 
-    // List of all folders that use customer fantasyName
-    const foldersToRename = [
-      // Projetos/{customerFantasyName} - Contains Imagens and PDFs subfolders
-      { base: 'Projetos', name: oldSanitized },
-
-      // Orcamentos/Tarefas/{customerFantasyName}
-      { base: 'Orcamentos/Tarefas', name: oldSanitized },
-
-      // Notas Fiscais/Tarefas/{customerFantasyName}
-      { base: 'Notas Fiscais/Tarefas', name: oldSanitized },
-
-      // Comprovantes/Tarefas/{customerFantasyName}
-      { base: 'Comprovantes/Tarefas', name: oldSanitized },
-
-      // Reembolsos/Tarefas/{customerFantasyName}
-      { base: 'Reembolsos/Tarefas', name: oldSanitized },
-
-      // Notas Fiscais Reembolso/Tarefas/{customerFantasyName}
-      { base: 'Notas Fiscais Reembolso/Tarefas', name: oldSanitized },
-
-      // Recortes/{customerFantasyName}
-      { base: 'Recortes', name: oldSanitized },
-
-      // Aerografias/{customerFantasyName}
-      { base: 'Aerografias', name: oldSanitized },
-
-      // Orcamentos/Aerografias/{customerFantasyName}
-      { base: 'Orcamentos/Aerografias', name: oldSanitized },
-
-      // Notas Fiscais/Aerografias/{customerFantasyName}
-      { base: 'Notas Fiscais/Aerografias', name: oldSanitized },
-
-      // Comprovantes/Aerografias/{customerFantasyName}
-      { base: 'Comprovantes/Aerografias', name: oldSanitized },
-
-      // Reembolsos/Aerografias/{customerFantasyName}
-      { base: 'Reembolsos/Aerografias', name: oldSanitized },
-
-      // Notas Fiscais Reembolso/Aerografias/{customerFantasyName}
-      { base: 'Notas Fiscais Reembolso/Aerografias', name: oldSanitized },
-
-      // Notas Fiscais/RetiradasExternas/{customerFantasyName}
-      { base: 'Notas Fiscais/RetiradasExternas', name: oldSanitized },
-
-      // Comprovantes/RetiradasExternas/{customerFantasyName}
-      { base: 'Comprovantes/RetiradasExternas', name: oldSanitized },
-
-      // Reembolsos/RetiradasExternas/{customerFantasyName}
-      { base: 'Reembolsos/RetiradasExternas', name: oldSanitized },
-
-      // Notas Fiscais Reembolso/RetiradasExternas/{customerFantasyName}
-      { base: 'Notas Fiscais Reembolso/RetiradasExternas', name: oldSanitized },
-
-      // Logos/Clientes/{customerFantasyName}
-      { base: 'Logos/Clientes', name: oldSanitized },
-
-      // Observacoes/{customerFantasyName}
-      { base: 'Observacoes', name: oldSanitized },
-
-      // Plotter/{customerFantasyName} - Contains Espovo and Adesivo subfolders
-      { base: 'Plotter', name: oldSanitized },
-    ];
-
-    // Rename each folder
-    for (const folder of foldersToRename) {
-      const oldPath = join(this.filesRoot, folder.base, folder.name);
-      const newPath = join(this.filesRoot, folder.base, newSanitized);
-
-      const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-      totalFoldersRenamed += result.foldersRenamed;
-      totalFilesUpdated += result.filesUpdated;
-    }
+    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
 
     this.logger.log(
-      `Customer folder rename complete: ${totalFoldersRenamed} folders renamed, ${totalFilesUpdated} files updated`,
+      `Customer folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
     );
 
-    return { totalFoldersRenamed, totalFilesUpdated };
+    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
   }
 
   /**
@@ -227,45 +157,17 @@ export class FolderRenameService {
       return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
     }
 
-    let totalFoldersRenamed = 0;
-    let totalFilesUpdated = 0;
+    // Entity-first layout: single rename of Fornecedores/{supplierName}
+    const oldPath = join(this.filesRoot, 'Fornecedores', oldSanitized);
+    const newPath = join(this.filesRoot, 'Fornecedores', newSanitized);
 
-    // List of all folders that use supplier fantasyName
-    const foldersToRename = [
-      // Orcamentos/Pedidos/{supplierFantasyName}
-      { base: 'Orcamentos/Pedidos', name: oldSanitized },
-
-      // Notas Fiscais/Pedidos/{supplierFantasyName}
-      { base: 'Notas Fiscais/Pedidos', name: oldSanitized },
-
-      // Comprovantes/Pedidos/{supplierFantasyName}
-      { base: 'Comprovantes/Pedidos', name: oldSanitized },
-
-      // Reembolsos/Pedidos/{supplierFantasyName}
-      { base: 'Reembolsos/Pedidos', name: oldSanitized },
-
-      // Notas Fiscais Reembolso/Pedidos/{supplierFantasyName}
-      { base: 'Notas Fiscais Reembolso/Pedidos', name: oldSanitized },
-
-      // Logos/Fornecedores/{supplierFantasyName}
-      { base: 'Logos/Fornecedores', name: oldSanitized },
-    ];
-
-    // Rename each folder
-    for (const folder of foldersToRename) {
-      const oldPath = join(this.filesRoot, folder.base, folder.name);
-      const newPath = join(this.filesRoot, folder.base, newSanitized);
-
-      const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-      totalFoldersRenamed += result.foldersRenamed;
-      totalFilesUpdated += result.filesUpdated;
-    }
+    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
 
     this.logger.log(
-      `Supplier folder rename complete: ${totalFoldersRenamed} folders renamed, ${totalFilesUpdated} files updated`,
+      `Supplier folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
     );
 
-    return { totalFoldersRenamed, totalFilesUpdated };
+    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
   }
 
   /**
@@ -287,33 +189,17 @@ export class FolderRenameService {
       return { totalFoldersRenamed: 0, totalFilesUpdated: 0 };
     }
 
-    let totalFoldersRenamed = 0;
-    let totalFilesUpdated = 0;
+    // Entity-first layout: single rename of Colaboradores/{userName}
+    const oldPath = join(this.filesRoot, 'Colaboradores', oldSanitized);
+    const newPath = join(this.filesRoot, 'Colaboradores', newSanitized);
 
-    // List of all folders that use user name
-    const foldersToRename = [
-      // Colaboradores/{userName}
-      { base: 'Colaboradores', name: oldSanitized },
-
-      // Advertencias/{userName}
-      { base: 'Advertencias', name: oldSanitized },
-    ];
-
-    // Rename each folder
-    for (const folder of foldersToRename) {
-      const oldPath = join(this.filesRoot, folder.base, folder.name);
-      const newPath = join(this.filesRoot, folder.base, newSanitized);
-
-      const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
-      totalFoldersRenamed += result.foldersRenamed;
-      totalFilesUpdated += result.filesUpdated;
-    }
+    const result = await this.renameFolderAndUpdatePaths(oldPath, newPath, tx);
 
     this.logger.log(
-      `User folder rename complete: ${totalFoldersRenamed} folders renamed, ${totalFilesUpdated} files updated`,
+      `User folder rename complete: ${result.foldersRenamed} folders renamed, ${result.filesUpdated} files updated`,
     );
 
-    return { totalFoldersRenamed, totalFilesUpdated };
+    return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
   }
 
   /**

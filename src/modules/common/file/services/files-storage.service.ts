@@ -23,6 +23,9 @@ export interface FilesFolderMapping {
   taskNfeReimbursements: string;
   cutFiles: string;
   taskBaseFiles: string;
+  taskProjectFiles: string;
+  taskCheckinFiles: string;
+  taskCheckoutFiles: string;
 
   // Entity-specific folders - Orders
   orderBudgets: string;
@@ -102,54 +105,58 @@ export class FilesStorageService {
   private readonly filesRoot = process.env.FILES_ROOT || './files';
 
   /**
-   * Folder structure mapping - matches physical folder structure in /srv/files
+   * Folder structure mapping — suffix after entity root (Clientes/{name}/ or Fornecedores/{name}/)
+   * For non-entity contexts (user, root-level), these are full paths from filesRoot.
    */
   private readonly folderMapping: FilesFolderMapping = {
-    // Task folders (organized by customer fantasyName)
-    tasksArtworks: 'Projetos',
-    taskBudgets: 'Orcamentos/Tarefas',
-    taskInvoices: 'Notas Fiscais/Tarefas',
-    taskReceipts: 'Comprovantes/Tarefas',
-    taskBankSlips: 'Boletos/Tarefas',
-    taskReimbursements: 'Reembolsos/Tarefas',
-    taskNfeReimbursements: 'Notas Fiscais Reembolso/Tarefas',
+    // Task folders (under Clientes/{customerName}/)
+    tasksArtworks: 'Layouts',
+    taskBudgets: 'Orcamentos',
+    taskInvoices: 'Notas Fiscais',
+    taskReceipts: 'Comprovantes',
+    taskBankSlips: 'Boletos',
+    taskReimbursements: 'Reembolsos',
+    taskNfeReimbursements: 'Notas Fiscais Reembolso',
     cutFiles: 'Plotter',
-    taskBaseFiles: 'Arquivos Clientes',
+    taskBaseFiles: 'Outros',
+    taskProjectFiles: 'Projetos',
+    taskCheckinFiles: 'Checkin',
+    taskCheckoutFiles: 'Checkout',
 
-    // Order folders
-    orderBudgets: 'Orcamentos/Pedidos',
-    orderInvoices: 'Notas Fiscais/Pedidos',
-    orderReceipts: 'Comprovantes/Pedidos',
-    orderReimbursements: 'Reembolsos/Pedidos',
-    orderNfeReimbursements: 'Notas Fiscais Reembolso/Pedidos',
+    // Order folders (under Fornecedores/{supplierName}/)
+    orderBudgets: 'Orcamentos',
+    orderInvoices: 'Notas Fiscais',
+    orderReceipts: 'Comprovantes',
+    orderReimbursements: 'Reembolsos',
+    orderNfeReimbursements: 'Notas Fiscais Reembolso',
 
-    // Airbrushing folders
+    // Airbrushing folders (under Clientes/{customerName}/)
     airbrushingArtworks: 'Aerografias',
-    airbrushingBudgets: 'Orcamentos/Aerografias',
-    airbrushingInvoices: 'Notas Fiscais/Aerografias',
-    airbrushingReceipts: 'Comprovantes/Aerografias',
-    airbrushingReimbursements: 'Reembolsos/Aerografias',
-    airbrushingNfeReimbursements: 'Notas Fiscais Reembolso/Aerografias',
+    airbrushingBudgets: 'Aerografias/Orcamentos',
+    airbrushingInvoices: 'Aerografias/Notas Fiscais',
+    airbrushingReceipts: 'Aerografias/Comprovantes',
+    airbrushingReimbursements: 'Aerografias/Reembolsos',
+    airbrushingNfeReimbursements: 'Aerografias/Notas Fiscais Reembolso',
 
-    // External Withdrawal folders
+    // External Withdrawal folders (root-level, not entity-based)
     externalWithdrawalInvoices: 'Notas Fiscais/RetiradasExternas',
     externalWithdrawalReceipts: 'Comprovantes/RetiradasExternas',
     externalWithdrawalReimbursements: 'Reembolsos/RetiradasExternas',
     externalWithdrawalNfeReimbursements: 'Notas Fiscais Reembolso/RetiradasExternas',
 
-    // Logo folders
-    customerLogo: 'Logos/Clientes',
-    supplierLogo: 'Logos/Fornecedores',
+    // Logo folders (under respective entity root)
+    customerLogo: 'Logo',
+    supplierLogo: 'Logo',
 
-    // User folders
-    userAvatar: 'Colaboradores',
-    signedPpeDocuments: 'Colaboradores/Documentos',
+    // User folders (under Colaboradores/{userName}/)
+    userAvatar: 'Fotos',
+    signedPpeDocuments: 'EPIs',
 
     // Other entity folders
     observations: 'Observacoes',
     warning: 'Advertencias',
-    layoutPhotos: 'Auxiliares/Traseiras/Fotos',
-    'pricing-layouts': 'Layouts/Orcamentos',
+    layoutPhotos: 'Traseiras',
+    'pricing-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
     thumbnails: 'Thumbnails',
@@ -217,6 +224,79 @@ export class FilesStorageService {
   };
 
   /**
+   * Contexts that belong under Clientes/{customerName}/
+   */
+  private readonly customerContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
+    'tasksArtworks',
+    'taskBudgets',
+    'taskInvoices',
+    'taskReceipts',
+    'taskBankSlips',
+    'taskReimbursements',
+    'taskNfeReimbursements',
+    'cutFiles',
+    'taskBaseFiles',
+    'taskProjectFiles',
+    'taskCheckinFiles',
+    'taskCheckoutFiles',
+    'airbrushingArtworks',
+    'airbrushingBudgets',
+    'airbrushingInvoices',
+    'airbrushingReceipts',
+    'airbrushingReimbursements',
+    'airbrushingNfeReimbursements',
+    'customerLogo',
+    'observations',
+    'layoutPhotos',
+    'pricing-layouts',
+    'plotterEspovo',
+    'plotterAdesivo',
+  ]);
+
+  /**
+   * Contexts that belong under Fornecedores/{supplierName}/
+   */
+  private readonly supplierContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
+    'orderBudgets',
+    'orderInvoices',
+    'orderReceipts',
+    'orderReimbursements',
+    'orderNfeReimbursements',
+    'supplierLogo',
+  ]);
+
+  /**
+   * Contexts that belong under Colaboradores/{userName}/
+   */
+  private readonly userContexts: ReadonlySet<keyof FilesFolderMapping> = new Set([
+    'userAvatar',
+    'signedPpeDocuments',
+    'warning',
+  ]);
+
+  /**
+   * Determine entity root and entity name for a given context.
+   * Returns null for non-entity contexts (root-level).
+   */
+  private getEntityRoot(
+    fileContext: keyof FilesFolderMapping,
+    customerName?: string,
+    supplierName?: string,
+    userName?: string,
+  ): { root: string; entityName: string } | null {
+    if (this.customerContexts.has(fileContext) && customerName) {
+      return { root: 'Clientes', entityName: this.sanitizeFileName(customerName) };
+    }
+    if (this.supplierContexts.has(fileContext) && supplierName) {
+      return { root: 'Fornecedores', entityName: this.sanitizeFileName(supplierName) };
+    }
+    if (this.userContexts.has(fileContext) && userName) {
+      return { root: 'Colaboradores', entityName: this.sanitizeFileName(userName) };
+    }
+    return null;
+  }
+
+  /**
    * Get files storage folder path based on file context
    */
   getFolderPath(
@@ -233,11 +313,11 @@ export class FilesStorageService {
     thumbnailSize?: string,
     paintName?: string,
   ): string {
-    let folderPath: string;
+    let contextSuffix: string;
 
     // Priority 1: Specific entity context
     if (fileContext && this.folderMapping[fileContext]) {
-      folderPath = this.folderMapping[fileContext];
+      contextSuffix = this.folderMapping[fileContext];
     }
     // Priority 2: File type-based routing
     else {
@@ -245,138 +325,65 @@ export class FilesStorageService {
 
       switch (category) {
         case FileTypeCategory.IMAGE:
-          folderPath = this.folderMapping.images;
+          contextSuffix = this.folderMapping.images;
           break;
         case FileTypeCategory.DOCUMENT:
-          folderPath = this.folderMapping.documents;
+          contextSuffix = this.folderMapping.documents;
           break;
         case FileTypeCategory.ARCHIVE:
-          folderPath = this.folderMapping.archives;
+          contextSuffix = this.folderMapping.archives;
           break;
         case FileTypeCategory.ARTWORK:
-          folderPath = this.folderMapping.tasksArtworks;
+          contextSuffix = this.folderMapping.tasksArtworks;
           break;
         default:
-          folderPath = this.folderMapping.general;
+          contextSuffix = this.folderMapping.general;
       }
     }
 
-    // Handle specific contexts with custom logic
+    // Build entity-first path if applicable
+    let folderPath: string;
+
     if (fileContext) {
-      // PLOTTER: Add customer folder + cut type (Espovo/Adesivo)
+      const entityRoot = this.getEntityRoot(fileContext, customerName, supplierName, userName);
+
+      if (entityRoot) {
+        // Entity-first: {root}/{entityName}/{contextSuffix}
+        folderPath = join(entityRoot.root, entityRoot.entityName, contextSuffix);
+      } else if (this.customerContexts.has(fileContext)) {
+        // Customer context but no customer name yet — catch-all folder
+        folderPath = join('Clientes', 'Outros', contextSuffix);
+      } else if (this.supplierContexts.has(fileContext)) {
+        // Supplier context but no supplier name yet — catch-all folder
+        folderPath = join('Fornecedores', 'Outros', contextSuffix);
+      } else if (this.userContexts.has(fileContext)) {
+        // User context but no user name yet — catch-all folder
+        folderPath = join('Colaboradores', 'Outros', contextSuffix);
+      } else {
+        // Non-entity context: direct path from root
+        folderPath = contextSuffix;
+      }
+
+      // Apply sub-folder logic for specific contexts
       if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
-        if (customerName) {
-          const sanitizedCustomerName = this.sanitizeFileName(customerName);
-          const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
-          folderPath = join(folderPath, sanitizedCustomerName, cutSubfolder);
-        }
-      }
-      // PROJETOS: Add customer folder for task artworks
-      else if (fileContext === 'tasksArtworks') {
-        if (customerName) {
-          const sanitizedCustomerName = this.sanitizeFileName(customerName);
-          const isPdf = mimetype === 'application/pdf';
-          const subfolder = isPdf ? 'PDFs' : 'Imagens';
-          folderPath = join(folderPath, sanitizedCustomerName, subfolder);
-        }
-      }
-      // LOGOS: Add customer or supplier folder
-      else if (fileContext === 'customerLogo' && customerName) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      } else if (fileContext === 'supplierLogo' && supplierName) {
-        const sanitizedSupplierName = this.sanitizeFileName(supplierName);
-        folderPath = join(folderPath, sanitizedSupplierName);
-      }
-      // OBSERVACOES: Add customer folder
-      else if (fileContext === 'observations' && customerName) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      }
-      // ADVERTENCIAS: Add user folder
-      else if (fileContext === 'warning' && userName) {
-        const sanitizedUserName = this.sanitizeFileName(userName);
-        folderPath = join(folderPath, sanitizedUserName);
-      }
-      // TASKS: Add customer folder for task-related files
-      else if (
-        (fileContext === 'taskBudgets' ||
-          fileContext === 'taskInvoices' ||
-          fileContext === 'taskReceipts' ||
-          fileContext === 'taskReimbursements' ||
-          fileContext === 'taskNfeReimbursements') &&
-        customerName
-      ) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      }
-      // CUT FILES: Add customer folder
-      else if (fileContext === 'cutFiles' && customerName) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      }
-      // TASK BASE FILES: Add customer folder + Imagens/Documentos subfolder
-      else if (fileContext === 'taskBaseFiles' && customerName) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
+        const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
+        folderPath = join(folderPath, cutSubfolder);
+      } else if (fileContext === 'tasksArtworks' || fileContext === 'pricing-layouts') {
+        const isPdf = mimetype === 'application/pdf';
+        folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
+      } else if (fileContext === 'taskBaseFiles') {
         const isImage = mimetype.startsWith('image/');
-        const subfolder = isImage ? 'Imagens' : 'Documentos';
-        folderPath = join(folderPath, sanitizedCustomerName, subfolder);
-      }
-      // AIRBRUSHING: Add customer folder
-      else if (
-        (fileContext === 'airbrushingArtworks' ||
-          fileContext === 'airbrushingBudgets' ||
-          fileContext === 'airbrushingInvoices' ||
-          fileContext === 'airbrushingReceipts' ||
-          fileContext === 'airbrushingReimbursements' ||
-          fileContext === 'airbrushingNfeReimbursements') &&
-        customerName
-      ) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      }
-      // EXTERNAL WITHDRAWALS: Add customer folder
-      else if (
-        (fileContext === 'externalWithdrawalInvoices' ||
-          fileContext === 'externalWithdrawalReceipts' ||
-          fileContext === 'externalWithdrawalReimbursements' ||
-          fileContext === 'externalWithdrawalNfeReimbursements') &&
-        customerName
-      ) {
-        const sanitizedCustomerName = this.sanitizeFileName(customerName);
-        folderPath = join(folderPath, sanitizedCustomerName);
-      }
-      // ORDERS: Add supplier folder
-      else if (
-        (fileContext === 'orderBudgets' ||
-          fileContext === 'orderInvoices' ||
-          fileContext === 'orderReceipts' ||
-          fileContext === 'orderReimbursements' ||
-          fileContext === 'orderNfeReimbursements') &&
-        supplierName
-      ) {
-        const sanitizedSupplierName = this.sanitizeFileName(supplierName);
-        folderPath = join(folderPath, sanitizedSupplierName);
-      }
-      // USER AVATAR: Add user folder
-      else if (fileContext === 'userAvatar' && userName) {
-        const sanitizedUserName = this.sanitizeFileName(userName);
-        folderPath = join(folderPath, sanitizedUserName);
-      }
-      // SIGNED PPE DOCUMENTS: Add user folder
-      else if (fileContext === 'signedPpeDocuments' && userName) {
-        const sanitizedUserName = this.sanitizeFileName(userName);
-        folderPath = join(folderPath, sanitizedUserName);
-      }
-      // THUMBNAILS: Add size folder
-      else if (fileContext === 'thumbnails' && thumbnailSize) {
+        folderPath = join(folderPath, isImage ? 'Imagens' : 'Documentos');
+      } else if (fileContext === 'taskProjectFiles') {
+        const isPdf = mimetype === 'application/pdf';
+        folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
+      } else if (fileContext === 'thumbnails' && thumbnailSize) {
         folderPath = join(folderPath, thumbnailSize);
+      } else if (fileContext === 'paintColor' && paintName) {
+        folderPath = join(folderPath, this.sanitizeFileName(paintName));
       }
-      // PAINT COLOR: Add paint name folder
-      else if (fileContext === 'paintColor' && paintName) {
-        const sanitizedPaintName = this.sanitizeFileName(paintName);
-        folderPath = join(folderPath, sanitizedPaintName);
-      }
+    } else {
+      folderPath = contextSuffix;
     }
 
     // Add project-specific subfolder if provided

@@ -49,8 +49,13 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   taskNfeReimbursements: 'customer',
   cutFiles: 'customer',
   taskBaseFiles: 'customer',
+  taskProjectFiles: 'customer',
+  taskCheckinFiles: 'customer',
+  taskCheckoutFiles: 'customer',
   customerLogo: 'customer',
   observations: 'customer',
+  layoutPhotos: 'customer',
+  'pricing-layouts': 'customer',
   plotterEspovo: 'customer',
   plotterAdesivo: 'customer',
   airbrushingArtworks: 'customer',
@@ -59,9 +64,6 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   airbrushingReceipts: 'customer',
   airbrushingReimbursements: 'customer',
   airbrushingNfeReimbursements: 'customer',
-  // Note: ExternalWithdrawal doesn't have customer relation in schema
-  // externalWithdrawalInvoices: 'customer',
-  // externalWithdrawalReceipts: 'customer',
 
   // Supplier-based contexts
   supplierLogo: 'supplier',
@@ -76,12 +78,14 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   warning: 'user',
   signedPpeDocuments: 'user',
 
-  // No entity name required
+  // No entity name required (root-level or non-entity)
+  externalWithdrawalInvoices: null,
+  externalWithdrawalReceipts: null,
+  externalWithdrawalReimbursements: null,
+  externalWithdrawalNfeReimbursements: null,
   thumbnails: null,
   paintColor: null,
   messageImages: null,
-  layoutPhotos: null,
-  'pricing-layouts': null,
   general: null,
   images: null,
   documents: null,
@@ -90,34 +94,54 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
 };
 
 /**
- * File context detection mapping - maps folder patterns to file contexts
+ * File context detection mapping - maps folder patterns to file contexts.
+ * Order matters: more specific patterns must come before more general ones.
+ * Entity-first paths: Clientes/{name}/{suffix}/ and Fornecedores/{name}/{suffix}/
  */
 const FOLDER_TO_CONTEXT_MAP: Array<{ pattern: RegExp; context: keyof FilesFolderMapping }> = [
-  { pattern: /\/Projetos\//, context: 'tasksArtworks' },
-  { pattern: /\/Orcamentos\/Tarefas\//, context: 'taskBudgets' },
-  { pattern: /\/Notas Fiscais\/Tarefas\//, context: 'taskInvoices' },
-  { pattern: /\/Comprovantes\/Tarefas\//, context: 'taskReceipts' },
-  { pattern: /\/Reembolsos\/Tarefas\//, context: 'taskReimbursements' },
-  { pattern: /\/Notas Fiscais Reembolso\/Tarefas\//, context: 'taskNfeReimbursements' },
-  { pattern: /\/Plotter\//, context: 'cutFiles' },
-  { pattern: /\/Arquivos Clientes\//, context: 'taskBaseFiles' },
-  { pattern: /\/Orcamentos\/Pedidos\//, context: 'orderBudgets' },
-  { pattern: /\/Notas Fiscais\/Pedidos\//, context: 'orderInvoices' },
-  { pattern: /\/Comprovantes\/Pedidos\//, context: 'orderReceipts' },
-  { pattern: /\/Reembolsos\/Pedidos\//, context: 'orderReimbursements' },
-  { pattern: /\/Notas Fiscais Reembolso\/Pedidos\//, context: 'orderNfeReimbursements' },
-  { pattern: /\/Aerografias\//, context: 'airbrushingArtworks' },
-  { pattern: /\/Orcamentos\/Aerografias\//, context: 'airbrushingBudgets' },
-  { pattern: /\/Notas Fiscais\/Aerografias\//, context: 'airbrushingInvoices' },
-  { pattern: /\/Comprovantes\/Aerografias\//, context: 'airbrushingReceipts' },
-  { pattern: /\/Reembolsos\/Aerografias\//, context: 'airbrushingReimbursements' },
-  { pattern: /\/Notas Fiscais Reembolso\/Aerografias\//, context: 'airbrushingNfeReimbursements' },
-  { pattern: /\/Logos\/Clientes\//, context: 'customerLogo' },
-  { pattern: /\/Logos\/Fornecedores\//, context: 'supplierLogo' },
-  { pattern: /\/Colaboradores\/Documentos\//, context: 'signedPpeDocuments' },
-  { pattern: /\/Colaboradores\//, context: 'userAvatar' },
-  { pattern: /\/Advertencias\//, context: 'warning' },
-  { pattern: /\/Observacoes\//, context: 'observations' },
+  // Airbrushing (more specific — must come before generic Aerografias)
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Notas Fiscais Reembolso\//, context: 'airbrushingNfeReimbursements' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Notas Fiscais\//, context: 'airbrushingInvoices' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Orcamentos\//, context: 'airbrushingBudgets' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Comprovantes\//, context: 'airbrushingReceipts' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\/Reembolsos\//, context: 'airbrushingReimbursements' },
+  { pattern: /\/Clientes\/[^/]+\/Aerografias\//, context: 'airbrushingArtworks' },
+
+  // Customer contexts
+  { pattern: /\/Clientes\/[^/]+\/Layouts\//, context: 'tasksArtworks' },
+  { pattern: /\/Clientes\/[^/]+\/Projetos\//, context: 'taskProjectFiles' },
+  { pattern: /\/Clientes\/[^/]+\/Checkin\//, context: 'taskCheckinFiles' },
+  { pattern: /\/Clientes\/[^/]+\/Checkout\//, context: 'taskCheckoutFiles' },
+  { pattern: /\/Clientes\/[^/]+\/Traseiras\//, context: 'layoutPhotos' },
+  { pattern: /\/Clientes\/[^/]+\/Notas Fiscais Reembolso\//, context: 'taskNfeReimbursements' },
+  { pattern: /\/Clientes\/[^/]+\/Notas Fiscais\//, context: 'taskInvoices' },
+  { pattern: /\/Clientes\/[^/]+\/Orcamentos\//, context: 'taskBudgets' },
+  { pattern: /\/Clientes\/[^/]+\/Comprovantes\//, context: 'taskReceipts' },
+  { pattern: /\/Clientes\/[^/]+\/Boletos\//, context: 'taskBankSlips' },
+  { pattern: /\/Clientes\/[^/]+\/Reembolsos\//, context: 'taskReimbursements' },
+  { pattern: /\/Clientes\/[^/]+\/Plotter\//, context: 'cutFiles' },
+  { pattern: /\/Clientes\/[^/]+\/Outros\//, context: 'taskBaseFiles' },
+  { pattern: /\/Clientes\/[^/]+\/Observacoes\//, context: 'observations' },
+  { pattern: /\/Clientes\/[^/]+\/Logo\//, context: 'customerLogo' },
+
+  // Supplier contexts
+  { pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais Reembolso\//, context: 'orderNfeReimbursements' },
+  { pattern: /\/Fornecedores\/[^/]+\/Notas Fiscais\//, context: 'orderInvoices' },
+  { pattern: /\/Fornecedores\/[^/]+\/Orcamentos\//, context: 'orderBudgets' },
+  { pattern: /\/Fornecedores\/[^/]+\/Comprovantes\//, context: 'orderReceipts' },
+  { pattern: /\/Fornecedores\/[^/]+\/Reembolsos\//, context: 'orderReimbursements' },
+  { pattern: /\/Fornecedores\/[^/]+\/Logo\//, context: 'supplierLogo' },
+
+  // External withdrawal (root-level, not entity-based)
+  { pattern: /\/Notas Fiscais Reembolso\/RetiradasExternas\//, context: 'externalWithdrawalNfeReimbursements' },
+  { pattern: /\/Notas Fiscais\/RetiradasExternas\//, context: 'externalWithdrawalInvoices' },
+  { pattern: /\/Comprovantes\/RetiradasExternas\//, context: 'externalWithdrawalReceipts' },
+  { pattern: /\/Reembolsos\/RetiradasExternas\//, context: 'externalWithdrawalReimbursements' },
+
+  // User contexts (entity-first: Colaboradores/{userName}/{subfolder}/)
+  { pattern: /\/Colaboradores\/[^/]+\/EPIs\//, context: 'signedPpeDocuments' },
+  { pattern: /\/Colaboradores\/[^/]+\/Advertencias\//, context: 'warning' },
+  { pattern: /\/Colaboradores\/[^/]+\/Fotos\//, context: 'userAvatar' },
 ];
 
 @Injectable()
@@ -190,24 +214,23 @@ export class FileOrganizationSchedulerService {
   }
 
   /**
-   * Check if a file path contains the expected entity name subfolder
+   * Check if a file path contains the expected entity name in the entity-first structure.
+   * Entity-first paths: /Clientes/{name}/... or /Fornecedores/{name}/...
    */
   private pathContainsEntityName(
     path: string,
     entityName: string,
-    context: keyof FilesFolderMapping,
+    _context: keyof FilesFolderMapping,
   ): boolean {
     const sanitizedName = this.sanitizeFolderName(entityName);
-    const folderMapping = this.filesStorageService.getFolderMapping();
-    const baseFolder = folderMapping[context];
-
-    // Check if path contains the entity name after the base folder
     const pathAfterRoot = path.replace(this.filesRoot, '');
-    const escapedBaseFolder = baseFolder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pathAfterBase = pathAfterRoot.replace(new RegExp(`^/?${escapedBaseFolder}/?`), '');
 
-    // The path should start with the sanitized entity name
-    return pathAfterBase.startsWith(sanitizedName + '/') || pathAfterBase === sanitizedName;
+    // Check for Clientes/{entityName}/, Fornecedores/{entityName}/, or Colaboradores/{entityName}/
+    return (
+      pathAfterRoot.includes(`/Clientes/${sanitizedName}/`) ||
+      pathAfterRoot.includes(`/Fornecedores/${sanitizedName}/`) ||
+      pathAfterRoot.includes(`/Colaboradores/${sanitizedName}/`)
+    );
   }
 
   /**

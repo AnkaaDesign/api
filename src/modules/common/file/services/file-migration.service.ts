@@ -89,13 +89,13 @@ export class FileMigrationService {
    * Find the customer for a file by tracing database relationships.
    *
    * The relationship chain depends on the file context:
-   * - Artwork files (Projetos): File → Artwork → Task[] → Customer
+   * - Artwork files (Layouts): File → Artwork → Task[] → Customer
    * - Observation files: File → Observation → Task → Customer
    * - Task files (budgets, invoices, etc.): File → Task → Customer
    * - Cut files: File → Cut → Task → Customer
    */
   async findCustomerForFile(fileId: string): Promise<{ id: string; fantasyName: string; source: string } | null> {
-    // 1. Check if file is an artwork (Projetos folder)
+    // 1. Check if file is an artwork (Layouts folder)
     const artwork = await this.prisma.artwork.findFirst({
       where: { fileId },
       include: {
@@ -123,6 +123,9 @@ export class FileMigrationService {
       where: {
         OR: [
           { baseFiles: { some: { id: fileId } } },
+          { projectFiles: { some: { id: fileId } } },
+          { checkinFiles: { some: { id: fileId } } },
+          { checkoutFiles: { some: { id: fileId } } },
           { budgets: { some: { id: fileId } } },
           { invoices: { some: { id: fileId } } },
           { invoiceReimbursements: { some: { id: fileId } } },
@@ -210,8 +213,8 @@ export class FileMigrationService {
   }
 
   /**
-   * Scan files in root folders that should be in customer subfolders.
-   * Uses database relationships to determine the correct customer.
+   * Scan files in Clientes/ subfolders that are missing proper customer subfolder structure.
+   * Entity-first layout: Clientes/{customerName}/Layouts/, Clientes/{customerName}/Outros/, etc.
    */
   async scanRootFiles(): Promise<RootFilesReport> {
     const report: RootFilesReport = {
@@ -225,99 +228,69 @@ export class FileMigrationService {
       },
     };
 
-    // Find files in database that are in root Projetos folder (no customer subfolder)
-    const projetosRootFiles = await this.prisma.file.findMany({
+    // Find files under Clientes/*/Layouts/ that are misplaced (missing Imagens/PDFs subfolder)
+    const layoutFiles = await this.prisma.file.findMany({
       where: {
-        path: {
-          contains: '/Projetos/',
-        },
+        path: { contains: '/Clientes/' },
+        AND: { path: { contains: '/Layouts/' } },
       },
-      select: {
-        id: true,
-        path: true,
-        filename: true,
-        size: true,
-      },
+      select: { id: true, path: true, filename: true, size: true },
     });
 
-    // Filter to only files directly in Projetos root (not in a subfolder with another subfolder)
-    for (const file of projetosRootFiles) {
-      // Check if file is in root: /Projetos/filename.ext (not /Projetos/Customer/Subfolder/filename.ext)
-      const pathAfterProjetos = file.path.split('/Projetos/')[1];
-      if (!pathAfterProjetos) continue;
+    for (const file of layoutFiles) {
+      // Expected: Clientes/{Customer}/Layouts/Imagens|PDFs/filename
+      const layoutMatch = file.path.match(/\/Clientes\/[^/]+\/Layouts\/(.+)$/);
+      if (!layoutMatch) continue;
 
-      // If there's no slash after Projetos, it's in root
-      // If there's only one level (like /Projetos/SomeFolder/file.ext), it might still be misplaced
-      const pathParts = pathAfterProjetos.split('/');
+      const pathAfterLayouts = layoutMatch[1];
+      const pathParts = pathAfterLayouts.split('/');
 
-      // Files should be at: Projetos/{Customer}/{Subfolder}/filename
-      // So pathParts should have at least 3 elements: [Customer, Subfolder, filename]
-      // If it has 1 element (just filename) or 2 elements (folder/filename), it's in wrong place
-      if (pathParts.length < 3) {
+      // Should have at least 2 parts: [Imagens|PDFs, filename]
+      if (pathParts.length < 2) {
         const customerMatch = await this.findCustomerForFile(file.id);
-
-        const info: RootFileInfo = {
+        report.projetos.push({
           fileId: file.id,
           path: file.path,
           filename: file.filename,
           size: file.size,
           matchedCustomer: customerMatch?.fantasyName,
           matchSource: customerMatch?.source,
-        };
-
-        report.projetos.push(info);
-
-        if (customerMatch) {
-          report.totals.matched++;
-        } else {
-          report.totals.unmatched++;
-        }
+        });
+        if (customerMatch) report.totals.matched++;
+        else report.totals.unmatched++;
       }
     }
     report.totals.projetos = report.projetos.length;
 
-    // Find files in database that are in root Arquivos Clientes folder
-    const arquivosRootFiles = await this.prisma.file.findMany({
+    // Find files under Clientes/*/Outros/ that are misplaced (missing Imagens/Documentos subfolder)
+    const outrosFiles = await this.prisma.file.findMany({
       where: {
-        path: {
-          contains: '/Arquivos Clientes/',
-        },
+        path: { contains: '/Clientes/' },
+        AND: { path: { contains: '/Outros/' } },
       },
-      select: {
-        id: true,
-        path: true,
-        filename: true,
-        size: true,
-      },
+      select: { id: true, path: true, filename: true, size: true },
     });
 
-    for (const file of arquivosRootFiles) {
-      const pathAfterArquivos = file.path.split('/Arquivos Clientes/')[1];
-      if (!pathAfterArquivos) continue;
+    for (const file of outrosFiles) {
+      const outrosMatch = file.path.match(/\/Clientes\/[^/]+\/Outros\/(.+)$/);
+      if (!outrosMatch) continue;
 
-      const pathParts = pathAfterArquivos.split('/');
+      const pathAfterOutros = outrosMatch[1];
+      const pathParts = pathAfterOutros.split('/');
 
-      // Files should be at: Arquivos Clientes/{Customer}/filename
-      // So pathParts should have at least 2 elements: [Customer, filename]
+      // Should have at least 2 parts: [Imagens|Documentos, filename]
       if (pathParts.length < 2) {
         const customerMatch = await this.findCustomerForFile(file.id);
-
-        const info: RootFileInfo = {
+        report.arquivosClientes.push({
           fileId: file.id,
           path: file.path,
           filename: file.filename,
           size: file.size,
           matchedCustomer: customerMatch?.fantasyName,
           matchSource: customerMatch?.source,
-        };
-
-        report.arquivosClientes.push(info);
-
-        if (customerMatch) {
-          report.totals.matched++;
-        } else {
-          report.totals.unmatched++;
-        }
+        });
+        if (customerMatch) report.totals.matched++;
+        else report.totals.unmatched++;
       }
     }
     report.totals.arquivosClientes = report.arquivosClientes.length;
@@ -425,7 +398,7 @@ export class FileMigrationService {
     result.scanned = rootFiles.totals.projetos + rootFiles.totals.arquivosClientes;
     result.matched = rootFiles.totals.matched;
 
-    // Process Projetos files
+    // Process Layouts files
     for (const file of rootFiles.projetos) {
       const detail: MigrationDetail = {
         fileId: file.fileId,
@@ -444,13 +417,13 @@ export class FileMigrationService {
       detail.matchedCustomer = file.matchedCustomer;
       detail.matchSource = file.matchSource;
 
-      // Determine target path based on file type
+      // Determine target path based on file type (entity-first layout)
       const ext = file.filename.split('.').pop()?.toLowerCase();
       const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'eps', 'ai', 'svg'].includes(ext || '');
       const subfolder = isImage ? 'Imagens' : 'PDFs';
 
       const customerFolder = this.sanitizeFolderName(file.matchedCustomer);
-      const targetPath = join(this.filesRoot, 'Projetos', customerFolder, subfolder, file.filename);
+      const targetPath = join(this.filesRoot, 'Clientes', customerFolder, 'Layouts', subfolder, file.filename);
       detail.newPath = targetPath;
 
       // Check if source file exists
@@ -537,7 +510,7 @@ export class FileMigrationService {
       detail.matchSource = file.matchSource;
 
       const customerFolder = this.sanitizeFolderName(file.matchedCustomer);
-      const targetPath = join(this.filesRoot, 'Arquivos Clientes', customerFolder, file.filename);
+      const targetPath = join(this.filesRoot, 'Clientes', customerFolder, 'Outros', file.filename);
       detail.newPath = targetPath;
 
       // Check if source file exists
@@ -632,12 +605,12 @@ export class FileMigrationService {
     // Database stats
     const totalFiles = await this.prisma.file.count();
 
-    // Calculate files in proper customer folders by examining path structure
+    // Calculate files in proper customer folders by examining entity-first path structure
     const allFilesWithPath = await this.prisma.file.findMany({
       where: {
         OR: [
-          { path: { contains: '/Projetos/' } },
-          { path: { contains: '/Arquivos Clientes/' } },
+          { path: { contains: '/Clientes/' } },
+          { path: { contains: '/Fornecedores/' } },
         ],
       },
       select: { path: true },
@@ -647,13 +620,12 @@ export class FileMigrationService {
     let filesInRootFolders = 0;
 
     for (const file of allFilesWithPath) {
-      // Check if path has proper subfolder structure
-      const projetosMatch = file.path.match(/\/Projetos\/([^/]+)\/([^/]+)\/[^/]+$/);
-      const arquivosMatch = file.path.match(/\/Arquivos Clientes\/([^/]+)\/[^/]+$/);
+      // Entity-first: Clientes/{name}/{context}/... or Fornecedores/{name}/{context}/...
+      const entityMatch = file.path.match(/\/(Clientes|Fornecedores)\/[^/]+\/[^/]+\//);
 
-      if (projetosMatch || arquivosMatch) {
+      if (entityMatch) {
         filesInCustomerFolders++;
-      } else if (file.path.includes('/Projetos/') || file.path.includes('/Arquivos Clientes/')) {
+      } else {
         filesInRootFolders++;
       }
     }
@@ -727,14 +699,8 @@ export class FileMigrationService {
 
       const secondaryFolder = this.sanitizeFolderName(secondaryCustomer.fantasyName);
 
-      // Find all folders that might contain files for this customer
-      const folderBases = [
-        'Projetos',
-        'Arquivos Clientes',
-        'Plotter',
-        'Observacoes',
-        'Aerografias',
-      ];
+      // Entity-first layout: merge entire Clientes/{secondaryName}/ into Clientes/{primaryName}/
+      const folderBases = ['Clientes'];
 
       for (const base of folderBases) {
         const secondaryPath = join(this.filesRoot, base, secondaryFolder);

@@ -463,6 +463,9 @@ model File {
   taskReceipts                            Task[]               @relation("TASK_RECEIPTS")
   taskReimbursements                      Task[]               @relation("TASK_REIMBURSEMENTS")
   taskBankSlips                           Task[]               @relation("TASK_BANK_SLIPS")
+  taskProjectFiles                        Task[]               @relation("TASK_PROJECT_FILES")
+  taskCheckinFiles                        Task[]               @relation("TASK_CHECKIN_FILES")
+  taskCheckoutFiles                       Task[]               @relation("TASK_CHECKOUT_FILES")
 
   @@index([filename])
   @@index([originalName])
@@ -1211,6 +1214,9 @@ model Task {
   bankSlips             File[]               @relation("TASK_BANK_SLIPS")
   reimbursements        File[]               @relation("TASK_REIMBURSEMENTS")
   artworks              Artwork[]            @relation("TaskArtworks")
+  projectFiles          File[]               @relation("TASK_PROJECT_FILES")
+  checkinFiles          File[]               @relation("TASK_CHECKIN_FILES")
+  checkoutFiles         File[]               @relation("TASK_CHECKOUT_FILES")
   responsibles          Responsible[]        @relation("TaskResponsibles")
 
   @@index([status, sectorId])
