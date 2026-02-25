@@ -2037,6 +2037,18 @@ const taskTransform = (data: any): any => {
     delete data.spots;
   }
 
+  // Filter by truck category
+  if (data.truckCategories && Array.isArray(data.truckCategories) && data.truckCategories.length > 0) {
+    andConditions.push({ truck: { category: { in: data.truckCategories } } });
+    delete data.truckCategories;
+  }
+
+  // Filter by implement type
+  if (data.implementTypes && Array.isArray(data.implementTypes) && data.implementTypes.length > 0) {
+    andConditions.push({ truck: { implementType: { in: data.implementTypes } } });
+    delete data.implementTypes;
+  }
+
   // Date range filters
   if (data.entryDateRange && typeof data.entryDateRange === 'object') {
     const condition: any = {};
@@ -2302,6 +2314,8 @@ export const taskGetManySchema = z
     paintIds: z.array(z.string()).optional(), // Filter by general painting/paint ID
     logoPaintIds: z.array(z.string()).optional(), // Filter by logo paint IDs
     spots: z.array(z.string()).optional(), // Filter tasks by truck spot/position
+    truckCategories: z.array(z.nativeEnum(TRUCK_CATEGORY)).optional(), // Filter by truck category
+    implementTypes: z.array(z.nativeEnum(IMPLEMENT_TYPE)).optional(), // Filter by implement type
     // Numeric range filters
     progressRange: z
       .object({
