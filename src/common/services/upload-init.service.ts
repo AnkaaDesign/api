@@ -61,42 +61,22 @@ export class UploadInitService implements OnModuleInit {
       return;
     }
 
+    // Root-level directories only; customer/supplier subdirectories are created on-demand
     const directories = [
-      'Projetos',
-      'Orcamentos/Tarefas',
-      'Orcamentos/Pedidos',
-      'Orcamentos/Aerografias',
-      'Notas Fiscais/Tarefas',
-      'Notas Fiscais/Pedidos',
-      'Notas Fiscais/Aerografias',
-      'Notas Fiscais/RetiradasExternas',
-      'Comprovantes/Tarefas',
-      'Comprovantes/Pedidos',
-      'Comprovantes/Aerografias',
-      'Comprovantes/RetiradasExternas',
-      'Reembolsos/Tarefas',
-      'Reembolsos/Pedidos',
-      'Reembolsos/Aerografias',
-      'Reembolsos/RetiradasExternas',
-      'Notas Fiscais Reembolso/Tarefas',
-      'Notas Fiscais Reembolso/Pedidos',
-      'Notas Fiscais Reembolso/Aerografias',
-      'Notas Fiscais Reembolso/RetiradasExternas',
-      'Colaboradores/Documentos',
-      'Logos/Clientes',
-      'Logos/Fornecedores',
-      'Aerografias',
-      'Plotter',
-      'Arquivos Clientes',
-      'Observacoes',
-      'Advertencias',
-      'Auxiliares/Traseiras/Fotos',
+      'Clientes',
+      'Fornecedores',
+      'Colaboradores',
       'Fotos',
-      'Layouts/Orcamentos',
       'Thumbnails',
       'Tintas',
       'Mensagens',
       'Uploads',
+      'Auxiliares',
+      // External withdrawal stays at root (not entity-based)
+      'Notas Fiscais/RetiradasExternas',
+      'Comprovantes/RetiradasExternas',
+      'Reembolsos/RetiradasExternas',
+      'Notas Fiscais Reembolso/RetiradasExternas',
     ];
 
     this.ensureDirectoryExists(filesRoot);

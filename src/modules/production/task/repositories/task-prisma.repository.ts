@@ -331,6 +331,36 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
       },
     },
   },
+  projectFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  checkinFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  checkoutFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
   logoPaints: {
     select: {
       id: true,
@@ -627,7 +657,7 @@ export class TaskPrismaRepository
   protected mapCreateFormDataToDatabaseCreateInput(
     formData: TaskCreateFormData,
   ): Prisma.TaskCreateInput {
-    const extendedData = formData as TaskCreateFormData;
+    const extendedData = formData as any;
 
     const {
       name,
@@ -650,6 +680,9 @@ export class TaskPrismaRepository
       reimbursementInvoiceIds,
       artworkIds,
       baseFileIds,
+      projectFileIds,
+      checkinFileIds,
+      checkoutFileIds,
       pricingId,
       paintIds,
       responsibleIds,
@@ -700,6 +733,15 @@ export class TaskPrismaRepository
     }
     if (baseFileIds && baseFileIds.length > 0) {
       taskData.baseFiles = { connect: baseFileIds.map(id => ({ id })) };
+    }
+    if (projectFileIds && projectFileIds.length > 0) {
+      taskData.projectFiles = { connect: projectFileIds.map(id => ({ id })) };
+    }
+    if (checkinFileIds && checkinFileIds.length > 0) {
+      taskData.checkinFiles = { connect: checkinFileIds.map(id => ({ id })) };
+    }
+    if (checkoutFileIds && checkoutFileIds.length > 0) {
+      taskData.checkoutFiles = { connect: checkoutFileIds.map(id => ({ id })) };
     }
     if (pricingId) {
       taskData.pricing = { connect: { id: pricingId } };
@@ -915,6 +957,9 @@ export class TaskPrismaRepository
       reimbursementInvoiceIds,
       artworkIds,
       baseFileIds,
+      projectFileIds,
+      checkinFileIds,
+      checkoutFileIds,
       pricingId,
       paintIds,
       responsibleIds,
@@ -976,6 +1021,15 @@ export class TaskPrismaRepository
     }
     if (baseFileIds !== undefined) {
       updateData.baseFiles = { set: baseFileIds.map(id => ({ id })) };
+    }
+    if (projectFileIds !== undefined) {
+      updateData.projectFiles = { set: projectFileIds.map(id => ({ id })) };
+    }
+    if (checkinFileIds !== undefined) {
+      updateData.checkinFiles = { set: checkinFileIds.map(id => ({ id })) };
+    }
+    if (checkoutFileIds !== undefined) {
+      updateData.checkoutFiles = { set: checkoutFileIds.map(id => ({ id })) };
     }
     if (pricingId !== undefined) {
       updateData.pricing = pricingId ? { connect: { id: pricingId } } : { disconnect: true };

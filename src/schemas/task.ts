@@ -299,6 +299,63 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
+      projectFiles: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      checkinFiles: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
+      checkoutFiles: z
+        .union([
+          z.boolean(),
+          z.object({
+            select: z
+              .object({
+                id: z.boolean().optional(),
+                name: z.boolean().optional(),
+                path: z.boolean().optional(),
+                mimetype: z.boolean().optional(),
+                size: z.boolean().optional(),
+                createdAt: z.boolean().optional(),
+                updatedAt: z.boolean().optional(),
+              })
+              .optional(),
+          }),
+        ])
+        .optional(),
+
       logoPaints: z
         .union([
           z.boolean(),
@@ -734,6 +791,36 @@ export const taskSelectDetail = {
       path: true,
       mimetype: true,
       size: true,
+    },
+  },
+  projectFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  checkinFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
+    },
+  },
+  checkoutFiles: {
+    select: {
+      id: true,
+      filename: true,
+      path: true,
+      mimetype: true,
+      size: true,
+      thumbnailUrl: true,
     },
   },
   logoPaints: {
@@ -1193,6 +1280,9 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
+      projectFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
+      checkinFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
+      checkoutFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
       logoPaints: z
         .union([
           z.boolean(),
@@ -2709,6 +2799,9 @@ export const taskCreateSchema = z
       )
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
+    projectFileIds: uuidArraySchema('Arquivo de projeto inválido'),
+    checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
+    checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
     pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
@@ -2967,6 +3060,9 @@ export const taskUpdateSchema = z
       )
       .optional(),
     baseFileIds: uuidArraySchema('Arquivo base inválido'),
+    projectFileIds: uuidArraySchema('Arquivo de projeto inválido'),
+    checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
+    checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
     pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
     pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
@@ -3165,6 +3261,9 @@ export const mapTaskToFormData = createMapToFormDataHelper<Task, TaskUpdateFormD
     {} as Record<string, 'DRAFT' | 'APPROVED' | 'REPROVED'>,
   ),
   baseFileIds: task.baseFiles?.map(baseFile => baseFile.id),
+  projectFileIds: (task as any).projectFiles?.map((f: any) => f.id),
+  checkinFileIds: (task as any).checkinFiles?.map((f: any) => f.id),
+  checkoutFileIds: (task as any).checkoutFiles?.map((f: any) => f.id),
   paintIds: task.logoPaints?.map(paint => paint.id),
   generalPaintingId: task.generalPainting?.id,
   // Service orders mapping

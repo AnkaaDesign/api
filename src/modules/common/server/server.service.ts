@@ -467,6 +467,8 @@ export class ServerService {
       remoteUrl?: string;
       fileCount?: number;
       folderCount?: number;
+      // Entity logo URL (for customer/supplier directory entries)
+      logoUrl?: string;
       // Database file fields (when matched)
       dbFileId?: string;
       dbFilePath?: string;
@@ -479,12 +481,12 @@ export class ServerService {
     parentPath?: string;
   }> {
     try {
-      // Use proper files storage mount point from env
-      const filesRoot = FILES_ROOT;
-      const basePath = path.join(filesRoot, folderName);
+      // Use proper files storage mount point from env — resolve to absolute to avoid path.join stripping ./
+      const filesRoot = path.resolve(FILES_ROOT);
+      const basePath = path.resolve(filesRoot, folderName);
       // Decode URL-encoded path to handle special characters (spaces, etc.)
       const decodedSubPath = subPath ? decodeURIComponent(subPath) : undefined;
-      const targetPath = decodedSubPath ? path.join(basePath, decodedSubPath) : basePath;
+      const targetPath = decodedSubPath ? path.resolve(basePath, decodedSubPath) : basePath;
 
       if (!fs.existsSync(targetPath)) {
         throw new Error(`Folder does not exist: ${targetPath}`);
@@ -597,6 +599,49 @@ export class ServerService {
         }
       }
 
+      // Build logo map for entity folders (Clientes/{name}/ or Fornecedores/{name}/)
+      const entityLogoMap = new Map<string, string>();
+      const isEntityRoot = folderName === 'Clientes' || folderName === 'Fornecedores';
+      const isInsideEntity = !subPath && isEntityRoot;
+
+      if (isInsideEntity) {
+        try {
+          const directoryNames = Array.from(fileInfoMap.values())
+            .filter(f => f.isDirectory)
+            .map(f => f.name);
+
+          if (directoryNames.length > 0) {
+            const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.app';
+
+            if (folderName === 'Clientes') {
+              const customers = await this.prisma.customer.findMany({
+                where: { fantasyName: { in: directoryNames } },
+                select: { fantasyName: true, logo: { select: { path: true, thumbnailUrl: true } } },
+              });
+              for (const c of customers) {
+                if (c.logo) {
+                  const logoUrl = c.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, c.logo.path).replace(/\\/g, '/')}`;
+                  entityLogoMap.set(c.fantasyName, logoUrl);
+                }
+              }
+            } else if (folderName === 'Fornecedores') {
+              const suppliers = await this.prisma.supplier.findMany({
+                where: { fantasyName: { in: directoryNames } },
+                select: { fantasyName: true, logo: { select: { path: true, thumbnailUrl: true } } },
+              });
+              for (const s of suppliers) {
+                if (s.logo) {
+                  const logoUrl = s.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, s.logo.path).replace(/\\/g, '/')}`;
+                  entityLogoMap.set(s.fantasyName, logoUrl);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.warn('Failed to fetch entity logos:', error);
+        }
+      }
+
       const files = [];
       let totalFiles = 0;
 
@@ -659,6 +704,9 @@ export class ServerService {
         // Get database file info if available
         const dbFile = dbFilesMap.get(itemPath);
 
+        // Get entity logo for directory entries in Clientes/ or Fornecedores/
+        const logoUrl = isDirectory ? entityLogoMap.get(fileName) : undefined;
+
         files.push({
           name: fileName,
           type: isDirectory ? ('directory' as const) : ('file' as const),
@@ -670,6 +718,7 @@ export class ServerService {
           remoteUrl,
           fileCount,
           folderCount,
+          logoUrl,
           // Include database file info when available
           ...(dbFile && {
             dbFileId: dbFile.id,

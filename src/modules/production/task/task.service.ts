@@ -9,6 +9,7 @@ import {
 import { EventEmitter } from 'events';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { FileService } from '@modules/common/file/file.service';
+import { FilesStorageService } from '@modules/common/file/services/files-storage.service';
 import type {
   Task,
   ServiceOrder,
@@ -121,6 +122,7 @@ export class TaskService {
     private readonly tasksRepository: TaskRepository,
     private readonly changeLogService: ChangeLogService,
     private readonly fileService: FileService,
+    private readonly filesStorageService: FilesStorageService,
     private readonly fieldTracker: TaskFieldTrackerService,
     // NOTE: TaskNotificationService injection removed - legacy notification path was deprecated
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
@@ -339,6 +341,9 @@ export class TaskService {
       artworks?: Express.Multer.File[];
       cutFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
+      projectFiles?: Express.Multer.File[];
+      checkinFiles?: Express.Multer.File[];
+      checkoutFiles?: Express.Multer.File[];
     },
   ): Promise<TaskCreateResponse> {
     try {
@@ -346,6 +351,9 @@ export class TaskService {
       // These come from the web form when files are pre-uploaded (e.g., serial range creation)
       const preUploadedArtworkFileIds = data.artworkIds ? [...(data.artworkIds as string[])] : [];
       const preUploadedBaseFileIds = (data as any).baseFileIds ? [...((data as any).baseFileIds as string[])] : [];
+      const preUploadedProjectFileIds = (data as any).projectFileIds ? [...((data as any).projectFileIds as string[])] : [];
+      const preUploadedCheckinFileIds = (data as any).checkinFileIds ? [...((data as any).checkinFileIds as string[])] : [];
+      const preUploadedCheckoutFileIds = (data as any).checkoutFileIds ? [...((data as any).checkoutFileIds as string[])] : [];
       const artworkStatusesMap = (data as any).artworkStatuses || null;
 
       this.logger.log(`[Task Create] Incoming data keys: ${Object.keys(data).join(', ')}`);
@@ -413,6 +421,9 @@ export class TaskService {
         const dataWithCreator = { ...data, createdById: userId } as typeof data;
         delete (dataWithCreator as any).artworkIds;
         delete (dataWithCreator as any).baseFileIds;
+        delete (dataWithCreator as any).projectFileIds;
+        delete (dataWithCreator as any).checkinFileIds;
+        delete (dataWithCreator as any).checkoutFileIds;
         delete (dataWithCreator as any).artworkStatuses;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
           include,
@@ -422,7 +433,9 @@ export class TaskService {
         // This guarantees the connection happens even if mapCreateFormDataToDatabaseCreateInput
         // doesn't handle these fields (e.g., when sent as JSON from serial range creation).
         this.logger.log(`[Task Create] Post-creation check: artworkFileIds=${preUploadedArtworkFileIds.length}, baseFileIds=${preUploadedBaseFileIds.length}`);
-        if (preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
+        const hasPreUploadedFiles = preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0 ||
+          preUploadedProjectFileIds.length > 0 || preUploadedCheckinFileIds.length > 0 || preUploadedCheckoutFileIds.length > 0;
+        if (hasPreUploadedFiles) {
           const postCreateUpdates: any = {};
 
           // Convert artwork File IDs to Artwork entity IDs and connect
@@ -443,6 +456,21 @@ export class TaskService {
           // Connect base files directly (they're already File IDs)
           if (preUploadedBaseFileIds.length > 0) {
             postCreateUpdates.baseFiles = { connect: preUploadedBaseFileIds.map(id => ({ id })) };
+          }
+
+          // Connect project files
+          if (preUploadedProjectFileIds.length > 0) {
+            postCreateUpdates.projectFiles = { connect: preUploadedProjectFileIds.map(id => ({ id })) };
+          }
+
+          // Connect checkin files
+          if (preUploadedCheckinFileIds.length > 0) {
+            postCreateUpdates.checkinFiles = { connect: preUploadedCheckinFileIds.map(id => ({ id })) };
+          }
+
+          // Connect checkout files
+          if (preUploadedCheckoutFileIds.length > 0) {
+            postCreateUpdates.checkoutFiles = { connect: preUploadedCheckoutFileIds.map(id => ({ id })) };
           }
 
           if (Object.keys(postCreateUpdates).length > 0) {
@@ -1239,6 +1267,9 @@ export class TaskService {
       cutFiles?: Express.Multer.File[];
       observationFiles?: Express.Multer.File[];
       baseFiles?: Express.Multer.File[];
+      projectFiles?: Express.Multer.File[];
+      checkinFiles?: Express.Multer.File[];
+      checkoutFiles?: Express.Multer.File[];
       pricingLayoutFile?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
@@ -1273,6 +1304,9 @@ export class TaskService {
               },
             }, // Include for changelog tracking with file info
             baseFiles: true, // Include for changelog tracking
+            projectFiles: true, // Include for changelog tracking
+            checkinFiles: true, // Include for changelog tracking
+            checkoutFiles: true, // Include for changelog tracking
             logoPaints: true, // Include for changelog tracking
             observation: { include: { files: true } }, // Include for changelog tracking
             truck: {
@@ -2020,6 +2054,35 @@ export class TaskService {
         );
 
         // Handle service orders explicitly if provided
+        // Migrate files when customer changes
+        if (data.customerId !== undefined && data.customerId !== existingTask.customerId) {
+          const oldCustomerName = (existingTask as any).customer?.fantasyName;
+          if (data.customerId) {
+            const newCustomer = await tx.customer.findUnique({
+              where: { id: data.customerId },
+              select: { fantasyName: true },
+            });
+            if (newCustomer?.fantasyName) {
+              if (oldCustomerName) {
+                // Customer changed: move from old customer folder to new customer folder
+                await this.migrateTaskFilesOnCustomerChange(
+                  id,
+                  oldCustomerName,
+                  newCustomer.fantasyName,
+                  tx,
+                );
+              } else {
+                // No previous customer: move from root-level paths into customer folder
+                await this.migrateTaskFilesToCustomerFolder(
+                  id,
+                  newCustomer.fantasyName,
+                  tx,
+                );
+              }
+            }
+          }
+        }
+
         // FIX: Implement proper upsert logic - update existing service orders instead of always creating new ones
         // NOTE: If serviceOrdersData is provided as an array (even empty), we process deletions
         // If serviceOrdersData is undefined/null, service orders are not being modified
@@ -4147,6 +4210,87 @@ export class TaskService {
             fileUpdates.baseFiles = { set: baseFileIds.map(id => ({ id })) };
             this.logger.log(
               `[Task Update] Setting baseFiles to ${baseFileIds.length} files (${data.baseFileIds?.length || 0} existing + ${files.baseFiles?.length || 0} new)`,
+            );
+          }
+
+          // Project files
+          if ((files?.projectFiles && files.projectFiles.length > 0) || (data as any).projectFileIds !== undefined) {
+            const projectFileIds: string[] = (data as any).projectFileIds ? [...(data as any).projectFileIds] : [];
+
+            if (files.projectFiles && files.projectFiles.length > 0) {
+              for (const projectFile of files.projectFiles) {
+                const projectFileRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  projectFile,
+                  'taskProjectFiles',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                projectFileIds.push(projectFileRecord.id);
+              }
+            }
+
+            fileUpdates.projectFiles = { set: projectFileIds.map(id => ({ id })) };
+            this.logger.log(
+              `[Task Update] Setting projectFiles to ${projectFileIds.length} files`,
+            );
+          }
+
+          // Checkin files
+          if ((files?.checkinFiles && files.checkinFiles.length > 0) || (data as any).checkinFileIds !== undefined) {
+            const checkinFileIds: string[] = (data as any).checkinFileIds ? [...(data as any).checkinFileIds] : [];
+
+            if (files.checkinFiles && files.checkinFiles.length > 0) {
+              for (const checkinFile of files.checkinFiles) {
+                const checkinFileRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  checkinFile,
+                  'taskCheckinFiles',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                checkinFileIds.push(checkinFileRecord.id);
+              }
+            }
+
+            fileUpdates.checkinFiles = { set: checkinFileIds.map(id => ({ id })) };
+            this.logger.log(
+              `[Task Update] Setting checkinFiles to ${checkinFileIds.length} files`,
+            );
+          }
+
+          // Checkout files
+          if ((files?.checkoutFiles && files.checkoutFiles.length > 0) || (data as any).checkoutFileIds !== undefined) {
+            const checkoutFileIds: string[] = (data as any).checkoutFileIds ? [...(data as any).checkoutFileIds] : [];
+
+            if (files.checkoutFiles && files.checkoutFiles.length > 0) {
+              for (const checkoutFile of files.checkoutFiles) {
+                const checkoutFileRecord = await this.fileService.createFromUploadWithTransaction(
+                  tx,
+                  checkoutFile,
+                  'taskCheckoutFiles',
+                  userId,
+                  {
+                    entityId: id,
+                    entityType: 'TASK',
+                    customerName,
+                  },
+                );
+                checkoutFileIds.push(checkoutFileRecord.id);
+              }
+            }
+
+            fileUpdates.checkoutFiles = { set: checkoutFileIds.map(id => ({ id })) };
+            this.logger.log(
+              `[Task Update] Setting checkoutFiles to ${checkoutFileIds.length} files`,
             );
           }
 
@@ -7283,6 +7427,223 @@ export class TaskService {
   }
 
   /**
+   * Migrate task files when customer changes.
+   * Moves files on disk and updates File.path in DB for all file relations.
+   */
+  private async migrateTaskFilesOnCustomerChange(
+    taskId: string,
+    oldCustomerName: string,
+    newCustomerName: string,
+    tx: PrismaTransaction,
+  ): Promise<void> {
+    this.logger.log(
+      `[Task File Migration] Migrating files from "${oldCustomerName}" to "${newCustomerName}" for task ${taskId}`,
+    );
+
+    // Sanitize customer names for path matching (same logic as FilesStorageService.sanitizeFileName)
+    const sanitize = (name: string) =>
+      name.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/\.\./g, '_').replace(/\s+/g, ' ').trim().substring(0, 100);
+    const sanitizeOld = sanitize(oldCustomerName);
+    const sanitizeNew = sanitize(newCustomerName);
+
+    if (sanitizeOld === sanitizeNew) {
+      this.logger.log('[Task File Migration] Sanitized names are identical, skipping');
+      return;
+    }
+
+    // Fetch task with ALL file relations
+    const task = await tx.task.findUnique({
+      where: { id: taskId },
+      include: {
+        baseFiles: true,
+        projectFiles: true,
+        checkinFiles: true,
+        checkoutFiles: true,
+        budgets: true,
+        invoices: true,
+        receipts: true,
+        bankSlips: true,
+        reimbursements: true,
+        invoiceReimbursements: true,
+        artworks: { include: { file: true } },
+      },
+    });
+
+    if (!task) return;
+
+    // Collect all files to migrate (direct file relations)
+    const allFiles: Array<{ id: string; path: string }> = [
+      ...(task.baseFiles || []),
+      ...(task.projectFiles || []),
+      ...(task.checkinFiles || []),
+      ...(task.checkoutFiles || []),
+      ...(task.budgets || []),
+      ...(task.invoices || []),
+      ...(task.receipts || []),
+      ...(task.bankSlips || []),
+      ...(task.reimbursements || []),
+      ...(task.invoiceReimbursements || []),
+    ];
+
+    // Add artwork files
+    for (const artwork of task.artworks || []) {
+      if ((artwork as any).file) {
+        allFiles.push((artwork as any).file);
+      }
+    }
+
+    let migratedCount = 0;
+    for (const file of allFiles) {
+      if (!file.path || !file.path.includes(`/${sanitizeOld}/`)) continue;
+
+      const newPath = file.path.replace(`/Clientes/${sanitizeOld}/`, `/Clientes/${sanitizeNew}/`);
+
+      try {
+        // Move file on disk
+        await this.filesStorageService.moveWithinStorage(file.path, newPath);
+
+        // Update path in database
+        await tx.file.update({
+          where: { id: file.id },
+          data: { path: newPath },
+        });
+
+        migratedCount++;
+      } catch (error: any) {
+        this.logger.warn(
+          `[Task File Migration] Failed to migrate file ${file.id}: ${error.message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[Task File Migration] Migrated ${migratedCount}/${allFiles.length} files for task ${taskId}`,
+    );
+  }
+
+  /**
+   * Move task files from root-level paths into a customer folder.
+   * Called when a task that had no customer gets a customer assigned.
+   * Files in generic paths (no /Clientes/ prefix) get moved into Clientes/{customerName}/.
+   */
+  private async migrateTaskFilesToCustomerFolder(
+    taskId: string,
+    customerName: string,
+    tx: PrismaTransaction,
+  ): Promise<void> {
+    this.logger.log(
+      `[Task File Migration] Moving files to customer folder "${customerName}" for task ${taskId}`,
+    );
+
+    const sanitize = (name: string) =>
+      name.replace(/[<>:"|?*\x00-\x1f]/g, '_').replace(/\.\./g, '_').replace(/\s+/g, ' ').trim().substring(0, 100);
+    const sanitizedCustomer = sanitize(customerName);
+    const filesRoot = this.filesStorageService.getFilesRoot();
+
+    // Fetch task with ALL file relations
+    const task = await tx.task.findUnique({
+      where: { id: taskId },
+      include: {
+        baseFiles: true,
+        projectFiles: true,
+        checkinFiles: true,
+        checkoutFiles: true,
+        budgets: true,
+        invoices: true,
+        receipts: true,
+        bankSlips: true,
+        reimbursements: true,
+        invoiceReimbursements: true,
+        artworks: { include: { file: true } },
+      },
+    });
+
+    if (!task) return;
+
+    // Map of root-level folder prefixes to their new entity-first equivalents
+    const rootToEntityMap: Array<{ rootPrefix: string; entitySuffix: string }> = [
+      { rootPrefix: '/Checkin/', entitySuffix: '/Checkin/' },
+      { rootPrefix: '/Checkout/', entitySuffix: '/Checkout/' },
+      { rootPrefix: '/Projetos/', entitySuffix: '/Projetos/' },
+      { rootPrefix: '/Layouts/', entitySuffix: '/Layouts/' },
+      { rootPrefix: '/Outros/', entitySuffix: '/Outros/' },
+      { rootPrefix: '/Observacoes/', entitySuffix: '/Observacoes/' },
+      { rootPrefix: '/Traseiras/', entitySuffix: '/Traseiras/' },
+      { rootPrefix: '/Plotter/', entitySuffix: '/Plotter/' },
+      { rootPrefix: '/Orcamentos/', entitySuffix: '/Orcamentos/' },
+      { rootPrefix: '/Notas Fiscais Reembolso/', entitySuffix: '/Notas Fiscais Reembolso/' },
+      { rootPrefix: '/Notas Fiscais/', entitySuffix: '/Notas Fiscais/' },
+      { rootPrefix: '/Comprovantes/', entitySuffix: '/Comprovantes/' },
+      { rootPrefix: '/Boletos/', entitySuffix: '/Boletos/' },
+      { rootPrefix: '/Reembolsos/', entitySuffix: '/Reembolsos/' },
+      { rootPrefix: '/Aerografias/', entitySuffix: '/Aerografias/' },
+    ];
+
+    const allFiles: Array<{ id: string; path: string }> = [
+      ...(task.baseFiles || []),
+      ...(task.projectFiles || []),
+      ...(task.checkinFiles || []),
+      ...(task.checkoutFiles || []),
+      ...(task.budgets || []),
+      ...(task.invoices || []),
+      ...(task.receipts || []),
+      ...(task.bankSlips || []),
+      ...(task.reimbursements || []),
+      ...(task.invoiceReimbursements || []),
+    ];
+
+    for (const artwork of task.artworks || []) {
+      if ((artwork as any).file) {
+        allFiles.push((artwork as any).file);
+      }
+    }
+
+    let migratedCount = 0;
+    for (const file of allFiles) {
+      if (!file.path) continue;
+      // Skip if already in a proper customer folder (not the catch-all Outros)
+      if (file.path.includes('/Clientes/') && !file.path.includes('/Clientes/Outros/')) continue;
+
+      let newPath: string | null = null;
+
+      // Case 1: File is in Clientes/Outros/ catch-all — move to Clientes/{customer}/
+      if (file.path.includes('/Clientes/Outros/')) {
+        newPath = file.path.replace('/Clientes/Outros/', `/Clientes/${sanitizedCustomer}/`);
+      } else {
+        // Case 2: File is in a root-level path (legacy) — find and remap
+        const pathAfterRoot = file.path.replace(filesRoot, '');
+
+        for (const { rootPrefix, entitySuffix } of rootToEntityMap) {
+          if (pathAfterRoot.includes(rootPrefix)) {
+            const afterPrefix = pathAfterRoot.split(rootPrefix).slice(1).join(rootPrefix);
+            newPath = `${filesRoot}/Clientes/${sanitizedCustomer}${entitySuffix}${afterPrefix}`;
+            break;
+          }
+        }
+      }
+
+      if (!newPath || newPath === file.path) continue;
+
+      try {
+        await this.filesStorageService.moveWithinStorage(file.path, newPath);
+        await tx.file.update({
+          where: { id: file.id },
+          data: { path: newPath },
+        });
+        migratedCount++;
+      } catch (error: any) {
+        this.logger.warn(
+          `[Task File Migration] Failed to migrate file ${file.id} to customer folder: ${error.message}`,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[Task File Migration] Migrated ${migratedCount}/${allFiles.length} files to customer folder for task ${taskId}`,
+    );
+  }
+
+  /**
    * Validate field-level access for COMMERCIAL sector
    * Commercial can access: agenda, cronograma, history, customer, garages, observation, airbrushing, paint basic catalogue
    * Commercial can create and update tasks
@@ -7297,6 +7658,9 @@ export class TaskService {
   private validateProductionSectorAccess(data: TaskUpdateFormData): void {
     const disallowedFields = [
       'baseFileIds', // Cannot edit base files (managed by Commercial/Designer/Logistic)
+      'projectFileIds', // Cannot edit project files
+      'checkinFileIds', // Cannot edit checkin files
+      'checkoutFileIds', // Cannot edit checkout files
       'budgetIds', // Cannot edit financial documents
       'invoiceIds', // Cannot edit financial documents
       'receiptIds', // Cannot edit financial documents
@@ -7335,6 +7699,8 @@ export class TaskService {
       'invoiceIds', // Cannot edit financial documents (invoices)
       'receiptIds', // Cannot edit financial documents
       'bankSlipIds', // Cannot edit financial documents
+      'checkinFileIds', // Cannot edit checkin files (managed by Logistic)
+      'checkoutFileIds', // Cannot edit checkout files (managed by Logistic)
       'cuts', // Cannot edit cut plans
     ];
 
