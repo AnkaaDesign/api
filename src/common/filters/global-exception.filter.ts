@@ -131,18 +131,142 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           errorResponse.message = 'Registro relacionado não encontrado.';
           errorResponse.error = 'RELATED_RECORD_NOT_FOUND';
           break;
+        case 'P2000':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'O valor fornecido é muito longo para o campo.';
+          errorResponse.error = 'VALUE_TOO_LONG';
+          break;
+        case 'P2001':
+          status = HttpStatus.NOT_FOUND;
+          errorResponse.message = 'O registro pesquisado não existe.';
+          errorResponse.error = 'RECORD_NOT_FOUND';
+          break;
+        case 'P2005':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Valor inválido para o tipo do campo.';
+          errorResponse.error = 'INVALID_FIELD_VALUE';
+          break;
+        case 'P2006':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Valor fornecido é inválido.';
+          errorResponse.error = 'INVALID_VALUE';
+          break;
+        case 'P2010':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          errorResponse.message = 'Erro na consulta ao banco de dados.';
+          errorResponse.error = 'RAW_QUERY_FAILED';
+          break;
+        case 'P2011':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Campo obrigatório não preenchido.';
+          errorResponse.error = 'NULL_CONSTRAINT_VIOLATION';
+          break;
+        case 'P2012':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Campo obrigatório ausente.';
+          errorResponse.error = 'MISSING_REQUIRED_VALUE';
+          break;
+        case 'P2016':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Erro na interpretação da consulta.';
+          errorResponse.error = 'QUERY_INTERPRETATION_ERROR';
+          break;
+        case 'P2017':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Registros relacionados não estão conectados.';
+          errorResponse.error = 'RECORDS_NOT_CONNECTED';
+          break;
+        case 'P2018':
+          status = HttpStatus.NOT_FOUND;
+          errorResponse.message = 'Registros conectados obrigatórios não foram encontrados.';
+          errorResponse.error = 'REQUIRED_CONNECTED_RECORDS_NOT_FOUND';
+          break;
+        case 'P2019':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Erro de entrada de dados.';
+          errorResponse.error = 'INPUT_ERROR';
+          break;
+        case 'P2021':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          errorResponse.message = 'Tabela não encontrada no banco de dados.';
+          errorResponse.error = 'TABLE_NOT_FOUND';
+          break;
+        case 'P2022':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          errorResponse.message = 'Coluna não encontrada no banco de dados.';
+          errorResponse.error = 'COLUMN_NOT_FOUND';
+          break;
+        case 'P2023':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Dados inconsistentes na coluna.';
+          errorResponse.error = 'INCONSISTENT_COLUMN_DATA';
+          break;
+        case 'P2024':
+          status = HttpStatus.SERVICE_UNAVAILABLE;
+          errorResponse.message =
+            'Tempo limite de conexão com o banco de dados excedido. Por favor, tente novamente.';
+          errorResponse.error = 'CONNECTION_POOL_TIMEOUT';
+          break;
+        case 'P2026':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Recurso não suportado pelo banco de dados.';
+          errorResponse.error = 'UNSUPPORTED_FEATURE';
+          break;
+        case 'P2027':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          errorResponse.message = 'Múltiplos erros ocorreram durante a execução da consulta.';
+          errorResponse.error = 'MULTIPLE_ERRORS';
+          break;
+        case 'P2028':
+          status = HttpStatus.INTERNAL_SERVER_ERROR;
+          errorResponse.message = 'Erro na API de transações.';
+          errorResponse.error = 'TRANSACTION_API_ERROR';
+          break;
+        case 'P2030':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Índice de busca não encontrado.';
+          errorResponse.error = 'FULLTEXT_INDEX_NOT_FOUND';
+          break;
+        case 'P2033':
+          status = HttpStatus.BAD_REQUEST;
+          errorResponse.message = 'Número muito grande para processar.';
+          errorResponse.error = 'NUMBER_OUT_OF_RANGE';
+          break;
+        case 'P2034':
+          status = HttpStatus.CONFLICT;
+          errorResponse.message =
+            'Conflito de transação. Por favor, tente novamente.';
+          errorResponse.error = 'TRANSACTION_CONFLICT';
+          break;
         default:
           status = HttpStatus.BAD_REQUEST;
           errorResponse.message = 'Erro ao processar dados no banco.';
-          errorResponse.error = 'DATABASE_ERROR';
+          errorResponse.error = `DATABASE_ERROR_${exception.code}`;
       }
+
+      // Always include Prisma error code in details for debugging
+      errorResponse.details = {
+        code: exception.code,
+        ...(this.isDevelopment && { meta: exception.meta }),
+      };
+    } else if (exception instanceof Prisma.PrismaClientValidationError) {
+      status = HttpStatus.BAD_REQUEST;
+      errorResponse.message = 'Dados inválidos na requisição ao banco de dados.';
+      errorResponse.error = 'DATABASE_VALIDATION_ERROR';
 
       if (this.isDevelopment) {
         errorResponse.details = {
-          code: exception.code,
-          meta: exception.meta,
+          message: exception.message,
         };
       }
+    } else if (exception instanceof Prisma.PrismaClientInitializationError) {
+      status = HttpStatus.SERVICE_UNAVAILABLE;
+      errorResponse.message = 'Erro de conexão com o banco de dados. Por favor, tente novamente.';
+      errorResponse.error = 'DATABASE_CONNECTION_ERROR';
+    } else if (exception instanceof Prisma.PrismaClientRustPanicError) {
+      status = HttpStatus.INTERNAL_SERVER_ERROR;
+      errorResponse.message = 'Erro interno do banco de dados. Por favor, tente novamente.';
+      errorResponse.error = 'DATABASE_INTERNAL_ERROR';
     } else if (exception instanceof Error) {
       // Check for specific error types
       if (exception.name === 'TimeoutError' || exception.message.includes('timeout')) {

@@ -704,6 +704,18 @@ export class NotificationPreferenceService {
       },
       {
         type: NOTIFICATION_TYPE.STOCK,
+        eventType: 'order_payment_assigned',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [NOTIFICATION_CHANNEL.IN_APP],
+      },
+      {
+        type: NOTIFICATION_TYPE.STOCK,
+        eventType: 'order_payment_completed',
+        channels: [NOTIFICATION_CHANNEL.IN_APP, NOTIFICATION_CHANNEL.PUSH],
+        mandatoryChannels: [],
+      },
+      {
+        type: NOTIFICATION_TYPE.STOCK,
         eventType: 'low',
         channels: [NOTIFICATION_CHANNEL.IN_APP],
         mandatoryChannels: [],

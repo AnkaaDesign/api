@@ -54,8 +54,8 @@ const MIGRATION_MAP = [
   { oldBase: 'Reembolsos/Pedidos', entityRoot: 'Fornecedores', newSuffix: 'Reembolsos' },
 
   // Simple customer paths (folder/{customer}/ → Clientes/{customer}/{folder}/)
-  { oldBase: 'Layouts', entityRoot: 'Clientes', newSuffix: 'Layouts' },
-  { oldBase: 'Projetos', entityRoot: 'Clientes', newSuffix: 'Projetos' },
+  // NOTE: Projetos on disk → Clientes/{customer}/Layouts/ in DB (migration 1 renames Projetos→Layouts)
+  { oldBase: 'Projetos', entityRoot: 'Clientes', newSuffix: 'Layouts' },
   { oldBase: 'Checkin', entityRoot: 'Clientes', newSuffix: 'Checkin' },
   { oldBase: 'Checkout', entityRoot: 'Clientes', newSuffix: 'Checkout' },
   { oldBase: 'Aerografias', entityRoot: 'Clientes', newSuffix: 'Aerografias' },
@@ -73,6 +73,22 @@ const MIGRATION_MAP = [
   // User folders
   { oldBase: 'Colaboradores/Documentos', entityRoot: 'Colaboradores', newSuffix: 'EPIs' },
   { oldBase: 'Advertencias', entityRoot: 'Colaboradores', newSuffix: 'Advertencias' },
+];
+
+/**
+ * Flat file mappings for directories that DON'T have entity subdirectories.
+ * These move files directly from oldDir to newDir (no entity name extraction).
+ *
+ * DB migration 1 renames:
+ *   /Layouts/Orcamentos/file → /Layouts/file (removes Orcamentos segment)
+ *   /Auxiliares/Traseiras/Fotos/file → /Traseiras/file
+ *
+ * DB migration 2 won't touch these (no entity/{name}/ pattern), so final DB path is the same.
+ * Physical script must move disk files to match.
+ */
+const FLAT_MIGRATIONS = [
+  { oldDir: 'Layouts/Orcamentos', newDir: 'Layouts' },
+  { oldDir: 'Auxiliares/Traseiras/Fotos', newDir: 'Traseiras' },
 ];
 
 /**
@@ -157,6 +173,75 @@ async function main() {
     }
   }
 
+  // ---- Phase 1: Flat file migrations (no entity subdirs) ----
+  for (const flat of FLAT_MIGRATIONS) {
+    const oldDir = join(filesRoot, flat.oldDir);
+    const newDir = join(filesRoot, flat.newDir);
+    if (!existsSync(oldDir)) {
+      continue;
+    }
+
+    console.log(`\n[FLAT] Processing: ${flat.oldDir} → ${flat.newDir}`);
+
+    const files = getAllFiles(oldDir);
+    totalFiles += files.length;
+    console.log(`  Found ${files.length} files`);
+
+    for (const oldFilePath of files) {
+      const relativePath = relative(oldDir, oldFilePath);
+      const newFilePath = join(newDir, relativePath);
+
+      const op: MoveOperation = {
+        oldPath: oldFilePath,
+        newPath: newFilePath,
+        status: 'pending',
+      };
+
+      if (existsSync(newFilePath)) {
+        op.status = 'skipped';
+        op.reason = 'Target already exists';
+        totalSkipped++;
+      } else if (!isDryRun) {
+        try {
+          const targetDir = join(newFilePath, '..');
+          await fs.mkdir(targetDir, { recursive: true });
+          await fs.chmod(targetDir, 0o2775).catch(() => {});
+
+          try {
+            await fs.rename(oldFilePath, newFilePath);
+          } catch (err: any) {
+            if (err.code === 'EXDEV') {
+              await fs.copyFile(oldFilePath, newFilePath);
+              await fs.unlink(oldFilePath);
+            } else {
+              throw err;
+            }
+          }
+
+          await fs.chmod(newFilePath, 0o664).catch(() => {});
+          op.status = 'moved';
+          totalMoved++;
+        } catch (err: any) {
+          op.status = 'error';
+          op.reason = err.message;
+          totalErrors++;
+          console.error(`  ERROR moving ${oldFilePath}: ${err.message}`);
+        }
+      } else {
+        op.status = 'moved';
+        totalMoved++;
+      }
+
+      operations.push(op);
+    }
+
+    // Clean up empty old directories after moving files
+    if (!isDryRun && existsSync(oldDir)) {
+      await removeEmptyDirs(oldDir);
+    }
+  }
+
+  // ---- Phase 2: Entity-based migrations ----
   // Process each mapping
   for (const mapping of MIGRATION_MAP) {
     const oldBaseDir = join(filesRoot, mapping.oldBase);
