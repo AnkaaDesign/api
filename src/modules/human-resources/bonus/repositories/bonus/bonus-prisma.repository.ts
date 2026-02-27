@@ -822,7 +822,7 @@ export class BonusPrismaRepository
     const userTasks = await model.task.findMany({
       where: {
         createdById: userId,
-        commission: { in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION'] },
+        commission: { in: ['FULL_COMMISSION', 'PARTIAL_COMMISSION', 'SUSPENDED_COMMISSION', 'NO_COMMISSION'] },
         status: 'COMPLETED',
         finishedAt: { gte: startDate, lte: endDate },
       },

@@ -413,7 +413,7 @@ export class BonusService {
         },
       });
 
-      // Get ALL tasks in the period
+      // Get ALL tasks in the period (including NO_COMMISSION for history)
       const allTasks = await this.prisma.task.findMany({
         where: {
           commission: {
@@ -421,6 +421,7 @@ export class BonusService {
               COMMISSION_STATUS.FULL_COMMISSION,
               COMMISSION_STATUS.PARTIAL_COMMISSION,
               COMMISSION_STATUS.SUSPENDED_COMMISSION,
+              COMMISSION_STATUS.NO_COMMISSION,
             ],
           },
           finishedAt: { gte: startDate, lte: endDate },
@@ -1519,7 +1520,7 @@ export class BonusService {
       },
     });
 
-    // Get tasks in period
+    // Get tasks in period (including NO_COMMISSION for history)
     const allTasks = await this.prisma.task.findMany({
       where: {
         commission: {
@@ -1527,6 +1528,7 @@ export class BonusService {
             COMMISSION_STATUS.FULL_COMMISSION,
             COMMISSION_STATUS.PARTIAL_COMMISSION,
             COMMISSION_STATUS.SUSPENDED_COMMISSION,
+            COMMISSION_STATUS.NO_COMMISSION,
           ],
         },
         finishedAt: { gte: startDate, lte: endDate },
@@ -1591,7 +1593,7 @@ export class BonusService {
         },
       });
 
-      // Get ALL tasks in the period (including SUSPENDED_COMMISSION for base calculation)
+      // Get ALL tasks in the period (including NO_COMMISSION for history)
       const allTasks = await this.prisma.task.findMany({
         where: {
           commission: {
@@ -1599,6 +1601,7 @@ export class BonusService {
               COMMISSION_STATUS.FULL_COMMISSION,
               COMMISSION_STATUS.PARTIAL_COMMISSION,
               COMMISSION_STATUS.SUSPENDED_COMMISSION,
+              COMMISSION_STATUS.NO_COMMISSION,
             ],
           },
           finishedAt: {
@@ -2291,7 +2294,7 @@ export class BonusService {
       const periodStart = getPeriodStart(yearNum, monthNum);
       const periodEnd = getPeriodEnd(yearNum, monthNum);
 
-      // Get all tasks for this period (including suspended) - ALL users share the same task pool
+      // Get all tasks for this period (including suspended and no commission) - ALL users share the same task pool
       const allTasksForPeriod = await this.prisma.task.findMany({
         where: {
           commission: {
@@ -2299,6 +2302,7 @@ export class BonusService {
               COMMISSION_STATUS.FULL_COMMISSION,
               COMMISSION_STATUS.PARTIAL_COMMISSION,
               COMMISSION_STATUS.SUSPENDED_COMMISSION,
+              COMMISSION_STATUS.NO_COMMISSION,
             ],
           },
           finishedAt: {
