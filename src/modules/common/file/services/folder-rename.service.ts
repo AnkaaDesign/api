@@ -1,7 +1,7 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { promises as fs, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { promises as fs, existsSync, readdirSync, statSync } from 'fs';
+import { join, dirname, relative } from 'path';
 import type { PrismaTransaction } from '../repositories/file.repository';
 
 /**
@@ -200,6 +200,149 @@ export class FolderRenameService {
     );
 
     return { totalFoldersRenamed: result.foldersRenamed, totalFilesUpdated: result.filesUpdated };
+  }
+
+  /**
+   * Merge multiple source entity folders into a target entity folder.
+   * Moves all physical files and updates DB paths within the transaction.
+   * Used during entity merge operations (e.g. merging duplicate customers).
+   */
+  async mergeEntityFolders(
+    entityRoot: 'Clientes' | 'Fornecedores' | 'Colaboradores',
+    sourceNames: string[],
+    targetName: string,
+    tx: PrismaTransaction,
+  ): Promise<{ totalFilesMoved: number; totalFilesUpdated: number; errors: string[] }> {
+    let totalFilesMoved = 0;
+    let totalFilesUpdated = 0;
+    const errors: string[] = [];
+
+    const targetSanitized = this.sanitizeFolderName(targetName);
+    const targetFolder = join(this.filesRoot, entityRoot, targetSanitized);
+
+    for (const sourceName of sourceNames) {
+      const sourceSanitized = this.sanitizeFolderName(sourceName);
+
+      if (sourceSanitized === targetSanitized) {
+        this.logger.log(`Source "${sourceName}" same as target after sanitization, skipping`);
+        continue;
+      }
+
+      const sourceFolder = join(this.filesRoot, entityRoot, sourceSanitized);
+
+      if (!existsSync(sourceFolder)) {
+        this.logger.log(`Source folder does not exist, skipping: ${sourceFolder}`);
+        continue;
+      }
+
+      this.logger.log(`Merging entity folder: ${sourceFolder} → ${targetFolder}`);
+
+      // Get all files recursively from source
+      const files = this.getAllFilesRecursively(sourceFolder);
+      this.logger.log(`Found ${files.length} files to merge from "${sourceName}"`);
+
+      for (const filePath of files) {
+        const relativePath = relative(sourceFolder, filePath);
+        const targetPath = join(targetFolder, relativePath);
+
+        // Skip if target already exists (don't overwrite)
+        if (existsSync(targetPath)) {
+          this.logger.warn(`Target already exists, skipping: ${targetPath}`);
+          continue;
+        }
+
+        try {
+          // Create target directory
+          await fs.mkdir(dirname(targetPath), { recursive: true });
+
+          // Move file
+          try {
+            await fs.rename(filePath, targetPath);
+          } catch (err: any) {
+            if (err.code === 'EXDEV') {
+              await fs.copyFile(filePath, targetPath);
+              await fs.unlink(filePath);
+            } else {
+              throw err;
+            }
+          }
+
+          await fs.chmod(targetPath, 0o664).catch(() => {});
+          totalFilesMoved++;
+        } catch (error: any) {
+          const msg = `Failed to move ${filePath} → ${targetPath}: ${error.message}`;
+          this.logger.error(msg);
+          errors.push(msg);
+          continue;
+        }
+
+        // Update DB path
+        const dbFiles = await tx.file.findMany({
+          where: { path: filePath },
+          select: { id: true },
+        });
+
+        for (const dbFile of dbFiles) {
+          await tx.file.update({
+            where: { id: dbFile.id },
+            data: { path: targetPath },
+          });
+          totalFilesUpdated++;
+        }
+      }
+
+      // Clean up empty source directory
+      try {
+        await this.removeEmptyDirectories(sourceFolder);
+      } catch (error: any) {
+        this.logger.warn(`Could not clean up ${sourceFolder}: ${error.message}`);
+      }
+    }
+
+    this.logger.log(
+      `Entity folder merge complete: ${totalFilesMoved} files moved, ${totalFilesUpdated} DB paths updated, ${errors.length} errors`,
+    );
+
+    return { totalFilesMoved, totalFilesUpdated, errors };
+  }
+
+  /**
+   * Get all files recursively from a directory
+   */
+  private getAllFilesRecursively(dir: string): string[] {
+    const files: string[] = [];
+    if (!existsSync(dir)) return files;
+
+    for (const item of readdirSync(dir)) {
+      const fullPath = join(dir, item);
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        files.push(...this.getAllFilesRecursively(fullPath));
+      } else {
+        files.push(fullPath);
+      }
+    }
+    return files;
+  }
+
+  /**
+   * Remove empty directories bottom-up
+   */
+  private async removeEmptyDirectories(dir: string): Promise<void> {
+    if (!existsSync(dir)) return;
+
+    const items = readdirSync(dir);
+    for (const item of items) {
+      const fullPath = join(dir, item);
+      if (statSync(fullPath).isDirectory()) {
+        await this.removeEmptyDirectories(fullPath);
+      }
+    }
+
+    // Re-check after cleaning subdirs
+    if (readdirSync(dir).length === 0) {
+      await fs.rmdir(dir);
+    }
   }
 
   /**

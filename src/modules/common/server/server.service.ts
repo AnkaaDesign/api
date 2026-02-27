@@ -612,27 +612,39 @@ export class ServerService {
 
           if (directoryNames.length > 0) {
             const baseUrl = process.env.FILES_BASE_URL || 'https://arquivos.ankaa.app';
+            const entityBasePath = path.join(filesRoot, folderName);
 
             if (folderName === 'Clientes') {
+              // Query customers with logos, then match by folder name extracted from logo path
+              // This handles cases where folder name on disk differs from fantasyName
               const customers = await this.prisma.customer.findMany({
-                where: { fantasyName: { in: directoryNames } },
+                where: { logoId: { not: null } },
                 select: { fantasyName: true, logo: { select: { path: true, thumbnailUrl: true } } },
               });
+              const dirSet = new Set(directoryNames);
               for (const c of customers) {
-                if (c.logo) {
+                if (c.logo && c.logo.path.startsWith(entityBasePath + '/')) {
                   const logoUrl = c.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, c.logo.path).replace(/\\/g, '/')}`;
-                  entityLogoMap.set(c.fantasyName, logoUrl);
+                  // Extract the actual folder name from the logo file path
+                  const folderFromPath = path.relative(entityBasePath, c.logo.path).split(path.sep)[0];
+                  if (folderFromPath && dirSet.has(folderFromPath)) {
+                    entityLogoMap.set(folderFromPath, logoUrl);
+                  }
                 }
               }
             } else if (folderName === 'Fornecedores') {
               const suppliers = await this.prisma.supplier.findMany({
-                where: { fantasyName: { in: directoryNames } },
+                where: { logoId: { not: null } },
                 select: { fantasyName: true, logo: { select: { path: true, thumbnailUrl: true } } },
               });
+              const dirSet = new Set(directoryNames);
               for (const s of suppliers) {
-                if (s.logo) {
+                if (s.logo && s.logo.path.startsWith(entityBasePath + '/')) {
                   const logoUrl = s.logo.thumbnailUrl || `${baseUrl}/${path.relative(filesRoot, s.logo.path).replace(/\\/g, '/')}`;
-                  entityLogoMap.set(s.fantasyName, logoUrl);
+                  const folderFromPath = path.relative(entityBasePath, s.logo.path).split(path.sep)[0];
+                  if (folderFromPath && dirSet.has(folderFromPath)) {
+                    entityLogoMap.set(folderFromPath, logoUrl);
+                  }
                 }
               }
             }

@@ -139,11 +139,23 @@ export class FileCleanupSchedulerService {
     const orphanedFiles: OrphanedFile[] = [];
 
     try {
-      // Get all file paths from database
+      // Get all file paths from database (File table)
       const dbFiles = await this.prisma.file.findMany({
         select: { path: true },
       });
       const dbFilePaths = new Set(dbFiles.map(f => f.path));
+
+      // Also get paint colorPreview paths - these are stored directly in Paint table, not in File table
+      // Paint images are stored in Tintas/{PaintName}/ and referenced via colorPreview field
+      const paintColorPreviews = await this.prisma.paint.findMany({
+        where: { colorPreview: { not: null } },
+        select: { colorPreview: true },
+      });
+      for (const paint of paintColorPreviews) {
+        if (paint.colorPreview) {
+          dbFilePaths.add(paint.colorPreview);
+        }
+      }
 
       // Scan files storage directory (excluding Samba-managed folders)
       if (existsSync(this.filesRoot)) {

@@ -496,11 +496,14 @@ export class CustomerService {
               }
             }
 
+            // Use new fantasyName for folder path if it was changed, otherwise use existing
+            const customerNameForLogo = data.fantasyName || existingCustomer.fantasyName;
+
             // Process new logo file
             logoId = await this.processLogoFile(
               logoFile,
               id,
-              existingCustomer.fantasyName,
+              customerNameForLogo,
               tx,
               userId,
             );
@@ -932,6 +935,28 @@ export class CustomerService {
               data: { customerId: data.targetCustomerId },
             });
           }
+        }
+
+        // 2.5. Merge physical file directories from source customers into target
+        const sourceNames = sourceCustomers.map(c => c.fantasyName);
+        try {
+          const mergeResult = await this.folderRenameService.mergeEntityFolders(
+            'Clientes',
+            sourceNames,
+            targetCustomer.fantasyName,
+            tx,
+          );
+          if (mergeResult.errors.length > 0) {
+            this.logger.warn(
+              `File folder merge had ${mergeResult.errors.length} errors: ${mergeResult.errors.slice(0, 3).join('; ')}`,
+            );
+          }
+          this.logger.log(
+            `Merged ${mergeResult.totalFilesMoved} files from ${sourceNames.join(', ')} into ${targetCustomer.fantasyName}`,
+          );
+        } catch (folderError: any) {
+          this.logger.error(`Failed to merge file folders: ${folderError.message}`);
+          // Don't block the merge - files can be consolidated later via /files/migration/consolidate
         }
 
         // 3. Delete source customers BEFORE updating target to avoid unique constraint conflicts

@@ -1729,6 +1729,27 @@ export class UserService {
           });
         }
 
+        // 9.5. Merge physical file directories from source users into target
+        const sourceUserNames = sourceUsers.map(u => u.name);
+        try {
+          const mergeResult = await this.folderRenameService.mergeEntityFolders(
+            'Colaboradores',
+            sourceUserNames,
+            targetUser.name,
+            tx,
+          );
+          if (mergeResult.errors.length > 0) {
+            this.logger.warn(
+              `User file folder merge had ${mergeResult.errors.length} errors: ${mergeResult.errors.slice(0, 3).join('; ')}`,
+            );
+          }
+          this.logger.log(
+            `Merged ${mergeResult.totalFilesMoved} files from ${sourceUserNames.join(', ')} into ${targetUser.name}`,
+          );
+        } catch (folderError: any) {
+          this.logger.error(`Failed to merge user file folders: ${folderError.message}`);
+        }
+
         // 10. Delete source users BEFORE updating target to avoid unique constraint conflicts
         for (const sourceUser of sourceUsers) {
           await logEntityChange({
