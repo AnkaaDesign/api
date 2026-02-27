@@ -583,7 +583,7 @@ export class FilesStorageService {
   /**
    * Sanitize filename for safe filesystem usage
    */
-  private sanitizeFileName(filename: string): string {
+  sanitizeFileName(filename: string): string {
     return filename
       .replace(/[<>:"|?*\x00-\x1f]/g, '_')
       .replace(/\.\./g, '_')

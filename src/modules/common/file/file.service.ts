@@ -213,6 +213,107 @@ export class FileService {
   }
 
   /**
+   * Get file suggestions for a customer based on file context.
+   * Returns recent files (last 30 days) from the customer's folder.
+   */
+  async getFileSuggestions(params: {
+    customerId: string;
+    fileContext: 'tasksArtworks' | 'taskBaseFiles' | 'taskProjectFiles';
+    limit?: number;
+    excludeIds?: string[];
+  }): Promise<{ success: boolean; data: Array<File & { url: string }> }> {
+    const { customerId, fileContext, limit = 20, excludeIds = [] } = params;
+
+    // Fetch customer's fantasyName
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { fantasyName: true },
+    });
+
+    if (!customer) {
+      throw new NotFoundException('Cliente não encontrado.');
+    }
+
+    const sanitizedName = this.filesStorageService.sanitizeFileName(customer.fantasyName);
+    const folderMapping: Record<string, string> = {
+      tasksArtworks: 'Layouts',
+      taskBaseFiles: 'Outros',
+      taskProjectFiles: 'Projetos',
+    };
+
+    const pathPrefix = join('Clientes', sanitizedName, folderMapping[fileContext]).replace(/\\/g, '/');
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const files = await this.prisma.file.findMany({
+      where: {
+        path: { contains: pathPrefix },
+        createdAt: { gte: thirtyDaysAgo },
+        ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
+      },
+      distinct: ['path'],
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    const filesWithUrls = this.transformFilesWithUrls(files);
+
+    return {
+      success: true,
+      data: filesWithUrls,
+    };
+  }
+
+  /**
+   * Create a new file record from an existing file.
+   * Points to the same physical file on disk.
+   */
+  async createFromExistingFile(
+    sourceFileId: string,
+    userId?: string,
+  ): Promise<{ success: boolean; data: File & { url: string } }> {
+    const sourceFile = await this.prisma.file.findUnique({
+      where: { id: sourceFileId },
+    });
+
+    if (!sourceFile) {
+      throw new NotFoundException('Arquivo de origem não encontrado.');
+    }
+
+    const newFile = await this.prisma.file.create({
+      data: {
+        filename: sourceFile.filename,
+        originalName: sourceFile.originalName,
+        mimetype: sourceFile.mimetype,
+        path: sourceFile.path,
+        size: sourceFile.size,
+        thumbnailUrl: sourceFile.thumbnailUrl,
+      },
+    });
+
+    // Log changelog event
+    await this.changeLogService.logChange({
+      entityType: ENTITY_TYPE.FILE,
+      entityId: newFile.id,
+      action: CHANGE_ACTION.CREATE,
+      field: 'file',
+      oldValue: null,
+      newValue: newFile.id,
+      reason: `Arquivo criado a partir de arquivo existente (${sourceFile.filename})`,
+      triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+      triggeredById: sourceFileId,
+      userId: userId || null,
+    });
+
+    const fileWithUrl = this.transformFileWithUrl(newFile);
+
+    return {
+      success: true,
+      data: fileWithUrl,
+    };
+  }
+
+  /**
    * Serve file by ID with proper headers.
    * Supports HTTP Range requests for video streaming/seeking.
    */

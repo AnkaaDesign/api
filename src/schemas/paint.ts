@@ -278,6 +278,7 @@ export const paintSelectSchema = z
     tags: z.boolean().optional(),
     colorOrder: z.boolean().optional(),
     colorPreview: z.boolean().optional(),
+    previewConfig: z.boolean().optional(),
     createdAt: z.boolean().optional(),
     updatedAt: z.boolean().optional(),
 
@@ -1604,6 +1605,28 @@ export const paintTypeBatchDeleteSchema = z.object({
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
+// Preview config schema for paint image generator settings
+const previewConfigSchema = z
+  .object({
+    lights: z.array(
+      z.object({
+        id: z.string(),
+        type: z.enum(["BEAM", "LINEAR"]),
+        color: z.string(),
+        positionX: z.number().min(0).max(100),
+        positionY: z.number().min(0).max(100),
+        rotation: z.number().min(0).max(360).optional().default(45),
+        intensity: z.number().min(0).max(100),
+        spread: z.number().min(0).max(100),
+      })
+    ).optional().default([]),
+    effectIntensity: z.number().min(0).max(100).optional().default(60),
+    flakeColor: z.string().optional().default("#c0c0c0"),
+    flipColor: z.string().optional().default("#ffd700"),
+  })
+  .nullable()
+  .optional();
+
 // Paint schemas
 export const paintCreateSchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -1624,6 +1647,7 @@ export const paintCreateSchema = z.object({
   colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
   colorPreview: z.string().nullable().optional(), // URL or data URL for paint preview image
+  previewConfig: previewConfigSchema,
 });
 
 export const paintUpdateSchema = z.object({
@@ -1647,6 +1671,7 @@ export const paintUpdateSchema = z.object({
   colorOrder: z.number().int().nullable().optional(),
   groundIds: z.array(z.string().uuid()).optional(),
   colorPreview: z.string().nullable().optional(), // URL or data URL for paint preview image
+  previewConfig: previewConfigSchema,
 });
 
 // =====================
@@ -2860,6 +2885,7 @@ export const mapPaintToFormData = createMapToFormDataHelper<Paint, PaintUpdateFo
   tags: paint.tags,
   paintTypeId: paint.paintTypeId,
   groundIds: paint.paintGrounds?.map(pg => pg.groundPaintId) || [],
+  previewConfig: paint.previewConfig || null,
 }));
 
 export const mapPaintFormulaToFormData = createMapToFormDataHelper<

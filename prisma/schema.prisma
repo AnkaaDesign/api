@@ -910,6 +910,7 @@ model Paint {
   paintBrandId     String?
   colorOrder       Int                @default(0)
   colorPreview     String?
+  previewConfig    Json?
   paintBrand       PaintBrand?        @relation(fields: [paintBrandId], references: [id])
   paintType        PaintType          @relation(fields: [paintTypeId], references: [id], onDelete: Cascade)
   formulas         PaintFormula[]

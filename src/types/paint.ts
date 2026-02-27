@@ -56,6 +56,7 @@ export interface Paint extends BaseEntity {
   paintTypeId: string;
   paintBrandId: string | null;
   colorPreview: string | null; // Paint preview image URL (WebP)
+  previewConfig: Record<string, any> | null; // Preview generator settings (JSON)
 
   // Relations (optional, populated based on query)
   paintType?: PaintType;
