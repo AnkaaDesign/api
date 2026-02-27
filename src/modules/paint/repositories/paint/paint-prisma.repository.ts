@@ -111,6 +111,7 @@ export class PaintPrismaRepository
         connect: { id: restFormData.paintTypeId },
       },
       colorPreview: restFormData.colorPreview || null,
+      previewConfig: restFormData.previewConfig ?? undefined,
     };
 
     // Handle ground paints connection
@@ -170,6 +171,10 @@ export class PaintPrismaRepository
 
     if (restFormData.colorPreview !== undefined) {
       updateInput.colorPreview = restFormData.colorPreview;
+    }
+
+    if (restFormData.previewConfig !== undefined) {
+      (updateInput as any).previewConfig = restFormData.previewConfig;
     }
 
     // Handle ground paints update - delete all existing and recreate

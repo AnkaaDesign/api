@@ -256,6 +256,38 @@ export class FileController {
     return this.fileService.create(data, query.include, userId);
   }
 
+  // File Suggestions
+  @Get('suggestions')
+  @ReadRateLimit()
+  async getFileSuggestions(
+    @Query('customerId', ParseUUIDPipe) customerId: string,
+    @Query('fileContext') fileContext: 'tasksArtworks' | 'taskBaseFiles' | 'taskProjectFiles',
+    @Query('limit') limit?: string,
+    @Query('excludeIds') excludeIds?: string,
+  ): Promise<{ success: boolean; data: any[] }> {
+    const validContexts = ['tasksArtworks', 'taskBaseFiles', 'taskProjectFiles'];
+    if (!validContexts.includes(fileContext)) {
+      throw new BadRequestException('fileContext deve ser: tasksArtworks, taskBaseFiles ou taskProjectFiles');
+    }
+    return this.fileService.getFileSuggestions({
+      customerId,
+      fileContext,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      excludeIds: excludeIds ? excludeIds.split(',').filter(Boolean) : undefined,
+    });
+  }
+
+  // Create file from existing
+  @Post('create-from-existing')
+  @HttpCode(HttpStatus.CREATED)
+  @WriteRateLimit()
+  async createFromExistingFile(
+    @Body('sourceFileId', ParseUUIDPipe) sourceFileId: string,
+    @UserId() userId: string,
+  ): Promise<{ success: boolean; data: any }> {
+    return this.fileService.createFromExistingFile(sourceFileId, userId);
+  }
+
   // Batch Operations - Static routes before dynamic routes
   @Post('batch')
   @HttpCode(HttpStatus.CREATED)
