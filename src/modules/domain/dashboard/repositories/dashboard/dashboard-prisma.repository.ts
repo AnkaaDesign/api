@@ -17,6 +17,10 @@ import {
   DashboardTaskWhere,
   DashboardNotificationWhere,
   TimeSeriesDataPoint,
+  HomeDashboardTask,
+  HomeDashboardServiceOrder,
+  HomeDashboardLowStockItem,
+  HomeDashboardMessage,
 } from '../../../../../types';
 import {
   ACTIVITY_OPERATION,
@@ -3375,5 +3379,279 @@ export class DashboardPrismaRepository implements DashboardRepository {
         ...(dateFilter && Object.keys(dateFilter).length > 0 && { createdAt: dateFilter }),
       },
     });
+  }
+
+  // Home dashboard queries
+
+  async getTasksWithCloseDeadline(today: Date, limit = 10, sectorId?: string | null): Promise<HomeDashboardTask[]> {
+    const startOfDay = new Date(today);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(today);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const where: any = {
+      term: { gte: startOfDay, lte: endOfDay },
+      status: { notIn: [TASK_STATUS.COMPLETED as any, TASK_STATUS.CANCELLED as any] },
+    };
+
+    // For sector-specific filtering (e.g., PRODUCTION): show tasks with no sector or matching sector
+    if (sectorId) {
+      where.OR = [
+        { sectorId: null },
+        { sectorId },
+      ];
+    }
+
+    const tasks = await this.prisma.task.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        term: true,
+        forecastDate: true,
+        customer: { select: { fantasyName: true } },
+        sector: { select: { name: true } },
+        truck: { select: { plate: true } },
+      },
+      orderBy: { term: 'asc' },
+      take: limit,
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      serialNumber: t.serialNumber,
+      plate: t.truck?.plate || null,
+      status: t.status,
+      term: t.term,
+      forecastDate: t.forecastDate,
+      customerName: t.customer?.fantasyName || null,
+      sectorName: t.sector?.name || null,
+    }));
+  }
+
+  async getTasksWithCloseForecast(
+    forecastCutoff: Date,
+    soTypes: string[],
+    limit = 10,
+  ): Promise<HomeDashboardTask[]> {
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        forecastDate: { lte: forecastCutoff },
+        status: { notIn: [TASK_STATUS.COMPLETED as any, TASK_STATUS.CANCELLED as any] },
+        serviceOrders: {
+          some: {
+            type: { in: soTypes as any[] },
+            status: { in: ['PENDING', 'IN_PROGRESS'] as any[] },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        term: true,
+        forecastDate: true,
+        customer: { select: { fantasyName: true } },
+        sector: { select: { name: true } },
+        truck: { select: { plate: true } },
+      },
+      orderBy: { forecastDate: 'asc' },
+      take: limit,
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      serialNumber: t.serialNumber,
+      plate: t.truck?.plate || null,
+      status: t.status,
+      term: t.term,
+      forecastDate: t.forecastDate,
+      customerName: t.customer?.fantasyName || null,
+      sectorName: t.sector?.name || null,
+    }));
+  }
+
+  async getOpenServiceOrdersByTypes(
+    types: string[],
+    limit = 15,
+  ): Promise<HomeDashboardServiceOrder[]> {
+    const orders = await this.prisma.serviceOrder.findMany({
+      where: {
+        type: { in: types as any[] },
+        status: { in: ['PENDING', 'IN_PROGRESS'] as any[] },
+      },
+      select: {
+        id: true,
+        description: true,
+        type: true,
+        status: true,
+        createdAt: true,
+        task: { select: { id: true, name: true, serialNumber: true, forecastDate: true } },
+        assignedTo: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return orders.map((o) => ({
+      id: o.id,
+      description: o.description,
+      type: o.type,
+      status: o.status,
+      taskId: o.task.id,
+      taskName: o.task.name,
+      taskSerialNumber: o.task.serialNumber,
+      taskForecastDate: o.task.forecastDate,
+      assignedToName: o.assignedTo?.name || null,
+      createdAt: o.createdAt,
+    }));
+  }
+
+  async getLowStockItems(): Promise<HomeDashboardLowStockItem[]> {
+    const items: any[] = await this.prisma.$queryRaw`
+      SELECT i.id, i.name, i.quantity, i."reorderPoint", i."maxQuantity",
+             i."monthlyConsumption", b.name as "brandName",
+             CASE
+               WHEN i.quantity < 0 THEN 0
+               WHEN i.quantity = 0 THEN 1
+               WHEN i."reorderPoint" > 0 AND i.quantity <= i."reorderPoint" * 0.5 THEN 2
+               ELSE 3
+             END as "_level"
+      FROM "Item" i
+      LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
+      WHERE i."isActive" = true
+        AND (
+          i.quantity < 0
+          OR i.quantity = 0
+          OR (i."reorderPoint" > 0 AND i.quantity > 0 AND i.quantity <= i."reorderPoint")
+        )
+      ORDER BY "_level" ASC, i.quantity ASC
+    `;
+
+    return items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      quantity: Number(i.quantity),
+      reorderPoint: Number(i.reorderPoint || 0),
+      maxQuantity: i.maxQuantity != null ? Number(i.maxQuantity) : null,
+      brandName: i.brandName || null,
+      monthlyConsumption: Number(i.monthlyConsumption || 0),
+    }));
+  }
+
+  async getRecentlyCompletedTasks(since: Date, limit = 10): Promise<HomeDashboardTask[]> {
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        status: TASK_STATUS.COMPLETED as any,
+        finishedAt: { gte: since },
+      },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        term: true,
+        forecastDate: true,
+        customer: { select: { fantasyName: true } },
+        sector: { select: { name: true } },
+        truck: { select: { plate: true } },
+      },
+      orderBy: { finishedAt: 'desc' },
+      take: limit,
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      serialNumber: t.serialNumber,
+      plate: t.truck?.plate || null,
+      status: t.status,
+      term: t.term,
+      forecastDate: t.forecastDate,
+      customerName: t.customer?.fantasyName || null,
+      sectorName: t.sector?.name || null,
+    }));
+  }
+
+  async getOpenFinancialSOsForCompletedTasks(
+    limit = 10,
+  ): Promise<HomeDashboardServiceOrder[]> {
+    const orders = await this.prisma.serviceOrder.findMany({
+      where: {
+        type: 'FINANCIAL' as any,
+        status: { in: ['PENDING', 'IN_PROGRESS'] as any[] },
+        task: { status: TASK_STATUS.COMPLETED as any },
+      },
+      select: {
+        id: true,
+        description: true,
+        type: true,
+        status: true,
+        createdAt: true,
+        task: { select: { id: true, name: true, serialNumber: true, forecastDate: true } },
+        assignedTo: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return orders.map((o) => ({
+      id: o.id,
+      description: o.description,
+      type: o.type,
+      status: o.status,
+      taskId: o.task.id,
+      taskName: o.task.name,
+      taskSerialNumber: o.task.serialNumber,
+      taskForecastDate: o.task.forecastDate,
+      assignedToName: o.assignedTo?.name || null,
+      createdAt: o.createdAt,
+    }));
+  }
+
+  async getRecentMessages(
+    userId: string,
+    since: Date,
+    limit = 10,
+  ): Promise<HomeDashboardMessage[]> {
+    const messages = await this.prisma.message.findMany({
+      where: {
+        status: 'ACTIVE' as any,
+        publishedAt: { not: null },
+        createdAt: { gte: since },
+        OR: [
+          { targets: { none: {} } },
+          { targets: { some: { userId } } },
+        ],
+      },
+      include: {
+        views: { where: { userId }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return messages.map((m) => ({
+      id: m.id,
+      title: m.title,
+      content: m.content,
+      createdAt: m.createdAt,
+      publishedAt: m.publishedAt,
+      viewedAt: m.views.length > 0 ? m.views[0].viewedAt : null,
+    }));
+  }
+
+  async getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { sector: { select: { id: true, privileges: true } } },
+    });
+    if (!user?.sector) return null;
+    return { privileges: user.sector.privileges, sectorId: user.sector.id };
   }
 }

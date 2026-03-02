@@ -71,3 +71,10 @@ export type ProductionDashboardQueryFormData = z.infer<typeof productionDashboar
 export const unifiedDashboardQuerySchema = baseDashboardQuerySchema;
 
 export type UnifiedDashboardQueryFormData = z.infer<typeof unifiedDashboardQuerySchema>;
+
+// Home dashboard query
+export const homeDashboardQuerySchema = z.object({
+  platform: z.enum(['web', 'mobile']).optional().default('web'),
+});
+
+export type HomeDashboardQueryFormData = z.infer<typeof homeDashboardQuerySchema>;
