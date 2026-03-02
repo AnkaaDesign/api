@@ -6,6 +6,8 @@ import {
   PaintDashboardResponse,
   ProductionDashboardResponse,
   UnifiedDashboardResponse,
+  HomeDashboardResponse,
+  HomeDashboardData,
   DateFilter,
   DashboardActivityWhere,
   DashboardOrderWhere,
@@ -19,8 +21,9 @@ import {
   PaintDashboardQueryFormData,
   ProductionDashboardQueryFormData,
   UnifiedDashboardQueryFormData,
+  HomeDashboardQueryFormData,
 } from '../../../schemas';
-import { DASHBOARD_TIME_PERIOD, ACTIVE_USER_STATUSES } from '../../../constants';
+import { DASHBOARD_TIME_PERIOD, ACTIVE_USER_STATUSES, SECTOR_PRIVILEGES } from '../../../constants';
 import {
   createTodayRange,
   createThisWeekRange,
@@ -1427,5 +1430,193 @@ export class DashboardService {
       garageUtilization: garageUtilization,
       activeServiceOrders: serviceOrderCount.pending,
     };
+  }
+
+  /**
+   * Home dashboard sector configuration
+   */
+  private getHomeSectorConfig(sector: string) {
+    const config = {
+      tasksCloseDeadline: false,
+      openSOTypes: [] as string[],
+      tasksCloseForecastSOTypes: [] as string[],
+      lowStockItems: false,
+      completedTasks: false,
+      openFinancialSOs: false,
+      recentMessages: true,
+    };
+
+    switch (sector) {
+      case SECTOR_PRIVILEGES.COMMERCIAL:
+        config.tasksCloseDeadline = true;
+        config.openSOTypes = ['COMMERCIAL'];
+        config.tasksCloseForecastSOTypes = ['COMMERCIAL'];
+        break;
+      case SECTOR_PRIVILEGES.LOGISTIC:
+        config.tasksCloseDeadline = true;
+        config.openSOTypes = ['LOGISTIC'];
+        config.tasksCloseForecastSOTypes = ['LOGISTIC'];
+        break;
+      case SECTOR_PRIVILEGES.ADMIN:
+        config.tasksCloseDeadline = true;
+        config.openSOTypes = ['ARTWORK', 'COMMERCIAL'];
+        config.tasksCloseForecastSOTypes = ['ARTWORK', 'COMMERCIAL'];
+        config.lowStockItems = true;
+        break;
+      case SECTOR_PRIVILEGES.DESIGNER:
+        config.openSOTypes = ['ARTWORK'];
+        config.tasksCloseForecastSOTypes = ['ARTWORK'];
+        break;
+      case SECTOR_PRIVILEGES.PRODUCTION:
+        config.tasksCloseDeadline = true;
+        break;
+      case SECTOR_PRIVILEGES.WAREHOUSE:
+        config.lowStockItems = true;
+        break;
+      case SECTOR_PRIVILEGES.FINANCIAL:
+        config.completedTasks = true;
+        config.openFinancialSOs = true;
+        break;
+      default:
+        break;
+    }
+
+    return config;
+  }
+
+  /**
+   * Get home dashboard data based on user's sector
+   */
+  async getHomeDashboard(
+    query: HomeDashboardQueryFormData,
+    userId: string,
+  ): Promise<HomeDashboardResponse> {
+    try {
+      const sectorInfo = await this.dashboardRepository.getUserSectorInfo(userId);
+
+      if (!sectorInfo) {
+        return {
+          success: true,
+          message: 'Dashboard carregado com sucesso',
+          data: {
+            sector: 'BASIC',
+            counts: {},
+          },
+        };
+      }
+
+      const sectorPrivileges = sectorInfo.privileges;
+      const config = this.getHomeSectorConfig(sectorPrivileges);
+      const now = new Date();
+      const threeDaysFromNow = new Date(now);
+      threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const promises: Record<string, Promise<any>> = {};
+
+      if (config.tasksCloseDeadline) {
+        // For PRODUCTION: only show tasks with no sector or matching the user's sector
+        const deadlineSectorId = sectorPrivileges === SECTOR_PRIVILEGES.PRODUCTION
+          ? sectorInfo.sectorId
+          : undefined;
+        promises.tasksCloseDeadline = this.dashboardRepository.getTasksWithCloseDeadline(now, undefined, deadlineSectorId);
+      }
+
+      if (config.openSOTypes.length > 0) {
+        promises.openServiceOrders = this.dashboardRepository.getOpenServiceOrdersByTypes(
+          config.openSOTypes,
+        );
+      }
+
+      if (config.tasksCloseForecastSOTypes.length > 0) {
+        promises.tasksCloseForecast = this.dashboardRepository.getTasksWithCloseForecast(
+          threeDaysFromNow,
+          config.tasksCloseForecastSOTypes,
+        );
+      }
+
+      if (config.lowStockItems) {
+        promises.lowStockItems = this.dashboardRepository.getLowStockItems();
+      }
+
+      if (config.completedTasks) {
+        promises.completedTasks = this.dashboardRepository.getRecentlyCompletedTasks(sevenDaysAgo);
+      }
+
+      if (config.openFinancialSOs) {
+        promises.openFinancialSOs =
+          this.dashboardRepository.getOpenFinancialSOsForCompletedTasks();
+      }
+
+      if (config.recentMessages) {
+        promises.recentMessages = this.dashboardRepository.getRecentMessages(
+          userId,
+          sevenDaysAgo,
+        );
+      }
+
+      const keys = Object.keys(promises);
+      const results = await Promise.all(Object.values(promises));
+      const resolved: Record<string, any> = {};
+      keys.forEach((key, index) => {
+        resolved[key] = results[index];
+      });
+
+      const data: HomeDashboardData = {
+        sector: sectorPrivileges,
+        counts: {},
+      };
+
+      if (resolved.tasksCloseDeadline) {
+        data.tasksCloseDeadline = resolved.tasksCloseDeadline;
+        data.counts.tasksCloseDeadline = resolved.tasksCloseDeadline.length;
+      }
+
+      if (resolved.openServiceOrders) {
+        data.openServiceOrders = resolved.openServiceOrders;
+        data.counts.openServiceOrders = resolved.openServiceOrders.length;
+      }
+
+      if (resolved.tasksCloseForecast) {
+        data.tasksCloseForecast = resolved.tasksCloseForecast;
+        data.counts.tasksCloseForecast = resolved.tasksCloseForecast.length;
+      }
+
+      if (resolved.lowStockItems) {
+        data.lowStockItems = resolved.lowStockItems;
+        data.counts.lowStockItems = resolved.lowStockItems.length;
+      }
+
+      if (resolved.completedTasks) {
+        data.completedTasks = resolved.completedTasks;
+        data.counts.completedTasks = resolved.completedTasks.length;
+      }
+
+      if (resolved.openFinancialSOs) {
+        data.openFinancialSOs = resolved.openFinancialSOs;
+        data.counts.openFinancialSOs = resolved.openFinancialSOs.length;
+      }
+
+      if (resolved.recentMessages) {
+        data.recentMessages = resolved.recentMessages;
+        data.counts.recentMessages = resolved.recentMessages.length;
+        data.counts.unreadMessages = resolved.recentMessages.filter(
+          (m: any) => !m.viewedAt,
+        ).length;
+      }
+
+      return {
+        success: true,
+        message: 'Dashboard carregado com sucesso',
+        data,
+      };
+    } catch (error) {
+      this.logger.error('Error fetching home dashboard', error);
+      return {
+        success: false,
+        message: 'Erro ao carregar o dashboard',
+      };
+    }
   }
 }

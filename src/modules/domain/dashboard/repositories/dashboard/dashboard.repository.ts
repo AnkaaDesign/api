@@ -14,6 +14,10 @@ import {
   DashboardTaskWhere,
   DashboardNotificationWhere,
   TimeSeriesDataPoint,
+  HomeDashboardTask,
+  HomeDashboardServiceOrder,
+  HomeDashboardLowStockItem,
+  HomeDashboardMessage,
 } from '../../../../../types';
 
 export type { PrismaTransaction } from '@modules/common/base/base.repository';
@@ -294,4 +298,27 @@ export abstract class DashboardRepository {
   abstract countPendingVacations(): Promise<number>;
   abstract countNewVacationsToday(): Promise<number>;
   abstract countApprovedVacationsThisMonth(dateFilter: DateFilter): Promise<number>;
+
+  // Home dashboard queries
+  abstract getTasksWithCloseDeadline(today: Date, limit?: number, sectorId?: string | null): Promise<HomeDashboardTask[]>;
+  abstract getTasksWithCloseForecast(
+    forecastCutoff: Date,
+    soTypes: string[],
+    limit?: number,
+  ): Promise<HomeDashboardTask[]>;
+  abstract getOpenServiceOrdersByTypes(
+    types: string[],
+    limit?: number,
+  ): Promise<HomeDashboardServiceOrder[]>;
+  abstract getLowStockItems(): Promise<HomeDashboardLowStockItem[]>;
+  abstract getRecentlyCompletedTasks(since: Date, limit?: number): Promise<HomeDashboardTask[]>;
+  abstract getOpenFinancialSOsForCompletedTasks(
+    limit?: number,
+  ): Promise<HomeDashboardServiceOrder[]>;
+  abstract getRecentMessages(
+    userId: string,
+    since: Date,
+    limit?: number,
+  ): Promise<HomeDashboardMessage[]>;
+  abstract getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null>;
 }

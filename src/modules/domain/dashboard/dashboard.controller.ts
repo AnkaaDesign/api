@@ -11,6 +11,7 @@ import {
   PaintDashboardResponse,
   ProductionDashboardResponse,
   UnifiedDashboardResponse,
+  HomeDashboardResponse,
 } from '../../../types';
 import {
   inventoryDashboardQuerySchema,
@@ -19,12 +20,14 @@ import {
   paintDashboardQuerySchema,
   productionDashboardQuerySchema,
   unifiedDashboardQuerySchema,
+  homeDashboardQuerySchema,
   InventoryDashboardQueryFormData,
   HRDashboardQueryFormData,
   AdministrationDashboardQueryFormData,
   PaintDashboardQueryFormData,
   ProductionDashboardQueryFormData,
   UnifiedDashboardQueryFormData,
+  HomeDashboardQueryFormData,
 } from '../../../schemas/dashboard';
 
 @Controller('dashboards')
@@ -155,5 +158,26 @@ export class DashboardController {
     @UserId() userId: string,
   ): Promise<UnifiedDashboardResponse> {
     return this.dashboardService.getUnifiedDashboard(query, userId);
+  }
+
+  @Get('home')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  @UsePipes(new ZodQueryValidationPipe(homeDashboardQuerySchema))
+  async getHomeDashboard(
+    @Query() query: HomeDashboardQueryFormData,
+    @UserId() userId: string,
+  ): Promise<HomeDashboardResponse> {
+    return this.dashboardService.getHomeDashboard(query, userId);
   }
 }
