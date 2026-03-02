@@ -809,9 +809,11 @@ export class TaskPricingService {
 
   /**
    * Find pricing for public view (customer budget page)
-   * Only returns data if pricing is not expired
+   * Only returns data if pricing is not expired (unless ignoreExpiration is true)
+   * @param id - Pricing ID
+   * @param ignoreExpiration - If true, returns pricing even if expired (for authenticated users)
    */
-  async findPublic(id: string): Promise<TaskPricingGetUniqueResponse> {
+  async findPublic(id: string, ignoreExpiration = false): Promise<TaskPricingGetUniqueResponse> {
     try {
       const pricing = await this.prisma.taskPricing.findUnique({
         where: { id },
@@ -835,9 +837,9 @@ export class TaskPricingService {
         throw new NotFoundException('Orçamento não encontrado.');
       }
 
-      // Check if pricing is expired
+      // Check if pricing is expired (skip check if user is authenticated)
       const now = new Date();
-      if (new Date(pricing.expiresAt) < now) {
+      if (!ignoreExpiration && new Date(pricing.expiresAt) < now) {
         throw new BadRequestException(
           'Este orçamento expirou e não está mais disponível para visualização.',
         );

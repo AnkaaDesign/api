@@ -444,6 +444,30 @@ export class FileController {
     };
   }
 
+  // Files Storage Configuration Endpoints - MUST be before dynamic routes
+  @Get('storage/contexts')
+  @NoRateLimit()
+  async getStorageContexts(@Query('entityType') entityType?: string): Promise<{
+    success: boolean;
+    data: {
+      folderMapping: any;
+      availableContexts: string[];
+    };
+    message: string;
+  }> {
+    const folderMapping = this.filesStorageService.getFolderMapping();
+    const availableContexts = this.filesStorageService.getAvailableContextsForEntity(entityType);
+
+    return {
+      success: true,
+      data: {
+        folderMapping,
+        availableContexts,
+      },
+      message: 'Contextos de armazenamento carregados com sucesso.',
+    };
+  }
+
   // Dynamic routes last
   @Get(':id')
   @Public()
@@ -509,27 +533,4 @@ export class FileController {
     };
   }
 
-  // Files Storage Configuration Endpoints
-  @Get('storage/contexts')
-  @NoRateLimit()
-  async getStorageContexts(@Query('entityType') entityType?: string): Promise<{
-    success: boolean;
-    data: {
-      folderMapping: any;
-      availableContexts: string[];
-    };
-    message: string;
-  }> {
-    const folderMapping = this.filesStorageService.getFolderMapping();
-    const availableContexts = this.filesStorageService.getAvailableContextsForEntity(entityType);
-
-    return {
-      success: true,
-      data: {
-        folderMapping,
-        availableContexts,
-      },
-      message: 'Contextos de armazenamento carregados com sucesso.',
-    };
-  }
 }
