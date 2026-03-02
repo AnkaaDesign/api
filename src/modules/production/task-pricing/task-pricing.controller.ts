@@ -15,7 +15,10 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Req,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TaskPricingService } from './task-pricing.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -53,7 +56,10 @@ import type {
  */
 @Controller('task-pricings')
 export class TaskPricingController {
-  constructor(private readonly taskPricingService: TaskPricingService) {}
+  constructor(
+    private readonly taskPricingService: TaskPricingService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   /**
    * GET /task-pricings
@@ -225,14 +231,30 @@ export class TaskPricingController {
   /**
    * GET /task-pricings/public/:id
    * Get pricing for public view (customer budget page)
-   * Only returns data if pricing is not expired
+   * - For authenticated users: returns pricing even if expired
+   * - For non-authenticated users: only returns if not expired
    *
-   * Access: PUBLIC (no authentication required)
+   * Access: PUBLIC (authentication optional)
    */
   @Get('public/:id')
   @Public()
-  async findPublic(@Param('id', ParseUUIDPipe) id: string) {
-    return this.taskPricingService.findPublic(id);
+  async findPublic(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    // Check if user is authenticated (optional auth)
+    let isAuthenticated = false;
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      try {
+        await this.jwtService.verifyAsync(token, {
+          secret: process.env.JWT_SECRET,
+        });
+        isAuthenticated = true;
+      } catch {
+        // Invalid token, treat as unauthenticated
+      }
+    }
+
+    return this.taskPricingService.findPublic(id, isAuthenticated);
   }
 
   /**
