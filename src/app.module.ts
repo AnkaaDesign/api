@@ -63,6 +63,7 @@ import { AppsModule } from './modules/system/app/app.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
+import { GovbrModule } from './modules/integrations/govbr/govbr.module';
 
 @Module({
   imports: [
@@ -136,6 +137,7 @@ import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
     WhatsAppModule,
     MessageModule,
     DeepLinkModule,
+    GovbrModule,
   ],
   controllers: [AppController],
   providers: [AppService],

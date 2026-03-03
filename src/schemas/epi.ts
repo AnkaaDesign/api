@@ -599,6 +599,7 @@ export const ppeDeliveryIncludeSchema = z
         }),
       ])
       .optional(),
+    signature: z.boolean().optional(),
   })
   .partial();
 
@@ -1829,6 +1830,46 @@ export type PpeDeliveryScheduleBatchDeleteFormData = z.infer<
 export type PpeDeliveryScheduleInclude = z.infer<typeof ppeDeliveryScheduleIncludeSchema>;
 export type PpeDeliveryScheduleOrderBy = z.infer<typeof ppeDeliveryScheduleOrderBySchema>;
 export type PpeDeliveryScheduleWhere = z.infer<typeof ppeDeliveryScheduleWhereSchema>;
+
+// =====================
+// PPE IN-APP SIGNATURE SCHEMAS
+// =====================
+
+export const ppeDeliverySignSchema = z.object({
+  biometricMethod: z.enum(['FINGERPRINT', 'FACE_ID', 'IRIS', 'DEVICE_PIN', 'NONE'], {
+    errorMap: () => ({ message: 'Método biométrico inválido' }),
+  }),
+  biometricSuccess: z.boolean(),
+
+  // Device info
+  deviceBrand: z.string().max(100).nullable().optional(),
+  deviceModel: z.string().max(100).nullable().optional(),
+  deviceOs: z.string().max(50).nullable().optional(),
+  deviceOsVersion: z.string().max(50).nullable().optional(),
+  appVersion: z.string().max(50).nullable().optional(),
+
+  // Location (optional — signing works without it)
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  locationAccuracy: z.number().min(0).nullable().optional(),
+  networkType: z.enum(['WIFI', 'CELLULAR', 'ETHERNET', 'UNKNOWN']).default('UNKNOWN'),
+
+  // Client timestamp
+  clientTimestamp: z.string().datetime({ message: 'Timestamp deve ser ISO 8601' }),
+
+  // Evidence hash (SHA-256 hex = 64 chars)
+  evidenceHash: z
+    .string()
+    .length(64, 'Hash SHA-256 deve ter 64 caracteres')
+    .regex(/^[a-f0-9]{64}$/, 'Hash deve ser hexadecimal válido'),
+
+  // LGPD consent
+  consentGiven: z.boolean().refine(val => val === true, {
+    message: 'Consentimento LGPD é obrigatório para assinatura eletrônica',
+  }),
+});
+
+export type PpeDeliverySignFormData = z.infer<typeof ppeDeliverySignSchema>;
 
 // =====================
 // Helper Functions

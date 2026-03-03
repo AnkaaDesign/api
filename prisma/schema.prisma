@@ -360,6 +360,7 @@ model PpeDelivery {
   ppeSchedule          PpeDeliverySchedule? @relation("PPE_DELIVERY_SCHEDULE", fields: [ppeScheduleId], references: [id], onDelete: Cascade)
   reviewedByUser       User?                @relation("PPE_DELIVERY_REVIEWED_BY", fields: [reviewedBy], references: [id])
   user                 User                 @relation("PPE_DELIVERY_USER", fields: [userId], references: [id], onDelete: Cascade)
+  signature            PpeDeliverySignature? @relation("PPE_DELIVERY_SIGNATURE")
 
   @@index([userId])
   @@index([itemId])
@@ -368,6 +369,59 @@ model PpeDelivery {
   @@index([status, statusOrder])
   @@index([reviewedBy])
   @@index([clicksignDocumentKey])
+}
+
+model PpeDeliverySignature {
+  id                String          @id @default(uuid())
+  deliveryId        String          @unique
+  delivery          PpeDelivery     @relation("PPE_DELIVERY_SIGNATURE", fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  // Identity (who signed)
+  signedByUserId    String
+  signedByUser      User            @relation("PPE_SIGNATURE_USER", fields: [signedByUserId], references: [id])
+  signedByCpf       String
+
+  // Biometric (result only — no raw biometric data per LGPD)
+  biometricMethod   BiometricMethod @default(NONE)
+  biometricSuccess  Boolean         @default(false)
+
+  // Device
+  deviceBrand       String?
+  deviceModel       String?
+  deviceOs          String?
+  deviceOsVersion   String?
+  appVersion        String?
+
+  // Location (rounded to 4 decimal places per LGPD minimization)
+  latitude          Float?
+  longitude         Float?
+  locationAccuracy  Float?
+  networkType       NetworkType     @default(UNKNOWN)
+  ipAddress         String?
+
+  // Timestamps (dual — client + server for clock-skew evidence)
+  clientTimestamp    DateTime
+  serverTimestamp    DateTime        @default(now())
+
+  // Cryptographic integrity
+  evidenceHash      String
+  hmacSignature     String
+
+  // Signed PDF
+  signedDocumentId  String?
+  signedDocument    File?           @relation("PPE_SIGNATURE_DOCUMENT", fields: [signedDocumentId], references: [id])
+
+  // Raw evidence (for re-verification)
+  evidenceJson      Json
+
+  // LGPD
+  legalBasis        String          @default("NR-6/CLT Art. 166 - Comprovacao de entrega de EPI")
+  consentGiven      Boolean         @default(true)
+
+  createdAt         DateTime        @default(now())
+
+  @@index([signedByUserId])
+  @@index([deliveryId])
 }
 
 model PpeDeliverySchedule {
@@ -435,6 +489,7 @@ model File {
   taskCuts                                Cut[]                @relation("TASK_CUTS")
   layoutPhotos                            Layout[]             @relation("LAYOUT_PHOTO")
   ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
+  ppeSignatureDocuments                   PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
   pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
   pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
@@ -1407,6 +1462,7 @@ model User {
   payrolls                Payroll[]
   ppeDeliveriesReviewed   PpeDelivery[]                @relation("PPE_DELIVERY_REVIEWED_BY")
   ppeDeliveries           PpeDelivery[]                @relation("PPE_DELIVERY_USER")
+  ppeSignatures           PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSize                 PpeSize?                     @relation("USER_PPE_SIZE")
   preference              Preferences?                 @relation("USER_PREFERENCES")
   managedSector           Sector?                      @relation("SECTOR_MANAGER")
@@ -2165,6 +2221,21 @@ enum PpeDeliveryStatus {
   WAITING_SIGNATURE
   COMPLETED
   SIGNATURE_REJECTED
+}
+
+enum BiometricMethod {
+  FINGERPRINT
+  FACE_ID
+  IRIS
+  DEVICE_PIN
+  NONE
+}
+
+enum NetworkType {
+  WIFI
+  CELLULAR
+  ETHERNET
+  UNKNOWN
 }
 
 enum ActivityReason {

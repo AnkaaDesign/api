@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PpeSignatureService } from './ppe-signature.service';
+import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import {
   PpeRequestedEvent,
   PpeApprovedEvent,
@@ -279,8 +280,8 @@ export class PpeListener {
             actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
             webUrl,
             relatedEntityType: 'PPE_DELIVERY',
-            title: 'EPI Entregue',
-            body: `${quantityLabel}"${itemName}" foi entregue a voce por ${event.deliveredBy.name}.`,
+            title: 'Confirme o Recebimento do EPI',
+            body: `${quantityLabel}"${itemName}" foi entregue a voce por ${event.deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
           },
         },
         [event.deliveredTo.id],
@@ -311,6 +312,11 @@ export class PpeListener {
       // Initiate signature for batch (will be grouped by user automatically)
       await this.initiateSignatureForDeliveries(event.deliveryIds);
 
+      // For in-app signing flow, send notifications to affected users
+      if (!this.ppeSignatureService.isClickSignAvailable()) {
+        await this.sendBatchDeliveredNotifications(event.deliveryIds, event.deliveredBy);
+      }
+
       this.logger.log('========================================');
       this.logger.log('[PPE EVENT] PPE batch delivered processed successfully');
       this.logger.log('========================================');
@@ -321,43 +327,134 @@ export class PpeListener {
 
   /**
    * Initiate signature workflow for delivered PPE(s)
-   * Groups deliveries by user and creates one signature request per user
+   * Groups deliveries by user and creates one signature request per user.
+   *
+   * Two paths:
+   * - ClickSign available → external signature (existing flow)
+   * - ClickSign NOT available → in-app signature (transition to WAITING_SIGNATURE)
    */
   private async initiateSignatureForDeliveries(deliveryIds: string[]): Promise<void> {
-    if (!this.ppeSignatureService.isClickSignAvailable()) {
-      this.logger.log('[PPE EVENT] ClickSign not configured - skipping signature workflow');
+    if (this.ppeSignatureService.isClickSignAvailable()) {
+      // ClickSign external signature flow (existing)
+      try {
+        this.logger.log(
+          `[PPE EVENT] Initiating ClickSign signature workflow for ${deliveryIds.length} deliveries`,
+        );
+
+        const result = await this.ppeSignatureService.initiateSignatureForDeliveries({
+          deliveryIds,
+        });
+
+        if (result.success) {
+          this.logger.log('[PPE EVENT] Signature workflow initiated successfully');
+          for (const r of result.results) {
+            if (r.signatureResult) {
+              this.logger.log(
+                `[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`,
+              );
+            }
+          }
+        } else {
+          this.logger.warn('[PPE EVENT] Some signature initiations failed');
+          for (const r of result.results) {
+            if (r.error) {
+              this.logger.warn(`[PPE EVENT]   - User ${r.userId}: ${r.error}`);
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error('[PPE EVENT] Error initiating ClickSign signature workflow:', error);
+      }
       return;
     }
 
-    try {
-      this.logger.log(
-        `[PPE EVENT] Initiating signature workflow for ${deliveryIds.length} deliveries`,
-      );
+    // In-app signature flow: transition deliveries to WAITING_SIGNATURE
+    this.logger.log(
+      `[PPE EVENT] Using in-app signature flow for ${deliveryIds.length} deliveries`,
+    );
 
-      const result = await this.ppeSignatureService.initiateSignatureForDeliveries({
-        deliveryIds,
+    try {
+      await this.prisma.ppeDelivery.updateMany({
+        where: { id: { in: deliveryIds } },
+        data: {
+          status: PPE_DELIVERY_STATUS.WAITING_SIGNATURE,
+          statusOrder: PPE_DELIVERY_STATUS_ORDER[PPE_DELIVERY_STATUS.WAITING_SIGNATURE],
+        },
       });
 
-      if (result.success) {
-        this.logger.log('[PPE EVENT] Signature workflow initiated successfully');
-        for (const r of result.results) {
-          if (r.signatureResult) {
-            this.logger.log(
-              `[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`,
-            );
-          }
-        }
-      } else {
-        this.logger.warn('[PPE EVENT] Some signature initiations failed');
-        for (const r of result.results) {
-          if (r.error) {
-            this.logger.warn(`[PPE EVENT]   - User ${r.userId}: ${r.error}`);
-          }
-        }
-      }
+      this.logger.log(
+        `[PPE EVENT] Updated ${deliveryIds.length} deliveries to WAITING_SIGNATURE for in-app signing`,
+      );
     } catch (error) {
-      this.logger.error('[PPE EVENT] Error initiating signature workflow:', error);
-      // Don't throw - signature is not critical for delivery
+      this.logger.error('[PPE EVENT] Error transitioning deliveries to WAITING_SIGNATURE:', error);
+    }
+  }
+
+  /**
+   * Send notifications for batch-delivered PPEs (in-app signing flow only).
+   * Fetches delivery details, groups by user, and sends one notification per user.
+   */
+  private async sendBatchDeliveredNotifications(
+    deliveryIds: string[],
+    deliveredBy: { id: string; name: string },
+  ): Promise<void> {
+    try {
+      const deliveries = await this.prisma.ppeDelivery.findMany({
+        where: { id: { in: deliveryIds } },
+        include: { user: true, item: true },
+      });
+
+      // Group by userId
+      const byUser = new Map<string, typeof deliveries>();
+      for (const d of deliveries) {
+        const list = byUser.get(d.userId) || [];
+        list.push(d);
+        byUser.set(d.userId, list);
+      }
+
+      for (const [userId, userDeliveries] of byUser) {
+        const count = userDeliveries.length;
+        const itemNames = userDeliveries
+          .map(d => (d.item as any)?.name || 'EPI')
+          .slice(0, 3)
+          .join(', ');
+        const webUrl = `/estoque/epi/entregas/${userDeliveries[0].id}`;
+
+        await this.dispatchService.dispatchByConfigurationToUsers(
+          'ppe.delivered',
+          deliveredBy.id,
+          {
+            entityType: 'PPE_DELIVERY',
+            entityId: userDeliveries[0].id,
+            action: 'delivered',
+            data: {
+              itemNames,
+              deliveredByName: deliveredBy.name,
+              count,
+            },
+            metadata: {
+              deliveryIds: userDeliveries.map(d => d.id),
+              deliveredById: deliveredBy.id,
+              deliveredByName: deliveredBy.name,
+              count,
+            },
+            overrides: {
+              actionUrl: JSON.stringify({ web: webUrl, mobile: '', universalLink: '' }),
+              webUrl,
+              relatedEntityType: 'PPE_DELIVERY',
+              title: 'Confirme o Recebimento de EPI',
+              body: count > 1
+                ? `${count} EPIs foram entregues a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento.`
+                : `"${itemNames}" foi entregue a voce por ${deliveredBy.name}. Abra o app e confirme o recebimento com sua biometria.`,
+            },
+          },
+          [userId],
+        );
+      }
+
+      this.logger.log(`[PPE EVENT] Sent batch delivered notifications to ${byUser.size} users`);
+    } catch (error) {
+      this.logger.error('[PPE EVENT] Error sending batch delivered notifications:', error);
     }
   }
 }
