@@ -482,32 +482,14 @@ export class TaskService {
           }
         }
 
-        // Handle truck layouts: either create NEW layouts or connect to EXISTING shared layouts
+        // Handle truck layouts: create NEW individual layouts for each task
         // Note: Basic truck creation (plate, chassisNumber, spot, category, implementType) is handled by the repository
         const truckData = (data as any).truck;
         const hasLayouts =
           truckData &&
           (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout);
-        const hasSharedLayoutIds =
-          truckData &&
-          (truckData.leftSideLayoutId || truckData.rightSideLayoutId || truckData.backSideLayoutId);
 
-        if (hasSharedLayoutIds && !hasLayouts) {
-          // Connect to existing shared layouts (for batch creation - reuse layouts from first task)
-          this.logger.log(`[Task Create] Connecting shared layouts for task ${newTask.id}`);
-          const truck = await tx.truck.findUnique({ where: { taskId: newTask.id } });
-          if (truck) {
-            await tx.truck.update({
-              where: { id: truck.id },
-              data: {
-                ...(truckData.leftSideLayoutId && { leftSideLayoutId: truckData.leftSideLayoutId }),
-                ...(truckData.rightSideLayoutId && { rightSideLayoutId: truckData.rightSideLayoutId }),
-                ...(truckData.backSideLayoutId && { backSideLayoutId: truckData.backSideLayoutId }),
-              },
-            });
-            this.logger.log(`[Task Create] Shared layouts connected to truck ${truck.id}`);
-          }
-        } else if (hasLayouts) {
+        if (hasLayouts) {
           this.logger.log(`[Task Create] Creating truck with layouts for task ${newTask.id}`);
 
           // Find the truck already created by the repository (via nested create)
@@ -1028,63 +1010,41 @@ export class TaskService {
         const successfulTasks: Task[] = [];
         const failedTasks: Array<{ index: number; error: string; data: any }> = [];
 
-        // Pre-create shared layouts if layout data is present (for serial range / batch creation)
-        // This prevents duplicate layout creation for each task
-        const sharedLayoutIds: {
-          leftSideLayoutId: string | null;
-          rightSideLayoutId: string | null;
-          backSideLayoutId: string | null;
-        } = { leftSideLayoutId: null, rightSideLayoutId: null, backSideLayoutId: null };
-        let hasSharedLayouts = false;
+        // Helper to create an individual layout from layout data
+        const createIndividualLayout = async (layoutData: any, sideName: string, taskIndex: number): Promise<string | null> => {
+          if (!layoutData || !layoutData.layoutSections) return null;
+          const layout = await tx.layout.create({
+            data: {
+              height: layoutData.height,
+              ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
+              layoutSections: {
+                create: layoutData.layoutSections.map((section: any, idx: number) => ({
+                  width: section.width,
+                  isDoor: section.isDoor,
+                  doorHeight: section.doorHeight,
+                  position: section.position ?? idx,
+                })),
+              },
+            },
+          });
+          this.logger.log(`[batchCreate] Individual ${sideName} layout created: ${layout.id} for task index ${taskIndex}`);
+          return layout.id;
+        };
 
-        if (data.tasks.length > 0) {
-          const firstTruckData = (data.tasks[0] as any).truck;
-          const hasLayoutData = firstTruckData &&
-            (firstTruckData.leftSideLayout || firstTruckData.rightSideLayout || firstTruckData.backSideLayout);
-
-          if (hasLayoutData) {
-            this.logger.log('[batchCreate] Pre-creating shared layouts from first task data');
-
-            const createSharedLayout = async (layoutData: any, sideName: string): Promise<string | null> => {
-              if (!layoutData || !layoutData.layoutSections) return null;
-              const layout = await tx.layout.create({
-                data: {
-                  height: layoutData.height,
-                  ...(layoutData.photoId && { photo: { connect: { id: layoutData.photoId } } }),
-                  layoutSections: {
-                    create: layoutData.layoutSections.map((section: any, idx: number) => ({
-                      width: section.width,
-                      isDoor: section.isDoor,
-                      doorHeight: section.doorHeight,
-                      position: section.position ?? idx,
-                    })),
-                  },
-                },
-              });
-              this.logger.log(`[batchCreate] Shared ${sideName} layout created: ${layout.id}`);
-              return layout.id;
-            };
-
-            sharedLayoutIds.leftSideLayoutId = await createSharedLayout(firstTruckData.leftSideLayout, 'left');
-            sharedLayoutIds.rightSideLayoutId = await createSharedLayout(firstTruckData.rightSideLayout, 'right');
-            sharedLayoutIds.backSideLayoutId = await createSharedLayout(firstTruckData.backSideLayout, 'back');
-            hasSharedLayouts = !!(sharedLayoutIds.leftSideLayoutId || sharedLayoutIds.rightSideLayoutId || sharedLayoutIds.backSideLayoutId);
-
-            if (hasSharedLayouts) {
-              // Replace layout DATA with layout IDs in all tasks so they connect instead of create
-              for (const task of data.tasks) {
-                const truckData = (task as any).truck;
-                if (truckData) {
-                  delete truckData.leftSideLayout;
-                  delete truckData.rightSideLayout;
-                  delete truckData.backSideLayout;
-                  if (sharedLayoutIds.leftSideLayoutId) truckData.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
-                  if (sharedLayoutIds.rightSideLayoutId) truckData.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
-                  if (sharedLayoutIds.backSideLayoutId) truckData.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
-                }
-              }
-              this.logger.log(`[batchCreate] Layout IDs injected into ${data.tasks.length} tasks`);
-            }
+        // Save layout data from each task before it gets deleted by the repository
+        const taskLayoutDataMap = new Map<number, { leftSideLayout: any; rightSideLayout: any; backSideLayout: any }>();
+        for (const [index, task] of data.tasks.entries()) {
+          const truckData = (task as any).truck;
+          if (truckData && (truckData.leftSideLayout || truckData.rightSideLayout || truckData.backSideLayout)) {
+            taskLayoutDataMap.set(index, {
+              leftSideLayout: truckData.leftSideLayout ? { ...truckData.leftSideLayout } : null,
+              rightSideLayout: truckData.rightSideLayout ? { ...truckData.rightSideLayout } : null,
+              backSideLayout: truckData.backSideLayout ? { ...truckData.backSideLayout } : null,
+            });
+            // Remove layout data from truck so repository doesn't try to handle it
+            delete truckData.leftSideLayout;
+            delete truckData.rightSideLayout;
+            delete truckData.backSideLayout;
           }
         }
 
@@ -1128,24 +1088,21 @@ export class TaskService {
               },
             );
 
-            // Connect layouts to the truck (repository doesn't handle layout IDs)
-            // Supports both: pre-created shared layouts AND direct layout IDs from the task data
-            const taskTruckData = (task as any).truck;
-            const directLayoutIds = taskTruckData && (taskTruckData.leftSideLayoutId || taskTruckData.rightSideLayoutId || taskTruckData.backSideLayoutId);
-            if (hasSharedLayouts || directLayoutIds) {
+            // Create individual layouts for this task and connect to the truck
+            const savedLayoutData = taskLayoutDataMap.get(index);
+            if (savedLayoutData) {
               const truck = await tx.truck.findUnique({ where: { taskId: createdTask.id } });
               if (truck) {
                 const layoutUpdate: any = {};
-                // Prefer shared layout IDs (from pre-created layouts), fall back to direct IDs from task data
-                if (sharedLayoutIds.leftSideLayoutId) layoutUpdate.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
-                else if (taskTruckData?.leftSideLayoutId) layoutUpdate.leftSideLayoutId = taskTruckData.leftSideLayoutId;
-                if (sharedLayoutIds.rightSideLayoutId) layoutUpdate.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
-                else if (taskTruckData?.rightSideLayoutId) layoutUpdate.rightSideLayoutId = taskTruckData.rightSideLayoutId;
-                if (sharedLayoutIds.backSideLayoutId) layoutUpdate.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
-                else if (taskTruckData?.backSideLayoutId) layoutUpdate.backSideLayoutId = taskTruckData.backSideLayoutId;
+                const leftId = await createIndividualLayout(savedLayoutData.leftSideLayout, 'left', index);
+                const rightId = await createIndividualLayout(savedLayoutData.rightSideLayout, 'right', index);
+                const backId = await createIndividualLayout(savedLayoutData.backSideLayout, 'back', index);
+                if (leftId) layoutUpdate.leftSideLayoutId = leftId;
+                if (rightId) layoutUpdate.rightSideLayoutId = rightId;
+                if (backId) layoutUpdate.backSideLayoutId = backId;
                 if (Object.keys(layoutUpdate).length > 0) {
                   await tx.truck.update({ where: { id: truck.id }, data: layoutUpdate });
-                  this.logger.log(`[batchCreate] Connected layouts to truck ${truck.id} for task ${createdTask.id}`);
+                  this.logger.log(`[batchCreate] Created individual layouts for truck ${truck.id} on task ${createdTask.id}`);
                 }
               }
             }
@@ -6255,7 +6212,7 @@ export class TaskService {
         }
 
         // Process consolidated truck data with layouts for each successfully updated task
-        // Phase 1: Collect all tasks that need layout updates and determine shared layout data
+        // Phase 1: Collect all tasks that need layout updates
         const tasksNeedingLayoutUpdate: Array<{
           taskId: string;
           truckData: any;
@@ -6274,29 +6231,18 @@ export class TaskService {
 
         if (tasksNeedingLayoutUpdate.length > 0) {
           this.logger.log(
-            `[batchUpdate] Processing shared layouts for ${tasksNeedingLayoutUpdate.length} tasks`,
+            `[batchUpdate] Processing individual layouts for ${tasksNeedingLayoutUpdate.length} tasks`,
           );
 
-          // Create ONE shared layout per side (from the first task's layout data, since batch sends identical data)
-          const firstTruckData = tasksNeedingLayoutUpdate[0].truckData;
-          const sharedLayoutIds: {
-            leftSideLayoutId: string | null;
-            rightSideLayoutId: string | null;
-            backSideLayoutId: string | null;
-          } = {
-            leftSideLayoutId: null,
-            rightSideLayoutId: null,
-            backSideLayoutId: null,
-          };
-
-          // Helper to create a single shared layout for a side
-          const createSharedLayout = async (
+          // Helper to create an individual layout for a side
+          const createIndividualLayout = async (
             layoutData: any,
             sideName: string,
+            taskId: string,
           ): Promise<string | null> => {
             if (!layoutData) return null;
 
-            this.logger.log(`[batchUpdate] Creating shared ${sideName} layout`);
+            this.logger.log(`[batchUpdate] Creating individual ${sideName} layout for task ${taskId}`);
             const newLayout = await tx.layout.create({
               data: {
                 height: layoutData.height,
@@ -6313,23 +6259,9 @@ export class TaskService {
                 },
               },
             });
-            this.logger.log(`[batchUpdate] Shared ${sideName} layout created: ${newLayout.id}`);
+            this.logger.log(`[batchUpdate] Individual ${sideName} layout created: ${newLayout.id} for task ${taskId}`);
             return newLayout.id;
           };
-
-          // Create shared layouts (one per side)
-          sharedLayoutIds.leftSideLayoutId = await createSharedLayout(
-            firstTruckData.leftSideLayout,
-            'left',
-          );
-          sharedLayoutIds.rightSideLayoutId = await createSharedLayout(
-            firstTruckData.rightSideLayout,
-            'right',
-          );
-          sharedLayoutIds.backSideLayoutId = await createSharedLayout(
-            firstTruckData.backSideLayout,
-            'back',
-          );
 
           // Helper to safely disconnect a truck from a layout (check usage count before deleting)
           const safeDisconnectLayout = async (
@@ -6375,7 +6307,7 @@ export class TaskService {
             }
           };
 
-          // Phase 2: For each task, ensure truck exists, safely disconnect old layouts, point to shared layouts
+          // Phase 2: For each task, ensure truck exists, safely disconnect old layouts, create individual layouts
           for (const { taskId, truckData } of tasksNeedingLayoutUpdate) {
             this.logger.log(`[batchUpdate] Processing truck layouts for task ${taskId}`);
 
@@ -6419,26 +6351,31 @@ export class TaskService {
             const existingRightId = taskWithTruck?.truck?.rightSideLayoutId ?? null;
             const existingBackId = taskWithTruck?.truck?.backSideLayoutId ?? null;
 
-            if (sharedLayoutIds.leftSideLayoutId && existingLeftId !== sharedLayoutIds.leftSideLayoutId) {
+            // Create individual layouts for this task
+            const newLeftId = await createIndividualLayout(truckData.leftSideLayout, 'left', taskId);
+            const newRightId = await createIndividualLayout(truckData.rightSideLayout, 'right', taskId);
+            const newBackId = await createIndividualLayout(truckData.backSideLayout, 'back', taskId);
+
+            if (newLeftId && existingLeftId !== newLeftId) {
               await safeDisconnectLayout(truckId, existingLeftId, 'leftSideLayoutId', 'left');
             }
-            if (sharedLayoutIds.rightSideLayoutId && existingRightId !== sharedLayoutIds.rightSideLayoutId) {
+            if (newRightId && existingRightId !== newRightId) {
               await safeDisconnectLayout(truckId, existingRightId, 'rightSideLayoutId', 'right');
             }
-            if (sharedLayoutIds.backSideLayoutId && existingBackId !== sharedLayoutIds.backSideLayoutId) {
+            if (newBackId && existingBackId !== newBackId) {
               await safeDisconnectLayout(truckId, existingBackId, 'backSideLayoutId', 'back');
             }
 
-            // Point truck to the shared layouts
+            // Point truck to the individual layouts
             const layoutUpdate: any = {};
-            if (sharedLayoutIds.leftSideLayoutId) {
-              layoutUpdate.leftSideLayoutId = sharedLayoutIds.leftSideLayoutId;
+            if (newLeftId) {
+              layoutUpdate.leftSideLayoutId = newLeftId;
             }
-            if (sharedLayoutIds.rightSideLayoutId) {
-              layoutUpdate.rightSideLayoutId = sharedLayoutIds.rightSideLayoutId;
+            if (newRightId) {
+              layoutUpdate.rightSideLayoutId = newRightId;
             }
-            if (sharedLayoutIds.backSideLayoutId) {
-              layoutUpdate.backSideLayoutId = sharedLayoutIds.backSideLayoutId;
+            if (newBackId) {
+              layoutUpdate.backSideLayoutId = newBackId;
             }
 
             if (Object.keys(layoutUpdate).length > 0) {
@@ -6447,7 +6384,7 @@ export class TaskService {
                 data: layoutUpdate,
               });
               this.logger.log(
-                `[batchUpdate] Truck ${truckId} pointed to shared layouts: ${JSON.stringify(layoutUpdate)}`,
+                `[batchUpdate] Truck ${truckId} pointed to individual layouts: ${JSON.stringify(layoutUpdate)}`,
               );
 
               // Track layout changes in changelog with formatted summaries
@@ -6497,7 +6434,7 @@ export class TaskService {
                 transaction: tx,
                 metadata: {
                   sides: sides,
-                  sharedLayoutIds: layoutUpdate,
+                  layoutIds: layoutUpdate,
                 },
               });
 
@@ -10134,18 +10071,21 @@ export class TaskService {
                 category: true,
                 implementType: true,
                 spot: true,
-                // CRITICAL: Include layout IDs for copy functionality
+                // Include full layout data for cloning individual instances
                 backSideLayoutId: true,
                 leftSideLayoutId: true,
                 rightSideLayoutId: true,
-                // Include layout details for dimensions
                 backSideLayout: {
                   select: {
                     id: true,
                     height: true,
+                    photoId: true,
                     layoutSections: {
                       select: {
                         width: true,
+                        isDoor: true,
+                        doorHeight: true,
+                        position: true,
                       },
                     },
                   },
@@ -10154,9 +10094,13 @@ export class TaskService {
                   select: {
                     id: true,
                     height: true,
+                    photoId: true,
                     layoutSections: {
                       select: {
                         width: true,
+                        isDoor: true,
+                        doorHeight: true,
+                        position: true,
                       },
                     },
                   },
@@ -10165,9 +10109,13 @@ export class TaskService {
                   select: {
                     id: true,
                     height: true,
+                    photoId: true,
                     layoutSections: {
                       select: {
                         width: true,
+                        isDoor: true,
+                        doorHeight: true,
+                        position: true,
                       },
                     },
                   },
@@ -10195,6 +10143,13 @@ export class TaskService {
             reimbursements: { select: { id: true } },
             invoiceReimbursements: { select: { id: true } },
             baseFiles: {
+              select: {
+                id: true,
+                filename: true,
+                thumbnailUrl: true,
+              },
+            },
+            projectFiles: {
               select: {
                 id: true,
                 filename: true,
@@ -10292,6 +10247,7 @@ export class TaskService {
             observation: true,
             artworks: { select: { id: true } },
             baseFiles: { select: { id: true } },
+            projectFiles: { select: { id: true } },
             logoPaints: { select: { id: true } },
             cuts: { select: { id: true } },
             airbrushings: { select: { id: true } },
@@ -10354,6 +10310,7 @@ export class TaskService {
           paintId: destinationTask.paintId,
           artworkIds: destinationTask.artworks?.map(a => a.id) || [],
           baseFileIds: destinationTask.baseFiles?.map(f => f.id) || [],
+          projectFileIds: destinationTask.projectFiles?.map(f => f.id) || [],
           logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
           cuts: destinationTask.cuts?.length || 0,
           airbrushings: destinationTask.airbrushings?.length || 0,
@@ -10551,6 +10508,21 @@ export class TaskService {
               }
               break;
 
+            case 'projectFileIds':
+              if (hasData(sourceTask.projectFiles)) {
+                const projectFileIds = sourceTask.projectFiles.map(f => f.id);
+                updateData.projectFiles = {
+                  set: projectFileIds.map(id => ({ id })),
+                };
+                copiedFields.push(field);
+                details.projectFileIds = sourceTask.projectFiles.map(f => ({
+                  id: f.id,
+                  filename: f.filename,
+                  thumbnailUrl: f.thumbnailUrl,
+                }));
+              }
+              break;
+
             case 'logoPaintIds':
               if (hasData(sourceTask.logoPaints)) {
                 const logoPaintIds = sourceTask.logoPaints.map(p => p.id);
@@ -10676,26 +10648,91 @@ export class TaskService {
               }
               break;
 
-            // ===== LAYOUTS (Shared Resources) =====
+            // ===== LAYOUTS (Individual Clones) =====
             case 'layouts':
               if (hasData(sourceTask.truck)) {
                 const existingTruck = await tx.truck.findUnique({
                   where: { taskId: destinationTaskId },
+                  select: {
+                    id: true,
+                    leftSideLayoutId: true,
+                    rightSideLayoutId: true,
+                    backSideLayoutId: true,
+                  },
                 });
 
-                const layoutData: any = {
-                  backSideLayoutId: sourceTask.truck.backSideLayoutId,
-                  leftSideLayoutId: sourceTask.truck.leftSideLayoutId,
-                  rightSideLayoutId: sourceTask.truck.rightSideLayoutId,
+                // Helper to clone a layout as a new individual instance
+                const cloneLayout = async (sourceLayout: any): Promise<string | null> => {
+                  if (!sourceLayout) return null;
+                  const cloned = await tx.layout.create({
+                    data: {
+                      height: sourceLayout.height,
+                      ...(sourceLayout.photoId && { photo: { connect: { id: sourceLayout.photoId } } }),
+                      layoutSections: {
+                        create: (sourceLayout.layoutSections || []).map((section: any, idx: number) => ({
+                          width: section.width,
+                          isDoor: section.isDoor,
+                          doorHeight: section.doorHeight,
+                          position: section.position ?? idx,
+                        })),
+                      },
+                    },
+                  });
+                  return cloned.id;
                 };
 
+                // Helper to safely disconnect and clean up old layout
+                const safeDisconnectOldLayout = async (
+                  truckId: string,
+                  oldLayoutId: string | null,
+                  layoutField: 'leftSideLayoutId' | 'rightSideLayoutId' | 'backSideLayoutId',
+                ) => {
+                  if (!oldLayoutId) return;
+                  await tx.truck.update({
+                    where: { id: truckId },
+                    data: { [layoutField]: null },
+                  });
+                  const relationName =
+                    layoutField === 'leftSideLayoutId'
+                      ? 'trucksLeftSide'
+                      : layoutField === 'rightSideLayoutId'
+                        ? 'trucksRightSide'
+                        : 'trucksBackSide';
+                  const layoutWithRefs = await tx.layout.findUnique({
+                    where: { id: oldLayoutId },
+                    include: { [relationName]: { select: { id: true } } },
+                  });
+                  if (layoutWithRefs) {
+                    const remainingTrucks = (layoutWithRefs as any)[relationName] || [];
+                    if (remainingTrucks.length === 0) {
+                      await tx.layoutSection.deleteMany({ where: { layoutId: oldLayoutId } });
+                      await tx.layout.delete({ where: { id: oldLayoutId } });
+                    }
+                  }
+                };
+
+                // Clone each side's layout as an individual instance
+                const clonedLeftId = await cloneLayout(sourceTask.truck.leftSideLayout);
+                const clonedRightId = await cloneLayout(sourceTask.truck.rightSideLayout);
+                const clonedBackId = await cloneLayout(sourceTask.truck.backSideLayout);
+
+                const layoutData: any = {};
+                if (clonedLeftId) layoutData.leftSideLayoutId = clonedLeftId;
+                if (clonedRightId) layoutData.rightSideLayoutId = clonedRightId;
+                if (clonedBackId) layoutData.backSideLayoutId = clonedBackId;
+
                 if (existingTruck) {
+                  // Safely disconnect old layouts before connecting new ones
+                  if (clonedLeftId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.leftSideLayoutId, 'leftSideLayoutId');
+                  if (clonedRightId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.rightSideLayoutId, 'rightSideLayoutId');
+                  if (clonedBackId) await safeDisconnectOldLayout(existingTruck.id, existingTruck.backSideLayoutId, 'backSideLayoutId');
+
                   await tx.truck.update({
                     where: { taskId: destinationTaskId },
                     data: layoutData,
                   });
                 } else {
-                  // Create truck with layouts if it doesn't exist
+                  // Create truck with cloned layouts if it doesn't exist
                   await tx.truck.create({
                     data: {
                       ...layoutData,
@@ -10719,7 +10756,7 @@ export class TaskService {
                   return { height, width: Math.round(totalWidth) };
                 };
 
-                // Store layout data with dimensions for changelog display
+                // Store cloned layout data with dimensions for changelog display
                 details.layouts = {
                   ...layoutData,
                   leftSideDimensions: getLayoutDimensions(sourceTask.truck.leftSideLayout),
