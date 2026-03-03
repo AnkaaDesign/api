@@ -20,6 +20,7 @@ import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeDocumentService } from './ppe-document.service';
 import { PpeSignatureService } from './ppe-signature.service';
+import { PpeInAppSignatureService } from './ppe-inapp-signature.service';
 
 // Listeners
 import { PpeListener } from './ppe.listener';
@@ -54,6 +55,7 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     PpeDeliveryScheduleService,
     PpeDocumentService,
     PpeSignatureService,
+    PpeInAppSignatureService,
     // Listeners
     PpeListener,
     // Repositories
@@ -76,6 +78,7 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     PpeDeliveryScheduleService,
     PpeDocumentService,
     PpeSignatureService,
+    PpeInAppSignatureService,
   ],
 })
 export class PpeModule {}

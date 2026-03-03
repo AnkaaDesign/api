@@ -7,10 +7,12 @@ import {
   Post,
   Put,
   Query,
+  Req,
   HttpCode,
   HttpStatus,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Request } from 'express';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -58,7 +60,11 @@ import {
 
   // PPE Delivery By Schedule schemas
   ppeDeliveryByScheduleSchema,
+
+  // PPE In-App Signature
+  ppeDeliverySignSchema,
 } from '@schemas';
+import type { PpeDeliverySignFormData } from '@schemas';
 import type {
   // PPE Size types
   PpeSizeGetManyFormData,
@@ -141,6 +147,7 @@ import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeSizeService } from './ppe-size.service';
 import { PpeSignatureService } from './ppe-signature.service';
+import { PpeInAppSignatureService } from './ppe-inapp-signature.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES, PPE_DELIVERY_STATUS, PPE_TYPE, PPE_SIZE } from '@constants';
@@ -152,6 +159,7 @@ export class PpeController {
     private readonly ppeDeliveryScheduleService: PpeDeliveryScheduleService,
     private readonly ppeDeliveryService: PpeDeliveryService,
     private readonly ppeSignatureService: PpeSignatureService,
+    private readonly ppeInAppSignatureService: PpeInAppSignatureService,
   ) {}
 
   // =====================
@@ -814,6 +822,77 @@ export class PpeController {
   @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
   async isSignatureAvailable(): Promise<{ available: boolean }> {
     return { available: this.ppeSignatureService.isClickSignAvailable() };
+  }
+
+  // =====================
+  // IN-APP SIGNATURE OPERATIONS
+  // =====================
+
+  @Post('deliveries/:id/sign')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  @HttpCode(HttpStatus.OK)
+  async signDeliveryInApp(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(ppeDeliverySignSchema)) evidence: PpeDeliverySignFormData,
+    @UserId() userId: string,
+    @Req() req: Request,
+  ): Promise<{ success: boolean; signatureId: string; hmac: string }> {
+    const ip =
+      (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
+      req.ip ||
+      req.socket?.remoteAddress ||
+      undefined;
+    const result = await this.ppeInAppSignatureService.signDelivery(id, evidence, userId, ip);
+    return { success: true, ...result };
+  }
+
+  @Get('deliveries/:id/signature')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  async getSignatureDetails(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ success: boolean; data: any }> {
+    const data = await this.ppeInAppSignatureService.getSignatureDetails(id);
+    return { success: true, data };
+  }
+
+  @Post('deliveries/:id/verify-signature')
+  @Roles(
+    SECTOR_PRIVILEGES.MAINTENANCE,
+    SECTOR_PRIVILEGES.WAREHOUSE,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.HUMAN_RESOURCES,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.EXTERNAL,
+  )
+  @HttpCode(HttpStatus.OK)
+  async verifyInAppSignature(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ success: boolean; valid: boolean; details?: string }> {
+    const result = await this.ppeInAppSignatureService.verifySignature(id);
+    return { success: true, ...result };
   }
 
   /* COMMENTED OUT: PPE CONFIG OPERATIONS - PPE config now in Item model

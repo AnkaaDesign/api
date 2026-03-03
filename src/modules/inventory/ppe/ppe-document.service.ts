@@ -22,6 +22,21 @@ import {
 } from '@constants';
 
 /**
+ * Signature evidence data for signed PDF generation
+ */
+export interface SignatureEvidenceData {
+  signerName: string;
+  signerCpf: string;
+  biometricMethod: string;
+  deviceModel: string | null;
+  clientTimestamp: Date;
+  serverTimestamp: Date;
+  latitude: number | null;
+  longitude: number | null;
+  hmacSignature: string;
+}
+
+/**
  * Internal document data structure for PDF generation
  */
 interface PpeDocumentData {
@@ -391,11 +406,11 @@ export class PpeDocumentService {
         doc.text(data.employeeName, infoX + labelWidth, y);
         y += SPACING.LINE_HEIGHT;
 
-        // CPF
+        // CPF (masked for LGPD compliance)
         doc.font(FONTS.bold).fillColor(COLORS.gray);
         doc.text('CPF:', infoX, y);
         doc.font(FONTS.regular).fillColor(COLORS.text);
-        doc.text(data.employeeCpf, infoX + labelWidth, y);
+        doc.text(this.maskCpfForPdf(data.employeeCpf), infoX + labelWidth, y);
         y += SPACING.LINE_HEIGHT;
 
         // Cargo
@@ -557,6 +572,383 @@ export class PpeDocumentService {
         );
 
         // End document
+        doc.end();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Mask CPF for PDF display: 12345678901 → ***.456.789-**
+   */
+  private maskCpfForPdf(cpf: string): string {
+    if (!cpf) return '***.***.***-**';
+    const digits = cpf.replace(/\D/g, '');
+    if (digits.length < 11) return '***.***.***-**';
+    return `***.${digits.substring(3, 6)}.${digits.substring(6, 9)}-**`;
+  }
+
+  /**
+   * Map biometric method to Portuguese label
+   */
+  private getBiometricLabel(method: string): string {
+    const labels: Record<string, string> = {
+      FINGERPRINT: 'Impressão Digital',
+      FACE_ID: 'Reconhecimento Facial',
+      IRIS: 'Reconhecimento de Íris',
+      DEVICE_PIN: 'PIN do Dispositivo',
+      NONE: 'Nenhuma',
+    };
+    return labels[method] || method;
+  }
+
+  /**
+   * Generate a signed PDF document for PPE delivery with digital signature evidence block
+   * Replaces the blank signature line with a digital signature block containing
+   * all evidence data required for Lei 14.063/2020 compliance.
+   */
+  async generateSignedDeliveryDocument(
+    deliveryId: string,
+    signatureEvidence: SignatureEvidenceData,
+  ): Promise<Buffer> {
+    const delivery = await this.prisma.ppeDelivery.findUnique({
+      where: { id: deliveryId },
+      include: {
+        user: {
+          include: {
+            position: true,
+            sector: true,
+            ppeSize: true,
+          },
+        },
+        item: true,
+      },
+    });
+
+    if (!delivery) {
+      throw new Error(`Delivery ${deliveryId} not found`);
+    }
+
+    const size = this.getSizeForDelivery(delivery);
+
+    const documentData: PpeDocumentData = {
+      deliveryId: delivery.id,
+      employeeName: delivery.user?.name || 'Nome não informado',
+      employeeCpf: delivery.user?.cpf || 'CPF não informado',
+      employeePosition: delivery.user?.position?.name || 'Cargo não informado',
+      employeeSector: delivery.user?.sector?.name || 'Setor não informado',
+      itemName: delivery.item?.name || 'Item não informado',
+      quantity: delivery.quantity || 1,
+      caNumber: delivery.item?.ppeCA || 'N/A',
+      size,
+      deliveryDate: delivery.actualDeliveryDate || new Date(),
+      companyName: COMPANY_INFO.name,
+      companyCnpj: COMPANY_INFO.cnpj,
+    };
+
+    return this.createSignedPdf(documentData, signatureEvidence);
+  }
+
+  /**
+   * Create a signed PDF — same as createPdf but with digital signature block
+   * instead of blank signature line
+   */
+  private createSignedPdf(
+    data: PpeDocumentData,
+    sig: SignatureEvidenceData,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      try {
+        const chunks: Buffer[] = [];
+        const contentWidth = LAYOUT.pageWidth - LAYOUT.marginLeft - LAYOUT.marginRight;
+
+        const SPACING = {
+          SECTION_GAP: 24,
+          SUBSECTION_GAP: 16,
+          LINE_HEIGHT: 14,
+          PARAGRAPH_GAP: 10,
+        };
+
+        const doc = new PDFDocument({
+          size: 'A4',
+          margins: {
+            top: LAYOUT.marginTop,
+            bottom: LAYOUT.marginBottom,
+            left: LAYOUT.marginLeft,
+            right: LAYOUT.marginRight,
+          },
+        });
+
+        doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+
+        let y = LAYOUT.marginTop;
+
+        // ========== HEADER ==========
+        const logoHeight = 50;
+        if (this.logoBuffer) {
+          doc.image(this.logoBuffer, LAYOUT.marginLeft, y, { height: logoHeight });
+        } else {
+          doc.font(FONTS.bold).fontSize(18).fillColor(COLORS.primary);
+          doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, y + 15);
+        }
+
+        doc.font(FONTS.bold).fontSize(12).fillColor(COLORS.text);
+        doc.text('TERMO DE ENTREGA DE EPI', LAYOUT.marginLeft + 150, y + 10, {
+          width: contentWidth - 150,
+          align: 'right',
+        });
+
+        doc.font(FONTS.regular).fontSize(9).fillColor(COLORS.gray);
+        const dateStr =
+          data.deliveryDate instanceof Date
+            ? data.deliveryDate.toLocaleDateString('pt-BR')
+            : new Date(data.deliveryDate).toLocaleDateString('pt-BR');
+        doc.text(`Data: ${dateStr}`, LAYOUT.marginLeft + 150, y + 28, {
+          width: contentWidth - 150,
+          align: 'right',
+        });
+
+        y += logoHeight + 12;
+
+        const gradientLine = doc.linearGradient(
+          LAYOUT.marginLeft, y, LAYOUT.marginLeft + contentWidth, y,
+        );
+        gradientLine.stop(0, '#888888').stop(0.3, COLORS.primary);
+        doc.rect(LAYOUT.marginLeft, y, contentWidth, 1.5).fill(gradientLine);
+
+        y += SPACING.SECTION_GAP;
+
+        // ========== EMPLOYEE INFO ==========
+        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
+        doc.text('Dados do Colaborador', LAYOUT.marginLeft, y);
+        y += SPACING.SUBSECTION_GAP;
+
+        const infoX = LAYOUT.marginLeft;
+        const labelWidth = 50;
+
+        doc.font(FONTS.bold).fontSize(8).fillColor(COLORS.gray);
+        doc.text('Nome:', infoX, y);
+        doc.font(FONTS.regular).fillColor(COLORS.text);
+        doc.text(data.employeeName, infoX + labelWidth, y);
+        y += SPACING.LINE_HEIGHT;
+
+        doc.font(FONTS.bold).fillColor(COLORS.gray);
+        doc.text('CPF:', infoX, y);
+        doc.font(FONTS.regular).fillColor(COLORS.text);
+        doc.text(this.maskCpfForPdf(data.employeeCpf), infoX + labelWidth, y);
+        y += SPACING.LINE_HEIGHT;
+
+        doc.font(FONTS.bold).fillColor(COLORS.gray);
+        doc.text('Cargo:', infoX, y);
+        doc.font(FONTS.regular).fillColor(COLORS.text);
+        doc.text(data.employeePosition, infoX + labelWidth, y);
+        y += SPACING.LINE_HEIGHT;
+
+        doc.font(FONTS.bold).fillColor(COLORS.gray);
+        doc.text('Setor:', infoX, y);
+        doc.font(FONTS.regular).fillColor(COLORS.text);
+        doc.text(data.employeeSector, infoX + labelWidth, y);
+        y += SPACING.SECTION_GAP;
+
+        // ========== EQUIPMENT TABLE ==========
+        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
+        doc.text('Equipamentos Entregues', LAYOUT.marginLeft, y);
+        y += SPACING.SUBSECTION_GAP;
+
+        const colWidths = [
+          contentWidth * 0.45,
+          contentWidth * 0.15,
+          contentWidth * 0.15,
+          contentWidth * 0.25,
+        ];
+        const tableHeaders = ['Descrição', 'Qtd', 'Tamanho', 'C.A.'];
+        const headerHeight = 22;
+
+        doc.rect(LAYOUT.marginLeft, y, contentWidth, headerHeight).fill(COLORS.tableHeader);
+        doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.white);
+        let colX = LAYOUT.marginLeft + 8;
+        tableHeaders.forEach((header, i) => {
+          doc.text(header, colX, y + 6, { width: colWidths[i] - 16 });
+          colX += colWidths[i];
+        });
+        y += headerHeight;
+
+        const items = data.batchItems || [
+          {
+            name: data.itemName,
+            quantity: data.quantity,
+            size: data.size || 'N/A',
+            caNumber: data.caNumber || 'N/A',
+          },
+        ];
+
+        const rowHeight = 20;
+        items.forEach((item, index) => {
+          const isAlt = index % 2 === 1;
+          if (isAlt) {
+            doc.rect(LAYOUT.marginLeft, y, contentWidth, rowHeight).fill(COLORS.tableAlt);
+          }
+          doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.text);
+          colX = LAYOUT.marginLeft + 8;
+          doc.text(item.name || data.itemName, colX, y + 6, { width: colWidths[0] - 16 });
+          colX += colWidths[0];
+          doc.text(String(item.quantity || data.quantity), colX, y + 6, { width: colWidths[1] - 16 });
+          colX += colWidths[1];
+          doc.text(item.size || data.size || 'N/A', colX, y + 6, { width: colWidths[2] - 16 });
+          colX += colWidths[2];
+          doc.text(item.caNumber || data.caNumber || 'N/A', colX, y + 6, { width: colWidths[3] - 16 });
+          y += rowHeight;
+        });
+
+        const tableHeight = headerHeight + items.length * rowHeight;
+        doc
+          .rect(LAYOUT.marginLeft, y - tableHeight + headerHeight, contentWidth, tableHeight)
+          .strokeColor(COLORS.lightGray)
+          .lineWidth(0.5)
+          .stroke();
+
+        y += SPACING.SECTION_GAP + 20;
+
+        // ========== DECLARATION ==========
+        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
+        doc.text('Declaração', LAYOUT.marginLeft, y);
+        y += SPACING.SUBSECTION_GAP;
+
+        doc.font(FONTS.regular).fontSize(8).fillColor(COLORS.text);
+        const declaration = `Eu, ${data.employeeName}, declaro ter recebido gratuitamente os Equipamentos de Proteção Individual (EPIs) acima relacionados, comprometendo-me a: usar exclusivamente para a finalidade destinada; responsabilizar-me pela guarda, conservação e higienização; comunicar ao empregador qualquer alteração que torne os EPIs impróprios para uso; cumprir as determinações sobre o uso adequado.`;
+
+        const declarationHeight = doc.heightOfString(declaration, {
+          width: contentWidth,
+          align: 'justify',
+        });
+        doc.text(declaration, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
+        y += declarationHeight + SPACING.PARAGRAPH_GAP;
+
+        const warningText =
+          'Estou ciente de que o não cumprimento das normas de uso dos EPIs poderá resultar em sanções disciplinares previstas na legislação trabalhista.';
+        const warningHeight = doc.heightOfString(warningText, {
+          width: contentWidth,
+          align: 'justify',
+        });
+        doc.text(warningText, LAYOUT.marginLeft, y, { width: contentWidth, align: 'justify' });
+        y += warningHeight + SPACING.SECTION_GAP;
+
+        // ========== DIGITAL SIGNATURE BLOCK (replaces blank signature line) ==========
+        doc.font(FONTS.bold).fontSize(10).fillColor(COLORS.primary);
+        doc.text('Assinatura Eletrônica', LAYOUT.marginLeft, y);
+        y += SPACING.SUBSECTION_GAP;
+
+        // Signature box background
+        const sigBoxHeight = 110;
+        doc
+          .rect(LAYOUT.marginLeft, y, contentWidth, sigBoxHeight)
+          .fillAndStroke('#f0fdf4', COLORS.primary);
+        const sigBoxY = y + 8;
+        const sigBoxX = LAYOUT.marginLeft + 10;
+        const sigContentWidth = contentWidth - 20;
+
+        // Legal statement
+        doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
+        doc.text(
+          'Assinado eletronicamente conforme Art. 4° da Lei 14.063/2020',
+          sigBoxX,
+          sigBoxY,
+          { width: sigContentWidth },
+        );
+
+        // Signer info
+        let sigInfoY = sigBoxY + 14;
+        doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.text);
+
+        doc.text(
+          `Assinante: ${sig.signerName} | CPF: ${this.maskCpfForPdf(sig.signerCpf)}`,
+          sigBoxX,
+          sigInfoY,
+          { width: sigContentWidth },
+        );
+        sigInfoY += 11;
+
+        doc.text(
+          `Autenticação: ${this.getBiometricLabel(sig.biometricMethod)}`,
+          sigBoxX,
+          sigInfoY,
+          { width: sigContentWidth },
+        );
+        sigInfoY += 11;
+
+        if (sig.deviceModel) {
+          doc.text(`Dispositivo: ${sig.deviceModel}`, sigBoxX, sigInfoY, {
+            width: sigContentWidth,
+          });
+          sigInfoY += 11;
+        }
+
+        const clientDate = sig.clientTimestamp instanceof Date
+          ? sig.clientTimestamp
+          : new Date(sig.clientTimestamp);
+        const serverDate = sig.serverTimestamp instanceof Date
+          ? sig.serverTimestamp
+          : new Date(sig.serverTimestamp);
+
+        doc.text(
+          `Data/Hora (dispositivo): ${clientDate.toLocaleString('pt-BR')}`,
+          sigBoxX,
+          sigInfoY,
+          { width: sigContentWidth },
+        );
+        sigInfoY += 11;
+
+        doc.text(
+          `Data/Hora (servidor): ${serverDate.toLocaleString('pt-BR')}`,
+          sigBoxX,
+          sigInfoY,
+          { width: sigContentWidth },
+        );
+        sigInfoY += 11;
+
+        if (sig.latitude != null && sig.longitude != null) {
+          doc.text(
+            `Localização: ${sig.latitude}, ${sig.longitude}`,
+            sigBoxX,
+            sigInfoY,
+            { width: sigContentWidth },
+          );
+          sigInfoY += 11;
+        }
+
+        // Verification code
+        doc.font(FONTS.bold).fontSize(7).fillColor(COLORS.primary);
+        doc.text(
+          `Código de verificação: ${sig.hmacSignature.substring(0, 16).toUpperCase()}`,
+          sigBoxX,
+          sigInfoY,
+          { width: sigContentWidth },
+        );
+
+        y += sigBoxHeight + SPACING.SECTION_GAP;
+
+        // ========== FOOTER ==========
+        const footerY = LAYOUT.pageHeight - LAYOUT.marginBottom - 30;
+
+        const footerGradient = doc.linearGradient(
+          LAYOUT.marginLeft, footerY, LAYOUT.marginLeft + contentWidth, footerY,
+        );
+        footerGradient.stop(0, '#888888').stop(0.3, COLORS.primary);
+        doc.rect(LAYOUT.marginLeft, footerY, contentWidth, 1).fill(footerGradient);
+
+        doc.font(FONTS.bold).fontSize(9).fillColor(COLORS.primary);
+        doc.text(COMPANY_INFO.name, LAYOUT.marginLeft, footerY + 8);
+
+        doc.font(FONTS.regular).fontSize(7).fillColor(COLORS.gray);
+        doc.text(
+          `${COMPANY_INFO.address} | ${COMPANY_INFO.phone} | ${COMPANY_INFO.website}`,
+          LAYOUT.marginLeft,
+          footerY + 20,
+        );
+
         doc.end();
       } catch (error) {
         reject(error);
