@@ -20,12 +20,13 @@ export const COPYABLE_TASK_FIELDS = [
   // Shared file IDs (many-to-many relations)
   'artworkIds',
   'baseFileIds',
+  'projectFileIds',
   'logoPaintIds',
   // Individual resources (creates new records)
   'cuts',
   'airbrushings',
   'serviceOrders',
-  // Truck/Vehicle related (shared references)
+  // Truck/Vehicle related
   'implementType',
   'category',
   'layouts',
@@ -72,9 +73,13 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
   // Pricing - only visible to ADMIN, FINANCIAL, COMMERCIAL (canViewPricingSections)
   pricingId: ['ADMIN', 'FINANCIAL', 'COMMERCIAL'],
 
-  // Paint/Artworks - hidden for Warehouse, Financial, Logistic (different rules)
+  // Paint - editable by most sectors except Warehouse, Financial, Logistic
   paintId: ['ADMIN', 'COMMERCIAL', 'DESIGNER', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
+
+  // Artworks (Layouts files) - hidden for Warehouse, Financial, Logistic
   artworkIds: ['ADMIN', 'COMMERCIAL', 'DESIGNER', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
+
+  // Base files - accessible by most sectors
   baseFileIds: [
     'ADMIN',
     'COMMERCIAL',
@@ -85,7 +90,10 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
     'MAINTENANCE',
   ],
 
-  // Logo paints - hidden for Commercial users
+  // Project files (Projetos) - editable by ADMIN, COMMERCIAL, LOGISTIC
+  projectFileIds: ['ADMIN', 'COMMERCIAL', 'LOGISTIC'],
+
+  // Logo paints (Cores da Logomarca) - hidden for Commercial users
   logoPaintIds: ['ADMIN', 'DESIGNER', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
 
   // Cuts - hidden for Financial, Logistic, Commercial
@@ -109,7 +117,7 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
   implementType: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
   category: ['ADMIN', 'COMMERCIAL', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
 
-  // Layouts - hidden for Warehouse, Financial, Designer, Commercial
+  // Medidas do Caminhão - hidden for Warehouse, Financial, Designer, Commercial
   layouts: ['ADMIN', 'LOGISTIC', 'PLOTTING', 'PRODUCTION', 'MAINTENANCE'],
 
   // Observation - hidden for Warehouse, Financial, Designer, Logistic, Commercial

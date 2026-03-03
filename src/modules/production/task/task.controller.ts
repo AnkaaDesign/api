@@ -628,7 +628,7 @@ export class TaskController {
 
     return {
       success: true,
-      message: `Campos copiados com sucesso da tarefa ${data.sourceTaskId}`,
+      message: result.message,
       data: result,
     };
   }
