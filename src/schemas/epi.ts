@@ -599,7 +599,20 @@ export const ppeDeliveryIncludeSchema = z
         }),
       ])
       .optional(),
-    signature: z.boolean().optional(),
+    signature: z
+      .union([
+        z.boolean(),
+        z.object({
+          include: z
+            .object({
+              signedByUser: z.boolean().optional(),
+              signedDocument: z.boolean().optional(),
+            })
+            .optional(),
+        }),
+      ])
+      .optional(),
+    deliveryDocument: z.boolean().optional(),
   })
   .partial();
 

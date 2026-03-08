@@ -131,6 +131,10 @@ import {
   STATISTICS_PERIOD,
   TASK_PRICING_STATUS,
   RESCHEDULE_REASON,
+  INVOICE_STATUS,
+  INSTALLMENT_STATUS,
+  BANK_SLIP_STATUS,
+  NFSE_STATUS,
 } from './enums';
 
 // =====================
@@ -186,7 +190,6 @@ export const SERVICE_ORDER_STATUS_LABELS: Record<SERVICE_ORDER_STATUS, string> =
 
 export const SERVICE_ORDER_TYPE_LABELS: Record<SERVICE_ORDER_TYPE, string> = {
   [SERVICE_ORDER_TYPE.PRODUCTION]: 'Produção',
-  [SERVICE_ORDER_TYPE.FINANCIAL]: 'Financeiro',
   [SERVICE_ORDER_TYPE.COMMERCIAL]: 'Comercial',
   [SERVICE_ORDER_TYPE.ARTWORK]: 'Arte',
   [SERVICE_ORDER_TYPE.LOGISTIC]: 'Logística',
@@ -641,6 +644,7 @@ export const SECTOR_PRIVILEGES_LABELS: Record<SECTOR_PRIVILEGES, string> = {
   [SECTOR_PRIVILEGES.PRODUCTION]: 'Production',
   [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 'Recursos Humanos',
   [SECTOR_PRIVILEGES.EXTERNAL]: 'External',
+  [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 'Production Manager',
 };
 
 export const TREND_DIRECTION_LABELS: Record<TREND_DIRECTION, string> = {
@@ -1074,6 +1078,8 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.TASK]: 'Task',
   [ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
   [ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
+  [ENTITY_TYPE.TASK_PRICING_SERVICE]: 'Serviço do Orçamento',
+  [ENTITY_TYPE.TASK_PRICING_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
   [ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [ENTITY_TYPE.TRUCK]: 'Caminhão',
   [ENTITY_TYPE.USER]: 'Usuário',
@@ -1453,6 +1459,8 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.TASK]: 'Task',
   [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
   [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_SERVICE]: 'Serviço do Orçamento',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
   [CHANGE_LOG_ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [CHANGE_LOG_ENTITY_TYPE.USER]: 'Usuário',
   [CHANGE_LOG_ENTITY_TYPE.VACATION]: 'Vacation',
@@ -1912,6 +1920,7 @@ export const COMMISSION_STATUS_LABELS: Record<COMMISSION_STATUS, string> = {
   [COMMISSION_STATUS.SUSPENDED_COMMISSION]: 'Comissão Suspensa',
 };
 
+
 // =====================
 // Statistics Labels
 // =====================
@@ -1963,10 +1972,13 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
 // =====================
 
 export const TASK_PRICING_STATUS_LABELS: Record<TASK_PRICING_STATUS, string> = {
-  [TASK_PRICING_STATUS.DRAFT]: 'Rascunho',
-  [TASK_PRICING_STATUS.APPROVED]: 'Aprovado',
-  [TASK_PRICING_STATUS.REJECTED]: 'Rejeitado',
-  [TASK_PRICING_STATUS.CANCELLED]: 'Cancelado',
+  [TASK_PRICING_STATUS.PENDING]: 'Pendente',
+  [TASK_PRICING_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
+  [TASK_PRICING_STATUS.VERIFIED]: 'Verificado',
+  [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 'Aprovado Internamente',
+  [TASK_PRICING_STATUS.UPCOMING]: 'A Vencer',
+  [TASK_PRICING_STATUS.PARTIAL]: 'Parcial',
+  [TASK_PRICING_STATUS.SETTLED]: 'Liquidado',
 };
 
 // =====================
@@ -1983,4 +1995,43 @@ export const RESCHEDULE_REASON_LABELS: Record<RESCHEDULE_REASON, string> = {
   [RESCHEDULE_REASON.PRIORITY_CHANGE]: 'Mudança de Prioridade',
   [RESCHEDULE_REASON.TECHNICAL_ISSUES]: 'Problemas Técnicos',
   [RESCHEDULE_REASON.OTHER]: 'Outro',
+};
+
+// =====================
+// Invoice / Billing Labels
+// =====================
+
+export const INVOICE_STATUS_LABELS: Record<INVOICE_STATUS, string> = {
+  [INVOICE_STATUS.DRAFT]: 'Rascunho',
+  [INVOICE_STATUS.ACTIVE]: 'Ativa',
+  [INVOICE_STATUS.PARTIALLY_PAID]: 'Parcialmente Paga',
+  [INVOICE_STATUS.PAID]: 'Paga',
+  [INVOICE_STATUS.CANCELLED]: 'Cancelada',
+};
+
+export const INSTALLMENT_STATUS_LABELS: Record<INSTALLMENT_STATUS, string> = {
+  [INSTALLMENT_STATUS.PENDING]: 'Pendente',
+  [INSTALLMENT_STATUS.PROCESSING]: 'Processando',
+  [INSTALLMENT_STATUS.PAID]: 'Paga',
+  [INSTALLMENT_STATUS.OVERDUE]: 'Vencida',
+  [INSTALLMENT_STATUS.CANCELLED]: 'Cancelada',
+};
+
+export const BANK_SLIP_STATUS_LABELS: Record<BANK_SLIP_STATUS, string> = {
+  [BANK_SLIP_STATUS.CREATING]: 'Criando',
+  [BANK_SLIP_STATUS.REGISTERING]: 'Registrando',
+  [BANK_SLIP_STATUS.ACTIVE]: 'Ativo',
+  [BANK_SLIP_STATUS.OVERDUE]: 'Vencido',
+  [BANK_SLIP_STATUS.PAID]: 'Pago',
+  [BANK_SLIP_STATUS.CANCELLED]: 'Cancelado',
+  [BANK_SLIP_STATUS.REJECTED]: 'Rejeitado',
+  [BANK_SLIP_STATUS.ERROR]: 'Erro',
+};
+
+export const NFSE_STATUS_LABELS: Record<NFSE_STATUS, string> = {
+  [NFSE_STATUS.PENDING]: 'Pendente',
+  [NFSE_STATUS.PROCESSING]: 'Processando',
+  [NFSE_STATUS.AUTHORIZED]: 'Autorizada',
+  [NFSE_STATUS.CANCELLED]: 'Cancelada',
+  [NFSE_STATUS.ERROR]: 'Erro',
 };

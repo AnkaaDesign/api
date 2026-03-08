@@ -396,6 +396,13 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
                 updatedAt: z.boolean().optional(),
               })
               .optional(),
+            include: z
+              .object({
+                checkinFiles: z.boolean().optional(),
+                checkoutFiles: z.boolean().optional(),
+                assignedTo: z.boolean().optional(),
+              })
+              .optional(),
           }),
         ])
         .optional(),
@@ -407,12 +414,16 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
             select: z
               .object({
                 id: z.boolean().optional(),
-                totalValue: z.boolean().optional(),
-                profitMargin: z.boolean().optional(),
+                subtotal: z.boolean().optional(),
+                total: z.boolean().optional(),
                 status: z.boolean().optional(),
+                statusOrder: z.boolean().optional(),
+                expiresAt: z.boolean().optional(),
+                budgetNumber: z.boolean().optional(),
                 createdAt: z.boolean().optional(),
                 updatedAt: z.boolean().optional(),
-                items: z.boolean().optional(),
+                services: z.boolean().optional(),
+                customerConfigs: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -851,16 +862,20 @@ export const taskSelectDetail = {
   pricing: {
     select: {
       id: true,
-      totalValue: true,
-      profitMargin: true,
+      subtotal: true,
+      total: true,
       status: true,
-      items: {
+      statusOrder: true,
+      expiresAt: true,
+      budgetNumber: true,
+      services: {
         select: {
           id: true,
           description: true,
-          quantity: true,
-          unitPrice: true,
-          totalPrice: true,
+          amount: true,
+          observation: true,
+          shouldSync: true,
+          position: true,
         },
       },
     },
@@ -1334,6 +1349,8 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
               .object({
                 task: z.boolean().optional(),
                 assignedTo: z.boolean().optional(),
+                checkinFiles: z.boolean().optional(),
+                checkoutFiles: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -1345,10 +1362,69 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           z.object({
             include: z
               .object({
-                tasks: z.boolean().optional(),
-                items: z.boolean().optional(),
+                task: z.boolean().optional(),
+                services: z.boolean().optional(),
                 layoutFile: z.boolean().optional(),
                 customerSignature: z.boolean().optional(),
+                customerConfigs: z
+                  .union([
+                    z.boolean(),
+                    z.object({
+                      include: z
+                        .object({
+                          customer: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                select: z
+                                  .object({
+                                    id: z.boolean().optional(),
+                                    fantasyName: z.boolean().optional(),
+                                    cnpj: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                          installments: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                orderBy: z.object({ number: z.enum(['asc', 'desc']) }).optional(),
+                              }),
+                            ])
+                            .optional(),
+                          responsible: z.boolean().optional(),
+                          invoice: z
+                            .union([
+                              z.boolean(),
+                              z.object({
+                                include: z
+                                  .object({
+                                    installments: z
+                                      .union([
+                                        z.boolean(),
+                                        z.object({
+                                          include: z
+                                            .object({
+                                              bankSlip: z.boolean().optional(),
+                                            })
+                                            .optional(),
+                                        }),
+                                      ])
+                                      .optional(),
+                                    nfseDocument: z.boolean().optional(),
+                                  })
+                                  .optional(),
+                              }),
+                            ])
+                            .optional(),
+                        })
+                        .optional(),
+                    }),
+                  ])
+                  .optional(),
+                responsible: z.boolean().optional(),
               })
               .optional(),
           }),
@@ -1834,12 +1910,10 @@ const taskTransform = (data: any): any => {
   // 2. COMPLETED tasks are only hidden if they have required service order types AND all SOs are completed
   // 3. All other tasks are shown
   //
-  // Role-based behavior (5 service order types: PRODUCTION, FINANCIAL, COMMERCIAL, ARTWORK, LOGISTIC):
-  // - FINANCIAL users: Need PRODUCTION, COMMERCIAL, ARTWORK, FINANCIAL (exclude LOGISTIC)
-  // - LOGISTIC users: Need PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC (exclude FINANCIAL)
-  // - All other users (including ADMIN): Only need PRODUCTION, COMMERCIAL, ARTWORK (exclude both)
+  // Role-based behavior (4 service order types: PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC):
+  // - LOGISTIC users: Need PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC
+  // - All other users (including ADMIN, FINANCIAL): Only need PRODUCTION, COMMERCIAL, ARTWORK (exclude LOGISTIC)
   if (data.shouldDisplayInPreparation === true) {
-    const excludeFinancial = data.preparationExcludeFinancial === true;
     const excludeLogistic = data.preparationExcludeLogistic === true;
 
     // Build the required service order types check based on role
@@ -1850,36 +1924,25 @@ const taskTransform = (data: any): any => {
       { serviceOrders: { some: { type: 'ARTWORK' } } },
     ];
 
-    // Add FINANCIAL if not excluded
-    if (!excludeFinancial) {
-      requiredTypesCheck.push({ serviceOrders: { some: { type: 'FINANCIAL' } } });
-    }
-
     // Add LOGISTIC if not excluded
     if (!excludeLogistic) {
       requiredTypesCheck.push({ serviceOrders: { some: { type: 'LOGISTIC' } } });
     }
 
-    // Build the excluded types array for incomplete SO check
-    const excludedTypes: string[] = [];
-    if (excludeFinancial) excludedTypes.push('FINANCIAL');
-    if (excludeLogistic) excludedTypes.push('LOGISTIC');
-
     // Build the incomplete service orders check based on role
-    const incompleteSOCheck =
-      excludedTypes.length > 0
-        ? {
-            // Check incomplete SOs excluding certain types
+    const incompleteSOCheck = excludeLogistic
+      ? {
+            // Check incomplete SOs excluding LOGISTIC type
             serviceOrders: {
               some: {
                 AND: [
-                  { type: { notIn: excludedTypes } },
+                  { type: { notIn: ['LOGISTIC'] } },
                   { status: { in: ['PENDING', 'IN_PROGRESS', 'WAITING_APPROVE'] } },
                 ],
               },
             },
           }
-        : {
+      : {
             // Check all incomplete SOs (admin view)
             serviceOrders: {
               some: {
@@ -2377,7 +2440,6 @@ export const taskGetManySchema = z
     hasIncompleteServiceOrders: z.boolean().optional(), // For financial: tasks with ANY incomplete service orders
     hasIncompleteNonFinancialServiceOrders: z.boolean().optional(), // For admin: tasks with incomplete COMMERCIAL/PRODUCTION/ARTWORK service orders
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
-    preparationExcludeFinancial: z.boolean().optional(), // When true, excludes FINANCIAL SO from preparation completion check
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
     shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
     hasAirbrushing: z.boolean().optional(),
@@ -2635,9 +2697,12 @@ const taskProductionServiceOrderCreateSchema = z.object({
   observation: z.string().nullable().optional(), // For rejection/approval notes
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
-  // Controls bidirectional sync with TaskPricingItem
-  // When false, prevents auto-recreation of pricing items from this service order
+  // Controls bidirectional sync with TaskPricingService
+  // When false, prevents auto-recreation of pricing services from this service order
   shouldSync: z.boolean().optional().default(true),
+  // File IDs for checkin/checkout photos grouped by service order
+  checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
+  checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
 // Layout section schema

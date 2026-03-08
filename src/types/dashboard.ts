@@ -648,7 +648,7 @@ export interface HomeDashboardData {
   openServiceOrders?: HomeDashboardServiceOrder[];
   lowStockItems?: HomeDashboardLowStockItem[];
   completedTasks?: HomeDashboardTask[];
-  openFinancialSOs?: HomeDashboardServiceOrder[];
+  tasksAwaitingPaymentApproval?: HomeDashboardTask[];
   recentMessages?: HomeDashboardMessage[];
   counts: {
     tasksCloseDeadline?: number;
@@ -656,7 +656,7 @@ export interface HomeDashboardData {
     openServiceOrders?: number;
     lowStockItems?: number;
     completedTasks?: number;
-    openFinancialSOs?: number;
+    tasksAwaitingPaymentApproval?: number;
     recentMessages?: number;
     unreadMessages?: number;
   };

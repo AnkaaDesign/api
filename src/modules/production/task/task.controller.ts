@@ -436,7 +436,7 @@ export class TaskController {
   }
 
   @Put(':id/finish')
-  @Roles(SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.ADMIN)
+  @Roles(SECTOR_PRIVILEGES.LOGISTIC, SECTOR_PRIVILEGES.ADMIN)
   async finishTask(
     @Param('id', ParseUUIDPipe) id: string,
     @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,

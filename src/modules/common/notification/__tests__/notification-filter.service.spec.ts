@@ -462,7 +462,7 @@ describe('NotificationFilterService', () => {
     it('should return users based on task criteria', async () => {
       const mockUsers = [
         { id: 'user-1', sectorId: 'sector-1' },
-        { id: 'user-2', managedSector: { id: 'sector-1' } },
+        { id: 'user-2', ledSector: { id: 'sector-1' } },
         { id: 'admin-1', sector: { privileges: SECTOR_PRIVILEGES.ADMIN } },
       ];
 
@@ -584,21 +584,21 @@ describe('NotificationFilterService', () => {
     });
   });
 
-  describe('isSectorManager', () => {
-    it('should return true for sector manager', () => {
-      const managerUser: any = {
-        managedSector: { id: 'sector-1' },
+  describe('isSectorLeader', () => {
+    it('should return true for sector leader', () => {
+      const leaderUser: any = {
+        ledSector: { id: 'sector-1' },
       };
 
-      expect(service.isSectorManager(managerUser)).toBe(true);
+      expect(service.isSectorLeader(leaderUser)).toBe(true);
     });
 
-    it('should return false for non-manager', () => {
+    it('should return false for non-leader', () => {
       const user: any = {
-        managedSector: null,
+        ledSector: null,
       };
 
-      expect(service.isSectorManager(user)).toBe(false);
+      expect(service.isSectorLeader(user)).toBe(false);
     });
   });
 

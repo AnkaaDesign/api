@@ -75,11 +75,6 @@ export const envSchema = z.object({
   // CORS
   CORS_ORIGINS: z.string().optional(),
 
-  // ClickSign Digital Signature (API 3.0)
-  CLICKSIGN_API_URL: z.string().url().default('https://sandbox.clicksign.com/api/v3'),
-  CLICKSIGN_ACCESS_TOKEN: z.string().optional(),
-  CLICKSIGN_WEBHOOK_SECRET: z.string().optional(),
-
   // File Storage
   FILES_ROOT: z.string().default('./files'),
 
@@ -91,6 +86,9 @@ export const envSchema = z.object({
   PRODUCTION_BASE_PATH: z.string().default('/home/kennedy/ankaa'),
   SYNC_SCRIPT_PATH: z.string().default('/home/kennedy/repositories/sync-prod-to-test.sh'),
   SYNC_LOG_PATH: z.string().default('/home/kennedy/repositories/sync.log'),
+
+  // PPE In-App Signature
+  PPE_SIGNATURE_HMAC_SECRET: z.string().optional(),
 
   // Email Template
   SUPPORT_PHONE: z.string().default('+554384190989'),

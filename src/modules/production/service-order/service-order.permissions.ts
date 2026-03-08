@@ -115,17 +115,6 @@ export function checkServiceOrderUpdatePermission(
           'Apenas líderes de setor, logística ou administradores podem atualizar ordens de serviço de produção',
       };
 
-    case SERVICE_ORDER_TYPE.FINANCIAL:
-      // FINANCIAL can update FINANCIAL service orders
-      if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
-        return { canUpdate: true };
-      }
-      return {
-        canUpdate: false,
-        reason:
-          'Apenas usuários financeiros ou administradores podem atualizar ordens de serviço financeiras',
-      };
-
     case SERVICE_ORDER_TYPE.COMMERCIAL:
       // COMMERCIAL and FINANCIAL can update COMMERCIAL service orders
       if (

@@ -3578,40 +3578,9 @@ export class DashboardPrismaRepository implements DashboardRepository {
     }));
   }
 
-  async getOpenFinancialSOsForCompletedTasks(
-    limit = 10,
-  ): Promise<HomeDashboardServiceOrder[]> {
-    const orders = await this.prisma.serviceOrder.findMany({
-      where: {
-        type: 'FINANCIAL' as any,
-        status: { in: ['PENDING', 'IN_PROGRESS'] as any[] },
-        task: { status: TASK_STATUS.COMPLETED as any },
-      },
-      select: {
-        id: true,
-        description: true,
-        type: true,
-        status: true,
-        createdAt: true,
-        task: { select: { id: true, name: true, serialNumber: true, forecastDate: true } },
-        assignedTo: { select: { name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
-
-    return orders.map((o) => ({
-      id: o.id,
-      description: o.description,
-      type: o.type,
-      status: o.status,
-      taskId: o.task.id,
-      taskName: o.task.name,
-      taskSerialNumber: o.task.serialNumber,
-      taskForecastDate: o.task.forecastDate,
-      assignedToName: o.assignedTo?.name || null,
-      createdAt: o.createdAt,
-    }));
+  async getTasksAwaitingPaymentApproval(limit = 20): Promise<HomeDashboardTask[]> {
+    // paymentStatus was removed from Task model — this method now returns empty
+    return [];
   }
 
   async getRecentMessages(

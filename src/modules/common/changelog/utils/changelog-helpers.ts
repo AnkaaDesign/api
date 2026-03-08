@@ -450,7 +450,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   responsibleIds: 'responsáveis',
   customerId: 'cliente',
   invoiceToId: 'faturar para',
-  invoicesToCustomerIds: 'clientes para faturamento',
+  customerConfigs: 'configurações de clientes para faturamento',
   pricingId: 'orçamento',
   artworkIds: 'artes',
   artworks: 'artes',
@@ -474,6 +474,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   discountType: 'tipo de desconto',
   discountValue: 'valor do desconto',
   expiresAt: 'data de validade',
+  // Legacy fields (kept for historical changelog display)
   paymentCondition: 'condição de pagamento',
   downPaymentDate: 'data de entrada',
   customPaymentText: 'texto de pagamento personalizado',
@@ -484,7 +485,7 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   discountReference: 'referência do desconto',
   customerSignatureId: 'assinatura do cliente',
   budgetNumber: 'número do orçamento',
-  // Task Pricing Item fields
+  // Task Pricing Service fields
   amount: 'valor',
   shouldSync: 'sincronizar com O.S.',
   position: 'posição',

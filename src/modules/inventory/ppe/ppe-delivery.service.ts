@@ -921,29 +921,29 @@ export class PpeDeliveryService {
   }
 
   /**
-   * Find PPE deliveries for users in the manager's team/sector
-   * If user manages a sector, returns deliveries for users in that sector
-   * If user doesn't manage a sector, returns only their own deliveries
+   * Find PPE deliveries for users in the leader's team/sector
+   * If user leads a sector, returns deliveries for users in that sector
+   * If user doesn't lead a sector, returns only their own deliveries
    */
   async findManyForTeam(
     query: PpeDeliveryGetManyFormData,
-    managerId: string,
+    leaderId: string,
   ): Promise<PpeDeliveryGetManyResponse> {
-    // Get the manager's managed sector
-    const manager = await this.userRepository.findById(managerId, {
+    // Get the leader's led sector
+    const leader = await this.userRepository.findById(leaderId, {
       include: {
-        managedSector: true,
+        ledSector: true,
         sector: true,
       },
     });
 
-    if (!manager) {
+    if (!leader) {
       throw new NotFoundException('Usuário não encontrado');
     }
 
     // Get the sector ID to filter by
-    // Priority: managed sector > own sector
-    const sectorId = manager.managedSector?.id || manager.sectorId;
+    // Priority: led sector > own sector
+    const sectorId = leader.ledSector?.id || leader.sectorId;
 
     if (!sectorId) {
       // User has no sector association, return empty result

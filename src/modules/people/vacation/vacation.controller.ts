@@ -102,11 +102,11 @@ export class VacationController {
     @Query(new ZodQueryValidationPipe(vacationGetManySchema)) query: VacationGetManyFormData,
     @UserId() userId: string,
   ): Promise<VacationGetManyResponse> {
-    // Get the user's managed sector
-    const userWithSector = await this.vacationService.getUserManagedSector(userId);
+    // Get the user's led sector
+    const userWithSector = await this.vacationService.getUserLedSector(userId);
 
-    // If user doesn't manage a sector, return empty result
-    if (!userWithSector?.managedSectorId) {
+    // If user doesn't lead a sector, return empty result
+    if (!userWithSector?.ledSectorId) {
       return {
         success: true,
         message: 'Nenhuma férias encontrada',
@@ -122,13 +122,13 @@ export class VacationController {
       };
     }
 
-    // Filter vacations by users in the managed sector
+    // Filter vacations by users in the led sector
     const filteredQuery: VacationGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         user: {
-          sectorId: userWithSector.managedSectorId,
+          sectorId: userWithSector.ledSectorId,
         },
       },
     };

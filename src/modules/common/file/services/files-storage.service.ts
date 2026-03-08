@@ -26,6 +26,8 @@ export interface FilesFolderMapping {
   taskProjectFiles: string;
   taskCheckinFiles: string;
   taskCheckoutFiles: string;
+  serviceOrderCheckinFiles: string;
+  serviceOrderCheckoutFiles: string;
 
   // Entity-specific folders - Orders
   orderBudgets: string;
@@ -122,6 +124,8 @@ export class FilesStorageService {
     taskProjectFiles: 'Projetos',
     taskCheckinFiles: 'Checkin',
     taskCheckoutFiles: 'Checkout',
+    serviceOrderCheckinFiles: 'Checkin',
+    serviceOrderCheckoutFiles: 'Checkout',
 
     // Order folders (under Fornecedores/{supplierName}/)
     orderBudgets: 'Orcamentos',
@@ -239,6 +243,8 @@ export class FilesStorageService {
     'taskProjectFiles',
     'taskCheckinFiles',
     'taskCheckoutFiles',
+    'serviceOrderCheckinFiles',
+    'serviceOrderCheckoutFiles',
     'airbrushingArtworks',
     'airbrushingBudgets',
     'airbrushingInvoices',

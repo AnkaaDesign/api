@@ -221,14 +221,25 @@ const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
   pricing: {
     include: {
-      items: { orderBy: { position: 'asc' } },
+      services: {
+        orderBy: { position: 'asc' },
+        include: {
+          invoiceToCustomer: {
+            select: { id: true, fantasyName: true, cnpj: true },
+          },
+        },
+      },
       layoutFile: true,
-      invoicesToCustomers: {
-        select: {
-          id: true,
-          fantasyName: true,
-          corporateName: true,
-          cnpj: true,
+      customerConfigs: {
+        include: {
+          customer: {
+            select: { id: true, fantasyName: true, cnpj: true },
+          },
+          installments: {
+            include: { bankSlip: true },
+            orderBy: { number: 'asc' as const },
+          },
+          responsible: { select: { id: true, name: true, role: true } },
         },
       },
     },
@@ -1386,11 +1397,11 @@ export class TaskPrismaRepository
       if (
         pricingData &&
         typeof pricingData === 'object' &&
-        pricingData.items &&
-        Array.isArray(pricingData.items) &&
-        pricingData.items.length > 0
+        pricingData.services &&
+        Array.isArray(pricingData.services) &&
+        pricingData.services.length > 0
       ) {
-        const calculatedSubtotal = pricingData.items.reduce(
+        const calculatedSubtotal = pricingData.services.reduce(
           (sum: number, item: any) => sum + Number(item.amount || 0),
           0,
         );
@@ -1413,36 +1424,39 @@ export class TaskPrismaRepository
             budgetNumber: nextBudgetNumber,
             subtotal,
             total,
-            discountType: pricingData.discountType || 'NONE',
-            discountValue:
-              pricingData.discountValue !== undefined ? Number(pricingData.discountValue) : null,
             expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
-            status: pricingData.status || 'DRAFT',
-            paymentCondition: pricingData.paymentCondition || null,
-            downPaymentDate: pricingData.downPaymentDate
-              ? new Date(pricingData.downPaymentDate)
-              : null,
-            customPaymentText: pricingData.customPaymentText || null,
+            status: pricingData.status || 'PENDING',
             guaranteeYears: pricingData.guaranteeYears || null,
             customGuaranteeText: pricingData.customGuaranteeText || null,
             customForecastDays: pricingData.customForecastDays || null,
             simultaneousTasks: pricingData.simultaneousTasks ?? null,
-            discountReference: pricingData.discountReference || null,
             ...layoutFileConnect,
-            ...(pricingData.invoicesToCustomerIds &&
-              pricingData.invoicesToCustomerIds.length > 0 && {
-                invoicesToCustomers: {
-                  connect: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
-                    id: customerId,
+            ...(pricingData.customerConfigs &&
+              pricingData.customerConfigs.length > 0 && {
+                customerConfigs: {
+                  create: pricingData.customerConfigs.map((config: any) => ({
+                    customerId: config.customerId,
+                    subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
+                    discountType: config.discountType || 'NONE',
+                    discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
+                    total: config.total !== undefined ? Number(config.total) : 0,
+                    customPaymentText: config.customPaymentText || null,
+                    responsibleId: config.responsibleId || null,
+                    discountReference: config.discountReference || null,
+                    paymentCondition: config.paymentCondition || null,
+                    downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                   })),
                 },
               }),
-            items: {
-              create: pricingData.items.map((item: any) => ({
+            services: {
+              create: pricingData.services.map((item: any) => ({
                 description: item.description,
                 observation: item.observation || null,
                 amount: Number(item.amount || 0),
                 shouldSync: item.shouldSync !== false,
+                ...(item.invoiceToCustomerId && {
+                  invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
+                }),
               })),
             },
           },
@@ -1570,18 +1584,18 @@ export class TaskPrismaRepository
       if (pricingData !== undefined && pricingData !== null) {
         if (
           typeof pricingData === 'object' &&
-          pricingData.items &&
-          Array.isArray(pricingData.items) &&
-          pricingData.items.length > 0
+          pricingData.services &&
+          Array.isArray(pricingData.services) &&
+          pricingData.services.length > 0
         ) {
-          const hasNewItems = pricingData.items.some((item: any) => !item.id);
+          const hasNewItems = pricingData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
             where: { id },
             select: { pricingId: true },
           });
 
-          const calculatedSubtotal = pricingData.items.reduce(
+          const calculatedSubtotal = pricingData.services.reduce(
             (sum: number, item: any) => sum + Number(item.amount || 0),
             0,
           );
@@ -1601,27 +1615,8 @@ export class TaskPrismaRepository
               data: {
                 subtotal,
                 total,
-                discountType: pricingData.discountType || 'NONE',
-                discountValue:
-                  pricingData.discountValue !== undefined
-                    ? Number(pricingData.discountValue)
-                    : null,
                 expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : undefined,
                 status: pricingData.status || undefined,
-                paymentCondition:
-                  pricingData.paymentCondition !== undefined
-                    ? pricingData.paymentCondition
-                    : undefined,
-                downPaymentDate:
-                  pricingData.downPaymentDate !== undefined
-                    ? pricingData.downPaymentDate
-                      ? new Date(pricingData.downPaymentDate)
-                      : null
-                    : undefined,
-                customPaymentText:
-                  pricingData.customPaymentText !== undefined
-                    ? pricingData.customPaymentText
-                    : undefined,
                 guaranteeYears:
                   pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
                 customGuaranteeText:
@@ -1636,30 +1631,97 @@ export class TaskPrismaRepository
                   pricingData.simultaneousTasks !== undefined
                     ? pricingData.simultaneousTasks
                     : undefined,
-                discountReference:
-                  pricingData.discountReference !== undefined
-                    ? pricingData.discountReference
-                    : undefined,
                 ...layoutFileUpdate,
-                ...(pricingData.invoicesToCustomerIds !== undefined && {
-                  invoicesToCustomers: {
-                    set: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
-                      id: customerId,
+                ...(pricingData.customerConfigs !== undefined && {
+                  customerConfigs: {
+                    deleteMany: {},
+                    create: pricingData.customerConfigs.map((config: any) => ({
+                      customerId: config.customerId,
+                      subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
+                      discountType: config.discountType || 'NONE',
+                      discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
+                      total: config.total !== undefined ? Number(config.total) : 0,
+                      customPaymentText: config.customPaymentText || null,
+                      responsibleId: config.responsibleId || null,
+                      discountReference: config.discountReference || null,
+                      paymentCondition: config.paymentCondition || null,
+                      downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                     })),
                   },
                 }),
-                items: {
+                services: {
                   deleteMany: {},
-                  create: pricingData.items.map((item: any, index: number) => ({
+                  create: pricingData.services.map((item: any, index: number) => ({
                     description: item.description,
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     shouldSync: item.shouldSync !== false,
                     position: index,
+                    ...(item.invoiceToCustomerId && {
+                      invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
+                    }),
                   })),
                 },
               },
             });
+
+            // Re-create installments for each customer config after delete/recreate
+            if (pricingData.customerConfigs && pricingData.customerConfigs.length > 0) {
+              const newConfigs = await transaction.taskPricingCustomerConfig.findMany({
+                where: { pricingId: currentTask.pricingId },
+              });
+              for (const config of pricingData.customerConfigs) {
+                const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
+                if (!dbConfig) continue;
+
+                // Use explicitly provided installments, or generate from paymentCondition
+                let installmentsToCreate = config.installments && config.installments.length > 0
+                  ? config.installments
+                  : null;
+
+                if (!installmentsToCreate && config.paymentCondition && config.paymentCondition !== 'CUSTOM') {
+                  const configTotal = Number(dbConfig.total) || 0;
+                  if (configTotal > 0) {
+                    const conditionMap: Record<string, number> = {
+                      CASH: 1, INSTALLMENTS_2: 2, INSTALLMENTS_3: 3, INSTALLMENTS_4: 4,
+                      INSTALLMENTS_5: 5, INSTALLMENTS_6: 6, INSTALLMENTS_7: 7,
+                    };
+                    const totalInstallments = conditionMap[config.paymentCondition] || 1;
+                    const baseDate = config.downPaymentDate ? new Date(config.downPaymentDate) : new Date();
+                    const totalCents = Math.round(configTotal * 100);
+                    const baseCents = Math.floor(totalCents / totalInstallments);
+                    const installmentAmount = baseCents / 100;
+
+                    installmentsToCreate = [];
+                    for (let i = 0; i < totalInstallments; i++) {
+                      const dueDate = new Date(baseDate);
+                      dueDate.setDate(dueDate.getDate() + i * 20);
+                      const isLast = i === totalInstallments - 1;
+                      const amount = isLast
+                        ? (totalCents - baseCents * (totalInstallments - 1)) / 100
+                        : installmentAmount;
+                      installmentsToCreate.push({ number: i + 1, dueDate, amount });
+                    }
+                    this.logger.log(
+                      `[TaskRepository] Generated ${totalInstallments} installments from ${config.paymentCondition} for customer ${config.customerId} (total: ${configTotal})`,
+                    );
+                  }
+                }
+
+                if (installmentsToCreate && installmentsToCreate.length > 0) {
+                  await transaction.installment.createMany({
+                    data: installmentsToCreate.map((inst: any) => ({
+                      customerConfigId: dbConfig.id,
+                      number: inst.number,
+                      dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
+                      amount: typeof inst.amount === 'number' ? inst.amount : Number(inst.amount) || 0,
+                      paidAmount: 0,
+                      status: 'PENDING' as const,
+                    })),
+                  });
+                }
+              }
+            }
           } else if (hasNewItems) {
             const maxBudgetNumber = await transaction.taskPricing.aggregate({
               _max: { budgetNumber: true },
@@ -1675,39 +1737,40 @@ export class TaskPrismaRepository
                 budgetNumber: nextBudgetNumber,
                 subtotal,
                 total,
-                discountType: pricingData.discountType || 'NONE',
-                discountValue:
-                  pricingData.discountValue !== undefined
-                    ? Number(pricingData.discountValue)
-                    : null,
                 expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
-                status: pricingData.status || 'DRAFT',
-                paymentCondition: pricingData.paymentCondition || null,
-                downPaymentDate: pricingData.downPaymentDate
-                  ? new Date(pricingData.downPaymentDate)
-                  : null,
-                customPaymentText: pricingData.customPaymentText || null,
+                status: pricingData.status || 'PENDING',
                 guaranteeYears: pricingData.guaranteeYears || null,
                 customGuaranteeText: pricingData.customGuaranteeText || null,
                 customForecastDays: pricingData.customForecastDays || null,
                 simultaneousTasks: pricingData.simultaneousTasks ?? null,
-                discountReference: pricingData.discountReference || null,
                 ...layoutFileConnect,
-                ...(pricingData.invoicesToCustomerIds &&
-                  pricingData.invoicesToCustomerIds.length > 0 && {
-                    invoicesToCustomers: {
-                      connect: pricingData.invoicesToCustomerIds.map((customerId: string) => ({
-                        id: customerId,
+                ...(pricingData.customerConfigs &&
+                  pricingData.customerConfigs.length > 0 && {
+                    customerConfigs: {
+                      create: pricingData.customerConfigs.map((config: any) => ({
+                        customerId: config.customerId,
+                        subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
+                        discountType: config.discountType || 'NONE',
+                        discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
+                        total: config.total !== undefined ? Number(config.total) : 0,
+                        customPaymentText: config.customPaymentText || null,
+                        responsibleId: config.responsibleId || null,
+                        discountReference: config.discountReference || null,
+                        paymentCondition: config.paymentCondition || null,
+                        downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                       })),
                     },
                   }),
-                items: {
-                  create: pricingData.items.map((item: any, index: number) => ({
+                services: {
+                  create: pricingData.services.map((item: any, index: number) => ({
                     description: item.description,
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     shouldSync: item.shouldSync !== false,
                     position: index,
+                    ...(item.invoiceToCustomerId && {
+                      invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
+                    }),
                   })),
                 },
               },

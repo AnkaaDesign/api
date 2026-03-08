@@ -2,7 +2,7 @@
  * PPE In-App Signature Service
  *
  * Handles the in-app electronic signature workflow for PPE delivery documents.
- * Uses biometric authentication + cryptographic evidence instead of external ClickSign.
+ * Uses biometric authentication + cryptographic evidence.
  *
  * Legal basis: Lei 14.063/2020, Art. 4° — Advanced electronic signature
  * LGPD compliance: Data minimization, purpose limitation, no raw biometric data stored
@@ -18,13 +18,36 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PpeDocumentService } from './ppe-document.service';
-import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
+import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER, ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '@constants';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { FileService } from '@modules/common/file/file.service';
 import * as crypto from 'crypto';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { PpeDeliverySignFormData } from '@schemas';
+
+/**
+ * Canonical JSON serialization with sorted keys.
+ * Required because PostgreSQL JSONB does not preserve key order,
+ * so we must ensure deterministic stringification for HMAC computation.
+ */
+function canonicalJsonStringify(obj: any): string {
+  return JSON.stringify(obj, Object.keys(obj).sort());
+}
+
+/**
+ * Deep canonical JSON stringification — recursively sorts keys at every level.
+ */
+function deepCanonicalStringify(value: any): string {
+  if (value === null || value === undefined) return JSON.stringify(value);
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map(v => deepCanonicalStringify(v)).join(',') + ']';
+  }
+  const sortedKeys = Object.keys(value).sort();
+  const pairs = sortedKeys.map(k => JSON.stringify(k) + ':' + deepCanonicalStringify(value[k]));
+  return '{' + pairs.join(',') + '}';
+}
 
 @Injectable()
 export class PpeInAppSignatureService {
@@ -137,7 +160,9 @@ export class PpeInAppSignatureService {
     };
 
     // 8. Compute HMAC-SHA256 (server-side tamper-proof seal)
-    const hmacPayload = JSON.stringify({
+    // Uses deep canonical JSON to ensure deterministic key ordering
+    // (PostgreSQL JSONB does not preserve insertion order)
+    const hmacPayload = deepCanonicalStringify({
       evidence: evidenceJson,
       serverTimestamp: serverTimestamp.toISOString(),
       ipAddress: requestIp || null,
@@ -221,21 +246,16 @@ export class PpeInAppSignatureService {
 
     // 11. Log to changelog
     try {
-      await this.changeLogService.log({
-        entityType: 'PpeDelivery',
+      await this.changeLogService.logChange({
+        entityType: ENTITY_TYPE.PPE_DELIVERY,
         entityId: deliveryId,
-        action: 'INAPP_SIGNATURE',
-        triggeredByUserId: authenticatedUserId,
-        changes: {
-          status: {
-            from: delivery.status,
-            to: PPE_DELIVERY_STATUS.COMPLETED,
-          },
-          signatureId: {
-            from: null,
-            to: result.id,
-          },
-        },
+        action: CHANGE_ACTION.COMPLETE,
+        reason: `In-app signature completed for delivery ${deliveryId}`,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
+        triggeredById: authenticatedUserId,
+        userId: authenticatedUserId,
+        oldValue: { status: delivery.status, signatureId: null },
+        newValue: { status: PPE_DELIVERY_STATUS.COMPLETED, signatureId: result.id },
       });
     } catch (error) {
       this.logger.error('Failed to log changelog for in-app signature:', error);
@@ -267,8 +287,9 @@ export class PpeInAppSignatureService {
       throw new BadRequestException('HMAC secret não configurado — verificação não disponível.');
     }
 
-    // Re-compute HMAC from stored evidence
-    const hmacPayload = JSON.stringify({
+    // Re-compute HMAC from stored evidence using deep canonical JSON
+    // (matches the signing-time serialization regardless of JSONB key reordering)
+    const hmacPayload = deepCanonicalStringify({
       evidence: signature.evidenceJson,
       serverTimestamp: signature.serverTimestamp.toISOString(),
       ipAddress: signature.ipAddress || null,
@@ -306,6 +327,7 @@ export class PpeInAppSignatureService {
             name: true,
           },
         },
+        signedDocument: true,
       },
     });
 
@@ -333,6 +355,7 @@ export class PpeInAppSignatureService {
       legalBasis: signature.legalBasis,
       consentGiven: signature.consentGiven,
       signedDocumentId: signature.signedDocumentId,
+      signedDocument: (signature as any).signedDocument || null,
       createdAt: signature.createdAt,
     };
   }
@@ -355,11 +378,11 @@ export class PpeInAppSignatureService {
     return {
       biometricMethod: evidence.biometricMethod,
       biometricSuccess: evidence.biometricSuccess,
-      deviceBrand: evidence.deviceBrand || null,
-      deviceModel: evidence.deviceModel || null,
-      deviceOs: evidence.deviceOs || null,
-      deviceOsVersion: evidence.deviceOsVersion || null,
-      appVersion: evidence.appVersion || null,
+      deviceBrand: evidence.deviceBrand ?? null,
+      deviceModel: evidence.deviceModel ?? null,
+      deviceOs: evidence.deviceOs ?? null,
+      deviceOsVersion: evidence.deviceOsVersion ?? null,
+      appVersion: evidence.appVersion ?? null,
       latitude: evidence.latitude ?? null,
       longitude: evidence.longitude ?? null,
       locationAccuracy: evidence.locationAccuracy ?? null,

@@ -13,14 +13,14 @@ import { SecullumModule } from '@modules/integrations/secullum/secullum.module';
 
 /**
  * Team Staff Module
- * Provides secure endpoints for team leaders to access data from their managed sector
+ * Provides secure endpoints for team leaders to access data from their led sector
  *
  * SECURITY FEATURES:
  * - All endpoints require authentication (AuthGuard)
- * - Authorization: TeamStaffService.validateTeamLeader() checks if user is a sector manager (Sector.managerId = userId)
- * - managedSectorId is ALWAYS fetched from database via Sector.managerId for each request
+ * - Authorization: TeamStaffService.validateTeamLeader() checks if user is a sector leader (Sector.leaderId = userId)
+ * - ledSectorId is ALWAYS fetched from database via Sector.leaderId for each request
  * - Client-provided sectorId filters are ALWAYS overridden
- * - Returns 403 Forbidden if user is not a sector manager (no sector has this user as managerId)
+ * - Returns 403 Forbidden if user is not a sector leader (no sector has this user as leaderId)
  *
  * Controllers:
  * - TeamStaffController (/team-staff/*) - users, calculations, borrows, vacations, epis, activities, warnings

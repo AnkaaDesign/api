@@ -32,7 +32,7 @@ import {
   extractEssentialFields,
   translateFieldName,
 } from '@modules/common/changelog/utils/changelog-helpers';
-import { logPricingItemChanges } from '@modules/common/changelog/utils/pricing-item-changelog';
+import { logPricingServiceChanges } from '@modules/common/changelog/utils/pricing-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import {
   TASK_STATUS,
@@ -46,6 +46,7 @@ import {
   CUT_STATUS,
   AIRBRUSHING_STATUS,
 } from '../../../constants/enums';
+import { validateSectorFieldAccess } from './task.permissions';
 import { TaskRepository, PrismaTransaction } from './repositories/task.repository';
 import {
   TaskCreateFormData,
@@ -83,6 +84,7 @@ import {
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
+import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 // NOTE: TaskNotificationService import removed - legacy notification path was deprecated
 
 /**
@@ -126,6 +128,7 @@ export class TaskService {
     private readonly fieldTracker: TaskFieldTrackerService,
     // NOTE: TaskNotificationService injection removed - legacy notification path was deprecated
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
+    private readonly nfseEmissionScheduler: NfseEmissionScheduler,
   ) {}
 
   /**
@@ -868,7 +871,7 @@ export class TaskService {
         }
 
         // Re-fetch task if layouts or artworks/baseFiles were created/connected so response includes them
-        if (hasLayouts || hasSharedLayoutIds || preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
+        if (hasLayouts || preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
             tx,
             newTask.id,
@@ -1214,7 +1217,7 @@ export class TaskService {
     data: TaskUpdateFormData,
     include?: TaskInclude,
     userId?: string,
-    userPrivilege?: string,
+    userPrivilege?: SECTOR_PRIVILEGES | string,
     files?: {
       budgets?: Express.Multer.File[];
       invoices?: Express.Multer.File[];
@@ -1273,7 +1276,7 @@ export class TaskService {
               },
             }, // Include truck with layouts for file naming with measures
             serviceOrders: true, // Include for services field changelog tracking
-            pricing: { include: { items: { orderBy: { position: 'asc' } } } }, // Include for pricing changelog tracking
+            pricing: { include: { services: { orderBy: { position: 'asc' } } } }, // Include for pricing changelog tracking
           },
         });
 
@@ -1281,19 +1284,9 @@ export class TaskService {
           throw new NotFoundException('Tarefa não encontrada. Verifique se o ID está correto.');
         }
 
-        // Field-level access control for FINANCIAL sector
-        if (userPrivilege === 'FINANCIAL') {
-          this.validateFinancialSectorAccess(data);
-        }
-
-        // Field-level access control for COMMERCIAL sector
-        if (userPrivilege === 'COMMERCIAL') {
-          this.validateCommercialSectorAccess(data);
-        }
-
-        // Field-level access control for PRODUCTION sector
-        if (userPrivilege === 'PRODUCTION') {
-          this.validateProductionSectorAccess(data);
+        // Field-level access control per sector (centralized in task.permissions.ts)
+        if (userPrivilege) {
+          validateSectorFieldAccess(userPrivilege as SECTOR_PRIVILEGES, data as Record<string, unknown>);
         }
 
         // Validate task data
@@ -1720,6 +1713,18 @@ export class TaskService {
             );
           }
 
+          // Only LOGISTIC and ADMIN can set task status to COMPLETED
+          if (
+            toStatus === TASK_STATUS.COMPLETED &&
+            userPrivilege &&
+            userPrivilege !== SECTOR_PRIVILEGES.LOGISTIC &&
+            userPrivilege !== SECTOR_PRIVILEGES.ADMIN
+          ) {
+            throw new BadRequestException(
+              'Apenas o setor de logística pode finalizar tarefas.',
+            );
+          }
+
           // Additional validation for PREPARATION → IN_PRODUCTION
           // This transition requires all ARTWORK service orders to be completed
           if (fromStatus === TASK_STATUS.PREPARATION && toStatus === TASK_STATUS.IN_PRODUCTION) {
@@ -2087,6 +2092,14 @@ export class TaskService {
                   updatePayload.observation = serviceOrderData.observation;
                 if (serviceOrderData.assignedToId !== undefined)
                   updatePayload.assignedToId = serviceOrderData.assignedToId;
+
+                // Handle checkin/checkout file connections
+                if (serviceOrderData.checkinFileIds !== undefined) {
+                  updatePayload.checkinFiles = { set: serviceOrderData.checkinFileIds.map((fid: string) => ({ id: fid })) };
+                }
+                if (serviceOrderData.checkoutFileIds !== undefined) {
+                  updatePayload.checkoutFiles = { set: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })) };
+                }
 
                 // Handle date setting/clearing for status transitions
                 if (
@@ -2481,17 +2494,36 @@ export class TaskService {
                   `[Task Update] Creating new service order: ${serviceOrderData.description} (${serviceOrderData.type})`,
                 );
 
+                // Auto-complete new SOs added to COMPLETED tasks
+                const isTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
+                const soStatus = isTaskCompleted
+                  ? SERVICE_ORDER_STATUS.COMPLETED
+                  : (serviceOrderData.status || 'PENDING');
+
                 const createdServiceOrder = await tx.serviceOrder.create({
                   data: {
                     taskId: id,
                     type: serviceOrderData.type,
-                    status: serviceOrderData.status || 'PENDING',
+                    status: soStatus,
                     description: serviceOrderData.description || null,
                     observation: serviceOrderData.observation || null,
                     assignedToId: serviceOrderData.assignedToId || null,
                     createdById: userId || '',
                     position: soIndex,
-                    shouldSync: (serviceOrderData as any).shouldSync !== false, // Preserve shouldSync flag (default true)
+                    shouldSync: (serviceOrderData as any).shouldSync !== false,
+                    ...(isTaskCompleted && {
+                      statusOrder: 4,
+                      startedAt: new Date(),
+                      startedById: userId || '',
+                      finishedAt: new Date(),
+                      completedById: userId || '',
+                    }),
+                    ...(serviceOrderData.checkinFileIds?.length > 0 && {
+                      checkinFiles: { connect: serviceOrderData.checkinFileIds.map((fid: string) => ({ id: fid })) },
+                    }),
+                    ...(serviceOrderData.checkoutFileIds?.length > 0 && {
+                      checkoutFiles: { connect: serviceOrderData.checkoutFileIds.map((fid: string) => ({ id: fid })) },
+                    }),
                   },
                 });
 
@@ -2646,13 +2678,13 @@ export class TaskService {
               transaction: tx,
             });
 
-            // CRITICAL FIX: Set shouldSync = false on corresponding pricing items
+            // CRITICAL FIX: Set shouldSync = false on corresponding pricing services
             // This permanently prevents the sync from recreating this service order
             if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
               const normalizedDesc = soToDelete.description.toLowerCase().trim();
 
-              // Find matching pricing items by normalized description
-              const matchingPricingItems = await tx.taskPricingItem.findMany({
+              // Find matching pricing services by normalized description
+              const matchingPricingItems = await tx.taskPricingService.findMany({
                 where: {
                   pricing: {
                     task: { id: id },
@@ -2662,15 +2694,15 @@ export class TaskService {
 
               for (const pricingItem of matchingPricingItems) {
                 const pricingNormalizedDesc = (pricingItem.description || '').toLowerCase().trim();
-                // Check if descriptions match (pricing item description may include observation suffix)
+                // Check if descriptions match (pricing service description may include observation suffix)
                 if (
                   pricingNormalizedDesc === normalizedDesc ||
                   pricingNormalizedDesc.startsWith(normalizedDesc + ' - ')
                 ) {
                   this.logger.log(
-                    `[Task Update] Setting shouldSync=false on pricing item ${pricingItem.id} (${pricingItem.description})`,
+                    `[Task Update] Setting shouldSync=false on pricing service ${pricingItem.id} (${pricingItem.description})`,
                   );
-                  await tx.taskPricingItem.update({
+                  await tx.taskPricingService.update({
                     where: { id: pricingItem.id },
                     data: { shouldSync: false },
                   });
@@ -3039,57 +3071,8 @@ export class TaskService {
             }
           }
 
-          // =====================================================================
-          // ROLLBACK COMPLETED TASK: When new service orders are added to a COMPLETED task
-          // If a task is COMPLETED but now has non-completed production SOs (e.g. a new
-          // PENDING SO was added), recalculate the correct status and rollback accordingly.
-          // =====================================================================
-          if (updatedTask && updatedTask.status === TASK_STATUS.COMPLETED) {
-            const correctStatus = calculateCorrectTaskStatus(
-              (updatedTask.serviceOrders || []).map((so: any) => ({
-                status: so.status as SERVICE_ORDER_STATUS,
-                type: so.type as SERVICE_ORDER_TYPE,
-              })),
-            );
-
-            if (correctStatus !== TASK_STATUS.COMPLETED) {
-              this.logger.log(
-                `[ROLLBACK COMPLETED TASK] Task ${id} is COMPLETED but calculated status is ${correctStatus} (new service orders may have been added), rolling back`,
-              );
-
-              updatedTask = (await tx.task.update({
-                where: { id },
-                data: {
-                  status: correctStatus,
-                  statusOrder: getTaskStatusOrder(correctStatus),
-                  finishedAt: null, // Clear finish date since task is being reopened
-                },
-                include: {
-                  ...include,
-                  customer: true,
-                  artworks: true,
-                  observation: { include: { files: true } },
-                  truck: true,
-                  serviceOrders: true,
-                },
-              })) as any;
-
-              // Log the rollback in changelog
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'status',
-                oldValue: TASK_STATUS.COMPLETED,
-                newValue: correctStatus,
-                reason: `Tarefa reaberta automaticamente de concluída para ${correctStatus === TASK_STATUS.IN_PRODUCTION ? 'em produção' : 'aguardando produção'} pois novas ordens de serviço foram adicionadas`,
-                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-            }
-          }
+          // NOTE: Completed tasks are NO LONGER rolled back when new service orders are added.
+          // Only the logistics sector can manage task completion status.
 
           // =====================================================================
           // AUTO-CANCEL TASK WHEN ALL COMMERCIAL SERVICE ORDERS ARE CANCELLED
@@ -3354,17 +3337,17 @@ export class TaskService {
         }
 
         // =====================================================================
-        // BIDIRECTIONAL SYNC: Pricing Items ↔ Production Service Orders
-        // When pricing items or PRODUCTION service orders are added/updated,
+        // BIDIRECTIONAL SYNC: Pricing Services ↔ Production Service Orders
+        // When pricing services or PRODUCTION service orders are added/updated,
         // sync them bidirectionally:
-        // - PRODUCTION SO → Pricing Item (description + observation → item description)
-        // - Pricing Item → PRODUCTION SO (item description → SO description + observation)
+        // - PRODUCTION SO → Pricing Service (description + observation → service description)
+        // - Pricing Service → PRODUCTION SO (service description → SO description + observation)
         // =====================================================================
-        // CRITICAL: Only run sync if genuinely NEW items are being ADDED.
-        // Items resubmitted without IDs (e.g. from form re-serialization during reorder)
-        // are detected by matching their description against existing items.
+        // CRITICAL: Only run sync if genuinely NEW services are being ADDED.
+        // Services resubmitted without IDs (e.g. from form re-serialization during reorder)
+        // are detected by matching their description against existing services.
         const existingPricingDescriptions = new Set<string>(
-          (existingTask.pricing?.items || [])
+          (existingTask.pricing?.services || [])
             .filter((item: any) => item.shouldSync !== false)
             .map((item: any) => normalizeDescription(item.description)),
         );
@@ -3383,24 +3366,24 @@ export class TaskService {
           );
 
         const hasNewPricingItems =
-          (data as any).pricing?.items &&
-          Array.isArray((data as any).pricing.items) &&
-          (data as any).pricing.items.length > 0 &&
-          (data as any).pricing.items.some(
+          (data as any).pricing?.services &&
+          Array.isArray((data as any).pricing.services) &&
+          (data as any).pricing.services.length > 0 &&
+          (data as any).pricing.services.some(
             (item: any) => !item.id && !existingSODescriptions.has(normalizeDescription(item.description)),
           );
 
         if (hasNewServiceOrders || hasNewPricingItems) {
           try {
-            // CRITICAL: Refetch task with pricing items to ensure we have the latest shouldSync values
+            // CRITICAL: Refetch task with pricing services to ensure we have the latest shouldSync values
             // This is necessary because:
             // 1. New pricing might have been created by the repository
-            // 2. shouldSync might have been set to false on pricing items when service orders were deleted
-            // 3. Previous refetches might not have included pricing items
+            // 2. shouldSync might have been set to false on pricing services when service orders were deleted
+            // 3. Previous refetches might not have included pricing services
             const taskWithPricing = await tx.task.findUnique({
               where: { id },
               include: {
-                pricing: { include: { items: true } },
+                pricing: { include: { services: true } },
                 serviceOrders: true,
               },
             });
@@ -3410,22 +3393,22 @@ export class TaskService {
             const currentServiceOrders = taskWithPricing?.serviceOrders || [];
 
             this.logger.log(
-              `[PRICING↔SO SYNC] Refetched pricing items: ${currentPricing?.items?.length || 0}, service orders: ${currentServiceOrders.length}`,
+              `[PRICING↔SO SYNC] Refetched pricing services: ${currentPricing?.services?.length || 0}, service orders: ${currentServiceOrders.length}`,
             );
 
             // Only proceed if we have data to sync
-            if (currentPricing?.items || currentServiceOrders.length > 0) {
-              // Log ALL pricing items with their shouldSync values for debugging
-              this.logger.log(`[PRICING↔SO SYNC] ALL pricing items BEFORE filtering:`);
-              for (const item of currentPricing?.items || []) {
+            if (currentPricing?.services || currentServiceOrders.length > 0) {
+              // Log ALL pricing services with their shouldSync values for debugging
+              this.logger.log(`[PRICING↔SO SYNC] ALL pricing services BEFORE filtering:`);
+              for (const item of currentPricing?.services || []) {
                 this.logger.log(
                   `  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`,
                 );
               }
 
-              // CRITICAL: Filter out pricing items with shouldSync = false
-              // These are items whose corresponding service orders were explicitly deleted
-              const syncEligiblePricingItems = (currentPricing?.items || []).filter(
+              // CRITICAL: Filter out pricing services with shouldSync = false
+              // These are services whose corresponding service orders were explicitly deleted
+              const syncEligiblePricingItems = (currentPricing?.services || []).filter(
                 (item: any) => item.shouldSync !== false,
               );
               const syncEligibleServiceOrders = currentServiceOrders.filter(
@@ -3433,14 +3416,14 @@ export class TaskService {
               );
 
               this.logger.log(
-                `[PRICING↔SO SYNC] Filtering: ${(currentPricing?.items || []).length} total pricing items, ${syncEligiblePricingItems.length} eligible for sync`,
+                `[PRICING↔SO SYNC] Filtering: ${(currentPricing?.services || []).length} total pricing services, ${syncEligiblePricingItems.length} eligible for sync`,
               );
               this.logger.log(
                 `[PRICING↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`,
               );
 
               // Log which items were filtered out
-              const filteredOutItems = (currentPricing?.items || []).filter(
+              const filteredOutItems = (currentPricing?.services || []).filter(
                 (item: any) => item.shouldSync === false,
               );
               if (filteredOutItems.length > 0) {
@@ -3472,18 +3455,18 @@ export class TaskService {
               const syncActions = getBidirectionalSyncActions(pricingItems, serviceOrders);
 
               this.logger.log(
-                `[PRICING↔SO SYNC] Task ${id}: Found ${syncActions.pricingItemsToCreate.length} pricing items to create, ` +
+                `[PRICING↔SO SYNC] Task ${id}: Found ${syncActions.pricingItemsToCreate.length} pricing services to create, ` +
                   `${syncActions.serviceOrdersToCreate.length} service orders to create`,
               );
 
-              // Create missing pricing items from service orders
+              // Create missing pricing services from service orders
               if (syncActions.pricingItemsToCreate.length > 0 && currentPricing?.id) {
                 for (const itemToCreate of syncActions.pricingItemsToCreate) {
                   this.logger.log(
-                    `[PRICING↔SO SYNC] Creating pricing item: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
+                    `[PRICING↔SO SYNC] Creating pricing service: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
                   );
 
-                  await tx.taskPricingItem.create({
+                  await tx.taskPricingService.create({
                     data: {
                       pricingId: currentPricing.id,
                       description: itemToCreate.description,
@@ -3493,9 +3476,9 @@ export class TaskService {
                     },
                   });
 
-                  // Log per-item TASK_PRICING_ITEM CREATE entry
+                  // Log per-service TASK_PRICING_SERVICE CREATE entry
                   await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK_PRICING_ITEM,
+                    entityType: ENTITY_TYPE.TASK_PRICING_SERVICE,
                     entityId: currentPricing.id,
                     action: CHANGE_ACTION.CREATE,
                     field: null,
@@ -3515,7 +3498,7 @@ export class TaskService {
                 }
 
                 // Recalculate pricing subtotal and total
-                const allItems = await tx.taskPricingItem.findMany({
+                const allItems = await tx.taskPricingService.findMany({
                   where: { pricingId: currentPricing.id },
                 });
                 const newSubtotal = allItems.reduce(
@@ -3540,7 +3523,7 @@ export class TaskService {
                 );
               }
 
-              // Create missing service orders from pricing items
+              // Create missing service orders from pricing services
               // CRITICAL FIX: Skip creating service orders that were explicitly deleted in this same request
               const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as
                 | Set<string>
@@ -3561,16 +3544,28 @@ export class TaskService {
                     `[PRICING↔SO SYNC] Creating service order: description="${soToCreate.description}", observation="${soToCreate.observation || ''}"`,
                   );
 
+                  // Auto-complete new SOs added to COMPLETED tasks
+                  const isPricingSyncTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
+                  const pricingSyncSoStatus = isPricingSyncTaskCompleted
+                    ? SERVICE_ORDER_STATUS.COMPLETED
+                    : SERVICE_ORDER_STATUS.PENDING;
+
                   const newServiceOrder = await tx.serviceOrder.create({
                     data: {
                       taskId: id,
                       description: soToCreate.description,
                       observation: soToCreate.observation,
                       type: SERVICE_ORDER_TYPE.PRODUCTION,
-                      status: SERVICE_ORDER_STATUS.PENDING,
-                      statusOrder: getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                      status: pricingSyncSoStatus,
+                      statusOrder: isPricingSyncTaskCompleted ? 4 : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
                       createdById: userId || '',
-                      shouldSync: true, // Service orders created by sync should participate in sync
+                      shouldSync: true,
+                      ...(isPricingSyncTaskCompleted && {
+                        startedAt: new Date(),
+                        startedById: userId || '',
+                        finishedAt: new Date(),
+                        completedById: userId || '',
+                      }),
                     },
                   });
 
@@ -3591,7 +3586,7 @@ export class TaskService {
                 }
               }
 
-              // Update service orders with new observations (if pricing item had extra text)
+              // Update service orders with new observations (if pricing service had extra text)
               if (syncActions.serviceOrdersToUpdate.length > 0) {
                 for (const soToUpdate of syncActions.serviceOrdersToUpdate) {
                   this.logger.log(
@@ -3639,12 +3634,12 @@ export class TaskService {
                     observation: { include: { files: true } },
                     truck: true,
                     serviceOrders: true,
-                    pricing: { include: { items: true } },
+                    pricing: { include: { services: true } },
                   },
                 });
 
                 this.logger.log(
-                  `[PRICING↔SO SYNC] Task refetched after sync. Pricing items: ${updatedTask?.pricing?.items?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
+                  `[PRICING↔SO SYNC] Task refetched after sync. Pricing services: ${updatedTask?.pricing?.services?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
                 );
               }
             }
@@ -4475,8 +4470,8 @@ export class TaskService {
             const oldPricing = await tx.taskPricing.findUnique({
               where: { id: existingTask.pricingId },
               include: {
-                items: { orderBy: { position: 'asc' } },
-                invoicesToCustomers: { select: { id: true } },
+                services: { orderBy: { position: 'asc' } },
+                customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
               },
             });
             if (oldPricing) {
@@ -4485,28 +4480,30 @@ export class TaskService {
                 budgetNumber: oldPricing.budgetNumber,
                 subtotal: oldPricing.subtotal,
                 total: oldPricing.total,
-                discountType: oldPricing.discountType,
-                discountValue: oldPricing.discountValue,
                 expiresAt: oldPricing.expiresAt,
                 status: oldPricing.status,
-                paymentCondition: oldPricing.paymentCondition,
-                downPaymentDate: oldPricing.downPaymentDate,
-                customPaymentText: oldPricing.customPaymentText,
                 guaranteeYears: oldPricing.guaranteeYears,
                 customGuaranteeText: oldPricing.customGuaranteeText,
                 customForecastDays: oldPricing.customForecastDays,
                 simultaneousTasks: oldPricing.simultaneousTasks,
-                discountReference: oldPricing.discountReference,
                 layoutFileId: oldPricing.layoutFileId,
-                customerSignatureId: oldPricing.customerSignatureId,
-                items: oldPricing.items.map(item => ({
-                  description: item.description,
-                  amount: item.amount,
-                  observation: item.observation,
-                  shouldSync: item.shouldSync,
-                  position: item.position,
+                services: oldPricing.services.map(service => ({
+                  description: service.description,
+                  amount: service.amount,
+                  observation: service.observation,
+                  shouldSync: service.shouldSync,
+                  position: service.position,
                 })),
-                invoicesToCustomerIds: oldPricing.invoicesToCustomers.map((c: any) => c.id),
+                customerConfigs: oldPricing.customerConfigs.map((c: any) => ({
+                  customerId: c.customerId,
+                  subtotal: c.subtotal,
+                  discountType: c.discountType,
+                  discountValue: c.discountValue,
+                  total: c.total,
+                  customPaymentText: c.customPaymentText,
+                  responsibleId: c.responsibleId,
+                  discountReference: c.discountReference,
+                })),
               };
             }
           }
@@ -4516,8 +4513,8 @@ export class TaskService {
             const newPricing = await tx.taskPricing.findUnique({
               where: { id: updatedTask.pricingId },
               include: {
-                items: { orderBy: { position: 'asc' } },
-                invoicesToCustomers: { select: { id: true } },
+                services: { orderBy: { position: 'asc' } },
+                customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
               },
             });
             if (newPricing) {
@@ -4526,28 +4523,30 @@ export class TaskService {
                 budgetNumber: newPricing.budgetNumber,
                 subtotal: newPricing.subtotal,
                 total: newPricing.total,
-                discountType: newPricing.discountType,
-                discountValue: newPricing.discountValue,
                 expiresAt: newPricing.expiresAt,
                 status: newPricing.status,
-                paymentCondition: newPricing.paymentCondition,
-                downPaymentDate: newPricing.downPaymentDate,
-                customPaymentText: newPricing.customPaymentText,
                 guaranteeYears: newPricing.guaranteeYears,
                 customGuaranteeText: newPricing.customGuaranteeText,
                 customForecastDays: newPricing.customForecastDays,
                 simultaneousTasks: newPricing.simultaneousTasks,
-                discountReference: newPricing.discountReference,
                 layoutFileId: newPricing.layoutFileId,
-                customerSignatureId: newPricing.customerSignatureId,
-                items: newPricing.items.map(item => ({
-                  description: item.description,
-                  amount: item.amount,
-                  observation: item.observation,
-                  shouldSync: item.shouldSync,
-                  position: item.position,
+                services: newPricing.services.map(service => ({
+                  description: service.description,
+                  amount: service.amount,
+                  observation: service.observation,
+                  shouldSync: service.shouldSync,
+                  position: service.position,
                 })),
-                invoicesToCustomerIds: newPricing.invoicesToCustomers.map((c: any) => c.id),
+                customerConfigs: newPricing.customerConfigs.map((c: any) => ({
+                  customerId: c.customerId,
+                  subtotal: c.subtotal,
+                  discountType: c.discountType,
+                  discountValue: c.discountValue,
+                  total: c.total,
+                  customPaymentText: c.customPaymentText,
+                  responsibleId: c.responsibleId,
+                  discountReference: c.discountReference,
+                })),
               };
             }
           }
@@ -4567,22 +4566,22 @@ export class TaskService {
           });
         }
 
-        // Track pricing item and scalar field changes when pricing is updated inline (via task edit form)
+        // Track pricing service and scalar field changes when pricing is updated inline (via task edit form)
         // This handles the case where pricingId stays the same but pricing content changes
         if ((data as any).pricing && updatedTask.pricingId && !hasValueChanged(existingTask.pricingId, updatedTask.pricingId)) {
-          const oldPricingItems = (existingTask as any).pricing?.items || [];
+          const oldPricingItems = (existingTask as any).pricing?.services || [];
           const updatedPricingState = await tx.taskPricing.findUnique({
             where: { id: updatedTask.pricingId },
-            include: { items: { orderBy: { position: 'asc' } } },
+            include: { services: { orderBy: { position: 'asc' } } },
           });
-          const newPricingItems = updatedPricingState?.items || [];
+          const newPricingItems = updatedPricingState?.services || [];
 
-          // Log per-item changes (added, removed, field updates)
-          await logPricingItemChanges({
+          // Log per-service changes (added, removed, field updates)
+          await logPricingServiceChanges({
             changeLogService: this.changeLogService,
             pricingId: updatedTask.pricingId,
-            oldItems: oldPricingItems,
-            newItems: newPricingItems,
+            oldServices: oldPricingItems,
+            newServices: newPricingItems,
             userId: userId || '',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             transaction: tx,
@@ -4592,10 +4591,9 @@ export class TaskService {
           const oldPricing = (existingTask as any).pricing;
           if (oldPricing && updatedPricingState) {
             const pricingFieldsToTrack = [
-              'subtotal', 'total', 'discountType', 'discountValue', 'expiresAt',
-              'status', 'paymentCondition', 'downPaymentDate', 'customPaymentText',
+              'subtotal', 'total', 'expiresAt', 'status',
               'guaranteeYears', 'customGuaranteeText', 'customForecastDays',
-              'simultaneousTasks', 'discountReference', 'budgetNumber',
+              'simultaneousTasks', 'budgetNumber',
             ];
             for (const field of pricingFieldsToTrack) {
               const oldVal = oldPricing[field];
@@ -5310,6 +5308,9 @@ export class TaskService {
       });
     }
 
+    // Store existing task states BEFORE updates — declared outside transaction for post-transaction access
+    const existingTaskStates: Map<string, any> = new Map();
+
     try {
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         this.logger.log('[batchUpdate] Inside transaction');
@@ -5333,9 +5334,6 @@ export class TaskService {
         // Prepare updates with change tracking and validation
         const updatesWithChangeTracking: { id: string; data: TaskUpdateFormData }[] = [];
         const validationErrors: Array<{ id: string; error: string }> = [];
-
-        // Store existing task states BEFORE updates for changelog comparison
-        const existingTaskStates: Map<string, any> = new Map();
 
         // Store field changes for event emission after transaction
         const fieldChangesForEvents: Array<{
@@ -7322,48 +7320,6 @@ export class TaskService {
   }
 
   /**
-   * Validate task data
-   */
-  /**
-   * Validate field-level access for FINANCIAL sector
-   * Financial can ONLY update: budget, customer, serialNumber, chassis, documents (budgets, invoices, receipts)
-   */
-  private validateFinancialSectorAccess(data: TaskUpdateFormData): void {
-    const allowedFields = [
-      // Financial documents - can add/remove
-      'budgetIds',
-      'invoiceIds', // Invoice/NFe files
-      'receiptIds',
-      'bankSlipIds',
-      // Customer and vehicle info
-      'customerId',
-      'serialNumber',
-      'chassis',
-      // Service orders - Financial can manage COMMERCIAL, LOGISTIC, FINANCIAL service orders
-      'serviceOrders',
-      // Pricing - Financial can fully edit pricing information
-      'pricing',
-      // Fields sent by form to preserve existing state (Financial can't add/remove via UI)
-      'artworkIds',
-      'artworkStatuses',
-      'baseFileIds',
-      // Marker field sent when form has files but no other changes
-      '_hasFiles',
-      // Note: budget/invoice/receipt file uploads are handled separately via files parameter
-    ];
-
-    const attemptedFields = Object.keys(data);
-    const disallowedFields = attemptedFields.filter(field => !allowedFields.includes(field));
-
-    if (disallowedFields.length > 0) {
-      throw new BadRequestException(
-        `Setor Financeiro não tem permissão para atualizar os seguintes campos: ${disallowedFields.join(', ')}. ` +
-          `Campos permitidos: orçamento, cliente, número de série, chassi, documentos.`,
-      );
-    }
-  }
-
-  /**
    * Migrate task files when customer changes.
    * Moves files on disk and updates File.path in DB for all file relations.
    */
@@ -7580,83 +7536,6 @@ export class TaskService {
     );
   }
 
-  /**
-   * Validate field-level access for COMMERCIAL sector
-   * Commercial can access: agenda, cronograma, history, customer, garages, observation, airbrushing, paint basic catalogue
-   * Commercial can create and update tasks
-   * Commercial CAN edit: truck (plate, chassisNumber, category, implementType, spot, layouts), base files
-   * Commercial CANNOT edit: financial (budgets, invoices, receipts), cut plan (cuts)
-   */
-  /**
-   * Validate field-level access for PRODUCTION sector
-   * Production CAN edit: status, observation, started/finished dates, cuts
-   * Production CANNOT edit: base files, financial documents, customer, pricing, truck, artworks, service orders
-   */
-  private validateProductionSectorAccess(data: TaskUpdateFormData): void {
-    const disallowedFields = [
-      'baseFileIds', // Cannot edit base files (managed by Commercial/Designer/Logistic)
-      'projectFileIds', // Cannot edit project files
-      'checkinFileIds', // Cannot edit checkin files
-      'checkoutFileIds', // Cannot edit checkout files
-      'budgetIds', // Cannot edit financial documents
-      'invoiceIds', // Cannot edit financial documents
-      'receiptIds', // Cannot edit financial documents
-      'bankSlipIds', // Cannot edit financial documents
-      'customerId', // Cannot change customer
-      'serialNumber', // Cannot change serial number
-      'name', // Cannot change task name
-      'pricing', // Cannot edit pricing
-      'serviceOrders', // Cannot edit service orders
-      'artworkIds', // Cannot edit artworks (managed by Designer)
-      'artworkStatuses', // Cannot edit artwork statuses
-      'truck', // Cannot edit truck info (managed by Commercial/Logistic)
-      'paintIds', // Cannot edit logo paints
-      'paintId', // Cannot change paint
-      'reimbursementIds', // Cannot edit reimbursements
-      'reimbursementInvoiceIds', // Cannot edit reimbursement invoices
-    ];
-
-    // Only block fields that have actual values (not empty arrays or undefined)
-    const blockedFields = disallowedFields.filter(field => {
-      const value = (data as any)[field];
-      return value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0);
-    });
-
-    if (blockedFields.length > 0) {
-      throw new BadRequestException(
-        `Setor Produção não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
-          `Campos permitidos: status, observação, datas de início/término, plano de corte.`,
-      );
-    }
-  }
-
-  private validateCommercialSectorAccess(data: TaskUpdateFormData): void {
-    const disallowedFields = [
-      'budgetIds', // Cannot edit financial documents
-      'invoiceIds', // Cannot edit financial documents (invoices)
-      'receiptIds', // Cannot edit financial documents
-      'bankSlipIds', // Cannot edit financial documents
-      'checkinFileIds', // Cannot edit checkin files (managed by Logistic)
-      'checkoutFileIds', // Cannot edit checkout files (managed by Logistic)
-      'cuts', // Cannot edit cut plans
-    ];
-
-    // Only block fields that have actual values (not empty arrays or undefined)
-    // The frontend may send empty arrays to clear files, which should be allowed
-    const blockedFields = disallowedFields.filter(field => {
-      const value = (data as any)[field];
-      // Block only if field exists and has actual content
-      return value !== undefined && value !== null && (!Array.isArray(value) || value.length > 0);
-    });
-
-    if (blockedFields.length > 0) {
-      throw new BadRequestException(
-        `Setor Comercial não tem permissão para atualizar os seguintes campos: ${blockedFields.join(', ')}. ` +
-          `Campos bloqueados: financeiro (orçamentos, notas fiscais, recibos), plano de corte.`,
-      );
-    }
-  }
-
   private async validateTask(
     data: Partial<TaskCreateFormData | TaskUpdateFormData>,
     existingId?: string,
@@ -7778,7 +7657,7 @@ export class TaskService {
       }
 
       // Support TASK, SERVICE_ORDER, and TRUCK entity types
-      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_PRICING', 'TASK_PRICING_ITEM'];
+      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_PRICING', 'TASK_PRICING_SERVICE'];
       if (!supportedEntityTypes.includes(changeLog.entityType)) {
         throw new BadRequestException(
           `Rollback não suportado para entidade do tipo '${changeLog.entityType}'`,
@@ -7917,14 +7796,14 @@ export class TaskService {
             try { parsedOldValue = JSON.parse(parsedOldValue); } catch { /* use as-is */ }
           }
 
-          if (parsedOldValue && typeof parsedOldValue === 'object' && Array.isArray(parsedOldValue.items)) {
+          if (parsedOldValue && typeof parsedOldValue === 'object' && Array.isArray(parsedOldValue.services)) {
             // Delete all current items
-            await tx.taskPricingItem.deleteMany({ where: { pricingId: changeLog.entityId } });
+            await tx.taskPricingService.deleteMany({ where: { pricingId: changeLog.entityId } });
 
             // Recreate from old snapshot
-            for (let i = 0; i < parsedOldValue.items.length; i++) {
-              const item = parsedOldValue.items[i];
-              await tx.taskPricingItem.create({
+            for (let i = 0; i < parsedOldValue.services.length; i++) {
+              const item = parsedOldValue.services[i];
+              await tx.taskPricingService.create({
                 data: {
                   pricingId: changeLog.entityId,
                   description: item.description || '',
@@ -7936,18 +7815,10 @@ export class TaskService {
               });
             }
 
-            // Recalculate totals
-            const allItems = await tx.taskPricingItem.findMany({ where: { pricingId: changeLog.entityId } });
-            const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-            const pricing = await tx.taskPricing.findUnique({ where: { id: changeLog.entityId } });
-            const discountType = pricing?.discountType || 'NONE';
-            const discountValue = Number(pricing?.discountValue || 0);
-            let newTotal = newSubtotal;
-            if (discountType === 'PERCENTAGE' && discountValue > 0) {
-              newTotal = Math.max(0, Math.round((newSubtotal - (newSubtotal * discountValue / 100)) * 100) / 100);
-            } else if (discountType === 'FIXED_VALUE' && discountValue > 0) {
-              newTotal = Math.max(0, Math.round((newSubtotal - discountValue) * 100) / 100);
-            }
+            // Recalculate aggregate totals from customer configs
+            const configs = await tx.taskPricingCustomerConfig.findMany({ where: { pricingId: changeLog.entityId } });
+            const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
+            const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
 
             await tx.taskPricing.update({
               where: { id: changeLog.entityId },
@@ -7959,9 +7830,9 @@ export class TaskService {
           let convertedValue: any = changeLog.oldValue;
           if (convertedValue === null || convertedValue === undefined || convertedValue === '') {
             convertedValue = null;
-          } else if (['subtotal', 'total', 'discountValue', 'guaranteeYears', 'customForecastDays', 'simultaneousTasks', 'budgetNumber'].includes(fieldToRevert)) {
+          } else if (['subtotal', 'total', 'guaranteeYears', 'customForecastDays', 'simultaneousTasks', 'budgetNumber'].includes(fieldToRevert)) {
             convertedValue = Number(convertedValue);
-          } else if (['expiresAt', 'downPaymentDate'].includes(fieldToRevert)) {
+          } else if (['expiresAt'].includes(fieldToRevert)) {
             const parsed = new Date(convertedValue as string);
             convertedValue = isNaN(parsed.getTime()) ? null : parsed;
           }
@@ -7994,8 +7865,8 @@ export class TaskService {
         };
       }
 
-      // Handle TASK_PRICING_ITEM rollback
-      if (changeLog.entityType === 'TASK_PRICING_ITEM') {
+      // Handle TASK_PRICING_SERVICE rollback (also handles legacy TASK_PRICING_ITEM records)
+      if (changeLog.entityType === 'TASK_PRICING_SERVICE' || changeLog.entityType === ('TASK_PRICING_ITEM' as any)) {
         const pricingId = changeLog.entityId; // entityId is the pricingId
         const metadata = changeLog.metadata as any;
         const itemDescription = metadata?.itemDescription;
@@ -8005,17 +7876,10 @@ export class TaskService {
         }
 
         const recalculateTotals = async () => {
-          const allItems = await tx.taskPricingItem.findMany({ where: { pricingId } });
-          const newSubtotal = allItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-          const pricing = await tx.taskPricing.findUnique({ where: { id: pricingId } });
-          const discountType = pricing?.discountType || 'NONE';
-          const discountValue = Number(pricing?.discountValue || 0);
-          let newTotal = newSubtotal;
-          if (discountType === 'PERCENTAGE' && discountValue > 0) {
-            newTotal = Math.max(0, Math.round((newSubtotal - (newSubtotal * discountValue / 100)) * 100) / 100);
-          } else if (discountType === 'FIXED_VALUE' && discountValue > 0) {
-            newTotal = Math.max(0, Math.round((newSubtotal - discountValue) * 100) / 100);
-          }
+          // Recalculate aggregate totals from customer configs
+          const configs = await tx.taskPricingCustomerConfig.findMany({ where: { pricingId } });
+          const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
+          const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
           await tx.taskPricing.update({
             where: { id: pricingId },
             data: { subtotal: newSubtotal, total: newTotal },
@@ -8024,11 +7888,11 @@ export class TaskService {
 
         if (changeLog.action === 'CREATE') {
           // Undo item addition — find and delete the item
-          const item = await tx.taskPricingItem.findFirst({
+          const item = await tx.taskPricingService.findFirst({
             where: { pricingId, description: itemDescription },
           });
           if (item) {
-            await tx.taskPricingItem.delete({ where: { id: item.id } });
+            await tx.taskPricingService.delete({ where: { id: item.id } });
             await recalculateTotals();
           }
         } else if (changeLog.action === 'DELETE') {
@@ -8039,7 +7903,7 @@ export class TaskService {
           }
           if (parsedOldValue && typeof parsedOldValue === 'object') {
             const itemData = parsedOldValue as any;
-            await tx.taskPricingItem.create({
+            await tx.taskPricingService.create({
               data: {
                 pricingId,
                 description: itemData.description || itemDescription,
@@ -8058,7 +7922,7 @@ export class TaskService {
             throw new BadRequestException('Não é possível reverter: campo não especificado');
           }
 
-          const item = await tx.taskPricingItem.findFirst({
+          const item = await tx.taskPricingService.findFirst({
             where: { pricingId, description: itemDescription },
           });
           if (item) {
@@ -8066,7 +7930,7 @@ export class TaskService {
             if (field === 'amount') {
               convertedValue = Number(convertedValue);
             }
-            await tx.taskPricingItem.update({
+            await tx.taskPricingService.update({
               where: { id: item.id },
               data: { [field]: convertedValue },
             });
@@ -8078,7 +7942,7 @@ export class TaskService {
 
         const fieldNamePt = changeLog.field ? translateFieldName(changeLog.field) : 'item';
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TASK_PRICING_ITEM,
+          entityType: ENTITY_TYPE.TASK_PRICING_SERVICE,
           entityId: pricingId,
           action: CHANGE_ACTION.ROLLBACK,
           field: changeLog.field || null,
@@ -8432,23 +8296,25 @@ export class TaskService {
                   budgetNumber: pricingData.budgetNumber || 0,
                   subtotal: pricingData.subtotal || pricingData.total || '0',
                   total: pricingData.total || '0',
-                  discountType: pricingData.discountType || 'NONE',
-                  discountValue: pricingData.discountValue ?? null,
                   expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                  status: pricingData.status || 'DRAFT',
-                  paymentCondition: pricingData.paymentCondition ?? null,
-                  downPaymentDate: pricingData.downPaymentDate ? new Date(pricingData.downPaymentDate) : null,
-                  customPaymentText: pricingData.customPaymentText ?? null,
+                  status: pricingData.status || 'PENDING',
                   guaranteeYears: pricingData.guaranteeYears ?? null,
                   customGuaranteeText: pricingData.customGuaranteeText ?? null,
                   customForecastDays: pricingData.customForecastDays ?? null,
                   simultaneousTasks: pricingData.simultaneousTasks ?? null,
-                  discountReference: pricingData.discountReference ?? null,
                   layoutFileId: pricingData.layoutFileId ?? null,
-                  customerSignatureId: pricingData.customerSignatureId ?? null,
-                  ...(pricingData.invoicesToCustomerIds?.length > 0 && {
-                    invoicesToCustomers: {
-                      connect: pricingData.invoicesToCustomerIds.map((cId: string) => ({ id: cId })),
+                  ...(pricingData.customerConfigs?.length > 0 && {
+                    customerConfigs: {
+                      create: pricingData.customerConfigs.map((config: any) => ({
+                        customerId: config.customerId,
+                        subtotal: config.subtotal || 0,
+                        discountType: config.discountType || 'NONE',
+                        discountValue: config.discountValue ?? null,
+                        total: config.total || 0,
+                        customPaymentText: config.customPaymentText ?? null,
+                        responsibleId: config.responsibleId ?? null,
+                        discountReference: config.discountReference ?? null,
+                      })),
                     },
                   }),
                 },
@@ -8456,11 +8322,11 @@ export class TaskService {
 
               this.logger.log(`[Rollback] Recreated TaskPricing ${recreatedPricing.id}`);
 
-              // Recreate items if available
-              if (pricingData.items && Array.isArray(pricingData.items)) {
-                for (let i = 0; i < pricingData.items.length; i++) {
-                  const item = pricingData.items[i];
-                  await tx.taskPricingItem.create({
+              // Recreate services if available
+              if (pricingData.services && Array.isArray(pricingData.services)) {
+                for (let i = 0; i < pricingData.services.length; i++) {
+                  const item = pricingData.services[i];
+                  await tx.taskPricingService.create({
                     data: {
                       description: item.description || '',
                       amount: item.amount || '0',
@@ -8471,7 +8337,7 @@ export class TaskService {
                     },
                   });
                 }
-                this.logger.log(`[Rollback] Recreated ${pricingData.items.length} pricing items`);
+                this.logger.log(`[Rollback] Recreated ${pricingData.services.length} pricing services`);
               }
             }
           } else if (typeof parsedValue === 'string') {
@@ -8496,7 +8362,7 @@ export class TaskService {
               generalPainting: true,
               truck: true,
               createdBy: true,
-              pricing: { include: { items: true } },
+              pricing: { include: { services: true } },
             },
           },
         );
@@ -9943,7 +9809,7 @@ export class TaskService {
     const sourcePricing = await tx.taskPricing.findUnique({
       where: { id: sourcePricingId },
       include: {
-        items: {
+        services: {
           select: {
             description: true,
             amount: true,
@@ -9952,8 +9818,19 @@ export class TaskService {
             position: true,
           },
         },
-        invoicesToCustomers: {
-          select: { id: true },
+        customerConfigs: {
+          select: {
+            customerId: true,
+            subtotal: true,
+            discountType: true,
+            discountValue: true,
+            total: true,
+            customPaymentText: true,
+            responsibleId: true,
+            discountReference: true,
+            paymentCondition: true,
+            downPaymentDate: true,
+          },
         },
       },
     });
@@ -9974,35 +9851,40 @@ export class TaskService {
       data: {
         budgetNumber: nextBudgetNumber,
         subtotal: sourcePricing.subtotal,
-        discountType: sourcePricing.discountType,
-        discountValue: sourcePricing.discountValue,
         total: sourcePricing.total,
         expiresAt: sourcePricing.expiresAt,
         status: sourcePricing.status,
-        paymentCondition: sourcePricing.paymentCondition,
-        downPaymentDate: sourcePricing.downPaymentDate,
-        customPaymentText: sourcePricing.customPaymentText,
         guaranteeYears: sourcePricing.guaranteeYears,
         customGuaranteeText: sourcePricing.customGuaranteeText,
         simultaneousTasks: sourcePricing.simultaneousTasks,
-        discountReference: sourcePricing.discountReference,
         customForecastDays: sourcePricing.customForecastDays,
         ...(sourcePricing.layoutFileId
           ? { layoutFile: { connect: { id: sourcePricing.layoutFileId } } }
           : {}),
-        items: {
-          create: sourcePricing.items.map(item => ({
-            description: item.description,
-            amount: item.amount,
-            observation: item.observation,
-            shouldSync: item.shouldSync,
-            position: item.position,
+        services: {
+          create: sourcePricing.services.map(service => ({
+            description: service.description,
+            amount: service.amount,
+            observation: service.observation,
+            shouldSync: service.shouldSync,
+            position: service.position,
           })),
         },
-        ...(sourcePricing.invoicesToCustomers.length > 0
+        ...(sourcePricing.customerConfigs.length > 0
           ? {
-              invoicesToCustomers: {
-                connect: sourcePricing.invoicesToCustomers.map(c => ({ id: c.id })),
+              customerConfigs: {
+                create: sourcePricing.customerConfigs.map(c => ({
+                  customerId: c.customerId,
+                  subtotal: c.subtotal,
+                  discountType: c.discountType,
+                  discountValue: c.discountValue,
+                  total: c.total,
+                  customPaymentText: c.customPaymentText,
+                  responsibleId: c.responsibleId,
+                  discountReference: c.discountReference,
+                  paymentCondition: c.paymentCondition,
+                  downPaymentDate: c.downPaymentDate,
+                })),
               },
             }
           : {}),
@@ -10185,7 +10067,7 @@ export class TaskService {
                 id: true,
                 budgetNumber: true,
                 total: true,
-                items: {
+                services: {
                   select: {
                     description: true,
                     amount: true,
@@ -10258,7 +10140,7 @@ export class TaskService {
                 id: true,
                 budgetNumber: true,
                 total: true,
-                items: {
+                services: {
                   select: {
                     description: true,
                     amount: true,
@@ -10304,7 +10186,7 @@ export class TaskService {
                 id: destinationTask.pricing.id,
                 budgetNumber: destinationTask.pricing.budgetNumber,
                 total: destinationTask.pricing.total,
-                items: destinationTask.pricing.items || [],
+                items: destinationTask.pricing.services || [],
               }
             : null,
           paintId: destinationTask.paintId,
@@ -10461,7 +10343,7 @@ export class TaskService {
                   id: newPricingId,
                   budgetNumber: sourceTask.pricing?.budgetNumber || null,
                   total: sourceTask.pricing?.total || null,
-                  items: sourceTask.pricing?.items || [],
+                  items: sourceTask.pricing?.services || [],
                 };
               }
               break;

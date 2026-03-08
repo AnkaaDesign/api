@@ -94,7 +94,7 @@ export interface User extends BaseEntity {
   preference?: Preferences;
   position?: Position;
   sector?: Sector;
-  managedSector?: Sector;
+  ledSector?: Sector;
   activities?: Activity[];
   borrows?: Borrow[];
   notifications?: Notification[];
@@ -208,7 +208,7 @@ export interface UserSelect {
   preference?: boolean;
   position?: boolean;
   sector?: boolean;
-  managedSector?: boolean;
+  ledSector?: boolean;
   activities?: boolean;
   borrows?: boolean;
   notifications?: boolean;
@@ -275,7 +275,7 @@ export interface UserIncludes {
     | {
         include?: SectorIncludes;
       };
-  managedSector?:
+  ledSector?:
     | boolean
     | {
         include?: SectorIncludes;
@@ -444,7 +444,7 @@ export interface UserWithEmployment extends UserMinimal {
 export interface UserDetailed extends User {
   position?: Position;
   sector?: Sector;
-  managedSector?: Sector;
+  ledSector?: Sector;
   avatar?: File;
   ppeSize?: PpeSize;
 }
@@ -593,7 +593,7 @@ export interface UserOrderBy {
   updatedAt?: ORDER_BY_DIRECTION;
   position?: PositionOrderBy;
   sector?: SectorOrderBy;
-  managedSector?: SectorOrderBy;
+  ledSector?: SectorOrderBy;
 }
 
 // =====================

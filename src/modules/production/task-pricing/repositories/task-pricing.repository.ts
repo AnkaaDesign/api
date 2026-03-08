@@ -25,7 +25,7 @@ export abstract class TaskPricingRepository extends BaseStringRepository<
 
   /**
    * Find all pricings by status
-   * @param status - Pricing status (DRAFT, APPROVED, REJECTED, CANCELLED)
+   * @param status - Pricing status (PENDING, BUDGET_APPROVED, VERIFIED, INTERNAL_APPROVED, UPCOMING, PARTIAL, SETTLED)
    * @returns Array of TaskPricing
    */
   abstract findByStatus(status: string): Promise<TaskPricing[]>;

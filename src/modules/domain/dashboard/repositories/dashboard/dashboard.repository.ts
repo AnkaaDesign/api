@@ -312,9 +312,7 @@ export abstract class DashboardRepository {
   ): Promise<HomeDashboardServiceOrder[]>;
   abstract getLowStockItems(): Promise<HomeDashboardLowStockItem[]>;
   abstract getRecentlyCompletedTasks(since: Date, limit?: number): Promise<HomeDashboardTask[]>;
-  abstract getOpenFinancialSOsForCompletedTasks(
-    limit?: number,
-  ): Promise<HomeDashboardServiceOrder[]>;
+  abstract getTasksAwaitingPaymentApproval(limit?: number): Promise<HomeDashboardTask[]>;
   abstract getRecentMessages(
     userId: string,
     since: Date,

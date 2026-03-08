@@ -45,6 +45,8 @@ export const serviceOrderIncludeSchema = z
     startedBy: z.boolean().optional(),
     approvedBy: z.boolean().optional(),
     completedBy: z.boolean().optional(),
+    checkinFiles: z.boolean().optional(),
+    checkoutFiles: z.boolean().optional(),
   })
   .partial();
 
@@ -545,6 +547,8 @@ export const serviceOrderCreateSchema = z.object({
   startedAt: nullableDate.optional(),
   approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
+  checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
+  checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
 export const serviceOrderUpdateSchema = z.object({
@@ -576,6 +580,8 @@ export const serviceOrderUpdateSchema = z.object({
   startedAt: nullableDate.optional(),
   approvedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
+  checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
+  checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
 });
 
 // =====================

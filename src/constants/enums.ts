@@ -53,11 +53,12 @@ export enum SECTOR_PRIVILEGES {
   FINANCIAL = 'FINANCIAL',
   LOGISTIC = 'LOGISTIC',
   COMMERCIAL = 'COMMERCIAL',
+  PRODUCTION_MANAGER = 'PRODUCTION_MANAGER',
 }
 
 /**
  * TEAM_LEADER is a virtual privilege - not stored in database
- * Determined by: user.sector.privilege === PRODUCTION && user.id === user.sector.managerId
+ * Determined by: user.sector.privilege === PRODUCTION && user.id === user.sector.leaderId
  * Use isTeamLeader() helper function from utils/user.ts to check this status
  */
 export const TEAM_LEADER = 'TEAM_LEADER' as const;
@@ -102,7 +103,6 @@ export enum SERVICE_ORDER_STATUS {
 
 export enum SERVICE_ORDER_TYPE {
   PRODUCTION = 'PRODUCTION',
-  FINANCIAL = 'FINANCIAL',
   COMMERCIAL = 'COMMERCIAL',
   ARTWORK = 'ARTWORK',
   LOGISTIC = 'LOGISTIC',
@@ -180,8 +180,8 @@ export enum ASSIGNMENT_TYPE {
 export enum BORROW_STATUS {
   ACTIVE = 'ACTIVE',
   RETURNED = 'RETURNED',
-  LOST = 'LOST',
   OVERDUE = 'OVERDUE',
+  LOST = 'LOST',
 }
 
 export enum EXTERNAL_WITHDRAWAL_TYPE {
@@ -901,6 +901,8 @@ export enum ENTITY_TYPE {
   TASK = 'TASK',
   TASK_PRICING = 'TASK_PRICING',
   TASK_PRICING_ITEM = 'TASK_PRICING_ITEM',
+  TASK_PRICING_SERVICE = 'TASK_PRICING_SERVICE',
+  TASK_PRICING_CUSTOMER_CONFIG = 'TASK_PRICING_CUSTOMER_CONFIG',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
   TRUCK = 'TRUCK',
   USER = 'USER',
@@ -1518,6 +1520,8 @@ export enum CHANGE_LOG_ENTITY_TYPE {
   TASK = 'TASK',
   TASK_PRICING = 'TASK_PRICING',
   TASK_PRICING_ITEM = 'TASK_PRICING_ITEM',
+  TASK_PRICING_SERVICE = 'TASK_PRICING_SERVICE',
+  TASK_PRICING_CUSTOMER_CONFIG = 'TASK_PRICING_CUSTOMER_CONFIG',
   TIME_CLOCK_ENTRY = 'TIME_CLOCK_ENTRY',
   TRUCK = 'TRUCK',
   USER = 'USER',
@@ -2093,6 +2097,7 @@ export enum COMMISSION_STATUS {
   SUSPENDED_COMMISSION = 'SUSPENDED_COMMISSION',
 }
 
+
 export enum RESPONSIBLE_ROLE {
   COMMERCIAL = 'COMMERCIAL',
   OWNER = 'OWNER',
@@ -2118,10 +2123,13 @@ export const RESPONSIBLE_ROLE_LABELS = {
 };
 
 export enum TASK_PRICING_STATUS {
-  DRAFT = 'DRAFT',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  CANCELLED = 'CANCELLED',
+  PENDING = 'PENDING',
+  BUDGET_APPROVED = 'BUDGET_APPROVED',
+  VERIFIED = 'VERIFIED',
+  INTERNAL_APPROVED = 'INTERNAL_APPROVED',
+  UPCOMING = 'UPCOMING',
+  PARTIAL = 'PARTIAL',
+  SETTLED = 'SETTLED',
 }
 
 export enum DISCOUNT_TYPE {
@@ -2130,20 +2138,72 @@ export enum DISCOUNT_TYPE {
   FIXED_VALUE = 'FIXED_VALUE',
 }
 
-// Payment condition enum - controls payment structure
+// Payment condition enum - used in forms for selecting installment structure
+// Converted to Installment records on save
 export enum PAYMENT_CONDITION {
-  CASH = 'CASH', // Single payment (À vista)
-  INSTALLMENTS_2 = 'INSTALLMENTS_2', // Down payment + 1 installment (20 days)
-  INSTALLMENTS_3 = 'INSTALLMENTS_3', // Down payment + 2 installments (20/40 days)
-  INSTALLMENTS_4 = 'INSTALLMENTS_4', // Down payment + 3 installments (20/40/60 days)
-  INSTALLMENTS_5 = 'INSTALLMENTS_5', // Down payment + 4 installments (20/40/60/80 days)
-  INSTALLMENTS_6 = 'INSTALLMENTS_6', // Down payment + 5 installments (20/40/60/80/100 days)
-  INSTALLMENTS_7 = 'INSTALLMENTS_7', // Down payment + 6 installments (20/40/60/80/100/120 days)
-  CUSTOM = 'CUSTOM', // Custom payment terms
+  CASH = 'CASH',
+  INSTALLMENTS_2 = 'INSTALLMENTS_2',
+  INSTALLMENTS_3 = 'INSTALLMENTS_3',
+  INSTALLMENTS_4 = 'INSTALLMENTS_4',
+  INSTALLMENTS_5 = 'INSTALLMENTS_5',
+  INSTALLMENTS_6 = 'INSTALLMENTS_6',
+  INSTALLMENTS_7 = 'INSTALLMENTS_7',
+  CUSTOM = 'CUSTOM',
 }
 
 // Guarantee years options
 export const GUARANTEE_YEARS_OPTIONS = [5, 10, 15] as const;
+
+// =====================
+// Invoice / Billing Enums
+// =====================
+
+export enum INVOICE_STATUS {
+  DRAFT = 'DRAFT',
+  ACTIVE = 'ACTIVE',
+  PARTIALLY_PAID = 'PARTIALLY_PAID',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum INSTALLMENT_STATUS {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  PAID = 'PAID',
+  OVERDUE = 'OVERDUE',
+  CANCELLED = 'CANCELLED',
+}
+
+export enum BANK_SLIP_STATUS {
+  CREATING = 'CREATING',
+  REGISTERING = 'REGISTERING',
+  ACTIVE = 'ACTIVE',
+  OVERDUE = 'OVERDUE',
+  PAID = 'PAID',
+  CANCELLED = 'CANCELLED',
+  REJECTED = 'REJECTED',
+  ERROR = 'ERROR',
+}
+
+export enum NFSE_STATUS {
+  PENDING = 'PENDING',
+  PROCESSING = 'PROCESSING',
+  AUTHORIZED = 'AUTHORIZED',
+  CANCELLED = 'CANCELLED',
+  ERROR = 'ERROR',
+}
+
+export enum BANK_SLIP_TYPE {
+  NORMAL = 'NORMAL',
+  HIBRIDO = 'HIBRIDO',
+}
+
+export enum WEBHOOK_EVENT_STATUS {
+  RECEIVED = 'RECEIVED',
+  PROCESSING = 'PROCESSING',
+  PROCESSED = 'PROCESSED',
+  FAILED = 'FAILED',
+}
 
 export enum PAYROLL_STATUS {
   DRAFT = 'DRAFT',

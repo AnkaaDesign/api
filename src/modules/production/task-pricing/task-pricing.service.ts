@@ -3,6 +3,8 @@
 import {
   Injectable,
   Logger,
+  Inject,
+  forwardRef,
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
@@ -10,6 +12,8 @@ import {
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { TaskPricingRepository } from './repositories/task-pricing.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
+import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
+import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import type {
   TaskPricingCreateFormData,
   TaskPricingUpdateFormData,
@@ -30,45 +34,14 @@ import {
   TASK_PRICING_STATUS,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
-  DISCOUNT_TYPE,
   ENTITY_TYPE,
   CHANGE_ACTION,
+  INSTALLMENT_STATUS,
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
-import { logPricingItemChanges } from '@modules/common/changelog/utils/pricing-item-changelog';
+import { logPricingServiceChanges } from '@modules/common/changelog/utils/pricing-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
-
-/**
- * Calculate discount amount based on discount type and value
- */
-function calculateDiscountAmount(
-  subtotal: number,
-  discountType: string,
-  discountValue?: number,
-): number {
-  if (!discountValue || discountType === DISCOUNT_TYPE.NONE) {
-    return 0;
-  }
-
-  if (discountType === DISCOUNT_TYPE.PERCENTAGE) {
-    return Math.round(((subtotal * discountValue) / 100) * 100) / 100; // Round to 2 decimal places
-  }
-
-  if (discountType === DISCOUNT_TYPE.FIXED_VALUE) {
-    return discountValue;
-  }
-
-  return 0;
-}
-
-/**
- * Calculate total from subtotal and discount
- */
-function calculateTotal(subtotal: number, discountType: string, discountValue?: number): number {
-  const discountAmount = calculateDiscountAmount(subtotal, discountType, discountValue);
-  return Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100); // Ensure non-negative and round to 2 decimals
-}
 
 /**
  * Service for managing TaskPricing entities
@@ -82,6 +55,9 @@ export class TaskPricingService {
     private readonly prisma: PrismaService,
     private readonly taskPricingRepository: TaskPricingRepository,
     private readonly changeLogService: ChangeLogService,
+    @Inject(forwardRef(() => InvoiceGenerationService))
+    private readonly invoiceGenerationService: InvoiceGenerationService,
+    private readonly nfseEmissionScheduler: NfseEmissionScheduler,
   ) {}
 
   /**
@@ -170,42 +146,39 @@ export class TaskPricingService {
         throw new BadRequestException('Tarefa não encontrada.');
       }
 
-      // Validate invoicesToCustomerIds if provided
-      if (data.invoicesToCustomerIds && data.invoicesToCustomerIds.length > 0) {
-        const customers = await this.prisma.customer.findMany({
-          where: { id: { in: data.invoicesToCustomerIds } },
-          select: { id: true },
-        });
+      // Validate customerConfigs customer IDs
+      const customerIds = data.customerConfigs.map(c => c.customerId);
+      const customers = await this.prisma.customer.findMany({
+        where: { id: { in: customerIds } },
+        select: { id: true },
+      });
 
-        if (customers.length !== data.invoicesToCustomerIds.length) {
-          throw new BadRequestException(
-            'Um ou mais clientes selecionados para faturamento não foram encontrados.',
-          );
-        }
+      if (customers.length !== customerIds.length) {
+        throw new BadRequestException(
+          'Um ou mais clientes selecionados para faturamento não foram encontrados.',
+        );
       }
 
       // NOTE: Each task has its own independent pricing record.
       // When copying pricing (e.g. via copyFromTask), a new TaskPricing is created as a deep copy.
 
-      // Validate items exist
-      if (!data.items || data.items.length === 0) {
-        throw new BadRequestException('Pelo menos um item é obrigatório.');
+      // Validate services exist
+      if (!data.services || data.services.length === 0) {
+        throw new BadRequestException('Pelo menos um serviço é obrigatório.');
       }
 
-      // Validate subtotal matches items sum
-      const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
-      if (Math.abs(data.subtotal - itemsTotal) > 0.01) {
-        throw new BadRequestException('O subtotal deve ser igual à soma dos itens do orçamento.');
+      // If single customer config with subtotal=0, compute from services
+      if (data.customerConfigs.length === 1 && !data.customerConfigs[0].subtotal) {
+        const servicesTotal = data.services.reduce((sum, s) => sum + (s.amount || 0), 0);
+        data.customerConfigs[0].subtotal = servicesTotal;
+        if (!data.customerConfigs[0].total) {
+          data.customerConfigs[0].total = servicesTotal;
+        }
       }
 
-      // Calculate and validate total with discount
-      const discountType = data.discountType || DISCOUNT_TYPE.NONE;
-      const calculatedTotal = calculateTotal(data.subtotal, discountType, data.discountValue);
-      if (Math.abs(data.total - calculatedTotal) > 0.01) {
-        throw new BadRequestException(
-          `O total calculado (${calculatedTotal.toFixed(2)}) não corresponde ao total fornecido (${data.total.toFixed(2)}).`,
-        );
-      }
+      // Compute aggregate subtotal/total from customerConfigs
+      const aggregateSubtotal = data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0), 0);
+      const aggregateTotal = data.customerConfigs.reduce((sum, c) => sum + (c.total || 0), 0);
 
       // Create pricing with items in transaction
       const pricing = await this.prisma.$transaction(async tx => {
@@ -218,16 +191,11 @@ export class TaskPricingService {
         const newPricing = await tx.taskPricing.create({
           data: {
             budgetNumber: nextBudgetNumber,
-            subtotal: data.subtotal,
-            discountType: discountType,
-            discountValue: data.discountValue || null,
-            total: data.total,
+            subtotal: aggregateSubtotal,
+            total: aggregateTotal,
             expiresAt: data.expiresAt,
-            status: data.status || TASK_PRICING_STATUS.DRAFT,
-            // Payment Terms (simplified)
-            paymentCondition: data.paymentCondition || null,
-            downPaymentDate: data.downPaymentDate || null,
-            customPaymentText: data.customPaymentText || null,
+            status: data.status || TASK_PRICING_STATUS.PENDING,
+            statusOrder: 1,
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
             customGuaranteeText: data.customGuaranteeText || null,
@@ -235,38 +203,83 @@ export class TaskPricingService {
             ...(data.layoutFileId && {
               layoutFile: { connect: { id: data.layoutFileId } },
             }),
-            // Budget responsible
-            ...(data.responsibleId && {
-              responsible: { connect: { id: data.responsibleId } },
-            }),
-            // New fields
             simultaneousTasks: data.simultaneousTasks || null,
-            discountReference: data.discountReference || null,
-            // Invoice To Customers (many-to-many relationship)
-            ...(data.invoicesToCustomerIds &&
-              data.invoicesToCustomerIds.length > 0 && {
-                invoicesToCustomers: {
-                  connect: data.invoicesToCustomerIds.map(customerId => ({ id: customerId })),
-                },
-              }),
-            items: {
-              create: data.items.map((item, index) => ({
-                amount: item.amount || 0,
-                description: item.description || '',
-                observation: item.observation || null,
-                shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+            // Customer Configs (per-customer billing) — always at least 1
+            customerConfigs: {
+              create: data.customerConfigs.map(config => ({
+                customer: { connect: { id: config.customerId } },
+                subtotal: config.subtotal || 0,
+                discountType: config.discountType || 'NONE',
+                discountValue: config.discountValue || null,
+                total: config.total || 0,
+                customPaymentText: config.customPaymentText || null,
+                responsibleId: config.responsibleId || null,
+                discountReference: config.discountReference || null,
+                paymentCondition: config.paymentCondition || null,
+                downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
+              })),
+            },
+            services: {
+              create: data.services.map((service, index) => ({
+                amount: service.amount || 0,
+                description: service.description || '',
+                observation: service.observation || null,
+                shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                 position: index,
+                ...(service.invoiceToCustomerId && {
+                  invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
+                }),
               })),
             },
           },
           include: {
-            items: { orderBy: { position: 'asc' } },
+            services: {
+              orderBy: { position: 'asc' },
+              include: {
+                invoiceToCustomer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
             task: true,
             layoutFile: true,
-            invoicesToCustomers: true,
-            responsible: true,
+            customerConfigs: {
+              include: {
+                customer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
           },
         });
+
+        // Generate installments for each customer config from paymentCondition
+        for (const config of data.customerConfigs) {
+          const customerConfig = newPricing.customerConfigs.find(
+            (cc: any) => cc.customerId === config.customerId,
+          );
+          if (customerConfig) {
+            const installments = (config.installments && config.installments.length > 0)
+              ? config.installments
+              : this.generateInstallmentsFromCondition(
+                config.paymentCondition || null,
+                config.downPaymentDate || null,
+                config.total || 0,
+              );
+            if (installments.length > 0) {
+              await tx.installment.createMany({
+                data: installments.map(inst => ({
+                  customerConfigId: customerConfig.id,
+                  number: inst.number,
+                  dueDate: inst.dueDate,
+                  amount: inst.amount,
+                  paidAmount: 0,
+                  status: 'PENDING' as const,
+                })),
+              });
+            }
+          }
+        }
 
         // Connect the task to this pricing (one-to-one via Task.pricingId FK)
         await tx.task.update({
@@ -286,11 +299,11 @@ export class TaskPricingService {
             budgetNumber: nextBudgetNumber,
             subtotal: data.subtotal,
             total: data.total,
-            status: data.status || TASK_PRICING_STATUS.DRAFT,
-            items: data.items.map(item => ({
-              description: item.description,
-              amount: item.amount,
-              observation: item.observation || null,
+            status: data.status || TASK_PRICING_STATUS.PENDING,
+            services: data.services.map(service => ({
+              description: service.description,
+              amount: service.amount,
+              observation: service.observation || null,
             })),
           }),
           triggeredBy: CHANGE_TRIGGERED_BY.USER,
@@ -298,7 +311,31 @@ export class TaskPricingService {
           transaction: tx,
         });
 
-        return newPricing;
+        return tx.taskPricing.findUnique({
+          where: { id: newPricing.id },
+          include: {
+            services: {
+              orderBy: { position: 'asc' },
+              include: {
+                invoiceToCustomer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
+            task: true,
+            layoutFile: true,
+            customerConfigs: {
+              include: {
+                customer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+                installments: { orderBy: { number: 'asc' } },
+                responsible: { select: { id: true, name: true, role: true } },
+                customerSignature: true,
+              },
+            },
+          },
+        });
       });
 
       return {
@@ -324,8 +361,8 @@ export class TaskPricingService {
     try {
       const existing = await this.taskPricingRepository.findById(id, {
         include: {
-          items: { orderBy: { position: 'asc' } },
-          invoicesToCustomers: true,
+          services: { orderBy: { position: 'asc' } },
+          customerConfigs: true,
         },
       });
 
@@ -333,62 +370,50 @@ export class TaskPricingService {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
-      // Validate invoicesToCustomerIds if provided
-      if (data.invoicesToCustomerIds && data.invoicesToCustomerIds.length > 0) {
+      // Validate customerConfigs customer IDs if provided
+      if (data.customerConfigs && data.customerConfigs.length > 0) {
+        const customerIds = data.customerConfigs.map(c => c.customerId);
         const customers = await this.prisma.customer.findMany({
-          where: { id: { in: data.invoicesToCustomerIds } },
+          where: { id: { in: customerIds } },
           select: { id: true },
         });
 
-        if (customers.length !== data.invoicesToCustomerIds.length) {
+        if (customers.length !== customerIds.length) {
           throw new BadRequestException(
             'Um ou mais clientes selecionados para faturamento não foram encontrados.',
           );
         }
       }
 
-      // Determine current or new values
-      const subtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
-      const discountType =
-        data.discountType !== undefined ? data.discountType : existing.discountType;
-      const discountValue =
-        data.discountValue !== undefined ? data.discountValue : existing.discountValue;
-
-      // Validate items if provided (check against subtotal)
-      if (data.items && data.items.length > 0) {
-        const itemsTotal = data.items.reduce((sum, item) => sum + item.amount, 0);
-        const targetSubtotal = data.subtotal !== undefined ? data.subtotal : existing.subtotal;
-        if (Math.abs(targetSubtotal - itemsTotal) > 0.01) {
-          throw new BadRequestException('O subtotal deve ser igual à soma dos itens do orçamento.');
+      // If single customer config with subtotal=0, compute from services
+      if (data.customerConfigs?.length === 1 && !data.customerConfigs[0].subtotal && data.services?.length) {
+        const servicesTotal = data.services.reduce((sum, s) => sum + (s.amount || 0), 0);
+        data.customerConfigs[0].subtotal = servicesTotal;
+        if (!data.customerConfigs[0].total) {
+          data.customerConfigs[0].total = servicesTotal;
         }
       }
 
-      // Validate total with discount if total is being updated
-      if (data.total !== undefined) {
-        const calculatedTotal = calculateTotal(subtotal, discountType, discountValue || undefined);
-        if (Math.abs(data.total - calculatedTotal) > 0.01) {
-          throw new BadRequestException(
-            `O total calculado (${calculatedTotal.toFixed(2)}) não corresponde ao total fornecido (${data.total.toFixed(2)}).`,
-          );
-        }
-      }
+      // Compute aggregate subtotal/total from customerConfigs if provided
+      const computeAggregates = data.customerConfigs && data.customerConfigs.length > 0;
+      const aggregateSubtotal = computeAggregates
+        ? data.customerConfigs!.reduce((sum, c) => sum + (c.subtotal || 0), 0)
+        : undefined;
+      const aggregateTotal = computeAggregates
+        ? data.customerConfigs!.reduce((sum, c) => sum + (c.total || 0), 0)
+        : undefined;
 
       // Update pricing with items in transaction
       const updated = await this.prisma.$transaction(async tx => {
         const updatedPricing = await tx.taskPricing.update({
           where: { id },
           data: {
-            ...(data.subtotal !== undefined && { subtotal: data.subtotal }),
-            ...(data.discountType !== undefined && { discountType: data.discountType }),
-            ...(data.discountValue !== undefined && { discountValue: data.discountValue }),
-            ...(data.total !== undefined && { total: data.total }),
+            ...(aggregateSubtotal !== undefined && { subtotal: aggregateSubtotal }),
+            ...(aggregateTotal !== undefined && { total: aggregateTotal }),
             ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt }),
-            ...(data.status !== undefined && { status: data.status }),
-            // Payment Terms (simplified)
-            ...(data.paymentCondition !== undefined && { paymentCondition: data.paymentCondition }),
-            ...(data.downPaymentDate !== undefined && { downPaymentDate: data.downPaymentDate }),
-            ...(data.customPaymentText !== undefined && {
-              customPaymentText: data.customPaymentText,
+            ...(data.status !== undefined && {
+              status: data.status,
+              statusOrder: this.getStatusOrder(data.status as TASK_PRICING_STATUS),
             }),
             // Guarantee Terms
             ...(data.guaranteeYears !== undefined && { guaranteeYears: data.guaranteeYears }),
@@ -401,42 +426,43 @@ export class TaskPricingService {
                 ? { connect: { id: data.layoutFileId } }
                 : { disconnect: true },
             }),
-            // Budget responsible (allow setting and clearing)
-            ...(data.responsibleId !== undefined && {
-              responsible: data.responsibleId
-                ? { connect: { id: data.responsibleId } }
-                : { disconnect: true },
-            }),
-            // New fields
             ...(data.simultaneousTasks !== undefined && {
               simultaneousTasks: data.simultaneousTasks,
             }),
-            ...(data.discountReference !== undefined && { discountReference: data.discountReference }),
-            // Invoice To Customers (many-to-many relationship - disconnect all + connect new)
-            ...(data.invoicesToCustomerIds !== undefined && {
-              invoicesToCustomers: {
-                set: data.invoicesToCustomerIds.map(customerId => ({ id: customerId })),
-              },
-            }),
-            ...(data.items && {
-              items: {
+            ...(data.services && {
+              services: {
                 deleteMany: {},
-                create: data.items.map((item, index) => ({
-                  amount: item.amount || 0,
-                  description: item.description || '',
-                  observation: item.observation || null,
-                  shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+                create: data.services.map((service, index) => ({
+                  amount: service.amount || 0,
+                  description: service.description || '',
+                  observation: service.observation || null,
+                  shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                   position: index,
+                  ...(service.invoiceToCustomerId && {
+                    invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
+                  }),
                 })),
               },
             }),
           },
           include: {
-            items: { orderBy: { position: 'asc' } },
+            services: {
+              orderBy: { position: 'asc' },
+              include: {
+                invoiceToCustomer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
             task: true,
             layoutFile: true,
-            invoicesToCustomers: true,
-            responsible: true,
+            customerConfigs: {
+              include: {
+                customer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
           },
         });
 
@@ -453,61 +479,124 @@ export class TaskPricingService {
           newEntity: updatedPricing,
           fieldsToTrack: [
             'subtotal',
-            'discountType',
-            'discountValue',
             'total',
             'expiresAt',
             'status',
-            'paymentCondition',
-            'downPaymentDate',
-            'customPaymentText',
             'guaranteeYears',
             'customGuaranteeText',
             'layoutFileId',
-            'customerSignatureId',
             'customForecastDays',
             'budgetNumber',
             'simultaneousTasks',
-            'discountReference',
-            'responsibleId',
           ],
           userId: userId || '',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION as any,
           transaction: tx,
         });
 
-        // Special handling for invoicesToCustomers many-to-many changes
-        if (data.invoicesToCustomerIds !== undefined) {
-          const oldCustomers = (existing as any).invoicesToCustomers || [];
-          const oldCustomerIds = oldCustomers.map((customer: any) => customer.id);
-          const newCustomerIds = data.invoicesToCustomerIds;
+        // Handle customerConfigs changes
+        if (data.customerConfigs !== undefined) {
+          // Guard: prevent destructive customerConfig changes when invoices already exist
+          const existingConfigIds = ((existing as any).customerConfigs || []).map((c: any) => c.id);
+          if (existingConfigIds.length > 0) {
+            const invoiceCount = await tx.invoice.count({
+              where: { customerConfigId: { in: existingConfigIds } },
+            });
+            if (invoiceCount > 0) {
+              throw new BadRequestException(
+                'Não é possível alterar as configurações de clientes após a geração de faturas. Cancele as faturas primeiro.',
+              );
+            }
+          }
 
-          // Check if the arrays are different
-          const oldSet = new Set(oldCustomerIds);
-          const newSet = new Set(newCustomerIds);
-          const hasChanged =
-            oldSet.size !== newSet.size ||
-            ![...oldSet].every((id: string) => newSet.has(id));
+          // Delete existing configs (cascades to installments) and recreate
+          await tx.taskPricingCustomerConfig.deleteMany({ where: { pricingId: id } });
+          if (data.customerConfigs.length > 0) {
+            await tx.taskPricingCustomerConfig.createMany({
+              data: data.customerConfigs.map(config => ({
+                pricingId: id,
+                customerId: config.customerId,
+                subtotal: config.subtotal || 0,
+                discountType: config.discountType || 'NONE',
+                discountValue: config.discountValue || null,
+                total: config.total || 0,
+                customPaymentText: config.customPaymentText || null,
+                responsibleId: config.responsibleId || null,
+                discountReference: config.discountReference || null,
+                paymentCondition: config.paymentCondition || null,
+                downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
+              })),
+            });
 
-          if (hasChanged) {
-            // Build readable values for changelog display
-            const oldNames = oldCustomers
-              .map((c: any) => c.fantasyName || c.corporateName || c.id)
-              .join(', ') || 'Nenhum';
-            const newCustomerData = (updatedPricing as any).invoicesToCustomers || [];
-            const newNames = newCustomerData
-              .map((c: any) => c.fantasyName || c.corporateName || c.id)
-              .join(', ') || 'Nenhum';
+            // Re-create installments for each config
+            const newConfigs = await tx.taskPricingCustomerConfig.findMany({
+              where: { pricingId: id },
+            });
+            this.logger.log(`[UPDATE] Re-creating installments for ${data.customerConfigs.length} config(s), found ${newConfigs.length} DB config(s)`);
+            for (const config of data.customerConfigs) {
+              const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
+              this.logger.log(`[UPDATE] Config customer=${config.customerId}: dbConfig=${dbConfig?.id || 'NOT FOUND'}, paymentCondition=${config.paymentCondition}, downPaymentDate=${config.downPaymentDate}, total=${config.total}, installments=${JSON.stringify(config.installments)}`);
+              if (dbConfig) {
+                const installments = (config.installments && config.installments.length > 0)
+                  ? config.installments
+                  : this.generateInstallmentsFromCondition(
+                    config.paymentCondition || null,
+                    config.downPaymentDate || null,
+                    config.total || 0,
+                  );
+                this.logger.log(`[UPDATE] Generated ${installments.length} installment(s) for config ${dbConfig.id}: ${JSON.stringify(installments)}`);
+                if (installments.length > 0) {
+                  await tx.installment.createMany({
+                    data: installments.map(inst => ({
+                      customerConfigId: dbConfig.id,
+                      number: inst.number,
+                      dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
+                      amount: inst.amount,
+                      paidAmount: 0,
+                      status: 'PENDING' as const,
+                    })),
+                  });
+                  this.logger.log(`[UPDATE] Created ${installments.length} installment(s) for config ${dbConfig.id}`);
+                }
+              }
+            }
+          }
 
+          // Clear orphaned service assignments: if a customer was removed from configs,
+          // any services assigned to that customer via invoiceToCustomerId should be set to null
+          const validCustomerIds = data.customerConfigs.map(c => c.customerId);
+          await tx.taskPricingService.updateMany({
+            where: {
+              pricingId: id,
+              invoiceToCustomerId: {
+                notIn: validCustomerIds.length > 0 ? validCustomerIds : ['__none__'],
+                not: null,
+              },
+            },
+            data: {
+              invoiceToCustomerId: null,
+            },
+          });
+
+          // Log customer configs change
+          const oldConfigs = (existing as any).customerConfigs || [];
+          const oldConfigNames = oldConfigs
+            .map((c: any) => c.customer?.fantasyName || c.customerId)
+            .join(', ') || 'Nenhum';
+          const newConfigNames = data.customerConfigs
+            .map((c: any) => c.customerId)
+            .join(', ') || 'Nenhum';
+
+          if (oldConfigNames !== newConfigNames) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK_PRICING,
               entityId: id,
               action: CHANGE_LOG_ACTION.UPDATE as any,
-              field: 'invoicesToCustomerIds',
-              oldValue: oldNames,
-              newValue: newNames,
+              field: 'customerConfigs',
+              oldValue: oldConfigNames,
+              newValue: newConfigNames,
               userId: userId || '',
-              reason: 'Atualização de clientes para faturamento',
+              reason: 'Atualização de configurações de clientes para faturamento',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: userId,
               transaction: tx,
@@ -515,55 +604,55 @@ export class TaskPricingService {
           }
         }
 
-        // Track pricing items changes (per-item granular tracking)
-        if (data.items !== undefined) {
-          const oldItems = (existing as any).items || [];
-          const newItems = (updatedPricing as any).items || [];
+        // Track pricing services changes (per-service granular tracking)
+        if (data.services !== undefined) {
+          const oldServices = (existing as any).services || [];
+          const newServices = (updatedPricing as any).services || [];
 
-          // Log per-item changes (added, removed, field updates)
-          await logPricingItemChanges({
+          // Log per-service changes (added, removed, field updates)
+          await logPricingServiceChanges({
             changeLogService: this.changeLogService,
             pricingId: id,
-            oldItems,
-            newItems,
+            oldServices,
+            newServices,
             userId: userId || '',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             transaction: tx,
           });
 
-          // Also keep a bulk snapshot for backward compatibility (field: 'items_snapshot')
-          const formatItem = (item: any) =>
-            `${item.description || ''}: R$ ${Number(item.amount || 0).toFixed(2)}`;
-          const oldItemsSummary = oldItems.map(formatItem).sort();
-          const newItemsSummary = newItems.map(formatItem).sort();
-          const itemsChanged =
-            oldItemsSummary.length !== newItemsSummary.length ||
-            oldItemsSummary.some((s: string, i: number) => s !== newItemsSummary[i]);
+          // Also keep a bulk snapshot for backward compatibility (field: 'services_snapshot')
+          const formatService = (service: any) =>
+            `${service.description || ''}: R$ ${Number(service.amount || 0).toFixed(2)}`;
+          const oldServicesSummary = oldServices.map(formatService).sort();
+          const newServicesSummary = newServices.map(formatService).sort();
+          const servicesChanged =
+            oldServicesSummary.length !== newServicesSummary.length ||
+            oldServicesSummary.some((s: string, i: number) => s !== newServicesSummary[i]);
 
-          if (itemsChanged) {
+          if (servicesChanged) {
             await this.changeLogService.logChange({
               entityType: ENTITY_TYPE.TASK_PRICING,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
-              field: 'items_snapshot',
+              field: 'services_snapshot',
               oldValue: serializeChangelogValue({
-                count: oldItems.length,
-                items: oldItems.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount),
-                  observation: item.observation,
+                count: oldServices.length,
+                services: oldServices.map((service: any) => ({
+                  description: service.description,
+                  amount: Number(service.amount),
+                  observation: service.observation,
                 })),
               }),
               newValue: serializeChangelogValue({
-                count: newItems.length,
-                items: newItems.map((item: any) => ({
-                  description: item.description,
-                  amount: Number(item.amount),
-                  observation: item.observation,
+                count: newServices.length,
+                services: newServices.map((service: any) => ({
+                  description: service.description,
+                  amount: Number(service.amount),
+                  observation: service.observation,
                 })),
               }),
               userId: userId || '',
-              reason: 'Atualização dos itens do orçamento (snapshot)',
+              reason: 'Atualização dos serviços do orçamento (snapshot)',
               triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
               triggeredById: userId,
               transaction: tx,
@@ -571,13 +660,13 @@ export class TaskPricingService {
           }
 
           // Fix R$ 0,00 snapshot: update pricingId changelog when real amounts are set
-          const allOldAmountsZero = oldItems.every((item: any) => Number(item.amount) === 0);
-          const anyNewAmountNonZero = newItems.some((item: any) => Number(item.amount) > 0);
+          const allOldAmountsZero = oldServices.every((service: any) => Number(service.amount) === 0);
+          const anyNewAmountNonZero = newServices.some((service: any) => Number(service.amount) > 0);
 
           if (allOldAmountsZero && anyNewAmountNonZero) {
             const updatedWithTask = await tx.taskPricing.findUnique({
               where: { id },
-              include: { task: { select: { id: true } }, items: { orderBy: { position: 'asc' } } },
+              include: { task: { select: { id: true } }, services: { orderBy: { position: 'asc' } } },
             });
 
             const taskRef = updatedWithTask?.task;
@@ -592,13 +681,11 @@ export class TaskPricingService {
                   budgetNumber: (updatedWithTask as any).budgetNumber,
                   subtotal: (updatedWithTask as any).subtotal,
                   total: (updatedWithTask as any).total,
-                  discountType: (updatedWithTask as any).discountType,
-                  discountValue: (updatedWithTask as any).discountValue,
                   status: (updatedWithTask as any).status,
-                  items: updatedWithTask!.items.map(item => ({
-                    description: item.description,
-                    amount: Number(item.amount),
-                    observation: item.observation,
+                  services: updatedWithTask!.services.map(service => ({
+                    description: service.description,
+                    amount: Number(service.amount),
+                    observation: service.observation,
                   })),
                 });
                 await tx.changeLog.update({ where: { id: pricingIdLog.id }, data: { newValue: realSnapshot } });
@@ -607,7 +694,31 @@ export class TaskPricingService {
           }
         }
 
-        return updatedPricing;
+        return tx.taskPricing.findUnique({
+          where: { id },
+          include: {
+            services: {
+              orderBy: { position: 'asc' },
+              include: {
+                invoiceToCustomer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            },
+            task: true,
+            layoutFile: true,
+            customerConfigs: {
+              include: {
+                customer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+                installments: { orderBy: { number: 'asc' } },
+                responsible: { select: { id: true, name: true, role: true } },
+                customerSignature: true,
+              },
+            },
+          },
+        });
       });
 
       return {
@@ -632,9 +743,9 @@ export class TaskPricingService {
       const existing = await this.prisma.taskPricing.findUnique({
         where: { id },
         include: {
-          items: { orderBy: { position: 'asc' } },
+          services: { orderBy: { position: 'asc' } },
           task: { select: { id: true } },
-          invoicesToCustomers: { select: { id: true } },
+          customerConfigs: { select: { id: true, customerId: true } },
         },
       });
 
@@ -648,29 +759,21 @@ export class TaskPricingService {
         budgetNumber: existing.budgetNumber,
         subtotal: existing.subtotal,
         total: existing.total,
-        discountType: existing.discountType,
-        discountValue: existing.discountValue,
         expiresAt: existing.expiresAt,
         status: existing.status,
-        paymentCondition: existing.paymentCondition,
-        downPaymentDate: existing.downPaymentDate,
-        customPaymentText: existing.customPaymentText,
         guaranteeYears: existing.guaranteeYears,
         customGuaranteeText: existing.customGuaranteeText,
         customForecastDays: existing.customForecastDays,
         simultaneousTasks: existing.simultaneousTasks,
-        discountReference: existing.discountReference,
-        responsibleId: existing.responsibleId,
         layoutFileId: existing.layoutFileId,
-        customerSignatureId: existing.customerSignatureId,
-        items: existing.items.map(item => ({
-          description: item.description,
-          amount: item.amount,
-          observation: item.observation,
-          shouldSync: item.shouldSync,
-          position: item.position,
+        services: existing.services.map(service => ({
+          description: service.description,
+          amount: service.amount,
+          observation: service.observation,
+          shouldSync: service.shouldSync,
+          position: service.position,
         })),
-        invoicesToCustomerIds: existing.invoicesToCustomers.map(c => c.id),
+        customerConfigIds: existing.customerConfigs.map(c => c.customerId),
       };
 
       const taskId = existing.task?.id;
@@ -732,7 +835,6 @@ export class TaskPricingService {
     id: string,
     status: TASK_PRICING_STATUS,
     userId: string,
-    rejectionReason?: string,
   ): Promise<TaskPricingUpdateResponse> {
     try {
       const existing = await this.taskPricingRepository.findById(id);
@@ -743,6 +845,9 @@ export class TaskPricingService {
 
       // Validate status transition
       this.validateStatusTransition(existing.status as TASK_PRICING_STATUS, status);
+
+      // Validate prerequisites for the target status
+      await this.validateStatusPrerequisites(id, existing.status as TASK_PRICING_STATUS, status);
 
       // Update status
       const updated = await this.update(id, { status }, userId);
@@ -759,24 +864,139 @@ export class TaskPricingService {
   }
 
   /**
-   * Approve pricing (change status to APPROVED)
+   * Customer approves the budget
    */
-  async approve(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
-    return this.updateStatus(id, TASK_PRICING_STATUS.APPROVED, userId);
+  async budgetApprove(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
+    return this.updateStatus(id, TASK_PRICING_STATUS.BUDGET_APPROVED, userId);
   }
 
   /**
-   * Reject pricing (change status to REJECTED)
+   * Financial verifies the pricing structure
    */
-  async reject(id: string, userId: string, reason?: string): Promise<TaskPricingUpdateResponse> {
-    return this.updateStatus(id, TASK_PRICING_STATUS.REJECTED, userId, reason);
+  async verify(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
+    return this.updateStatus(id, TASK_PRICING_STATUS.VERIFIED, userId);
   }
 
   /**
-   * Cancel pricing (change status to CANCELLED)
+   * Commercial/admin final approval — triggers invoice + NFS-e generation
    */
-  async cancel(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
-    return this.updateStatus(id, TASK_PRICING_STATUS.CANCELLED, userId);
+  async internalApprove(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
+    this.logger.log(`[INTERNAL_APPROVE] Starting internal approval for pricing ${id} by user ${userId}`);
+
+    // 1. Validate the pricing exists and prerequisites are met
+    const existing = await this.taskPricingRepository.findById(id);
+    if (!existing) {
+      throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
+    }
+    this.validateStatusTransition(existing.status as TASK_PRICING_STATUS, TASK_PRICING_STATUS.INTERNAL_APPROVED);
+    await this.validateStatusPrerequisites(id, existing.status as TASK_PRICING_STATUS, TASK_PRICING_STATUS.INTERNAL_APPROVED);
+
+    // 2. Atomically claim the status transition (prevents concurrent approvals)
+    // Only one request can win: the one that finds status=VERIFIED and sets it to INTERNAL_APPROVED
+    const claimed = await this.prisma.taskPricing.updateMany({
+      where: { id, status: TASK_PRICING_STATUS.VERIFIED },
+      data: {
+        status: TASK_PRICING_STATUS.INTERNAL_APPROVED,
+        statusOrder: this.getStatusOrder(TASK_PRICING_STATUS.INTERNAL_APPROVED),
+      },
+    });
+    if (claimed.count === 0) {
+      throw new BadRequestException(
+        'O orçamento não está mais no status Verificado. Pode ter sido aprovado por outra requisição simultânea.',
+      );
+    }
+
+    this.logger.log(`[INTERNAL_APPROVE] Status atomically claimed to INTERNAL_APPROVED for pricing ${id}`);
+
+    // Trigger invoice generation and auto-transition to UPCOMING
+    // If anything fails, revert status back to VERIFIED so the user can retry
+    try {
+      const task = await this.prisma.task.findFirst({
+        where: { pricingId: id },
+        select: { id: true, name: true, serialNumber: true },
+      });
+
+      this.logger.log(`[INTERNAL_APPROVE] Task lookup result: ${task ? `found task ${task.id} (${task.name} #${task.serialNumber})` : 'NO TASK FOUND'}`);
+
+      if (!task) {
+        throw new InternalServerErrorException(
+          `Nenhuma tarefa encontrada para o orçamento ${id}. Não é possível gerar faturas.`,
+        );
+      }
+
+      this.logger.log(`[INTERNAL_APPROVE] Triggering invoice generation for task ${task.id}...`);
+      const invoiceIds = await this.invoiceGenerationService.generateInvoicesForTask(
+        task.id,
+        userId,
+      );
+      this.logger.log(
+        `[INTERNAL_APPROVE] Invoice generation complete: ${invoiceIds.length} invoice(s) created [${invoiceIds.join(', ')}]`,
+      );
+
+      if (invoiceIds.length === 0) {
+        throw new InternalServerErrorException(
+          `Nenhuma fatura foi gerada para o orçamento ${id}. Verifique a configuração de faturamento.`,
+        );
+      }
+
+      // Register bank slips at Sicredi immediately (non-blocking — errors don't prevent status transition)
+      this.logger.log(`[INTERNAL_APPROVE] Registering bank slips at Sicredi for ${invoiceIds.length} invoice(s)...`);
+      try {
+        await this.invoiceGenerationService.registerBankSlipsAtSicredi(invoiceIds);
+      } catch (boletoError) {
+        this.logger.warn(`[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`);
+      }
+
+      // Trigger NFS-e emission immediately (non-blocking — errors don't prevent status transition)
+      this.logger.log(`[INTERNAL_APPROVE] Triggering NFS-e emission for pending documents...`);
+      this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
+        this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
+      });
+
+      // Auto-transition to UPCOMING after successful invoice generation
+      this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning pricing ${id} to UPCOMING...`);
+      await this.update(id, { status: TASK_PRICING_STATUS.UPCOMING } as any, userId);
+      this.logger.log(`[INTERNAL_APPROVE] Pricing ${id} transitioned to UPCOMING successfully`);
+    } catch (error) {
+      this.logger.error(
+        `[INTERNAL_APPROVE] Failed during invoice generation/transition for pricing ${id}: ${error}`,
+      );
+      if (error instanceof Error) {
+        this.logger.error(`[INTERNAL_APPROVE] Stack trace: ${error.stack}`);
+      }
+
+      // Revert status back to VERIFIED so the pricing is not stuck at INTERNAL_APPROVED
+      // Uses direct prisma update to bypass status transition validation (INTERNAL_APPROVED → VERIFIED is not normally allowed)
+      try {
+        this.logger.warn(`[INTERNAL_APPROVE] Rolling back pricing ${id} status from INTERNAL_APPROVED to VERIFIED...`);
+        await this.prisma.taskPricing.update({
+          where: { id },
+          data: {
+            status: TASK_PRICING_STATUS.VERIFIED,
+            statusOrder: this.getStatusOrder(TASK_PRICING_STATUS.VERIFIED),
+          },
+        });
+        this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — pricing ${id} reverted to VERIFIED`);
+      } catch (rollbackError) {
+        this.logger.error(
+          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback pricing ${id} status to VERIFIED: ${rollbackError}`,
+        );
+      }
+
+      // Propagate the error to the client
+      if (error instanceof BadRequestException || error instanceof NotFoundException || error instanceof InternalServerErrorException) {
+        throw error;
+      }
+      throw new InternalServerErrorException(
+        `Falha ao gerar faturas para o orçamento. O status foi revertido para Verificado. Erro: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return {
+      success: true,
+      data: existing as any,
+      message: 'Orçamento aprovado internamente com sucesso.',
+    };
   }
 
   /**
@@ -818,11 +1038,24 @@ export class TaskPricingService {
       const pricing = await this.prisma.taskPricing.findUnique({
         where: { id },
         include: {
-          items: true,
+          services: {
+            orderBy: { position: 'asc' },
+            include: {
+              invoiceToCustomer: {
+                select: { id: true, fantasyName: true, cnpj: true },
+              },
+            },
+          },
           layoutFile: true,
-          customerSignature: true,
-          invoicesToCustomers: true,
-          responsible: true,
+          customerConfigs: {
+            include: {
+              customer: {
+                select: { id: true, fantasyName: true, cnpj: true },
+              },
+              customerSignature: true,
+              responsible: true,
+            },
+          },
           task: {
             include: {
               customer: true,
@@ -866,11 +1099,16 @@ export class TaskPricingService {
   async uploadCustomerSignature(
     id: string,
     file: Express.Multer.File,
+    customerConfigId?: string,
   ): Promise<TaskPricingUpdateResponse> {
     try {
       const pricing = await this.prisma.taskPricing.findUnique({
         where: { id },
-        include: { customerSignature: true },
+        include: {
+          customerConfigs: {
+            include: { customerSignature: true },
+          },
+        },
       });
 
       if (!pricing) {
@@ -885,6 +1123,15 @@ export class TaskPricingService {
         );
       }
 
+      // Find the target customer config
+      const targetConfig = customerConfigId
+        ? pricing.customerConfigs.find(c => c.id === customerConfigId)
+        : pricing.customerConfigs[0];
+
+      if (!targetConfig) {
+        throw new BadRequestException('Configuração de cliente não encontrada.');
+      }
+
       // Create file record for signature
       const signatureFile = await this.prisma.file.create({
         data: {
@@ -896,16 +1143,38 @@ export class TaskPricingService {
         },
       });
 
-      // Update pricing with signature
-      const updated = await this.prisma.taskPricing.update({
-        where: { id },
+      // Update customer config with signature
+      await this.prisma.taskPricingCustomerConfig.update({
+        where: { id: targetConfig.id },
         data: {
           customerSignatureId: signatureFile.id,
         },
+      });
+
+      // Delete old signature file if it exists
+      if (targetConfig.customerSignature) {
+        await this.prisma.file
+          .delete({
+            where: { id: targetConfig.customerSignature.id },
+          })
+          .catch(() => {
+            // Ignore errors when deleting old file
+          });
+      }
+
+      // Re-fetch the full pricing
+      const updated = await this.prisma.taskPricing.findUnique({
+        where: { id },
         include: {
-          items: true,
+          services: true,
           layoutFile: true,
-          customerSignature: true,
+          customerConfigs: {
+            include: {
+              customer: { select: { id: true, fantasyName: true, cnpj: true } },
+              customerSignature: true,
+              responsible: true,
+            },
+          },
           task: {
             include: {
               customer: true,
@@ -914,24 +1183,13 @@ export class TaskPricingService {
         },
       });
 
-      // Delete old signature file if it exists
-      if (pricing.customerSignature) {
-        await this.prisma.file
-          .delete({
-            where: { id: pricing.customerSignature.id },
-          })
-          .catch(() => {
-            // Ignore errors when deleting old file
-          });
-      }
-
       // Log signature changelog
       await this.changeLogService.logChange({
         entityType: ENTITY_TYPE.TASK_PRICING,
         entityId: id,
         action: CHANGE_ACTION.UPDATE,
         field: 'customerSignatureId',
-        oldValue: pricing.customerSignatureId || null,
+        oldValue: targetConfig.customerSignatureId || null,
         newValue: signatureFile.id,
         userId: null,
         reason: 'Assinatura do cliente enviada',
@@ -939,7 +1197,7 @@ export class TaskPricingService {
         triggeredById: null,
       });
 
-      this.logger.log(`Customer signature uploaded for pricing ${id}`);
+      this.logger.log(`Customer signature uploaded for pricing ${id}, config ${targetConfig.id}`);
 
       return {
         success: true,
@@ -963,26 +1221,156 @@ export class TaskPricingService {
     currentStatus: TASK_PRICING_STATUS,
     newStatus: TASK_PRICING_STATUS,
   ): void {
-    // Allow any transition from DRAFT
-    if (currentStatus === TASK_PRICING_STATUS.DRAFT) {
-      return;
-    }
+    const validTransitions: Record<string, string[]> = {
+      [TASK_PRICING_STATUS.PENDING]: [TASK_PRICING_STATUS.BUDGET_APPROVED],
+      [TASK_PRICING_STATUS.BUDGET_APPROVED]: [TASK_PRICING_STATUS.VERIFIED],
+      [TASK_PRICING_STATUS.VERIFIED]: [TASK_PRICING_STATUS.INTERNAL_APPROVED],
+      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: [TASK_PRICING_STATUS.UPCOMING],
+      [TASK_PRICING_STATUS.UPCOMING]: [TASK_PRICING_STATUS.PARTIAL],
+      [TASK_PRICING_STATUS.PARTIAL]: [TASK_PRICING_STATUS.SETTLED, TASK_PRICING_STATUS.UPCOMING],
+      [TASK_PRICING_STATUS.SETTLED]: [TASK_PRICING_STATUS.PARTIAL],
+    };
 
-    // Allow APPROVED → CANCELLED
-    if (
-      currentStatus === TASK_PRICING_STATUS.APPROVED &&
-      newStatus === TASK_PRICING_STATUS.CANCELLED
-    ) {
-      return;
+    const allowed = validTransitions[currentStatus] || [];
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestException(`Transição de status inválida: ${currentStatus} → ${newStatus}`);
     }
+  }
 
-    // Allow REJECTED → DRAFT (for revision)
-    if (currentStatus === TASK_PRICING_STATUS.REJECTED && newStatus === TASK_PRICING_STATUS.DRAFT) {
-      return;
+  /**
+   * Validate prerequisites for a status transition.
+   * Ensures required data exists before allowing certain status changes.
+   * @private
+   */
+  private async validateStatusPrerequisites(
+    pricingId: string,
+    currentStatus: TASK_PRICING_STATUS,
+    newStatus: TASK_PRICING_STATUS,
+  ): Promise<void> {
+    const transition = `${currentStatus}->${newStatus}`;
+
+    switch (transition) {
+      case `${TASK_PRICING_STATUS.PENDING}->${TASK_PRICING_STATUS.BUDGET_APPROVED}`:
+      case `${TASK_PRICING_STATUS.BUDGET_APPROVED}->${TASK_PRICING_STATUS.VERIFIED}`: {
+        // Must have at least one customerConfig with total > 0
+        const configs = await this.prisma.taskPricingCustomerConfig.findMany({
+          where: { pricingId },
+          select: { total: true },
+        });
+
+        if (configs.length === 0) {
+          throw new BadRequestException(
+            'É necessário ter pelo menos uma configuração de cliente antes de avançar o status.',
+          );
+        }
+
+        const hasPositiveTotal = configs.some(c => Number(c.total) > 0);
+        if (!hasPositiveTotal) {
+          throw new BadRequestException(
+            'Pelo menos uma configuração de cliente deve ter um valor total maior que zero.',
+          );
+        }
+        break;
+      }
+
+      case `${TASK_PRICING_STATUS.VERIFIED}->${TASK_PRICING_STATUS.INTERNAL_APPROVED}`: {
+        // Each customerConfig must have valid paymentCondition and downPaymentDate
+        const configs = await this.prisma.taskPricingCustomerConfig.findMany({
+          where: { pricingId },
+          select: {
+            id: true,
+            paymentCondition: true,
+            downPaymentDate: true,
+            customer: { select: { fantasyName: true } },
+            installments: { select: { id: true } },
+          },
+        });
+
+        if (configs.length === 0) {
+          throw new BadRequestException(
+            'É necessário ter pelo menos uma configuração de cliente antes de aprovar internamente.',
+          );
+        }
+
+        for (const config of configs) {
+          const customerName = config.customer?.fantasyName || 'Cliente';
+
+          if (!config.paymentCondition) {
+            throw new BadRequestException(
+              `A condição de pagamento não foi definida para o cliente "${customerName}".`,
+            );
+          }
+
+          if (config.paymentCondition === 'CUSTOM' && config.installments.length === 0) {
+            throw new BadRequestException(
+              `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem parcelas cadastradas.`,
+            );
+          }
+
+          if (!config.downPaymentDate) {
+            throw new BadRequestException(
+              `A data de início de pagamento não foi definida para o cliente "${customerName}".`,
+            );
+          }
+        }
+        break;
+      }
+
+      case `${TASK_PRICING_STATUS.UPCOMING}->${TASK_PRICING_STATUS.PARTIAL}`: {
+        // At least one installment must be PAID
+        const paidCount = await this.prisma.installment.count({
+          where: {
+            customerConfig: { pricingId },
+            status: INSTALLMENT_STATUS.PAID,
+          },
+        });
+
+        if (paidCount === 0) {
+          throw new BadRequestException(
+            'É necessário que pelo menos uma parcela esteja paga para marcar como parcialmente pago.',
+          );
+        }
+        break;
+      }
+
+      case `${TASK_PRICING_STATUS.PARTIAL}->${TASK_PRICING_STATUS.SETTLED}`: {
+        // ALL installments must be PAID
+        const unpaidCount = await this.prisma.installment.count({
+          where: {
+            customerConfig: { pricingId },
+            status: { not: INSTALLMENT_STATUS.PAID },
+          },
+        });
+
+        if (unpaidCount > 0) {
+          throw new BadRequestException(
+            `Ainda existem ${unpaidCount} parcela(s) não paga(s). Todas as parcelas devem estar pagas para liquidar o orçamento.`,
+          );
+        }
+        break;
+      }
+
+      case `${TASK_PRICING_STATUS.SETTLED}->${TASK_PRICING_STATUS.PARTIAL}`: {
+        // At least one installment must NOT be PAID (reversal scenario)
+        const nonPaidCount = await this.prisma.installment.count({
+          where: {
+            customerConfig: { pricingId },
+            status: { not: INSTALLMENT_STATUS.PAID },
+          },
+        });
+
+        if (nonPaidCount === 0) {
+          throw new BadRequestException(
+            'Todas as parcelas estão pagas. Para reverter para parcial, é necessário que pelo menos uma parcela não esteja paga.',
+          );
+        }
+        break;
+      }
+
+      // INTERNAL_APPROVED -> UPCOMING: automatic (done by internalApprove), no extra checks
+      default:
+        break;
     }
-
-    // Disallow other transitions
-    throw new BadRequestException(`Transição de status inválida: ${currentStatus} → ${newStatus}`);
   }
 
   /**
@@ -990,13 +1378,105 @@ export class TaskPricingService {
    * @private
    */
   private getStatusLabel(status: TASK_PRICING_STATUS): string {
-    const labels = {
-      [TASK_PRICING_STATUS.DRAFT]: 'salvo como rascunho',
-      [TASK_PRICING_STATUS.APPROVED]: 'aprovado',
-      [TASK_PRICING_STATUS.REJECTED]: 'rejeitado',
-      [TASK_PRICING_STATUS.CANCELLED]: 'cancelado',
+    const labels: Record<string, string> = {
+      [TASK_PRICING_STATUS.PENDING]: 'salvo como pendente',
+      [TASK_PRICING_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
+      [TASK_PRICING_STATUS.VERIFIED]: 'verificado pelo financeiro',
+      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 'aprovado internamente',
+      [TASK_PRICING_STATUS.UPCOMING]: 'com parcelas a vencer',
+      [TASK_PRICING_STATUS.PARTIAL]: 'parcialmente pago',
+      [TASK_PRICING_STATUS.SETTLED]: 'liquidado',
     };
 
     return labels[status] || 'atualizado';
+  }
+
+  /**
+   * Get sort order for a given status
+   */
+  private getStatusOrder(status: TASK_PRICING_STATUS): number {
+    const order: Record<string, number> = {
+      [TASK_PRICING_STATUS.PENDING]: 1,
+      [TASK_PRICING_STATUS.BUDGET_APPROVED]: 2,
+      [TASK_PRICING_STATUS.VERIFIED]: 3,
+      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 4,
+      [TASK_PRICING_STATUS.UPCOMING]: 5,
+      [TASK_PRICING_STATUS.PARTIAL]: 6,
+      [TASK_PRICING_STATUS.SETTLED]: 7,
+    };
+    return order[status] || 1;
+  }
+
+  /**
+   * Convert paymentCondition + downPaymentDate + total into installment records
+   */
+  private generateInstallmentsFromCondition(
+    paymentCondition: string | null,
+    downPaymentDate: Date | null | string,
+    total: number,
+  ): { number: number; dueDate: Date; amount: number }[] {
+    this.logger.log(`[INSTALLMENTS] generateInstallmentsFromCondition: condition=${paymentCondition}, downPaymentDate=${downPaymentDate}, total=${total}`);
+
+    // Validate total: must be a finite positive number
+    if (!Number.isFinite(total) || total <= 0) {
+      this.logger.log(`[INSTALLMENTS] Skipping: total is invalid (${total})`);
+      return [];
+    }
+
+    if (!paymentCondition || paymentCondition === 'CUSTOM') {
+      this.logger.log(`[INSTALLMENTS] Skipping: condition is ${paymentCondition}`);
+      return [];
+    }
+
+    const conditionMap: Record<string, number> = {
+      CASH: 1,
+      INSTALLMENTS_2: 2,
+      INSTALLMENTS_3: 3,
+      INSTALLMENTS_4: 4,
+      INSTALLMENTS_5: 5,
+      INSTALLMENTS_6: 6,
+      INSTALLMENTS_7: 7,
+    };
+
+    const totalInstallments = conditionMap[paymentCondition] || 1;
+
+    // Validate downPaymentDate: fall back to current date if invalid
+    let baseDate: Date;
+    if (downPaymentDate) {
+      const parsed = new Date(downPaymentDate);
+      if (isNaN(parsed.getTime())) {
+        this.logger.warn(`[INSTALLMENTS] Invalid downPaymentDate "${downPaymentDate}", falling back to current date`);
+        baseDate = new Date();
+      } else {
+        baseDate = parsed;
+      }
+    } else {
+      baseDate = new Date();
+    }
+
+    // Use integer math (cents) to avoid floating point rounding errors
+    const totalCents = Math.round(total * 100);
+    const baseCents = Math.floor(totalCents / totalInstallments);
+    const installmentAmount = baseCents / 100;
+
+    const installments: { number: number; dueDate: Date; amount: number }[] = [];
+    for (let i = 0; i < totalInstallments; i++) {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + i * 20); // 20 days apart
+
+      // Put remainder on the LAST installment so sum equals exactly the total
+      const isLast = i === totalInstallments - 1;
+      const amount = isLast
+        ? (totalCents - baseCents * (totalInstallments - 1)) / 100
+        : installmentAmount;
+
+      installments.push({
+        number: i + 1,
+        dueDate,
+        amount,
+      });
+    }
+
+    return installments;
   }
 }

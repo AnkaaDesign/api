@@ -1442,7 +1442,7 @@ export class DashboardService {
       tasksCloseForecastSOTypes: [] as string[],
       lowStockItems: false,
       completedTasks: false,
-      openFinancialSOs: false,
+      tasksAwaitingPaymentApproval: false,
       recentMessages: true,
     };
 
@@ -1451,6 +1451,7 @@ export class DashboardService {
         config.tasksCloseDeadline = true;
         config.openSOTypes = ['COMMERCIAL'];
         config.tasksCloseForecastSOTypes = ['COMMERCIAL'];
+        config.tasksAwaitingPaymentApproval = true;
         break;
       case SECTOR_PRIVILEGES.LOGISTIC:
         config.tasksCloseDeadline = true;
@@ -1462,6 +1463,7 @@ export class DashboardService {
         config.openSOTypes = ['ARTWORK', 'COMMERCIAL'];
         config.tasksCloseForecastSOTypes = ['ARTWORK', 'COMMERCIAL'];
         config.lowStockItems = true;
+        config.tasksAwaitingPaymentApproval = true;
         break;
       case SECTOR_PRIVILEGES.DESIGNER:
         config.openSOTypes = ['ARTWORK'];
@@ -1475,7 +1477,6 @@ export class DashboardService {
         break;
       case SECTOR_PRIVILEGES.FINANCIAL:
         config.completedTasks = true;
-        config.openFinancialSOs = true;
         break;
       default:
         break;
@@ -1544,9 +1545,8 @@ export class DashboardService {
         promises.completedTasks = this.dashboardRepository.getRecentlyCompletedTasks(sevenDaysAgo);
       }
 
-      if (config.openFinancialSOs) {
-        promises.openFinancialSOs =
-          this.dashboardRepository.getOpenFinancialSOsForCompletedTasks();
+      if (config.tasksAwaitingPaymentApproval) {
+        promises.tasksAwaitingPaymentApproval = this.dashboardRepository.getTasksAwaitingPaymentApproval();
       }
 
       if (config.recentMessages) {
@@ -1593,9 +1593,9 @@ export class DashboardService {
         data.counts.completedTasks = resolved.completedTasks.length;
       }
 
-      if (resolved.openFinancialSOs) {
-        data.openFinancialSOs = resolved.openFinancialSOs;
-        data.counts.openFinancialSOs = resolved.openFinancialSOs.length;
+      if (resolved.tasksAwaitingPaymentApproval) {
+        data.tasksAwaitingPaymentApproval = resolved.tasksAwaitingPaymentApproval;
+        data.counts.tasksAwaitingPaymentApproval = resolved.tasksAwaitingPaymentApproval.length;
       }
 
       if (resolved.recentMessages) {

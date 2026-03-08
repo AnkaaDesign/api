@@ -126,12 +126,12 @@ export const SECTOR_SELECT_MINIMAL = {
 } as const;
 
 /**
- * Sector select with manager info
+ * Sector select with leader info
  */
-export const SECTOR_SELECT_WITH_MANAGER = {
+export const SECTOR_SELECT_WITH_LEADER = {
   ...SECTOR_SELECT_MINIMAL,
-  managerId: true,
-  manager: {
+  leaderId: true,
+  leader: {
     select: USER_SELECT_MINIMAL,
   },
 } as const;
@@ -257,11 +257,11 @@ export function buildCustomerSelect(includeLogo = false) {
 
 /**
  * Builds a select object for sector relations
- * @param includeManager - Whether to include sector manager
+ * @param includeLeader - Whether to include sector leader
  * @returns Prisma select object for sectors
  */
-export function buildSectorSelect(includeManager = false) {
-  return includeManager ? SECTOR_SELECT_WITH_MANAGER : SECTOR_SELECT_MINIMAL;
+export function buildSectorSelect(includeLeader = false) {
+  return includeLeader ? SECTOR_SELECT_WITH_LEADER : SECTOR_SELECT_MINIMAL;
 }
 
 /**
@@ -345,7 +345,7 @@ export function buildMinimalInclude(
     | 'createdBy'
     | 'updatedBy'
     | 'assignedTo'
-    | 'manager'
+    | 'leader'
   >,
 ) {
   const include: Record<string, any> = {};
@@ -367,8 +367,8 @@ export function buildMinimalInclude(
       case 'assignedTo':
         include[relation] = { select: USER_SELECT_MINIMAL };
         break;
-      case 'manager':
-        include.manager = { select: USER_SELECT_MINIMAL };
+      case 'leader':
+        include.leader = { select: USER_SELECT_MINIMAL };
         break;
     }
   }
@@ -641,7 +641,7 @@ export const SelectPatterns = {
   },
   sector: {
     minimal: SECTOR_SELECT_MINIMAL,
-    withManager: SECTOR_SELECT_WITH_MANAGER,
+    withLeader: SECTOR_SELECT_WITH_LEADER,
   },
   position: {
     minimal: POSITION_SELECT_MINIMAL,

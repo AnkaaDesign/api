@@ -316,8 +316,8 @@ export class UserService {
       }
     }
 
-    // Note: managedSector is now handled via Sector.managerId relation
-    // The business logic for sector management should be handled in the Sector service
+    // Note: ledSector is now handled via Sector.leaderId relation
+    // The business logic for sector leadership should be handled in the Sector service
 
     // Validar que ao atualizar status para DISMISSED, o usuário não tenha pendências
     if (isUpdate && (data.status as USER_STATUS) === USER_STATUS.DISMISSED) {
@@ -682,13 +682,13 @@ export class UserService {
           { include },
         );
 
-        // Handle isSectorLeader flag - update Sector.managerId relationship
+        // Handle isSectorLeader flag - update Sector.leaderId relationship
         if (isSectorLeader && createData.sectorId) {
           await tx.sector.update({
             where: { id: createData.sectorId },
-            data: { managerId: newUser.id },
+            data: { leaderId: newUser.id },
           });
-          this.logger.log(`New user ${newUser.id} set as manager of sector ${createData.sectorId}`);
+          this.logger.log(`New user ${newUser.id} set as leader of sector ${createData.sectorId}`);
         }
 
         // Registrar no changelog
@@ -895,29 +895,29 @@ export class UserService {
           }
         }
 
-        // Handle isSectorLeader flag - update Sector.managerId relationship
+        // Handle isSectorLeader flag - update Sector.leaderId relationship
         const isSectorLeader = (data as any).isSectorLeader;
         const targetSectorId = data.sectorId ?? existingUser.sectorId;
 
         if (typeof isSectorLeader === 'boolean') {
           if (isSectorLeader && targetSectorId) {
-            // Set this user as the manager of their sector
+            // Set this user as the leader of their sector
             await tx.sector.update({
               where: { id: targetSectorId },
-              data: { managerId: id },
+              data: { leaderId: id },
             });
-            this.logger.log(`User ${id} set as manager of sector ${targetSectorId}`);
+            this.logger.log(`User ${id} set as leader of sector ${targetSectorId}`);
           } else if (!isSectorLeader) {
-            // Check if user was the manager of any sector and remove them
-            const managedSector = await tx.sector.findFirst({
-              where: { managerId: id },
+            // Check if user was the leader of any sector and remove them
+            const ledSector = await tx.sector.findFirst({
+              where: { leaderId: id },
             });
-            if (managedSector) {
+            if (ledSector) {
               await tx.sector.update({
-                where: { id: managedSector.id },
-                data: { managerId: null },
+                where: { id: ledSector.id },
+                data: { leaderId: null },
               });
-              this.logger.log(`User ${id} removed as manager of sector ${managedSector.id}`);
+              this.logger.log(`User ${id} removed as leader of sector ${ledSector.id}`);
             }
           }
         }

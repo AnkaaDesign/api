@@ -51,12 +51,22 @@ export class TaskPricingPrismaRepository
     return {
       ...databaseEntity,
       total: databaseEntity.total ? Number(databaseEntity.total) : 0,
-      items: databaseEntity.items?.map((item: any) => ({
-        ...item,
-        amount: item.amount ? Number(item.amount) : 0,
+      services: databaseEntity.services?.map((service: any) => ({
+        ...service,
+        amount: service.amount ? Number(service.amount) : 0,
       })),
-      // Pass through junction table data if present
-      invoicesToCustomers: databaseEntity.invoicesToCustomers,
+      // Pass through customerConfigs data if present
+      customerConfigs: databaseEntity.customerConfigs?.map((config: any) => ({
+        ...config,
+        subtotal: config.subtotal ? Number(config.subtotal) : 0,
+        discountValue: config.discountValue ? Number(config.discountValue) : null,
+        total: config.total ? Number(config.total) : 0,
+        installments: config.installments?.map((inst: any) => ({
+          ...inst,
+          amount: inst.amount ? Number(inst.amount) : 0,
+          paidAmount: inst.paidAmount ? Number(inst.paidAmount) : 0,
+        })),
+      })),
     } as TaskPricing;
   }
 
@@ -67,15 +77,10 @@ export class TaskPricingPrismaRepository
       // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
       budgetNumber: 0,
       subtotal: formData.subtotal || 0,
-      discountType: (formData.discountType as any) || 'NONE',
-      discountValue: formData.discountValue || null,
       total: formData.total || 0,
       expiresAt: formData.expiresAt || new Date(),
-      status: (formData.status as any) || TASK_PRICING_STATUS.DRAFT,
-      // Payment Terms (simplified)
-      paymentCondition: (formData.paymentCondition as any) || null,
-      downPaymentDate: formData.downPaymentDate || null,
-      customPaymentText: formData.customPaymentText || null,
+      status: (formData.status as any) || TASK_PRICING_STATUS.PENDING,
+      statusOrder: 1,
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
       customGuaranteeText: formData.customGuaranteeText || null,
@@ -85,28 +90,37 @@ export class TaskPricingPrismaRepository
       }),
       // New fields
       simultaneousTasks: (formData as any).simultaneousTasks || null,
-      discountReference: (formData as any).discountReference || null,
       // Task will be connected separately via one-to-one relationship (Task.pricingId FK)
     };
 
-    // Handle invoicesToCustomers junction table (implicit many-to-many)
-    if ((formData as any).invoicesToCustomerIds && (formData as any).invoicesToCustomerIds.length > 0) {
-      createInput.invoicesToCustomers = {
-        connect: (formData as any).invoicesToCustomerIds.map((customerId: string) => ({
-          id: customerId,
+    // Handle customerConfigs
+    if ((formData as any).customerConfigs && (formData as any).customerConfigs.length > 0) {
+      (createInput as any).customerConfigs = {
+        create: (formData as any).customerConfigs.map((config: any) => ({
+          customer: { connect: { id: config.customerId } },
+          subtotal: config.subtotal || 0,
+          discountType: config.discountType || 'NONE',
+          discountValue: config.discountValue || null,
+          total: config.total || 0,
+          customPaymentText: config.customPaymentText || null,
+          responsibleId: config.responsibleId || null,
+          discountReference: config.discountReference || null,
         })),
       };
     }
 
-    // Handle items if provided
-    if (formData.items && formData.items.length > 0) {
-      createInput.items = {
-        create: formData.items.map((item, index) => ({
-          amount: item.amount || 0,
-          description: item.description || '',
-          observation: item.observation || null,
-          shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
+    // Handle services if provided
+    if (formData.services && formData.services.length > 0) {
+      (createInput as any).services = {
+        create: formData.services.map((service, index) => ({
+          amount: service.amount || 0,
+          description: service.description || '',
+          observation: service.observation || null,
+          shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
           position: index,
+          ...((service as any).invoiceToCustomerId && {
+            invoiceToCustomer: { connect: { id: (service as any).invoiceToCustomerId } },
+          }),
         })),
       };
     }
@@ -120,20 +134,9 @@ export class TaskPricingPrismaRepository
     const updateInput: Prisma.TaskPricingUpdateInput = {};
 
     if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
-    if (formData.discountType !== undefined)
-      updateInput.discountType = formData.discountType as any;
-    if (formData.discountValue !== undefined) updateInput.discountValue = formData.discountValue;
     if (formData.total !== undefined) updateInput.total = formData.total;
     if (formData.expiresAt !== undefined) updateInput.expiresAt = formData.expiresAt;
     if (formData.status !== undefined) updateInput.status = formData.status as any;
-
-    // Payment Terms (simplified)
-    if (formData.paymentCondition !== undefined)
-      updateInput.paymentCondition = formData.paymentCondition as any;
-    if (formData.downPaymentDate !== undefined)
-      updateInput.downPaymentDate = formData.downPaymentDate;
-    if (formData.customPaymentText !== undefined)
-      updateInput.customPaymentText = formData.customPaymentText;
 
     // Guarantee Terms
     if (formData.guaranteeYears !== undefined) updateInput.guaranteeYears = formData.guaranteeYears;
@@ -152,17 +155,6 @@ export class TaskPricingPrismaRepository
     // New fields
     if ((formData as any).simultaneousTasks !== undefined)
       updateInput.simultaneousTasks = (formData as any).simultaneousTasks;
-    if ((formData as any).discountReference !== undefined)
-      updateInput.discountReference = (formData as any).discountReference;
-
-    // Handle invoicesToCustomers junction table (implicit many-to-many)
-    if ((formData as any).invoicesToCustomerIds !== undefined) {
-      updateInput.invoicesToCustomers = {
-        set: (formData as any).invoicesToCustomerIds.map((customerId: string) => ({
-          id: customerId,
-        })),
-      };
-    }
 
     return updateInput;
   }
@@ -174,9 +166,18 @@ export class TaskPricingPrismaRepository
 
     const mappedInclude: Prisma.TaskPricingInclude = {};
 
-    if (include.items !== undefined) {
-      mappedInclude.items =
-        include.items === true ? { orderBy: { position: 'asc' as const } } : include.items;
+    if (include.services !== undefined) {
+      mappedInclude.services =
+        include.services === true
+          ? {
+              orderBy: { position: 'asc' as const },
+              include: {
+                invoiceToCustomer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+              },
+            }
+          : include.services;
     }
     if ((include as any).task !== undefined) {
       if (typeof (include as any).task === 'boolean') {
@@ -187,8 +188,21 @@ export class TaskPricingPrismaRepository
     }
     if ((include as any).layoutFile !== undefined)
       mappedInclude.layoutFile = (include as any).layoutFile;
-    if ((include as any).invoicesToCustomers !== undefined)
-      mappedInclude.invoicesToCustomers = (include as any).invoicesToCustomers;
+    if ((include as any).customerConfigs !== undefined) {
+      mappedInclude.customerConfigs =
+        (include as any).customerConfigs === true
+          ? {
+              include: {
+                customer: {
+                  select: { id: true, fantasyName: true, cnpj: true },
+                },
+                responsible: {
+                  select: { id: true, name: true, role: true },
+                },
+              },
+            }
+          : (include as any).customerConfigs;
+    }
 
     return mappedInclude;
   }
@@ -209,8 +223,32 @@ export class TaskPricingPrismaRepository
 
   protected getDefaultInclude(): Prisma.TaskPricingInclude | undefined {
     return {
-      items: { orderBy: { position: 'asc' } },
-      invoicesToCustomers: true,
+      services: {
+        orderBy: { position: 'asc' },
+        include: {
+          invoiceToCustomer: {
+            select: { id: true, fantasyName: true, cnpj: true },
+          },
+        },
+      },
+      customerConfigs: {
+        include: {
+          customer: {
+            select: { id: true, fantasyName: true, cnpj: true },
+          },
+          installments: {
+            include: {
+              bankSlip: true,
+            },
+            orderBy: { number: 'asc' },
+          },
+          invoice: {
+            include: {
+              nfseDocument: true,
+            },
+          },
+        },
+      },
     };
   }
 
@@ -347,14 +385,27 @@ export class TaskPricingPrismaRepository
   }
 
   /**
-   * Find pricing by task ID (with items)
+   * Find pricing by task ID (with services)
    */
   async findByTaskId(taskId: string): Promise<TaskPricing | null> {
     const pricing = await this.prisma.taskPricing.findFirst({
       where: { task: { id: taskId } },
       include: {
-        items: { orderBy: { position: 'asc' } },
-        invoicesToCustomers: true,
+        services: {
+          orderBy: { position: 'asc' },
+          include: {
+            invoiceToCustomer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
+        customerConfigs: {
+          include: {
+            customer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
       },
     });
 
@@ -368,9 +419,22 @@ export class TaskPricingPrismaRepository
     const pricings = await this.prisma.taskPricing.findMany({
       where: { status: status as any },
       include: {
-        items: { orderBy: { position: 'asc' } },
+        services: {
+          orderBy: { position: 'asc' },
+          include: {
+            invoiceToCustomer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
         task: true,
-        invoicesToCustomers: true,
+        customerConfigs: {
+          include: {
+            customer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -387,13 +451,26 @@ export class TaskPricingPrismaRepository
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [TASK_PRICING_STATUS.DRAFT, TASK_PRICING_STATUS.APPROVED],
+          in: [TASK_PRICING_STATUS.PENDING, TASK_PRICING_STATUS.BUDGET_APPROVED, TASK_PRICING_STATUS.VERIFIED, TASK_PRICING_STATUS.INTERNAL_APPROVED],
         },
       },
       include: {
-        items: { orderBy: { position: 'asc' } },
+        services: {
+          orderBy: { position: 'asc' },
+          include: {
+            invoiceToCustomer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
         task: true,
-        invoicesToCustomers: true,
+        customerConfigs: {
+          include: {
+            customer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
       },
     });
 
@@ -407,11 +484,24 @@ export class TaskPricingPrismaRepository
     const pricing = await this.prisma.taskPricing.findFirst({
       where: {
         task: { id: taskId },
-        status: TASK_PRICING_STATUS.APPROVED,
+        status: { in: [TASK_PRICING_STATUS.INTERNAL_APPROVED, TASK_PRICING_STATUS.UPCOMING, TASK_PRICING_STATUS.PARTIAL, TASK_PRICING_STATUS.SETTLED] },
       },
       include: {
-        items: { orderBy: { position: 'asc' } },
-        invoicesToCustomers: true,
+        services: {
+          orderBy: { position: 'asc' },
+          include: {
+            invoiceToCustomer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
+        customerConfigs: {
+          include: {
+            customer: {
+              select: { id: true, fantasyName: true, cnpj: true },
+            },
+          },
+        },
       },
     });
 

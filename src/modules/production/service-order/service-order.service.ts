@@ -159,11 +159,24 @@ export class ServiceOrderService {
 
         // Create the service order with createdById
         // Convert description to Title Case for consistency
-        const createData = {
+        const createData: any = {
           ...data,
           description: this.toTitleCase(data.description),
           createdById: userId || '',
         };
+
+        // Auto-complete new SOs added to COMPLETED tasks
+        if (taskWithServices?.status === TASK_STATUS.COMPLETED) {
+          this.logger.log(
+            `[AUTO-COMPLETE SO] Task ${data.taskId} is COMPLETED, auto-completing new service order`,
+          );
+          createData.status = SERVICE_ORDER_STATUS.COMPLETED;
+          createData.statusOrder = 4;
+          createData.startedAt = new Date();
+          createData.startedById = userId || '';
+          createData.finishedAt = new Date();
+          createData.completedById = userId || '';
+        }
 
         const created = await this.serviceOrderRepository.createWithTransaction(tx, createData, {
           include,
@@ -230,14 +243,14 @@ export class ServiceOrderService {
               where: { id: data.taskId },
               include: {
                 pricing: {
-                  include: { items: true },
+                  include: { services: true },
                 },
               },
             });
 
             if (taskWithPricing?.pricing) {
               const existingPricingItems: SyncPricingItem[] = (
-                taskWithPricing.pricing.items || []
+                taskWithPricing.pricing.services || []
               ).map((item: any) => ({
                 id: item.id,
                 description: item.description,
@@ -261,7 +274,7 @@ export class ServiceOrderService {
                   `[SO→PRICING SYNC] Creating pricing item: "${syncResult.pricingItemDescription}" for SO "${created.description}"`,
                 );
 
-                await tx.taskPricingItem.create({
+                await tx.taskPricingService.create({
                   data: {
                     pricingId: taskWithPricing.pricing.id,
                     description: syncResult.pricingItemDescription,
@@ -271,7 +284,7 @@ export class ServiceOrderService {
                 });
 
                 // Recalculate pricing subtotal and total
-                const allItems = await tx.taskPricingItem.findMany({
+                const allItems = await tx.taskPricingService.findMany({
                   where: { pricingId: taskWithPricing.pricing.id },
                 });
                 const newSubtotal = allItems.reduce(
@@ -639,85 +652,8 @@ export class ServiceOrderService {
           }
         }
 
-        // Auto-complete task when all PRODUCTION service orders are COMPLETED
-        // This ensures the task workflow progresses automatically when all production work is done
-        if (
-          data.status === SERVICE_ORDER_STATUS.COMPLETED &&
-          oldData.status !== SERVICE_ORDER_STATUS.COMPLETED &&
-          updated.type === SERVICE_ORDER_TYPE.PRODUCTION
-        ) {
-          const task = await tx.task.findUnique({
-            where: { id: updated.taskId },
-            select: { id: true, status: true, startedAt: true, finishedAt: true },
-          });
-
-          // Only proceed if task is in IN_PRODUCTION or WAITING_PRODUCTION status (not already completed)
-          if (
-            task &&
-            (task.status === TASK_STATUS.IN_PRODUCTION ||
-              task.status === TASK_STATUS.WAITING_PRODUCTION)
-          ) {
-            // Get all PRODUCTION service orders for this task
-            const productionServiceOrders = await tx.serviceOrder.findMany({
-              where: {
-                taskId: updated.taskId,
-                type: SERVICE_ORDER_TYPE.PRODUCTION,
-              },
-              select: { id: true, status: true },
-            });
-
-            // Filter out CANCELLED orders - they don't block task completion
-            const activeProductionOrders = productionServiceOrders.filter(
-              so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
-            );
-
-            // Check if there's at least 1 active production service order and ALL are COMPLETED
-            const hasActiveProductionOrders = activeProductionOrders.length > 0;
-            const allActiveProductionCompleted = activeProductionOrders.every(
-              so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
-            );
-
-            if (hasActiveProductionOrders && allActiveProductionCompleted) {
-              this.logger.log(
-                `[AUTO-COMPLETE TASK] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id}, transitioning to COMPLETED`,
-              );
-
-              const oldTaskStatus = task.status as TASK_STATUS;
-              await tx.task.update({
-                where: { id: task.id },
-                data: {
-                  status: TASK_STATUS.COMPLETED,
-                  statusOrder: 4, // COMPLETED statusOrder
-                  finishedAt: task.finishedAt || new Date(),
-                  // Also set startedAt if not already set
-                  startedAt: task.startedAt || new Date(),
-                },
-              });
-
-              // Log the auto-complete in changelog
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: task.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'status',
-                oldValue: oldTaskStatus,
-                newValue: TASK_STATUS.COMPLETED,
-                reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
-                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-
-              // Track for event emission after transaction commits
-              taskAutoCompleted = {
-                taskId: task.id,
-                oldStatus: oldTaskStatus,
-                newStatus: TASK_STATUS.COMPLETED,
-              };
-            }
-          }
-        }
+        // NOTE: Task is NO LONGER auto-completed when all production SOs finish.
+        // Only the logistics sector can finish/complete tasks manually.
 
         // =====================================================================
         // AUTO-COMPLETE TASK WHEN SERVICE ORDER IS CANCELLED
@@ -754,11 +690,8 @@ export class ServiceOrderService {
               so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
             );
 
-            // Check if there's at least 1 active production service order and ALL are COMPLETED
+            // Check if there are any active (non-cancelled) production service orders
             const hasActiveProductionOrders = activeProductionOrders.length > 0;
-            const allActiveProductionCompleted = activeProductionOrders.every(
-              so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
-            );
 
             // If ALL production orders are now cancelled, rollback task (not cancel - only COMMERCIAL cancellation cancels task)
             if (!hasActiveProductionOrders && productionServiceOrders.length > 0) {
@@ -801,45 +734,9 @@ export class ServiceOrderService {
                 };
               }
               // If task is not IN_PRODUCTION, don't change task status
-            } else if (hasActiveProductionOrders && allActiveProductionCompleted) {
-              // If there are still active orders and all are completed, complete the task
-              this.logger.log(
-                `[AUTO-COMPLETE TASK ON CANCEL] All ${activeProductionOrders.length} active PRODUCTION service orders completed for task ${task.id} (SO ${id} cancelled), transitioning to COMPLETED`,
-              );
-
-              const oldTaskStatus = task.status as TASK_STATUS;
-              await tx.task.update({
-                where: { id: task.id },
-                data: {
-                  status: TASK_STATUS.COMPLETED,
-                  statusOrder: 4, // COMPLETED statusOrder
-                  finishedAt: task.finishedAt || new Date(),
-                  startedAt: task.startedAt || new Date(),
-                },
-              });
-
-              // Log the auto-complete in changelog
-              await this.changeLogService.logChange({
-                entityType: ENTITY_TYPE.TASK,
-                entityId: task.id,
-                action: CHANGE_ACTION.UPDATE,
-                field: 'status',
-                oldValue: oldTaskStatus,
-                newValue: TASK_STATUS.COMPLETED,
-                reason: `Tarefa concluída automaticamente quando ordem de serviço foi cancelada e todas as ${activeProductionOrders.length} ordens de serviço de produção restantes estão finalizadas`,
-                triggeredBy: CHANGE_TRIGGERED_BY.SYSTEM_GENERATED,
-                triggeredById: id,
-                userId: userId || '',
-                transaction: tx,
-              });
-
-              // Track for event emission after transaction commits
-              taskAutoCompleted = {
-                taskId: task.id,
-                oldStatus: oldTaskStatus,
-                newStatus: TASK_STATUS.COMPLETED,
-              };
             }
+            // NOTE: Task is NO LONGER auto-completed when remaining active SOs are all completed.
+            // Only the logistics sector can finish/complete tasks manually.
           }
         }
 
@@ -889,7 +786,7 @@ export class ServiceOrderService {
                 },
               });
 
-              // Cancel all remaining non-cancelled service orders (PRODUCTION, FINANCIAL, ARTWORK, LOGISTIC)
+              // Cancel all remaining non-cancelled service orders (PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC)
               const otherServiceOrders = await tx.serviceOrder.findMany({
                 where: {
                   taskId: task.id,
@@ -1714,10 +1611,11 @@ export class ServiceOrderService {
       const taskIds = Array.from(new Set(data.serviceOrders.map(item => item.taskId)));
       const tasks = await this.prisma.task.findMany({
         where: { id: { in: taskIds } },
-        select: { id: true },
+        select: { id: true, status: true },
       });
 
       const existingTaskIds = new Set(tasks.map(t => t.id));
+      const completedTaskIds = new Set(tasks.filter(t => t.status === TASK_STATUS.COMPLETED).map(t => t.id));
       const invalidItems = data.serviceOrders.filter(item => !existingTaskIds.has(item.taskId));
 
       if (invalidItems.length > 0) {
@@ -1752,11 +1650,28 @@ export class ServiceOrderService {
 
       const result = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
         // Convert all descriptions to Title Case and add createdById
-        const serviceOrdersWithTitleCase = data.serviceOrders.map(so => ({
-          ...so,
-          description: this.toTitleCase(so.description),
-          createdById: so.createdById || userId || '', // Use provided createdById or fallback to userId
-        }));
+        // Auto-complete SOs for COMPLETED tasks
+        const serviceOrdersWithTitleCase = data.serviceOrders.map(so => {
+          const base: any = {
+            ...so,
+            description: this.toTitleCase(so.description),
+            createdById: so.createdById || userId || '',
+          };
+
+          if (completedTaskIds.has(so.taskId)) {
+            this.logger.log(
+              `[AUTO-COMPLETE SO] Task ${so.taskId} is COMPLETED, auto-completing batch SO "${so.description}"`,
+            );
+            base.status = SERVICE_ORDER_STATUS.COMPLETED;
+            base.statusOrder = 4;
+            base.startedAt = new Date();
+            base.startedById = userId || '';
+            base.finishedAt = new Date();
+            base.completedById = userId || '';
+          }
+
+          return base;
+        });
 
         const batchResult = await this.serviceOrderRepository.createManyWithTransaction(
           tx,
@@ -2402,7 +2317,7 @@ export class ServiceOrderService {
                       },
                     });
 
-                    // Cancel all remaining non-cancelled service orders (PRODUCTION, FINANCIAL, ARTWORK, LOGISTIC)
+                    // Cancel all remaining non-cancelled service orders (PRODUCTION, COMMERCIAL, ARTWORK, LOGISTIC)
                     const otherServiceOrders = await tx.serviceOrder.findMany({
                       where: {
                         taskId: task.id,

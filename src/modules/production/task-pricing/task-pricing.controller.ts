@@ -25,7 +25,7 @@ import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
 import { multerConfig } from '@modules/common/file/config/upload.config';
-import { SECTOR_PRIVILEGES } from '@constants';
+import { SECTOR_PRIVILEGES, TASK_PRICING_STATUS } from '@constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
@@ -35,9 +35,6 @@ import {
   taskPricingUpdateSchema,
   taskPricingGetManySchema,
   taskPricingQuerySchema,
-  taskPricingBatchCreateSchema,
-  taskPricingBatchUpdateSchema,
-  taskPricingBatchDeleteSchema,
 } from '@schemas/task-pricing';
 import type {
   TaskPricingCreateFormData,
@@ -141,57 +138,70 @@ export class TaskPricingController {
    * PUT /task-pricings/:id/status
    * Update pricing status
    *
-   * Access: FINANCIAL, ADMIN (for approval/rejection)
+   * Access: FINANCIAL, ADMIN, COMMERCIAL
+   * Note: FINANCIAL cannot set INTERNAL_APPROVED (only ADMIN/COMMERCIAL can)
    */
   @Put(':id/status')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @Body('status') status: string,
-    @Body('reason') reason: string | undefined,
     @UserId() userId: string,
+    @Req() req: Request,
   ) {
-    return this.taskPricingService.updateStatus(id, status as any, userId, reason);
+    const validStatuses = Object.values(TASK_PRICING_STATUS);
+    if (!validStatuses.includes(status as any)) {
+      throw new BadRequestException('Status inválido');
+    }
+
+    // FINANCIAL cannot set INTERNAL_APPROVED — only ADMIN/COMMERCIAL can
+    if (status === TASK_PRICING_STATUS.INTERNAL_APPROVED) {
+      const userPrivilege = (req as any).user?.role;
+      if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
+        throw new BadRequestException(
+          'Setor financeiro não pode aprovar internamente. Apenas Admin ou Comercial.',
+        );
+      }
+      return this.taskPricingService.internalApprove(id, userId);
+    }
+
+    return this.taskPricingService.updateStatus(id, status as TASK_PRICING_STATUS, userId);
   }
 
   /**
-   * PUT /task-pricings/:id/approve
-   * Approve pricing (shortcut for status update)
-   *
-   * Access: FINANCIAL, ADMIN
-   */
-  @Put(':id/approve')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
-  async approve(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.approve(id, userId);
-  }
-
-  /**
-   * PUT /task-pricings/:id/reject
-   * Reject pricing (shortcut for status update)
-   *
-   * Access: FINANCIAL, ADMIN
-   */
-  @Put(':id/reject')
-  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
-  async reject(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('reason') reason: string | undefined,
-    @UserId() userId: string,
-  ) {
-    return this.taskPricingService.reject(id, userId, reason);
-  }
-
-  /**
-   * PUT /task-pricings/:id/cancel
-   * Cancel pricing
+   * PUT /task-pricings/:id/budget-approve
+   * Customer approved the budget (PENDING → BUDGET_APPROVED)
    *
    * Access: COMMERCIAL, ADMIN
    */
-  @Put(':id/cancel')
+  @Put(':id/budget-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
-  async cancel(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.cancel(id, userId);
+  async budgetApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskPricingService.budgetApprove(id, userId);
+  }
+
+  /**
+   * PUT /task-pricings/:id/verify
+   * Financial verifies pricing structure (BUDGET_APPROVED → VERIFIED)
+   *
+   * Access: FINANCIAL, ADMIN
+   */
+  @Put(':id/verify')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async verify(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskPricingService.verify(id, userId);
+  }
+
+  /**
+   * PUT /task-pricings/:id/internal-approve
+   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED → INTERNAL_APPROVED)
+   *
+   * Access: COMMERCIAL, ADMIN
+   */
+  @Put(':id/internal-approve')
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
+  async internalApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
+    return this.taskPricingService.internalApprove(id, userId);
   }
 
   /**
@@ -271,6 +281,7 @@ export class TaskPricingController {
   async uploadPublicSignature(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: Express.Multer.File,
+    @Query('customerConfigId') customerConfigId?: string,
   ) {
     if (!file) {
       throw new BadRequestException('Arquivo de assinatura é obrigatório.');
@@ -284,6 +295,6 @@ export class TaskPricingController {
       );
     }
 
-    return this.taskPricingService.uploadCustomerSignature(id, file);
+    return this.taskPricingService.uploadCustomerSignature(id, file, customerConfigId);
   }
 }

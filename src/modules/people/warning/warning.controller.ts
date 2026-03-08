@@ -105,10 +105,10 @@ export class WarningController {
     @Query(new ZodQueryValidationPipe(warningGetManySchema)) query: WarningGetManyFormData,
     @UserId() userId: string,
   ): Promise<WarningGetManyResponse> {
-    // Get the user's managed sector to filter team members
-    const userWithSector = await this.warningService.getUserManagedSector(userId);
+    // Get the user's led sector to filter team members
+    const userWithSector = await this.warningService.getUserLedSector(userId);
 
-    if (!userWithSector?.managedSectorId) {
+    if (!userWithSector?.ledSectorId) {
       // User is not a team leader, return empty result
       return {
         success: true,
@@ -125,13 +125,13 @@ export class WarningController {
       };
     }
 
-    // Filter warnings by collaborators in the leader's managed sector
+    // Filter warnings by collaborators in the leader's led sector
     const filteredQuery: WarningGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         collaborator: {
-          sectorId: userWithSector.managedSectorId,
+          sectorId: userWithSector.ledSectorId,
         },
       },
     };

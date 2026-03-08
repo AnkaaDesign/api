@@ -11,6 +11,7 @@ import type {
 } from './common';
 import type { ORDER_BY_DIRECTION, SERVICE_ORDER_STATUS, SERVICE_ORDER_TYPE } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
+import type { File } from './file';
 
 // =====================
 // ServiceOrder Interface
@@ -31,6 +32,10 @@ export interface ServiceOrder extends BaseEntity {
   startedAt: Date | null;
   approvedAt: Date | null;
   finishedAt: Date | null;
+
+  // File IDs for create/update
+  checkinFileIds?: string[];
+  checkoutFileIds?: string[];
 
   // Relations
   task?: Task;
@@ -62,6 +67,8 @@ export interface ServiceOrder extends BaseEntity {
   service?: {
     name: string;
   };
+  checkinFiles?: File[];
+  checkoutFiles?: File[];
 }
 
 // =====================
@@ -79,6 +86,8 @@ export interface ServiceOrderIncludes {
   startedBy?: boolean;
   approvedBy?: boolean;
   completedBy?: boolean;
+  checkinFiles?: boolean;
+  checkoutFiles?: boolean;
 }
 
 // =====================

@@ -258,12 +258,12 @@ export class CreateTargetRuleDto {
   includeTriggeringUser?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Whether to include sector managers',
+    description: 'Whether to include sector leaders',
     default: false,
   })
   @IsOptional()
   @IsBoolean()
-  includeSectorManagers?: boolean;
+  includeSectorLeaders?: boolean;
 
   @ApiPropertyOptional({
     description: 'User IDs to exclude from targeting',
@@ -914,8 +914,8 @@ export class TargetRuleResponseDto {
   @ApiPropertyOptional({ description: 'Include triggering user' })
   includeTriggeringUser?: boolean;
 
-  @ApiPropertyOptional({ description: 'Include sector managers' })
-  includeSectorManagers?: boolean;
+  @ApiPropertyOptional({ description: 'Include sector leaders' })
+  includeSectorLeaders?: boolean;
 
   @ApiPropertyOptional({ description: 'Excluded user IDs', type: [String] })
   excludeUserIds?: string[];

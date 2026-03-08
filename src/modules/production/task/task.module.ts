@@ -13,9 +13,10 @@ import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
 import { FileModule } from '@modules/common/file/file.module';
 import { NotificationModule } from '@modules/common/notification/notification.module';
+import { NfseModule } from '@modules/integrations/nfse/nfse.module';
 
 @Module({
-  imports: [PrismaModule, ChangeLogModule, FileModule, NotificationModule],
+  imports: [PrismaModule, ChangeLogModule, FileModule, NotificationModule, NfseModule],
   controllers: [TaskController],
   providers: [
     TaskService,

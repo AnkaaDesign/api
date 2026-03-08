@@ -93,7 +93,7 @@ export class AuthService {
     }
 
     const user = await this.usersRepository.findById(foundUser.id, {
-      include: { sector: true, managedSector: true },
+      include: { sector: true, ledSector: true },
     });
 
     if (!user) {
@@ -193,10 +193,10 @@ export class AuthService {
                 privileges: user.sector.privileges,
               }
             : null,
-          managedSector: user.managedSector
+          ledSector: user.ledSector
             ? {
-                id: user.managedSector.id,
-                name: user.managedSector.name,
+                id: user.ledSector.id,
+                name: user.ledSector.name,
               }
             : null,
         },
@@ -992,7 +992,7 @@ export class AuthService {
         sector: true,
         ppeSize: true,
         preference: true,
-        managedSector: true,
+        ledSector: true,
       },
     });
 
@@ -1019,7 +1019,7 @@ export class AuthService {
     const user = await this.usersRepository.findById(userId, {
       include: {
         sector: true,
-        managedSector: true,
+        ledSector: true,
       },
     });
 
@@ -1082,10 +1082,10 @@ export class AuthService {
                 privileges: user.sector.privileges,
               }
             : null,
-          managedSector: user.managedSector
+          ledSector: user.ledSector
             ? {
-                id: user.managedSector.id,
-                name: user.managedSector.name,
+                id: user.ledSector.id,
+                name: user.ledSector.name,
               }
             : null,
         },

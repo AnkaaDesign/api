@@ -55,9 +55,9 @@ export class AuthGuard implements CanActivate {
       });
 
       // Check if user still exists and is active
-      // Include managedSector to check for team leader status
+      // Include ledSector to check for team leader status
       const user = await this.userRepository.findById(payload.sub, {
-        include: { managedSector: true },
+        include: { ledSector: true },
       });
 
       if (!user) {

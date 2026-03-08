@@ -21,10 +21,13 @@ import {
 // =====================
 
 export const taskPricingStatusSchema = z.enum([
-  TASK_PRICING_STATUS.DRAFT,
-  TASK_PRICING_STATUS.APPROVED,
-  TASK_PRICING_STATUS.REJECTED,
-  TASK_PRICING_STATUS.CANCELLED,
+  TASK_PRICING_STATUS.PENDING,
+  TASK_PRICING_STATUS.BUDGET_APPROVED,
+  TASK_PRICING_STATUS.VERIFIED,
+  TASK_PRICING_STATUS.INTERNAL_APPROVED,
+  TASK_PRICING_STATUS.UPCOMING,
+  TASK_PRICING_STATUS.PARTIAL,
+  TASK_PRICING_STATUS.SETTLED,
 ]);
 
 // =====================
@@ -93,24 +96,43 @@ export const taskPricingIncludeSchema = z
         }),
       ])
       .optional(),
-    items: z.boolean().optional(),
+    services: z.boolean().optional(),
     layoutFile: z.boolean().optional(),
-    customerSignature: z.boolean().optional(),
-    invoicesToCustomers: z
+    customerConfigs: z
       .union([
         z.boolean(),
         z.object({
-          select: z
+          include: z
             .object({
-              id: z.boolean().optional(),
-              fantasyName: z.boolean().optional(),
-              cnpj: z.boolean().optional(),
+              customer: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    select: z
+                      .object({
+                        id: z.boolean().optional(),
+                        fantasyName: z.boolean().optional(),
+                        cnpj: z.boolean().optional(),
+                      })
+                      .optional(),
+                  }),
+                ])
+                .optional(),
+              customerSignature: z.boolean().optional(),
+              responsible: z.boolean().optional(),
+              installments: z
+                .union([
+                  z.boolean(),
+                  z.object({
+                    orderBy: z.object({ number: z.enum(['asc', 'desc']) }).optional(),
+                  }),
+                ])
+                .optional(),
             })
             .optional(),
         }),
       ])
       .optional(),
-    responsible: z.boolean().optional(),
   })
   .partial();
 
@@ -126,9 +148,9 @@ export const taskPricingOrderBySchema = z
         total: orderByDirectionSchema.optional(),
         expiresAt: orderByDirectionSchema.optional(),
         status: orderByDirectionSchema.optional(),
+        statusOrder: orderByDirectionSchema.optional(),
         taskId: orderByDirectionSchema.optional(),
         simultaneousTasks: orderByDirectionSchema.optional(),
-        discountReference: orderByDirectionSchema.optional(),
         createdAt: orderByDirectionSchema.optional(),
         updatedAt: orderByDirectionSchema.optional(),
         task: z
@@ -155,9 +177,9 @@ export const taskPricingOrderBySchema = z
           total: orderByDirectionSchema.optional(),
           expiresAt: orderByDirectionSchema.optional(),
           status: orderByDirectionSchema.optional(),
+          statusOrder: orderByDirectionSchema.optional(),
           taskId: orderByDirectionSchema.optional(),
           simultaneousTasks: orderByDirectionSchema.optional(),
-          discountReference: orderByDirectionSchema.optional(),
           createdAt: orderByDirectionSchema.optional(),
           updatedAt: orderByDirectionSchema.optional(),
         })
@@ -248,19 +270,6 @@ export const taskPricingWhereSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      discountReference: z
-        .union([
-          z.string(),
-          z.object({
-            equals: z.string().optional(),
-            contains: z.string().optional(),
-            startsWith: z.string().optional(),
-            endsWith: z.string().optional(),
-            mode: z.enum(['default', 'insensitive']).optional(),
-            not: z.string().optional(),
-          }),
-        ])
-        .optional(),
       createdAt: z
         .union([
           z.date(),
@@ -314,7 +323,7 @@ const taskPricingTransform = (data: any) => {
   if (data.searchingFor) {
     transformed.where = {
       ...transformed.where,
-      items: {
+      services: {
         some: {
           description: {
             contains: data.searchingFor,
@@ -402,28 +411,34 @@ export const taskPricingGetManySchema = z
 // Nested Schemas for Relations
 // =====================
 
-// InvoicesToCustomers nested schema (array of customer IDs)
-export const invoicesToCustomerIdsSchema = z
-  .preprocess(
-    val => {
-      // Handle empty string, null, undefined
-      if (val === '' || val === null || val === undefined) return [];
-      // If already an array, return it
-      if (Array.isArray(val)) return val;
-      // If string, try to parse as JSON
-      if (typeof val === 'string') {
-        try {
-          const parsed = JSON.parse(val);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    },
-    z.array(z.string().uuid('ID de cliente inválido')),
-  )
-  .optional();
+// CustomerConfig nested schema (for per-customer billing config)
+// Installment schema for direct installment input
+export const installmentInputSchema = z.object({
+  number: z.number().int().min(1),
+  dueDate: z.coerce.date(),
+  amount: moneySchema,
+});
+
+export const taskPricingCustomerConfigCreateNestedSchema = z.object({
+  customerId: z.string().uuid('ID de cliente inválido'),
+  subtotal: moneySchema.optional().default(0),
+  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
+  discountValue: moneySchema.nullable().optional(),
+  total: moneySchema.optional().default(0),
+  // Payment condition + downPaymentDate are input-only fields used to generate installments
+  paymentCondition: paymentConditionSchema.optional().nullable(),
+  downPaymentDate: z
+    .preprocess(
+      val => (val === null || val === undefined || val === '' ? null : val),
+      z.coerce.date().nullable(),
+    )
+    .optional(),
+  customPaymentText: z.string().max(2000).optional().nullable(),
+  responsibleId: z.string().uuid('ID de responsável inválido').optional().nullable(),
+  discountReference: z.string().max(500, 'Máximo de 500 caracteres').optional().nullable(),
+  // Direct installments (alternative to paymentCondition-based generation)
+  installments: z.array(installmentInputSchema).optional(),
+});
 
 // Simultaneous tasks schema
 export const simultaneousTasksSchema = z
@@ -441,10 +456,10 @@ export const discountReferenceSchema = z
   .nullable()
   .optional();
 
-// TaskPricingItem nested schema
-// Amount is optional and defaults to 0 (courtesy items)
-export const taskPricingItemCreateNestedSchema = z.object({
-  id: z.string().uuid().optional(), // For updating existing items
+// TaskPricingService nested schema
+// Amount is optional and defaults to 0 (courtesy services)
+export const taskPricingServiceCreateNestedSchema = z.object({
+  id: z.string().uuid().optional(), // For updating existing services
   description: z
     .string()
     .min(1, 'Descrição é obrigatória')
@@ -458,33 +473,21 @@ export const taskPricingItemCreateNestedSchema = z.object({
     .default(0)
     .transform(val => val ?? 0),
   // Controls bidirectional sync with ServiceOrder
-  // When false, prevents auto-recreation of service orders from this pricing item
+  // When false, prevents auto-recreation of service orders from this pricing service
   shouldSync: z.boolean().optional().default(true),
+  invoiceToCustomerId: z.string().uuid('Cliente inválido').optional().nullable(),
 });
 
 // TaskPricing nested schema for task create/update (matches Prisma TaskPricing model)
 export const taskPricingCreateNestedSchema = z.object({
-  items: z.array(taskPricingItemCreateNestedSchema).min(1, 'Pelo menos um item é obrigatório'),
+  services: z.array(taskPricingServiceCreateNestedSchema).min(1, 'Pelo menos um serviço é obrigatório'),
   expiresAt: z.coerce.date({
     errorMap: () => ({ message: 'Data de validade inválida' }),
   }),
-  status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.DRAFT),
-  // Pricing calculation fields
+  status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.PENDING),
+  // Aggregate totals (computed from customerConfigs)
   subtotal: moneySchema.optional(),
-  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
-  discountValue: moneySchema.nullable().optional(),
   total: moneySchema.optional(),
-
-  // Payment Terms (simplified)
-  paymentCondition: paymentConditionSchema.optional().nullable(),
-  // Preprocess to handle null/empty before coercing to date
-  downPaymentDate: z
-    .preprocess(
-      val => (val === null || val === undefined || val === '' ? null : val),
-      z.coerce.date().nullable(),
-    )
-    .optional(),
-  customPaymentText: z.string().max(2000).optional().nullable(),
 
   // Guarantee Terms
   guaranteeYears: guaranteeYearsSchema.optional().nullable(),
@@ -496,146 +499,62 @@ export const taskPricingCreateNestedSchema = z.object({
   // Layout File
   layoutFileId: z.string().uuid().optional().nullable(),
 
-  // Budget responsible
-  responsibleId: z.string().uuid().optional().nullable(),
-
-  // New fields
   simultaneousTasks: simultaneousTasksSchema,
-  discountReference: discountReferenceSchema,
-  invoicesToCustomerIds: invoicesToCustomerIdsSchema,
+  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuração de cliente é obrigatória'),
 });
 
 // =====================
 // CRUD Schemas - TaskPricing
 // =====================
 
-export const taskPricingCreateSchema = z
-  .object({
-    subtotal: moneySchema,
-    discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE),
-    discountValue: moneySchema.optional(),
-    total: moneySchema,
-    expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
-    status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.DRAFT),
-    taskId: z.string().uuid('Tarefa inválida'),
-    items: z
-      .array(taskPricingItemCreateNestedSchema)
-      .min(1, 'Pelo menos um item é obrigatório')
-      .optional(),
+export const taskPricingCreateSchema = z.object({
+  subtotal: moneySchema,
+  total: moneySchema,
+  expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
+  status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.PENDING),
+  taskId: z.string().uuid('Tarefa inválida'),
+  services: z
+    .array(taskPricingServiceCreateNestedSchema)
+    .min(1, 'Pelo menos um serviço é obrigatório')
+    .optional(),
 
-    // Payment Terms (simplified)
-    paymentCondition: paymentConditionSchema.optional().nullable(),
-    // Preprocess to handle null/empty before coercing to date
-    downPaymentDate: z
-      .preprocess(
-        val => (val === null || val === undefined || val === '' ? null : val),
-        z.coerce.date().nullable(),
-      )
-      .optional(),
-    customPaymentText: z.string().max(2000).optional().nullable(),
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
 
-    // Guarantee Terms
-    guaranteeYears: guaranteeYearsSchema.optional().nullable(),
-    customGuaranteeText: z.string().max(2000).optional().nullable(),
+  // Custom Forecast - manual override for production days displayed in budget (1-30 days)
+  customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-    // Custom Forecast - manual override for production days displayed in budget (1-30 days)
-    customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
+  // Layout File
+  layoutFileId: z.string().uuid().optional().nullable(),
 
-    // Layout File
-    layoutFileId: z.string().uuid().optional().nullable(),
+  simultaneousTasks: simultaneousTasksSchema,
+  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuração de cliente é obrigatória'),
+});
 
-    // Budget responsible
-    responsibleId: z.string().uuid().optional().nullable(),
+export const taskPricingUpdateSchema = z.object({
+  subtotal: moneySchema.optional(),
+  total: moneySchema.optional(),
+  expiresAt: z.coerce
+    .date({ errorMap: () => ({ message: 'Data de validade inválida' }) })
+    .optional(),
+  status: taskPricingStatusSchema.optional(),
+  taskId: z.string().uuid('Tarefa inválida').optional(),
+  services: z.array(taskPricingServiceCreateNestedSchema).optional(),
 
-    // New fields
-    simultaneousTasks: simultaneousTasksSchema,
-    discountReference: discountReferenceSchema,
-    invoicesToCustomerIds: invoicesToCustomerIdsSchema,
-  })
-  .superRefine((data, ctx) => {
-    // Discount validation
-    if (data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Valor de desconto é obrigatório quando o tipo não é "Nenhum"',
-        path: ['discountValue'],
-      });
-    }
-    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
-      if (data.discountValue < 0 || data.discountValue > 100) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Porcentagem de desconto deve estar entre 0 e 100',
-          path: ['discountValue'],
-        });
-      }
-    }
-  });
+  // Guarantee Terms
+  guaranteeYears: guaranteeYearsSchema.optional().nullable(),
+  customGuaranteeText: z.string().max(2000).optional().nullable(),
 
-export const taskPricingUpdateSchema = z
-  .object({
-    subtotal: moneySchema.optional(),
-    discountType: discountTypeSchema.optional(),
-    discountValue: moneySchema.optional(),
-    total: moneySchema.optional(),
-    expiresAt: z.coerce
-      .date({ errorMap: () => ({ message: 'Data de validade inválida' }) })
-      .optional(),
-    status: taskPricingStatusSchema.optional(),
-    taskId: z.string().uuid('Tarefa inválida').optional(),
-    items: z.array(taskPricingItemCreateNestedSchema).optional(),
+  // Custom Forecast - manual override for production days displayed in budget (1-30 days)
+  customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
 
-    // Payment Terms (simplified)
-    paymentCondition: paymentConditionSchema.optional().nullable(),
-    // Preprocess to handle null/empty before coercing to date
-    downPaymentDate: z
-      .preprocess(
-        val => (val === null || val === undefined || val === '' ? null : val),
-        z.coerce.date().nullable(),
-      )
-      .optional(),
-    customPaymentText: z.string().max(2000).optional().nullable(),
+  // Layout File
+  layoutFileId: z.string().uuid().optional().nullable(),
 
-    // Guarantee Terms
-    guaranteeYears: guaranteeYearsSchema.optional().nullable(),
-    customGuaranteeText: z.string().max(2000).optional().nullable(),
-
-    // Custom Forecast - manual override for production days displayed in budget (1-30 days)
-    customForecastDays: z.number().int().min(1).max(30).optional().nullable(),
-
-    // Layout File
-    layoutFileId: z.string().uuid().optional().nullable(),
-
-    // Customer Signature (uploaded by customer on public page)
-    customerSignatureId: z.string().uuid().optional().nullable(),
-
-    // Budget responsible
-    responsibleId: z.string().uuid().optional().nullable(),
-
-    // New fields
-    simultaneousTasks: simultaneousTasksSchema,
-    discountReference: discountReferenceSchema,
-    invoicesToCustomerIds: invoicesToCustomerIdsSchema,
-  })
-  .superRefine((data, ctx) => {
-    // Discount validation
-    if (data.discountType && data.discountType !== DISCOUNT_TYPE.NONE && !data.discountValue) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Valor de desconto é obrigatório quando o tipo não é "Nenhum"',
-        path: ['discountValue'],
-      });
-    }
-    if (data.discountType === DISCOUNT_TYPE.PERCENTAGE && data.discountValue) {
-      if (data.discountValue < 0 || data.discountValue > 100) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'Porcentagem de desconto deve estar entre 0 e 100',
-          path: ['discountValue'],
-        });
-      }
-    }
-  });
+  simultaneousTasks: simultaneousTasksSchema,
+  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).optional(),
+});
 
 // =====================
 // Batch Operations Schemas - TaskPricing
@@ -677,5 +596,6 @@ export type TaskPricingGetManyFormData = z.infer<typeof taskPricingGetManySchema
 export type TaskPricingInclude = z.infer<typeof taskPricingIncludeSchema>;
 export type TaskPricingOrderBy = z.infer<typeof taskPricingOrderBySchema>;
 export type TaskPricingWhere = z.infer<typeof taskPricingWhereSchema>;
-export type TaskPricingItemCreateNestedFormData = z.infer<typeof taskPricingItemCreateNestedSchema>;
+export type TaskPricingServiceCreateNestedFormData = z.infer<typeof taskPricingServiceCreateNestedSchema>;
+export type TaskPricingCustomerConfigCreateNestedFormData = z.infer<typeof taskPricingCustomerConfigCreateNestedSchema>;
 export type TaskPricingCreateNestedFormData = z.infer<typeof taskPricingCreateNestedSchema>;

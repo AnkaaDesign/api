@@ -2,11 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { PaymentCondition } from '@prisma/client';
 
 /**
  * Scheduler for task pricing payment reminders.
- * Runs daily at 8 AM to check for installments due yesterday
+ * Runs daily at 8 AM to check for Installments due yesterday
  * and notify FINANCIAL/ADMIN users to charge the customer.
  */
 @Injectable()
@@ -18,53 +17,6 @@ export class TaskPricingPaymentScheduler {
     private readonly prisma: PrismaService,
     private readonly dispatchService: NotificationDispatchService,
   ) {}
-
-  /**
-   * Calculate all installment due dates for a given payment condition.
-   * Returns an array of { date, installmentNumber, totalInstallments }.
-   */
-  private getInstallmentDueDates(
-    paymentCondition: PaymentCondition,
-    downPaymentDate: Date,
-  ): { date: Date; installmentNumber: number; totalInstallments: number }[] {
-    const installmentCountMap: Record<string, number> = {
-      CASH: 1,
-      INSTALLMENTS_2: 2,
-      INSTALLMENTS_3: 3,
-      INSTALLMENTS_4: 4,
-      INSTALLMENTS_5: 5,
-      INSTALLMENTS_6: 6,
-      INSTALLMENTS_7: 7,
-    };
-
-    const totalInstallments = installmentCountMap[paymentCondition];
-    if (!totalInstallments) return [];
-
-    const dates: { date: Date; installmentNumber: number; totalInstallments: number }[] = [];
-
-    for (let i = 0; i < totalInstallments; i++) {
-      const date = new Date(downPaymentDate);
-      date.setDate(date.getDate() + i * 20);
-      dates.push({
-        date,
-        installmentNumber: i + 1,
-        totalInstallments,
-      });
-    }
-
-    return dates;
-  }
-
-  /**
-   * Check if two dates are the same calendar day (UTC).
-   */
-  private isSameDay(a: Date, b: Date): boolean {
-    return (
-      a.getUTCFullYear() === b.getUTCFullYear() &&
-      a.getUTCMonth() === b.getUTCMonth() &&
-      a.getUTCDate() === b.getUTCDate()
-    );
-  }
 
   @Cron('0 8 * * *', {
     name: 'task-pricing-payment-reminder',
@@ -84,26 +36,48 @@ export class TaskPricingPaymentScheduler {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
 
-      const pricings = await this.prisma.taskPricing.findMany({
+      // Start of yesterday and start of today for range query
+      const startOfYesterday = new Date(yesterday);
+      startOfYesterday.setUTCHours(0, 0, 0, 0);
+      const endOfYesterday = new Date(yesterday);
+      endOfYesterday.setUTCHours(23, 59, 59, 999);
+
+      // Find all installments due yesterday from active pricings
+      const dueInstallments = await this.prisma.installment.findMany({
         where: {
-          status: 'APPROVED',
-          paymentCondition: { notIn: ['CUSTOM'] },
-          downPaymentDate: { not: null },
-          task: { status: { not: 'CANCELLED' } },
-        },
-        include: {
-          task: {
-            select: {
-              id: true,
-              name: true,
-              serialNumber: true,
-              status: true,
+          dueDate: {
+            gte: startOfYesterday,
+            lte: endOfYesterday,
+          },
+          customerConfig: {
+            pricing: {
+              status: { in: ['UPCOMING', 'PARTIAL'] },
+              task: { status: { not: 'CANCELLED' } },
             },
           },
-          invoicesToCustomers: {
-            select: {
-              id: true,
-              fantasyName: true,
+        },
+        include: {
+          customerConfig: {
+            include: {
+              pricing: {
+                include: {
+                  task: {
+                    select: {
+                      id: true,
+                      name: true,
+                      serialNumber: true,
+                      status: true,
+                    },
+                  },
+                },
+              },
+              customer: {
+                select: {
+                  id: true,
+                  fantasyName: true,
+                  cnpj: true,
+                },
+              },
             },
           },
         },
@@ -111,51 +85,46 @@ export class TaskPricingPaymentScheduler {
 
       let notificationsSent = 0;
 
-      for (const pricing of pricings) {
-        if (!pricing.downPaymentDate || !pricing.paymentCondition) continue;
-        if (!pricing.task) continue;
+      for (const installment of dueInstallments) {
+        const config = installment.customerConfig;
+        const pricing = config.pricing;
+        const task = pricing.task;
 
-        const installments = this.getInstallmentDueDates(
-          pricing.paymentCondition,
-          pricing.downPaymentDate,
+        if (!task) continue;
+
+        // Count total installments for this config
+        const totalInstallments = await this.prisma.installment.count({
+          where: { customerConfigId: config.id },
+        });
+
+        const installmentLabel = totalInstallments === 1
+          ? 'Parcela única'
+          : `Parcela ${installment.number}/${totalInstallments}`;
+
+        const dueDate = installment.dueDate.toLocaleDateString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+        });
+
+        await this.dispatchService.dispatchByConfiguration(
+          'task_pricing.payment_due',
+          'system',
+          {
+            entityType: 'TaskPricing',
+            entityId: pricing.id,
+            action: 'payment_due',
+            data: {
+              taskName: task.name,
+              serialNumber: task.serialNumber,
+              customerName: config.customer.fantasyName || 'N/A',
+              installmentLabel,
+              dueDate,
+              totalAmount: pricing.total.toString(),
+              budgetNumber: pricing.budgetNumber,
+            },
+          },
         );
 
-        for (const installment of installments) {
-          if (!this.isSameDay(installment.date, yesterday)) continue;
-
-          const customerNames = pricing.invoicesToCustomers
-            .map((c) => c.fantasyName)
-            .join(', ');
-
-          const installmentLabel = installment.totalInstallments === 1
-            ? 'Parcela unica'
-            : `Parcela ${installment.installmentNumber}/${installment.totalInstallments}`;
-
-          const dueDate = installment.date.toLocaleDateString('pt-BR', {
-            timeZone: 'America/Sao_Paulo',
-          });
-
-          await this.dispatchService.dispatchByConfiguration(
-            'task_pricing.payment_due',
-            'system',
-            {
-              entityType: 'TaskPricing',
-              entityId: pricing.id,
-              action: 'payment_due',
-              data: {
-                taskName: pricing.task.name,
-                serialNumber: pricing.task.serialNumber,
-                customerName: customerNames || 'N/A',
-                installmentLabel,
-                dueDate,
-                totalAmount: pricing.total.toString(),
-                budgetNumber: pricing.budgetNumber,
-              },
-            },
-          );
-
-          notificationsSent++;
-        }
+        notificationsSent++;
       }
 
       this.logger.log(
