@@ -430,11 +430,11 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
   [CHANGE_LOG_ENTITY_TYPE.SECTOR]: {
     name: 'Nome',
     privileges: 'Privilégios',
-    managerId: 'Gerente do Setor',
+    leaderId: 'Líder do Setor',
     users: 'Usuários',
     positions: 'Cargos',
     tasks: 'Tarefas',
-    'manager.name': 'Nome do Gerente',
+    'leader.name': 'Nome do Líder',
   },
   [CHANGE_LOG_ENTITY_TYPE.PARKING_SPOT]: {
     name: 'Número',
@@ -779,7 +779,8 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     simultaneousTasks: 'Tarefas Simultâneas',
     discountReference: 'Referência do Desconto',
     // Nested relationship fields
-    'items.length': 'Quantidade de Itens',
+    'services.length': 'Quantidade de Serviços',
+    services_snapshot: 'Serviços',
   },
   // Add more entity-specific mappings as needed
 };
@@ -1710,11 +1711,11 @@ export function formatFieldValue(
         field === 'monthlyConfigId' ||
         field === 'yearlyConfigId' ||
         field === 'positionId' ||
-        field === 'managedSectorId' ||
+        field === 'ledSectorId' ||
         field === 'approvedBy' ||
         field === 'rejectedBy' ||
         field === 'cancelledBy' ||
-        field === 'managerId'
+        field === 'leaderId'
       ) {
         return value; // Will be replaced with entity name
       }

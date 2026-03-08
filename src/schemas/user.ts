@@ -113,7 +113,7 @@ export const userSelectSchema = z
         }),
       ])
       .optional(),
-    managedSector: z
+    ledSector: z
       .union([
         z.boolean(),
         z.object({
@@ -535,7 +535,7 @@ export const userIncludeSchema = z
         }),
       ])
       .optional(),
-    managedSector: z
+    ledSector: z
       .union([
         z.boolean(),
         z.object({
@@ -710,7 +710,7 @@ export const userOrderBySchema = z.union([
         })
         .optional(),
 
-      managedSector: z
+      ledSector: z
         .object({
           id: orderByWithNullsSchema.optional(),
           name: orderByWithNullsSchema.optional(),
@@ -773,7 +773,7 @@ export const userOrderBySchema = z.union([
           })
           .optional(),
 
-        managedSector: z
+        ledSector: z
           .object({
             id: orderByWithNullsSchema.optional(),
             name: orderByWithNullsSchema.optional(),
@@ -1252,7 +1252,7 @@ const userFilters = {
   isVerified: z.boolean().optional(),
   hasPosition: z.boolean().optional(),
   hasSector: z.boolean().optional(),
-  hasManagedSector: z.boolean().optional(),
+  hasLedSector: z.boolean().optional(),
   hasPpeSize: z.boolean().optional(),
   hasActivities: z.boolean().optional(),
   hasTasks: z.boolean().optional(),
@@ -1305,7 +1305,7 @@ const userTransform = (data: any) => {
         { pis: { contains: searchTerm } },
         { position: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
         { sector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
-        { managedSector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
+        { ledSector: { is: { name: { contains: searchTerm, mode: 'insensitive' } } } },
       ];
 
       andConditions.push({ OR: orConditions });
@@ -1369,14 +1369,14 @@ const userTransform = (data: any) => {
     delete data.hasSector;
   }
 
-  // Handle hasManagedSector filter
-  if (typeof data.hasManagedSector === 'boolean') {
-    if (data.hasManagedSector) {
-      andConditions.push({ managedSector: { is: { id: { not: undefined } } } });
+  // Handle hasLedSector filter
+  if (typeof data.hasLedSector === 'boolean') {
+    if (data.hasLedSector) {
+      andConditions.push({ ledSector: { is: { id: { not: undefined } } } });
     } else {
-      andConditions.push({ managedSector: { is: null } });
+      andConditions.push({ ledSector: { is: null } });
     }
-    delete data.hasManagedSector;
+    delete data.hasLedSector;
   }
 
   // Handle hasPpeSize filter
@@ -1637,8 +1637,8 @@ export const userCreateSchema = z
     notificationPreferences: z.array(notificationPreferenceCreateNestedSchema).optional(),
     // Required for changelog tracking
     userId: z.string().optional(),
-    // Sector leader flag - when true, sets this user as manager of their sector
-    // The backend will update Sector.managerId accordingly
+    // Sector leader flag - when true, sets this user as leader of their sector
+    // The backend will update Sector.leaderId accordingly
     isSectorLeader: z.boolean().default(false),
   })
   .refine(data => data.email || data.phone, {
@@ -1741,8 +1741,8 @@ export const userUpdateSchema = z
     ppeSize: ppeSizeCreateNestedSchema.optional(),
     // Store current status for validation (used by backend)
     currentStatus: z.nativeEnum(USER_STATUS).optional(),
-    // Sector leader flag - when true, sets this user as manager of their sector
-    // The backend will update Sector.managerId accordingly
+    // Sector leader flag - when true, sets this user as leader of their sector
+    // The backend will update Sector.leaderId accordingly
     isSectorLeader: z.boolean().optional(),
   })
   .refine(

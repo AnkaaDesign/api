@@ -18,7 +18,7 @@ export class UnreturnedBorrowEvent {
       quantity: number;
       borrowedAt: Date;
     }>,
-    public readonly sectorManagerId?: string,
+    public readonly sectorLeaderId?: string,
   ) {}
 }
 
@@ -79,7 +79,7 @@ export class BorrowNotificationScheduler {
                 select: {
                   id: true,
                   name: true,
-                  managerId: true,
+                  leaderId: true,
                 },
               },
             },
@@ -176,11 +176,11 @@ export class BorrowNotificationScheduler {
           );
           notificationsCreated++;
 
-          // 2. Notify the sector manager (if exists and different from user)
-          const sectorManagerId = user.sector?.managerId;
-          if (sectorManagerId && sectorManagerId !== userId) {
-            const managerTitle = 'Lembrete: Colaborador com Itens Emprestados';
-            const managerBody =
+          // 2. Notify the sector leader (if exists and different from user)
+          const sectorLeaderId = user.sector?.leaderId;
+          if (sectorLeaderId && sectorLeaderId !== userId) {
+            const leaderTitle = 'Lembrete: Colaborador com Itens Emprestados';
+            const leaderBody =
               borrowCount === 1
                 ? `${user.name} possui "${itemList}" emprestado(a) há mais de um dia.`
                 : `${user.name} possui ${borrowCount} itens emprestados: ${itemList}.`;
@@ -213,11 +213,11 @@ export class BorrowNotificationScheduler {
                   actionUrl: '/estoque/emprestimos',
                   webUrl: '/estoque/emprestimos',
                   relatedEntityType: 'BORROW',
-                  title: managerTitle,
-                  body: managerBody,
+                  title: leaderTitle,
+                  body: leaderBody,
                 },
               },
-              [sectorManagerId],
+              [sectorLeaderId],
             );
             notificationsCreated++;
           }
@@ -225,7 +225,7 @@ export class BorrowNotificationScheduler {
           // Emit event for any listeners
           this.eventEmitter.emit(
             'borrow.unreturned.reminder',
-            new UnreturnedBorrowEvent(userId, user.name, borrows, sectorManagerId),
+            new UnreturnedBorrowEvent(userId, user.name, borrows, sectorLeaderId),
           );
         } catch (error) {
           this.logger.error(`Error sending borrow reminder to user ${userId}:`, error);

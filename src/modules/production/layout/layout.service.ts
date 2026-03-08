@@ -812,7 +812,7 @@ export class LayoutService {
             name: true,
             sectorId: true,
             sector: {
-              select: { managerId: true },
+              select: { leaderId: true },
             },
           },
         },

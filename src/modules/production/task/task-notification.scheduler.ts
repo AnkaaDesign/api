@@ -82,7 +82,7 @@ export class TaskNotificationScheduler {
         },
         include: {
           sector: {
-            select: { id: true, name: true, managerId: true },
+            select: { id: true, name: true, leaderId: true },
           },
           customer: {
             select: { id: true, fantasyName: true },
@@ -131,7 +131,7 @@ export class TaskNotificationScheduler {
         },
         include: {
           sector: {
-            select: { id: true, name: true, managerId: true },
+            select: { id: true, name: true, leaderId: true },
           },
           customer: {
             select: { id: true, fantasyName: true },
@@ -193,7 +193,7 @@ export class TaskNotificationScheduler {
           },
           include: {
             sector: {
-              select: { id: true, name: true, managerId: true },
+              select: { id: true, name: true, leaderId: true },
             },
             customer: {
               select: { id: true, fantasyName: true },
@@ -242,7 +242,7 @@ export class TaskNotificationScheduler {
         },
         include: {
           sector: {
-            select: { id: true, name: true, managerId: true },
+            select: { id: true, name: true, leaderId: true },
           },
           customer: {
             select: { id: true, fantasyName: true },
@@ -320,7 +320,7 @@ export class TaskNotificationScheduler {
           },
           include: {
             sector: {
-              select: { id: true, name: true, managerId: true },
+              select: { id: true, name: true, leaderId: true },
             },
             customer: {
               select: { id: true, fantasyName: true },
@@ -394,7 +394,7 @@ export class TaskNotificationScheduler {
         },
         include: {
           sector: {
-            select: { id: true, name: true, managerId: true },
+            select: { id: true, name: true, leaderId: true },
           },
           customer: {
             select: { id: true, fantasyName: true },
@@ -617,7 +617,7 @@ export class TaskNotificationScheduler {
         },
         include: {
           sector: {
-            select: { id: true, name: true, managerId: true },
+            select: { id: true, name: true, leaderId: true },
           },
         },
         orderBy: [{ term: 'asc' }, { forecastDate: 'asc' }],

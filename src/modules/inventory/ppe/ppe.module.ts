@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '@modules/common/prisma/prisma.module';
 import { ChangeLogModule } from '@modules/common/changelog/changelog.module';
@@ -8,7 +8,6 @@ import { ItemModule } from '@modules/inventory/item/item.module';
 import { ActivityModule } from '@modules/inventory/activity/activity.module';
 import { EventEmitterModule } from '@modules/common/event-emitter/event-emitter.module';
 import { FileModule } from '@modules/common/file/file.module';
-import { ClickSignModule } from '@modules/integrations/clicksign/clicksign.module';
 import { WhatsAppModule } from '@modules/common/whatsapp/whatsapp.module';
 
 // Controllers
@@ -19,7 +18,6 @@ import { PpeSizeService } from './ppe-size.service';
 import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeDocumentService } from './ppe-document.service';
-import { PpeSignatureService } from './ppe-signature.service';
 import { PpeInAppSignatureService } from './ppe-inapp-signature.service';
 
 // Listeners
@@ -45,7 +43,6 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     EventEmitterModule,
     FileModule,
     WhatsAppModule,
-    forwardRef(() => ClickSignModule), // Handle circular dependency
   ],
   controllers: [PpeController],
   providers: [
@@ -54,7 +51,6 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     PpeDeliveryService,
     PpeDeliveryScheduleService,
     PpeDocumentService,
-    PpeSignatureService,
     PpeInAppSignatureService,
     // Listeners
     PpeListener,
@@ -77,7 +73,6 @@ import { PpeDeliverySchedulePrismaRepository } from './repositories/ppe-delivery
     PpeDeliveryService,
     PpeDeliveryScheduleService,
     PpeDocumentService,
-    PpeSignatureService,
     PpeInAppSignatureService,
   ],
 })

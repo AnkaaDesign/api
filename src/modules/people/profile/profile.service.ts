@@ -25,7 +25,7 @@ export class ProfileService {
         avatar: true,
         position: true,
         sector: true,
-        managedSector: true,
+        ledSector: true,
         ppeSize: true,
         preference: true,
         notificationPreferences: true,

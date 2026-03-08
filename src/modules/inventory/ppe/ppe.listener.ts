@@ -1,8 +1,7 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject } from '@nestjs/common';
 import { EventEmitter } from 'events';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { PpeSignatureService } from './ppe-signature.service';
 import { PPE_DELIVERY_STATUS, PPE_DELIVERY_STATUS_ORDER } from '@constants';
 import {
   PpeRequestedEvent,
@@ -35,8 +34,6 @@ export class PpeListener {
     @Inject('EventEmitter') private readonly eventEmitter: EventEmitter,
     private readonly dispatchService: NotificationDispatchService,
     private readonly prisma: PrismaService,
-    @Inject(forwardRef(() => PpeSignatureService))
-    private readonly ppeSignatureService: PpeSignatureService,
   ) {
     this.logger.log('========================================');
     this.logger.log('[PPE LISTENER] Initializing PPE Event Listener');
@@ -312,10 +309,8 @@ export class PpeListener {
       // Initiate signature for batch (will be grouped by user automatically)
       await this.initiateSignatureForDeliveries(event.deliveryIds);
 
-      // For in-app signing flow, send notifications to affected users
-      if (!this.ppeSignatureService.isClickSignAvailable()) {
-        await this.sendBatchDeliveredNotifications(event.deliveryIds, event.deliveredBy);
-      }
+      // Send notifications to affected users
+      await this.sendBatchDeliveredNotifications(event.deliveryIds, event.deliveredBy);
 
       this.logger.log('========================================');
       this.logger.log('[PPE EVENT] PPE batch delivered processed successfully');
@@ -326,49 +321,10 @@ export class PpeListener {
   }
 
   /**
-   * Initiate signature workflow for delivered PPE(s)
-   * Groups deliveries by user and creates one signature request per user.
-   *
-   * Two paths:
-   * - ClickSign available → external signature (existing flow)
-   * - ClickSign NOT available → in-app signature (transition to WAITING_SIGNATURE)
+   * Initiate in-app signature workflow for delivered PPE(s)
+   * Transitions deliveries to WAITING_SIGNATURE status.
    */
   private async initiateSignatureForDeliveries(deliveryIds: string[]): Promise<void> {
-    if (this.ppeSignatureService.isClickSignAvailable()) {
-      // ClickSign external signature flow (existing)
-      try {
-        this.logger.log(
-          `[PPE EVENT] Initiating ClickSign signature workflow for ${deliveryIds.length} deliveries`,
-        );
-
-        const result = await this.ppeSignatureService.initiateSignatureForDeliveries({
-          deliveryIds,
-        });
-
-        if (result.success) {
-          this.logger.log('[PPE EVENT] Signature workflow initiated successfully');
-          for (const r of result.results) {
-            if (r.signatureResult) {
-              this.logger.log(
-                `[PPE EVENT]   - User ${r.userId}: Envelope ${r.signatureResult.envelopeId}`,
-              );
-            }
-          }
-        } else {
-          this.logger.warn('[PPE EVENT] Some signature initiations failed');
-          for (const r of result.results) {
-            if (r.error) {
-              this.logger.warn(`[PPE EVENT]   - User ${r.userId}: ${r.error}`);
-            }
-          }
-        }
-      } catch (error) {
-        this.logger.error('[PPE EVENT] Error initiating ClickSign signature workflow:', error);
-      }
-      return;
-    }
-
-    // In-app signature flow: transition deliveries to WAITING_SIGNATURE
     this.logger.log(
       `[PPE EVENT] Using in-app signature flow for ${deliveryIds.length} deliveries`,
     );

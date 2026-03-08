@@ -16,17 +16,18 @@ import { SECTOR_PRIVILEGES } from '@constants';
 export const getSectorPrivilegeSortOrder = (privilege: SECTOR_PRIVILEGES): number => {
   const sortOrder = {
     [SECTOR_PRIVILEGES.BASIC]: 1,
-    [SECTOR_PRIVILEGES.MAINTENANCE]: 2,
-    [SECTOR_PRIVILEGES.WAREHOUSE]: 3,
-    [SECTOR_PRIVILEGES.PLOTTING]: 4,
+    [SECTOR_PRIVILEGES.PRODUCTION]: 2,
+    [SECTOR_PRIVILEGES.MAINTENANCE]: 3,
+    [SECTOR_PRIVILEGES.WAREHOUSE]: 4,
     [SECTOR_PRIVILEGES.DESIGNER]: 5,
-    [SECTOR_PRIVILEGES.LOGISTIC]: 5,
-    [SECTOR_PRIVILEGES.PRODUCTION]: 6,
-    [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 7,
-    [SECTOR_PRIVILEGES.FINANCIAL]: 8,
-    [SECTOR_PRIVILEGES.COMMERCIAL]: 9,
-    [SECTOR_PRIVILEGES.ADMIN]: 10,
-    [SECTOR_PRIVILEGES.EXTERNAL]: 11,
+    [SECTOR_PRIVILEGES.LOGISTIC]: 6,
+    [SECTOR_PRIVILEGES.PLOTTING]: 7,
+    [SECTOR_PRIVILEGES.COMMERCIAL]: 8,
+    [SECTOR_PRIVILEGES.FINANCIAL]: 9,
+    [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 10,
+    [SECTOR_PRIVILEGES.ADMIN]: 11,
+    [SECTOR_PRIVILEGES.EXTERNAL]: 12,
+    [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 13,
   };
   return sortOrder[privilege] || 1;
 };
@@ -116,21 +117,21 @@ export const canAccessAllPrivileges = (
  *
  * A user can access team features if:
  * 1. User is ADMIN, OR
- * 2. User is a sector manager (hasManagedSector = true, meaning Sector.managerId points to this user)
+ * 2. User is a sector leader (hasLedSector = true, meaning Sector.leaderId points to this user)
  *
- * Note: This does NOT check the sector privilege - leadership is determined by Sector.managerId
+ * Note: This does NOT check the sector privilege - leadership is determined by Sector.leaderId
  */
 export const canAccessTeamFeatures = (
   userPrivilege: SECTOR_PRIVILEGES,
-  hasManagedSector: boolean = false,
+  hasLedSector: boolean = false,
 ): boolean => {
   // Admin always has access to team features
   if (userPrivilege === SECTOR_PRIVILEGES.ADMIN) {
     return true;
   }
 
-  // User is a sector manager (Sector.managerId points to this user)
-  return hasManagedSector;
+  // User is a sector leader (Sector.leaderId points to this user)
+  return hasLedSector;
 };
 
 /**
@@ -138,11 +139,11 @@ export const canAccessTeamFeatures = (
  *
  * Rules:
  * 1. ADMIN can manage any team
- * 2. Sector manager can manage their own sector (managedSectorId === targetSectorId)
+ * 2. Sector leader can manage their own sector (ledSectorId === targetSectorId)
  */
 export const canManageTeam = (
   userPrivilege: SECTOR_PRIVILEGES,
-  managedSectorId: string | null,
+  ledSectorId: string | null,
   targetSectorId: string,
 ): boolean => {
   // Admin can manage any team
@@ -150,8 +151,8 @@ export const canManageTeam = (
     return true;
   }
 
-  // Sector manager can manage their own team
-  if (managedSectorId && managedSectorId === targetSectorId) {
+  // Sector leader can manage their own team
+  if (ledSectorId && ledSectorId === targetSectorId) {
     return true;
   }
 
@@ -163,10 +164,10 @@ export const canManageTeam = (
  */
 export const canViewTeamData = (
   userPrivilege: SECTOR_PRIVILEGES,
-  managedSectorId: string | null,
+  ledSectorId: string | null,
   targetSectorId: string,
 ): boolean => {
-  return canManageTeam(userPrivilege, managedSectorId, targetSectorId);
+  return canManageTeam(userPrivilege, ledSectorId, targetSectorId);
 };
 
 /**

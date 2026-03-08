@@ -146,7 +146,6 @@ import type {
 import { PpeDeliveryService } from './ppe-delivery.service';
 import { PpeDeliveryScheduleService } from './ppe-delivery-schedule.service';
 import { PpeSizeService } from './ppe-size.service';
-import { PpeSignatureService } from './ppe-signature.service';
 import { PpeInAppSignatureService } from './ppe-inapp-signature.service';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
@@ -158,7 +157,6 @@ export class PpeController {
     private readonly ppeSizeService: PpeSizeService,
     private readonly ppeDeliveryScheduleService: PpeDeliveryScheduleService,
     private readonly ppeDeliveryService: PpeDeliveryService,
-    private readonly ppeSignatureService: PpeSignatureService,
     private readonly ppeInAppSignatureService: PpeInAppSignatureService,
   ) {}
 
@@ -769,60 +767,6 @@ export class PpeController {
   // =====================
   // PPE SIGNATURE OPERATIONS
   // =====================
-
-  @Get('deliveries/:id/signature-status')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async getSignatureStatus(@Param('id', ParseUUIDPipe) id: string): Promise<{
-    success: boolean;
-    data: {
-      status: string;
-      documentKey?: string;
-      signedAt?: Date;
-      documentUrl?: string;
-      signatureUrl?: string;
-    };
-  }> {
-    const data = await this.ppeSignatureService.getSignatureStatus(id);
-    return { success: true, data };
-  }
-
-  @Post('deliveries/:id/resend-signature-notification')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async resendSignatureNotification(
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<{ success: boolean; message: string }> {
-    await this.ppeSignatureService.resendSignatureNotification(id);
-    return { success: true, message: 'Notificação de assinatura reenviada com sucesso.' };
-  }
-
-  @Post('deliveries/:id/complete-signature')
-  @Roles(SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async manuallyCompleteSignature(
-    @Param('id', ParseUUIDPipe) id: string,
-    @UserId() userId: string,
-  ): Promise<{ success: boolean; message: string }> {
-    await this.ppeSignatureService.manuallyCompleteSignature(id, userId);
-    return { success: true, message: 'Assinatura completada manualmente.' };
-  }
-
-  @Post('deliveries/:id/reject-signature')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  @HttpCode(HttpStatus.OK)
-  async rejectSignature(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body('reason') reason?: string,
-  ): Promise<{ success: boolean; message: string }> {
-    await this.ppeSignatureService.rejectSignature(id, reason);
-    return { success: true, message: 'Assinatura rejeitada.' };
-  }
-
-  @Get('signature-available')
-  @Roles(SECTOR_PRIVILEGES.WAREHOUSE, SECTOR_PRIVILEGES.HUMAN_RESOURCES, SECTOR_PRIVILEGES.ADMIN)
-  async isSignatureAvailable(): Promise<{ available: boolean }> {
-    return { available: this.ppeSignatureService.isClickSignAvailable() };
-  }
 
   // =====================
   // IN-APP SIGNATURE OPERATIONS

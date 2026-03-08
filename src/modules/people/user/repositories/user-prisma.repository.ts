@@ -105,8 +105,8 @@ export class UserPrismaRepository
       createInput.sector = { connect: { id: sectorId } };
     }
 
-    // Note: managedSector is now handled via Sector.managerId relation
-    // To make a user a sector manager, update the Sector's managerId field
+    // Note: ledSector is now handled via Sector.leaderId relation
+    // To make a user a sector leader, update the Sector's leaderId field
 
     if (avatarId) {
       createInput.avatar = { connect: { id: avatarId } };
@@ -172,8 +172,8 @@ export class UserPrismaRepository
       updateInput.sector = sectorId ? { connect: { id: sectorId } } : { disconnect: true };
     }
 
-    // Note: managedSector is now handled via Sector.managerId relation
-    // To make a user a sector manager, update the Sector's managerId field
+    // Note: ledSector is now handled via Sector.leaderId relation
+    // To make a user a sector leader, update the Sector's leaderId field
 
     if (avatarId !== undefined) {
       updateInput.avatar = avatarId ? { connect: { id: avatarId } } : { disconnect: true };
@@ -294,7 +294,7 @@ export class UserPrismaRepository
         },
       },
       sector: true,
-      managedSector: true,
+      ledSector: true,
       ppeSize: true,
       preference: true,
       _count: {

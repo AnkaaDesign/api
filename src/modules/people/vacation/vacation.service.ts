@@ -777,21 +777,21 @@ export class VacationService {
   }
 
   /**
-   * Get user's managed sector for team filtering
+   * Get user's led sector for team filtering
    */
-  async getUserManagedSector(userId: string): Promise<{ managedSectorId: string | null } | null> {
+  async getUserLedSector(userId: string): Promise<{ ledSectorId: string | null } | null> {
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
         select: {
-          managedSector: {
+          ledSector: {
             select: { id: true },
           },
         },
       });
-      return user ? { managedSectorId: user.managedSector?.id || null } : null;
+      return user ? { ledSectorId: user.ledSector?.id || null } : null;
     } catch (error: any) {
-      this.logger.error('Error fetching user managed sector:', error);
+      this.logger.error('Error fetching user led sector:', error);
       return null;
     }
   }

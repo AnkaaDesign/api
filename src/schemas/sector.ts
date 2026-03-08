@@ -33,7 +33,7 @@ export const sectorIncludeSchema = z
         }),
       ])
       .optional(),
-    managedByUsers: z
+    leader: z
       .union([
         z.boolean(),
         z.object({

@@ -7,7 +7,7 @@
  * 1. Service Order → Task (Forward sync):
  *    - When SO goes to IN_PROGRESS → Task auto-starts (WAITING_PRODUCTION → IN_PRODUCTION)
  *    - When all ARTWORK SOs complete → Task transitions (PREPARATION → WAITING_PRODUCTION)
- *    - When all PRODUCTION SOs complete → Task auto-completes (IN_PRODUCTION → COMPLETED)
+ *    - When all PRODUCTION SOs complete → Task stays IN_PRODUCTION (only logistics can finish)
  *
  * 2. Task → Service Order (Reverse sync):
  *    - When Task goes to IN_PRODUCTION → First PENDING production SO starts (PENDING → IN_PROGRESS)
@@ -80,9 +80,9 @@ export function determineTaskStatusFromServiceOrders(
     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
   );
 
-  // All active orders completed → Task should be COMPLETED
+  // All active orders completed → Task stays IN_PRODUCTION (only logistics can finish)
   if (allCompleted) {
-    return TASK_STATUS.COMPLETED;
+    return TASK_STATUS.IN_PRODUCTION;
   }
 
   // Any in progress or any completed (but not all) → Task should be IN_PRODUCTION
@@ -166,9 +166,9 @@ export function calculateCorrectTaskStatus(
     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
   );
 
-  // All PRODUCTION SOs completed → COMPLETED
+  // All PRODUCTION SOs completed → stays IN_PRODUCTION (only logistics can finish the task)
   if (allProductionCompleted) {
-    return TASK_STATUS.COMPLETED;
+    return TASK_STATUS.IN_PRODUCTION;
   }
 
   // Any PRODUCTION SO in progress or some completed → IN_PRODUCTION
@@ -421,39 +421,9 @@ export function getTaskUpdateForServiceOrderStatusChange(
     };
   }
 
-  // SO: ANY → COMPLETED (check if all active production SOs are now complete)
-  if (
-    newServiceOrderStatus === SERVICE_ORDER_STATUS.COMPLETED &&
-    oldServiceOrderStatus !== SERVICE_ORDER_STATUS.COMPLETED
-  ) {
-    // Filter out CANCELLED orders - they don't affect task completion
-    const activeProductionOrders = productionOrders.filter(
-      so => so.status !== SERVICE_ORDER_STATUS.CANCELLED,
-    );
-
-    // Only check completion if there are active orders
-    if (activeProductionOrders.length > 0) {
-      const allCompleted = activeProductionOrders.every(
-        so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
-      );
-
-      if (
-        allCompleted &&
-        (currentTaskStatus === TASK_STATUS.IN_PRODUCTION ||
-          currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION)
-      ) {
-        return {
-          shouldUpdate: true,
-          newTaskStatus: TASK_STATUS.COMPLETED,
-          setStartedAt: true, // Ensure startedAt is set
-          setFinishedAt: true,
-          clearStartedAt: false,
-          clearFinishedAt: false,
-          reason: `Tarefa concluída automaticamente quando todas as ${activeProductionOrders.length} ordens de serviço de produção ativas foram finalizadas`,
-        };
-      }
-    }
-  }
+  // SO: ANY → COMPLETED
+  // NOTE: Task is NO LONGER auto-completed when all production SOs finish.
+  // Only the logistics sector can finish/complete tasks manually.
 
   // SO: ANY → CANCELLED (check if all remaining active production SOs are complete or all are cancelled)
   // When a service order is cancelled, check if all remaining active orders are completed
@@ -485,28 +455,8 @@ export function getTaskUpdateForServiceOrderStatusChange(
       return null;
     }
 
-    // Check if there are active orders remaining and all are completed
-    if (activeProductionOrders.length > 0) {
-      const allCompleted = activeProductionOrders.every(
-        so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
-      );
-
-      if (
-        allCompleted &&
-        (currentTaskStatus === TASK_STATUS.IN_PRODUCTION ||
-          currentTaskStatus === TASK_STATUS.WAITING_PRODUCTION)
-      ) {
-        return {
-          shouldUpdate: true,
-          newTaskStatus: TASK_STATUS.COMPLETED,
-          setStartedAt: true, // Ensure startedAt is set
-          setFinishedAt: true,
-          clearStartedAt: false,
-          clearFinishedAt: false,
-          reason: `Tarefa concluída automaticamente quando ordem de serviço foi cancelada e todas as ${activeProductionOrders.length} ordens de serviço de produção restantes estão finalizadas`,
-        };
-      }
-    }
+    // NOTE: Task is NO LONGER auto-completed when remaining active SOs are all completed.
+    // Only the logistics sector can finish/complete tasks manually.
   }
 
   // ===== BACKWARD TRANSITIONS (Rollback) =====

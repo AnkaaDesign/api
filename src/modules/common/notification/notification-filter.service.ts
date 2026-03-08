@@ -120,6 +120,7 @@ export class NotificationFilterService {
     [SECTOR_PRIVILEGES.HUMAN_RESOURCES]: 9,
     [SECTOR_PRIVILEGES.ADMIN]: 10,
     [SECTOR_PRIVILEGES.EXTERNAL]: 0, // External users have no privilege level
+    [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: 8,
   };
 
   /**
@@ -166,8 +167,8 @@ export class NotificationFilterService {
             return true;
           }
 
-          // Sector managers can see tasks in their managed sector
-          if (user.managedSector && user.managedSector.id === task.sectorId) {
+          // Sector leaders can see tasks in their led sector
+          if (user.ledSector && user.ledSector.id === task.sectorId) {
             return true;
           }
 
@@ -280,8 +281,8 @@ export class NotificationFilterService {
           return true;
         }
 
-        // Sector managers should receive notifications for their team's activities
-        if (user.managedSector) {
+        // Sector leaders should receive notifications for their team's activities
+        if (user.ledSector) {
           return true;
         }
 
@@ -640,7 +641,7 @@ export class NotificationFilterService {
         },
         include: {
           sector: true,
-          managedSector: true,
+          ledSector: true,
         },
       });
 
@@ -664,7 +665,7 @@ export class NotificationFilterService {
         },
         include: {
           sector: true,
-          managedSector: true,
+          ledSector: true,
         },
       });
 
@@ -682,7 +683,7 @@ export class NotificationFilterService {
    * - Assigned users (regardless of sector)
    * - Supervisor (if specified)
    * - Task's sector members
-   * - Sector manager
+   * - Sector leader
    * - Admin users
    * - User who created the task
    *
@@ -706,10 +707,10 @@ export class NotificationFilterService {
         conditions.push({ sectorId: taskSectorId });
       }
 
-      // Sector managers of the task's sector
+      // Sector leaders of the task's sector
       if (taskSectorId) {
         conditions.push({
-          managedSector: {
+          ledSector: {
             id: taskSectorId,
           },
         });
@@ -748,7 +749,7 @@ export class NotificationFilterService {
         },
         include: {
           sector: true,
-          managedSector: true,
+          ledSector: true,
         },
       });
 
@@ -859,7 +860,7 @@ export class NotificationFilterService {
           where: { id: userId, isActive: true },
           include: {
             sector: true,
-            managedSector: true,
+            ledSector: true,
           },
         });
 
@@ -897,7 +898,7 @@ export class NotificationFilterService {
           where: { id: userId, isActive: true },
           include: {
             sector: true,
-            managedSector: true,
+            ledSector: true,
           },
         });
 
@@ -937,7 +938,7 @@ export class NotificationFilterService {
           where: { id: userId, isActive: true },
           include: {
             sector: true,
-            managedSector: true,
+            ledSector: true,
           },
         });
 
@@ -1067,13 +1068,13 @@ export class NotificationFilterService {
   }
 
   /**
-   * Check if a user is a sector manager
+   * Check if a user is a sector leader
    *
    * @param user - The user to check
-   * @returns true if the user manages a sector
+   * @returns true if the user leads a sector
    */
-  isSectorManager(user: User): boolean {
-    return !!user.managedSector;
+  isSectorLeader(user: User): boolean {
+    return !!user.ledSector;
   }
 
   /**

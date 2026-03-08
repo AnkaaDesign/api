@@ -1,7 +1,7 @@
 /**
  * Task Pricing and Production Service Order Bidirectional Synchronization Utilities
  *
- * This module provides synchronization logic between TaskPricingItems and
+ * This module provides synchronization logic between TaskPricingServices and
  * Production Service Orders. The sync is bidirectional and simplified:
  *
  * 1. Service Order (PRODUCTION) → Task Pricing Item:

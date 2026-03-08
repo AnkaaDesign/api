@@ -63,7 +63,9 @@ import { AppsModule } from './modules/system/app/app.module';
 import { WhatsAppModule } from './modules/common/whatsapp/whatsapp.module';
 import { MessageModule } from './modules/system/message/message.module';
 import { DeepLinkModule } from './modules/common/deep-link/deep-link.module';
-import { GovbrModule } from './modules/integrations/govbr/govbr.module';
+import { SicrediModule } from './modules/integrations/sicredi/sicredi.module';
+import { NfseModule } from './modules/integrations/nfse/nfse.module';
+import { InvoiceModule } from './modules/financial/invoice/invoice.module';
 
 @Module({
   imports: [
@@ -137,7 +139,9 @@ import { GovbrModule } from './modules/integrations/govbr/govbr.module';
     WhatsAppModule,
     MessageModule,
     DeepLinkModule,
-    GovbrModule,
+    SicrediModule,
+    NfseModule,
+    InvoiceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

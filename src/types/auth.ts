@@ -25,8 +25,8 @@ export interface AuthUser {
     name: string;
     privileges: string;
   } | null;
-  /** The sector this user manages (via Sector.managerId), if any */
-  managedSector?: {
+  /** The sector this user leads (via Sector.leaderId), if any */
+  ledSector?: {
     id: string;
     name: string;
     privileges: string;

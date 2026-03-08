@@ -1,6 +1,6 @@
 // team-staff.service.ts
-// Service for handling sector manager's team data queries
-// All methods ensure data is filtered by the manager's sector from database (Sector.managerId)
+// Service for handling sector leader's team data queries
+// All methods ensure data is filtered by the leader's sector from database (Sector.leaderId)
 
 import {
   Injectable,
@@ -35,12 +35,12 @@ import type {
 
 /**
  * Team Staff Service
- * Handles all sector manager data queries with automatic filtering by managed sector
- * CRITICAL SECURITY: Always fetches managed sector from database via Sector.managerId, never from client/JWT
- * Ensures managers can only access data for users in their managed sector
+ * Handles all sector leader data queries with automatic filtering by led sector
+ * CRITICAL SECURITY: Always fetches led sector from database via Sector.leaderId, never from client/JWT
+ * Ensures leaders can only access data for users in their led sector
  *
- * Note: Leadership is determined by Sector.managerId pointing to the user,
- * not by the removed User.managedSectorId field
+ * Note: Leadership is determined by Sector.leaderId pointing to the user,
+ * not by the removed User.ledSectorId field
  */
 @Injectable()
 export class TeamStaffService {
@@ -57,15 +57,15 @@ export class TeamStaffService {
   ) {}
 
   /**
-   * Get the sector ID that the user manages from database
+   * Get the sector ID that the user leads from database
    * CRITICAL: This must be called for every request to ensure fresh data
-   * Returns null if no sector has this user as manager (user is not a sector manager)
+   * Returns null if no sector has this user as leader (user is not a sector leader)
    *
-   * Note: This queries Sector.managerId instead of the removed User.managedSectorId
+   * Note: This queries Sector.leaderId instead of the removed User.ledSectorId
    */
-  private async getManagedSectorId(userId: string): Promise<string | null> {
+  private async getLedSectorId(userId: string): Promise<string | null> {
     const sector = await this.prisma.sector.findFirst({
-      where: { managerId: userId },
+      where: { leaderId: userId },
       select: { id: true },
     });
 
@@ -73,41 +73,41 @@ export class TeamStaffService {
   }
 
   /**
-   * Validate that user is a sector manager (some sector has this user as managerId)
-   * Throws 403 Forbidden if user is not a sector manager
+   * Validate that user is a sector leader (some sector has this user as leaderId)
+   * Throws 403 Forbidden if user is not a sector leader
    */
   private async validateTeamLeader(userId: string): Promise<string> {
-    const managedSectorId = await this.getManagedSectorId(userId);
+    const ledSectorId = await this.getLedSectorId(userId);
 
-    if (!managedSectorId) {
+    if (!ledSectorId) {
       throw new ForbiddenException(
-        'Access denied. You must be a sector manager to access this resource.',
+        'Access denied. You must be a sector leader to access this resource.',
       );
     }
 
-    return managedSectorId;
+    return ledSectorId;
   }
 
   /**
-   * Get users from the leader's managed sector
-   * Filters users by sectorId = managedSectorId
+   * Get users from the leader's led sector
+   * Filters users by sectorId = ledSectorId
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
-   * @returns Users in the managed sector
+   * @returns Users in the led sector
    */
   async getTeamUsers(userId: string, query: UserGetManyFormData): Promise<UserGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing users from managed sector ${managedSectorId}`);
+    this.logger.log(`Team leader ${userId} accessing users from led sector ${ledSectorId}`);
 
-    // Force filter by managed sector - NEVER trust client filters for sectorId
+    // Force filter by led sector - NEVER trust client filters for sectorId
     const secureQuery: UserGetManyFormData = {
       ...query,
       where: {
         ...query.where,
-        sectorId: managedSectorId, // Override with database managedSectorId
+        sectorId: ledSectorId, // Override with database ledSectorId
       },
     };
 
@@ -145,7 +145,7 @@ export class TeamStaffService {
 
   /**
    * Get Secullum calculations for a specific team member
-   * Validates the target user belongs to the leader's managed sector
+   * Validates the target user belongs to the leader's led sector
    *
    * @param leaderId - Authenticated team leader user ID
    * @param params - Query parameters including targetUserId, startDate, endDate
@@ -175,14 +175,14 @@ export class TeamStaffService {
       );
     }
 
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(leaderId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(leaderId);
 
     this.logger.log(
       `Team leader ${leaderId} accessing calculations for team member ${params.targetUserId}`,
     );
 
-    // Verify target user exists and belongs to the managed sector
+    // Verify target user exists and belongs to the led sector
     const targetUser = await this.prisma.user.findUnique({
       where: { id: params.targetUserId },
       select: {
@@ -199,10 +199,10 @@ export class TeamStaffService {
       throw new NotFoundException(`User ${params.targetUserId} not found`);
     }
 
-    // Security check: ensure target user is in the leader's managed sector
-    if (targetUser.sectorId !== managedSectorId) {
+    // Security check: ensure target user is in the leader's led sector
+    if (targetUser.sectorId !== ledSectorId) {
       throw new ForbiddenException(
-        'Access denied. You can only view calculations for users in your managed sector.',
+        'Access denied. You can only view calculations for users in your led sector.',
       );
     }
 
@@ -261,7 +261,7 @@ export class TeamStaffService {
 
   /**
    * Get Secullum calculations for ALL team members (batch)
-   * Fetches calculations for all users in the managed sector
+   * Fetches calculations for all users in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param params - Query parameters (startDate, endDate, sectorId is IGNORED)
@@ -287,17 +287,17 @@ export class TeamStaffService {
       );
     }
 
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
     this.logger.log(
-      `Team leader ${userId} accessing calculations for managed sector ${managedSectorId}`,
+      `Team leader ${userId} accessing calculations for led sector ${ledSectorId}`,
     );
 
-    // Get all users in the managed sector with CPF/PIS/PayrollNumber for Secullum lookup
+    // Get all users in the led sector with CPF/PIS/PayrollNumber for Secullum lookup
     const teamMembers = await this.prisma.user.findMany({
       where: {
-        sectorId: managedSectorId, // Use database managedSectorId
+        sectorId: ledSectorId, // Use database ledSectorId
       },
       select: {
         id: true,
@@ -313,7 +313,7 @@ export class TeamStaffService {
         success: true,
         data: [],
         meta: {
-          managedSectorId,
+          ledSectorId,
           startDate: params.startDate,
           endDate: params.endDate,
           totalMembers: 0,
@@ -379,7 +379,7 @@ export class TeamStaffService {
       success: true,
       data: allCalculations,
       meta: {
-        managedSectorId,
+        ledSectorId,
         startDate: params.startDate,
         endDate: params.endDate,
         totalMembers: teamMembers.length,
@@ -389,7 +389,7 @@ export class TeamStaffService {
 
   /**
    * Get borrows for team members
-   * Filters borrows by users in the managed sector
+   * Filters borrows by users in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
@@ -399,20 +399,20 @@ export class TeamStaffService {
     userId: string,
     query: BorrowGetManyFormData,
   ): Promise<BorrowGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
     this.logger.log(
-      `Team leader ${userId} accessing borrows from managed sector ${managedSectorId}`,
+      `Team leader ${userId} accessing borrows from led sector ${ledSectorId}`,
     );
 
-    // Force filter by managed sector through user relation
+    // Force filter by led sector through user relation
     const secureQuery: BorrowGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         user: {
-          sectorId: managedSectorId, // Override with database managedSectorId
+          sectorId: ledSectorId, // Override with database ledSectorId
         },
       },
     };
@@ -422,7 +422,7 @@ export class TeamStaffService {
 
   /**
    * Get vacations for team members
-   * Filters vacations by users in the managed sector
+   * Filters vacations by users in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
@@ -432,20 +432,20 @@ export class TeamStaffService {
     userId: string,
     query: VacationGetManyFormData,
   ): Promise<VacationGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
     this.logger.log(
-      `Team leader ${userId} accessing vacations from managed sector ${managedSectorId}`,
+      `Team leader ${userId} accessing vacations from led sector ${ledSectorId}`,
     );
 
-    // Force filter by managed sector through user relation
+    // Force filter by led sector through user relation
     const secureQuery: VacationGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         user: {
-          sectorId: managedSectorId, // Override with database managedSectorId
+          sectorId: ledSectorId, // Override with database ledSectorId
         },
       },
     };
@@ -455,7 +455,7 @@ export class TeamStaffService {
 
   /**
    * Get EPI deliveries for team members
-   * Filters PPE deliveries by users in the managed sector
+   * Filters PPE deliveries by users in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
@@ -465,18 +465,18 @@ export class TeamStaffService {
     userId: string,
     query: PpeDeliveryGetManyFormData,
   ): Promise<PpeDeliveryGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
-    this.logger.log(`Team leader ${userId} accessing EPIs from managed sector ${managedSectorId}`);
+    this.logger.log(`Team leader ${userId} accessing EPIs from led sector ${ledSectorId}`);
 
-    // Force filter by managed sector through user relation
+    // Force filter by led sector through user relation
     const secureQuery: PpeDeliveryGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         user: {
-          sectorId: managedSectorId, // Override with database managedSectorId
+          sectorId: ledSectorId, // Override with database ledSectorId
         },
       },
     };
@@ -486,7 +486,7 @@ export class TeamStaffService {
 
   /**
    * Get activities for team members
-   * Filters activities by users in the managed sector
+   * Filters activities by users in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
@@ -496,20 +496,20 @@ export class TeamStaffService {
     userId: string,
     query: ActivityGetManyFormData,
   ): Promise<ActivityGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
     this.logger.log(
-      `Team leader ${userId} accessing activities from managed sector ${managedSectorId}`,
+      `Team leader ${userId} accessing activities from led sector ${ledSectorId}`,
     );
 
-    // Force filter by managed sector through user relation
+    // Force filter by led sector through user relation
     const secureQuery: ActivityGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         user: {
-          sectorId: managedSectorId, // Override with database managedSectorId
+          sectorId: ledSectorId, // Override with database ledSectorId
         },
       },
     };
@@ -519,7 +519,7 @@ export class TeamStaffService {
 
   /**
    * Get warnings for team members
-   * Filters warnings by collaborators in the managed sector
+   * Filters warnings by collaborators in the led sector
    *
    * @param userId - Authenticated team leader user ID
    * @param query - Query parameters for filtering/pagination
@@ -529,20 +529,20 @@ export class TeamStaffService {
     userId: string,
     query: WarningGetManyFormData,
   ): Promise<WarningGetManyResponse> {
-    // Validate leader and get managedSectorId from database
-    const managedSectorId = await this.validateTeamLeader(userId);
+    // Validate leader and get ledSectorId from database
+    const ledSectorId = await this.validateTeamLeader(userId);
 
     this.logger.log(
-      `Team leader ${userId} accessing warnings from managed sector ${managedSectorId}`,
+      `Team leader ${userId} accessing warnings from led sector ${ledSectorId}`,
     );
 
-    // Force filter by managed sector through collaborator relation
+    // Force filter by led sector through collaborator relation
     const secureQuery: WarningGetManyFormData = {
       ...query,
       where: {
         ...query.where,
         collaborator: {
-          sectorId: managedSectorId, // Override with database managedSectorId
+          sectorId: ledSectorId, // Override with database ledSectorId
         },
       },
     };

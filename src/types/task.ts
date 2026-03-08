@@ -727,7 +727,7 @@ export interface TaskIncludes {
       };
   pricing?:
     | boolean
-    | { include?: { items?: boolean; layoutFile?: boolean; customerSignature?: boolean } }; // Task pricing (each task has its own independent pricing record)
+    | { include?: { services?: boolean; layoutFile?: boolean; customerSignature?: boolean; customerConfigs?: boolean; responsible?: boolean } }; // Task pricing (each task has its own independent pricing record)
   airbrushings?:
     | boolean
     | {

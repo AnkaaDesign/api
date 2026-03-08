@@ -310,8 +310,10 @@ model Customer {
   economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]              @relation("TaskCustomer")
-  pricingInvoices    TaskPricing[]       @relation("TaskPricingInvoiceTo")
-  responsibles      Responsible[]       @relation("CompanyResponsibles")
+  pricingServiceInvoices TaskPricingService[]         @relation("PricingServiceInvoiceToCustomer")
+  pricingCustomerConfigs TaskPricingCustomerConfig[]  @relation("PricingCustomerConfigCustomer")
+  responsibles           Responsible[]                @relation("CompanyResponsibles")
+  invoiceEntities        Invoice[]                    @relation("CustomerInvoiceEntities")
 
   @@index([fantasyName])
   @@index([cpf])
@@ -350,10 +352,6 @@ model PpeDelivery {
   actualDeliveryDate   DateTime?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
-  clicksignEnvelopeId  String?
-  clicksignDocumentKey String?
-  clicksignSignerKey   String?
-  clicksignSignedAt    DateTime?
   deliveryDocumentId   String?
   deliveryDocument     File?                @relation("PPE_DELIVERY_DOCUMENT", fields: [deliveryDocumentId], references: [id])
   item                 Item                 @relation("PPE_DELIVERY_ITEM", fields: [itemId], references: [id], onDelete: Cascade)
@@ -368,7 +366,6 @@ model PpeDelivery {
   @@index([scheduledDate])
   @@index([status, statusOrder])
   @@index([reviewedBy])
-  @@index([clicksignDocumentKey])
 }
 
 model PpeDeliverySignature {
@@ -491,7 +488,7 @@ model File {
   ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                   PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
-  pricingCustomerSignatures               TaskPricing[]        @relation("PRICING_CUSTOMER_SIGNATURE")
+  configCustomerSignatures                TaskPricingCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
   pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
   userAvatar                              User[]               @relation("USER_AVATAR")
   thumbnailJob                            ThumbnailJob?
@@ -521,6 +518,10 @@ model File {
   taskProjectFiles                        Task[]               @relation("TASK_PROJECT_FILES")
   taskCheckinFiles                        Task[]               @relation("TASK_CHECKIN_FILES")
   taskCheckoutFiles                       Task[]               @relation("TASK_CHECKOUT_FILES")
+  serviceOrderCheckinFiles                ServiceOrder[]       @relation("SERVICE_ORDER_CHECKIN_FILES")
+  serviceOrderCheckoutFiles               ServiceOrder[]       @relation("SERVICE_ORDER_CHECKOUT_FILES")
+  bankSlipPdfs                            BankSlip[]           @relation("BankSlipPdf")
+  nfsePdfs                                NfseDocument[]       @relation("NfsePdf")
 
   @@index([filename])
   @@index([originalName])
@@ -1093,14 +1094,14 @@ model Sector {
   id         String           @id @default(uuid())
   name       String
   privileges SectorPrivileges @default(BASIC)
-  managerId  String?          @unique
+  leaderId   String?          @unique
   createdAt  DateTime         @default(now())
   updatedAt  DateTime         @updatedAt
-  manager    User?            @relation("SECTOR_MANAGER", fields: [managerId], references: [id])
+  leader     User?            @relation("SECTOR_LEADER", fields: [leaderId], references: [id])
   tasks      Task[]
   users      User[]
 
-  @@index([managerId])
+  @@index([leaderId])
 }
 
 model ServiceOrder {
@@ -1129,6 +1130,8 @@ model ServiceOrder {
   createdBy     User               @relation("SERVICE_ORDER_CREATED_BY", fields: [createdById], references: [id])
   startedBy     User?              @relation("SERVICE_ORDER_STARTED_BY", fields: [startedById], references: [id])
   task          Task               @relation("SERVICE_ORDER_TASK", fields: [taskId], references: [id], onDelete: Cascade)
+  checkinFiles  File[]             @relation("SERVICE_ORDER_CHECKIN_FILES")
+  checkoutFiles File[]             @relation("SERVICE_ORDER_CHECKOUT_FILES")
 
   @@index([taskId])
   @@index([statusOrder])
@@ -1144,40 +1147,30 @@ model ServiceOrder {
 model TaskPricing {
   id                  String            @id @default(uuid())
   subtotal            Decimal           @db.Decimal(10, 2)
-  discountType        DiscountType      @default(NONE)
-  discountValue       Decimal?          @db.Decimal(10, 2)
   total               Decimal           @db.Decimal(10, 2)
   expiresAt           DateTime
-  status              TaskPricingStatus @default(DRAFT)
-  paymentCondition    PaymentCondition?
-  downPaymentDate     DateTime?
-  customPaymentText   String?
+  status              TaskPricingStatus @default(PENDING)
+  statusOrder         Int               @default(1)
   guaranteeYears      Int?
   customGuaranteeText String?
   layoutFileId        String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   budgetNumber        Int               @unique
-  customerSignatureId String?
   customForecastDays  Int?
   simultaneousTasks   Int?
-  discountReference   String?
-  responsibleId       String?
-  task                Task?             @relation("TASK_PRICING")
-  customerSignature   File?             @relation("PRICING_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
-  layoutFile          File?             @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
-  responsible         Responsible?      @relation("PRICING_RESPONSIBLE", fields: [responsibleId], references: [id])
-  items               TaskPricingItem[] @relation("PRICING_ITEMS")
-  invoicesToCustomers Customer[]        @relation("TaskPricingInvoiceTo")
+  task                Task?                        @relation("TASK_PRICING")
+  layoutFile          File?                        @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
+  services            TaskPricingService[]         @relation("PRICING_SERVICES")
+  customerConfigs     TaskPricingCustomerConfig[]  @relation("PricingCustomerConfig")
 
   @@index([status])
+  @@index([statusOrder])
   @@index([expiresAt])
   @@index([layoutFileId])
-  @@index([customerSignatureId])
-  @@index([responsibleId])
 }
 
-model TaskPricingItem {
+model TaskPricingService {
   id          String      @id @default(uuid())
   description String
   amount      Decimal     @db.Decimal(10, 2)
@@ -1187,9 +1180,42 @@ model TaskPricingItem {
   observation String?
   shouldSync  Boolean     @default(true)
   position    Int         @default(0)
-  pricing     TaskPricing @relation("PRICING_ITEMS", fields: [pricingId], references: [id], onDelete: Cascade)
+  pricing             TaskPricing @relation("PRICING_SERVICES", fields: [pricingId], references: [id], onDelete: Cascade)
+  invoiceToCustomerId String?
+  invoiceToCustomer   Customer?   @relation("PricingServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
 
   @@index([pricingId])
+  @@index([invoiceToCustomerId])
+}
+
+model TaskPricingCustomerConfig {
+  id                  String           @id @default(uuid())
+  pricingId           String
+  customerId          String
+  subtotal            Decimal          @db.Decimal(10, 2) @default(0)
+  discountType        DiscountType     @default(NONE)
+  discountValue       Decimal?         @db.Decimal(10, 2)
+  total               Decimal          @db.Decimal(10, 2) @default(0)
+  customPaymentText   String?
+  responsibleId       String?
+  discountReference   String?
+  paymentCondition    String?
+  downPaymentDate     DateTime?
+  customerSignatureId String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  pricing             TaskPricing      @relation("PricingCustomerConfig", fields: [pricingId], references: [id], onDelete: Cascade)
+  customer            Customer         @relation("PricingCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  responsible         Responsible?     @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
+  customerSignature   File?            @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
+  invoice             Invoice?         @relation("InvoiceCustomerConfig")
+  installments        Installment[]    @relation("CustomerConfigInstallments")
+
+  @@unique([pricingId, customerId])
+  @@index([pricingId])
+  @@index([customerId])
+  @@index([responsibleId])
+  @@index([customerSignatureId])
 }
 
 model Supplier {
@@ -1274,6 +1300,7 @@ model Task {
   checkinFiles          File[]               @relation("TASK_CHECKIN_FILES")
   checkoutFiles         File[]               @relation("TASK_CHECKOUT_FILES")
   responsibles          Responsible[]        @relation("TaskResponsibles")
+  invoiceEntities       Invoice[]            @relation("TaskInvoiceEntities")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1465,7 +1492,7 @@ model User {
   ppeSignatures           PpeDeliverySignature[]       @relation("PPE_SIGNATURE_USER")
   ppeSize                 PpeSize?                     @relation("USER_PPE_SIZE")
   preference              Preferences?                 @relation("USER_PREFERENCES")
-  managedSector           Sector?                      @relation("SECTOR_MANAGER")
+  ledSector               Sector?                      @relation("SECTOR_LEADER")
   seenNotification        SeenNotification[]
   approvedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_APPROVED_BY")
   assignedServiceOrders   ServiceOrder[]               @relation("SERVICE_ORDER_ASSIGNED_TO")
@@ -1486,6 +1513,7 @@ model User {
   warningsWitness                Warning[]                    @relation("WITNESS_WARNING")
   paymentResponsibleOrders       Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
   paymentAssignedByOrders        Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
+  invoicesCreated                Invoice[]                    @relation("InvoicesCreated")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2053,7 +2081,7 @@ model Responsible {
   updatedAt             DateTime           @updatedAt
   company               Customer?          @relation("CompanyResponsibles", fields: [companyId], references: [id])
   tasks                 Task[]             @relation("TaskResponsibles")
-  pricings              TaskPricing[]      @relation("PRICING_RESPONSIBLE")
+  customerConfigs       TaskPricingCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
 
   @@index([email])
   @@index([phone])
@@ -2287,7 +2315,6 @@ enum TaskStatus {
 
 enum ServiceOrderType {
   PRODUCTION
-  FINANCIAL
   COMMERCIAL
   ARTWORK
   LOGISTIC
@@ -2543,6 +2570,7 @@ enum SectorPrivileges {
   FINANCIAL
   LOGISTIC
   COMMERCIAL
+  PRODUCTION_MANAGER
 }
 
 enum ScheduleFrequency {
@@ -2824,6 +2852,8 @@ enum ChangeLogEntityType {
   TASK
   TASK_PRICING
   TASK_PRICING_ITEM
+  TASK_PRICING_SERVICE
+  TASK_PRICING_CUSTOMER_CONFIG
   TIME_CLOCK_ENTRY
   TRUCK
   USER
@@ -2902,10 +2932,13 @@ enum CommissionStatus {
 }
 
 enum TaskPricingStatus {
-  DRAFT
-  APPROVED
-  REJECTED
-  CANCELLED
+  PENDING
+  BUDGET_APPROVED
+  VERIFIED
+  INTERNAL_APPROVED
+  UPCOMING
+  PARTIAL
+  SETTLED
 }
 
 enum DiscountType {
@@ -2914,15 +2947,52 @@ enum DiscountType {
   FIXED_VALUE
 }
 
-enum PaymentCondition {
-  CASH
-  INSTALLMENTS_2
-  INSTALLMENTS_3
-  INSTALLMENTS_4
-  INSTALLMENTS_5
-  INSTALLMENTS_6
-  INSTALLMENTS_7
-  CUSTOM
+
+enum InvoiceStatus {
+  DRAFT
+  ACTIVE
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum InstallmentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum BankSlipStatus {
+  CREATING
+  REGISTERING
+  ACTIVE
+  OVERDUE
+  PAID
+  CANCELLED
+  REJECTED
+  ERROR
+}
+
+enum NfseStatus {
+  PENDING
+  PROCESSING
+  AUTHORIZED
+  CANCELLED
+  ERROR
+}
+
+enum BankSlipType {
+  NORMAL
+  HIBRIDO
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
 }
 
 enum PayrollDiscountType {
@@ -3102,6 +3172,167 @@ enum GDriveDeleteStatus {
   DELETED
   FAILED
   NOT_NEEDED
+}
+
+// =====================
+// Financial / Billing
+// =====================
+
+model Invoice {
+  id                String           @id @default(uuid())
+  customerConfigId  String           @unique
+  taskId            String
+  customerId        String
+  totalAmount       Decimal          @db.Decimal(10, 2)
+  paidAmount        Decimal          @db.Decimal(10, 2) @default(0)
+  status            InvoiceStatus    @default(DRAFT)
+  notes             String?
+  createdById       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  customerConfig    TaskPricingCustomerConfig @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  task              Task                     @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
+  customer          Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
+  createdBy         User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
+  installments      Installment[]            @relation("InvoiceInstallments")
+  nfseDocument      NfseDocument?            @relation("InvoiceNfse")
+
+  @@index([taskId])
+  @@index([customerId])
+  @@index([status])
+  @@index([createdById])
+}
+
+model Installment {
+  id               String            @id @default(uuid())
+  customerConfigId String
+  invoiceId        String?
+  number           Int
+  dueDate          DateTime
+  amount           Decimal           @db.Decimal(10, 2)
+  paidAmount       Decimal           @db.Decimal(10, 2) @default(0)
+  paidAt           DateTime?
+  status           InstallmentStatus @default(PENDING)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  customerConfig   TaskPricingCustomerConfig @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  invoice          Invoice?          @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
+  bankSlip         BankSlip?         @relation("InstallmentBankSlip")
+
+  @@unique([customerConfigId, number])
+  @@index([customerConfigId])
+  @@index([invoiceId])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model BankSlip {
+  id              String         @id @default(uuid())
+  installmentId   String         @unique
+  nossoNumero     String         @unique
+  seuNumero       String?
+  barcode         String?
+  digitableLine   String?
+  pixQrCode       String?
+  txid            String?
+  type            BankSlipType   @default(HIBRIDO)
+  amount          Decimal        @db.Decimal(10, 2)
+  dueDate         DateTime
+  status          BankSlipStatus @default(CREATING)
+  sicrediStatus   String?
+  pdfFileId       String?
+  paidAmount      Decimal?       @db.Decimal(10, 2)
+  paidAt          DateTime?
+  liquidationData Json?
+  errorMessage    String?
+  errorCount      Int            @default(0)
+  lastSyncAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  installment     Installment    @relation("InstallmentBankSlip", fields: [installmentId], references: [id], onDelete: Cascade)
+  pdfFile         File?          @relation("BankSlipPdf", fields: [pdfFileId], references: [id])
+
+  @@index([nossoNumero])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model NfseDocument {
+  id                   String     @id @default(uuid())
+  invoiceId            String     @unique
+  nfseNumber           String?
+  chaveAcesso          String?
+  verificationCode     String?
+  nDps                 Int?       @unique
+  xml                  String?    @db.Text
+  status               NfseStatus @default(PENDING)
+  issuedAt             DateTime?
+  cancelledAt          DateTime?
+  errorMessage         String?
+  errorCount           Int        @default(0)
+  retryAfter           DateTime?
+  municipalServiceCode String?
+  description          String?
+  totalAmount          Decimal    @db.Decimal(10, 2)
+  issRate              Decimal?   @db.Decimal(5, 4)
+  issAmount            Decimal?   @db.Decimal(10, 2)
+  pdfFileId            String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+  invoice              Invoice    @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: Cascade)
+  pdfFile              File?      @relation("NfsePdf", fields: [pdfFileId], references: [id])
+
+  @@index([invoiceId])
+  @@index([nfseNumber])
+  @@index([chaveAcesso])
+  @@index([status])
+}
+
+model SicrediToken {
+  id               String   @id @default(uuid())
+  accessToken      String
+  refreshToken     String?
+  tokenType        String   @default("Bearer")
+  expiresIn        Int
+  expiresAt        DateTime
+  refreshExpiresIn Int?
+  refreshExpiresAt DateTime?
+  scope            String?
+  identifier       String   @unique @default("default")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([expiresAt])
+  @@index([identifier])
+}
+
+model SicrediWebhookEvent {
+  id                      String             @id @default(uuid())
+  idEventoWebhook         String             @unique
+  nossoNumero             String
+  movimento               String
+  valorLiquidacao         Decimal?           @db.Decimal(10, 2)
+  valorDesconto           Decimal?           @db.Decimal(10, 2)
+  valorJuros              Decimal?           @db.Decimal(10, 2)
+  valorMulta              Decimal?           @db.Decimal(10, 2)
+  valorAbatimento         Decimal?           @db.Decimal(10, 2)
+  dataEvento              DateTime?
+  dataPrevisaoPagamento   DateTime?
+  agencia                 String?
+  posto                   String?
+  beneficiario            String?
+  carteira                String?
+  rawPayload              Json
+  status                  WebhookEventStatus @default(RECEIVED)
+  processedAt             DateTime?
+  errorMessage            String?
+  retryCount              Int                @default(0)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  @@index([nossoNumero])
+  @@index([status])
+  @@index([dataEvento])
 }
 
 // =====================

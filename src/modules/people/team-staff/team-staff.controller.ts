@@ -1,8 +1,8 @@
 // team-staff.controller.ts
-// Controller for team leader's managed sector data endpoints
-// All endpoints filter data by authenticated leader's managed sector from database
-// SECURITY: managedSectorId is ALWAYS fetched from database via Sector.managerId, NEVER from client/JWT
-// NOTE: Authorization is handled by TeamStaffService.validateTeamLeader() which checks Sector.managerId
+// Controller for team leader's led sector data endpoints
+// All endpoints filter data by authenticated leader's led sector from database
+// SECURITY: ledSectorId is ALWAYS fetched from database via Sector.leaderId, NEVER from client/JWT
+// NOTE: Authorization is handled by TeamStaffService.validateTeamLeader() which checks Sector.leaderId
 
 import { Controller, Get, Query, UseGuards, Logger } from '@nestjs/common';
 import { TeamStaffService } from './team-staff.service';
@@ -37,17 +37,17 @@ import {
 
 /**
  * Team Staff Controller
- * Provides secure endpoints for team leaders to access data from their managed sector
+ * Provides secure endpoints for team leaders to access data from their led sector
  *
  * CRITICAL SECURITY FEATURES:
  * - All endpoints require authentication (AuthGuard)
- * - Authorization: TeamStaffService.validateTeamLeader() checks if user is a sector manager (Sector.managerId = userId)
- * - managedSectorId is ALWAYS fetched fresh from database for each request via Sector.managerId relation
- * - Client-provided sectorId filters are ALWAYS overridden with database managedSectorId
- * - Returns 403 Forbidden if user is not a sector manager (no sector has this user as managerId)
+ * - Authorization: TeamStaffService.validateTeamLeader() checks if user is a sector leader (Sector.leaderId = userId)
+ * - ledSectorId is ALWAYS fetched fresh from database for each request via Sector.leaderId relation
+ * - Client-provided sectorId filters are ALWAYS overridden with database ledSectorId
+ * - Returns 403 Forbidden if user is not a sector leader (no sector has this user as leaderId)
  *
  * Routes:
- * - GET /team-staff/users - Get users from the leader's managed sector
+ * - GET /team-staff/users - Get users from the leader's led sector
  * - GET /team-staff/calculations - Get Secullum calculations for team members
  * - GET /team-staff/borrows - Get borrows for team members
  * - GET /team-staff/vacations - Get vacations for team members
@@ -67,9 +67,9 @@ export class TeamStaffController {
   // =====================
 
   /**
-   * Get users from the leader's managed sector
-   * Security: Filters users by managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Get users from the leader's led sector
+   * Security: Filters users by led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('users')
   @ReadRateLimit()
@@ -87,9 +87,9 @@ export class TeamStaffController {
 
   /**
    * Get Secullum calculations for a specific team member
-   * Security: Validates target user belongs to the leader's managed sector
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
-   * Returns 403 if target user is not in the managed sector
+   * Security: Validates target user belongs to the leader's led sector
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
+   * Returns 403 if target user is not in the led sector
    * Requires startDate, endDate, and userId query parameters
    *
    * @param userId - The target team member's Ankaa user ID
@@ -128,8 +128,8 @@ export class TeamStaffController {
 
   /**
    * Get borrows for team members
-   * Security: Filters borrows by users in managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Security: Filters borrows by users in led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('borrows')
   @ReadRateLimit()
@@ -147,8 +147,8 @@ export class TeamStaffController {
 
   /**
    * Get vacations for team members
-   * Security: Filters vacations by users in managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Security: Filters vacations by users in led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('vacations')
   @ReadRateLimit()
@@ -166,8 +166,8 @@ export class TeamStaffController {
 
   /**
    * Get EPI (PPE) deliveries for team members
-   * Security: Filters EPI deliveries by users in managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Security: Filters EPI deliveries by users in led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('epis')
   @ReadRateLimit()
@@ -185,8 +185,8 @@ export class TeamStaffController {
 
   /**
    * Get inventory activities for team members
-   * Security: Filters activities by users in managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Security: Filters activities by users in led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('activities')
   @ReadRateLimit()
@@ -204,8 +204,8 @@ export class TeamStaffController {
 
   /**
    * Get warnings for team members
-   * Security: Filters warnings by collaborators in managed sector from database (Sector.managerId)
-   * Returns 403 if user is not a team leader (no sector has this user as managerId)
+   * Security: Filters warnings by collaborators in led sector from database (Sector.leaderId)
+   * Returns 403 if user is not a team leader (no sector has this user as leaderId)
    */
   @Get('warnings')
   @ReadRateLimit()

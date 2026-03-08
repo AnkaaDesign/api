@@ -13,8 +13,8 @@ export enum PredefinedFilterType {
   TASK_CREATOR = 'TASK_CREATOR',
   /** Users in the task's sector */
   TASK_SECTOR_MEMBERS = 'TASK_SECTOR_MEMBERS',
-  /** Only the sector manager */
-  SECTOR_MANAGER = 'SECTOR_MANAGER',
+  /** Only the sector leader */
+  SECTOR_LEADER = 'SECTOR_LEADER',
   /** User who requested the order */
   ORDER_REQUESTER = 'ORDER_REQUESTER',
   /** User assigned to service order */
@@ -71,7 +71,7 @@ export interface NotificationContext {
   };
   /** The sector related to this notification */
   sector?: Sector & {
-    manager?: User;
+    leader?: User;
     users?: User[];
   };
   /** User who triggered the notification */
@@ -185,8 +185,8 @@ export class NotificationRecipientResolverService {
       case PredefinedFilterType.TASK_SECTOR_MEMBERS:
         return this.filterTaskSectorMembers(users, context);
 
-      case PredefinedFilterType.SECTOR_MANAGER:
-        return this.filterSectorManager(users, context);
+      case PredefinedFilterType.SECTOR_LEADER:
+        return this.filterSectorLeader(users, context);
 
       case PredefinedFilterType.ORDER_REQUESTER:
         return this.filterOrderRequester(users, context);
@@ -359,18 +359,18 @@ export class NotificationRecipientResolverService {
   }
 
   /**
-   * Filter to get only the sector manager
+   * Filter to get only the sector leader
    */
-  private filterSectorManager(users: User[], context: NotificationContext): User[] {
-    // Try to get manager from context.sector first, then from task.sector
+  private filterSectorLeader(users: User[], context: NotificationContext): User[] {
+    // Try to get leader from context.sector first, then from task.sector
     const sector = context.sector || context.task?.sector;
 
-    if (!sector?.managerId) {
-      this.logger.debug('No managerId found for sector manager filter');
+    if (!sector?.leaderId) {
+      this.logger.debug('No leaderId found for sector leader filter');
       return [];
     }
 
-    return users.filter(user => user.id === sector.managerId);
+    return users.filter(user => user.id === sector.leaderId);
   }
 
   /**
@@ -462,12 +462,12 @@ export class NotificationRecipientResolverService {
   }
 
   /**
-   * Gets all managers for the specified sector privileges
+   * Gets all leaders for the specified sector privileges
    *
    * @param privileges - Array of sector privileges
-   * @returns Array of sector managers
+   * @returns Array of sector leaders
    */
-  async getSectorManagers(privileges: SectorPrivileges[]): Promise<User[]> {
+  async getSectorLeaders(privileges: SectorPrivileges[]): Promise<User[]> {
     if (!privileges || privileges.length === 0) {
       return [];
     }
@@ -477,12 +477,12 @@ export class NotificationRecipientResolverService {
         privileges: {
           in: privileges,
         },
-        managerId: {
+        leaderId: {
           not: null,
         },
       },
       include: {
-        manager: {
+        leader: {
           include: {
             sector: true,
           },
@@ -490,11 +490,11 @@ export class NotificationRecipientResolverService {
       },
     });
 
-    const managers = sectors
-      .map(s => s.manager)
+    const leaders = sectors
+      .map(s => s.leader)
       .filter((m): m is NonNullable<typeof m> => m !== null);
 
-    return managers as unknown as User[];
+    return leaders as unknown as User[];
   }
 
   /**
