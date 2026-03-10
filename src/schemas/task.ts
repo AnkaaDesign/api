@@ -2013,6 +2013,19 @@ const taskTransform = (data: any): any => {
     delete data.shouldDisplayForDesigner;
   }
 
+  // Financial-specific display logic:
+  // Show only COMPLETED tasks that have a pricing and pricing status is NOT SETTLED
+  if (data.shouldDisplayForFinancial === true) {
+    andConditions.push({
+      AND: [
+        { status: 'COMPLETED' },
+        { pricing: { isNot: null } },
+        { pricing: { status: { not: 'SETTLED' } } },
+      ],
+    });
+    delete data.shouldDisplayForFinancial;
+  }
+
   if (data.hasAirbrushing === true) {
     andConditions.push({ airbrushings: { some: {} } });
     delete data.hasAirbrushing;
@@ -2442,6 +2455,7 @@ export const taskGetManySchema = z
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
     shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
+    shouldDisplayForFinancial: z.boolean().optional(), // Financial display logic: completed tasks with pricing that is not settled
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),

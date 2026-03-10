@@ -3583,6 +3583,40 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return [];
   }
 
+  async getTasksAwaitingPricingApproval(limit = 50): Promise<HomeDashboardTask[]> {
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        status: { notIn: [TASK_STATUS.COMPLETED as any, TASK_STATUS.CANCELLED as any] },
+        pricing: { status: 'VERIFIED' as any },
+      },
+      select: {
+        id: true,
+        name: true,
+        serialNumber: true,
+        status: true,
+        term: true,
+        forecastDate: true,
+        customer: { select: { fantasyName: true } },
+        sector: { select: { name: true } },
+        truck: { select: { plate: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return tasks.map((t) => ({
+      id: t.id,
+      name: t.name,
+      serialNumber: t.serialNumber,
+      plate: t.truck?.plate || null,
+      status: t.status,
+      term: t.term,
+      forecastDate: t.forecastDate,
+      customerName: t.customer?.fantasyName || null,
+      sectorName: t.sector?.name || null,
+    }));
+  }
+
   async getRecentMessages(
     userId: string,
     since: Date,
