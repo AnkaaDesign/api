@@ -215,6 +215,7 @@ export class InvoiceController {
   /**
    * GET /invoices/:installmentId/boleto/pdf
    * Download the boleto PDF for an installment.
+   * If no local PDF exists, fetches directly from Sicredi using linhaDigitavel.
    */
   @Get(':installmentId/boleto/pdf')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
@@ -233,18 +234,42 @@ export class InvoiceController {
       );
     }
 
-    if (!bankSlip.pdfFile) {
-      throw new NotFoundException('PDF do boleto ainda não foi gerado.');
+    // If we have a local PDF file, serve it
+    if (bankSlip.pdfFile) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`,
+      );
+      return res.sendFile(bankSlip.pdfFile.path);
     }
 
-    // Serve the PDF file
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="boleto-${bankSlip.nossoNumero}.pdf"`,
-    );
+    // Otherwise, fetch from Sicredi on-the-fly using linhaDigitavel
+    if (!bankSlip.digitableLine) {
+      throw new NotFoundException(
+        'PDF do boleto ainda não está disponível (linha digitável não encontrada).',
+      );
+    }
 
-    return res.sendFile(bankSlip.pdfFile.path);
+    try {
+      const pdfBuffer = await this.sicrediService.downloadBoletoPdf(
+        bankSlip.digitableLine,
+      );
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="boleto-${bankSlip.nossoNumero}.pdf"`,
+      );
+      return res.send(pdfBuffer);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch boleto PDF from Sicredi for installment ${installmentId}: ${error}`,
+      );
+      throw new NotFoundException(
+        'Não foi possível obter o PDF do boleto junto ao Sicredi.',
+      );
+    }
   }
 
   // ─── NFS-e Endpoints ──────────────────────────────────────────
@@ -257,48 +282,10 @@ export class InvoiceController {
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
-    const nfseDoc = await this.prisma.nfseDocument.findUnique({
-      where: { invoiceId },
-    });
-
-    if (!nfseDoc) {
-      throw new NotFoundException(
-        `NFS-e não encontrada para a fatura ${invoiceId}.`,
-      );
-    }
-
-    if (nfseDoc.status === NFSE_STATUS.AUTHORIZED) {
-      throw new BadRequestException('NFS-e já foi autorizada.');
-    }
-
-    if (nfseDoc.status === NFSE_STATUS.PROCESSING) {
-      // If stuck in PROCESSING for more than 5 minutes, allow re-emission
-      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
-      if (nfseDoc.updatedAt > fiveMinAgo) {
-        throw new BadRequestException('NFS-e já está em processamento. Aguarde alguns minutos.');
-      }
-      this.logger.warn(
-        `NFS-e ${nfseDoc.id} stuck in PROCESSING since ${nfseDoc.updatedAt}, resetting to PENDING`,
-      );
-    }
-
-    // Set to PENDING and trigger emission immediately
-    await this.prisma.nfseDocument.update({
-      where: { id: nfseDoc.id },
-      data: {
-        status: 'PENDING',
-        errorMessage: null,
-        errorCount: 0,
-        retryAfter: null,
-      },
-    });
-
-    // Trigger emission immediately (non-blocking)
-    this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
-      new Logger('InvoiceController').warn(`NFS-e emission trigger failed: ${err}`);
-    });
-
-    return { message: 'NFS-e será emitida em instantes.' };
+    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
+    throw new BadRequestException(
+      'Emissão de NFS-e Nacional desabilitada. O município ainda utiliza emissão municipal.',
+    );
   }
 
   /**
@@ -312,56 +299,10 @@ export class InvoiceController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Body() body: { reason?: string },
   ) {
-    const nfseDoc = await this.prisma.nfseDocument.findUnique({
-      where: { invoiceId },
-    });
-
-    if (!nfseDoc) {
-      throw new NotFoundException(
-        `NFS-e não encontrada para a fatura ${invoiceId}.`,
-      );
-    }
-
-    if (nfseDoc.status === NFSE_STATUS.CANCELLED) {
-      throw new BadRequestException('NFS-e já está cancelada.');
-    }
-
-    if (nfseDoc.status !== NFSE_STATUS.AUTHORIZED) {
-      throw new BadRequestException(
-        'Somente NFS-e autorizadas podem ser canceladas.',
-      );
-    }
-
-    const reason = body?.reason?.trim();
-    if (!reason || reason.length < 15) {
-      throw new BadRequestException(
-        'Motivo do cancelamento é obrigatório e deve ter no mínimo 15 caracteres.',
-      );
-    }
-
-    // Cancel at the municipality via events API
-    if (nfseDoc.chaveAcesso) {
-      try {
-        await this.nfseService.cancelNfse(nfseDoc.chaveAcesso, reason);
-      } catch (error) {
-        this.logger.error(`Failed to cancel NFS-e at municipality: ${error}`);
-        throw new BadRequestException(
-          'Falha ao cancelar NFS-e na prefeitura. Tente novamente.',
-        );
-      }
-    } else {
-      // No chaveAcesso — just cancel locally
-      await this.prisma.nfseDocument.update({
-        where: { id: nfseDoc.id },
-        data: {
-          status: 'CANCELLED',
-          cancelledAt: new Date(),
-          errorMessage: `Cancelado: ${reason}`,
-        },
-      });
-    }
-
-    return { message: 'NFS-e cancelada com sucesso.' };
+    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
+    throw new BadRequestException(
+      'Cancelamento de NFS-e Nacional desabilitado. O município ainda utiliza emissão municipal.',
+    );
   }
 
   /**
@@ -374,41 +315,9 @@ export class InvoiceController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
   ) {
-    const nfseDoc = await this.prisma.nfseDocument.findUnique({
-      where: { invoiceId },
-      include: { pdfFile: true },
-    });
-
-    if (!nfseDoc) {
-      throw new NotFoundException(
-        `NFS-e não encontrada para a fatura ${invoiceId}.`,
-      );
-    }
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="nfse-${nfseDoc.nfseNumber || nfseDoc.id}.pdf"`,
+    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
+    throw new BadRequestException(
+      'Download de NFS-e Nacional desabilitado. O município ainda utiliza emissão municipal.',
     );
-
-    if (nfseDoc.pdfFile) {
-      return res.sendFile(nfseDoc.pdfFile.path);
-    }
-
-    // Fallback: download DANFS-e from the ADN API
-    if (nfseDoc.chaveAcesso) {
-      try {
-        const pdfBuffer = await this.nfseService.downloadDanfse(
-          nfseDoc.chaveAcesso,
-        );
-        return res.send(pdfBuffer);
-      } catch (error) {
-        this.logger.error(
-          `Failed to download DANFS-e from API: ${error}`,
-        );
-      }
-    }
-
-    throw new NotFoundException('PDF da NFS-e não disponível.');
   }
 }

@@ -947,11 +947,11 @@ export class TaskPricingService {
         this.logger.warn(`[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`);
       }
 
-      // Trigger NFS-e emission immediately (non-blocking — errors don't prevent status transition)
-      this.logger.log(`[INTERNAL_APPROVE] Triggering NFS-e emission for pending documents...`);
-      this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
-        this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
-      });
+      // NFSe Nacional disabled: Ibiporã still uses municipal emission.
+      // NFS-e emission will be re-enabled once the city migrates to the national system.
+      // this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
+      //   this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
+      // });
 
       // Auto-transition to UPCOMING after successful invoice generation
       this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning pricing ${id} to UPCOMING...`);
@@ -1221,19 +1221,10 @@ export class TaskPricingService {
     currentStatus: TASK_PRICING_STATUS,
     newStatus: TASK_PRICING_STATUS,
   ): void {
-    const validTransitions: Record<string, string[]> = {
-      [TASK_PRICING_STATUS.PENDING]: [TASK_PRICING_STATUS.BUDGET_APPROVED],
-      [TASK_PRICING_STATUS.BUDGET_APPROVED]: [TASK_PRICING_STATUS.VERIFIED],
-      [TASK_PRICING_STATUS.VERIFIED]: [TASK_PRICING_STATUS.INTERNAL_APPROVED],
-      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: [TASK_PRICING_STATUS.UPCOMING],
-      [TASK_PRICING_STATUS.UPCOMING]: [TASK_PRICING_STATUS.PARTIAL],
-      [TASK_PRICING_STATUS.PARTIAL]: [TASK_PRICING_STATUS.SETTLED, TASK_PRICING_STATUS.UPCOMING],
-      [TASK_PRICING_STATUS.SETTLED]: [TASK_PRICING_STATUS.PARTIAL],
-    };
-
-    const allowed = validTransitions[currentStatus] || [];
-    if (!allowed.includes(newStatus)) {
-      throw new BadRequestException(`Transição de status inválida: ${currentStatus} → ${newStatus}`);
+    // All statuses can transition to any other status (except themselves)
+    // to allow administrative corrections
+    if (currentStatus === newStatus) {
+      throw new BadRequestException(`O status já é ${currentStatus}`);
     }
   }
 

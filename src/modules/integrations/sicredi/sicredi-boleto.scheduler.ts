@@ -52,6 +52,11 @@ export class SicrediBoletoScheduler {
       return;
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[BOLETO_CREATE] Skipping scheduled boleto creation in dev mode (only triggered on internal approval)');
+      return;
+    }
+
     this.isProcessingCreation = true;
 
     try {
@@ -186,7 +191,7 @@ export class SicrediBoletoScheduler {
                 data: {
                   installmentId: installment.id,
                   nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
-                  type: 'HIBRIDO',
+                  type: 'NORMAL',
                   amount: Number(installment.amount),
                   dueDate: installment.dueDate,
                   status: BANK_SLIP_STATUS.ERROR,
@@ -217,7 +222,7 @@ export class SicrediBoletoScheduler {
                 data: {
                   installmentId: installment.id,
                   nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
-                  type: 'HIBRIDO',
+                  type: 'NORMAL',
                   amount: Number(installment.amount),
                   dueDate: installment.dueDate,
                   status: BANK_SLIP_STATUS.ERROR,
@@ -242,7 +247,7 @@ export class SicrediBoletoScheduler {
           // Create boleto via Sicredi API
           const boletoResponse = await this.sicrediService.createBoleto({
             codigoBeneficiario,
-            tipoCobranca: 'HIBRIDO',
+            tipoCobranca: 'NORMAL',
             pagador: {
               tipoPessoa: 'PESSOA_JURIDICA',
               documento: cleanCnpj,
@@ -300,7 +305,7 @@ export class SicrediBoletoScheduler {
                 digitableLine: boletoResponse.linhaDigitavel,
                 pixQrCode,
                 txid: boletoResponse.txid || null,
-                type: 'HIBRIDO',
+                type: 'NORMAL',
                 amount: Number(installment.amount),
                 dueDate: installment.dueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
@@ -346,7 +351,7 @@ export class SicrediBoletoScheduler {
               data: {
                 installmentId: installment.id,
                 nossoNumero: `ERR-${installment.id.slice(0, 8)}`,
-                type: 'HIBRIDO',
+                type: 'NORMAL',
                 amount: Number(installment.amount),
                 dueDate: installment.dueDate,
                 status: BANK_SLIP_STATUS.ERROR,
@@ -416,6 +421,11 @@ export class SicrediBoletoScheduler {
   async reconcileBoletos(): Promise<void> {
     if (this.isProcessingReconciliation) {
       this.logger.warn('Boleto reconciliation already in progress, skipping');
+      return;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[BOLETO_RECONCILE] Skipping boleto reconciliation in dev mode');
       return;
     }
 
@@ -551,6 +561,11 @@ export class SicrediBoletoScheduler {
       return;
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('Skipping boleto overdue check in dev mode');
+      return;
+    }
+
     this.isProcessingOverdue = true;
 
     try {
@@ -627,6 +642,11 @@ export class SicrediBoletoScheduler {
   async retryFailedWebhookEvents(): Promise<void> {
     if (this.isProcessingWebhookRetry) {
       this.logger.warn('[WEBHOOK_RETRY] Webhook retry already in progress, skipping');
+      return;
+    }
+
+    if (process.env.NODE_ENV !== 'production') {
+      this.logger.log('[WEBHOOK_RETRY] Skipping webhook retry in dev mode');
       return;
     }
 

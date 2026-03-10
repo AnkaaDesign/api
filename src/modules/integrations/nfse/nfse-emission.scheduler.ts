@@ -30,6 +30,11 @@ export class NfseEmissionScheduler {
       return;
     }
 
+    // NFSe Nacional disabled: Ibiporã still uses municipal emission (aderenteEmissorNacional=0).
+    // This scheduler will be re-enabled once the city migrates to the national system.
+    this.logger.log('NFS-e emission is disabled (municipality not yet on national system). Skipping.');
+    return;
+
     this.isProcessing = true;
 
     try {

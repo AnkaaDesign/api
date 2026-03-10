@@ -2793,6 +2793,8 @@ export class TaskService {
           (data as any)._deletedServiceOrderDescriptions = deletedServiceOrderDescriptions;
 
           // Refetch the task with updated serviceOrders for changelog tracking
+          // Merge service order includes: preserve client's nested includes (e.g. checkinFiles, checkoutFiles)
+          const clientSOInclude = include?.serviceOrders && typeof include.serviceOrders === 'object' ? include.serviceOrders : {};
           updatedTask = await this.tasksRepository.findByIdWithTransaction(tx, id, {
             include: {
               ...include,
@@ -2800,7 +2802,9 @@ export class TaskService {
               artworks: true,
               observation: { include: { files: true } },
               truck: true,
-              serviceOrders: true, // Include updated service orders
+              serviceOrders: typeof clientSOInclude === 'object' && 'include' in clientSOInclude
+                ? clientSOInclude
+                : true,
             },
           });
 

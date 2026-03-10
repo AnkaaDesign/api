@@ -6,7 +6,6 @@ import {
   INVOICE_STATUS,
   INSTALLMENT_STATUS,
   BANK_SLIP_STATUS,
-  NFSE_STATUS,
 } from '@constants';
 import type { Invoice } from '@types';
 
@@ -160,7 +159,7 @@ export class InvoiceGenerationService {
             data: {
               installmentId: inst.id,
               nossoNumero: nossoNumero,
-              type: 'HIBRIDO',
+              type: 'NORMAL',
               amount: Number(inst.amount),
               dueDate: inst.dueDate,
               status: 'CREATING',
@@ -172,18 +171,15 @@ export class InvoiceGenerationService {
           );
         }
 
-        // Create NfseDocument with PENDING status
-        await tx.nfseDocument.create({
-          data: {
-            invoiceId: invoice.id,
-            status: 'PENDING',
-            totalAmount: totalAmount,
-          },
-        });
-
-        this.logger.log(
-          `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING, total=${totalAmount})`,
-        );
+        // NFSe Nacional disabled: Ibiporã still uses municipal emission.
+        // NfseDocument creation will be re-enabled once the city migrates to the national system.
+        // await tx.nfseDocument.create({
+        //   data: {
+        //     invoiceId: invoice.id,
+        //     status: 'PENDING',
+        //     totalAmount: totalAmount,
+        //   },
+        // });
         this.logger.log(
           `[INVOICE_GEN] Invoice ${invoice.id} fully created for customer ${config.customer?.fantasyName} (${config.customerId}): ` +
             `${existingInstallments.length} installment(s), total: ${totalAmount}`,
@@ -279,7 +275,7 @@ export class InvoiceGenerationService {
 
         const boletoResponse = await this.sicrediService.createBoleto({
           codigoBeneficiario,
-          tipoCobranca: 'HIBRIDO',
+          tipoCobranca: 'NORMAL',
           pagador: {
             tipoPessoa: 'PESSOA_JURIDICA',
             documento: cleanCnpj,
