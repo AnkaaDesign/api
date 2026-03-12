@@ -2,12 +2,16 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { NfseService } from './nfse.service';
+import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
 import { NfseStatus } from '@prisma/client';
 
 /**
  * Scheduler for automatic NFS-e emission.
  *
- * Runs a daily job at 9 AM to emit PENDING NFS-e documents to the municipality API.
+ * Uses the Elotech OXY municipal REST API (Ibiporã) for emission.
+ * The national SEFIN integration is preserved but disabled until the city migrates.
+ *
+ * Runs a daily job at 9 AM to emit PENDING NFS-e documents.
  * Also retries ERROR documents that have passed their retryAfter window (max 3 attempts).
  */
 @Injectable()
@@ -18,6 +22,7 @@ export class NfseEmissionScheduler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly nfseService: NfseService,
+    private readonly municipalNfseService: ElotechOxyNfseService,
   ) {}
 
   @Cron('0 9 * * *', {
@@ -29,11 +34,6 @@ export class NfseEmissionScheduler {
       this.logger.warn('NFS-e emission already in progress, skipping');
       return;
     }
-
-    // NFSe Nacional disabled: Ibiporã still uses municipal emission (aderenteEmissorNacional=0).
-    // This scheduler will be re-enabled once the city migrates to the national system.
-    this.logger.log('NFS-e emission is disabled (municipality not yet on national system). Skipping.');
-    return;
 
     this.isProcessing = true;
 
@@ -97,6 +97,18 @@ export class NfseEmissionScheduler {
                   id: true,
                   name: true,
                   serialNumber: true,
+                  pricing: {
+                    select: {
+                      services: {
+                        select: {
+                          description: true,
+                          amount: true,
+                          invoiceToCustomerId: true,
+                        },
+                        orderBy: { position: 'asc' as const },
+                      },
+                    },
+                  },
                 },
               },
             },
@@ -170,10 +182,31 @@ export class NfseEmissionScheduler {
             continue;
           }
 
-          // Build the input for NfseService.emitNfse()
+          // Build services list from task pricing, filtered by customer
+          const allServices =
+            (task as any).pricing?.services as
+              | Array<{
+                  description: string;
+                  amount: any;
+                  invoiceToCustomerId: string | null;
+                }>
+              | undefined;
+
+          const services = allServices
+            ?.filter(
+              (s) =>
+                !s.invoiceToCustomerId ||
+                s.invoiceToCustomerId === customer.id,
+            )
+            .map((s) => ({
+              description: s.description,
+              amount: Number(s.amount),
+            }));
+
+          // Build the input for municipal NFSe emission (Elotech OXY)
           const emitInput = {
             id: invoice.id,
-            totalAmount: Number(doc.totalAmount),
+            totalAmount: Number(invoice.totalAmount),
             customer: {
               cnpj: customer.cnpj || undefined,
               cpf: customer.cpf || undefined,
@@ -182,7 +215,8 @@ export class NfseEmissionScheduler {
               phone: customer.phones?.[0] || undefined,
               address: customer.address
                 ? {
-                    cityCode: 0, // Falls back to NFSE_CITY_CODE env var in buildDps()
+                    cityName: customer.city || undefined,
+                    state: customer.state || undefined,
                     zipCode: customer.zipCode || '',
                     street: customer.address,
                     number: customer.addressNumber || 'S/N',
@@ -194,13 +228,12 @@ export class NfseEmissionScheduler {
             task: {
               id: task.id,
               name: task.name,
+              serialNumber: (task as any).serialNumber || undefined,
             },
-            description:
-              doc.description ||
-              `Serviço ref. OS ${task.serialNumber || task.name}`,
+            services,
           };
 
-          await this.nfseService.emitNfse(emitInput);
+          await this.municipalNfseService.emitNfse(emitInput);
           emitted++;
 
           this.logger.log(

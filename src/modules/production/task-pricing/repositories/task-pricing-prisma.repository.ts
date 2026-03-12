@@ -244,7 +244,7 @@ export class TaskPricingPrismaRepository
           },
           invoice: {
             include: {
-              nfseDocument: true,
+              nfseDocuments: true,
             },
           },
         },

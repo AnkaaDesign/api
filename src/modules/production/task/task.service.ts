@@ -1713,15 +1713,15 @@ export class TaskService {
             );
           }
 
-          // Only LOGISTIC and ADMIN can set task status to COMPLETED
+          // Only PRODUCTION_MANAGER and ADMIN can set task status to COMPLETED
           if (
             toStatus === TASK_STATUS.COMPLETED &&
             userPrivilege &&
-            userPrivilege !== SECTOR_PRIVILEGES.LOGISTIC &&
+            userPrivilege !== SECTOR_PRIVILEGES.PRODUCTION_MANAGER &&
             userPrivilege !== SECTOR_PRIVILEGES.ADMIN
           ) {
             throw new BadRequestException(
-              'Apenas o setor de logística pode finalizar tarefas.',
+              'Apenas o gerente de produção pode finalizar tarefas.',
             );
           }
 
@@ -7217,10 +7217,10 @@ export class TaskService {
       }
 
       // Filter artworks based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (task.artworks && userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
           userRole,
         );
 
@@ -7287,10 +7287,10 @@ export class TaskService {
       const result = await this.tasksRepository.findMany(params);
 
       // Filter artworks based on user role for each task
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
           userRole,
         );
 

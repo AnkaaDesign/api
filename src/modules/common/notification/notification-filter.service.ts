@@ -208,7 +208,8 @@ export class NotificationFilterService {
           if (
             serviceOrderType === 'PRODUCTION' &&
             (userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
-              userPrivilege === SECTOR_PRIVILEGES.LOGISTIC)
+              userPrivilege === SECTOR_PRIVILEGES.LOGISTIC ||
+              userPrivilege === SECTOR_PRIVILEGES.PRODUCTION_MANAGER)
           ) {
             return true;
           }

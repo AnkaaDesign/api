@@ -7,7 +7,7 @@
  * 1. Service Order → Task (Forward sync):
  *    - When SO goes to IN_PROGRESS → Task auto-starts (WAITING_PRODUCTION → IN_PRODUCTION)
  *    - When all ARTWORK SOs complete → Task transitions (PREPARATION → WAITING_PRODUCTION)
- *    - When all PRODUCTION SOs complete → Task stays IN_PRODUCTION (only logistics can finish)
+ *    - When all PRODUCTION SOs complete → Task stays IN_PRODUCTION (only production manager can finish)
  *
  * 2. Task → Service Order (Reverse sync):
  *    - When Task goes to IN_PRODUCTION → First PENDING production SO starts (PENDING → IN_PROGRESS)
@@ -80,7 +80,7 @@ export function determineTaskStatusFromServiceOrders(
     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
   );
 
-  // All active orders completed → Task stays IN_PRODUCTION (only logistics can finish)
+  // All active orders completed → Task stays IN_PRODUCTION (only production manager can finish)
   if (allCompleted) {
     return TASK_STATUS.IN_PRODUCTION;
   }
@@ -166,7 +166,7 @@ export function calculateCorrectTaskStatus(
     so => so.status === SERVICE_ORDER_STATUS.COMPLETED,
   );
 
-  // All PRODUCTION SOs completed → stays IN_PRODUCTION (only logistics can finish the task)
+  // All PRODUCTION SOs completed → stays IN_PRODUCTION (only production manager can finish the task)
   if (allProductionCompleted) {
     return TASK_STATUS.IN_PRODUCTION;
   }
@@ -423,7 +423,7 @@ export function getTaskUpdateForServiceOrderStatusChange(
 
   // SO: ANY → COMPLETED
   // NOTE: Task is NO LONGER auto-completed when all production SOs finish.
-  // Only the logistics sector can finish/complete tasks manually.
+  // Only the production manager can finish/complete tasks manually.
 
   // SO: ANY → CANCELLED (check if all remaining active production SOs are complete or all are cancelled)
   // When a service order is cancelled, check if all remaining active orders are completed
@@ -456,7 +456,7 @@ export function getTaskUpdateForServiceOrderStatusChange(
     }
 
     // NOTE: Task is NO LONGER auto-completed when remaining active SOs are all completed.
-    // Only the logistics sector can finish/complete tasks manually.
+    // Only the production manager can finish/complete tasks manually.
   }
 
   // ===== BACKWARD TRANSITIONS (Rollback) =====

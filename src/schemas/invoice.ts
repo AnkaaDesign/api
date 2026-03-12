@@ -42,16 +42,7 @@ export const invoiceIncludeSchema = z
         }),
       ])
       .optional(),
-    nfseDocument: z
-      .union([
-        z.boolean(),
-        z.object({
-          include: z
-            .object({ pdfFile: z.boolean().optional() })
-            .optional(),
-        }),
-      ])
-      .optional(),
+    nfseDocuments: z.boolean().optional(),
     customer: z.boolean().optional(),
     task: z.boolean().optional(),
     createdBy: z.boolean().optional(),

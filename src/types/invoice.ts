@@ -21,7 +21,7 @@ export interface Invoice extends BaseEntity {
   notes: string | null;
   createdById: string | null;
   installments?: Installment[];
-  nfseDocument?: NfseDocument | null;
+  nfseDocuments?: NfseDocument[];
   customer?: { id: string; fantasyName: string; cnpj?: string | null };
   task?: { id: string; name?: string | null; serialNumber?: string | null };
   createdBy?: { id: string; name: string } | null;
@@ -31,7 +31,7 @@ export interface InvoiceInclude {
   installments?:
     | boolean
     | { include?: { bankSlip?: boolean | { include?: { pdfFile?: boolean } } } };
-  nfseDocument?: boolean | { include?: { pdfFile?: boolean } };
+  nfseDocuments?: boolean;
   customer?: boolean;
   task?: boolean;
   createdBy?: boolean;
@@ -103,25 +103,54 @@ export interface BankSlip extends BaseEntity {
 
 export interface NfseDocument extends BaseEntity {
   invoiceId: string;
-  nfseNumber: string | null;
-  chaveAcesso: string | null;
-  verificationCode: string | null;
-  nDps: number | null;
-  xml: string | null;
+  elotechNfseId: number | null;
   status: NFSE_STATUS;
-  issuedAt: Date | null;
-  cancelledAt: Date | null;
   errorMessage: string | null;
   errorCount: number;
   retryAfter: Date | null;
-  municipalServiceCode: string | null;
-  description: string | null;
-  totalAmount: number;
-  issRate: number | null;
-  issAmount: number | null;
-  pdfFileId: string | null;
-  pdfFile?: { id: string; path: string } | null;
   invoice?: Invoice;
+}
+
+export interface ElotechNfseListItem {
+  id: number;
+  numeroNotaFiscal: number;
+  tipoDocumento: string;
+  dataEmissao: string;
+  situacao: number;
+  descricaoSituacao: string;
+  cancelada: boolean;
+  emitida: boolean;
+  tomadorCnpjCpf: string;
+  tomadorRazaoNome: string;
+  valorDoc: number;
+  valorServico: number;
+  valorISS: number;
+  issRetido: string;
+  idMotivoSituacao?: number;
+  descricaoMotivoSituacao?: string;
+  // Enriched from local DB
+  invoiceId?: string;
+  taskId?: string;
+  taskName?: string;
+  taskSerialNumber?: string;
+  customerName?: string;
+  nfseDocumentId?: string;
+  localStatus?: string;
+}
+
+export interface ElotechNfseDetail {
+  formTomador: Record<string, any>;
+  formDadosNFSe: Record<string, any>;
+  formImposto: Record<string, any>;
+  formTotal: Record<string, any>;
+  // Enriched from local DB
+  invoiceId?: string | null;
+  taskId?: string | null;
+  taskName?: string | null;
+  taskSerialNumber?: string | null;
+  customerName?: string | null;
+  nfseDocumentId?: string | null;
+  localStatus?: string | null;
 }
 
 // =====================

@@ -102,17 +102,18 @@ export function checkServiceOrderUpdatePermission(
   // Check permissions based on service order type (when NOT assigned)
   switch (serviceOrder.type) {
     case SERVICE_ORDER_TYPE.PRODUCTION:
-      // PRODUCTION and LOGISTIC can update PRODUCTION service orders
+      // PRODUCTION, LOGISTIC, and PRODUCTION_MANAGER can update PRODUCTION service orders
       if (
         userPrivilege === SECTOR_PRIVILEGES.PRODUCTION ||
-        userPrivilege === SECTOR_PRIVILEGES.LOGISTIC
+        userPrivilege === SECTOR_PRIVILEGES.LOGISTIC ||
+        userPrivilege === SECTOR_PRIVILEGES.PRODUCTION_MANAGER
       ) {
         return { canUpdate: true };
       }
       return {
         canUpdate: false,
         reason:
-          'Apenas líderes de setor, logística ou administradores podem atualizar ordens de serviço de produção',
+          'Apenas líderes de setor, logística, gerente de produção ou administradores podem atualizar ordens de serviço de produção',
       };
 
     case SERVICE_ORDER_TYPE.COMMERCIAL:
@@ -130,14 +131,17 @@ export function checkServiceOrderUpdatePermission(
       };
 
     case SERVICE_ORDER_TYPE.LOGISTIC:
-      // LOGISTIC can update LOGISTIC service orders
-      if (userPrivilege === SECTOR_PRIVILEGES.LOGISTIC) {
+      // LOGISTIC and PRODUCTION_MANAGER can update LOGISTIC service orders
+      if (
+        userPrivilege === SECTOR_PRIVILEGES.LOGISTIC ||
+        userPrivilege === SECTOR_PRIVILEGES.PRODUCTION_MANAGER
+      ) {
         return { canUpdate: true };
       }
       return {
         canUpdate: false,
         reason:
-          'Apenas usuários de logística ou administradores podem atualizar ordens de serviço de logística',
+          'Apenas usuários de logística, gerente de produção ou administradores podem atualizar ordens de serviço de logística',
       };
 
     case SERVICE_ORDER_TYPE.ARTWORK:

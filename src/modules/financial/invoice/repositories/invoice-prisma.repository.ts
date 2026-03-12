@@ -16,7 +16,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
 
   /**
    * Default includes for invoice queries.
-   * Provides installments with bankSlip, nfseDocument, customer, and task.
+   * Provides installments with bankSlip, nfseDocuments, customer, and task.
    */
   private getDefaultInclude(): Prisma.InvoiceInclude {
     return {
@@ -26,7 +26,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
         },
         orderBy: { number: 'asc' },
       },
-      nfseDocument: { include: { pdfFile: true } },
+      nfseDocuments: true,
       customer: {
         select: {
           id: true,
@@ -69,16 +69,8 @@ export class InvoicePrismaRepository implements InvoiceRepository {
       }
     }
 
-    if (include.nfseDocument) {
-      if (typeof include.nfseDocument === 'boolean') {
-        prismaInclude.nfseDocument = true;
-      } else {
-        prismaInclude.nfseDocument = {
-          include: {
-            pdfFile: include.nfseDocument.include?.pdfFile ?? false,
-          },
-        };
-      }
+    if (include.nfseDocuments) {
+      prismaInclude.nfseDocuments = true;
     }
 
     if (include.customer) {
@@ -175,20 +167,7 @@ export class InvoicePrismaRepository implements InvoiceRepository {
             }
           : null,
       })),
-      nfseDocument: entity.nfseDocument
-        ? {
-            ...entity.nfseDocument,
-            totalAmount: entity.nfseDocument.totalAmount
-              ? Number(entity.nfseDocument.totalAmount)
-              : 0,
-            issRate: entity.nfseDocument.issRate
-              ? Number(entity.nfseDocument.issRate)
-              : null,
-            issAmount: entity.nfseDocument.issAmount
-              ? Number(entity.nfseDocument.issAmount)
-              : null,
-          }
-        : entity.nfseDocument,
+      nfseDocuments: entity.nfseDocuments ?? undefined,
     } as Invoice;
   }
 
