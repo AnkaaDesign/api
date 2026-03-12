@@ -1,4 +1,4 @@
-// api/src/modules/production/task-pricing/task-pricing.controller.ts
+// api/src/modules/production/task-quote/task-quote.controller.ts
 
 import {
   Controller,
@@ -20,47 +20,47 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { TaskPricingService } from './task-pricing.service';
+import { TaskQuoteService } from './task-quote.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
 import { Public } from '@modules/common/auth/decorators/public.decorator';
 import { multerConfig } from '@modules/common/file/config/upload.config';
-import { SECTOR_PRIVILEGES, TASK_PRICING_STATUS } from '@constants';
+import { SECTOR_PRIVILEGES, TASK_QUOTE_STATUS } from '@constants';
 import {
   ZodValidationPipe,
   ZodQueryValidationPipe,
 } from '@modules/common/pipes/zod-validation.pipe';
 import {
-  taskPricingCreateSchema,
-  taskPricingUpdateSchema,
-  taskPricingGetManySchema,
-  taskPricingQuerySchema,
-} from '@schemas/task-pricing';
+  taskQuoteCreateSchema,
+  taskQuoteUpdateSchema,
+  taskQuoteGetManySchema,
+  taskQuoteQuerySchema,
+} from '@schemas/task-quote';
 import type {
-  TaskPricingCreateFormData,
-  TaskPricingUpdateFormData,
-  TaskPricingGetManyFormData,
-} from '@schemas/task-pricing';
+  TaskQuoteCreateFormData,
+  TaskQuoteUpdateFormData,
+  TaskQuoteGetManyFormData,
+} from '@schemas/task-quote';
 
 /**
- * Controller for TaskPricing endpoints
- * Handles HTTP requests for pricing management
+ * Controller for TaskQuote endpoints
+ * Handles HTTP requests for quote management
  *
  * Access Control:
- * - COMMERCIAL: Can create, edit, view all pricing
- * - FINANCIAL: Can view all, approve/reject pricing
+ * - COMMERCIAL: Can create, edit, view all quotes
+ * - FINANCIAL: Can view all, approve/reject quotes
  * - ADMIN: Full access to everything
  */
-@Controller('task-pricings')
-export class TaskPricingController {
+@Controller('task-quotes')
+export class TaskQuoteController {
   constructor(
-    private readonly taskPricingService: TaskPricingService,
+    private readonly taskQuoteService: TaskQuoteService,
     private readonly jwtService: JwtService,
   ) {}
 
   /**
-   * GET /task-pricings
-   * List all pricings with filtering and pagination
+   * GET /task-quotes
+   * List all quotes with filtering and pagination
    *
    * Query params:
    * - page, limit (pagination)
@@ -71,38 +71,38 @@ export class TaskPricingController {
   @Get()
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findMany(
-    @Query(new ZodQueryValidationPipe(taskPricingGetManySchema))
-    query: TaskPricingGetManyFormData,
+    @Query(new ZodQueryValidationPipe(taskQuoteGetManySchema))
+    query: TaskQuoteGetManyFormData,
   ) {
-    return this.taskPricingService.findMany(query);
+    return this.taskQuoteService.findMany(query);
   }
 
   /**
-   * GET /task-pricings/:id
-   * Get single pricing by ID
+   * GET /task-quotes/:id
+   * Get single quote by ID
    */
   @Get(':id')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findUnique(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query(new ZodQueryValidationPipe(taskPricingQuerySchema)) query: any,
+    @Query(new ZodQueryValidationPipe(taskQuoteQuerySchema)) query: any,
   ) {
-    return this.taskPricingService.findUnique(id, query.include);
+    return this.taskQuoteService.findUnique(id, query.include);
   }
 
   /**
-   * GET /task-pricings/task/:taskId
-   * Get pricing for specific task
+   * GET /task-quotes/task/:taskId
+   * Get quote for specific task
    */
   @Get('task/:taskId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
   async findByTaskId(@Param('taskId', ParseUUIDPipe) taskId: string) {
-    return this.taskPricingService.findByTaskId(taskId);
+    return this.taskQuoteService.findByTaskId(taskId);
   }
 
   /**
-   * POST /task-pricings
-   * Create new pricing
+   * POST /task-quotes
+   * Create new quote
    *
    * Access: COMMERCIAL, ADMIN
    */
@@ -110,16 +110,16 @@ export class TaskPricingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Body(new ZodValidationPipe(taskPricingCreateSchema))
-    data: TaskPricingCreateFormData,
+    @Body(new ZodValidationPipe(taskQuoteCreateSchema))
+    data: TaskQuoteCreateFormData,
     @UserId() userId: string,
   ) {
-    return this.taskPricingService.create(data, userId);
+    return this.taskQuoteService.create(data, userId);
   }
 
   /**
-   * PUT /task-pricings/:id
-   * Update existing pricing
+   * PUT /task-quotes/:id
+   * Update existing quote
    *
    * Access: COMMERCIAL, ADMIN
    */
@@ -127,16 +127,16 @@ export class TaskPricingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body(new ZodValidationPipe(taskPricingUpdateSchema))
-    data: TaskPricingUpdateFormData,
+    @Body(new ZodValidationPipe(taskQuoteUpdateSchema))
+    data: TaskQuoteUpdateFormData,
     @UserId() userId: string,
   ) {
-    return this.taskPricingService.update(id, data, userId);
+    return this.taskQuoteService.update(id, data, userId);
   }
 
   /**
-   * PUT /task-pricings/:id/status
-   * Update pricing status
+   * PUT /task-quotes/:id/status
+   * Update quote status
    *
    * Access: FINANCIAL, ADMIN, COMMERCIAL
    * Note: FINANCIAL cannot set INTERNAL_APPROVED (only ADMIN/COMMERCIAL can)
@@ -149,27 +149,27 @@ export class TaskPricingController {
     @UserId() userId: string,
     @Req() req: Request,
   ) {
-    const validStatuses = Object.values(TASK_PRICING_STATUS);
+    const validStatuses = Object.values(TASK_QUOTE_STATUS);
     if (!validStatuses.includes(status as any)) {
       throw new BadRequestException('Status inválido');
     }
 
     // FINANCIAL cannot set INTERNAL_APPROVED — only ADMIN/COMMERCIAL can
-    if (status === TASK_PRICING_STATUS.INTERNAL_APPROVED) {
+    if (status === TASK_QUOTE_STATUS.INTERNAL_APPROVED) {
       const userPrivilege = (req as any).user?.role;
       if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
         throw new BadRequestException(
           'Setor financeiro não pode aprovar internamente. Apenas Admin ou Comercial.',
         );
       }
-      return this.taskPricingService.internalApprove(id, userId);
+      return this.taskQuoteService.internalApprove(id, userId);
     }
 
-    return this.taskPricingService.updateStatus(id, status as TASK_PRICING_STATUS, userId);
+    return this.taskQuoteService.updateStatus(id, status as TASK_QUOTE_STATUS, userId);
   }
 
   /**
-   * PUT /task-pricings/:id/budget-approve
+   * PUT /task-quotes/:id/budget-approve
    * Customer approved the budget (PENDING → BUDGET_APPROVED)
    *
    * Access: COMMERCIAL, ADMIN
@@ -177,36 +177,36 @@ export class TaskPricingController {
   @Put(':id/budget-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async budgetApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.budgetApprove(id, userId);
+    return this.taskQuoteService.budgetApprove(id, userId);
   }
 
   /**
-   * PUT /task-pricings/:id/verify
-   * Financial verifies pricing structure (BUDGET_APPROVED → VERIFIED)
+   * PUT /task-quotes/:id/verify
+   * Financial verifies quote structure (BUDGET_APPROVED → VERIFIED_BY_FINANCIAL)
    *
    * Access: FINANCIAL, ADMIN
    */
   @Put(':id/verify')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async verify(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.verify(id, userId);
+    return this.taskQuoteService.verify(id, userId);
   }
 
   /**
-   * PUT /task-pricings/:id/internal-approve
-   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED → INTERNAL_APPROVED)
+   * PUT /task-quotes/:id/internal-approve
+   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED_BY_FINANCIAL → INTERNAL_APPROVED)
    *
    * Access: COMMERCIAL, ADMIN
    */
   @Put(':id/internal-approve')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL)
   async internalApprove(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.internalApprove(id, userId);
+    return this.taskQuoteService.internalApprove(id, userId);
   }
 
   /**
-   * DELETE /task-pricings/:id
-   * Delete pricing
+   * DELETE /task-quotes/:id
+   * Delete quote
    *
    * Access: ADMIN only
    */
@@ -214,19 +214,19 @@ export class TaskPricingController {
   @Roles(SECTOR_PRIVILEGES.ADMIN)
   @HttpCode(HttpStatus.OK)
   async delete(@Param('id', ParseUUIDPipe) id: string, @UserId() userId: string) {
-    return this.taskPricingService.delete(id, userId);
+    return this.taskQuoteService.delete(id, userId);
   }
 
   /**
-   * GET /task-pricings/expired/list
-   * Get all expired pricings
+   * GET /task-quotes/expired/list
+   * Get all expired quotes
    *
    * Access: FINANCIAL, ADMIN
    */
   @Get('expired/list')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async findExpired() {
-    const expired = await this.taskPricingService.findAndMarkExpired();
+    const expired = await this.taskQuoteService.findAndMarkExpired();
     return {
       success: true,
       data: expired,
@@ -239,9 +239,9 @@ export class TaskPricingController {
   // =====================
 
   /**
-   * GET /task-pricings/public/:id
-   * Get pricing for public view (customer budget page)
-   * - For authenticated users: returns pricing even if expired
+   * GET /task-quotes/public/:id
+   * Get quote for public view (customer budget page)
+   * - For authenticated users: returns quote even if expired
    * - For non-authenticated users: only returns if not expired
    *
    * Access: PUBLIC (authentication optional)
@@ -264,13 +264,13 @@ export class TaskPricingController {
       }
     }
 
-    return this.taskPricingService.findPublic(id, isAuthenticated);
+    return this.taskQuoteService.findPublic(id, isAuthenticated);
   }
 
   /**
-   * POST /task-pricings/public/:id/signature
-   * Upload customer signature for pricing
-   * Only allows upload if pricing is not expired
+   * POST /task-quotes/public/:id/signature
+   * Upload customer signature for quote
+   * Only allows upload if quote is not expired
    *
    * Access: PUBLIC (no authentication required)
    */
@@ -295,6 +295,6 @@ export class TaskPricingController {
       );
     }
 
-    return this.taskPricingService.uploadCustomerSignature(id, file, customerConfigId);
+    return this.taskQuoteService.uploadCustomerSignature(id, file, customerConfigId);
   }
 }

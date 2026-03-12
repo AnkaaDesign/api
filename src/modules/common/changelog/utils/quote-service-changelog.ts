@@ -1,9 +1,9 @@
 import { ChangeLogService } from '../changelog.service';
 import { ENTITY_TYPE, CHANGE_ACTION, CHANGE_TRIGGERED_BY } from '../../../../constants';
 import { serializeChangelogValue } from './serialize-changelog-value';
-import { normalizeDescription } from '../../../../utils/task-pricing-service-order-sync';
+import { normalizeDescription } from '../../../../utils/task-quote-service-order-sync';
 
-interface PricingServiceForDiff {
+interface QuoteServiceForDiff {
   id?: string;
   description: string;
   amount: number | string | { toNumber(): number }; // Supports Prisma Decimal
@@ -25,19 +25,19 @@ interface ServiceDiffEntry {
  * Compare old and new pricing service arrays and produce per-service diff entries.
  * Matches services by normalized description (case-insensitive, trimmed).
  */
-export function diffPricingServices(
-  oldServices: PricingServiceForDiff[],
-  newServices: PricingServiceForDiff[],
+export function diffQuoteServices(
+  oldServices: QuoteServiceForDiff[],
+  newServices: QuoteServiceForDiff[],
 ): ServiceDiffEntry[] {
   const entries: ServiceDiffEntry[] = [];
 
   // Build maps keyed by normalized description
-  const oldMap = new Map<string, PricingServiceForDiff>();
+  const oldMap = new Map<string, QuoteServiceForDiff>();
   for (const service of oldServices) {
     oldMap.set(normalizeDescription(service.description), service);
   }
 
-  const newMap = new Map<string, PricingServiceForDiff>();
+  const newMap = new Map<string, QuoteServiceForDiff>();
   for (const service of newServices) {
     newMap.set(normalizeDescription(service.description), service);
   }
@@ -130,17 +130,17 @@ function formatCurrency(value: number): string {
 /**
  * Log per-service changelog entries by diffing old and new service arrays.
  */
-export async function logPricingServiceChanges(params: {
+export async function logQuoteServiceChanges(params: {
   changeLogService: ChangeLogService;
-  pricingId: string;
-  oldServices: PricingServiceForDiff[];
-  newServices: PricingServiceForDiff[];
+  quoteId: string;
+  oldServices: QuoteServiceForDiff[];
+  newServices: QuoteServiceForDiff[];
   userId: string;
   triggeredBy: CHANGE_TRIGGERED_BY;
   transaction?: any;
 }): Promise<void> {
-  const { changeLogService, pricingId, oldServices, newServices, userId, triggeredBy, transaction } = params;
-  const entries = diffPricingServices(oldServices, newServices);
+  const { changeLogService, quoteId, oldServices, newServices, userId, triggeredBy, transaction } = params;
+  const entries = diffQuoteServices(oldServices, newServices);
 
   for (const entry of entries) {
     let action: CHANGE_ACTION;
@@ -176,8 +176,8 @@ export async function logPricingServiceChanges(params: {
     }
 
     await changeLogService.logChange({
-      entityType: ENTITY_TYPE.TASK_PRICING_SERVICE,
-      entityId: pricingId,
+      entityType: ENTITY_TYPE.TASK_QUOTE_SERVICE,
+      entityId: quoteId,
       action,
       field,
       oldValue,
@@ -196,5 +196,5 @@ export async function logPricingServiceChanges(params: {
 }
 
 // Backward compatibility aliases
-export const diffPricingItems = diffPricingServices;
-export const logPricingItemChanges = logPricingServiceChanges;
+export const diffQuoteItems = diffQuoteServices;
+export const logQuoteItemChanges = logQuoteServiceChanges;

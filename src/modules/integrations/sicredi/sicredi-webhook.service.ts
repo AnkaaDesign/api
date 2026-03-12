@@ -1,22 +1,56 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TaskPricingStatusCascadeService } from '@modules/production/task-pricing/task-pricing-status-cascade.service';
+import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import { WebhookEventDto } from './dto';
 import { Decimal } from '@prisma/client/runtime/library';
 
+// Per Sicredi docs section 15 + webhook contract response — all liquidation event types
 const LIQUIDATION_MOVEMENTS = [
-  'LIQUIDACAO_NORMAL',
-  'LIQUIDACAO_BANCO',
-  'LIQUIDACAO_CARTORIO',
+  'LIQUIDACAO_PIX',
   'LIQUIDACAO_REDE',
+  'LIQUIDACAO_COMPE_H5',
+  'LIQUIDACAO_COMPE_H6',
+  'LIQUIDACAO_COMPE_H8',
+  'LIQUIDACAO_CARTORIO',
+  'AVISO_PAGAMENTO_COMPE',
 ];
 
+// Per Sicredi docs — only REDE can be reversed
 const REVERSAL_MOVEMENTS = [
   'ESTORNO_LIQUIDACAO_REDE',
-  'ESTORNO_LIQUIDACAO_NORMAL',
-  'ESTORNO_LIQUIDACAO_BANCO',
-  'ESTORNO_LIQUIDACAO_CARTORIO',
 ];
+
+/**
+ * Parse Sicredi date format.
+ * Sicredi sends dates as arrays: [YYYY, MM, DD, HH, mm, ss, nanoseconds]
+ * or sometimes as ISO strings.
+ */
+function parseSicrediDate(value: number[] | string | null | undefined): Date | null {
+  if (!value) return null;
+
+  if (Array.isArray(value)) {
+    // [YYYY, MM, DD, HH, mm, ss, nanoseconds] — month is 1-based from Sicredi
+    const [year, month, day, hours = 0, minutes = 0, seconds = 0] = value;
+    return new Date(year, month - 1, day, hours, minutes, seconds);
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
+/**
+ * Parse Sicredi monetary value — sent as string e.g. "101.01"
+ */
+function parseSicrediDecimal(value: string | number | null | undefined): Decimal | null {
+  if (value == null) return null;
+  const str = String(value);
+  if (!str || str === '0') return new Decimal(0);
+  return new Decimal(str);
+}
 
 @Injectable()
 export class SicrediWebhookService {
@@ -24,7 +58,7 @@ export class SicrediWebhookService {
 
   constructor(
     private readonly prismaService: PrismaService,
-    private readonly cascadeService: TaskPricingStatusCascadeService,
+    private readonly cascadeService: TaskQuoteStatusCascadeService,
   ) {}
 
   async processEvent(payload: WebhookEventDto): Promise<void> {
@@ -33,6 +67,7 @@ export class SicrediWebhookService {
     this.logger.log(
       `Processing webhook event: ${idEventoWebhook} - nossoNumero: ${nossoNumero} - movimento: ${movimento}`,
     );
+    this.logger.log(`Webhook payload: ${JSON.stringify(payload)}`);
 
     // Check idempotency: skip if already processed or currently being processed
     const existingEvent = await this.prismaService.sicrediWebhookEvent.findUnique({
@@ -49,6 +84,15 @@ export class SicrediWebhookService {
       return;
     }
 
+    // Parse date and monetary values from Sicredi format
+    const dataEvento = parseSicrediDate(payload.dataEvento);
+    const dataPrevisaoPagamento = parseSicrediDate(payload.dataPrevisaoPagamento);
+    const valorLiquidacao = parseSicrediDecimal(payload.valorLiquidacao);
+    const valorDesconto = parseSicrediDecimal(payload.valorDesconto);
+    const valorJuros = parseSicrediDecimal(payload.valorJuros);
+    const valorMulta = parseSicrediDecimal(payload.valorMulta);
+    const valorAbatimento = parseSicrediDecimal(payload.valorAbatimento);
+
     // Store the event
     const event = await this.prismaService.sicrediWebhookEvent.upsert({
       where: { idEventoWebhook },
@@ -61,15 +105,13 @@ export class SicrediWebhookService {
         idEventoWebhook,
         nossoNumero,
         movimento,
-        valorLiquidacao: payload.valorLiquidacao ?? null,
-        valorDesconto: payload.valorDesconto ?? null,
-        valorJuros: payload.valorJuros ?? null,
-        valorMulta: payload.valorMulta ?? null,
-        valorAbatimento: payload.valorAbatimento ?? null,
-        dataEvento: payload.dataEvento ? new Date(payload.dataEvento) : null,
-        dataPrevisaoPagamento: payload.dataPrevisaoPagamento
-          ? new Date(payload.dataPrevisaoPagamento)
-          : null,
+        valorLiquidacao,
+        valorDesconto,
+        valorJuros,
+        valorMulta,
+        valorAbatimento,
+        dataEvento,
+        dataPrevisaoPagamento,
         agencia: payload.agencia ?? null,
         posto: payload.posto ?? null,
         beneficiario: payload.beneficiario ?? null,
@@ -81,9 +123,16 @@ export class SicrediWebhookService {
 
     try {
       if (LIQUIDATION_MOVEMENTS.includes(movimento)) {
-        await this.handleLiquidation(event);
+        await this.handleLiquidation({
+          nossoNumero: event.nossoNumero,
+          valorLiquidacao: valorLiquidacao ?? event.valorLiquidacao,
+          valorDesconto: valorDesconto ?? event.valorDesconto,
+          valorJuros: valorJuros ?? event.valorJuros,
+          valorMulta: valorMulta ?? event.valorMulta,
+          valorAbatimento: valorAbatimento ?? event.valorAbatimento,
+        });
       } else if (REVERSAL_MOVEMENTS.includes(movimento)) {
-        await this.handleReversal(event);
+        await this.handleReversal({ nossoNumero: event.nossoNumero });
       } else {
         this.logger.warn(`Unknown movimento type: ${movimento} for event ${idEventoWebhook}`);
       }
@@ -142,6 +191,12 @@ export class SicrediWebhookService {
       throw new Error(`BankSlip not found for nossoNumero: ${nossoNumero}`);
     }
 
+    // Skip if already PAID (idempotent)
+    if (bankSlip.status === 'PAID') {
+      this.logger.log(`BankSlip ${bankSlip.id} already PAID, skipping liquidation`);
+      return;
+    }
+
     const paidAmount = event.valorLiquidacao
       ? new Decimal(event.valorLiquidacao.toString())
       : bankSlip.amount;
@@ -179,10 +234,12 @@ export class SicrediWebhookService {
       await this.recalculateInvoice(tx, bankSlip.installment.invoiceId);
     });
 
-    // Cascade TaskPricing status (UPCOMING → PARTIAL → SETTLED)
+    // Cascade TaskQuote status (UPCOMING → PARTIAL → SETTLED)
     await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoiceId);
 
-    this.logger.log(`Liquidation handled for nossoNumero: ${nossoNumero}`);
+    this.logger.log(
+      `Liquidation handled for nossoNumero: ${nossoNumero}, paidAmount: ${paidAmount}`,
+    );
   }
 
   private async handleReversal(event: { nossoNumero: string }): Promise<void> {
@@ -231,7 +288,7 @@ export class SicrediWebhookService {
       await this.recalculateInvoice(tx, bankSlip.installment.invoiceId);
     });
 
-    // Cascade TaskPricing status (SETTLED → PARTIAL → UPCOMING)
+    // Cascade TaskQuote status (SETTLED → PARTIAL → UPCOMING)
     await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoiceId);
 
     this.logger.log(`Reversal handled for nossoNumero: ${nossoNumero}`);

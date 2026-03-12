@@ -6,11 +6,13 @@ import {
   Res,
   ParseIntPipe,
   Logger,
+  HttpException,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { SECTOR_PRIVILEGES } from '@constants';
 import { ElotechOxyNfseService } from './elotech-oxy-nfse.service';
+import { ElotechOxyAuthService } from './elotech-oxy-auth.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 
 @Controller('nfse')
@@ -19,8 +21,18 @@ export class NfseController {
 
   constructor(
     private readonly elotechService: ElotechOxyNfseService,
+    private readonly elotechAuth: ElotechOxyAuthService,
     private readonly prisma: PrismaService,
   ) {}
+
+  private ensureConfigured() {
+    if (!this.elotechAuth.isConfigured()) {
+      throw new HttpException(
+        'Elotech OXY credentials not configured. Set ELOTECH_OXY_USERNAME, ELOTECH_OXY_PASSWORD, and ELOTECH_OXY_EMPRESA_ID environment variables.',
+        503,
+      );
+    }
+  }
 
   /**
    * Sync local NfseDocument status with Elotech's actual status.
@@ -66,6 +78,8 @@ export class NfseController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    this.ensureConfigured();
+
     const pageNum = Number(page) || 1;
     const limitNum = Math.min(Number(limit) || 20, 50);
     const firstResult = (pageNum - 1) * limitNum;
@@ -149,6 +163,7 @@ export class NfseController {
   @Get(':elotechNfseId')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async detail(@Param('elotechNfseId', ParseIntPipe) elotechNfseId: number) {
+    this.ensureConfigured();
     const detail = await this.elotechService.getNfseDetail(elotechNfseId);
 
     // Use the document number to do a targeted list query for status
@@ -236,6 +251,7 @@ export class NfseController {
     @Param('elotechNfseId', ParseIntPipe) elotechNfseId: number,
     @Res() res: Response,
   ) {
+    this.ensureConfigured();
     const pdfBuffer = await this.elotechService.getNfsePdf(elotechNfseId);
 
     res.set({

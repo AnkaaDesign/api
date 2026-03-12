@@ -88,7 +88,7 @@ export class ElotechOxyAuthService {
   readonly baseUrl: string;
   readonly username: string;
   private readonly password: string;
-  readonly empresaId: string;
+  private empresaId: string;
 
   constructor(private readonly configService: ConfigService) {
     this.baseUrl = this.configService.get<string>(
@@ -119,7 +119,11 @@ export class ElotechOxyAuthService {
   }
 
   isConfigured(): boolean {
-    return !!(this.username && this.password && this.empresaId);
+    return !!(this.username && this.password);
+  }
+
+  getEmpresaId(): string {
+    return this.empresaId;
   }
 
   async getToken(): Promise<string> {
@@ -175,8 +179,15 @@ export class ElotechOxyAuthService {
         { headers: { Authorization: `Bearer ${this.token}` } },
       );
       this.contribuinteData = response.data;
+
+      // Auto-discover empresaId from contribuinte if not set via env
+      if (!this.empresaId && this.contribuinteData?.id) {
+        this.empresaId = String(this.contribuinteData.id);
+        this.logger.log(`Auto-discovered empresaId: ${this.empresaId}`);
+      }
+
       this.logger.log(
-        `Loaded contribuinte: ${this.contribuinteData?.razaoSocialNome} (${this.contribuinteData?.cnpjCpf})`,
+        `Loaded contribuinte: ${this.contribuinteData?.razaoSocialNome} (${this.contribuinteData?.cnpjCpf}), empresaId=${this.empresaId}`,
       );
     } catch (error) {
       this.logger.warn(

@@ -19,7 +19,7 @@ import type { Observation, ObservationIncludes } from './observation';
 import type { Paint, PaintIncludes, PaintOrderBy } from './paint';
 import type { User, UserIncludes, UserOrderBy } from './user';
 import type { ServiceOrder, ServiceOrderIncludes } from './serviceOrder';
-import type { TaskPricing } from './task-pricing';
+import type { TaskQuote } from './task-quote';
 import type { Airbrushing, AirbrushingIncludes } from './airbrushing';
 import type { Cut, CutIncludes } from './cut';
 import type { Truck, TruckIncludes } from './truck';
@@ -70,8 +70,8 @@ export interface Task extends BaseEntity {
   artworks?: Artwork[];
   logoPaints?: Paint[];
   serviceOrders?: ServiceOrder[]; // Prisma relation field
-  pricingId?: string | null; // Foreign key to TaskPricing
-  pricing?: TaskPricing; // Task pricing (each task has its own independent pricing record)
+  quoteId?: string | null; // Foreign key to TaskQuote
+  quote?: TaskQuote; // Task quote (each task has its own independent quote record)
   airbrushings?: Airbrushing[];
   cuts?: Cut[];
   truck?: Truck;
@@ -104,7 +104,7 @@ export interface TaskSelectFields {
   customerId?: boolean;
   sectorId?: boolean;
   createdById?: boolean;
-  pricingId?: boolean;
+  quoteId?: boolean;
   createdAt?: boolean;
   updatedAt?: boolean;
 }
@@ -215,7 +215,7 @@ export type TaskSelect = TaskSelectFields & {
           assignedToId?: boolean;
         };
       };
-  pricing?:
+  quote?:
     | boolean
     | {
         select?: {
@@ -335,7 +335,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
   customerId: true,
   sectorId: true,
   createdById: true,
-  pricingId: true,
+  quoteId: true,
   createdAt: true,
   updatedAt: true,
   // All relations with selected fields
@@ -413,7 +413,7 @@ export const TASK_SELECT_DETAILED: TaskSelect = {
       assignedToId: true,
     },
   },
-  pricing: {
+  quote: {
     select: {
       id: true,
       total: true,
@@ -531,7 +531,7 @@ export interface TaskDetailed extends BaseEntity {
   customerId: string | null;
   sectorId: string | null;
   createdById: string | null;
-  pricingId: string | null;
+  quoteId: string | null;
 
   sector?: { id: string; name: string } | null;
   customer?: { id: string; fantasyName: string; cnpj: string | null } | null;
@@ -579,7 +579,7 @@ export interface TaskDetailed extends BaseEntity {
     type: string;
     assignedToId: string | null;
   }>;
-  pricing?: {
+  quote?: {
     id: string;
     total: number;
     subtotal: number;
@@ -725,9 +725,9 @@ export interface TaskIncludes {
     | {
         include?: ServiceOrderIncludes;
       };
-  pricing?:
+  quote?:
     | boolean
-    | { include?: { services?: boolean; layoutFile?: boolean; customerSignature?: boolean; customerConfigs?: boolean; responsible?: boolean } }; // Task pricing (each task has its own independent pricing record)
+    | { include?: { services?: boolean; layoutFile?: boolean; customerSignature?: boolean; customerConfigs?: boolean; responsible?: boolean } }; // Task quote (each task has its own independent quote record)
   airbrushings?:
     | boolean
     | {

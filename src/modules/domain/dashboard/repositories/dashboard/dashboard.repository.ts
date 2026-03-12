@@ -313,7 +313,7 @@ export abstract class DashboardRepository {
   abstract getLowStockItems(): Promise<HomeDashboardLowStockItem[]>;
   abstract getRecentlyCompletedTasks(since: Date, limit?: number): Promise<HomeDashboardTask[]>;
   abstract getTasksAwaitingPaymentApproval(limit?: number): Promise<HomeDashboardTask[]>;
-  abstract getTasksAwaitingPricingApproval(limit?: number): Promise<HomeDashboardTask[]>;
+  abstract getTasksAwaitingQuoteApproval(limit?: number): Promise<HomeDashboardTask[]>;
   abstract getRecentMessages(
     userId: string,
     since: Date,

@@ -666,8 +666,8 @@ export class TaskController {
         { name: 'checkoutFiles', maxCount: 20 },
         { name: 'cutFiles', maxCount: 20 },
         { name: 'observationFiles', maxCount: 10 },
-        // Pricing layout file
-        { name: 'pricingLayoutFile', maxCount: 1 },
+        // Quote layout file
+        { name: 'quoteLayoutFile', maxCount: 1 },
         // Airbrushing files - support up to 10 airbrushings with multiple files each
         { name: 'airbrushings[0].receipts', maxCount: 10 },
         { name: 'airbrushings[0].invoices', maxCount: 10 },
@@ -720,7 +720,7 @@ export class TaskController {
     console.log('[TaskController] UPDATE REQUEST RECEIVED');
     console.log('[TaskController] Full data:', JSON.stringify(data, null, 2));
     console.log('[TaskController] customerId:', data.customerId);
-    console.log('[TaskController] pricing:', JSON.stringify((data as any).pricing));
+    console.log('[TaskController] quote:', JSON.stringify((data as any).quote));
     console.log('[TaskController] data keys:', Object.keys(data));
     console.log('[TaskController] files keys:', files ? Object.keys(files) : 'no files');
     console.log('[TaskController] ========================================');

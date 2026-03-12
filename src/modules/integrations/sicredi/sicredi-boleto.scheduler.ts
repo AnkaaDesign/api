@@ -5,7 +5,7 @@ import { SicrediService } from './sicredi.service';
 import { SicrediAuthService } from './sicredi-auth.service';
 import { SicrediWebhookService } from './sicredi-webhook.service';
 import { NotificationDispatchService } from '@modules/common/notification/notification-dispatch.service';
-import { TaskPricingStatusCascadeService } from '@modules/production/task-pricing/task-pricing-status-cascade.service';
+import { TaskQuoteStatusCascadeService } from '@modules/production/task-quote/task-quote-status-cascade.service';
 import {
   BANK_SLIP_STATUS,
   INSTALLMENT_STATUS,
@@ -37,7 +37,7 @@ export class SicrediBoletoScheduler {
     private readonly authService: SicrediAuthService,
     private readonly webhookService: SicrediWebhookService,
     private readonly dispatchService: NotificationDispatchService,
-    private readonly cascadeService: TaskPricingStatusCascadeService,
+    private readonly cascadeService: TaskQuoteStatusCascadeService,
   ) {}
 
   // ─── Job 1: Boleto Creation ─────────────────────────────────────────────────
@@ -556,7 +556,7 @@ export class SicrediBoletoScheduler {
             }
           });
 
-          // Cascade TaskPricing status (outside transaction — reads fresh data)
+          // Cascade TaskQuote status (outside transaction — reads fresh data)
           if (invoiceId) {
             await this.cascadeService.cascadeFromInvoice(invoiceId);
           }
@@ -641,7 +641,7 @@ export class SicrediBoletoScheduler {
               data: { status: INSTALLMENT_STATUS.OVERDUE },
             });
 
-            // Update Invoice status and cascade to TaskPricing
+            // Update Invoice status and cascade to TaskQuote
             if (bankSlip.installment.invoice) {
               await this.updateInvoiceStatus(bankSlip.installment.invoice.id);
               await this.cascadeService.cascadeFromInvoice(bankSlip.installment.invoice.id);

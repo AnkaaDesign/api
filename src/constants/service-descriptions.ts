@@ -2,7 +2,7 @@
  * Service Order Description Enums by Type
  *
  * These enums define the standardized service descriptions for each service order type.
- * Used for both ServiceOrder and TaskPricingService descriptions.
+ * Used for both ServiceOrder and TaskQuoteService descriptions.
  * All descriptions are in Title Case with Portuguese prepositions lowercase.
  */
 

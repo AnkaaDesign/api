@@ -110,18 +110,27 @@ export class SicrediAuthService {
     formData.append('password', this.codigoAcesso);
     formData.append('scope', 'cobranca');
 
-    const response = await axios.post(
-      `${this.apiUrl}/auth/openapi/token`,
-      formData.toString(),
-      {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'x-api-key': this.xApiKey,
-          'context': 'COBRANCA',
+    let response;
+    try {
+      response = await axios.post(
+        `${this.apiUrl}/auth/openapi/token`,
+        formData.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'x-api-key': this.xApiKey,
+            'context': 'COBRANCA',
+          },
+          timeout: 10000,
         },
-        timeout: 10000,
-      },
-    );
+      );
+    } catch (error: any) {
+      this.logger.error(
+        `[SICREDI_AUTH] Authentication request failed: status=${error.response?.status}, ` +
+        `body=${JSON.stringify(error.response?.data)}, message=${error.message}`,
+      );
+      throw error;
+    }
 
     this.logger.log(`[SICREDI_AUTH] Auth response status: ${response.status}`);
 

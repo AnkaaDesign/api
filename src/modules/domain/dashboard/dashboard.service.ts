@@ -1443,7 +1443,7 @@ export class DashboardService {
       lowStockItems: false,
       completedTasks: false,
       tasksAwaitingPaymentApproval: false,
-      tasksAwaitingPricingApproval: false,
+      tasksAwaitingQuoteApproval: false,
       recentMessages: true,
     };
 
@@ -1453,7 +1453,7 @@ export class DashboardService {
         config.openSOTypes = ['COMMERCIAL'];
         config.tasksCloseForecastSOTypes = ['COMMERCIAL'];
         config.tasksAwaitingPaymentApproval = true;
-        config.tasksAwaitingPricingApproval = true;
+        config.tasksAwaitingQuoteApproval = true;
         break;
       case SECTOR_PRIVILEGES.LOGISTIC:
         config.tasksCloseDeadline = true;
@@ -1471,7 +1471,7 @@ export class DashboardService {
         config.tasksCloseForecastSOTypes = ['ARTWORK', 'COMMERCIAL'];
         config.lowStockItems = true;
         config.tasksAwaitingPaymentApproval = true;
-        config.tasksAwaitingPricingApproval = true;
+        config.tasksAwaitingQuoteApproval = true;
         break;
       case SECTOR_PRIVILEGES.DESIGNER:
         config.openSOTypes = ['ARTWORK'];
@@ -1557,8 +1557,8 @@ export class DashboardService {
         promises.tasksAwaitingPaymentApproval = this.dashboardRepository.getTasksAwaitingPaymentApproval();
       }
 
-      if (config.tasksAwaitingPricingApproval) {
-        promises.tasksAwaitingPricingApproval = this.dashboardRepository.getTasksAwaitingPricingApproval();
+      if (config.tasksAwaitingQuoteApproval) {
+        promises.tasksAwaitingQuoteApproval = this.dashboardRepository.getTasksAwaitingQuoteApproval();
       }
 
       if (config.recentMessages) {
@@ -1610,9 +1610,9 @@ export class DashboardService {
         data.counts.tasksAwaitingPaymentApproval = resolved.tasksAwaitingPaymentApproval.length;
       }
 
-      if (resolved.tasksAwaitingPricingApproval) {
-        data.tasksAwaitingPricingApproval = resolved.tasksAwaitingPricingApproval;
-        data.counts.tasksAwaitingPricingApproval = resolved.tasksAwaitingPricingApproval.length;
+      if (resolved.tasksAwaitingQuoteApproval) {
+        data.tasksAwaitingQuoteApproval = resolved.tasksAwaitingQuoteApproval;
+        data.counts.tasksAwaitingQuoteApproval = resolved.tasksAwaitingQuoteApproval.length;
       }
 
       if (resolved.recentMessages) {

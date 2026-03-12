@@ -16,7 +16,7 @@ export const COPYABLE_TASK_FIELDS = [
   'responsibles',
   // Reference IDs
   'customerId',
-  'pricingId',
+  'quoteId',
   'paintId',
   // Shared file IDs (many-to-many relations)
   'artworkIds',
@@ -71,8 +71,8 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
   // Commission - disabled for Financial, Designer, Logistic, Warehouse
   commission: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.MAINTENANCE],
 
-  // Pricing - only visible to ADMIN, FINANCIAL, COMMERCIAL (canViewPricingSections)
-  pricingId: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL],
+  // Quote - only visible to ADMIN, FINANCIAL, COMMERCIAL (canViewQuoteSections)
+  quoteId: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL],
 
   // Paint - editable by most sectors except Warehouse, Financial, Logistic
   paintId: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.COMMERCIAL, SECTOR_PRIVILEGES.DESIGNER, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.MAINTENANCE],

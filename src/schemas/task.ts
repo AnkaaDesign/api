@@ -23,7 +23,7 @@ import {
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
-import { taskPricingCreateNestedSchema } from './task-pricing';
+import { taskQuoteCreateNestedSchema } from './task-quote';
 
 // Helper to filter out empty strings from UUID arrays before validation
 // This handles cases where FormData sends [''] for empty arrays
@@ -81,7 +81,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
       customerId: z.boolean().optional(),
       sectorId: z.boolean().optional(),
       createdById: z.boolean().optional(),
-      pricingId: z.boolean().optional(),
+      quoteId: z.boolean().optional(),
 
       // Relations with nested select support
       sector: z
@@ -407,7 +407,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
         ])
         .optional(),
 
-      pricing: z
+      quote: z
         .union([
           z.boolean(),
           z.object({
@@ -693,7 +693,7 @@ export const taskSelectDetail = {
   customerId: true,
   sectorId: true,
   createdById: true,
-  pricingId: true,
+  quoteId: true,
   sector: {
     select: {
       id: true,
@@ -859,7 +859,7 @@ export const taskSelectDetail = {
       updatedAt: true,
     },
   },
-  pricing: {
+  quote: {
     select: {
       id: true,
       subtotal: true,
@@ -912,7 +912,7 @@ export const taskSelectForm = {
   customerId: true,
   sectorId: true,
   createdById: true,
-  pricingId: true,
+  quoteId: true,
   // Only IDs for relations - form will load full data as needed
   sector: {
     select: {
@@ -1356,7 +1356,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
           }),
         ])
         .optional(),
-      pricing: z
+      quote: z
         .union([
           z.boolean(),
           z.object({
@@ -2014,13 +2014,13 @@ const taskTransform = (data: any): any => {
   }
 
   // Financial-specific display logic:
-  // Show only COMPLETED tasks that have a pricing and pricing status is NOT SETTLED
+  // Show only COMPLETED tasks that have a quote and quote status is NOT SETTLED
   if (data.shouldDisplayForFinancial === true) {
     andConditions.push({
       AND: [
         { status: 'COMPLETED' },
-        { pricing: { isNot: null } },
-        { pricing: { status: { not: 'SETTLED' } } },
+        { quote: { isNot: null } },
+        { quote: { status: { not: 'SETTLED' } } },
       ],
     });
     delete data.shouldDisplayForFinancial;
@@ -2455,7 +2455,7 @@ export const taskGetManySchema = z
     shouldDisplayInPreparation: z.boolean().optional(), // Preparation display logic: excludes CANCELLED and fully completed tasks
     preparationExcludeLogistic: z.boolean().optional(), // When true, excludes LOGISTIC SO from preparation completion check
     shouldDisplayForDesigner: z.boolean().optional(), // Designer display logic: shows tasks with incomplete ARTWORK SOs or no ARTWORK SOs
-    shouldDisplayForFinancial: z.boolean().optional(), // Financial display logic: completed tasks with pricing that is not settled
+    shouldDisplayForFinancial: z.boolean().optional(), // Financial display logic: completed tasks with quote that is not settled
     hasAirbrushing: z.boolean().optional(),
     hasNfe: z.boolean().optional(),
     hasReceipt: z.boolean().optional(),
@@ -2711,8 +2711,8 @@ const taskProductionServiceOrderCreateSchema = z.object({
   observation: z.string().nullable().optional(), // For rejection/approval notes
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
-  // Controls bidirectional sync with TaskPricingService
-  // When false, prevents auto-recreation of pricing services from this service order
+  // Controls bidirectional sync with TaskQuoteService
+  // When false, prevents auto-recreation of quote services from this service order
   shouldSync: z.boolean().optional().default(true),
   // File IDs for checkin/checkout photos grouped by service order
   checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
@@ -2882,8 +2882,8 @@ export const taskCreateSchema = z
     checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
     checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
-    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
+    quoteId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique quote
+    quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts
@@ -3143,8 +3143,8 @@ export const taskUpdateSchema = z
     checkinFileIds: uuidArraySchema('Arquivo de checkin inválido'),
     checkoutFileIds: uuidArraySchema('Arquivo de checkout inválido'),
     paintIds: uuidArraySchema('Tinta inválida'),
-    pricingId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique pricing
-    pricing: taskPricingCreateNestedSchema.optional().nullable(), // Nested pricing creation (one-to-one: each task gets its own pricing)
+    quoteId: z.string().uuid('ID de precificação inválido').nullable().optional(), // ONE-TO-ONE: each task has its own unique quote
+    quote: taskQuoteCreateNestedSchema.optional().nullable(), // Nested quote creation (one-to-one: each task gets its own quote)
     observation: taskObservationCreateSchema.nullable().optional(),
     serviceOrders: z.array(taskProductionServiceOrderCreateSchema).optional(),
     truck: taskTruckSchema, // Consolidated truck with plate, chassis, spot, and layouts

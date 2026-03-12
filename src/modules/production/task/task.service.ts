@@ -32,7 +32,7 @@ import {
   extractEssentialFields,
   translateFieldName,
 } from '@modules/common/changelog/utils/changelog-helpers';
-import { logPricingServiceChanges } from '@modules/common/changelog/utils/pricing-service-changelog';
+import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
 import {
   TASK_STATUS,
@@ -76,11 +76,11 @@ import {
 import { getServiceOrderStatusOrder } from '../../../utils/sortOrder';
 import {
   getBidirectionalSyncActions,
-  combineServiceOrderToPricingDescription,
+  combineServiceOrderToQuoteDescription,
   normalizeDescription,
   type SyncServiceOrder,
-  type SyncPricingItem,
-} from '../../../utils/task-pricing-service-order-sync';
+  type SyncQuoteItem,
+} from '../../../utils/task-quote-service-order-sync';
 import { TaskCreatedEvent, TaskStatusChangedEvent } from './task.events';
 import { ArtworkApprovedEvent, ArtworkReprovedEvent } from './artwork.events';
 import { TaskFieldTrackerService } from './task-field-tracker.service';
@@ -1230,7 +1230,7 @@ export class TaskService {
       projectFiles?: Express.Multer.File[];
       checkinFiles?: Express.Multer.File[];
       checkoutFiles?: Express.Multer.File[];
-      pricingLayoutFile?: Express.Multer.File[];
+      quoteLayoutFile?: Express.Multer.File[];
     },
   ): Promise<TaskUpdateResponse> {
     try {
@@ -1238,7 +1238,7 @@ export class TaskService {
       this.logger.log('[Task Update] === SERVICE METHOD ENTRY ===');
       this.logger.log('[Task Update] Full data received:', JSON.stringify(data, null, 2));
       this.logger.log(`[Task Update] customerId: ${data.customerId}`);
-      this.logger.log(`[Task Update] pricing: ${JSON.stringify((data as any).pricing)}`);
+      this.logger.log(`[Task Update] quote: ${JSON.stringify((data as any).quote)}`);
       this.logger.log('[Task Update] === END SERVICE METHOD ENTRY ===');
 
       // Track if task was auto-transitioned to WAITING_PRODUCTION for notification after transaction
@@ -1276,7 +1276,7 @@ export class TaskService {
               },
             }, // Include truck with layouts for file naming with measures
             serviceOrders: true, // Include for services field changelog tracking
-            pricing: { include: { services: { orderBy: { position: 'asc' } } } }, // Include for pricing changelog tracking
+            quote: { include: { services: { orderBy: { position: 'asc' } } } }, // Include for quote changelog tracking
           },
         });
 
@@ -1921,20 +1921,20 @@ export class TaskService {
           );
         }
 
-        // Process pricing layout file BEFORE task update (to get the file ID for pricing)
+        // Process quote layout file BEFORE task update (to get the file ID for quote)
         if (
-          files?.pricingLayoutFile &&
-          files.pricingLayoutFile.length > 0 &&
-          (data as any).pricing
+          files?.quoteLayoutFile &&
+          files.quoteLayoutFile.length > 0 &&
+          (data as any).quote
         ) {
-          console.log('[TaskService] Processing pricing layout file');
+          console.log('[TaskService] Processing quote layout file');
           const customerName = existingTask.customer?.fantasyName;
 
-          const layoutFile = files.pricingLayoutFile[0];
+          const layoutFile = files.quoteLayoutFile[0];
           const fileRecord = await this.fileService.createFromUploadWithTransaction(
             tx,
             layoutFile,
-            'pricing-layouts',
+            'quote-layouts',
             userId,
             {
               entityId: id,
@@ -1942,10 +1942,10 @@ export class TaskService {
               customerName,
             },
           );
-          console.log('[TaskService] Uploaded pricing layout file:', fileRecord.id);
+          console.log('[TaskService] Uploaded quote layout file:', fileRecord.id);
 
-          // Set the layoutFileId in the pricing data
-          (data as any).pricing.layoutFileId = fileRecord.id;
+          // Set the layoutFileId in the quote data
+          (data as any).quote.layoutFileId = fileRecord.id;
         }
 
         // Extract service orders from data to handle them explicitly
@@ -2678,32 +2678,32 @@ export class TaskService {
               transaction: tx,
             });
 
-            // CRITICAL FIX: Set shouldSync = false on corresponding pricing services
+            // CRITICAL FIX: Set shouldSync = false on corresponding quote services
             // This permanently prevents the sync from recreating this service order
             if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
               const normalizedDesc = soToDelete.description.toLowerCase().trim();
 
-              // Find matching pricing services by normalized description
-              const matchingPricingItems = await tx.taskPricingService.findMany({
+              // Find matching quote services by normalized description
+              const matchingQuoteItems = await tx.taskQuoteService.findMany({
                 where: {
-                  pricing: {
+                  quote: {
                     task: { id: id },
                   },
                 },
               });
 
-              for (const pricingItem of matchingPricingItems) {
-                const pricingNormalizedDesc = (pricingItem.description || '').toLowerCase().trim();
-                // Check if descriptions match (pricing service description may include observation suffix)
+              for (const quoteItem of matchingQuoteItems) {
+                const quoteNormalizedDesc = (quoteItem.description || '').toLowerCase().trim();
+                // Check if descriptions match (quote service description may include observation suffix)
                 if (
-                  pricingNormalizedDesc === normalizedDesc ||
-                  pricingNormalizedDesc.startsWith(normalizedDesc + ' - ')
+                  quoteNormalizedDesc === normalizedDesc ||
+                  quoteNormalizedDesc.startsWith(normalizedDesc + ' - ')
                 ) {
                   this.logger.log(
-                    `[Task Update] Setting shouldSync=false on pricing service ${pricingItem.id} (${pricingItem.description})`,
+                    `[Task Update] Setting shouldSync=false on quote service ${quoteItem.id} (${quoteItem.description})`,
                   );
-                  await tx.taskPricingService.update({
-                    where: { id: pricingItem.id },
+                  await tx.taskQuoteService.update({
+                    where: { id: quoteItem.id },
                     data: { shouldSync: false },
                   });
                 }
@@ -3341,17 +3341,17 @@ export class TaskService {
         }
 
         // =====================================================================
-        // BIDIRECTIONAL SYNC: Pricing Services ↔ Production Service Orders
-        // When pricing services or PRODUCTION service orders are added/updated,
+        // BIDIRECTIONAL SYNC: Quote Services ↔ Production Service Orders
+        // When quote services or PRODUCTION service orders are added/updated,
         // sync them bidirectionally:
-        // - PRODUCTION SO → Pricing Service (description + observation → service description)
-        // - Pricing Service → PRODUCTION SO (service description → SO description + observation)
+        // - PRODUCTION SO → Quote Service (description + observation → service description)
+        // - Quote Service → PRODUCTION SO (service description → SO description + observation)
         // =====================================================================
         // CRITICAL: Only run sync if genuinely NEW services are being ADDED.
         // Services resubmitted without IDs (e.g. from form re-serialization during reorder)
         // are detected by matching their description against existing services.
-        const existingPricingDescriptions = new Set<string>(
-          (existingTask.pricing?.services || [])
+        const existingQuoteDescriptions = new Set<string>(
+          (existingTask.quote?.services || [])
             .filter((item: any) => item.shouldSync !== false)
             .map((item: any) => normalizeDescription(item.description)),
         );
@@ -3366,53 +3366,53 @@ export class TaskService {
           Array.isArray(serviceOrdersData) &&
           serviceOrdersData.length > 0 &&
           serviceOrdersData.some(
-            (so: any) => !so.id && !existingPricingDescriptions.has(normalizeDescription(so.description)),
+            (so: any) => !so.id && !existingQuoteDescriptions.has(normalizeDescription(so.description)),
           );
 
-        const hasNewPricingItems =
-          (data as any).pricing?.services &&
-          Array.isArray((data as any).pricing.services) &&
-          (data as any).pricing.services.length > 0 &&
-          (data as any).pricing.services.some(
+        const hasNewQuoteItems =
+          (data as any).quote?.services &&
+          Array.isArray((data as any).quote.services) &&
+          (data as any).quote.services.length > 0 &&
+          (data as any).quote.services.some(
             (item: any) => !item.id && !existingSODescriptions.has(normalizeDescription(item.description)),
           );
 
-        if (hasNewServiceOrders || hasNewPricingItems) {
+        if (hasNewServiceOrders || hasNewQuoteItems) {
           try {
-            // CRITICAL: Refetch task with pricing services to ensure we have the latest shouldSync values
+            // CRITICAL: Refetch task with quote services to ensure we have the latest shouldSync values
             // This is necessary because:
-            // 1. New pricing might have been created by the repository
-            // 2. shouldSync might have been set to false on pricing services when service orders were deleted
-            // 3. Previous refetches might not have included pricing services
-            const taskWithPricing = await tx.task.findUnique({
+            // 1. New quote might have been created by the repository
+            // 2. shouldSync might have been set to false on quote services when service orders were deleted
+            // 3. Previous refetches might not have included quote services
+            const taskWithQuote = await tx.task.findUnique({
               where: { id },
               include: {
-                pricing: { include: { services: true } },
+                quote: { include: { services: true } },
                 serviceOrders: true,
               },
             });
 
-            // Get current state of pricing and service orders from the fresh refetch
-            const currentPricing = taskWithPricing?.pricing;
-            const currentServiceOrders = taskWithPricing?.serviceOrders || [];
+            // Get current state of quote and service orders from the fresh refetch
+            const currentQuote = taskWithQuote?.quote;
+            const currentServiceOrders = taskWithQuote?.serviceOrders || [];
 
             this.logger.log(
-              `[PRICING↔SO SYNC] Refetched pricing services: ${currentPricing?.services?.length || 0}, service orders: ${currentServiceOrders.length}`,
+              `[QUOTE↔SO SYNC] Refetched quote services: ${currentQuote?.services?.length || 0}, service orders: ${currentServiceOrders.length}`,
             );
 
             // Only proceed if we have data to sync
-            if (currentPricing?.services || currentServiceOrders.length > 0) {
-              // Log ALL pricing services with their shouldSync values for debugging
-              this.logger.log(`[PRICING↔SO SYNC] ALL pricing services BEFORE filtering:`);
-              for (const item of currentPricing?.services || []) {
+            if (currentQuote?.services || currentServiceOrders.length > 0) {
+              // Log ALL quote services with their shouldSync values for debugging
+              this.logger.log(`[QUOTE↔SO SYNC] ALL quote services BEFORE filtering:`);
+              for (const item of currentQuote?.services || []) {
                 this.logger.log(
                   `  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`,
                 );
               }
 
-              // CRITICAL: Filter out pricing services with shouldSync = false
+              // CRITICAL: Filter out quote services with shouldSync = false
               // These are services whose corresponding service orders were explicitly deleted
-              const syncEligiblePricingItems = (currentPricing?.services || []).filter(
+              const syncEligibleQuoteItems = (currentQuote?.services || []).filter(
                 (item: any) => item.shouldSync !== false,
               );
               const syncEligibleServiceOrders = currentServiceOrders.filter(
@@ -3420,26 +3420,26 @@ export class TaskService {
               );
 
               this.logger.log(
-                `[PRICING↔SO SYNC] Filtering: ${(currentPricing?.services || []).length} total pricing services, ${syncEligiblePricingItems.length} eligible for sync`,
+                `[QUOTE↔SO SYNC] Filtering: ${(currentQuote?.services || []).length} total quote services, ${syncEligibleQuoteItems.length} eligible for sync`,
               );
               this.logger.log(
-                `[PRICING↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`,
+                `[QUOTE↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`,
               );
 
               // Log which items were filtered out
-              const filteredOutItems = (currentPricing?.services || []).filter(
+              const filteredOutItems = (currentQuote?.services || []).filter(
                 (item: any) => item.shouldSync === false,
               );
               if (filteredOutItems.length > 0) {
                 this.logger.log(
-                  `[PRICING↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`,
+                  `[QUOTE↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`,
                 );
                 for (const item of filteredOutItems) {
                   this.logger.log(`  - "${item.description}" (id: ${item.id})`);
                 }
               }
 
-              const pricingItems: SyncPricingItem[] = syncEligiblePricingItems.map((item: any) => ({
+              const quoteItems: SyncQuoteItem[] = syncEligibleQuoteItems.map((item: any) => ({
                 id: item.id,
                 description: item.description,
                 observation: item.observation,
@@ -3456,23 +3456,23 @@ export class TaskService {
               );
 
               // Get sync actions
-              const syncActions = getBidirectionalSyncActions(pricingItems, serviceOrders);
+              const syncActions = getBidirectionalSyncActions(quoteItems, serviceOrders);
 
               this.logger.log(
-                `[PRICING↔SO SYNC] Task ${id}: Found ${syncActions.pricingItemsToCreate.length} pricing services to create, ` +
+                `[QUOTE↔SO SYNC] Task ${id}: Found ${syncActions.quoteItemsToCreate.length} quote services to create, ` +
                   `${syncActions.serviceOrdersToCreate.length} service orders to create`,
               );
 
-              // Create missing pricing services from service orders
-              if (syncActions.pricingItemsToCreate.length > 0 && currentPricing?.id) {
-                for (const itemToCreate of syncActions.pricingItemsToCreate) {
+              // Create missing quote services from service orders
+              if (syncActions.quoteItemsToCreate.length > 0 && currentQuote?.id) {
+                for (const itemToCreate of syncActions.quoteItemsToCreate) {
                   this.logger.log(
-                    `[PRICING↔SO SYNC] Creating pricing service: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
+                    `[QUOTE↔SO SYNC] Creating quote service: "${itemToCreate.description}" (amount: ${itemToCreate.amount})`,
                   );
 
-                  await tx.taskPricingService.create({
+                  await tx.taskQuoteService.create({
                     data: {
-                      pricingId: currentPricing.id,
+                      quoteId: currentQuote.id,
                       description: itemToCreate.description,
                       observation: itemToCreate.observation || null,
                       amount: itemToCreate.amount,
@@ -3480,10 +3480,10 @@ export class TaskService {
                     },
                   });
 
-                  // Log per-service TASK_PRICING_SERVICE CREATE entry
+                  // Log per-service TASK_QUOTE_SERVICE CREATE entry
                   await this.changeLogService.logChange({
-                    entityType: ENTITY_TYPE.TASK_PRICING_SERVICE,
-                    entityId: currentPricing.id,
+                    entityType: ENTITY_TYPE.TASK_QUOTE_SERVICE,
+                    entityId: currentQuote.id,
                     action: CHANGE_ACTION.CREATE,
                     field: null,
                     newValue: serializeChangelogValue({
@@ -3501,17 +3501,17 @@ export class TaskService {
                   });
                 }
 
-                // Recalculate pricing subtotal and total
-                const allItems = await tx.taskPricingService.findMany({
-                  where: { pricingId: currentPricing.id },
+                // Recalculate quote subtotal and total
+                const allItems = await tx.taskQuoteService.findMany({
+                  where: { quoteId: currentQuote.id },
                 });
                 const newSubtotal = allItems.reduce(
                   (sum, item) => sum + Number(item.amount || 0),
                   0,
                 );
 
-                await tx.taskPricing.update({
-                  where: { id: currentPricing.id },
+                await tx.taskQuote.update({
+                  where: { id: currentQuote.id },
                   data: {
                     subtotal: newSubtotal,
                     total: newSubtotal, // Assuming no discount, adjust if needed
@@ -3519,15 +3519,15 @@ export class TaskService {
                 });
 
                 // NOTE: subtotal/total changelog entries are NOT logged here to avoid duplicates.
-                // The scalar field tracking at the end of the update method (pricingFieldsToTrack loop)
-                // already detects and logs subtotal/total changes for TASK_PRICING.
+                // The scalar field tracking at the end of the update method (quoteFieldsToTrack loop)
+                // already detects and logs subtotal/total changes for TASK_QUOTE.
 
                 this.logger.log(
-                  `[PRICING↔SO SYNC] Updated pricing totals. New subtotal: ${newSubtotal}`,
+                  `[QUOTE↔SO SYNC] Updated quote totals. New subtotal: ${newSubtotal}`,
                 );
               }
 
-              // Create missing service orders from pricing services
+              // Create missing service orders from quote services
               // CRITICAL FIX: Skip creating service orders that were explicitly deleted in this same request
               const deletedDescriptions = (data as any)._deletedServiceOrderDescriptions as
                 | Set<string>
@@ -3539,18 +3539,18 @@ export class TaskService {
                   const normalizedDesc = (soToCreate.description || '').toLowerCase().trim();
                   if (deletedDescriptions?.has(normalizedDesc)) {
                     this.logger.log(
-                      `[PRICING↔SO SYNC] SKIPPING service order creation for "${soToCreate.description}" - was explicitly deleted by user`,
+                      `[QUOTE↔SO SYNC] SKIPPING service order creation for "${soToCreate.description}" - was explicitly deleted by user`,
                     );
                     continue; // Skip this one, user explicitly deleted it
                   }
 
                   this.logger.log(
-                    `[PRICING↔SO SYNC] Creating service order: description="${soToCreate.description}", observation="${soToCreate.observation || ''}"`,
+                    `[QUOTE↔SO SYNC] Creating service order: description="${soToCreate.description}", observation="${soToCreate.observation || ''}"`,
                   );
 
                   // Auto-complete new SOs added to COMPLETED tasks
-                  const isPricingSyncTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
-                  const pricingSyncSoStatus = isPricingSyncTaskCompleted
+                  const isQuoteSyncTaskCompleted = (existingTask.status as TASK_STATUS) === TASK_STATUS.COMPLETED;
+                  const quoteSyncSoStatus = isQuoteSyncTaskCompleted
                     ? SERVICE_ORDER_STATUS.COMPLETED
                     : SERVICE_ORDER_STATUS.PENDING;
 
@@ -3560,11 +3560,11 @@ export class TaskService {
                       description: soToCreate.description,
                       observation: soToCreate.observation,
                       type: SERVICE_ORDER_TYPE.PRODUCTION,
-                      status: pricingSyncSoStatus,
-                      statusOrder: isPricingSyncTaskCompleted ? 4 : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
+                      status: quoteSyncSoStatus,
+                      statusOrder: isQuoteSyncTaskCompleted ? 4 : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
                       createdById: userId || '',
                       shouldSync: true,
-                      ...(isPricingSyncTaskCompleted && {
+                      ...(isQuoteSyncTaskCompleted && {
                         startedAt: new Date(),
                         startedById: userId || '',
                         finishedAt: new Date(),
@@ -3586,15 +3586,15 @@ export class TaskService {
                     transaction: tx,
                   });
 
-                  this.logger.log(`[PRICING↔SO SYNC] Created service order ${newServiceOrder.id}`);
+                  this.logger.log(`[QUOTE↔SO SYNC] Created service order ${newServiceOrder.id}`);
                 }
               }
 
-              // Update service orders with new observations (if pricing service had extra text)
+              // Update service orders with new observations (if quote service had extra text)
               if (syncActions.serviceOrdersToUpdate.length > 0) {
                 for (const soToUpdate of syncActions.serviceOrdersToUpdate) {
                   this.logger.log(
-                    `[PRICING↔SO SYNC] Updating service order ${soToUpdate.id} with observation="${soToUpdate.observation || ''}"`,
+                    `[QUOTE↔SO SYNC] Updating service order ${soToUpdate.id} with observation="${soToUpdate.observation || ''}"`,
                   );
 
                   const oldSo = currentServiceOrders.find((so: any) => so.id === soToUpdate.id);
@@ -3626,7 +3626,7 @@ export class TaskService {
 
               // Refetch task if any sync actions were performed
               if (
-                syncActions.pricingItemsToCreate.length > 0 ||
+                syncActions.quoteItemsToCreate.length > 0 ||
                 syncActions.serviceOrdersToCreate.length > 0 ||
                 syncActions.serviceOrdersToUpdate.length > 0
               ) {
@@ -3638,17 +3638,17 @@ export class TaskService {
                     observation: { include: { files: true } },
                     truck: true,
                     serviceOrders: true,
-                    pricing: { include: { services: true } },
+                    quote: { include: { services: true } },
                   },
                 });
 
                 this.logger.log(
-                  `[PRICING↔SO SYNC] Task refetched after sync. Pricing services: ${updatedTask?.pricing?.services?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
+                  `[QUOTE↔SO SYNC] Task refetched after sync. Quote services: ${updatedTask?.quote?.services?.length || 0}, Service orders: ${updatedTask?.serviceOrders?.length || 0}`,
                 );
               }
             }
           } catch (syncError) {
-            this.logger.error('[PRICING↔SO SYNC] Error during bidirectional sync:', syncError);
+            this.logger.error('[QUOTE↔SO SYNC] Error during bidirectional sync:', syncError);
             // Don't throw - sync errors shouldn't block the main update
           }
         }
@@ -4449,7 +4449,7 @@ export class TaskService {
           // statusOrder removed - it's auto-calculated from status, creating redundant changelog entries
           'createdById',
           // Note: chassisNumber and plate are now on Truck entity, not Task
-          // Note: pricingId is handled separately below with enriched data
+          // Note: quoteId is handled separately below with enriched data
         ];
 
         await trackAndLogFieldChanges({
@@ -4464,41 +4464,41 @@ export class TaskService {
           transaction: tx,
         });
 
-        // Special handling for pricingId to include pricing details (budgetNumber, total, items)
-        if (hasValueChanged(existingTask.pricingId, updatedTask.pricingId)) {
-          let oldPricingDetails: any = null;
-          let newPricingDetails: any = null;
+        // Special handling for quoteId to include quote details (budgetNumber, total, items)
+        if (hasValueChanged(existingTask.quoteId, updatedTask.quoteId)) {
+          let oldQuoteDetails: any = null;
+          let newQuoteDetails: any = null;
 
-          // Fetch old pricing details if it existed (complete data for rollback restoration)
-          if (existingTask.pricingId) {
-            const oldPricing = await tx.taskPricing.findUnique({
-              where: { id: existingTask.pricingId },
+          // Fetch old quote details if it existed (complete data for rollback restoration)
+          if (existingTask.quoteId) {
+            const oldQuote = await tx.taskQuote.findUnique({
+              where: { id: existingTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
                 customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
               },
             });
-            if (oldPricing) {
-              oldPricingDetails = {
-                id: oldPricing.id,
-                budgetNumber: oldPricing.budgetNumber,
-                subtotal: oldPricing.subtotal,
-                total: oldPricing.total,
-                expiresAt: oldPricing.expiresAt,
-                status: oldPricing.status,
-                guaranteeYears: oldPricing.guaranteeYears,
-                customGuaranteeText: oldPricing.customGuaranteeText,
-                customForecastDays: oldPricing.customForecastDays,
-                simultaneousTasks: oldPricing.simultaneousTasks,
-                layoutFileId: oldPricing.layoutFileId,
-                services: oldPricing.services.map(service => ({
+            if (oldQuote) {
+              oldQuoteDetails = {
+                id: oldQuote.id,
+                budgetNumber: oldQuote.budgetNumber,
+                subtotal: oldQuote.subtotal,
+                total: oldQuote.total,
+                expiresAt: oldQuote.expiresAt,
+                status: oldQuote.status,
+                guaranteeYears: oldQuote.guaranteeYears,
+                customGuaranteeText: oldQuote.customGuaranteeText,
+                customForecastDays: oldQuote.customForecastDays,
+                simultaneousTasks: oldQuote.simultaneousTasks,
+                layoutFileId: oldQuote.layoutFileId,
+                services: oldQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
                   observation: service.observation,
                   shouldSync: service.shouldSync,
                   position: service.position,
                 })),
-                customerConfigs: oldPricing.customerConfigs.map((c: any) => ({
+                customerConfigs: oldQuote.customerConfigs.map((c: any) => ({
                   customerId: c.customerId,
                   subtotal: c.subtotal,
                   discountType: c.discountType,
@@ -4512,36 +4512,36 @@ export class TaskService {
             }
           }
 
-          // Fetch new pricing details if exists (complete data for rollback restoration)
-          if (updatedTask.pricingId) {
-            const newPricing = await tx.taskPricing.findUnique({
-              where: { id: updatedTask.pricingId },
+          // Fetch new quote details if exists (complete data for rollback restoration)
+          if (updatedTask.quoteId) {
+            const newQuote = await tx.taskQuote.findUnique({
+              where: { id: updatedTask.quoteId },
               include: {
                 services: { orderBy: { position: 'asc' } },
                 customerConfigs: { include: { customer: { select: { id: true, fantasyName: true, cnpj: true } } } },
               },
             });
-            if (newPricing) {
-              newPricingDetails = {
-                id: newPricing.id,
-                budgetNumber: newPricing.budgetNumber,
-                subtotal: newPricing.subtotal,
-                total: newPricing.total,
-                expiresAt: newPricing.expiresAt,
-                status: newPricing.status,
-                guaranteeYears: newPricing.guaranteeYears,
-                customGuaranteeText: newPricing.customGuaranteeText,
-                customForecastDays: newPricing.customForecastDays,
-                simultaneousTasks: newPricing.simultaneousTasks,
-                layoutFileId: newPricing.layoutFileId,
-                services: newPricing.services.map(service => ({
+            if (newQuote) {
+              newQuoteDetails = {
+                id: newQuote.id,
+                budgetNumber: newQuote.budgetNumber,
+                subtotal: newQuote.subtotal,
+                total: newQuote.total,
+                expiresAt: newQuote.expiresAt,
+                status: newQuote.status,
+                guaranteeYears: newQuote.guaranteeYears,
+                customGuaranteeText: newQuote.customGuaranteeText,
+                customForecastDays: newQuote.customForecastDays,
+                simultaneousTasks: newQuote.simultaneousTasks,
+                layoutFileId: newQuote.layoutFileId,
+                services: newQuote.services.map(service => ({
                   description: service.description,
                   amount: service.amount,
                   observation: service.observation,
                   shouldSync: service.shouldSync,
                   position: service.position,
                 })),
-                customerConfigs: newPricing.customerConfigs.map((c: any) => ({
+                customerConfigs: newQuote.customerConfigs.map((c: any) => ({
                   customerId: c.customerId,
                   subtotal: c.subtotal,
                   discountType: c.discountType,
@@ -4559,9 +4559,9 @@ export class TaskService {
             entityType: ENTITY_TYPE.TASK,
             entityId: id,
             action: CHANGE_ACTION.UPDATE,
-            field: 'pricingId',
-            oldValue: oldPricingDetails,
-            newValue: newPricingDetails,
+            field: 'quoteId',
+            oldValue: oldQuoteDetails,
+            newValue: newQuoteDetails,
             reason: 'Campo Orçamento atualizado',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             triggeredById: id,
@@ -4570,42 +4570,42 @@ export class TaskService {
           });
         }
 
-        // Track pricing service and scalar field changes when pricing is updated inline (via task edit form)
-        // This handles the case where pricingId stays the same but pricing content changes
-        if ((data as any).pricing && updatedTask.pricingId && !hasValueChanged(existingTask.pricingId, updatedTask.pricingId)) {
-          const oldPricingItems = (existingTask as any).pricing?.services || [];
-          const updatedPricingState = await tx.taskPricing.findUnique({
-            where: { id: updatedTask.pricingId },
+        // Track quote service and scalar field changes when quote is updated inline (via task edit form)
+        // This handles the case where quoteId stays the same but quote content changes
+        if ((data as any).quote && updatedTask.quoteId && !hasValueChanged(existingTask.quoteId, updatedTask.quoteId)) {
+          const oldQuoteItems = (existingTask as any).quote?.services || [];
+          const updatedQuoteState = await tx.taskQuote.findUnique({
+            where: { id: updatedTask.quoteId },
             include: { services: { orderBy: { position: 'asc' } } },
           });
-          const newPricingItems = updatedPricingState?.services || [];
+          const newQuoteItems = updatedQuoteState?.services || [];
 
           // Log per-service changes (added, removed, field updates)
-          await logPricingServiceChanges({
+          await logQuoteServiceChanges({
             changeLogService: this.changeLogService,
-            pricingId: updatedTask.pricingId,
-            oldServices: oldPricingItems,
-            newServices: newPricingItems,
+            quoteId: updatedTask.quoteId,
+            oldServices: oldQuoteItems,
+            newServices: newQuoteItems,
             userId: userId || '',
             triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
             transaction: tx,
           });
 
-          // Track scalar pricing field changes (subtotal, total, discountType, etc.)
-          const oldPricing = (existingTask as any).pricing;
-          if (oldPricing && updatedPricingState) {
-            const pricingFieldsToTrack = [
+          // Track scalar quote field changes (subtotal, total, discountType, etc.)
+          const oldQuote = (existingTask as any).quote;
+          if (oldQuote && updatedQuoteState) {
+            const quoteFieldsToTrack = [
               'subtotal', 'total', 'expiresAt', 'status',
               'guaranteeYears', 'customGuaranteeText', 'customForecastDays',
               'simultaneousTasks', 'budgetNumber',
             ];
-            for (const field of pricingFieldsToTrack) {
-              const oldVal = oldPricing[field];
-              const newVal = (updatedPricingState as any)[field];
+            for (const field of quoteFieldsToTrack) {
+              const oldVal = oldQuote[field];
+              const newVal = (updatedQuoteState as any)[field];
               if (hasValueChanged(oldVal, newVal, field)) {
                 await this.changeLogService.logChange({
-                  entityType: ENTITY_TYPE.TASK_PRICING,
-                  entityId: updatedTask.pricingId,
+                  entityType: ENTITY_TYPE.TASK_QUOTE,
+                  entityId: updatedTask.quoteId,
                   action: CHANGE_ACTION.UPDATE,
                   field,
                   oldValue: serializeChangelogValue(oldVal),
@@ -7661,7 +7661,7 @@ export class TaskService {
       }
 
       // Support TASK, SERVICE_ORDER, and TRUCK entity types
-      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_PRICING', 'TASK_PRICING_SERVICE'];
+      const supportedEntityTypes = ['TASK', 'SERVICE_ORDER', 'TRUCK', 'TASK_QUOTE', 'TASK_QUOTE_SERVICE'];
       if (!supportedEntityTypes.includes(changeLog.entityType)) {
         throw new BadRequestException(
           `Rollback não suportado para entidade do tipo '${changeLog.entityType}'`,
@@ -7786,8 +7786,8 @@ export class TaskService {
         };
       }
 
-      // Handle TASK_PRICING rollback
-      if (changeLog.entityType === 'TASK_PRICING') {
+      // Handle TASK_QUOTE rollback
+      if (changeLog.entityType === 'TASK_QUOTE') {
         const fieldToRevert = changeLog.field;
         if (!fieldToRevert) {
           throw new BadRequestException('Não é possível reverter: campo não especificado');
@@ -7802,14 +7802,14 @@ export class TaskService {
 
           if (parsedOldValue && typeof parsedOldValue === 'object' && Array.isArray(parsedOldValue.services)) {
             // Delete all current items
-            await tx.taskPricingService.deleteMany({ where: { pricingId: changeLog.entityId } });
+            await tx.taskQuoteService.deleteMany({ where: { quoteId: changeLog.entityId } });
 
             // Recreate from old snapshot
             for (let i = 0; i < parsedOldValue.services.length; i++) {
               const item = parsedOldValue.services[i];
-              await tx.taskPricingService.create({
+              await tx.taskQuoteService.create({
                 data: {
-                  pricingId: changeLog.entityId,
+                  quoteId: changeLog.entityId,
                   description: item.description || '',
                   amount: item.amount || 0,
                   observation: item.observation ?? null,
@@ -7820,11 +7820,11 @@ export class TaskService {
             }
 
             // Recalculate aggregate totals from customer configs
-            const configs = await tx.taskPricingCustomerConfig.findMany({ where: { pricingId: changeLog.entityId } });
+            const configs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId: changeLog.entityId } });
             const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
             const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
 
-            await tx.taskPricing.update({
+            await tx.taskQuote.update({
               where: { id: changeLog.entityId },
               data: { subtotal: newSubtotal, total: newTotal },
             });
@@ -7841,7 +7841,7 @@ export class TaskService {
             convertedValue = isNaN(parsed.getTime()) ? null : parsed;
           }
 
-          await tx.taskPricing.update({
+          await tx.taskQuote.update({
             where: { id: changeLog.entityId },
             data: { [fieldToRevert]: convertedValue },
           });
@@ -7849,7 +7849,7 @@ export class TaskService {
 
         const fieldNamePt = translateFieldName(fieldToRevert);
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TASK_PRICING,
+          entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: changeLog.entityId,
           action: CHANGE_ACTION.ROLLBACK,
           field: fieldToRevert,
@@ -7869,9 +7869,9 @@ export class TaskService {
         };
       }
 
-      // Handle TASK_PRICING_SERVICE rollback (also handles legacy TASK_PRICING_ITEM records)
-      if (changeLog.entityType === 'TASK_PRICING_SERVICE' || changeLog.entityType === ('TASK_PRICING_ITEM' as any)) {
-        const pricingId = changeLog.entityId; // entityId is the pricingId
+      // Handle TASK_QUOTE_SERVICE rollback (also handles legacy TASK_QUOTE_ITEM records)
+      if (changeLog.entityType === 'TASK_QUOTE_SERVICE' || changeLog.entityType === ('TASK_QUOTE_ITEM' as any)) {
+        const quoteId = changeLog.entityId; // entityId is the quoteId
         const metadata = changeLog.metadata as any;
         const itemDescription = metadata?.itemDescription;
 
@@ -7881,22 +7881,22 @@ export class TaskService {
 
         const recalculateTotals = async () => {
           // Recalculate aggregate totals from customer configs
-          const configs = await tx.taskPricingCustomerConfig.findMany({ where: { pricingId } });
+          const configs = await tx.taskQuoteCustomerConfig.findMany({ where: { quoteId } });
           const newSubtotal = configs.reduce((sum, c) => sum + Number(c.subtotal || 0), 0);
           const newTotal = configs.reduce((sum, c) => sum + Number(c.total || 0), 0);
-          await tx.taskPricing.update({
-            where: { id: pricingId },
+          await tx.taskQuote.update({
+            where: { id: quoteId },
             data: { subtotal: newSubtotal, total: newTotal },
           });
         };
 
         if (changeLog.action === 'CREATE') {
           // Undo item addition — find and delete the item
-          const item = await tx.taskPricingService.findFirst({
-            where: { pricingId, description: itemDescription },
+          const item = await tx.taskQuoteService.findFirst({
+            where: { quoteId, description: itemDescription },
           });
           if (item) {
-            await tx.taskPricingService.delete({ where: { id: item.id } });
+            await tx.taskQuoteService.delete({ where: { id: item.id } });
             await recalculateTotals();
           }
         } else if (changeLog.action === 'DELETE') {
@@ -7907,9 +7907,9 @@ export class TaskService {
           }
           if (parsedOldValue && typeof parsedOldValue === 'object') {
             const itemData = parsedOldValue as any;
-            await tx.taskPricingService.create({
+            await tx.taskQuoteService.create({
               data: {
-                pricingId,
+                quoteId,
                 description: itemData.description || itemDescription,
                 amount: itemData.amount || 0,
                 observation: itemData.observation ?? null,
@@ -7926,15 +7926,15 @@ export class TaskService {
             throw new BadRequestException('Não é possível reverter: campo não especificado');
           }
 
-          const item = await tx.taskPricingService.findFirst({
-            where: { pricingId, description: itemDescription },
+          const item = await tx.taskQuoteService.findFirst({
+            where: { quoteId, description: itemDescription },
           });
           if (item) {
             let convertedValue: any = changeLog.oldValue;
             if (field === 'amount') {
               convertedValue = Number(convertedValue);
             }
-            await tx.taskPricingService.update({
+            await tx.taskQuoteService.update({
               where: { id: item.id },
               data: { [field]: convertedValue },
             });
@@ -7946,15 +7946,15 @@ export class TaskService {
 
         const fieldNamePt = changeLog.field ? translateFieldName(changeLog.field) : 'item';
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TASK_PRICING_SERVICE,
-          entityId: pricingId,
+          entityType: ENTITY_TYPE.TASK_QUOTE_SERVICE,
+          entityId: quoteId,
           action: CHANGE_ACTION.ROLLBACK,
           field: changeLog.field || null,
           oldValue: changeLog.newValue,
           newValue: changeLog.oldValue,
           reason: `Item '${itemDescription}' — ${fieldNamePt} revertido via changelog ${changeLogId}`,
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
-          triggeredById: pricingId,
+          triggeredById: quoteId,
           userId,
           transaction: tx,
           metadata: { itemDescription },
@@ -8262,11 +8262,11 @@ export class TaskService {
         };
       }
 
-      // 5c. Special handling for pricingId - oldValue may be a full JSON pricing object
-      if (fieldToRevert === 'pricingId') {
-        this.logger.log(`[Rollback] Starting pricingId rollback for task ${changeLog.entityId}`);
+      // 5c. Special handling for quoteId - oldValue may be a full JSON quote object
+      if (fieldToRevert === 'quoteId') {
+        this.logger.log(`[Rollback] Starting quoteId rollback for task ${changeLog.entityId}`);
 
-        let pricingIdToRestore: string | null = null;
+        let quoteIdToRestore: string | null = null;
 
         // Parse the oldValue - it might be a JSON object, a UUID string, or null
         if (oldValue) {
@@ -8281,79 +8281,79 @@ export class TaskService {
           }
 
           if (typeof parsedValue === 'object' && parsedValue !== null && (parsedValue as any).id) {
-            // It's a full pricing object - extract the ID
-            pricingIdToRestore = (parsedValue as any).id;
+            // It's a full quote object - extract the ID
+            quoteIdToRestore = (parsedValue as any).id;
 
-            // Check if the TaskPricing record still exists
-            const existingPricing = await tx.taskPricing.findUnique({
-              where: { id: pricingIdToRestore },
+            // Check if the TaskQuote record still exists
+            const existingQuote = await tx.taskQuote.findUnique({
+              where: { id: quoteIdToRestore },
             });
 
-            if (!existingPricing) {
-              // Recreate the TaskPricing from the stored data
-              this.logger.log(`[Rollback] TaskPricing ${pricingIdToRestore} not found, recreating`);
-              const pricingData = parsedValue as any;
+            if (!existingQuote) {
+              // Recreate the TaskQuote from the stored data
+              this.logger.log(`[Rollback] TaskQuote ${quoteIdToRestore} not found, recreating`);
+              const quoteData = parsedValue as any;
 
-              const recreatedPricing = await tx.taskPricing.create({
+              const recreatedQuote = await tx.taskQuote.create({
                 data: {
-                  id: pricingIdToRestore,
-                  budgetNumber: pricingData.budgetNumber || 0,
-                  subtotal: pricingData.subtotal || pricingData.total || '0',
-                  total: pricingData.total || '0',
-                  expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-                  status: pricingData.status || 'PENDING',
-                  guaranteeYears: pricingData.guaranteeYears ?? null,
-                  customGuaranteeText: pricingData.customGuaranteeText ?? null,
-                  customForecastDays: pricingData.customForecastDays ?? null,
-                  simultaneousTasks: pricingData.simultaneousTasks ?? null,
-                  layoutFileId: pricingData.layoutFileId ?? null,
-                  ...(pricingData.customerConfigs?.length > 0 && {
+                  id: quoteIdToRestore,
+                  budgetNumber: quoteData.budgetNumber || 0,
+                  subtotal: quoteData.subtotal || quoteData.total || '0',
+                  total: quoteData.total || '0',
+                  expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                  status: quoteData.status || 'PENDING',
+                  guaranteeYears: quoteData.guaranteeYears ?? null,
+                  customGuaranteeText: quoteData.customGuaranteeText ?? null,
+                  customForecastDays: quoteData.customForecastDays ?? null,
+                  simultaneousTasks: quoteData.simultaneousTasks ?? null,
+                  layoutFileId: quoteData.layoutFileId ?? null,
+                  ...(quoteData.customerConfigs?.length > 0 && {
                     customerConfigs: {
-                      create: pricingData.customerConfigs.map((config: any) => ({
+                      create: quoteData.customerConfigs.map((config: any) => ({
                         customerId: config.customerId,
                         subtotal: config.subtotal || 0,
-                        discountType: config.discountType || 'NONE',
-                        discountValue: config.discountValue ?? null,
                         total: config.total || 0,
                         customPaymentText: config.customPaymentText ?? null,
                         responsibleId: config.responsibleId ?? null,
-                        discountReference: config.discountReference ?? null,
                       })),
                     },
                   }),
                 },
               });
 
-              this.logger.log(`[Rollback] Recreated TaskPricing ${recreatedPricing.id}`);
+              this.logger.log(`[Rollback] Recreated TaskQuote ${recreatedQuote.id}`);
 
               // Recreate services if available
-              if (pricingData.services && Array.isArray(pricingData.services)) {
-                for (let i = 0; i < pricingData.services.length; i++) {
-                  const item = pricingData.services[i];
-                  await tx.taskPricingService.create({
+              if (quoteData.services && Array.isArray(quoteData.services)) {
+                for (let i = 0; i < quoteData.services.length; i++) {
+                  const item = quoteData.services[i];
+                  await tx.taskQuoteService.create({
                     data: {
                       description: item.description || '',
                       amount: item.amount || '0',
-                      pricingId: pricingIdToRestore,
+                      quoteId: quoteIdToRestore,
                       observation: item.observation ?? null,
                       shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
                       position: item.position !== undefined ? item.position : i,
+                      discountType: item.discountType || 'NONE',
+                      discountValue: item.discountValue ?? null,
+                      discountReference: item.discountReference ?? null,
                     },
                   });
                 }
-                this.logger.log(`[Rollback] Recreated ${pricingData.services.length} pricing services`);
+                this.logger.log(`[Rollback] Recreated ${quoteData.services.length} quote services`);
               }
             }
           } else if (typeof parsedValue === 'string') {
             // It's a UUID string directly
-            pricingIdToRestore = parsedValue;
+            quoteIdToRestore = parsedValue;
           }
         }
 
-        // Update the task's pricingId
+        // Update the task's quoteId
         await tx.task.update({
           where: { id: changeLog.entityId },
-          data: { pricingId: pricingIdToRestore },
+          data: { quoteId: quoteIdToRestore },
         });
 
         const updatedTask = await this.tasksRepository.findByIdWithTransaction(
@@ -8366,7 +8366,7 @@ export class TaskService {
               generalPainting: true,
               truck: true,
               createdBy: true,
-              pricing: { include: { services: true } },
+              quote: { include: { services: true } },
             },
           },
         );
@@ -9802,16 +9802,16 @@ export class TaskService {
   // now go through the event-based system with configuration-based targeting.
 
   /**
-   * Duplicate a TaskPricing record (deep copy with items and invoice connections).
-   * Creates a new independent pricing with a new budgetNumber.
+   * Duplicate a TaskQuote record (deep copy with items and invoice connections).
+   * Creates a new independent quote with a new budgetNumber.
    * Does NOT copy customerSignatureId (signature is specific to the original budget).
    */
-  private async duplicateTaskPricing(
-    sourcePricingId: string,
+  private async duplicateTaskQuote(
+    sourceQuoteId: string,
     tx: PrismaTransaction,
   ): Promise<string> {
-    const sourcePricing = await tx.taskPricing.findUnique({
-      where: { id: sourcePricingId },
+    const sourceQuote = await tx.taskQuote.findUnique({
+      where: { id: sourceQuoteId },
       include: {
         services: {
           select: {
@@ -9839,34 +9839,34 @@ export class TaskService {
       },
     });
 
-    if (!sourcePricing) {
+    if (!sourceQuote) {
       throw new NotFoundException(
-        `Precificação de origem não encontrada (ID: ${sourcePricingId})`,
+        `Precificação de origem não encontrada (ID: ${sourceQuoteId})`,
       );
     }
 
     // Get next budget number
-    const maxBudgetNumber = await tx.taskPricing.aggregate({
+    const maxBudgetNumber = await tx.taskQuote.aggregate({
       _max: { budgetNumber: true },
     });
     const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-    const newPricing = await tx.taskPricing.create({
+    const newQuote = await tx.taskQuote.create({
       data: {
         budgetNumber: nextBudgetNumber,
-        subtotal: sourcePricing.subtotal,
-        total: sourcePricing.total,
-        expiresAt: sourcePricing.expiresAt,
-        status: sourcePricing.status,
-        guaranteeYears: sourcePricing.guaranteeYears,
-        customGuaranteeText: sourcePricing.customGuaranteeText,
-        simultaneousTasks: sourcePricing.simultaneousTasks,
-        customForecastDays: sourcePricing.customForecastDays,
-        ...(sourcePricing.layoutFileId
-          ? { layoutFile: { connect: { id: sourcePricing.layoutFileId } } }
+        subtotal: sourceQuote.subtotal,
+        total: sourceQuote.total,
+        expiresAt: sourceQuote.expiresAt,
+        status: sourceQuote.status,
+        guaranteeYears: sourceQuote.guaranteeYears,
+        customGuaranteeText: sourceQuote.customGuaranteeText,
+        simultaneousTasks: sourceQuote.simultaneousTasks,
+        customForecastDays: sourceQuote.customForecastDays,
+        ...(sourceQuote.layoutFileId
+          ? { layoutFile: { connect: { id: sourceQuote.layoutFileId } } }
           : {}),
         services: {
-          create: sourcePricing.services.map(service => ({
+          create: sourceQuote.services.map(service => ({
             description: service.description,
             amount: service.amount,
             observation: service.observation,
@@ -9874,10 +9874,10 @@ export class TaskService {
             position: service.position,
           })),
         },
-        ...(sourcePricing.customerConfigs.length > 0
+        ...(sourceQuote.customerConfigs.length > 0
           ? {
               customerConfigs: {
-                create: sourcePricing.customerConfigs.map(c => ({
+                create: sourceQuote.customerConfigs.map(c => ({
                   customerId: c.customerId,
                   subtotal: c.subtotal,
                   discountType: c.discountType,
@@ -9895,7 +9895,7 @@ export class TaskService {
       },
     });
 
-    return newPricing.id;
+    return newQuote.id;
   }
 
   /**
@@ -10066,7 +10066,7 @@ export class TaskService {
                 type: true,
               },
             },
-            pricing: {
+            quote: {
               select: {
                 id: true,
                 budgetNumber: true,
@@ -10138,8 +10138,8 @@ export class TaskService {
             cuts: { select: { id: true } },
             airbrushings: { select: { id: true } },
             serviceOrders: { select: { id: true } },
-            // Include pricing for enriched oldValue in changelog
-            pricing: {
+            // Include quote for enriched oldValue in changelog
+            quote: {
               select: {
                 id: true,
                 budgetNumber: true,
@@ -10184,13 +10184,13 @@ export class TaskService {
           commission: destinationTask.commission,
           responsibles: destinationTask.responsibles?.map(r => r.id) || [],
           customerId: destinationTask.customerId,
-          // Store enriched pricing data for changelog display (not just UUID)
-          pricingId: destinationTask.pricing
+          // Store enriched quote data for changelog display (not just UUID)
+          quoteId: destinationTask.quote
             ? {
-                id: destinationTask.pricing.id,
-                budgetNumber: destinationTask.pricing.budgetNumber,
-                total: destinationTask.pricing.total,
-                items: destinationTask.pricing.services || [],
+                id: destinationTask.quote.id,
+                budgetNumber: destinationTask.quote.budgetNumber,
+                total: destinationTask.quote.total,
+                items: destinationTask.quote.services || [],
               }
             : null,
           paintId: destinationTask.paintId,
@@ -10336,18 +10336,18 @@ export class TaskService {
               }
               break;
 
-            case 'pricingId':
-              if (hasData(sourceTask.pricingId)) {
-                // Create an independent copy of the pricing (never share pricing across tasks)
-                const newPricingId = await this.duplicateTaskPricing(sourceTask.pricingId, tx);
-                updateData.pricingId = newPricingId;
+            case 'quoteId':
+              if (hasData(sourceTask.quoteId)) {
+                // Create an independent copy of the quote (never share quote across tasks)
+                const newQuoteId = await this.duplicateTaskQuote(sourceTask.quoteId, tx);
+                updateData.quoteId = newQuoteId;
                 copiedFields.push(field);
-                // Store pricing info for changelog display
-                details.pricingId = {
-                  id: newPricingId,
-                  budgetNumber: sourceTask.pricing?.budgetNumber || null,
-                  total: sourceTask.pricing?.total || null,
-                  items: sourceTask.pricing?.services || [],
+                // Store quote info for changelog display
+                details.quoteId = {
+                  id: newQuoteId,
+                  budgetNumber: sourceTask.quote?.budgetNumber || null,
+                  total: sourceTask.quote?.total || null,
+                  items: sourceTask.quote?.services || [],
                 };
               }
               break;
@@ -10886,7 +10886,7 @@ export class TaskService {
       const isPrismaUniqueError =
         error?.code === 'P2002' &&
         (error?.meta?.target?.includes?.('budgetNumber') ||
-          error?.meta?.target?.includes?.('TaskPricing_budgetNumber_key'));
+          error?.meta?.target?.includes?.('TaskQuote_budgetNumber_key'));
 
       if (isPrismaUniqueError && _retryCount < 3) {
         this.logger.warn(

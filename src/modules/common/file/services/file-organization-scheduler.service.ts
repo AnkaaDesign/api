@@ -55,7 +55,7 @@ const CONTEXT_ENTITY_MAP: Record<string, 'customer' | 'supplier' | 'user' | null
   customerLogo: 'customer',
   observations: 'customer',
   layoutPhotos: 'customer',
-  'pricing-layouts': 'customer',
+  'quote-layouts': 'customer',
   plotterEspovo: 'customer',
   plotterAdesivo: 'customer',
   airbrushingArtworks: 'customer',

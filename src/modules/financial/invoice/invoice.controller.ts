@@ -242,6 +242,19 @@ export class InvoiceController {
       return res.sendFile(bankSlip.pdfFile.path);
     }
 
+    // If boleto is paid/cancelled, Sicredi no longer serves the PDF
+    if (bankSlip.status === 'PAID') {
+      throw new NotFoundException(
+        'Este boleto já foi pago. O PDF não está mais disponível no Sicredi.',
+      );
+    }
+
+    if (bankSlip.status === 'CANCELLED') {
+      throw new NotFoundException(
+        'Este boleto foi cancelado. O PDF não está mais disponível.',
+      );
+    }
+
     // Otherwise, fetch from Sicredi on-the-fly using linhaDigitavel
     if (!bankSlip.digitableLine) {
       throw new NotFoundException(
@@ -264,6 +277,14 @@ export class InvoiceController {
       this.logger.error(
         `Failed to fetch boleto PDF from Sicredi for installment ${installmentId}: ${error}`,
       );
+
+      // Sicredi returns 404 for paid/processed boletos
+      if (bankSlip.status === 'PAID' || error?.response?.status === 404) {
+        throw new NotFoundException(
+          'Este boleto já foi pago ou processado. O PDF não está mais disponível no Sicredi.',
+        );
+      }
+
       throw new NotFoundException(
         'Não foi possível obter o PDF do boleto junto ao Sicredi.',
       );

@@ -760,7 +760,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     color: 'Cor',
     notes: 'Observações',
   },
-  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING]: {
+  [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: {
     subtotal: 'Subtotal',
     discountType: 'Tipo de Desconto',
     discountValue: 'Valor do Desconto',

@@ -28,8 +28,8 @@ export const TASK_FIELD_DOMAINS = {
   cuts: ['cuts'],
   /** Service orders */
   serviceOrders: ['serviceOrders'],
-  /** Pricing configuration */
-  pricing: ['pricing'],
+  /** Quote configuration */
+  quote: ['quote'],
   /** Base reference files */
   baseFiles: ['baseFileIds'],
   /** Project files */
@@ -58,7 +58,7 @@ type FieldDomain = keyof typeof TASK_FIELD_DOMAINS;
  */
 export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldDomain[]>> = {
   [SECTOR_PRIVILEGES.FINANCIAL]: [
-    'pricing', 'financialDocs', 'identity', 'serviceOrders',
+    'quote', 'financialDocs', 'identity', 'serviceOrders',
     // Passthrough: form sends these to preserve existing state
     'artworks', 'baseFiles',
     'meta',
@@ -66,7 +66,7 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
 
   [SECTOR_PRIVILEGES.COMMERCIAL]: [
     'identity', 'dates', 'commission', 'truck', 'responsibles',
-    'artworks', 'paint', 'serviceOrders', 'pricing',
+    'artworks', 'paint', 'serviceOrders', 'quote',
     'baseFiles', 'projectFiles', 'observation',
     'meta',
   ],
@@ -114,7 +114,7 @@ const FIELD_DOMAIN_LABELS: Record<FieldDomain, string> = {
   paint: 'tintas',
   cuts: 'plano de corte',
   serviceOrders: 'ordens de serviço',
-  pricing: 'orçamento/precificação',
+  quote: 'orçamento/precificação',
   baseFiles: 'arquivos base',
   projectFiles: 'arquivos de projeto',
   checkinFiles: 'arquivos de check-in',

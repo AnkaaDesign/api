@@ -10,7 +10,7 @@ import {
 import type { Invoice } from '@types';
 
 /**
- * Service responsible for auto-generating invoices from approved task pricings.
+ * Service responsible for auto-generating invoices from approved task quotes.
  * Creates invoices, installments, bank slips, and NFS-e documents as needed.
  */
 @Injectable()
@@ -24,7 +24,7 @@ export class InvoiceGenerationService {
   ) {}
 
   /**
-   * Generate invoices for all customer configs of a task's approved pricing.
+   * Generate invoices for all customer configs of a task's approved quote.
    *
    * For each customerConfig:
    * 1. Creates an Invoice with status ACTIVE
@@ -35,7 +35,7 @@ export class InvoiceGenerationService {
    *
    * All operations are wrapped in a Prisma transaction for atomicity.
    *
-   * @param taskId - UUID of the task whose pricing to generate invoices for
+   * @param taskId - UUID of the task whose quote to generate invoices for
    * @param userId - UUID of the user triggering the generation
    * @returns Array of created invoice IDs
    */
@@ -45,11 +45,11 @@ export class InvoiceGenerationService {
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
-    // Load the task with its pricing and customer configs
+    // Load the task with its quote and customer configs
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: {
-        pricing: {
+        quote: {
           include: {
             customerConfigs: {
               include: {
@@ -72,19 +72,19 @@ export class InvoiceGenerationService {
       throw new NotFoundException(`Tarefa com ID ${taskId} não encontrada.`);
     }
 
-    this.logger.log(`[INVOICE_GEN] Task found: ${task.id}, has pricing: ${!!task.pricing}`);
+    this.logger.log(`[INVOICE_GEN] Task found: ${task.id}, has quote: ${!!task.quote}`);
 
-    if (!task.pricing) {
-      this.logger.error(`[INVOICE_GEN] No pricing found for task ${taskId}`);
+    if (!task.quote) {
+      this.logger.error(`[INVOICE_GEN] No quote found for task ${taskId}`);
       throw new NotFoundException(
         `Orçamento não encontrado para a tarefa ${taskId}.`,
       );
     }
 
-    const pricing = task.pricing;
-    const customerConfigs = pricing.customerConfigs;
+    const quote = task.quote;
+    const customerConfigs = quote.customerConfigs;
 
-    this.logger.log(`[INVOICE_GEN] Pricing ${pricing.id}: ${customerConfigs?.length ?? 0} customer config(s)`);
+    this.logger.log(`[INVOICE_GEN] Quote ${quote.id}: ${customerConfigs?.length ?? 0} customer config(s)`);
 
     if (!customerConfigs || customerConfigs.length === 0) {
       this.logger.warn(
@@ -113,7 +113,7 @@ export class InvoiceGenerationService {
         const totalAmount = Number(config.total);
         this.logger.log(`[INVOICE_GEN] CustomerConfig ${config.id}: customer=${config.customer?.fantasyName} (${config.customer?.cnpj}), total=${totalAmount}`);
 
-        // Query existing installments created at pricing time
+        // Query existing installments created at quote time
         const existingInstallments = await tx.installment.findMany({
           where: { customerConfigId: config.id },
           orderBy: { number: 'asc' },
