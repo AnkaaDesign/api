@@ -88,6 +88,13 @@ export const SECTOR_TASK_UPDATE_ACCESS: Partial<Record<SECTOR_PRIVILEGES, FieldD
     'meta',
   ],
 
+  [SECTOR_PRIVILEGES.PRODUCTION_MANAGER]: [
+    'identity', 'dates', 'status', 'truck', 'serviceOrders',
+    'responsibles', 'baseFiles', 'projectFiles',
+    'checkinFiles', 'checkoutFiles', 'observation',
+    'meta',
+  ],
+
   [SECTOR_PRIVILEGES.WAREHOUSE]: [
     'cuts',
     'meta',

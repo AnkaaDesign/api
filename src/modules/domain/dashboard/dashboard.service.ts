@@ -1460,6 +1460,11 @@ export class DashboardService {
         config.openSOTypes = ['LOGISTIC'];
         config.tasksCloseForecastSOTypes = ['LOGISTIC'];
         break;
+      case SECTOR_PRIVILEGES.PRODUCTION_MANAGER:
+        config.tasksCloseDeadline = true;
+        config.openSOTypes = ['LOGISTIC'];
+        config.tasksCloseForecastSOTypes = ['LOGISTIC'];
+        break;
       case SECTOR_PRIVILEGES.ADMIN:
         config.tasksCloseDeadline = true;
         config.openSOTypes = ['ARTWORK', 'COMMERCIAL'];

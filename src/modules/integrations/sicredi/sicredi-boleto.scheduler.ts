@@ -280,6 +280,37 @@ export class SicrediBoletoScheduler {
           // Get the QR code from either field name the API might return
           const pixQrCode = boletoResponse.qrCode || boletoResponse.codigoQrCode || null;
 
+          // Store PDF if downloaded
+          let pdfFileId: string | null = null;
+          if (pdfBuffer) {
+            try {
+              const fs = await import('node:fs/promises');
+              const path = await import('node:path');
+              const uploadDir = path.join(process.cwd(), 'uploads', 'boleto');
+              await fs.mkdir(uploadDir, { recursive: true });
+              const filename = `boleto-${boletoResponse.nossoNumero}.pdf`;
+              const filePath = path.join(uploadDir, filename);
+              await fs.writeFile(filePath, pdfBuffer);
+              const file = await this.prisma.file.create({
+                data: {
+                  filename,
+                  originalName: filename,
+                  path: filePath,
+                  mimetype: 'application/pdf',
+                  size: pdfBuffer.length,
+                },
+              });
+              pdfFileId = file.id;
+              this.logger.log(
+                `[BOLETO_CREATE] PDF stored: ${filePath} (${pdfBuffer.length} bytes)`,
+              );
+            } catch (pdfStoreError) {
+              this.logger.warn(
+                `[BOLETO_CREATE] Failed to store PDF for boleto ${boletoResponse.nossoNumero}: ${pdfStoreError}`,
+              );
+            }
+          }
+
           // Upsert BankSlip record
           if (installment.bankSlip) {
             await this.prisma.bankSlip.update({
@@ -294,6 +325,7 @@ export class SicrediBoletoScheduler {
                 errorMessage: null,
                 errorCount: 0,
                 lastSyncAt: new Date(),
+                ...(pdfFileId && { pdfFileId }),
               },
             });
           } else {
@@ -310,6 +342,7 @@ export class SicrediBoletoScheduler {
                 dueDate: installment.dueDate,
                 status: BANK_SLIP_STATUS.ACTIVE,
                 lastSyncAt: new Date(),
+                ...(pdfFileId && { pdfFileId }),
               },
             });
           }

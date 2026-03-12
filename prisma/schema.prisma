@@ -521,7 +521,6 @@ model File {
   serviceOrderCheckinFiles                ServiceOrder[]       @relation("SERVICE_ORDER_CHECKIN_FILES")
   serviceOrderCheckoutFiles               ServiceOrder[]       @relation("SERVICE_ORDER_CHECKOUT_FILES")
   bankSlipPdfs                            BankSlip[]           @relation("BankSlipPdf")
-  nfsePdfs                                NfseDocument[]       @relation("NfsePdf")
 
   @@index([filename])
   @@index([originalName])
@@ -3195,7 +3194,7 @@ model Invoice {
   customer          Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
   createdBy         User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
   installments      Installment[]            @relation("InvoiceInstallments")
-  nfseDocument      NfseDocument?            @relation("InvoiceNfse")
+  nfseDocuments     NfseDocument[]           @relation("InvoiceNfse")
 
   @@index([taskId])
   @@index([customerId])
@@ -3258,33 +3257,20 @@ model BankSlip {
 }
 
 model NfseDocument {
-  id                   String     @id @default(uuid())
-  invoiceId            String     @unique
-  nfseNumber           String?
-  chaveAcesso          String?
-  verificationCode     String?
-  nDps                 Int?       @unique
-  xml                  String?    @db.Text
-  status               NfseStatus @default(PENDING)
-  issuedAt             DateTime?
-  cancelledAt          DateTime?
-  errorMessage         String?
-  errorCount           Int        @default(0)
-  retryAfter           DateTime?
-  municipalServiceCode String?
-  description          String?
-  totalAmount          Decimal    @db.Decimal(10, 2)
-  issRate              Decimal?   @db.Decimal(5, 4)
-  issAmount            Decimal?   @db.Decimal(10, 2)
-  pdfFileId            String?
-  createdAt            DateTime   @default(now())
-  updatedAt            DateTime   @updatedAt
-  invoice              Invoice    @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: Cascade)
-  pdfFile              File?      @relation("NfsePdf", fields: [pdfFileId], references: [id])
+  id              String     @id @default(uuid())
+  invoiceId       String
+  elotechNfseId   Int?
+  status          NfseStatus @default(PENDING)
+  errorMessage    String?
+  errorCount      Int        @default(0)
+  retryAfter      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  invoice         Invoice    @relation("InvoiceNfse", fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
-  @@index([nfseNumber])
-  @@index([chaveAcesso])
+  @@index([elotechNfseId])
   @@index([status])
 }
 

@@ -141,20 +141,16 @@ export class InvoiceService {
         },
       });
 
-      // Cancel NFS-e document if it exists and isn't already cancelled/authorized
-      const nfseDoc = await tx.nfseDocument.findUnique({
-        where: { invoiceId: id },
+      // Cancel all NFS-e documents for this invoice that aren't already cancelled/authorized
+      await tx.nfseDocument.updateMany({
+        where: {
+          invoiceId: id,
+          status: { notIn: ['CANCELLED', 'AUTHORIZED'] },
+        },
+        data: {
+          status: 'CANCELLED',
+        },
       });
-
-      if (nfseDoc && nfseDoc.status !== 'CANCELLED' && nfseDoc.status !== 'AUTHORIZED') {
-        await tx.nfseDocument.update({
-          where: { invoiceId: id },
-          data: {
-            status: 'CANCELLED',
-            cancelledAt: new Date(),
-          },
-        });
-      }
 
       // Cancel the invoice itself
       await tx.invoice.update({

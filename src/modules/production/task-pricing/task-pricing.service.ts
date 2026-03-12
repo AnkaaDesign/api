@@ -947,11 +947,11 @@ export class TaskPricingService {
         this.logger.warn(`[INTERNAL_APPROVE] Some bank slips failed to register at Sicredi (will be retried by scheduler): ${boletoError}`);
       }
 
-      // NFSe Nacional disabled: Ibiporã still uses municipal emission.
-      // NFS-e emission will be re-enabled once the city migrates to the national system.
-      // this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
-      //   this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
-      // });
+      // Trigger municipal NFS-e emission (Elotech OXY - Ibiporã)
+      this.logger.log(`[INTERNAL_APPROVE] Triggering NFS-e emission for ${invoiceIds.length} invoice(s)...`);
+      this.nfseEmissionScheduler.emitPendingNfses().catch((err) => {
+        this.logger.warn(`[INTERNAL_APPROVE] NFS-e emission failed (will be retried by scheduler): ${err}`);
+      });
 
       // Auto-transition to UPCOMING after successful invoice generation
       this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning pricing ${id} to UPCOMING...`);

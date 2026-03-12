@@ -81,10 +81,10 @@ export class AirbrushingService {
       const result = await this.airbrushingRepository.findMany(query);
 
       // Filter artworks based on user role for each airbrushing
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
           userRole,
         );
 
@@ -133,10 +133,10 @@ export class AirbrushingService {
       }
 
       // Filter artworks based on user role
-      // Only COMMERCIAL, DESIGNER, LOGISTIC, and ADMIN can see all artworks
+      // Only COMMERCIAL, DESIGNER, LOGISTIC, PRODUCTION_MANAGER, and ADMIN can see all artworks
       // Others can only see APPROVED artworks
       if (airbrushing.artworks && userRole) {
-        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'ADMIN'].includes(
+        const canSeeAllArtworks = ['COMMERCIAL', 'DESIGNER', 'LOGISTIC', 'PRODUCTION_MANAGER', 'ADMIN'].includes(
           userRole,
         );
 

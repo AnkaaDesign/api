@@ -19,11 +19,10 @@ import { InvoiceService } from './invoice.service';
 import { InvoiceGenerationService } from './invoice-generation.service';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { SicrediService } from '@modules/integrations/sicredi/sicredi.service';
-import { NfseService } from '@modules/integrations/nfse/nfse.service';
-import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
+import { ElotechOxyNfseService } from '@modules/integrations/nfse/elotech-oxy-nfse.service';
 import { Roles } from '@modules/common/auth/decorators/roles.decorator';
 import { UserId } from '@modules/common/auth/decorators/user.decorator';
-import { SECTOR_PRIVILEGES, BANK_SLIP_STATUS, NFSE_STATUS } from '@constants';
+import { SECTOR_PRIVILEGES, BANK_SLIP_STATUS } from '@constants';
 import type { InvoiceGetManyFormData } from '@types';
 
 /**
@@ -40,8 +39,7 @@ export class InvoiceController {
     private readonly invoiceGenerationService: InvoiceGenerationService,
     private readonly prisma: PrismaService,
     private readonly sicrediService: SicrediService,
-    private readonly nfseService: NfseService,
-    private readonly nfseEmissionScheduler: NfseEmissionScheduler,
+    private readonly municipalNfseService: ElotechOxyNfseService,
   ) {}
 
   // ─── Invoice CRUD ──────────────────────────────────────────────
@@ -65,7 +63,7 @@ export class InvoiceController {
   async findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.invoiceService.findById(id, {
       installments: { include: { bankSlip: { include: { pdfFile: true } } } },
-      nfseDocument: { include: { pdfFile: true } },
+      nfseDocuments: true,
       customer: true,
       task: true,
       createdBy: true,
@@ -276,38 +274,102 @@ export class InvoiceController {
 
   /**
    * POST /invoices/:invoiceId/nfse/emit
-   * Manually trigger NFS-e emission for an invoice.
+   * Manually trigger NFS-e emission for an invoice by creating a new NfseDocument entry.
    */
   @Post(':invoiceId/nfse/emit')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async emitNfse(@Param('invoiceId', ParseUUIDPipe) invoiceId: string) {
-    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
-    throw new BadRequestException(
-      'Emissão de NFS-e Nacional desabilitada. O município ainda utiliza emissão municipal.',
-    );
+    // Create a new NfseDocument entry with PENDING status
+    const nfseDoc = await this.prisma.nfseDocument.create({
+      data: {
+        invoiceId,
+        status: 'PENDING',
+      },
+    });
+
+    return {
+      message: 'NFS-e será emitida em instantes.',
+      nfseDocumentId: nfseDoc.id,
+    };
   }
 
   /**
    * PUT /invoices/:invoiceId/nfse/cancel
    * Cancel an authorized NFS-e document.
+   * Accepts an optional nfseDocumentId to cancel a specific NFS-e;
+   * otherwise cancels the latest AUTHORIZED NFS-e for the invoice.
    */
   @Put(':invoiceId/nfse/cancel')
   @HttpCode(HttpStatus.OK)
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
   async cancelNfse(
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
-    @Body() body: { reason?: string },
+    @Body() body: { reason?: string; reasonCode?: number; nfseDocumentId?: string },
   ) {
-    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
-    throw new BadRequestException(
-      'Cancelamento de NFS-e Nacional desabilitado. O município ainda utiliza emissão municipal.',
-    );
+    // Find the specific NfseDocument to cancel
+    let nfseDoc;
+    if (body.nfseDocumentId) {
+      nfseDoc = await this.prisma.nfseDocument.findUnique({
+        where: { id: body.nfseDocumentId },
+      });
+    } else {
+      // Find the latest AUTHORIZED nfseDocument for this invoice
+      nfseDoc = await this.prisma.nfseDocument.findFirst({
+        where: { invoiceId, status: 'AUTHORIZED' },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (!nfseDoc) {
+      throw new NotFoundException('NFS-e não encontrada para esta fatura.');
+    }
+
+    if (nfseDoc.status === 'CANCELLED') {
+      throw new BadRequestException('NFS-e já está cancelada.');
+    }
+
+    if (nfseDoc.status !== 'AUTHORIZED') {
+      throw new BadRequestException(
+        'Somente NFS-e autorizadas podem ser canceladas.',
+      );
+    }
+
+    if (!body.reason?.trim()) {
+      throw new BadRequestException(
+        'Motivo do cancelamento é obrigatório.',
+      );
+    }
+
+    const reasonCode = body.reasonCode ?? 1;
+
+    try {
+      const result = await this.municipalNfseService.cancelNfse(
+        nfseDoc.id,
+        body.reason.trim(),
+        reasonCode,
+      );
+      return {
+        message: 'NFS-e cancelada com sucesso.',
+        ...result,
+      };
+    } catch (error) {
+      const errMsg =
+        (error as any)?.response?.data?.message ||
+        (error instanceof Error ? error.message : String(error));
+      this.logger.error(
+        `Failed to cancel NFS-e for invoice ${invoiceId}: ${errMsg}`,
+      );
+      throw new BadRequestException(
+        `Falha ao cancelar NFS-e: ${errMsg}`,
+      );
+    }
   }
 
   /**
    * GET /invoices/:invoiceId/nfse/pdf
-   * Download the DANFSE PDF for an invoice's NFS-e.
+   * Download the DANFSE PDF for an invoice's latest authorized NFS-e.
+   * Fetches directly from Elotech OXY using elotechNfseId.
    */
   @Get(':invoiceId/nfse/pdf')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
@@ -315,9 +377,39 @@ export class InvoiceController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @Res() res: Response,
   ) {
-    // NFSe Nacional disabled: Ibiporã still uses municipal emission.
-    throw new BadRequestException(
-      'Download de NFS-e Nacional desabilitado. O município ainda utiliza emissão municipal.',
-    );
+    // Find the latest authorized NFS-e for this invoice
+    const nfseDoc = await this.prisma.nfseDocument.findFirst({
+      where: { invoiceId, status: 'AUTHORIZED' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!nfseDoc) {
+      throw new NotFoundException('NFS-e não encontrada para esta fatura.');
+    }
+
+    if (!nfseDoc.elotechNfseId) {
+      throw new NotFoundException(
+        'PDF da NFS-e não disponível (NFS-e ainda não autorizada).',
+      );
+    }
+
+    try {
+      const pdfBuffer = await this.municipalNfseService.getNfsePdf(
+        nfseDoc.elotechNfseId,
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="nfse-${nfseDoc.elotechNfseId}.pdf"`,
+      );
+      return res.send(pdfBuffer);
+    } catch (error) {
+      this.logger.error(
+        `Failed to fetch NFS-e PDF for invoice ${invoiceId}: ${error}`,
+      );
+      throw new NotFoundException(
+        'Não foi possível obter o PDF da NFS-e.',
+      );
+    }
   }
 }

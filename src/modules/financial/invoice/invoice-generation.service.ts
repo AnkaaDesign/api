@@ -171,15 +171,16 @@ export class InvoiceGenerationService {
           );
         }
 
-        // NFSe Nacional disabled: Ibiporã still uses municipal emission.
-        // NfseDocument creation will be re-enabled once the city migrates to the national system.
-        // await tx.nfseDocument.create({
-        //   data: {
-        //     invoiceId: invoice.id,
-        //     status: 'PENDING',
-        //     totalAmount: totalAmount,
-        //   },
-        // });
+        // Create NfseDocument for municipal emission (Elotech OXY)
+        await tx.nfseDocument.create({
+          data: {
+            invoiceId: invoice.id,
+            status: 'PENDING',
+          },
+        });
+        this.logger.log(
+          `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
+        );
         this.logger.log(
           `[INVOICE_GEN] Invoice ${invoice.id} fully created for customer ${config.customer?.fantasyName} (${config.customerId}): ` +
             `${existingInstallments.length} installment(s), total: ${totalAmount}`,

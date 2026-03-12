@@ -1422,6 +1422,41 @@ export class UserService {
           }),
         );
 
+        // Handle isSectorLeader flag for each user - update Sector.leaderId relationship
+        for (const item of updateData) {
+          const isSectorLeader = (item.data as any).isSectorLeader;
+
+          if (typeof isSectorLeader === 'boolean') {
+            const existingUser = await tx.user.findUnique({ where: { id: item.id } });
+            const targetSectorId = (item.data as any).sectorId ?? existingUser?.sectorId;
+
+            if (isSectorLeader && targetSectorId) {
+              // Set this user as the leader of their sector
+              await tx.sector.update({
+                where: { id: targetSectorId },
+                data: { leaderId: item.id },
+              });
+              this.logger.log(`Batch: User ${item.id} set as leader of sector ${targetSectorId}`);
+            } else if (!isSectorLeader) {
+              // Check if user was the leader of any sector and remove them
+              const ledSector = await tx.sector.findFirst({
+                where: { leaderId: item.id },
+              });
+              if (ledSector) {
+                await tx.sector.update({
+                  where: { id: ledSector.id },
+                  data: { leaderId: null },
+                });
+                this.logger.log(`Batch: User ${item.id} removed as leader of sector ${ledSector.id}`);
+              }
+            }
+          }
+
+          // Remove non-database fields before sending to repository
+          const { currentStatus, isSectorLeader: _isSectorLeader, ...dbData } = item.data as any;
+          item.data = dbData;
+        }
+
         const updateResult = await this.userRepository.updateManyWithTransaction(tx, updateData, {
           include,
         });
