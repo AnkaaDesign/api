@@ -209,15 +209,15 @@ export function formatTaskSummary(task: Task): string {
  * Calculate task price from pricing
  */
 export function calculateTaskPrice(task: Task): number {
-  if (!task.pricing) return 0;
-  return Number(task.pricing.total) || 0;
+  if (!task.quote) return 0;
+  return Number(task.quote.total) || 0;
 }
 
 /**
  * Format task price from pricing total
  */
 export function formatTaskPrice(task: Task): string {
-  if (!task.pricing || !task.pricing.total) return 'Sem valor';
+  if (!task.quote || !task.quote.total) return 'Sem valor';
   const totalValue = calculateTaskPrice(task);
   return numberUtils.formatCurrency(totalValue);
 }

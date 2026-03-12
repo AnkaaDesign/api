@@ -1,4 +1,4 @@
-// api/src/modules/production/task-pricing/task-pricing.service.ts
+// api/src/modules/production/task-quote/task-quote.service.ts
 
 import {
   Injectable,
@@ -10,28 +10,28 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
-import { TaskPricingRepository } from './repositories/task-pricing.repository';
+import { TaskQuoteRepository } from './repositories/task-quote.repository';
 import { ChangeLogService } from '@modules/common/changelog/changelog.service';
 import { InvoiceGenerationService } from '@modules/financial/invoice/invoice-generation.service';
 import { NfseEmissionScheduler } from '@modules/integrations/nfse/nfse-emission.scheduler';
 import type {
-  TaskPricingCreateFormData,
-  TaskPricingUpdateFormData,
-  TaskPricingGetManyFormData,
-} from '@schemas/task-pricing';
+  TaskQuoteCreateFormData,
+  TaskQuoteUpdateFormData,
+  TaskQuoteGetManyFormData,
+} from '@schemas/task-quote';
 import type {
-  TaskPricingGetManyResponse,
-  TaskPricingGetUniqueResponse,
-  TaskPricingCreateResponse,
-  TaskPricingUpdateResponse,
-  TaskPricingDeleteResponse,
-  TaskPricingBatchCreateResponse,
-  TaskPricingBatchUpdateResponse,
-  TaskPricingBatchDeleteResponse,
-  TaskPricing,
+  TaskQuoteGetManyResponse,
+  TaskQuoteGetUniqueResponse,
+  TaskQuoteCreateResponse,
+  TaskQuoteUpdateResponse,
+  TaskQuoteDeleteResponse,
+  TaskQuoteBatchCreateResponse,
+  TaskQuoteBatchUpdateResponse,
+  TaskQuoteBatchDeleteResponse,
+  TaskQuote,
 } from '@types';
 import {
-  TASK_PRICING_STATUS,
+  TASK_QUOTE_STATUS,
   CHANGE_LOG_ENTITY_TYPE,
   CHANGE_LOG_ACTION,
   ENTITY_TYPE,
@@ -40,20 +40,32 @@ import {
 } from '@constants';
 import type { PrismaTransaction } from '@modules/common/base/base.repository';
 import { CHANGE_TRIGGERED_BY } from '@constants';
-import { logPricingServiceChanges } from '@modules/common/changelog/utils/pricing-service-changelog';
+import { logQuoteServiceChanges } from '@modules/common/changelog/utils/quote-service-changelog';
 import { serializeChangelogValue } from '@modules/common/changelog/utils/serialize-changelog-value';
+import { normalizeDescription } from '@utils';
+import { SERVICE_ORDER_TYPE } from '@constants';
 
 /**
- * Service for managing TaskPricing entities
+ * Compute the discount amount for a service based on its discount type and value.
+ */
+function computeServiceDiscount(amount: number, discountType?: string, discountValue?: number | null): number {
+  if (!discountType || discountType === 'NONE' || !discountValue) return 0;
+  if (discountType === 'PERCENTAGE') return Math.round((amount * discountValue / 100) * 100) / 100;
+  if (discountType === 'FIXED_VALUE') return Math.min(discountValue, amount);
+  return 0;
+}
+
+/**
+ * Service for managing TaskQuote entities
  * Handles CRUD operations, status management, and business logic
  */
 @Injectable()
-export class TaskPricingService {
-  private readonly logger = new Logger(TaskPricingService.name);
+export class TaskQuoteService {
+  private readonly logger = new Logger(TaskQuoteService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly taskPricingRepository: TaskPricingRepository,
+    private readonly taskQuoteRepository: TaskQuoteRepository,
     private readonly changeLogService: ChangeLogService,
     @Inject(forwardRef(() => InvoiceGenerationService))
     private readonly invoiceGenerationService: InvoiceGenerationService,
@@ -63,9 +75,9 @@ export class TaskPricingService {
   /**
    * Find many pricings with filtering, pagination, and sorting
    */
-  async findMany(query: TaskPricingGetManyFormData): Promise<TaskPricingGetManyResponse> {
+  async findMany(query: TaskQuoteGetManyFormData): Promise<TaskQuoteGetManyResponse> {
     try {
-      const result = await this.taskPricingRepository.findMany(query);
+      const result = await this.taskQuoteRepository.findMany(query);
 
       return {
         success: true,
@@ -74,7 +86,7 @@ export class TaskPricingService {
         message: 'Orçamentos carregados com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error('Error finding task pricings:', error);
+      this.logger.error('Error finding task quotes:', error);
       throw new InternalServerErrorException('Erro ao carregar orçamentos.');
     }
   }
@@ -82,9 +94,9 @@ export class TaskPricingService {
   /**
    * Find unique pricing by ID
    */
-  async findUnique(id: string, include?: any): Promise<TaskPricingGetUniqueResponse> {
+  async findUnique(id: string, include?: any): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.taskPricingRepository.findById(id, include);
+      const pricing = await this.taskQuoteRepository.findById(id, include);
 
       if (!pricing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
@@ -96,7 +108,7 @@ export class TaskPricingService {
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error finding task pricing ${id}:`, error);
+      this.logger.error(`Error finding task quote ${id}:`, error);
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Erro ao carregar orçamento.');
     }
@@ -105,9 +117,9 @@ export class TaskPricingService {
   /**
    * Find pricing by task ID
    */
-  async findByTaskId(taskId: string): Promise<TaskPricingGetUniqueResponse> {
+  async findByTaskId(taskId: string): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.taskPricingRepository.findByTaskId(taskId);
+      const pricing = await this.taskQuoteRepository.findByTaskId(taskId);
 
       // Return null data when no pricing exists (not an error - task may not have pricing yet)
       if (!pricing) {
@@ -133,9 +145,9 @@ export class TaskPricingService {
    * Create new pricing
    */
   async create(
-    data: TaskPricingCreateFormData,
+    data: TaskQuoteCreateFormData,
     userId: string,
-  ): Promise<TaskPricingCreateResponse> {
+  ): Promise<TaskQuoteCreateResponse> {
     try {
       // Validate task exists
       const task = await this.prisma.task.findUnique({
@@ -160,20 +172,27 @@ export class TaskPricingService {
       }
 
       // NOTE: Each task has its own independent pricing record.
-      // When copying pricing (e.g. via copyFromTask), a new TaskPricing is created as a deep copy.
+      // When copying pricing (e.g. via copyFromTask), a new TaskQuote is created as a deep copy.
 
       // Validate services exist
       if (!data.services || data.services.length === 0) {
         throw new BadRequestException('Pelo menos um serviço é obrigatório.');
       }
 
-      // If single customer config with subtotal=0, compute from services
-      if (data.customerConfigs.length === 1 && !data.customerConfigs[0].subtotal) {
-        const servicesTotal = data.services.reduce((sum, s) => sum + (s.amount || 0), 0);
-        data.customerConfigs[0].subtotal = servicesTotal;
-        if (!data.customerConfigs[0].total) {
-          data.customerConfigs[0].total = servicesTotal;
-        }
+      // Compute per-customer totals from service-level discounts
+      const isSingleConfig = data.customerConfigs.length === 1;
+      for (const config of data.customerConfigs) {
+        const assignedServices = (data.services || []).filter(s =>
+          s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId)
+        );
+        const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
+        const total = assignedServices.reduce((sum, s) => {
+          const amt = s.amount || 0;
+          const disc = computeServiceDiscount(amt, s.discountType as string, s.discountValue as number | null);
+          return sum + Math.max(0, amt - disc);
+        }, 0);
+        config.subtotal = Math.round(subtotal * 100) / 100;
+        config.total = Math.round(total * 100) / 100;
       }
 
       // Compute aggregate subtotal/total from customerConfigs
@@ -183,18 +202,18 @@ export class TaskPricingService {
       // Create pricing with items in transaction
       const pricing = await this.prisma.$transaction(async tx => {
         // Get next budget number (auto-increment)
-        const maxBudgetNumber = await tx.taskPricing.aggregate({
+        const maxBudgetNumber = await tx.taskQuote.aggregate({
           _max: { budgetNumber: true },
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        const newPricing = await tx.taskPricing.create({
+        const newPricing = await tx.taskQuote.create({
           data: {
             budgetNumber: nextBudgetNumber,
             subtotal: aggregateSubtotal,
             total: aggregateTotal,
             expiresAt: data.expiresAt,
-            status: data.status || TASK_PRICING_STATUS.PENDING,
+            status: data.status || TASK_QUOTE_STATUS.PENDING,
             statusOrder: 1,
             // Guarantee Terms
             guaranteeYears: data.guaranteeYears || null,
@@ -209,12 +228,9 @@ export class TaskPricingService {
               create: data.customerConfigs.map(config => ({
                 customer: { connect: { id: config.customerId } },
                 subtotal: config.subtotal || 0,
-                discountType: config.discountType || 'NONE',
-                discountValue: config.discountValue || null,
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
                 responsibleId: config.responsibleId || null,
-                discountReference: config.discountReference || null,
                 paymentCondition: config.paymentCondition || null,
                 downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
               })),
@@ -226,6 +242,9 @@ export class TaskPricingService {
                 observation: service.observation || null,
                 shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                 position: index,
+                discountType: (service as any).discountType || 'NONE',
+                discountValue: (service as any).discountValue || null,
+                discountReference: (service as any).discountReference || null,
                 ...(service.invoiceToCustomerId && {
                   invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
                 }),
@@ -281,15 +300,15 @@ export class TaskPricingService {
           }
         }
 
-        // Connect the task to this pricing (one-to-one via Task.pricingId FK)
+        // Connect the task to this quote (one-to-one via Task.quoteId FK)
         await tx.task.update({
           where: { id: data.taskId },
-          data: { pricingId: newPricing.id },
+          data: { quoteId: newPricing.id },
         });
 
         // Log change
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TASK_PRICING,
+          entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: newPricing.id,
           action: CHANGE_ACTION.CREATE,
           userId,
@@ -299,7 +318,7 @@ export class TaskPricingService {
             budgetNumber: nextBudgetNumber,
             subtotal: data.subtotal,
             total: data.total,
-            status: data.status || TASK_PRICING_STATUS.PENDING,
+            status: data.status || TASK_QUOTE_STATUS.PENDING,
             services: data.services.map(service => ({
               description: service.description,
               amount: service.amount,
@@ -311,7 +330,7 @@ export class TaskPricingService {
           transaction: tx,
         });
 
-        return tx.taskPricing.findUnique({
+        return tx.taskQuote.findUnique({
           where: { id: newPricing.id },
           include: {
             services: {
@@ -344,7 +363,7 @@ export class TaskPricingService {
         message: 'Orçamento criado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error('Error creating task pricing:', error);
+      this.logger.error('Error creating task quote:', error);
       if (error instanceof BadRequestException) throw error;
       throw new InternalServerErrorException('Erro ao criar orçamento.');
     }
@@ -355,11 +374,11 @@ export class TaskPricingService {
    */
   async update(
     id: string,
-    data: TaskPricingUpdateFormData,
+    data: TaskQuoteUpdateFormData,
     userId: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  ): Promise<TaskQuoteUpdateResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id, {
+      const existing = await this.taskQuoteRepository.findById(id, {
         include: {
           services: { orderBy: { position: 'asc' } },
           customerConfigs: true,
@@ -385,12 +404,21 @@ export class TaskPricingService {
         }
       }
 
-      // If single customer config with subtotal=0, compute from services
-      if (data.customerConfigs?.length === 1 && !data.customerConfigs[0].subtotal && data.services?.length) {
-        const servicesTotal = data.services.reduce((sum, s) => sum + (s.amount || 0), 0);
-        data.customerConfigs[0].subtotal = servicesTotal;
-        if (!data.customerConfigs[0].total) {
-          data.customerConfigs[0].total = servicesTotal;
+      // Compute per-customer totals from service-level discounts
+      if (data.customerConfigs && data.customerConfigs.length > 0 && data.services) {
+        const isSingleConfig = data.customerConfigs.length === 1;
+        for (const config of data.customerConfigs) {
+          const assignedServices = data.services.filter(s =>
+            s.invoiceToCustomerId === config.customerId || (isSingleConfig && !s.invoiceToCustomerId)
+          );
+          const subtotal = assignedServices.reduce((sum, s) => sum + (s.amount || 0), 0);
+          const total = assignedServices.reduce((sum, s) => {
+            const amt = s.amount || 0;
+            const disc = computeServiceDiscount(amt, (s as any).discountType, (s as any).discountValue);
+            return sum + Math.max(0, amt - disc);
+          }, 0);
+          config.subtotal = Math.round(subtotal * 100) / 100;
+          config.total = Math.round(total * 100) / 100;
         }
       }
 
@@ -405,7 +433,7 @@ export class TaskPricingService {
 
       // Update pricing with items in transaction
       const updated = await this.prisma.$transaction(async tx => {
-        const updatedPricing = await tx.taskPricing.update({
+        const updatedPricing = await tx.taskQuote.update({
           where: { id },
           data: {
             ...(aggregateSubtotal !== undefined && { subtotal: aggregateSubtotal }),
@@ -413,7 +441,7 @@ export class TaskPricingService {
             ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt }),
             ...(data.status !== undefined && {
               status: data.status,
-              statusOrder: this.getStatusOrder(data.status as TASK_PRICING_STATUS),
+              statusOrder: this.getStatusOrder(data.status as TASK_QUOTE_STATUS),
             }),
             // Guarantee Terms
             ...(data.guaranteeYears !== undefined && { guaranteeYears: data.guaranteeYears }),
@@ -438,6 +466,9 @@ export class TaskPricingService {
                   observation: service.observation || null,
                   shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                   position: index,
+                  discountType: (service as any).discountType || 'NONE',
+                  discountValue: (service as any).discountValue || null,
+                  discountReference: (service as any).discountReference || null,
                   ...(service.invoiceToCustomerId && {
                     invoiceToCustomer: { connect: { id: service.invoiceToCustomerId } },
                   }),
@@ -473,7 +504,7 @@ export class TaskPricingService {
 
         await trackAndLogFieldChanges({
           changeLogService: this.changeLogService,
-          entityType: ENTITY_TYPE.TASK_PRICING,
+          entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: id,
           oldEntity: existing,
           newEntity: updatedPricing,
@@ -510,27 +541,24 @@ export class TaskPricingService {
           }
 
           // Delete existing configs (cascades to installments) and recreate
-          await tx.taskPricingCustomerConfig.deleteMany({ where: { pricingId: id } });
+          await tx.taskQuoteCustomerConfig.deleteMany({ where: { quoteId: id } });
           if (data.customerConfigs.length > 0) {
-            await tx.taskPricingCustomerConfig.createMany({
+            await tx.taskQuoteCustomerConfig.createMany({
               data: data.customerConfigs.map(config => ({
-                pricingId: id,
+                quoteId: id,
                 customerId: config.customerId,
                 subtotal: config.subtotal || 0,
-                discountType: config.discountType || 'NONE',
-                discountValue: config.discountValue || null,
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
                 responsibleId: config.responsibleId || null,
-                discountReference: config.discountReference || null,
                 paymentCondition: config.paymentCondition || null,
                 downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
               })),
             });
 
             // Re-create installments for each config
-            const newConfigs = await tx.taskPricingCustomerConfig.findMany({
-              where: { pricingId: id },
+            const newConfigs = await tx.taskQuoteCustomerConfig.findMany({
+              where: { quoteId: id },
             });
             this.logger.log(`[UPDATE] Re-creating installments for ${data.customerConfigs.length} config(s), found ${newConfigs.length} DB config(s)`);
             for (const config of data.customerConfigs) {
@@ -565,9 +593,9 @@ export class TaskPricingService {
           // Clear orphaned service assignments: if a customer was removed from configs,
           // any services assigned to that customer via invoiceToCustomerId should be set to null
           const validCustomerIds = data.customerConfigs.map(c => c.customerId);
-          await tx.taskPricingService.updateMany({
+          await tx.taskQuoteService.updateMany({
             where: {
-              pricingId: id,
+              quoteId: id,
               invoiceToCustomerId: {
                 notIn: validCustomerIds.length > 0 ? validCustomerIds : ['__none__'],
                 not: null,
@@ -589,7 +617,7 @@ export class TaskPricingService {
 
           if (oldConfigNames !== newConfigNames) {
             await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK_PRICING,
+              entityType: ENTITY_TYPE.TASK_QUOTE,
               entityId: id,
               action: CHANGE_LOG_ACTION.UPDATE as any,
               field: 'customerConfigs',
@@ -610,9 +638,9 @@ export class TaskPricingService {
           const newServices = (updatedPricing as any).services || [];
 
           // Log per-service changes (added, removed, field updates)
-          await logPricingServiceChanges({
+          await logQuoteServiceChanges({
             changeLogService: this.changeLogService,
-            pricingId: id,
+            quoteId: id,
             oldServices,
             newServices,
             userId: userId || '',
@@ -631,7 +659,7 @@ export class TaskPricingService {
 
           if (servicesChanged) {
             await this.changeLogService.logChange({
-              entityType: ENTITY_TYPE.TASK_PRICING,
+              entityType: ENTITY_TYPE.TASK_QUOTE,
               entityId: id,
               action: CHANGE_ACTION.UPDATE,
               field: 'services_snapshot',
@@ -659,23 +687,23 @@ export class TaskPricingService {
             });
           }
 
-          // Fix R$ 0,00 snapshot: update pricingId changelog when real amounts are set
+          // Fix R$ 0,00 snapshot: update quoteId changelog when real amounts are set
           const allOldAmountsZero = oldServices.every((service: any) => Number(service.amount) === 0);
           const anyNewAmountNonZero = newServices.some((service: any) => Number(service.amount) > 0);
 
           if (allOldAmountsZero && anyNewAmountNonZero) {
-            const updatedWithTask = await tx.taskPricing.findUnique({
+            const updatedWithTask = await tx.taskQuote.findUnique({
               where: { id },
               include: { task: { select: { id: true } }, services: { orderBy: { position: 'asc' } } },
             });
 
             const taskRef = updatedWithTask?.task;
             if (taskRef) {
-              const pricingIdLog = await tx.changeLog.findFirst({
-                where: { entityType: 'TASK', entityId: taskRef.id, field: 'pricingId' },
+              const quoteIdLog = await tx.changeLog.findFirst({
+                where: { entityType: 'TASK', entityId: taskRef.id, field: 'quoteId' },
                 orderBy: { createdAt: 'desc' },
               });
-              if (pricingIdLog) {
+              if (quoteIdLog) {
                 const realSnapshot = serializeChangelogValue({
                   id,
                   budgetNumber: (updatedWithTask as any).budgetNumber,
@@ -688,13 +716,84 @@ export class TaskPricingService {
                     observation: service.observation,
                   })),
                 });
-                await tx.changeLog.update({ where: { id: pricingIdLog.id }, data: { newValue: realSnapshot } });
+                await tx.changeLog.update({ where: { id: quoteIdLog.id }, data: { newValue: realSnapshot } });
               }
             }
           }
         }
 
-        return tx.taskPricing.findUnique({
+        // =====================================================================
+        // BIDIRECTIONAL SYNC: When quote services are removed or have shouldSync=false,
+        // set shouldSync=false on corresponding PRODUCTION service orders
+        // This prevents the task update sync from recreating these services
+        // =====================================================================
+        if (data.services !== undefined) {
+          const oldServices = (existing as any).services || [];
+          const newServices = (updatedPricing as any).services || [];
+
+          // Build set of normalized descriptions in the new services
+          const newDescriptions = new Set(
+            newServices.map((s: any) => normalizeDescription(s.description)),
+          );
+
+          // Build set of descriptions with shouldSync=false in new services
+          const noSyncDescriptions = new Set(
+            newServices
+              .filter((s: any) => s.shouldSync === false)
+              .map((s: any) => normalizeDescription(s.description)),
+          );
+
+          // Find descriptions that were removed (in old but not in new)
+          // or that have shouldSync=false in the new data
+          const descriptionsToUnsync = new Set<string>();
+
+          for (const oldSvc of oldServices) {
+            const normalized = normalizeDescription(oldSvc.description);
+            if (!normalized) continue;
+            if (!newDescriptions.has(normalized)) {
+              // Service was removed from quote
+              descriptionsToUnsync.add(normalized);
+            }
+          }
+          for (const desc of noSyncDescriptions) {
+            if (desc) descriptionsToUnsync.add(desc);
+          }
+
+          if (descriptionsToUnsync.size > 0) {
+            // Get the task ID for this quote
+            const quoteWithTask = await tx.taskQuote.findUnique({
+              where: { id },
+              select: { task: { select: { id: true } } },
+            });
+            const taskId = quoteWithTask?.task?.id;
+
+            if (taskId) {
+              // Find matching PRODUCTION service orders
+              const productionSOs = await tx.serviceOrder.findMany({
+                where: {
+                  taskId,
+                  type: SERVICE_ORDER_TYPE.PRODUCTION,
+                  shouldSync: true,
+                },
+              });
+
+              for (const so of productionSOs) {
+                const soNormalized = normalizeDescription(so.description);
+                if (descriptionsToUnsync.has(soNormalized)) {
+                  this.logger.log(
+                    `[Quote Update] Setting shouldSync=false on service order ${so.id} (${so.description})`,
+                  );
+                  await tx.serviceOrder.update({
+                    where: { id: so.id },
+                    data: { shouldSync: false },
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        return tx.taskQuote.findUnique({
           where: { id },
           include: {
             services: {
@@ -727,7 +826,7 @@ export class TaskPricingService {
         message: 'Orçamento atualizado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error updating task pricing ${id}:`, error);
+      this.logger.error(`Error updating task quote ${id}:`, error);
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
@@ -738,9 +837,9 @@ export class TaskPricingService {
   /**
    * Delete pricing
    */
-  async delete(id: string, userId: string): Promise<TaskPricingDeleteResponse> {
+  async delete(id: string, userId: string): Promise<TaskQuoteDeleteResponse> {
     try {
-      const existing = await this.prisma.taskPricing.findUnique({
+      const existing = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           services: { orderBy: { position: 'asc' } },
@@ -779,18 +878,18 @@ export class TaskPricingService {
       const taskId = existing.task?.id;
 
       await this.prisma.$transaction(async tx => {
-        // Nullify pricingId on the associated task before deleting
+        // Nullify quoteId on the associated task before deleting
         if (taskId) {
           await tx.task.update({
             where: { id: taskId },
-            data: { pricingId: null },
+            data: { quoteId: null },
           });
 
           await this.changeLogService.logChange({
             entityType: ENTITY_TYPE.TASK,
             entityId: taskId,
             action: CHANGE_ACTION.UPDATE,
-            field: 'pricingId',
+            field: 'quoteId',
             oldValue: pricingSnapshot,
             newValue: null,
             userId,
@@ -801,11 +900,11 @@ export class TaskPricingService {
           });
         }
 
-        await tx.taskPricing.delete({ where: { id } });
+        await tx.taskQuote.delete({ where: { id } });
 
         // Log the pricing deletion itself
         await this.changeLogService.logChange({
-          entityType: ENTITY_TYPE.TASK_PRICING,
+          entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: id,
           action: CHANGE_ACTION.DELETE,
           oldValue: pricingSnapshot,
@@ -822,7 +921,7 @@ export class TaskPricingService {
         message: 'Orçamento deletado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error deleting task pricing ${id}:`, error);
+      this.logger.error(`Error deleting task quote ${id}:`, error);
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Erro ao deletar orçamento.');
     }
@@ -833,21 +932,21 @@ export class TaskPricingService {
    */
   async updateStatus(
     id: string,
-    status: TASK_PRICING_STATUS,
+    status: TASK_QUOTE_STATUS,
     userId: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  ): Promise<TaskQuoteUpdateResponse> {
     try {
-      const existing = await this.taskPricingRepository.findById(id);
+      const existing = await this.taskQuoteRepository.findById(id);
 
       if (!existing) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
       // Validate status transition
-      this.validateStatusTransition(existing.status as TASK_PRICING_STATUS, status);
+      this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, status);
 
       // Validate prerequisites for the target status
-      await this.validateStatusPrerequisites(id, existing.status as TASK_PRICING_STATUS, status);
+      await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, status);
 
       // Update status
       const updated = await this.update(id, { status }, userId);
@@ -866,38 +965,38 @@ export class TaskPricingService {
   /**
    * Customer approves the budget
    */
-  async budgetApprove(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
-    return this.updateStatus(id, TASK_PRICING_STATUS.BUDGET_APPROVED, userId);
+  async budgetApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+    return this.updateStatus(id, TASK_QUOTE_STATUS.BUDGET_APPROVED, userId);
   }
 
   /**
    * Financial verifies the pricing structure
    */
-  async verify(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
-    return this.updateStatus(id, TASK_PRICING_STATUS.VERIFIED, userId);
+  async verify(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
+    return this.updateStatus(id, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, userId);
   }
 
   /**
    * Commercial/admin final approval — triggers invoice + NFS-e generation
    */
-  async internalApprove(id: string, userId: string): Promise<TaskPricingUpdateResponse> {
+  async internalApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     this.logger.log(`[INTERNAL_APPROVE] Starting internal approval for pricing ${id} by user ${userId}`);
 
     // 1. Validate the pricing exists and prerequisites are met
-    const existing = await this.taskPricingRepository.findById(id);
+    const existing = await this.taskQuoteRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
-    this.validateStatusTransition(existing.status as TASK_PRICING_STATUS, TASK_PRICING_STATUS.INTERNAL_APPROVED);
-    await this.validateStatusPrerequisites(id, existing.status as TASK_PRICING_STATUS, TASK_PRICING_STATUS.INTERNAL_APPROVED);
+    this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.INTERNAL_APPROVED);
+    await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.INTERNAL_APPROVED);
 
     // 2. Atomically claim the status transition (prevents concurrent approvals)
     // Only one request can win: the one that finds status=VERIFIED and sets it to INTERNAL_APPROVED
-    const claimed = await this.prisma.taskPricing.updateMany({
-      where: { id, status: TASK_PRICING_STATUS.VERIFIED },
+    const claimed = await this.prisma.taskQuote.updateMany({
+      where: { id, status: TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL },
       data: {
-        status: TASK_PRICING_STATUS.INTERNAL_APPROVED,
-        statusOrder: this.getStatusOrder(TASK_PRICING_STATUS.INTERNAL_APPROVED),
+        status: TASK_QUOTE_STATUS.INTERNAL_APPROVED,
+        statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.INTERNAL_APPROVED),
       },
     });
     if (claimed.count === 0) {
@@ -912,7 +1011,7 @@ export class TaskPricingService {
     // If anything fails, revert status back to VERIFIED so the user can retry
     try {
       const task = await this.prisma.task.findFirst({
-        where: { pricingId: id },
+        where: { quoteId: id },
         select: { id: true, name: true, serialNumber: true },
       });
 
@@ -955,7 +1054,7 @@ export class TaskPricingService {
 
       // Auto-transition to UPCOMING after successful invoice generation
       this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning pricing ${id} to UPCOMING...`);
-      await this.update(id, { status: TASK_PRICING_STATUS.UPCOMING } as any, userId);
+      await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId);
       this.logger.log(`[INTERNAL_APPROVE] Pricing ${id} transitioned to UPCOMING successfully`);
     } catch (error) {
       this.logger.error(
@@ -969,11 +1068,11 @@ export class TaskPricingService {
       // Uses direct prisma update to bypass status transition validation (INTERNAL_APPROVED → VERIFIED is not normally allowed)
       try {
         this.logger.warn(`[INTERNAL_APPROVE] Rolling back pricing ${id} status from INTERNAL_APPROVED to VERIFIED...`);
-        await this.prisma.taskPricing.update({
+        await this.prisma.taskQuote.update({
           where: { id },
           data: {
-            status: TASK_PRICING_STATUS.VERIFIED,
-            statusOrder: this.getStatusOrder(TASK_PRICING_STATUS.VERIFIED),
+            status: TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
+            statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL),
           },
         });
         this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — pricing ${id} reverted to VERIFIED`);
@@ -1003,16 +1102,16 @@ export class TaskPricingService {
    * Get approved price for a task
    */
   async getApprovedPriceForTask(taskId: string): Promise<number> {
-    const pricing = await this.taskPricingRepository.findApprovedByTaskId(taskId);
+    const pricing = await this.taskQuoteRepository.findApprovedByTaskId(taskId);
     return pricing?.total || 0;
   }
 
   /**
    * Find expired pricings and optionally mark them
    */
-  async findAndMarkExpired(): Promise<TaskPricing[]> {
+  async findAndMarkExpired(): Promise<TaskQuote[]> {
     try {
-      const expired = await this.taskPricingRepository.findExpired();
+      const expired = await this.taskQuoteRepository.findExpired();
 
       this.logger.log(`Found ${expired.length} expired pricings`);
 
@@ -1033,9 +1132,9 @@ export class TaskPricingService {
    * @param id - Pricing ID
    * @param ignoreExpiration - If true, returns pricing even if expired (for authenticated users)
    */
-  async findPublic(id: string, ignoreExpiration = false): Promise<TaskPricingGetUniqueResponse> {
+  async findPublic(id: string, ignoreExpiration = false): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.prisma.taskPricing.findUnique({
+      const pricing = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           services: {
@@ -1100,9 +1199,9 @@ export class TaskPricingService {
     id: string,
     file: Express.Multer.File,
     customerConfigId?: string,
-  ): Promise<TaskPricingUpdateResponse> {
+  ): Promise<TaskQuoteUpdateResponse> {
     try {
-      const pricing = await this.prisma.taskPricing.findUnique({
+      const pricing = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           customerConfigs: {
@@ -1144,7 +1243,7 @@ export class TaskPricingService {
       });
 
       // Update customer config with signature
-      await this.prisma.taskPricingCustomerConfig.update({
+      await this.prisma.taskQuoteCustomerConfig.update({
         where: { id: targetConfig.id },
         data: {
           customerSignatureId: signatureFile.id,
@@ -1163,7 +1262,7 @@ export class TaskPricingService {
       }
 
       // Re-fetch the full pricing
-      const updated = await this.prisma.taskPricing.findUnique({
+      const updated = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           services: true,
@@ -1185,7 +1284,7 @@ export class TaskPricingService {
 
       // Log signature changelog
       await this.changeLogService.logChange({
-        entityType: ENTITY_TYPE.TASK_PRICING,
+        entityType: ENTITY_TYPE.TASK_QUOTE,
         entityId: id,
         action: CHANGE_ACTION.UPDATE,
         field: 'customerSignatureId',
@@ -1218,8 +1317,8 @@ export class TaskPricingService {
    * @private
    */
   private validateStatusTransition(
-    currentStatus: TASK_PRICING_STATUS,
-    newStatus: TASK_PRICING_STATUS,
+    currentStatus: TASK_QUOTE_STATUS,
+    newStatus: TASK_QUOTE_STATUS,
   ): void {
     // All statuses can transition to any other status (except themselves)
     // to allow administrative corrections
@@ -1234,18 +1333,18 @@ export class TaskPricingService {
    * @private
    */
   private async validateStatusPrerequisites(
-    pricingId: string,
-    currentStatus: TASK_PRICING_STATUS,
-    newStatus: TASK_PRICING_STATUS,
+    quoteId: string,
+    currentStatus: TASK_QUOTE_STATUS,
+    newStatus: TASK_QUOTE_STATUS,
   ): Promise<void> {
     const transition = `${currentStatus}->${newStatus}`;
 
     switch (transition) {
-      case `${TASK_PRICING_STATUS.PENDING}->${TASK_PRICING_STATUS.BUDGET_APPROVED}`:
-      case `${TASK_PRICING_STATUS.BUDGET_APPROVED}->${TASK_PRICING_STATUS.VERIFIED}`: {
+      case `${TASK_QUOTE_STATUS.PENDING}->${TASK_QUOTE_STATUS.BUDGET_APPROVED}`:
+      case `${TASK_QUOTE_STATUS.BUDGET_APPROVED}->${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}`: {
         // Must have at least one customerConfig with total > 0
-        const configs = await this.prisma.taskPricingCustomerConfig.findMany({
-          where: { pricingId },
+        const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+          where: { quoteId },
           select: { total: true },
         });
 
@@ -1264,10 +1363,10 @@ export class TaskPricingService {
         break;
       }
 
-      case `${TASK_PRICING_STATUS.VERIFIED}->${TASK_PRICING_STATUS.INTERNAL_APPROVED}`: {
+      case `${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}->${TASK_QUOTE_STATUS.INTERNAL_APPROVED}`: {
         // Each customerConfig must have valid paymentCondition and downPaymentDate
-        const configs = await this.prisma.taskPricingCustomerConfig.findMany({
-          where: { pricingId },
+        const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
+          where: { quoteId },
           select: {
             id: true,
             paymentCondition: true,
@@ -1307,11 +1406,11 @@ export class TaskPricingService {
         break;
       }
 
-      case `${TASK_PRICING_STATUS.UPCOMING}->${TASK_PRICING_STATUS.PARTIAL}`: {
+      case `${TASK_QUOTE_STATUS.UPCOMING}->${TASK_QUOTE_STATUS.PARTIAL}`: {
         // At least one installment must be PAID
         const paidCount = await this.prisma.installment.count({
           where: {
-            customerConfig: { pricingId },
+            customerConfig: { quoteId },
             status: INSTALLMENT_STATUS.PAID,
           },
         });
@@ -1324,11 +1423,11 @@ export class TaskPricingService {
         break;
       }
 
-      case `${TASK_PRICING_STATUS.PARTIAL}->${TASK_PRICING_STATUS.SETTLED}`: {
+      case `${TASK_QUOTE_STATUS.PARTIAL}->${TASK_QUOTE_STATUS.SETTLED}`: {
         // ALL installments must be PAID
         const unpaidCount = await this.prisma.installment.count({
           where: {
-            customerConfig: { pricingId },
+            customerConfig: { quoteId },
             status: { not: INSTALLMENT_STATUS.PAID },
           },
         });
@@ -1341,11 +1440,11 @@ export class TaskPricingService {
         break;
       }
 
-      case `${TASK_PRICING_STATUS.SETTLED}->${TASK_PRICING_STATUS.PARTIAL}`: {
+      case `${TASK_QUOTE_STATUS.SETTLED}->${TASK_QUOTE_STATUS.PARTIAL}`: {
         // At least one installment must NOT be PAID (reversal scenario)
         const nonPaidCount = await this.prisma.installment.count({
           where: {
-            customerConfig: { pricingId },
+            customerConfig: { quoteId },
             status: { not: INSTALLMENT_STATUS.PAID },
           },
         });
@@ -1368,15 +1467,16 @@ export class TaskPricingService {
    * Get Portuguese label for status
    * @private
    */
-  private getStatusLabel(status: TASK_PRICING_STATUS): string {
+  private getStatusLabel(status: TASK_QUOTE_STATUS): string {
     const labels: Record<string, string> = {
-      [TASK_PRICING_STATUS.PENDING]: 'salvo como pendente',
-      [TASK_PRICING_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
-      [TASK_PRICING_STATUS.VERIFIED]: 'verificado pelo financeiro',
-      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 'aprovado internamente',
-      [TASK_PRICING_STATUS.UPCOMING]: 'com parcelas a vencer',
-      [TASK_PRICING_STATUS.PARTIAL]: 'parcialmente pago',
-      [TASK_PRICING_STATUS.SETTLED]: 'liquidado',
+      [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
+      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 'verificado pelo financeiro',
+      [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 'aprovado internamente',
+      [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',
+      [TASK_QUOTE_STATUS.DUE]: 'com parcelas vencidas',
+      [TASK_QUOTE_STATUS.PARTIAL]: 'parcialmente pago',
+      [TASK_QUOTE_STATUS.SETTLED]: 'liquidado',
     };
 
     return labels[status] || 'atualizado';
@@ -1385,15 +1485,16 @@ export class TaskPricingService {
   /**
    * Get sort order for a given status
    */
-  private getStatusOrder(status: TASK_PRICING_STATUS): number {
+  private getStatusOrder(status: TASK_QUOTE_STATUS): number {
     const order: Record<string, number> = {
-      [TASK_PRICING_STATUS.PENDING]: 1,
-      [TASK_PRICING_STATUS.BUDGET_APPROVED]: 2,
-      [TASK_PRICING_STATUS.VERIFIED]: 3,
-      [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 4,
-      [TASK_PRICING_STATUS.UPCOMING]: 5,
-      [TASK_PRICING_STATUS.PARTIAL]: 6,
-      [TASK_PRICING_STATUS.SETTLED]: 7,
+      [TASK_QUOTE_STATUS.PENDING]: 1,
+      [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
+      [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 3,
+      [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 4,
+      [TASK_QUOTE_STATUS.UPCOMING]: 5,
+      [TASK_QUOTE_STATUS.DUE]: 6,
+      [TASK_QUOTE_STATUS.PARTIAL]: 7,
+      [TASK_QUOTE_STATUS.SETTLED]: 8,
     };
     return order[status] || 1;
   }

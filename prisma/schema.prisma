@@ -310,8 +310,8 @@ model Customer {
   economicActivity   EconomicActivity?   @relation(fields: [economicActivityId], references: [id])
   logo               File?               @relation("CUSTOMER_LOGO", fields: [logoId], references: [id])
   tasks              Task[]              @relation("TaskCustomer")
-  pricingServiceInvoices TaskPricingService[]         @relation("PricingServiceInvoiceToCustomer")
-  pricingCustomerConfigs TaskPricingCustomerConfig[]  @relation("PricingCustomerConfigCustomer")
+  quoteServiceInvoices TaskQuoteService[]         @relation("QuoteServiceInvoiceToCustomer")
+  quoteCustomerConfigs TaskQuoteCustomerConfig[]  @relation("QuoteCustomerConfigCustomer")
   responsibles           Responsible[]                @relation("CompanyResponsibles")
   invoiceEntities        Invoice[]                    @relation("CustomerInvoiceEntities")
 
@@ -488,8 +488,8 @@ model File {
   ppeDeliveryDocuments                    PpeDelivery[]        @relation("PPE_DELIVERY_DOCUMENT")
   ppeSignatureDocuments                   PpeDeliverySignature[] @relation("PPE_SIGNATURE_DOCUMENT")
   supplierLogo                            Supplier[]           @relation("SUPPLIER_LOGO")
-  configCustomerSignatures                TaskPricingCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
-  pricingLayouts                          TaskPricing[]        @relation("PRICING_LAYOUT")
+  configCustomerSignatures                TaskQuoteCustomerConfig[] @relation("CONFIG_CUSTOMER_SIGNATURE")
+  quoteLayouts                            TaskQuote[]          @relation("QUOTE_LAYOUT")
   userAvatar                              User[]               @relation("USER_AVATAR")
   thumbnailJob                            ThumbnailJob?
   airbrushingBudgets                      Airbrushing[]        @relation("AIRBRUSHING_BUDGETS")
@@ -1143,12 +1143,12 @@ model ServiceOrder {
   @@index([completedById])
 }
 
-model TaskPricing {
+model TaskQuote {
   id                  String            @id @default(uuid())
   subtotal            Decimal           @db.Decimal(10, 2)
   total               Decimal           @db.Decimal(10, 2)
   expiresAt           DateTime
-  status              TaskPricingStatus @default(PENDING)
+  status              TaskQuoteStatus   @default(PENDING)
   statusOrder         Int               @default(1)
   guaranteeYears      Int?
   customGuaranteeText String?
@@ -1158,10 +1158,10 @@ model TaskPricing {
   budgetNumber        Int               @unique
   customForecastDays  Int?
   simultaneousTasks   Int?
-  task                Task?                        @relation("TASK_PRICING")
-  layoutFile          File?                        @relation("PRICING_LAYOUT", fields: [layoutFileId], references: [id])
-  services            TaskPricingService[]         @relation("PRICING_SERVICES")
-  customerConfigs     TaskPricingCustomerConfig[]  @relation("PricingCustomerConfig")
+  task                Task?                        @relation("TASK_QUOTE")
+  layoutFile          File?                        @relation("QUOTE_LAYOUT", fields: [layoutFileId], references: [id])
+  services            TaskQuoteService[]           @relation("QUOTE_SERVICES")
+  customerConfigs     TaskQuoteCustomerConfig[]    @relation("QuoteCustomerConfig")
 
   @@index([status])
   @@index([statusOrder])
@@ -1169,49 +1169,49 @@ model TaskPricing {
   @@index([layoutFileId])
 }
 
-model TaskPricingService {
+model TaskQuoteService {
   id          String      @id @default(uuid())
   description String
   amount      Decimal     @db.Decimal(10, 2)
-  pricingId   String
+  quoteId     String
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   observation String?
   shouldSync  Boolean     @default(true)
   position    Int         @default(0)
-  pricing             TaskPricing @relation("PRICING_SERVICES", fields: [pricingId], references: [id], onDelete: Cascade)
+  discountType        DiscountType @default(NONE)
+  discountValue       Decimal?    @db.Decimal(10, 2)
+  discountReference   String?
+  quote               TaskQuote   @relation("QUOTE_SERVICES", fields: [quoteId], references: [id], onDelete: Cascade)
   invoiceToCustomerId String?
-  invoiceToCustomer   Customer?   @relation("PricingServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
+  invoiceToCustomer   Customer?   @relation("QuoteServiceInvoiceToCustomer", fields: [invoiceToCustomerId], references: [id], onDelete: SetNull)
 
-  @@index([pricingId])
+  @@index([quoteId])
   @@index([invoiceToCustomerId])
 }
 
-model TaskPricingCustomerConfig {
+model TaskQuoteCustomerConfig {
   id                  String           @id @default(uuid())
-  pricingId           String
+  quoteId             String
   customerId          String
   subtotal            Decimal          @db.Decimal(10, 2) @default(0)
-  discountType        DiscountType     @default(NONE)
-  discountValue       Decimal?         @db.Decimal(10, 2)
   total               Decimal          @db.Decimal(10, 2) @default(0)
   customPaymentText   String?
   responsibleId       String?
-  discountReference   String?
   paymentCondition    String?
   downPaymentDate     DateTime?
   customerSignatureId String?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
-  pricing             TaskPricing      @relation("PricingCustomerConfig", fields: [pricingId], references: [id], onDelete: Cascade)
-  customer            Customer         @relation("PricingCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  quote               TaskQuote        @relation("QuoteCustomerConfig", fields: [quoteId], references: [id], onDelete: Cascade)
+  customer            Customer         @relation("QuoteCustomerConfigCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   responsible         Responsible?     @relation("CUSTOMER_CONFIG_RESPONSIBLE", fields: [responsibleId], references: [id])
   customerSignature   File?            @relation("CONFIG_CUSTOMER_SIGNATURE", fields: [customerSignatureId], references: [id])
   invoice             Invoice?         @relation("InvoiceCustomerConfig")
   installments        Installment[]    @relation("CustomerConfigInstallments")
 
-  @@unique([pricingId, customerId])
-  @@index([pricingId])
+  @@unique([quoteId, customerId])
+  @@index([quoteId])
   @@index([customerId])
   @@index([responsibleId])
   @@index([customerSignatureId])
@@ -1270,7 +1270,7 @@ model Task {
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   bonusDiscountId       String?
-  pricingId             String?              @unique
+  quoteId               String?              @unique
   airbrushings          Airbrushing[]        @relation("AIRBRUSHING")
   cuts                  Cut[]                @relation("CUT_TASK")
   observation           Observation?         @relation("OBSERVATION_TO_TASK")
@@ -1279,7 +1279,7 @@ model Task {
   createdBy             User?                @relation("TASK_CREATED_BY", fields: [createdById], references: [id])
   customer              Customer?            @relation("TaskCustomer", fields: [customerId], references: [id])
   generalPainting       Paint?               @relation("TASK_GENERAL_PAINTING", fields: [paintId], references: [id])
-  pricing               TaskPricing?         @relation("TASK_PRICING", fields: [pricingId], references: [id])
+  quote                 TaskQuote?           @relation("TASK_QUOTE", fields: [quoteId], references: [id])
   sector                Sector?              @relation(fields: [sectorId], references: [id])
   fieldChangeLogs       TaskFieldChangeLog[] @relation("TASK_FIELD_CHANGE_LOGS")
   truck                 Truck?
@@ -2080,7 +2080,7 @@ model Responsible {
   updatedAt             DateTime           @updatedAt
   company               Customer?          @relation("CompanyResponsibles", fields: [companyId], references: [id])
   tasks                 Task[]             @relation("TaskResponsibles")
-  customerConfigs       TaskPricingCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
+  customerConfigs       TaskQuoteCustomerConfig[] @relation("CUSTOMER_CONFIG_RESPONSIBLE")
 
   @@index([email])
   @@index([phone])
@@ -2849,10 +2849,10 @@ enum ChangeLogEntityType {
   SERVICE_ORDER
   SUPPLIER
   TASK
-  TASK_PRICING
-  TASK_PRICING_ITEM
-  TASK_PRICING_SERVICE
-  TASK_PRICING_CUSTOMER_CONFIG
+  TASK_QUOTE
+  TASK_QUOTE_ITEM
+  TASK_QUOTE_SERVICE
+  TASK_QUOTE_CUSTOMER_CONFIG
   TIME_CLOCK_ENTRY
   TRUCK
   USER
@@ -2930,14 +2930,16 @@ enum CommissionStatus {
   SUSPENDED_COMMISSION
 }
 
-enum TaskPricingStatus {
+enum TaskQuoteStatus {
   PENDING
   BUDGET_APPROVED
-  VERIFIED
+  VERIFIED_BY_FINANCIAL
   INTERNAL_APPROVED
   UPCOMING
+  DUE
   PARTIAL
   SETTLED
+
 }
 
 enum DiscountType {
@@ -3189,7 +3191,7 @@ model Invoice {
   createdById       String?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
-  customerConfig    TaskPricingCustomerConfig @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  customerConfig    TaskQuoteCustomerConfig @relation("InvoiceCustomerConfig", fields: [customerConfigId], references: [id], onDelete: Cascade)
   task              Task                     @relation("TaskInvoiceEntities", fields: [taskId], references: [id], onDelete: Cascade)
   customer          Customer                 @relation("CustomerInvoiceEntities", fields: [customerId], references: [id])
   createdBy         User?                    @relation("InvoicesCreated", fields: [createdById], references: [id])
@@ -3214,7 +3216,7 @@ model Installment {
   status           InstallmentStatus @default(PENDING)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  customerConfig   TaskPricingCustomerConfig @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
+  customerConfig   TaskQuoteCustomerConfig @relation("CustomerConfigInstallments", fields: [customerConfigId], references: [id], onDelete: Cascade)
   invoice          Invoice?          @relation("InvoiceInstallments", fields: [invoiceId], references: [id], onDelete: SetNull)
   bankSlip         BankSlip?         @relation("InstallmentBankSlip")
 

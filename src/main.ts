@@ -216,6 +216,26 @@ async function bootstrap() {
       },
     });
 
+    // Serve files storage directory (FILES_ROOT) for LAN/offline access
+    // In production, files are normally served by nginx via CDN (arquivos.ankaadesign.com.br)
+    // This static route enables direct access from the API server when CDN is unreachable
+    // (e.g., mobile/web apps on local network without internet)
+    const filesRoot = env.FILES_ROOT || join(__dirname, '..', '..', 'files');
+    app.useStaticAssets(filesRoot, {
+      prefix: '/files/storage/',
+      setHeaders: (res, filePath) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        // Allow inline display for images and PDFs
+        const ext = filePath.split('.').pop()?.toLowerCase() || '';
+        const inlineTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'pdf'];
+        if (!inlineTypes.includes(ext)) {
+          res.setHeader('Content-Disposition', 'attachment');
+        }
+        res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      },
+    });
+
     // Serve favicon and other static assets from public directory
     const publicPath = join(__dirname, '..', '..', 'public');
     app.useStaticAssets(publicPath, {

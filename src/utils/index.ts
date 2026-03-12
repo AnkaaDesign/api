@@ -78,7 +78,7 @@ export * from './storage';
 export * from './supplier';
 export * from './task';
 export * from './task-service-order-sync';
-export * from './task-pricing-service-order-sync';
+export * from './task-quote-service-order-sync';
 export * from './truck';
 export * from './uiStateEnumGetters';
 export * from './user';

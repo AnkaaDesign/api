@@ -1,65 +1,65 @@
-// api/src/modules/production/task-pricing/repositories/task-pricing-prisma.repository.ts
+// api/src/modules/production/task-quote/repositories/task-quote-prisma.repository.ts
 
 import { Injectable, Logger } from '@nestjs/common';
 import { BaseStringPrismaRepository } from '@modules/common/base/base-string-prisma.repository';
 import { PrismaService } from '@modules/common/prisma/prisma.service';
 import { PrismaTransaction } from '@modules/common/base/base.repository';
-import { TaskPricingRepository } from './task-pricing.repository';
+import { TaskQuoteRepository } from './task-quote.repository';
 import type {
-  TaskPricing,
-  TaskPricingInclude,
-  TaskPricingOrderBy,
-  TaskPricingWhere,
+  TaskQuote,
+  TaskQuoteInclude,
+  TaskQuoteOrderBy,
+  TaskQuoteWhere,
   FindManyOptions,
   FindManyResult,
   CreateOptions,
   UpdateOptions,
 } from '@types';
-import type { TaskPricingCreateFormData, TaskPricingUpdateFormData } from '@schemas/task-pricing';
-import { TASK_PRICING_STATUS } from '@constants';
-import { TaskPricing as PrismaTaskPricing, Prisma } from '@prisma/client';
+import type { TaskQuoteCreateFormData, TaskQuoteUpdateFormData } from '@schemas/task-quote';
+import { TASK_QUOTE_STATUS } from '@constants';
+import { TaskQuote as PrismaTaskQuote, Prisma } from '@prisma/client';
 
 /**
- * Prisma implementation of TaskPricingRepository
+ * Prisma implementation of TaskQuoteRepository
  */
 @Injectable()
-export class TaskPricingPrismaRepository
+export class TaskQuotePrismaRepository
   extends BaseStringPrismaRepository<
-    TaskPricing,
-    TaskPricingCreateFormData,
-    TaskPricingUpdateFormData,
-    TaskPricingInclude,
-    TaskPricingOrderBy,
-    TaskPricingWhere,
-    PrismaTaskPricing,
-    Prisma.TaskPricingCreateInput,
-    Prisma.TaskPricingUpdateInput,
-    Prisma.TaskPricingInclude,
-    Prisma.TaskPricingOrderByWithRelationInput,
-    Prisma.TaskPricingWhereInput
+    TaskQuote,
+    TaskQuoteCreateFormData,
+    TaskQuoteUpdateFormData,
+    TaskQuoteInclude,
+    TaskQuoteOrderBy,
+    TaskQuoteWhere,
+    PrismaTaskQuote,
+    Prisma.TaskQuoteCreateInput,
+    Prisma.TaskQuoteUpdateInput,
+    Prisma.TaskQuoteInclude,
+    Prisma.TaskQuoteOrderByWithRelationInput,
+    Prisma.TaskQuoteWhereInput
   >
-  implements TaskPricingRepository
+  implements TaskQuoteRepository
 {
-  protected readonly logger = new Logger(TaskPricingPrismaRepository.name);
+  protected readonly logger = new Logger(TaskQuotePrismaRepository.name);
 
   constructor(protected readonly prisma: PrismaService) {
     super(prisma);
   }
 
   // Abstract method implementations from BaseStringPrismaRepository
-  protected mapDatabaseEntityToEntity(databaseEntity: any): TaskPricing {
+  protected mapDatabaseEntityToEntity(databaseEntity: any): TaskQuote {
     return {
       ...databaseEntity,
       total: databaseEntity.total ? Number(databaseEntity.total) : 0,
       services: databaseEntity.services?.map((service: any) => ({
         ...service,
         amount: service.amount ? Number(service.amount) : 0,
+        discountValue: service.discountValue ? Number(service.discountValue) : null,
       })),
       // Pass through customerConfigs data if present
       customerConfigs: databaseEntity.customerConfigs?.map((config: any) => ({
         ...config,
         subtotal: config.subtotal ? Number(config.subtotal) : 0,
-        discountValue: config.discountValue ? Number(config.discountValue) : null,
         total: config.total ? Number(config.total) : 0,
         installments: config.installments?.map((inst: any) => ({
           ...inst,
@@ -67,19 +67,19 @@ export class TaskPricingPrismaRepository
           paidAmount: inst.paidAmount ? Number(inst.paidAmount) : 0,
         })),
       })),
-    } as TaskPricing;
+    } as TaskQuote;
   }
 
   protected mapCreateFormDataToDatabaseCreateInput(
-    formData: TaskPricingCreateFormData,
-  ): Prisma.TaskPricingCreateInput {
-    const createInput: Prisma.TaskPricingCreateInput = {
+    formData: TaskQuoteCreateFormData,
+  ): Prisma.TaskQuoteCreateInput {
+    const createInput: Prisma.TaskQuoteCreateInput = {
       // budgetNumber is set to 0 as placeholder - will be replaced at runtime in createWithTransaction
       budgetNumber: 0,
       subtotal: formData.subtotal || 0,
       total: formData.total || 0,
       expiresAt: formData.expiresAt || new Date(),
-      status: (formData.status as any) || TASK_PRICING_STATUS.PENDING,
+      status: (formData.status as any) || TASK_QUOTE_STATUS.PENDING,
       statusOrder: 1,
       // Guarantee Terms
       guaranteeYears: formData.guaranteeYears || null,
@@ -90,7 +90,7 @@ export class TaskPricingPrismaRepository
       }),
       // New fields
       simultaneousTasks: (formData as any).simultaneousTasks || null,
-      // Task will be connected separately via one-to-one relationship (Task.pricingId FK)
+      // Task will be connected separately via one-to-one relationship (Task.quoteId FK)
     };
 
     // Handle customerConfigs
@@ -99,12 +99,9 @@ export class TaskPricingPrismaRepository
         create: (formData as any).customerConfigs.map((config: any) => ({
           customer: { connect: { id: config.customerId } },
           subtotal: config.subtotal || 0,
-          discountType: config.discountType || 'NONE',
-          discountValue: config.discountValue || null,
           total: config.total || 0,
           customPaymentText: config.customPaymentText || null,
           responsibleId: config.responsibleId || null,
-          discountReference: config.discountReference || null,
         })),
       };
     }
@@ -118,6 +115,9 @@ export class TaskPricingPrismaRepository
           observation: service.observation || null,
           shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
           position: index,
+          discountType: (service as any).discountType || 'NONE',
+          discountValue: (service as any).discountValue ?? null,
+          discountReference: (service as any).discountReference ?? null,
           ...((service as any).invoiceToCustomerId && {
             invoiceToCustomer: { connect: { id: (service as any).invoiceToCustomerId } },
           }),
@@ -129,9 +129,9 @@ export class TaskPricingPrismaRepository
   }
 
   protected mapUpdateFormDataToDatabaseUpdateInput(
-    formData: TaskPricingUpdateFormData,
-  ): Prisma.TaskPricingUpdateInput {
-    const updateInput: Prisma.TaskPricingUpdateInput = {};
+    formData: TaskQuoteUpdateFormData,
+  ): Prisma.TaskQuoteUpdateInput {
+    const updateInput: Prisma.TaskQuoteUpdateInput = {};
 
     if (formData.subtotal !== undefined) updateInput.subtotal = formData.subtotal;
     if (formData.total !== undefined) updateInput.total = formData.total;
@@ -160,11 +160,11 @@ export class TaskPricingPrismaRepository
   }
 
   protected mapIncludeToDatabaseInclude(
-    include?: TaskPricingInclude,
-  ): Prisma.TaskPricingInclude | undefined {
+    include?: TaskQuoteInclude,
+  ): Prisma.TaskQuoteInclude | undefined {
     if (!include) return undefined;
 
-    const mappedInclude: Prisma.TaskPricingInclude = {};
+    const mappedInclude: Prisma.TaskQuoteInclude = {};
 
     if (include.services !== undefined) {
       mappedInclude.services =
@@ -208,20 +208,20 @@ export class TaskPricingPrismaRepository
   }
 
   protected mapOrderByToDatabaseOrderBy(
-    orderBy?: TaskPricingOrderBy,
-  ): Prisma.TaskPricingOrderByWithRelationInput | undefined {
+    orderBy?: TaskQuoteOrderBy,
+  ): Prisma.TaskQuoteOrderByWithRelationInput | undefined {
     if (!orderBy) return undefined;
     return orderBy as any;
   }
 
   protected mapWhereToDatabaseWhere(
-    where?: TaskPricingWhere,
-  ): Prisma.TaskPricingWhereInput | undefined {
+    where?: TaskQuoteWhere,
+  ): Prisma.TaskQuoteWhereInput | undefined {
     if (!where) return undefined;
     return where as any;
   }
 
-  protected getDefaultInclude(): Prisma.TaskPricingInclude | undefined {
+  protected getDefaultInclude(): Prisma.TaskQuoteInclude | undefined {
     return {
       services: {
         orderBy: { position: 'asc' },
@@ -255,14 +255,14 @@ export class TaskPricingPrismaRepository
   // Create with transaction
   async createWithTransaction(
     transaction: PrismaTransaction,
-    data: TaskPricingCreateFormData,
-    options?: CreateOptions<TaskPricingInclude>,
-  ): Promise<TaskPricing> {
+    data: TaskQuoteCreateFormData,
+    options?: CreateOptions<TaskQuoteInclude>,
+  ): Promise<TaskQuote> {
     const createInput = this.mapCreateFormDataToDatabaseCreateInput(data);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
     // Generate budgetNumber - required field that must be auto-generated
-    const maxBudgetNumber = await transaction.taskPricing.aggregate({
+    const maxBudgetNumber = await transaction.taskQuote.aggregate({
       _max: { budgetNumber: true },
     });
     const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
@@ -270,7 +270,7 @@ export class TaskPricingPrismaRepository
     // Inject budgetNumber into create input
     (createInput as any).budgetNumber = nextBudgetNumber;
 
-    const created = await transaction.taskPricing.create({
+    const created = await transaction.taskQuote.create({
       data: createInput,
       include,
     });
@@ -282,13 +282,13 @@ export class TaskPricingPrismaRepository
   async updateWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    data: TaskPricingUpdateFormData,
-    options?: UpdateOptions<TaskPricingInclude>,
-  ): Promise<TaskPricing> {
+    data: TaskQuoteUpdateFormData,
+    options?: UpdateOptions<TaskQuoteInclude>,
+  ): Promise<TaskQuote> {
     const updateInput = this.mapUpdateFormDataToDatabaseUpdateInput(data);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const updated = await transaction.taskPricing.update({
+    const updated = await transaction.taskQuote.update({
       where: { id },
       data: updateInput,
       include,
@@ -300,21 +300,21 @@ export class TaskPricingPrismaRepository
   // Find many with transaction
   async findManyWithTransaction(
     transaction: PrismaTransaction,
-    options?: FindManyOptions<TaskPricingOrderBy, TaskPricingWhere, TaskPricingInclude>,
-  ): Promise<FindManyResult<TaskPricing>> {
+    options?: FindManyOptions<TaskQuoteOrderBy, TaskQuoteWhere, TaskQuoteInclude>,
+  ): Promise<FindManyResult<TaskQuote>> {
     const where = this.mapWhereToDatabaseWhere(options?.where);
     const orderBy = this.mapOrderByToDatabaseOrderBy(options?.orderBy);
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
     const [data, total] = await Promise.all([
-      transaction.taskPricing.findMany({
+      transaction.taskQuote.findMany({
         where,
         orderBy,
         include,
         skip: options?.skip,
         take: options?.take,
       }),
-      transaction.taskPricing.count({ where }),
+      transaction.taskQuote.count({ where }),
     ]);
 
     const take = options?.take || 10;
@@ -338,11 +338,11 @@ export class TaskPricingPrismaRepository
   async findByIdWithTransaction(
     transaction: PrismaTransaction,
     id: string,
-    options?: { include?: TaskPricingInclude },
-  ): Promise<TaskPricing | null> {
+    options?: { include?: TaskQuoteInclude },
+  ): Promise<TaskQuote | null> {
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const found = await transaction.taskPricing.findUnique({
+    const found = await transaction.taskQuote.findUnique({
       where: { id },
       include,
     });
@@ -351,8 +351,8 @@ export class TaskPricingPrismaRepository
   }
 
   // Delete with transaction
-  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<TaskPricing> {
-    const deleted = await transaction.taskPricing.delete({
+  async deleteWithTransaction(transaction: PrismaTransaction, id: string): Promise<TaskQuote> {
+    const deleted = await transaction.taskQuote.delete({
       where: { id },
       include: this.getDefaultInclude(),
     });
@@ -363,11 +363,11 @@ export class TaskPricingPrismaRepository
   async findByIdsWithTransaction(
     transaction: PrismaTransaction,
     ids: string[],
-    options?: { include?: TaskPricingInclude },
-  ): Promise<TaskPricing[]> {
+    options?: { include?: TaskQuoteInclude },
+  ): Promise<TaskQuote[]> {
     const include = this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-    const found = await transaction.taskPricing.findMany({
+    const found = await transaction.taskQuote.findMany({
       where: { id: { in: ids } },
       include,
     });
@@ -378,17 +378,17 @@ export class TaskPricingPrismaRepository
   // Count with transaction
   async countWithTransaction(
     transaction: PrismaTransaction,
-    where?: TaskPricingWhere,
+    where?: TaskQuoteWhere,
   ): Promise<number> {
     const databaseWhere = this.mapWhereToDatabaseWhere(where);
-    return transaction.taskPricing.count({ where: databaseWhere });
+    return transaction.taskQuote.count({ where: databaseWhere });
   }
 
   /**
-   * Find pricing by task ID (with services)
+   * Find quote by task ID (with services)
    */
-  async findByTaskId(taskId: string): Promise<TaskPricing | null> {
-    const pricing = await this.prisma.taskPricing.findFirst({
+  async findByTaskId(taskId: string): Promise<TaskQuote | null> {
+    const pricing = await this.prisma.taskQuote.findFirst({
       where: { task: { id: taskId } },
       include: {
         services: {
@@ -413,10 +413,10 @@ export class TaskPricingPrismaRepository
   }
 
   /**
-   * Find all pricings by status
+   * Find all quotes by status
    */
-  async findByStatus(status: string): Promise<TaskPricing[]> {
-    const pricings = await this.prisma.taskPricing.findMany({
+  async findByStatus(status: string): Promise<TaskQuote[]> {
+    const pricings = await this.prisma.taskQuote.findMany({
       where: { status: status as any },
       include: {
         services: {
@@ -443,15 +443,15 @@ export class TaskPricingPrismaRepository
   }
 
   /**
-   * Find expired pricings (expiresAt < now)
+   * Find expired quotes (expiresAt < now)
    */
-  async findExpired(): Promise<TaskPricing[]> {
+  async findExpired(): Promise<TaskQuote[]> {
     const now = new Date();
-    const pricings = await this.prisma.taskPricing.findMany({
+    const pricings = await this.prisma.taskQuote.findMany({
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [TASK_PRICING_STATUS.PENDING, TASK_PRICING_STATUS.BUDGET_APPROVED, TASK_PRICING_STATUS.VERIFIED, TASK_PRICING_STATUS.INTERNAL_APPROVED],
+          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, TASK_QUOTE_STATUS.INTERNAL_APPROVED],
         },
       },
       include: {
@@ -478,13 +478,13 @@ export class TaskPricingPrismaRepository
   }
 
   /**
-   * Find approved pricing for a task
+   * Find approved quote for a task
    */
-  async findApprovedByTaskId(taskId: string): Promise<TaskPricing | null> {
-    const pricing = await this.prisma.taskPricing.findFirst({
+  async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
+    const pricing = await this.prisma.taskQuote.findFirst({
       where: {
         task: { id: taskId },
-        status: { in: [TASK_PRICING_STATUS.INTERNAL_APPROVED, TASK_PRICING_STATUS.UPCOMING, TASK_PRICING_STATUS.PARTIAL, TASK_PRICING_STATUS.SETTLED] },
+        status: { in: [TASK_QUOTE_STATUS.INTERNAL_APPROVED, TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED] },
       },
       include: {
         services: {

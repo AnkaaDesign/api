@@ -219,7 +219,7 @@ const TASK_SELECT_PREPARATION: Prisma.TaskSelect = {
 const DEFAULT_TASK_INCLUDE: Prisma.TaskInclude = {
   sector: { select: { id: true, name: true } },
   customer: { select: { id: true, fantasyName: true, cnpj: true } },
-  pricing: {
+  quote: {
     include: {
       services: {
         orderBy: { position: 'asc' },
@@ -694,7 +694,7 @@ export class TaskPrismaRepository
       projectFileIds,
       checkinFileIds,
       checkoutFileIds,
-      pricingId,
+      quoteId,
       paintIds,
       responsibleIds,
       serviceOrders,
@@ -754,8 +754,8 @@ export class TaskPrismaRepository
     if (checkoutFileIds && checkoutFileIds.length > 0) {
       taskData.checkoutFiles = { connect: checkoutFileIds.map(id => ({ id })) };
     }
-    if (pricingId) {
-      taskData.pricing = { connect: { id: pricingId } };
+    if (quoteId) {
+      taskData.quote = { connect: { id: quoteId } };
     }
     if (paintIds && paintIds.length > 0) {
       taskData.logoPaints = { connect: paintIds.map(id => ({ id })) };
@@ -971,7 +971,7 @@ export class TaskPrismaRepository
       projectFileIds,
       checkinFileIds,
       checkoutFileIds,
-      pricingId,
+      quoteId,
       paintIds,
       responsibleIds,
       serviceOrders,
@@ -1042,8 +1042,8 @@ export class TaskPrismaRepository
     if (checkoutFileIds !== undefined) {
       updateData.checkoutFiles = { set: checkoutFileIds.map(id => ({ id })) };
     }
-    if (pricingId !== undefined) {
-      updateData.pricing = pricingId ? { connect: { id: pricingId } } : { disconnect: true };
+    if (quoteId !== undefined) {
+      updateData.quote = quoteId ? { connect: { id: quoteId } } : { disconnect: true };
     }
     if (paintIds !== undefined) {
       updateData.logoPaints = { set: paintIds.map(id => ({ id })) };
@@ -1391,69 +1391,69 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const pricingData = (data as any).pricing;
+      const quoteData = (data as any).quote;
       let createdPricingId: string | null = null;
 
       if (
-        pricingData &&
-        typeof pricingData === 'object' &&
-        pricingData.services &&
-        Array.isArray(pricingData.services) &&
-        pricingData.services.length > 0
+        quoteData &&
+        typeof quoteData === 'object' &&
+        quoteData.services &&
+        Array.isArray(quoteData.services) &&
+        quoteData.services.length > 0
       ) {
-        const calculatedSubtotal = pricingData.services.reduce(
+        const calculatedSubtotal = quoteData.services.reduce(
           (sum: number, item: any) => sum + Number(item.amount || 0),
           0,
         );
         const subtotal =
-          pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+          quoteData.subtotal !== undefined ? Number(quoteData.subtotal) : calculatedSubtotal;
         const total =
-          pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+          quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
 
-        const maxBudgetNumber = await transaction.taskPricing.aggregate({
+        const maxBudgetNumber = await transaction.taskQuote.aggregate({
           _max: { budgetNumber: true },
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        const layoutFileConnect = pricingData.layoutFileId
-          ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
+        const layoutFileConnect = quoteData.layoutFileId
+          ? { layoutFile: { connect: { id: quoteData.layoutFileId } } }
           : {};
 
-        const newPricing = await transaction.taskPricing.create({
+        const newQuote = await transaction.taskQuote.create({
           data: {
             budgetNumber: nextBudgetNumber,
             subtotal,
             total,
-            expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
-            status: pricingData.status || 'PENDING',
-            guaranteeYears: pricingData.guaranteeYears || null,
-            customGuaranteeText: pricingData.customGuaranteeText || null,
-            customForecastDays: pricingData.customForecastDays || null,
-            simultaneousTasks: pricingData.simultaneousTasks ?? null,
+            expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
+            status: quoteData.status || 'PENDING',
+            guaranteeYears: quoteData.guaranteeYears || null,
+            customGuaranteeText: quoteData.customGuaranteeText || null,
+            customForecastDays: quoteData.customForecastDays || null,
+            simultaneousTasks: quoteData.simultaneousTasks ?? null,
             ...layoutFileConnect,
-            ...(pricingData.customerConfigs &&
-              pricingData.customerConfigs.length > 0 && {
+            ...(quoteData.customerConfigs &&
+              quoteData.customerConfigs.length > 0 && {
                 customerConfigs: {
-                  create: pricingData.customerConfigs.map((config: any) => ({
+                  create: quoteData.customerConfigs.map((config: any) => ({
                     customerId: config.customerId,
                     subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                    discountType: config.discountType || 'NONE',
-                    discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
                     total: config.total !== undefined ? Number(config.total) : 0,
                     customPaymentText: config.customPaymentText || null,
                     responsibleId: config.responsibleId || null,
-                    discountReference: config.discountReference || null,
                     paymentCondition: config.paymentCondition || null,
                     downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                   })),
                 },
               }),
             services: {
-              create: pricingData.services.map((item: any) => ({
+              create: quoteData.services.map((item: any) => ({
                 description: item.description,
                 observation: item.observation || null,
                 amount: Number(item.amount || 0),
                 shouldSync: item.shouldSync !== false,
+                discountType: item.discountType || 'NONE',
+                discountValue: item.discountValue ?? null,
+                discountReference: item.discountReference ?? null,
                 ...(item.invoiceToCustomerId && {
                   invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                 }),
@@ -1462,11 +1462,11 @@ export class TaskPrismaRepository
           },
         });
 
-        createdPricingId = newPricing.id;
+        createdPricingId = newQuote.id;
       }
 
       if (createdPricingId) {
-        createInput.pricing = {
+        createInput.quote = {
           connect: { id: createdPricingId },
         };
       }
@@ -1579,71 +1579,68 @@ export class TaskPrismaRepository
       const includeInput =
         this.mapIncludeToDatabaseInclude(options?.include) || this.getDefaultInclude();
 
-      const pricingData = (data as any).pricing;
+      const quoteData = (data as any).quote;
 
-      if (pricingData !== undefined && pricingData !== null) {
+      if (quoteData !== undefined && quoteData !== null) {
         if (
-          typeof pricingData === 'object' &&
-          pricingData.services &&
-          Array.isArray(pricingData.services) &&
-          pricingData.services.length > 0
+          typeof quoteData === 'object' &&
+          quoteData.services &&
+          Array.isArray(quoteData.services) &&
+          quoteData.services.length > 0
         ) {
-          const hasNewItems = pricingData.services.some((item: any) => !item.id);
+          const hasNewItems = quoteData.services.some((item: any) => !item.id);
 
           const currentTask = await transaction.task.findUnique({
             where: { id },
-            select: { pricingId: true },
+            select: { quoteId: true },
           });
 
-          const calculatedSubtotal = pricingData.services.reduce(
+          const calculatedSubtotal = quoteData.services.reduce(
             (sum: number, item: any) => sum + Number(item.amount || 0),
             0,
           );
           const subtotal =
-            pricingData.subtotal !== undefined ? Number(pricingData.subtotal) : calculatedSubtotal;
+            quoteData.subtotal !== undefined ? Number(quoteData.subtotal) : calculatedSubtotal;
           const total =
-            pricingData.total !== undefined ? Number(pricingData.total) : calculatedSubtotal;
+            quoteData.total !== undefined ? Number(quoteData.total) : calculatedSubtotal;
 
-          if (currentTask?.pricingId) {
+          if (currentTask?.quoteId) {
             const layoutFileUpdate =
-              pricingData.layoutFileId !== undefined
-                ? { layoutFileId: pricingData.layoutFileId }
+              quoteData.layoutFileId !== undefined
+                ? { layoutFileId: quoteData.layoutFileId }
                 : {};
 
-            await transaction.taskPricing.update({
-              where: { id: currentTask.pricingId },
+            await transaction.taskQuote.update({
+              where: { id: currentTask.quoteId },
               data: {
                 subtotal,
                 total,
-                expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : undefined,
-                status: pricingData.status || undefined,
+                expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : undefined,
+                status: quoteData.status || undefined,
                 guaranteeYears:
-                  pricingData.guaranteeYears !== undefined ? pricingData.guaranteeYears : undefined,
+                  quoteData.guaranteeYears !== undefined ? quoteData.guaranteeYears : undefined,
                 customGuaranteeText:
-                  pricingData.customGuaranteeText !== undefined
-                    ? pricingData.customGuaranteeText
+                  quoteData.customGuaranteeText !== undefined
+                    ? quoteData.customGuaranteeText
                     : undefined,
                 customForecastDays:
-                  pricingData.customForecastDays !== undefined
-                    ? pricingData.customForecastDays
+                  quoteData.customForecastDays !== undefined
+                    ? quoteData.customForecastDays
                     : undefined,
                 simultaneousTasks:
-                  pricingData.simultaneousTasks !== undefined
-                    ? pricingData.simultaneousTasks
+                  quoteData.simultaneousTasks !== undefined
+                    ? quoteData.simultaneousTasks
                     : undefined,
                 ...layoutFileUpdate,
-                ...(pricingData.customerConfigs !== undefined && {
+                ...(quoteData.customerConfigs !== undefined && {
                   customerConfigs: {
                     deleteMany: {},
-                    create: pricingData.customerConfigs.map((config: any) => ({
+                    create: quoteData.customerConfigs.map((config: any) => ({
                       customerId: config.customerId,
                       subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                      discountType: config.discountType || 'NONE',
-                      discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
                       total: config.total !== undefined ? Number(config.total) : 0,
                       customPaymentText: config.customPaymentText || null,
                       responsibleId: config.responsibleId || null,
-                      discountReference: config.discountReference || null,
                       paymentCondition: config.paymentCondition || null,
                       downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                     })),
@@ -1651,12 +1648,15 @@ export class TaskPrismaRepository
                 }),
                 services: {
                   deleteMany: {},
-                  create: pricingData.services.map((item: any, index: number) => ({
+                  create: quoteData.services.map((item: any, index: number) => ({
                     description: item.description,
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     shouldSync: item.shouldSync !== false,
                     position: index,
+                    discountType: item.discountType || 'NONE',
+                    discountValue: item.discountValue ?? null,
+                    discountReference: item.discountReference ?? null,
                     ...(item.invoiceToCustomerId && {
                       invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                     }),
@@ -1666,11 +1666,11 @@ export class TaskPrismaRepository
             });
 
             // Re-create installments for each customer config after delete/recreate
-            if (pricingData.customerConfigs && pricingData.customerConfigs.length > 0) {
-              const newConfigs = await transaction.taskPricingCustomerConfig.findMany({
-                where: { pricingId: currentTask.pricingId },
+            if (quoteData.customerConfigs && quoteData.customerConfigs.length > 0) {
+              const newConfigs = await transaction.taskQuoteCustomerConfig.findMany({
+                where: { quoteId: currentTask.quoteId },
               });
-              for (const config of pricingData.customerConfigs) {
+              for (const config of quoteData.customerConfigs) {
                 const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
                 if (!dbConfig) continue;
 
@@ -1723,51 +1723,51 @@ export class TaskPrismaRepository
               }
             }
           } else if (hasNewItems) {
-            const maxBudgetNumber = await transaction.taskPricing.aggregate({
+            const maxBudgetNumber = await transaction.taskQuote.aggregate({
               _max: { budgetNumber: true },
             });
             const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-            const layoutFileConnect = pricingData.layoutFileId
-              ? { layoutFile: { connect: { id: pricingData.layoutFileId } } }
+            const layoutFileConnect = quoteData.layoutFileId
+              ? { layoutFile: { connect: { id: quoteData.layoutFileId } } }
               : {};
 
-            const newPricing = await transaction.taskPricing.create({
+            const newQuote = await transaction.taskQuote.create({
               data: {
                 budgetNumber: nextBudgetNumber,
                 subtotal,
                 total,
-                expiresAt: pricingData.expiresAt ? new Date(pricingData.expiresAt) : new Date(),
-                status: pricingData.status || 'PENDING',
-                guaranteeYears: pricingData.guaranteeYears || null,
-                customGuaranteeText: pricingData.customGuaranteeText || null,
-                customForecastDays: pricingData.customForecastDays || null,
-                simultaneousTasks: pricingData.simultaneousTasks ?? null,
+                expiresAt: quoteData.expiresAt ? new Date(quoteData.expiresAt) : new Date(),
+                status: quoteData.status || 'PENDING',
+                guaranteeYears: quoteData.guaranteeYears || null,
+                customGuaranteeText: quoteData.customGuaranteeText || null,
+                customForecastDays: quoteData.customForecastDays || null,
+                simultaneousTasks: quoteData.simultaneousTasks ?? null,
                 ...layoutFileConnect,
-                ...(pricingData.customerConfigs &&
-                  pricingData.customerConfigs.length > 0 && {
+                ...(quoteData.customerConfigs &&
+                  quoteData.customerConfigs.length > 0 && {
                     customerConfigs: {
-                      create: pricingData.customerConfigs.map((config: any) => ({
+                      create: quoteData.customerConfigs.map((config: any) => ({
                         customerId: config.customerId,
                         subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
-                        discountType: config.discountType || 'NONE',
-                        discountValue: config.discountValue !== undefined ? Number(config.discountValue) : null,
                         total: config.total !== undefined ? Number(config.total) : 0,
                         customPaymentText: config.customPaymentText || null,
                         responsibleId: config.responsibleId || null,
-                        discountReference: config.discountReference || null,
                         paymentCondition: config.paymentCondition || null,
                         downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                       })),
                     },
                   }),
                 services: {
-                  create: pricingData.services.map((item: any, index: number) => ({
+                  create: quoteData.services.map((item: any, index: number) => ({
                     description: item.description,
                     observation: item.observation || null,
                     amount: Number(item.amount || 0),
                     shouldSync: item.shouldSync !== false,
                     position: index,
+                    discountType: item.discountType || 'NONE',
+                    discountValue: item.discountValue ?? null,
+                    discountReference: item.discountReference ?? null,
                     ...(item.invoiceToCustomerId && {
                       invoiceToCustomer: { connect: { id: item.invoiceToCustomerId } },
                     }),
@@ -1776,8 +1776,8 @@ export class TaskPrismaRepository
               },
             });
 
-            updateInput.pricing = {
-              connect: { id: newPricing.id },
+            updateInput.quote = {
+              connect: { id: newQuote.id },
             };
           }
         }

@@ -51,9 +51,9 @@ import {
 } from '../../../utils/task-service-order-sync';
 import { getTaskStatusOrder } from '../../../utils/sortOrder';
 import {
-  getServiceOrderToPricingSync,
-  type SyncPricingItem,
-} from '../../../utils/task-pricing-service-order-sync';
+  getServiceOrderToQuoteSync,
+  type SyncQuoteItem,
+} from '../../../utils/task-quote-service-order-sync';
 import {
   getServiceDescriptionsByType,
   SERVICE_DESCRIPTIONS_BY_TYPE,
@@ -232,25 +232,25 @@ export class ServiceOrderService {
         });
 
         // =====================================================================
-        // SYNC: Production Service Order → Task Pricing Item
+        // SYNC: Production Service Order → Task Quote Item
         // When a PRODUCTION service order is created, automatically create
-        // a corresponding pricing item (description + observation → item description)
+        // a corresponding quote item (description + observation → item description)
         // =====================================================================
         if (created.type === SERVICE_ORDER_TYPE.PRODUCTION) {
           try {
-            // Get task's pricing information
-            const taskWithPricing = await tx.task.findUnique({
+            // Get task's quote information
+            const taskWithQuote = await tx.task.findUnique({
               where: { id: data.taskId },
               include: {
-                pricing: {
+                quote: {
                   include: { services: true },
                 },
               },
             });
 
-            if (taskWithPricing?.pricing) {
-              const existingPricingItems: SyncPricingItem[] = (
-                taskWithPricing.pricing.services || []
+            if (taskWithQuote?.quote) {
+              const existingQuoteItems: SyncQuoteItem[] = (
+                taskWithQuote.quote.services || []
               ).map((item: any) => ({
                 id: item.id,
                 description: item.description,
@@ -258,42 +258,42 @@ export class ServiceOrderService {
                 amount: item.amount,
               }));
 
-              // Check if we should create a pricing item
-              const syncResult = getServiceOrderToPricingSync(
+              // Check if we should create a quote item
+              const syncResult = getServiceOrderToQuoteSync(
                 {
                   id: created.id,
                   description: created.description,
                   observation: created.observation,
                   type: created.type,
                 },
-                existingPricingItems,
+                existingQuoteItems,
               );
 
-              if (syncResult.shouldCreatePricingItem) {
+              if (syncResult.shouldCreateQuoteItem) {
                 this.logger.log(
-                  `[SO→PRICING SYNC] Creating pricing item: "${syncResult.pricingItemDescription}" for SO "${created.description}"`,
+                  `[SO→QUOTE SYNC] Creating quote item: "${syncResult.quoteItemDescription}" for SO "${created.description}"`,
                 );
 
-                await tx.taskPricingService.create({
+                await tx.taskQuoteService.create({
                   data: {
-                    pricingId: taskWithPricing.pricing.id,
-                    description: syncResult.pricingItemDescription,
-                    observation: syncResult.pricingItemObservation,
-                    amount: syncResult.pricingItemAmount,
+                    quoteId: taskWithQuote.quote.id,
+                    description: syncResult.quoteItemDescription,
+                    observation: syncResult.quoteItemObservation,
+                    amount: syncResult.quoteItemAmount,
                   },
                 });
 
-                // Recalculate pricing subtotal and total
-                const allItems = await tx.taskPricingService.findMany({
-                  where: { pricingId: taskWithPricing.pricing.id },
+                // Recalculate quote subtotal and total
+                const allItems = await tx.taskQuoteService.findMany({
+                  where: { quoteId: taskWithQuote.quote.id },
                 });
                 const newSubtotal = allItems.reduce(
                   (sum, item) => sum + Number(item.amount || 0),
                   0,
                 );
 
-                await tx.taskPricing.update({
-                  where: { id: taskWithPricing.pricing.id },
+                await tx.taskQuote.update({
+                  where: { id: taskWithQuote.quote.id },
                   data: {
                     subtotal: newSubtotal,
                     total: newSubtotal,
@@ -301,16 +301,16 @@ export class ServiceOrderService {
                 });
 
                 this.logger.log(
-                  `[SO→PRICING SYNC] Pricing item created. New pricing subtotal: ${newSubtotal}`,
+                  `[SO→QUOTE SYNC] Quote item created. New quote subtotal: ${newSubtotal}`,
                 );
               } else {
-                this.logger.log(`[SO→PRICING SYNC] Skipped: ${syncResult.reason}`);
+                this.logger.log(`[SO→QUOTE SYNC] Skipped: ${syncResult.reason}`);
               }
             } else {
-              this.logger.log(`[SO→PRICING SYNC] Skipped: Task ${data.taskId} has no pricing`);
+              this.logger.log(`[SO→QUOTE SYNC] Skipped: Task ${data.taskId} has no quote`);
             }
           } catch (syncError) {
-            this.logger.error('[SO→PRICING SYNC] Error during sync:', syncError);
+            this.logger.error('[SO→QUOTE SYNC] Error during sync:', syncError);
             // Don't throw - sync errors shouldn't block service order creation
           }
         }

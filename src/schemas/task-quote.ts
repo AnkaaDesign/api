@@ -1,4 +1,4 @@
-// packages/schemas/src/task-pricing.ts
+// packages/schemas/src/task-quote.ts
 
 import { z } from 'zod';
 import {
@@ -8,26 +8,27 @@ import {
   nullableDate,
   moneySchema,
 } from './common';
-import type { TaskPricing } from '@types';
+import type { TaskQuote } from '@types';
 import {
-  TASK_PRICING_STATUS,
+  TASK_QUOTE_STATUS,
   DISCOUNT_TYPE,
   PAYMENT_CONDITION,
   GUARANTEE_YEARS_OPTIONS,
 } from '@constants';
 
 // =====================
-// TaskPricing Status Schema
+// TaskQuote Status Schema
 // =====================
 
-export const taskPricingStatusSchema = z.enum([
-  TASK_PRICING_STATUS.PENDING,
-  TASK_PRICING_STATUS.BUDGET_APPROVED,
-  TASK_PRICING_STATUS.VERIFIED,
-  TASK_PRICING_STATUS.INTERNAL_APPROVED,
-  TASK_PRICING_STATUS.UPCOMING,
-  TASK_PRICING_STATUS.PARTIAL,
-  TASK_PRICING_STATUS.SETTLED,
+export const taskQuoteStatusSchema = z.enum([
+  TASK_QUOTE_STATUS.PENDING,
+  TASK_QUOTE_STATUS.BUDGET_APPROVED,
+  TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
+  TASK_QUOTE_STATUS.INTERNAL_APPROVED,
+  TASK_QUOTE_STATUS.UPCOMING,
+  TASK_QUOTE_STATUS.DUE,
+  TASK_QUOTE_STATUS.PARTIAL,
+  TASK_QUOTE_STATUS.SETTLED,
 ]);
 
 // =====================
@@ -62,14 +63,14 @@ export const paymentConditionSchema = z.enum([
 export const guaranteeYearsSchema = z
   .number()
   .refine(val => (GUARANTEE_YEARS_OPTIONS as readonly number[]).includes(val), {
-    message: 'Período de garantia inválido',
+    message: 'Periodo de garantia invalido',
   });
 
 // =====================
-// TaskPricing Include Schema Based on Prisma Schema (Second Level Only)
+// TaskQuote Include Schema Based on Prisma Schema (Second Level Only)
 // =====================
 
-export const taskPricingIncludeSchema = z
+export const taskQuoteIncludeSchema = z
   .object({
     task: z
       .union([
@@ -90,7 +91,7 @@ export const taskPricingIncludeSchema = z
               serviceOrders: z.boolean().optional(),
               truck: z.boolean().optional(),
               airbrushing: z.boolean().optional(),
-              pricing: z.boolean().optional(),
+              quote: z.boolean().optional(),
             })
             .optional(),
         }),
@@ -137,10 +138,10 @@ export const taskPricingIncludeSchema = z
   .partial();
 
 // =====================
-// TaskPricing OrderBy Schema
+// TaskQuote OrderBy Schema
 // =====================
 
-export const taskPricingOrderBySchema = z
+export const taskQuoteOrderBySchema = z
   .union([
     z
       .object({
@@ -189,15 +190,15 @@ export const taskPricingOrderBySchema = z
   .optional();
 
 // =====================
-// TaskPricing Where Schema
+// TaskQuote Where Schema
 // =====================
 
-export const taskPricingWhereSchema: z.ZodSchema = z.lazy(() =>
+export const taskQuoteWhereSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
-      AND: z.union([taskPricingWhereSchema, z.array(taskPricingWhereSchema)]).optional(),
-      OR: z.array(taskPricingWhereSchema).optional(),
-      NOT: z.union([taskPricingWhereSchema, z.array(taskPricingWhereSchema)]).optional(),
+      AND: z.union([taskQuoteWhereSchema, z.array(taskQuoteWhereSchema)]).optional(),
+      OR: z.array(taskQuoteWhereSchema).optional(),
+      NOT: z.union([taskQuoteWhereSchema, z.array(taskQuoteWhereSchema)]).optional(),
       id: z
         .union([
           z.string(),
@@ -237,12 +238,12 @@ export const taskPricingWhereSchema: z.ZodSchema = z.lazy(() =>
         .optional(),
       status: z
         .union([
-          taskPricingStatusSchema,
+          taskQuoteStatusSchema,
           z.object({
-            equals: taskPricingStatusSchema.optional(),
-            in: z.array(taskPricingStatusSchema).optional(),
-            notIn: z.array(taskPricingStatusSchema).optional(),
-            not: taskPricingStatusSchema.optional(),
+            equals: taskQuoteStatusSchema.optional(),
+            in: z.array(taskQuoteStatusSchema).optional(),
+            notIn: z.array(taskQuoteStatusSchema).optional(),
+            not: taskQuoteStatusSchema.optional(),
           }),
         ])
         .optional(),
@@ -305,18 +306,18 @@ export const taskPricingWhereSchema: z.ZodSchema = z.lazy(() =>
 // Convenience Filters
 // =====================
 
-const taskPricingFilters = {
+const taskQuoteFilters = {
   searchingFor: z.string().optional(),
   taskId: z.string().uuid().optional(),
   hasTask: z.boolean().optional(),
-  status: taskPricingStatusSchema.optional(),
+  status: taskQuoteStatusSchema.optional(),
 };
 
 // =====================
 // Transform Function for Filters
 // =====================
 
-const taskPricingTransform = (data: any) => {
+const taskQuoteTransform = (data: any) => {
   const transformed: any = { ...data };
 
   // Handle searchingFor filter
@@ -335,7 +336,7 @@ const taskPricingTransform = (data: any) => {
     delete transformed.searchingFor;
   }
 
-  // Handle taskId filter (FK lives on Task, not TaskPricing)
+  // Handle taskId filter (FK lives on Task, not TaskQuote)
   if (data.taskId) {
     transformed.where = {
       ...transformed.where,
@@ -366,10 +367,10 @@ const taskPricingTransform = (data: any) => {
 };
 
 // =====================
-// GetMany Schema - TaskPricing
+// GetMany Schema - TaskQuote
 // =====================
 
-export const taskPricingGetManySchema = z
+export const taskQuoteGetManySchema = z
   .object({
     // Pagination
     page: z.coerce.number().int().min(0).default(1).optional(),
@@ -378,12 +379,12 @@ export const taskPricingGetManySchema = z
     skip: z.coerce.number().int().min(0).optional(),
 
     // Direct Prisma clauses
-    where: taskPricingWhereSchema.optional(),
-    orderBy: taskPricingOrderBySchema.optional(),
-    include: taskPricingIncludeSchema.optional(),
+    where: taskQuoteWhereSchema.optional(),
+    orderBy: taskQuoteOrderBySchema.optional(),
+    include: taskQuoteIncludeSchema.optional(),
 
     // Convenience filters
-    ...taskPricingFilters,
+    ...taskQuoteFilters,
 
     // Date filters
     createdAt: z
@@ -405,7 +406,7 @@ export const taskPricingGetManySchema = z
       })
       .optional(),
   })
-  .transform(taskPricingTransform);
+  .transform(taskQuoteTransform);
 
 // =====================
 // Nested Schemas for Relations
@@ -419,11 +420,9 @@ export const installmentInputSchema = z.object({
   amount: moneySchema,
 });
 
-export const taskPricingCustomerConfigCreateNestedSchema = z.object({
-  customerId: z.string().uuid('ID de cliente inválido'),
+export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
+  customerId: z.string().uuid('ID de cliente invalido'),
   subtotal: moneySchema.optional().default(0),
-  discountType: discountTypeSchema.default(DISCOUNT_TYPE.NONE).optional(),
-  discountValue: moneySchema.nullable().optional(),
   total: moneySchema.optional().default(0),
   // Payment condition + downPaymentDate are input-only fields used to generate installments
   paymentCondition: paymentConditionSchema.optional().nullable(),
@@ -434,8 +433,7 @@ export const taskPricingCustomerConfigCreateNestedSchema = z.object({
     )
     .optional(),
   customPaymentText: z.string().max(2000).optional().nullable(),
-  responsibleId: z.string().uuid('ID de responsável inválido').optional().nullable(),
-  discountReference: z.string().max(500, 'Máximo de 500 caracteres').optional().nullable(),
+  responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
   // Direct installments (alternative to paymentCondition-based generation)
   installments: z.array(installmentInputSchema).optional(),
 });
@@ -443,48 +441,52 @@ export const taskPricingCustomerConfigCreateNestedSchema = z.object({
 // Simultaneous tasks schema
 export const simultaneousTasksSchema = z
   .number()
-  .int('Deve ser um número inteiro')
-  .min(1, 'Deve ter no mínimo 1 tarefa simultânea')
-  .max(100, 'Deve ter no máximo 100 tarefas simultâneas')
+  .int('Deve ser um numero inteiro')
+  .min(1, 'Deve ter no minimo 1 tarefa simultanea')
+  .max(100, 'Deve ter no maximo 100 tarefas simultaneas')
   .nullable()
   .optional();
 
 // Discount reference schema
 export const discountReferenceSchema = z
   .string()
-  .max(500, 'Máximo de 500 caracteres atingido')
+  .max(500, 'Maximo de 500 caracteres atingido')
   .nullable()
   .optional();
 
-// TaskPricingService nested schema
+// TaskQuoteService nested schema
 // Amount is optional and defaults to 0 (courtesy services)
-export const taskPricingServiceCreateNestedSchema = z.object({
+export const taskQuoteServiceCreateNestedSchema = z.object({
   id: z.string().uuid().optional(), // For updating existing services
   description: z
     .string()
-    .min(1, 'Descrição é obrigatória')
-    .max(400, 'Máximo de 400 caracteres atingido'),
-  observation: z.string().max(2000, 'Máximo de 2000 caracteres atingido').optional().nullable(),
+    .min(1, 'Descricao e obrigatoria')
+    .max(400, 'Maximo de 400 caracteres atingido'),
+  observation: z.string().max(2000, 'Maximo de 2000 caracteres atingido').optional().nullable(),
   amount: z
     .number()
-    .min(0, { message: 'Valor não pode ser negativo' })
+    .min(0, { message: 'Valor nao pode ser negativo' })
     .optional()
     .nullable()
     .default(0)
     .transform(val => val ?? 0),
   // Controls bidirectional sync with ServiceOrder
-  // When false, prevents auto-recreation of service orders from this pricing service
+  // When false, prevents auto-recreation of service orders from this quote service
   shouldSync: z.boolean().optional().default(true),
-  invoiceToCustomerId: z.string().uuid('Cliente inválido').optional().nullable(),
+  invoiceToCustomerId: z.string().uuid('Cliente invalido').optional().nullable(),
+  // Per-service discount (moved from CustomerConfig)
+  discountType: discountTypeSchema.default('NONE').optional(),
+  discountValue: moneySchema.nullable().optional(),
+  discountReference: z.string().max(500, 'Maximo de 500 caracteres').optional().nullable(),
 });
 
-// TaskPricing nested schema for task create/update (matches Prisma TaskPricing model)
-export const taskPricingCreateNestedSchema = z.object({
-  services: z.array(taskPricingServiceCreateNestedSchema).min(1, 'Pelo menos um serviço é obrigatório'),
+// TaskQuote nested schema for task create/update (matches Prisma TaskQuote model)
+export const taskQuoteCreateNestedSchema = z.object({
+  services: z.array(taskQuoteServiceCreateNestedSchema).min(1, 'Pelo menos um servico e obrigatorio'),
   expiresAt: z.coerce.date({
-    errorMap: () => ({ message: 'Data de validade inválida' }),
+    errorMap: () => ({ message: 'Data de validade invalida' }),
   }),
-  status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.PENDING),
+  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
   // Aggregate totals (computed from customerConfigs)
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
@@ -500,22 +502,22 @@ export const taskPricingCreateNestedSchema = z.object({
   layoutFileId: z.string().uuid().optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuração de cliente é obrigatória'),
+  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
 // =====================
-// CRUD Schemas - TaskPricing
+// CRUD Schemas - TaskQuote
 // =====================
 
-export const taskPricingCreateSchema = z.object({
+export const taskQuoteCreateSchema = z.object({
   subtotal: moneySchema,
   total: moneySchema,
-  expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade inválida' }) }),
-  status: taskPricingStatusSchema.default(TASK_PRICING_STATUS.PENDING),
-  taskId: z.string().uuid('Tarefa inválida'),
+  expiresAt: z.coerce.date({ errorMap: () => ({ message: 'Data de validade invalida' }) }),
+  status: taskQuoteStatusSchema.default(TASK_QUOTE_STATUS.PENDING),
+  taskId: z.string().uuid('Tarefa invalida'),
   services: z
-    .array(taskPricingServiceCreateNestedSchema)
-    .min(1, 'Pelo menos um serviço é obrigatório')
+    .array(taskQuoteServiceCreateNestedSchema)
+    .min(1, 'Pelo menos um servico e obrigatorio')
     .optional(),
 
   // Guarantee Terms
@@ -529,18 +531,18 @@ export const taskPricingCreateSchema = z.object({
   layoutFileId: z.string().uuid().optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuração de cliente é obrigatória'),
+  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).min(1, 'Pelo menos uma configuracao de cliente e obrigatoria'),
 });
 
-export const taskPricingUpdateSchema = z.object({
+export const taskQuoteUpdateSchema = z.object({
   subtotal: moneySchema.optional(),
   total: moneySchema.optional(),
   expiresAt: z.coerce
-    .date({ errorMap: () => ({ message: 'Data de validade inválida' }) })
+    .date({ errorMap: () => ({ message: 'Data de validade invalida' }) })
     .optional(),
-  status: taskPricingStatusSchema.optional(),
-  taskId: z.string().uuid('Tarefa inválida').optional(),
-  services: z.array(taskPricingServiceCreateNestedSchema).optional(),
+  status: taskQuoteStatusSchema.optional(),
+  taskId: z.string().uuid('Tarefa invalida').optional(),
+  services: z.array(taskQuoteServiceCreateNestedSchema).optional(),
 
   // Guarantee Terms
   guaranteeYears: guaranteeYearsSchema.optional().nullable(),
@@ -553,49 +555,49 @@ export const taskPricingUpdateSchema = z.object({
   layoutFileId: z.string().uuid().optional().nullable(),
 
   simultaneousTasks: simultaneousTasksSchema,
-  customerConfigs: z.array(taskPricingCustomerConfigCreateNestedSchema).optional(),
+  customerConfigs: z.array(taskQuoteCustomerConfigCreateNestedSchema).optional(),
 });
 
 // =====================
-// Batch Operations Schemas - TaskPricing
+// Batch Operations Schemas - TaskQuote
 // =====================
 
-export const taskPricingBatchCreateSchema = z.object({
-  pricings: z.array(taskPricingCreateSchema).min(1, 'Pelo menos um orçamento deve ser fornecido'),
+export const taskQuoteBatchCreateSchema = z.object({
+  quotes: z.array(taskQuoteCreateSchema).min(1, 'Pelo menos um orcamento deve ser fornecido'),
 });
 
-export const taskPricingBatchUpdateSchema = z.object({
-  pricings: z
+export const taskQuoteBatchUpdateSchema = z.object({
+  quotes: z
     .array(
       z.object({
-        id: z.string().uuid('Orçamento inválido'),
-        data: taskPricingUpdateSchema,
+        id: z.string().uuid('Orcamento invalido'),
+        data: taskQuoteUpdateSchema,
       }),
     )
-    .min(1, 'Pelo menos um orçamento deve ser fornecido'),
+    .min(1, 'Pelo menos um orcamento deve ser fornecido'),
 });
 
-export const taskPricingBatchDeleteSchema = z.object({
-  pricingIds: z
-    .array(z.string().uuid('Orçamento inválido'))
+export const taskQuoteBatchDeleteSchema = z.object({
+  quoteIds: z
+    .array(z.string().uuid('Orcamento invalido'))
     .min(1, 'Pelo menos um ID deve ser fornecido'),
 });
 
 // Query schema for include parameter
-export const taskPricingQuerySchema = z.object({
-  include: taskPricingIncludeSchema.optional(),
+export const taskQuoteQuerySchema = z.object({
+  include: taskQuoteIncludeSchema.optional(),
 });
 
 // =====================
 // Export Inferred Types
 // =====================
 
-export type TaskPricingCreateFormData = z.infer<typeof taskPricingCreateSchema>;
-export type TaskPricingUpdateFormData = z.infer<typeof taskPricingUpdateSchema>;
-export type TaskPricingGetManyFormData = z.infer<typeof taskPricingGetManySchema>;
-export type TaskPricingInclude = z.infer<typeof taskPricingIncludeSchema>;
-export type TaskPricingOrderBy = z.infer<typeof taskPricingOrderBySchema>;
-export type TaskPricingWhere = z.infer<typeof taskPricingWhereSchema>;
-export type TaskPricingServiceCreateNestedFormData = z.infer<typeof taskPricingServiceCreateNestedSchema>;
-export type TaskPricingCustomerConfigCreateNestedFormData = z.infer<typeof taskPricingCustomerConfigCreateNestedSchema>;
-export type TaskPricingCreateNestedFormData = z.infer<typeof taskPricingCreateNestedSchema>;
+export type TaskQuoteCreateFormData = z.infer<typeof taskQuoteCreateSchema>;
+export type TaskQuoteUpdateFormData = z.infer<typeof taskQuoteUpdateSchema>;
+export type TaskQuoteGetManyFormData = z.infer<typeof taskQuoteGetManySchema>;
+export type TaskQuoteInclude = z.infer<typeof taskQuoteIncludeSchema>;
+export type TaskQuoteOrderBy = z.infer<typeof taskQuoteOrderBySchema>;
+export type TaskQuoteWhere = z.infer<typeof taskQuoteWhereSchema>;
+export type TaskQuoteServiceCreateNestedFormData = z.infer<typeof taskQuoteServiceCreateNestedSchema>;
+export type TaskQuoteCustomerConfigCreateNestedFormData = z.infer<typeof taskQuoteCustomerConfigCreateNestedSchema>;
+export type TaskQuoteCreateNestedFormData = z.infer<typeof taskQuoteCreateNestedSchema>;

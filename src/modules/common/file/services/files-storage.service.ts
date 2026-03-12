@@ -62,7 +62,7 @@ export interface FilesFolderMapping {
   observations: string;
   warning: string;
   layoutPhotos: string;
-  'pricing-layouts': string;
+  'quote-layouts': string;
   plotterEspovo: string;
   plotterAdesivo: string;
   thumbnails: string;
@@ -160,7 +160,7 @@ export class FilesStorageService {
     observations: 'Observacoes',
     warning: 'Advertencias',
     layoutPhotos: 'Traseiras',
-    'pricing-layouts': 'Layouts',
+    'quote-layouts': 'Layouts',
     plotterEspovo: 'Plotter',
     plotterAdesivo: 'Plotter',
     thumbnails: 'Thumbnails',
@@ -254,7 +254,7 @@ export class FilesStorageService {
     'customerLogo',
     'observations',
     'layoutPhotos',
-    'pricing-layouts',
+    'quote-layouts',
     'plotterEspovo',
     'plotterAdesivo',
   ]);
@@ -374,7 +374,7 @@ export class FilesStorageService {
       if (fileContext === 'plotterEspovo' || fileContext === 'plotterAdesivo') {
         const cutSubfolder = cutType === 'STENCIL' ? 'Espovo' : 'Adesivo';
         folderPath = join(folderPath, cutSubfolder);
-      } else if (fileContext === 'tasksArtworks' || fileContext === 'pricing-layouts') {
+      } else if (fileContext === 'tasksArtworks' || fileContext === 'quote-layouts') {
         const isPdf = mimetype === 'application/pdf';
         folderPath = join(folderPath, isPdf ? 'PDFs' : 'Imagens');
       } else if (fileContext === 'taskBaseFiles') {

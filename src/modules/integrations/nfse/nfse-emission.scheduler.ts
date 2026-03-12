@@ -97,7 +97,7 @@ export class NfseEmissionScheduler {
                   id: true,
                   name: true,
                   serialNumber: true,
-                  pricing: {
+                  quote: {
                     select: {
                       services: {
                         select: {
@@ -182,9 +182,9 @@ export class NfseEmissionScheduler {
             continue;
           }
 
-          // Build services list from task pricing, filtered by customer
+          // Build services list from task quote, filtered by customer
           const allServices =
-            (task as any).pricing?.services as
+            (task as any).quote?.services as
               | Array<{
                   description: string;
                   amount: any;

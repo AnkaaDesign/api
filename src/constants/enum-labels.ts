@@ -129,7 +129,7 @@ import {
   STATISTICS_GROUP_BY,
   STATISTICS_METRIC,
   STATISTICS_PERIOD,
-  TASK_PRICING_STATUS,
+  TASK_QUOTE_STATUS,
   RESCHEDULE_REASON,
   INVOICE_STATUS,
   INSTALLMENT_STATUS,
@@ -1076,10 +1076,10 @@ export const ENTITY_TYPE_LABELS: Record<ENTITY_TYPE, string> = {
   [ENTITY_TYPE.SERVICE_ORDER]: 'Ordem de Serviço',
   [ENTITY_TYPE.SUPPLIER]: 'Fornecedor',
   [ENTITY_TYPE.TASK]: 'Task',
-  [ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
-  [ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
-  [ENTITY_TYPE.TASK_PRICING_SERVICE]: 'Serviço do Orçamento',
-  [ENTITY_TYPE.TASK_PRICING_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
+  [ENTITY_TYPE.TASK_QUOTE]: 'Precificação de Tarefa',
+  [ENTITY_TYPE.TASK_QUOTE_ITEM]: 'Item do Orçamento',
+  [ENTITY_TYPE.TASK_QUOTE_SERVICE]: 'Serviço do Orçamento',
+  [ENTITY_TYPE.TASK_QUOTE_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
   [ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [ENTITY_TYPE.TRUCK]: 'Caminhão',
   [ENTITY_TYPE.USER]: 'Usuário',
@@ -1457,10 +1457,10 @@ export const CHANGE_LOG_ENTITY_TYPE_LABELS: Record<CHANGE_LOG_ENTITY_TYPE, strin
   [CHANGE_LOG_ENTITY_TYPE.SERVICE_ORDER]: 'Ordem de Serviço',
   [CHANGE_LOG_ENTITY_TYPE.SUPPLIER]: 'Fornecedor',
   [CHANGE_LOG_ENTITY_TYPE.TASK]: 'Task',
-  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING]: 'Precificação de Tarefa',
-  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_ITEM]: 'Item do Orçamento',
-  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_SERVICE]: 'Serviço do Orçamento',
-  [CHANGE_LOG_ENTITY_TYPE.TASK_PRICING_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE]: 'Precificação de Tarefa',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE_ITEM]: 'Item do Orçamento',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE_SERVICE]: 'Serviço do Orçamento',
+  [CHANGE_LOG_ENTITY_TYPE.TASK_QUOTE_CUSTOMER_CONFIG]: 'Configuração de Cliente do Orçamento',
   [CHANGE_LOG_ENTITY_TYPE.TIME_CLOCK_ENTRY]: 'Registro de Ponto',
   [CHANGE_LOG_ENTITY_TYPE.USER]: 'Usuário',
   [CHANGE_LOG_ENTITY_TYPE.VACATION]: 'Vacation',
@@ -1971,14 +1971,15 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
 // Task Pricing Labels
 // =====================
 
-export const TASK_PRICING_STATUS_LABELS: Record<TASK_PRICING_STATUS, string> = {
-  [TASK_PRICING_STATUS.PENDING]: 'Pendente',
-  [TASK_PRICING_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
-  [TASK_PRICING_STATUS.VERIFIED]: 'Verificado',
-  [TASK_PRICING_STATUS.INTERNAL_APPROVED]: 'Aprovado Internamente',
-  [TASK_PRICING_STATUS.UPCOMING]: 'A Vencer',
-  [TASK_PRICING_STATUS.PARTIAL]: 'Parcial',
-  [TASK_PRICING_STATUS.SETTLED]: 'Liquidado',
+export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
+  [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
+  [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
+  [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 'Verificado pelo Financeiro',
+  [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 'Aprovado Internamente',
+  [TASK_QUOTE_STATUS.UPCOMING]: 'A Vencer',
+  [TASK_QUOTE_STATUS.DUE]: 'Vencido',
+  [TASK_QUOTE_STATUS.PARTIAL]: 'Parcial',
+  [TASK_QUOTE_STATUS.SETTLED]: 'Liquidado',
 };
 
 // =====================

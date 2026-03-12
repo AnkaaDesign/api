@@ -1,16 +1,16 @@
 /**
- * Task Pricing and Production Service Order Bidirectional Synchronization Utilities
+ * Task Quote and Production Service Order Bidirectional Synchronization Utilities
  *
- * This module provides synchronization logic between TaskPricingServices and
+ * This module provides synchronization logic between TaskQuoteServices and
  * Production Service Orders. The sync is bidirectional and simplified:
  *
- * 1. Service Order (PRODUCTION) → Task Pricing Item:
+ * 1. Service Order (PRODUCTION) → Task Quote Item:
  *    - When a PRODUCTION service order is created/updated
- *    - Creates/updates a pricing item with same description and observation
+ *    - Creates/updates a quote item with same description and observation
  *    - Amount defaults to 0 (can be updated later)
  *
- * 2. Task Pricing Item → Service Order (PRODUCTION):
- *    - When a pricing item is created/updated
+ * 2. Task Quote Item → Service Order (PRODUCTION):
+ *    - When a quote item is created/updated
  *    - Creates a service order with same description and observation
  *
  * Key Features:
@@ -32,10 +32,10 @@ export interface SyncServiceOrder {
 }
 
 /**
- * Interface for a minimal pricing item used in sync operations
+ * Interface for a minimal quote item used in sync operations
  * Now includes observation field
  */
-export interface SyncPricingItem {
+export interface SyncQuoteItem {
   id?: string;
   description: string;
   observation?: string | null;
@@ -43,22 +43,22 @@ export interface SyncPricingItem {
 }
 
 /**
- * Interface for the result of syncing a service order to pricing
+ * Interface for the result of syncing a service order to quote
  */
-export interface ServiceOrderToPricingResult {
-  shouldCreatePricingItem: boolean;
-  shouldUpdatePricingItem: boolean;
-  existingPricingItemId?: string;
-  pricingItemDescription: string;
-  pricingItemObservation: string | null;
-  pricingItemAmount: number;
+export interface ServiceOrderToQuoteResult {
+  shouldCreateQuoteItem: boolean;
+  shouldUpdateQuoteItem: boolean;
+  existingQuoteItemId?: string;
+  quoteItemDescription: string;
+  quoteItemObservation: string | null;
+  quoteItemAmount: number;
   reason: string;
 }
 
 /**
- * Interface for the result of syncing a pricing item to service order
+ * Interface for the result of syncing a quote item to service order
  */
-export interface PricingItemToServiceOrderResult {
+export interface QuoteItemToServiceOrderResult {
   shouldCreateServiceOrder: boolean;
   shouldUpdateServiceOrder: boolean;
   existingServiceOrderId?: string;
@@ -87,7 +87,7 @@ export function areDescriptionsEqual(desc1: string | null, desc2: string | null)
  * DEPRECATED: Kept for backwards compatibility
  * Now just returns the description as-is since we have separate observation field
  */
-export function combineServiceOrderToPricingDescription(
+export function combineServiceOrderToQuoteDescription(
   description: string | null,
   _observation?: string | null,
 ): string {
@@ -98,12 +98,12 @@ export function combineServiceOrderToPricingDescription(
  * DEPRECATED: Kept for backwards compatibility
  * Now just returns the description as-is since we have separate observation field
  */
-export function splitPricingToServiceOrderDescription(
-  pricingDescription: string,
+export function splitQuoteToServiceOrderDescription(
+  quoteDescription: string,
   _existingServiceOrders: SyncServiceOrder[],
 ): { description: string; observation: string | null } {
   return {
-    description: pricingDescription.trim(),
+    description: quoteDescription.trim(),
     observation: null,
   };
 }
@@ -112,21 +112,21 @@ export function splitPricingToServiceOrderDescription(
  * Determines what action to take when a PRODUCTION service order is created/updated.
  *
  * @param serviceOrder - The service order being created/updated
- * @param existingPricingItems - Array of existing pricing items for the task
- * @returns Result indicating what pricing item action to take
+ * @param existingQuoteItems - Array of existing quote items for the task
+ * @returns Result indicating what quote item action to take
  */
-export function getServiceOrderToPricingSync(
+export function getServiceOrderToQuoteSync(
   serviceOrder: SyncServiceOrder,
-  existingPricingItems: SyncPricingItem[],
-): ServiceOrderToPricingResult {
+  existingQuoteItems: SyncQuoteItem[],
+): ServiceOrderToQuoteResult {
   // Only sync PRODUCTION type service orders
   if (serviceOrder.type !== SERVICE_ORDER_TYPE.PRODUCTION) {
     return {
-      shouldCreatePricingItem: false,
-      shouldUpdatePricingItem: false,
-      pricingItemDescription: '',
-      pricingItemObservation: null,
-      pricingItemAmount: 0,
+      shouldCreateQuoteItem: false,
+      shouldUpdateQuoteItem: false,
+      quoteItemDescription: '',
+      quoteItemObservation: null,
+      quoteItemAmount: 0,
       reason: 'Apenas ordens de serviço do tipo PRODUÇÃO são sincronizadas com precificação',
     };
   }
@@ -136,17 +136,17 @@ export function getServiceOrderToPricingSync(
 
   if (!description) {
     return {
-      shouldCreatePricingItem: false,
-      shouldUpdatePricingItem: false,
-      pricingItemDescription: '',
-      pricingItemObservation: null,
-      pricingItemAmount: 0,
+      shouldCreateQuoteItem: false,
+      shouldUpdateQuoteItem: false,
+      quoteItemDescription: '',
+      quoteItemObservation: null,
+      quoteItemAmount: 0,
       reason: 'Ordem de serviço sem descrição',
     };
   }
 
-  // Check if a pricing item with this exact description already exists
-  const existingItem = existingPricingItems.find(item =>
+  // Check if a quote item with this exact description already exists
+  const existingItem = existingQuoteItems.find(item =>
     areDescriptionsEqual(item.description, description),
   );
 
@@ -160,12 +160,12 @@ export function getServiceOrderToPricingSync(
     if (observationChanged) {
       // Allow both adding and clearing observations
       return {
-        shouldCreatePricingItem: false,
-        shouldUpdatePricingItem: true,
-        existingPricingItemId: existingItem.id,
-        pricingItemDescription: description,
-        pricingItemObservation: observation,
-        pricingItemAmount: existingItem.amount || 0,
+        shouldCreateQuoteItem: false,
+        shouldUpdateQuoteItem: true,
+        existingQuoteItemId: existingItem.id,
+        quoteItemDescription: description,
+        quoteItemObservation: observation,
+        quoteItemAmount: existingItem.amount || 0,
         reason: observation
           ? 'Atualizando observação do item de precificação existente'
           : 'Removendo observação do item de precificação existente',
@@ -173,40 +173,40 @@ export function getServiceOrderToPricingSync(
     }
 
     return {
-      shouldCreatePricingItem: false,
-      shouldUpdatePricingItem: false,
-      existingPricingItemId: existingItem.id,
-      pricingItemDescription: description,
-      pricingItemObservation: existingItem.observation || null,
-      pricingItemAmount: existingItem.amount || 0,
+      shouldCreateQuoteItem: false,
+      shouldUpdateQuoteItem: false,
+      existingQuoteItemId: existingItem.id,
+      quoteItemDescription: description,
+      quoteItemObservation: existingItem.observation || null,
+      quoteItemAmount: existingItem.amount || 0,
       reason: 'Item de precificação já existe com esta descrição',
     };
   }
 
-  // Create new pricing item
+  // Create new quote item
   return {
-    shouldCreatePricingItem: true,
-    shouldUpdatePricingItem: false,
-    pricingItemDescription: description,
-    pricingItemObservation: observation,
-    pricingItemAmount: 0,
+    shouldCreateQuoteItem: true,
+    shouldUpdateQuoteItem: false,
+    quoteItemDescription: description,
+    quoteItemObservation: observation,
+    quoteItemAmount: 0,
     reason: 'Criando novo item de precificação para ordem de serviço de produção',
   };
 }
 
 /**
- * Determines what action to take when a pricing item is created/updated.
+ * Determines what action to take when a quote item is created/updated.
  *
- * @param pricingItem - The pricing item being created/updated
+ * @param quoteItem - The quote item being created/updated
  * @param existingServiceOrders - Array of existing service orders for the task
  * @returns Result indicating what service order action to take
  */
-export function getPricingItemToServiceOrderSync(
-  pricingItem: SyncPricingItem,
+export function getQuoteItemToServiceOrderSync(
+  quoteItem: SyncQuoteItem,
   existingServiceOrders: SyncServiceOrder[],
-): PricingItemToServiceOrderResult {
-  const description = (pricingItem.description || '').trim();
-  const observation = (pricingItem.observation || '').trim() || null;
+): QuoteItemToServiceOrderResult {
+  const description = (quoteItem.description || '').trim();
+  const observation = (quoteItem.observation || '').trim() || null;
 
   if (!description) {
     return {
@@ -269,7 +269,7 @@ export function getPricingItemToServiceOrderSync(
 }
 
 /**
- * Batch sync: Given a list of pricing items and service orders,
+ * Batch sync: Given a list of quote items and service orders,
  * returns the actions needed to sync them both ways.
  *
  * Important: This function only suggests creating items that don't already exist.
@@ -279,21 +279,21 @@ export function getPricingItemToServiceOrderSync(
  * - The match check will not find them, but since they don't exist on either side,
  *   no sync action will be triggered
  *
- * @param pricingItems - Current pricing items
+ * @param quoteItems - Current quote items
  * @param serviceOrders - Current service orders
  * @returns Object with arrays of items to create/update on both sides
  */
 export function getBidirectionalSyncActions(
-  pricingItems: SyncPricingItem[],
+  quoteItems: SyncQuoteItem[],
   serviceOrders: SyncServiceOrder[],
 ): {
-  pricingItemsToCreate: Array<{
+  quoteItemsToCreate: Array<{
     description: string;
     observation: string | null;
     amount: number;
     sourceServiceOrderId?: string;
   }>;
-  pricingItemsToUpdate: Array<{
+  quoteItemsToUpdate: Array<{
     id: string;
     description: string;
     observation: string | null;
@@ -302,22 +302,22 @@ export function getBidirectionalSyncActions(
   serviceOrdersToCreate: Array<{
     description: string;
     observation: string | null;
-    sourcePricingItemId?: string;
+    sourceQuoteItemId?: string;
   }>;
   serviceOrdersToUpdate: Array<{
     id: string;
     observation: string | null;
-    sourcePricingItemId?: string;
+    sourceQuoteItemId?: string;
   }>;
 } {
   const result = {
-    pricingItemsToCreate: [] as Array<{
+    quoteItemsToCreate: [] as Array<{
       description: string;
       observation: string | null;
       amount: number;
       sourceServiceOrderId?: string;
     }>,
-    pricingItemsToUpdate: [] as Array<{
+    quoteItemsToUpdate: [] as Array<{
       id: string;
       description: string;
       observation: string | null;
@@ -326,73 +326,73 @@ export function getBidirectionalSyncActions(
     serviceOrdersToCreate: [] as Array<{
       description: string;
       observation: string | null;
-      sourcePricingItemId?: string;
+      sourceQuoteItemId?: string;
     }>,
     serviceOrdersToUpdate: [] as Array<{
       id: string;
       observation: string | null;
-      sourcePricingItemId?: string;
+      sourceQuoteItemId?: string;
     }>,
   };
 
   // Track what's already been matched to avoid duplicates
-  const matchedPricingDescriptions = new Set<string>();
+  const matchedQuoteDescriptions = new Set<string>();
   const matchedServiceOrderIds = new Set<string>();
 
-  // First pass: Service Orders → Pricing Items
+  // First pass: Service Orders → Quote Items
   for (const so of serviceOrders) {
     if (so.type !== SERVICE_ORDER_TYPE.PRODUCTION) continue;
 
-    const syncResult = getServiceOrderToPricingSync(so, pricingItems);
+    const syncResult = getServiceOrderToQuoteSync(so, quoteItems);
 
-    if (syncResult.shouldCreatePricingItem) {
-      const normalizedDesc = normalizeDescription(syncResult.pricingItemDescription);
-      if (!matchedPricingDescriptions.has(normalizedDesc)) {
-        result.pricingItemsToCreate.push({
-          description: syncResult.pricingItemDescription,
-          observation: syncResult.pricingItemObservation,
-          amount: syncResult.pricingItemAmount,
+    if (syncResult.shouldCreateQuoteItem) {
+      const normalizedDesc = normalizeDescription(syncResult.quoteItemDescription);
+      if (!matchedQuoteDescriptions.has(normalizedDesc)) {
+        result.quoteItemsToCreate.push({
+          description: syncResult.quoteItemDescription,
+          observation: syncResult.quoteItemObservation,
+          amount: syncResult.quoteItemAmount,
           sourceServiceOrderId: so.id,
         });
-        matchedPricingDescriptions.add(normalizedDesc);
+        matchedQuoteDescriptions.add(normalizedDesc);
       }
-    } else if (syncResult.shouldUpdatePricingItem && syncResult.existingPricingItemId) {
-      result.pricingItemsToUpdate.push({
-        id: syncResult.existingPricingItemId,
-        description: syncResult.pricingItemDescription,
-        observation: syncResult.pricingItemObservation,
+    } else if (syncResult.shouldUpdateQuoteItem && syncResult.existingQuoteItemId) {
+      result.quoteItemsToUpdate.push({
+        id: syncResult.existingQuoteItemId,
+        description: syncResult.quoteItemDescription,
+        observation: syncResult.quoteItemObservation,
         sourceServiceOrderId: so.id,
       });
-      matchedPricingDescriptions.add(normalizeDescription(syncResult.pricingItemDescription));
-    } else if (syncResult.existingPricingItemId) {
-      matchedPricingDescriptions.add(normalizeDescription(syncResult.pricingItemDescription));
+      matchedQuoteDescriptions.add(normalizeDescription(syncResult.quoteItemDescription));
+    } else if (syncResult.existingQuoteItemId) {
+      matchedQuoteDescriptions.add(normalizeDescription(syncResult.quoteItemDescription));
       if (so.id) matchedServiceOrderIds.add(so.id);
     }
   }
 
-  // Second pass: Pricing Items → Service Orders
-  for (const pi of pricingItems) {
+  // Second pass: Quote Items → Service Orders
+  for (const pi of quoteItems) {
     const normalizedDesc = normalizeDescription(pi.description);
 
-    // Skip if this pricing item was already matched from a service order
-    if (matchedPricingDescriptions.has(normalizedDesc)) {
+    // Skip if this quote item was already matched from a service order
+    if (matchedQuoteDescriptions.has(normalizedDesc)) {
       continue;
     }
 
-    const syncResult = getPricingItemToServiceOrderSync(pi, serviceOrders);
+    const syncResult = getQuoteItemToServiceOrderSync(pi, serviceOrders);
 
     if (syncResult.shouldCreateServiceOrder) {
       result.serviceOrdersToCreate.push({
         description: syncResult.serviceOrderDescription,
         observation: syncResult.serviceOrderObservation,
-        sourcePricingItemId: pi.id,
+        sourceQuoteItemId: pi.id,
       });
     } else if (syncResult.shouldUpdateServiceOrder && syncResult.existingServiceOrderId) {
       if (!matchedServiceOrderIds.has(syncResult.existingServiceOrderId)) {
         result.serviceOrdersToUpdate.push({
           id: syncResult.existingServiceOrderId,
           observation: syncResult.serviceOrderObservation,
-          sourcePricingItemId: pi.id,
+          sourceQuoteItemId: pi.id,
         });
         matchedServiceOrderIds.add(syncResult.existingServiceOrderId);
       }
@@ -403,26 +403,26 @@ export function getBidirectionalSyncActions(
 }
 
 /**
- * Helper function to check if a pricing item description matches a service order
+ * Helper function to check if a quote item description matches a service order
  */
-export function isPricingItemMatchingServiceOrder(
-  pricingItem: SyncPricingItem,
+export function isQuoteItemMatchingServiceOrder(
+  quoteItem: SyncQuoteItem,
   serviceOrder: SyncServiceOrder,
 ): boolean {
   if (serviceOrder.type !== SERVICE_ORDER_TYPE.PRODUCTION) {
     return false;
   }
 
-  return areDescriptionsEqual(pricingItem.description, serviceOrder.description);
+  return areDescriptionsEqual(quoteItem.description, serviceOrder.description);
 }
 
 /**
  * Helper functions for frontend sync (used in task-edit-form.tsx)
  * These are simplified versions that work with the form data
  */
-export function getPricingItemsToAddFromServiceOrders(
+export function getQuoteItemsToAddFromServiceOrders(
   serviceOrders: SyncServiceOrder[],
-  existingPricingItems: SyncPricingItem[],
+  existingQuoteItems: SyncQuoteItem[],
 ): Array<{ description: string; observation: string | null; amount: number }> {
   const result: Array<{
     description: string;
@@ -430,7 +430,7 @@ export function getPricingItemsToAddFromServiceOrders(
     amount: number;
   }> = [];
   const existingDescriptions = new Set(
-    existingPricingItems.map(pi => normalizeDescription(pi.description)),
+    existingQuoteItems.map(pi => normalizeDescription(pi.description)),
   );
 
   for (const so of serviceOrders) {
@@ -451,8 +451,8 @@ export function getPricingItemsToAddFromServiceOrders(
   return result;
 }
 
-export function getServiceOrdersToAddFromPricingItems(
-  pricingItems: SyncPricingItem[],
+export function getServiceOrdersToAddFromQuoteItems(
+  quoteItems: SyncQuoteItem[],
   existingServiceOrders: SyncServiceOrder[],
   _historicalDescriptions?: string[],
 ): Array<{ description: string; observation: string | null }> {
@@ -463,7 +463,7 @@ export function getServiceOrdersToAddFromPricingItems(
       .map(so => normalizeDescription(so.description)),
   );
 
-  for (const pi of pricingItems) {
+  for (const pi of quoteItems) {
     if (!pi.description) continue;
 
     const normalizedDesc = normalizeDescription(pi.description);

@@ -169,4 +169,79 @@ export class SicrediService implements OnModuleInit {
 
     this.logger.log(`Boleto cancelled successfully: nossoNumero=${nossoNumero}`);
   }
+
+  // ─── Webhook Contract Management ─────────────────────────────────────────
+
+  /**
+   * Register a webhook contract with Sicredi to receive payment events.
+   */
+  async registerWebhookContract(callbackUrl: string): Promise<any> {
+    const { cooperativa, posto, codigoBeneficiario } = this.authService.config;
+
+    this.logger.log(
+      `[WEBHOOK_CONTRACT] Registering webhook contract: url=${callbackUrl}, cooperativa=${cooperativa}, posto=${posto}, beneficiario=${codigoBeneficiario}`,
+    );
+
+    const response = await this.apiClient.post(
+      '/cobranca/boleto/v1/webhook/contrato/',
+      {
+        cooperativa,
+        posto,
+        codBeneficiario: codigoBeneficiario,
+        eventos: ['LIQUIDACAO'],
+        url: callbackUrl,
+        urlStatus: 'ATIVO',
+        contratoStatus: 'ATIVO',
+      },
+    );
+
+    this.logger.log(`[WEBHOOK_CONTRACT] Contract registered: ${JSON.stringify(response.data)}`);
+    return response.data;
+  }
+
+  /**
+   * Query existing webhook contracts.
+   */
+  async queryWebhookContracts(): Promise<any> {
+    const { cooperativa, posto, codigoBeneficiario } = this.authService.config;
+
+    const response = await this.apiClient.get(
+      '/cobranca/boleto/v1/webhook/contratos/',
+      {
+        params: {
+          cooperativa,
+          posto,
+          beneficiario: codigoBeneficiario,
+        },
+      },
+    );
+
+    return response.data;
+  }
+
+  /**
+   * Update an existing webhook contract.
+   */
+  async updateWebhookContract(idContrato: string, data: {
+    url?: string;
+    urlStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+    contratoStatus?: 'ATIVO' | 'INATIVO' | 'BLOQUEADO';
+  }): Promise<any> {
+    const { cooperativa, posto, codigoBeneficiario } = this.authService.config;
+
+    const response = await this.apiClient.put(
+      `/cobranca/boleto/v1/webhook/contrato/${idContrato}`,
+      {
+        cooperativa,
+        posto,
+        codBeneficiario: codigoBeneficiario,
+        eventos: ['LIQUIDACAO'],
+        url: data.url,
+        urlStatus: data.urlStatus || 'ATIVO',
+        contratoStatus: data.contratoStatus || 'ATIVO',
+      },
+    );
+
+    return response.data;
+  }
 }

@@ -59,7 +59,7 @@ export const artworkIncludeSchema = z
               artworks: z.boolean().optional(),
               logoPaints: z.boolean().optional(),
               serviceOrders: z.boolean().optional(),
-              pricing: z.boolean().optional(),
+              quote: z.boolean().optional(),
               airbrushings: z.boolean().optional(),
               cuts: z.boolean().optional(),
               truck: z.boolean().optional(),

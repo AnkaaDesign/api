@@ -1,25 +1,22 @@
-// packages/interfaces/src/task-pricing-customer-config.ts
+// packages/interfaces/src/task-quote-customer-config.ts
 
 import type { BaseEntity } from './common';
-import type { DISCOUNT_TYPE, TaskPricing } from './task-pricing';
+import type { TaskQuote } from './task-quote';
 import type { Customer } from './customer';
 import type { Installment } from './invoice';
 import type { File } from './file';
 
 // =====================
-// TaskPricingCustomerConfig Interface
+// TaskQuoteCustomerConfig Interface
 // =====================
 
-export interface TaskPricingCustomerConfig extends BaseEntity {
-  pricingId: string;
+export interface TaskQuoteCustomerConfig extends BaseEntity {
+  quoteId: string;
   customerId: string;
   subtotal: number;
-  discountType: DISCOUNT_TYPE;
-  discountValue: number | null;
   total: number;
   customPaymentText: string | null;
   responsibleId?: string | null;
-  discountReference?: string | null;
   paymentCondition?: string | null;
   downPaymentDate?: Date | null;
 
@@ -28,7 +25,7 @@ export interface TaskPricingCustomerConfig extends BaseEntity {
   customerSignature?: File;
 
   // Relations
-  pricing?: TaskPricing;
+  quote?: TaskQuote;
   customer?: Customer;
   responsible?: { id: string; name: string; role: string };
   installments?: Installment[];

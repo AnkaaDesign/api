@@ -1,4 +1,4 @@
-// packages/interfaces/src/task-pricing.ts
+// packages/interfaces/src/task-quote.ts
 
 import type {
   BaseEntity,
@@ -11,27 +11,27 @@ import type {
 } from './common';
 import type { ORDER_BY_DIRECTION } from '@constants';
 import type { Task, TaskIncludes, TaskOrderBy } from './task';
-import type { TaskPricingService } from './task-pricing-service';
-import type { TaskPricingCustomerConfig } from './task-pricing-customer-config';
+import type { TaskQuoteService } from './task-quote-service';
+import type { TaskQuoteCustomerConfig } from './task-quote-customer-config';
 import type { File } from './file';
 
 // =====================
-// TaskPricing Status Enum (mirrored from constants)
+// TaskQuote Status Enum (mirrored from constants)
 // =====================
 
-export type TASK_PRICING_STATUS = 'PENDING' | 'BUDGET_APPROVED' | 'VERIFIED' | 'INTERNAL_APPROVED' | 'UPCOMING' | 'PARTIAL' | 'SETTLED';
+export type TASK_QUOTE_STATUS = 'PENDING' | 'BUDGET_APPROVED' | 'VERIFIED_BY_FINANCIAL' | 'INTERNAL_APPROVED' | 'UPCOMING' | 'DUE' | 'PARTIAL' | 'SETTLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 
 // =====================
-// TaskPricing Interface
+// TaskQuote Interface
 // =====================
 
-export interface TaskPricing extends BaseEntity {
+export interface TaskQuote extends BaseEntity {
   budgetNumber: number; // Auto-generated sequential number for display
   subtotal: number; // Aggregate: sum of config subtotals
   total: number; // Aggregate: sum of config totals
   expiresAt: Date;
-  status: TASK_PRICING_STATUS;
+  status: TASK_QUOTE_STATUS;
   statusOrder: number;
 
   // Guarantee Terms
@@ -49,15 +49,15 @@ export interface TaskPricing extends BaseEntity {
 
   // Relations
   task?: Task; // One-to-one relationship with task
-  services?: TaskPricingService[];
-  customerConfigs?: TaskPricingCustomerConfig[];
+  services?: TaskQuoteService[];
+  customerConfigs?: TaskQuoteCustomerConfig[];
 }
 
 // =====================
 // Include Types
 // =====================
 
-export interface TaskPricingIncludes {
+export interface TaskQuoteIncludes {
   task?:
     | boolean
     | {
@@ -87,13 +87,13 @@ export interface TaskPricingIncludes {
 }
 
 // Alias for backward compatibility
-export type TaskPricingInclude = TaskPricingIncludes;
+export type TaskQuoteInclude = TaskQuoteIncludes;
 
 // =====================
 // OrderBy Types
 // =====================
 
-export interface TaskPricingOrderBy {
+export interface TaskQuoteOrderBy {
   id?: ORDER_BY_DIRECTION;
   total?: ORDER_BY_DIRECTION;
   expiresAt?: ORDER_BY_DIRECTION;
@@ -110,35 +110,35 @@ export interface TaskPricingOrderBy {
 // Where/Filter Types
 // =====================
 
-export interface TaskPricingWhere {
+export interface TaskQuoteWhere {
   id?: string | { in: string[] };
   taskId?: string;
-  status?: TASK_PRICING_STATUS | { in: TASK_PRICING_STATUS[] };
+  status?: TASK_QUOTE_STATUS | { in: TASK_QUOTE_STATUS[] };
   expiresAt?: Date | { gte?: Date; lte?: Date };
   simultaneousTasks?: number | { gte?: number; lte?: number; equals?: number };
   createdAt?: Date | { gte?: Date; lte?: Date };
 }
 
 // =====================
-// Response Interfaces - TaskPricing
+// Response Interfaces - TaskQuote
 // =====================
 
-export interface TaskPricingGetUniqueResponse extends BaseGetUniqueResponse<TaskPricing> {}
-export interface TaskPricingGetManyResponse extends BaseGetManyResponse<TaskPricing> {}
-export interface TaskPricingCreateResponse extends BaseCreateResponse<TaskPricing> {}
-export interface TaskPricingUpdateResponse extends BaseUpdateResponse<TaskPricing> {}
-export interface TaskPricingDeleteResponse extends BaseDeleteResponse {}
+export interface TaskQuoteGetUniqueResponse extends BaseGetUniqueResponse<TaskQuote> {}
+export interface TaskQuoteGetManyResponse extends BaseGetManyResponse<TaskQuote> {}
+export interface TaskQuoteCreateResponse extends BaseCreateResponse<TaskQuote> {}
+export interface TaskQuoteUpdateResponse extends BaseUpdateResponse<TaskQuote> {}
+export interface TaskQuoteDeleteResponse extends BaseDeleteResponse {}
 
 // =====================
-// Batch Operation Responses - TaskPricing
+// Batch Operation Responses - TaskQuote
 // =====================
 
-export interface TaskPricingBatchCreateResponse<T> extends BaseBatchResponse<TaskPricing, T> {}
-export interface TaskPricingBatchUpdateResponse<T> extends BaseBatchResponse<
-  TaskPricing,
+export interface TaskQuoteBatchCreateResponse<T> extends BaseBatchResponse<TaskQuote, T> {}
+export interface TaskQuoteBatchUpdateResponse<T> extends BaseBatchResponse<
+  TaskQuote,
   T & { id: string }
 > {}
-export interface TaskPricingBatchDeleteResponse extends BaseBatchResponse<
+export interface TaskQuoteBatchDeleteResponse extends BaseBatchResponse<
   { id: string; deleted: boolean },
   { id: string }
 > {}

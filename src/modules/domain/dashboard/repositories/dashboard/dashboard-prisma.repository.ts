@@ -3583,11 +3583,11 @@ export class DashboardPrismaRepository implements DashboardRepository {
     return [];
   }
 
-  async getTasksAwaitingPricingApproval(limit = 50): Promise<HomeDashboardTask[]> {
+  async getTasksAwaitingQuoteApproval(limit = 50): Promise<HomeDashboardTask[]> {
     const tasks = await this.prisma.task.findMany({
       where: {
         status: { notIn: [TASK_STATUS.COMPLETED as any, TASK_STATUS.CANCELLED as any] },
-        pricing: { status: 'VERIFIED' as any },
+        quote: { status: 'VERIFIED_BY_FINANCIAL' as any },
       },
       select: {
         id: true,
