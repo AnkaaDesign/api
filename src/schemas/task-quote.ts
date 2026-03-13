@@ -24,7 +24,7 @@ export const taskQuoteStatusSchema = z.enum([
   TASK_QUOTE_STATUS.PENDING,
   TASK_QUOTE_STATUS.BUDGET_APPROVED,
   TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
-  TASK_QUOTE_STATUS.INTERNAL_APPROVED,
+  TASK_QUOTE_STATUS.BILLING_APPROVED,
   TASK_QUOTE_STATUS.UPCOMING,
   TASK_QUOTE_STATUS.DUE,
   TASK_QUOTE_STATUS.PARTIAL,
@@ -433,6 +433,7 @@ export const taskQuoteCustomerConfigCreateNestedSchema = z.object({
     )
     .optional(),
   customPaymentText: z.string().max(2000).optional().nullable(),
+  generateInvoice: z.boolean().optional().default(true),
   responsibleId: z.string().uuid('ID de responsavel invalido').optional().nullable(),
   // Direct installments (alternative to paymentCondition-based generation)
   installments: z.array(installmentInputSchema).optional(),

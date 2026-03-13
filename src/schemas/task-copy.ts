@@ -26,7 +26,11 @@ export const COPYABLE_TASK_FIELDS = [
   // Individual resources (creates new records)
   'cuts',
   'airbrushings',
-  'serviceOrders',
+  // Service orders by type (granular copy)
+  'serviceOrders:PRODUCTION',
+  'serviceOrders:COMMERCIAL',
+  'serviceOrders:LOGISTIC',
+  'serviceOrders:ARTWORK',
   // Truck/Vehicle related
   'implementType',
   'category',
@@ -104,8 +108,38 @@ export const COPYABLE_FIELD_PERMISSIONS: Record<Exclude<CopyableTaskField, 'all'
   // Airbrushings - hidden for Warehouse, Financial, Designer, Logistic, Commercial
   airbrushings: [SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.PLOTTING, SECTOR_PRIVILEGES.PRODUCTION, SECTOR_PRIVILEGES.MAINTENANCE],
 
-  // Service orders - hidden for Warehouse and Plotting
-  serviceOrders: [
+  // Service orders by type - hidden for Warehouse and Plotting
+  'serviceOrders:PRODUCTION': [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+  ],
+  'serviceOrders:COMMERCIAL': [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+  ],
+  'serviceOrders:LOGISTIC': [
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+    SECTOR_PRIVILEGES.PRODUCTION,
+    SECTOR_PRIVILEGES.MAINTENANCE,
+  ],
+  'serviceOrders:ARTWORK': [
     SECTOR_PRIVILEGES.ADMIN,
     SECTOR_PRIVILEGES.COMMERCIAL,
     SECTOR_PRIVILEGES.LOGISTIC,

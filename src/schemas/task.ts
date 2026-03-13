@@ -20,6 +20,7 @@ import {
   TRUCK_CATEGORY,
   IMPLEMENT_TYPE,
   TRUCK_SPOT,
+
 } from '@constants';
 import { cutCreateNestedSchema } from './cut';
 import { airbrushingCreateNestedSchema } from './airbrushing';
@@ -3379,3 +3380,25 @@ export const taskSwapPositionSchema = z.object({
 });
 
 export type TaskSwapPositionFormData = z.infer<typeof taskSwapPositionSchema>;
+
+// =====================
+// Reschedule Forecast Schema
+// =====================
+
+export const taskRescheduleForecastSchema = z.object({
+  forecastDate: z.coerce.date({ required_error: 'Data de previsão é obrigatória' }),
+  reason: z.string().min(1, 'Motivo é obrigatório').max(500),
+});
+
+export type TaskRescheduleForecastFormData = z.infer<typeof taskRescheduleForecastSchema>;
+
+// =====================
+// Forecast History Query Schema
+// =====================
+
+export const taskForecastHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  take: z.coerce.number().int().positive().max(100).default(50),
+});
+
+export type TaskForecastHistoryQueryFormData = z.infer<typeof taskForecastHistoryQuerySchema>;

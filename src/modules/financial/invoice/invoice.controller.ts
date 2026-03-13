@@ -211,6 +211,101 @@ export class InvoiceController {
   }
 
   /**
+   * PATCH /invoices/:installmentId/boleto/due-date
+   * Change the due date of an overdue boleto.
+   * Creates a new boleto at Sicredi with the new due date by using the PATCH data-vencimento endpoint.
+   */
+  @Put(':installmentId/boleto/due-date')
+  @HttpCode(HttpStatus.OK)
+  @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL)
+  async changeBankSlipDueDate(
+    @Param('installmentId', ParseUUIDPipe) installmentId: string,
+    @Body() body: { newDueDate: string },
+  ) {
+    if (!body.newDueDate) {
+      throw new BadRequestException('Nova data de vencimento é obrigatória.');
+    }
+
+    const newDate = new Date(body.newDueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (isNaN(newDate.getTime())) {
+      throw new BadRequestException('Data de vencimento inválida.');
+    }
+
+    if (newDate < today) {
+      throw new BadRequestException(
+        'A nova data de vencimento deve ser igual ou posterior a hoje.',
+      );
+    }
+
+    const bankSlip = await this.prisma.bankSlip.findUnique({
+      where: { installmentId },
+      include: { installment: true },
+    });
+
+    if (!bankSlip) {
+      throw new NotFoundException(
+        `Boleto não encontrado para a parcela ${installmentId}.`,
+      );
+    }
+
+    if (bankSlip.status !== BANK_SLIP_STATUS.OVERDUE && bankSlip.status !== BANK_SLIP_STATUS.ACTIVE) {
+      throw new BadRequestException(
+        'Somente boletos ativos ou vencidos podem ter a data de vencimento alterada.',
+      );
+    }
+
+    if (!bankSlip.nossoNumero || bankSlip.nossoNumero.startsWith('TMP-')) {
+      throw new BadRequestException(
+        'Boleto ainda não foi registrado no Sicredi.',
+      );
+    }
+
+    const formattedDate = newDate.toISOString().split('T')[0];
+
+    try {
+      await this.sicrediService.changeDueDate(bankSlip.nossoNumero, formattedDate);
+
+      // Update local records
+      await this.prisma.bankSlip.update({
+        where: { id: bankSlip.id },
+        data: {
+          dueDate: newDate,
+          status: 'ACTIVE',
+          lastSyncAt: new Date(),
+        },
+      });
+
+      await this.prisma.installment.update({
+        where: { id: installmentId },
+        data: {
+          dueDate: newDate,
+          status: 'PENDING',
+        },
+      });
+
+      this.logger.log(
+        `[BOLETO] Due date changed for installment ${installmentId}: nossoNumero=${bankSlip.nossoNumero}, newDate=${formattedDate}`,
+      );
+
+      return {
+        message: 'Data de vencimento alterada com sucesso.',
+        newDueDate: formattedDate,
+      };
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `[BOLETO] Failed to change due date for installment ${installmentId}: ${errMsg}`,
+      );
+      throw new BadRequestException(
+        `Falha ao alterar data de vencimento: ${errMsg}`,
+      );
+    }
+  }
+
+  /**
    * GET /invoices/:installmentId/boleto/pdf
    * Download the boleto PDF for an installment.
    * If no local PDF exists, fetches directly from Sicredi using linhaDigitavel.

@@ -190,7 +190,7 @@ const entitySpecificFields: Partial<Record<CHANGE_LOG_ENTITY_TYPE, Record<string
     details: 'Detalhes',
     entryDate: 'Data de Entrada',
     term: 'Prazo',
-    forecastDate: 'Data de Previsão',
+    forecastDate: 'Previsão de Liberação',
     commission: 'Comissão',
     price: 'Preço',
     statusOrder: 'Ordem do Status',

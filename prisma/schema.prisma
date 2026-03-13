@@ -1197,6 +1197,7 @@ model TaskQuoteCustomerConfig {
   subtotal            Decimal          @db.Decimal(10, 2) @default(0)
   total               Decimal          @db.Decimal(10, 2) @default(0)
   customPaymentText   String?
+  generateInvoice     Boolean          @default(true)
   responsibleId       String?
   paymentCondition    String?
   downPaymentDate     DateTime?
@@ -1300,6 +1301,7 @@ model Task {
   checkoutFiles         File[]               @relation("TASK_CHECKOUT_FILES")
   responsibles          Responsible[]        @relation("TaskResponsibles")
   invoiceEntities       Invoice[]            @relation("TaskInvoiceEntities")
+  forecastHistory       TaskForecastHistory[] @relation("TASK_FORECAST_HISTORY")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -1331,6 +1333,25 @@ model TaskFieldChangeLog {
   @@index([changedAt])
   @@index([changedBy])
   @@index([taskId, field])
+}
+
+model TaskForecastHistory {
+  id           String    @id @default(uuid())
+  taskId       String
+  previousDate DateTime?
+  newDate      DateTime?
+  reason       String?
+  notes        String?
+  source       String    @default("MANUAL")
+  changedById  String
+  createdAt    DateTime  @default(now())
+
+  task      Task @relation("TASK_FORECAST_HISTORY", fields: [taskId], references: [id], onDelete: Cascade)
+  changedBy User @relation("TASK_FORECAST_HISTORY_USER", fields: [changedById], references: [id])
+
+  @@index([taskId])
+  @@index([createdAt])
+  @@index([taskId, createdAt])
 }
 
 model Cut {
@@ -1513,6 +1534,7 @@ model User {
   paymentResponsibleOrders       Order[]                      @relation("ORDER_PAYMENT_RESPONSIBLE")
   paymentAssignedByOrders        Order[]                      @relation("ORDER_PAYMENT_ASSIGNED_BY")
   invoicesCreated                Invoice[]                    @relation("InvoicesCreated")
+  taskForecastHistories          TaskForecastHistory[]         @relation("TASK_FORECAST_HISTORY_USER")
 
   @@index([status, sectorId])
   @@index([statusOrder])
@@ -2934,7 +2956,7 @@ enum TaskQuoteStatus {
   PENDING
   BUDGET_APPROVED
   VERIFIED_BY_FINANCIAL
-  INTERNAL_APPROVED
+  BILLING_APPROVED
   UPCOMING
   DUE
   PARTIAL

@@ -388,7 +388,7 @@ export class TaskQuotePrismaRepository
    * Find quote by task ID (with services)
    */
   async findByTaskId(taskId: string): Promise<TaskQuote | null> {
-    const pricing = await this.prisma.taskQuote.findFirst({
+    const quote = await this.prisma.taskQuote.findFirst({
       where: { task: { id: taskId } },
       include: {
         services: {
@@ -409,14 +409,14 @@ export class TaskQuotePrismaRepository
       },
     });
 
-    return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;
+    return quote ? this.mapDatabaseEntityToEntity(quote) : null;
   }
 
   /**
    * Find all quotes by status
    */
   async findByStatus(status: string): Promise<TaskQuote[]> {
-    const pricings = await this.prisma.taskQuote.findMany({
+    const quotes = await this.prisma.taskQuote.findMany({
       where: { status: status as any },
       include: {
         services: {
@@ -439,7 +439,7 @@ export class TaskQuotePrismaRepository
       orderBy: { createdAt: 'desc' },
     });
 
-    return pricings.map(p => this.mapDatabaseEntityToEntity(p));
+    return quotes.map(q => this.mapDatabaseEntityToEntity(q));
   }
 
   /**
@@ -447,11 +447,11 @@ export class TaskQuotePrismaRepository
    */
   async findExpired(): Promise<TaskQuote[]> {
     const now = new Date();
-    const pricings = await this.prisma.taskQuote.findMany({
+    const quotes = await this.prisma.taskQuote.findMany({
       where: {
         expiresAt: { lt: now },
         status: {
-          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, TASK_QUOTE_STATUS.INTERNAL_APPROVED],
+          in: [TASK_QUOTE_STATUS.PENDING, TASK_QUOTE_STATUS.BUDGET_APPROVED, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, TASK_QUOTE_STATUS.BILLING_APPROVED],
         },
       },
       include: {
@@ -474,17 +474,17 @@ export class TaskQuotePrismaRepository
       },
     });
 
-    return pricings.map(p => this.mapDatabaseEntityToEntity(p));
+    return quotes.map(q => this.mapDatabaseEntityToEntity(q));
   }
 
   /**
    * Find approved quote for a task
    */
   async findApprovedByTaskId(taskId: string): Promise<TaskQuote | null> {
-    const pricing = await this.prisma.taskQuote.findFirst({
+    const quote = await this.prisma.taskQuote.findFirst({
       where: {
         task: { id: taskId },
-        status: { in: [TASK_QUOTE_STATUS.INTERNAL_APPROVED, TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED] },
+        status: { in: [TASK_QUOTE_STATUS.BILLING_APPROVED, TASK_QUOTE_STATUS.UPCOMING, TASK_QUOTE_STATUS.DUE, TASK_QUOTE_STATUS.PARTIAL, TASK_QUOTE_STATUS.SETTLED] },
       },
       include: {
         services: {
@@ -505,6 +505,6 @@ export class TaskQuotePrismaRepository
       },
     });
 
-    return pricing ? this.mapDatabaseEntityToEntity(pricing) : null;
+    return quote ? this.mapDatabaseEntityToEntity(quote) : null;
   }
 }

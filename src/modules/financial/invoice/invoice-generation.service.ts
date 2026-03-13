@@ -145,42 +145,66 @@ export class InvoiceGenerationService {
 
         this.logger.log(`[INVOICE_GEN] Invoice ${invoice.id} created (status=ACTIVE, total=${totalAmount})`);
 
-        // Link existing installments to the invoice and create BankSlips
+        // Determine if bank slips should be generated:
+        // Skip when customPaymentText is set (custom payment method can't be parsed for boleto installments)
+        const hasCustomPaymentText = !!(config.customPaymentText && config.customPaymentText.trim());
+        const shouldCreateBankSlips = !hasCustomPaymentText;
+
+        if (hasCustomPaymentText) {
+          this.logger.log(
+            `[INVOICE_GEN] Skipping BankSlip creation for customerConfig ${config.id}: custom payment text is set`,
+          );
+        }
+
+        // Link existing installments to the invoice and optionally create BankSlips
         for (const inst of existingInstallments) {
           await tx.installment.update({
             where: { id: inst.id },
             data: { invoiceId: invoice.id },
           });
 
-          // Always create BankSlip (only bank slip workflow via Sicredi)
-          const nossoNumero = this.generateTemporaryNossoNumero(inst.id);
+          if (shouldCreateBankSlips) {
+            const nossoNumero = this.generateTemporaryNossoNumero(inst.id);
 
-          await tx.bankSlip.create({
-            data: {
-              installmentId: inst.id,
-              nossoNumero: nossoNumero,
-              type: 'NORMAL',
-              amount: Number(inst.amount),
-              dueDate: inst.dueDate,
-              status: 'CREATING',
-            },
-          });
+            await tx.bankSlip.create({
+              data: {
+                installmentId: inst.id,
+                nossoNumero: nossoNumero,
+                type: 'NORMAL',
+                amount: Number(inst.amount),
+                dueDate: inst.dueDate,
+                status: 'CREATING',
+              },
+            });
 
-          this.logger.log(
-            `[INVOICE_GEN]   Installment #${inst.number}: id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, bankSlip nossoNumero=${nossoNumero}, status=CREATING`,
-          );
+            this.logger.log(
+              `[INVOICE_GEN]   Installment #${inst.number}: id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, bankSlip nossoNumero=${nossoNumero}, status=CREATING`,
+            );
+          } else {
+            this.logger.log(
+              `[INVOICE_GEN]   Installment #${inst.number}: id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, no BankSlip (custom payment)`,
+            );
+          }
         }
 
-        // Create NfseDocument for municipal emission (Elotech OXY)
-        await tx.nfseDocument.create({
-          data: {
-            invoiceId: invoice.id,
-            status: 'PENDING',
-          },
-        });
-        this.logger.log(
-          `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
-        );
+        // Create NfseDocument for municipal emission (Elotech OXY) only if generateInvoice is true
+        const shouldGenerateNfse = config.generateInvoice !== false;
+
+        if (shouldGenerateNfse) {
+          await tx.nfseDocument.create({
+            data: {
+              invoiceId: invoice.id,
+              status: 'PENDING',
+            },
+          });
+          this.logger.log(
+            `[INVOICE_GEN] NfseDocument created for invoice ${invoice.id} (status=PENDING)`,
+          );
+        } else {
+          this.logger.log(
+            `[INVOICE_GEN] Skipping NfseDocument for invoice ${invoice.id}: generateInvoice=false`,
+          );
+        }
         this.logger.log(
           `[INVOICE_GEN] Invoice ${invoice.id} fully created for customer ${config.customer?.fantasyName} (${config.customerId}): ` +
             `${existingInstallments.length} installment(s), total: ${totalAmount}`,

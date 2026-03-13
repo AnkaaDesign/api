@@ -870,6 +870,19 @@ export class TaskService {
           }
         }
 
+        // Create initial forecast history entry if forecastDate was set on creation
+        if (data.forecastDate && userId) {
+          await tx.taskForecastHistory.create({
+            data: {
+              taskId: newTask.id,
+              previousDate: null,
+              newDate: data.forecastDate,
+              source: 'INITIAL',
+              changedById: userId,
+            },
+          });
+        }
+
         // Re-fetch task if layouts or artworks/baseFiles were created/connected so response includes them
         if (hasLayouts || preUploadedArtworkFileIds.length > 0 || preUploadedBaseFileIds.length > 0) {
           const refetchedTask = await this.tasksRepository.findByIdWithTransaction(
@@ -1831,6 +1844,39 @@ export class TaskService {
             data.forecastDate = data.entryDate;
           }
         }
+
+        // =====================
+        // FORECAST HISTORY TRACKING
+        // =====================
+        if (data.forecastDate !== undefined && userId) {
+          const oldForecast = existingTask.forecastDate;
+          const newForecast = data.forecastDate;
+          const forecastChanged = oldForecast?.getTime?.() !== newForecast?.getTime?.();
+          if (forecastChanged) {
+            let forecastSource = 'MANUAL';
+            if (data.startedAt && !existingTask.forecastDate) {
+              forecastSource = 'AUTO_STARTED_AT';
+            } else if (data.entryDate && !data.startedAt && !existingTask.forecastDate) {
+              forecastSource = 'AUTO_ENTRY_DATE';
+            }
+
+            const forecastReason = (data as any).forecastReason || null;
+
+            await tx.taskForecastHistory.create({
+              data: {
+                taskId: id,
+                previousDate: oldForecast ?? null,
+                newDate: newForecast ?? null,
+                reason: forecastReason,
+                source: forecastSource,
+                changedById: userId,
+              },
+            });
+          }
+        }
+
+        // Strip forecast-only fields before Prisma write
+        delete (data as any).forecastReason;
 
         // Process cut files BEFORE updating the task (so fileIds are available for cut creation)
         if (files?.cutFiles && files.cutFiles.length > 0 && data.cuts) {
@@ -9820,20 +9866,21 @@ export class TaskService {
             observation: true,
             shouldSync: true,
             position: true,
+            discountType: true,
+            discountValue: true,
+            discountReference: true,
           },
         },
         customerConfigs: {
           select: {
             customerId: true,
             subtotal: true,
-            discountType: true,
-            discountValue: true,
             total: true,
             customPaymentText: true,
             responsibleId: true,
-            discountReference: true,
             paymentCondition: true,
             downPaymentDate: true,
+            generateInvoice: true,
           },
         },
       },
@@ -9872,6 +9919,9 @@ export class TaskService {
             observation: service.observation,
             shouldSync: service.shouldSync,
             position: service.position,
+            discountType: service.discountType,
+            discountValue: service.discountValue,
+            discountReference: service.discountReference,
           })),
         },
         ...(sourceQuote.customerConfigs.length > 0
@@ -9880,14 +9930,12 @@ export class TaskService {
                 create: sourceQuote.customerConfigs.map(c => ({
                   customerId: c.customerId,
                   subtotal: c.subtotal,
-                  discountType: c.discountType,
-                  discountValue: c.discountValue,
                   total: c.total,
                   customPaymentText: c.customPaymentText,
                   responsibleId: c.responsibleId,
-                  discountReference: c.discountReference,
                   paymentCondition: c.paymentCondition,
                   downPaymentDate: c.downPaymentDate,
+                  generateInvoice: c.generateInvoice,
                 })),
               },
             }
@@ -10137,7 +10185,7 @@ export class TaskService {
             logoPaints: { select: { id: true } },
             cuts: { select: { id: true } },
             airbrushings: { select: { id: true } },
-            serviceOrders: { select: { id: true } },
+            serviceOrders: { select: { id: true, type: true, description: true } },
             // Include quote for enriched oldValue in changelog
             quote: {
               select: {
@@ -10200,7 +10248,10 @@ export class TaskService {
           logoPaintIds: destinationTask.logoPaints?.map(p => p.id) || [],
           cuts: destinationTask.cuts?.length || 0,
           airbrushings: destinationTask.airbrushings?.length || 0,
-          serviceOrders: destinationTask.serviceOrders?.length || 0,
+          'serviceOrders:PRODUCTION': destinationTask.serviceOrders?.filter(so => so.type === 'PRODUCTION').length || 0,
+          'serviceOrders:COMMERCIAL': destinationTask.serviceOrders?.filter(so => so.type === 'COMMERCIAL').length || 0,
+          'serviceOrders:LOGISTIC': destinationTask.serviceOrders?.filter(so => so.type === 'LOGISTIC').length || 0,
+          'serviceOrders:ARTWORK': destinationTask.serviceOrders?.filter(so => so.type === 'ARTWORK').length || 0,
           implementType: destinationTask.truck?.implementType || null,
           category: destinationTask.truck?.category || null,
           layouts: {
@@ -10682,64 +10733,102 @@ export class TaskService {
               }
               break;
 
-            // ===== SERVICE ORDERS (Replace - Delete existing, then Create New) =====
-            case 'serviceOrders':
-              if (hasData(sourceTask.serviceOrders)) {
-                // First, delete existing service orders on the destination task (set behavior)
-                const deletedServiceOrders = await tx.serviceOrder.deleteMany({
-                  where: { taskId: destinationTaskId },
-                });
+            // ===== SERVICE ORDERS BY TYPE (Merge without duplicates) =====
+            case 'serviceOrders:PRODUCTION':
+            case 'serviceOrders:COMMERCIAL':
+            case 'serviceOrders:LOGISTIC':
+            case 'serviceOrders:ARTWORK': {
+              const soType = field.split(':')[1] as SERVICE_ORDER_TYPE;
+
+              // Get source service orders of this type
+              const sourceSOsOfType = sourceTask.serviceOrders?.filter(so => so.type === soType) || [];
+              if (sourceSOsOfType.length === 0) break;
+
+              // Fetch full details of source service orders
+              const fullSOsOfType = await tx.serviceOrder.findMany({
+                where: {
+                  id: { in: sourceSOsOfType.map(so => so.id) },
+                },
+                select: {
+                  description: true,
+                  type: true,
+                  observation: true,
+                  assignedToId: true,
+                  position: true,
+                },
+                orderBy: { position: 'asc' },
+              });
+
+              // Get existing service orders of this type on destination for dedup
+              const existingDestSOs = await tx.serviceOrder.findMany({
+                where: {
+                  taskId: destinationTaskId,
+                  type: soType,
+                },
+                select: { description: true },
+              });
+              const existingDescriptions = new Set(
+                existingDestSOs.map(so => so.description?.toLowerCase().trim()),
+              );
+
+              // Get max position of existing SOs on destination for proper ordering
+              const maxPositionResult = await tx.serviceOrder.aggregate({
+                where: { taskId: destinationTaskId },
+                _max: { position: true },
+              });
+              let nextPosition = (maxPositionResult._max.position ?? -1) + 1;
+
+              // Filter out duplicates (same description + type already exists)
+              const sosToCreate = fullSOsOfType.filter(
+                so => !existingDescriptions.has(so.description?.toLowerCase().trim()),
+              );
+
+              if (sosToCreate.length === 0) {
                 this.logger.log(
-                  `[copyFromTask] Deleted ${deletedServiceOrders.count} existing service orders from destination task`,
+                  `[copyFromTask] All ${fullSOsOfType.length} ${soType} service orders already exist on destination, skipping`,
                 );
-
-                // Fetch full service order details for copying
-                const fullServiceOrders = await tx.serviceOrder.findMany({
-                  where: {
-                    id: { in: sourceTask.serviceOrders.map(so => so.id) },
-                  },
-                  select: {
-                    description: true,
-                    type: true,
-                    observation: true,
-                    assignedToId: true,
-                    position: true,
-                  },
-                  orderBy: { position: 'asc' },
-                });
-
-                // Create new service order records with PENDING status
-                const newServiceOrders = await Promise.all(
-                  fullServiceOrders.map(async so => {
-                    return await tx.serviceOrder.create({
-                      data: {
-                        taskId: destinationTaskId,
-                        description: so.description,
-                        type: so.type,
-                        observation: so.observation,
-                        assignedToId: so.assignedToId,
-                        position: so.position,
-                        status: SERVICE_ORDER_STATUS.PENDING,
-                        statusOrder: 1, // PENDING order
-                        createdById: userId,
-                        shouldSync: true, // Copied service orders should participate in sync
-                      },
-                    });
-                  }),
-                );
-                copiedFields.push(field);
-                // Store full service order details for changelog display
-                details.serviceOrders = {
-                  deletedCount: deletedServiceOrders.count,
-                  count: newServiceOrders.length,
-                  ids: newServiceOrders.map(so => so.id),
-                  items: fullServiceOrders.map(so => ({
-                    description: so.description,
-                    type: so.type,
-                  })),
-                };
+                break;
               }
+
+              const skippedCount = fullSOsOfType.length - sosToCreate.length;
+              if (skippedCount > 0) {
+                this.logger.log(
+                  `[copyFromTask] Skipping ${skippedCount} duplicate ${soType} service orders`,
+                );
+              }
+
+              // Create non-duplicate service orders with PENDING status
+              const newServiceOrders = await Promise.all(
+                sosToCreate.map(async so => {
+                  return await tx.serviceOrder.create({
+                    data: {
+                      taskId: destinationTaskId,
+                      description: so.description,
+                      type: so.type,
+                      observation: so.observation,
+                      assignedToId: so.assignedToId,
+                      position: nextPosition++,
+                      status: SERVICE_ORDER_STATUS.PENDING,
+                      statusOrder: 1, // PENDING order
+                      createdById: userId,
+                      shouldSync: true,
+                    },
+                  });
+                }),
+              );
+
+              copiedFields.push(field);
+              details[field] = {
+                count: newServiceOrders.length,
+                skippedDuplicates: skippedCount,
+                ids: newServiceOrders.map(so => so.id),
+                items: sosToCreate.map(so => ({
+                  description: so.description,
+                  type: so.type,
+                })),
+              };
               break;
+            }
 
             default:
               this.logger.warn(`[copyFromTask] Unknown field: ${field}`);
@@ -10906,5 +10995,132 @@ export class TaskService {
 
       throw new InternalServerErrorException(`Erro ao copiar campos da tarefa: ${error.message}`);
     }
+  }
+
+  // =====================
+  // FORECAST RESCHEDULE & HISTORY
+  // =====================
+
+  async rescheduleForecast(
+    taskId: string,
+    data: { forecastDate: Date; reason: string },
+    userId: string,
+    include?: any,
+  ): Promise<TaskUpdateResponse> {
+    const existingTask = await this.prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, forecastDate: true, status: true },
+    });
+
+    if (!existingTask) {
+      throw new NotFoundException(`Tarefa ${taskId} não encontrada`);
+    }
+
+    if (existingTask.status === 'COMPLETED' || existingTask.status === 'CANCELLED') {
+      throw new BadRequestException('Não é possível reagendar uma tarefa concluída ou cancelada');
+    }
+
+    const previousDate = existingTask.forecastDate;
+
+    const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
+      const task = await tx.task.update({
+        where: { id: taskId },
+        data: { forecastDate: data.forecastDate },
+        include: include || undefined,
+      });
+
+      await tx.taskForecastHistory.create({
+        data: {
+          taskId,
+          previousDate: previousDate ?? null,
+          newDate: data.forecastDate,
+          reason: data.reason,
+          source: 'MANUAL',
+          changedById: userId,
+        },
+      });
+
+      await tx.taskFieldChangeLog.create({
+        data: {
+          taskId,
+          field: 'forecastDate',
+          oldValue: previousDate ? previousDate.toISOString() : null,
+          newValue: data.forecastDate.toISOString(),
+          changedBy: userId,
+        },
+      });
+
+      await this.changeLogService.logChange({
+        entityId: taskId,
+        entityType: ENTITY_TYPE.TASK,
+        action: CHANGE_ACTION.RESCHEDULE,
+        field: 'forecastDate',
+        oldValue: previousDate?.toISOString() ?? null,
+        newValue: data.forecastDate.toISOString(),
+        reason: `Reagendamento: ${data.reason}`,
+        triggeredBy: CHANGE_TRIGGERED_BY.USER,
+        triggeredById: null,
+        userId,
+        transaction: tx,
+        metadata: { reason: data.reason },
+      });
+
+      return task;
+    });
+
+    // Emit field changed event for notifications
+    try {
+      await this.fieldTracker.emitFieldChangeEvents(updatedTask as Task, [{
+        field: 'forecastDate',
+        oldValue: previousDate,
+        newValue: data.forecastDate,
+        changedAt: new Date(),
+        changedBy: userId,
+      }]);
+    } catch (error) {
+      this.logger.error('Error emitting forecast reschedule events:', error);
+    }
+
+    return {
+      success: true,
+      message: 'Previsão de liberação reagendada com sucesso',
+      data: updatedTask as Task,
+    };
+  }
+
+  async getForecastHistory(
+    taskId: string,
+    query: { page?: number; take?: number } = {},
+  ) {
+    const page = query.page || 1;
+    const take = query.take || 50;
+    const skip = (page - 1) * take;
+
+    const [data, total] = await Promise.all([
+      this.prisma.taskForecastHistory.findMany({
+        where: { taskId },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        include: {
+          changedBy: {
+            select: { id: true, name: true },
+          },
+        },
+      }),
+      this.prisma.taskForecastHistory.count({ where: { taskId } }),
+    ]);
+
+    return {
+      success: true,
+      data,
+      meta: {
+        total,
+        page,
+        take,
+        totalPages: Math.ceil(total / take),
+        hasNextPage: page * take < total,
+      },
+    };
   }
 }

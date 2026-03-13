@@ -41,6 +41,8 @@ import {
   taskPositionUpdateSchema,
   taskBulkPositionUpdateSchema,
   taskSwapPositionSchema,
+  taskRescheduleForecastSchema,
+  taskForecastHistoryQuerySchema,
 } from '../../../schemas/task';
 import { taskCopyFromSchema, type TaskCopyFromFormData } from '../../../schemas/task-copy';
 import {
@@ -62,6 +64,8 @@ import type {
   TaskPositionUpdateFormData,
   TaskBulkPositionUpdateFormData,
   TaskSwapPositionFormData,
+  TaskRescheduleForecastFormData,
+  TaskForecastHistoryQueryFormData,
 } from '../../../schemas/task';
 import type {
   TaskBulkArtsFormData,
@@ -581,6 +585,47 @@ export class TaskController {
     @UserId() userId: string,
   ): Promise<SuccessResponse<{ task1: Task; task2: Task }>> {
     return this.tasksService.swapTaskPositions(id, data.targetTaskId, query.include, userId);
+  }
+
+  // =====================
+  // FORECAST RESCHEDULE & HISTORY
+  // =====================
+
+  @Put(':id/reschedule-forecast')
+  @Roles(
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ADMIN,
+  )
+  async rescheduleForecast(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(taskRescheduleForecastSchema)) data: TaskRescheduleForecastFormData,
+    @Query(new ZodQueryValidationPipe(taskQuerySchema)) query: TaskQueryFormData,
+    @UserId() userId: string,
+  ): Promise<TaskUpdateResponse> {
+    return this.tasksService.rescheduleForecast(
+      id,
+      { forecastDate: data.forecastDate!, reason: data.reason! },
+      userId,
+      query.include,
+    );
+  }
+
+  @Get(':id/forecast-history')
+  @Roles(
+    SECTOR_PRIVILEGES.LOGISTIC,
+    SECTOR_PRIVILEGES.COMMERCIAL,
+    SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+    SECTOR_PRIVILEGES.ADMIN,
+    SECTOR_PRIVILEGES.FINANCIAL,
+    SECTOR_PRIVILEGES.DESIGNER,
+  )
+  async getForecastHistory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodQueryValidationPipe(taskForecastHistoryQuerySchema)) query: TaskForecastHistoryQueryFormData,
+  ) {
+    return this.tasksService.getForecastHistory(id, query);
   }
 
   // =====================

@@ -73,7 +73,7 @@ export class TaskQuoteService {
   ) {}
 
   /**
-   * Find many pricings with filtering, pagination, and sorting
+   * Find many quotes with filtering, pagination, and sorting
    */
   async findMany(query: TaskQuoteGetManyFormData): Promise<TaskQuoteGetManyResponse> {
     try {
@@ -92,19 +92,19 @@ export class TaskQuoteService {
   }
 
   /**
-   * Find unique pricing by ID
+   * Find unique quote by ID
    */
   async findUnique(id: string, include?: any): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.taskQuoteRepository.findById(id, include);
+      const quote = await this.taskQuoteRepository.findById(id, include);
 
-      if (!pricing) {
+      if (!quote) {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
       return {
         success: true,
-        data: pricing,
+        data: quote,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
@@ -115,14 +115,14 @@ export class TaskQuoteService {
   }
 
   /**
-   * Find pricing by task ID
+   * Find quote by task ID
    */
   async findByTaskId(taskId: string): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.taskQuoteRepository.findByTaskId(taskId);
+      const quote = await this.taskQuoteRepository.findByTaskId(taskId);
 
-      // Return null data when no pricing exists (not an error - task may not have pricing yet)
-      if (!pricing) {
+      // Return null data when no quote exists (not an error - task may not have a quote yet)
+      if (!quote) {
         return {
           success: true,
           data: null,
@@ -132,17 +132,17 @@ export class TaskQuoteService {
 
       return {
         success: true,
-        data: pricing,
+        data: quote,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error finding pricing for task ${taskId}:`, error);
+      this.logger.error(`Error finding quote for task ${taskId}:`, error);
       throw new InternalServerErrorException('Erro ao carregar orçamento.');
     }
   }
 
   /**
-   * Create new pricing
+   * Create new quote
    */
   async create(
     data: TaskQuoteCreateFormData,
@@ -171,8 +171,8 @@ export class TaskQuoteService {
         );
       }
 
-      // NOTE: Each task has its own independent pricing record.
-      // When copying pricing (e.g. via copyFromTask), a new TaskQuote is created as a deep copy.
+      // NOTE: Each task has its own independent quote record.
+      // When copying a quote (e.g. via copyFromTask), a new TaskQuote is created as a deep copy.
 
       // Validate services exist
       if (!data.services || data.services.length === 0) {
@@ -199,15 +199,15 @@ export class TaskQuoteService {
       const aggregateSubtotal = data.customerConfigs.reduce((sum, c) => sum + (c.subtotal || 0), 0);
       const aggregateTotal = data.customerConfigs.reduce((sum, c) => sum + (c.total || 0), 0);
 
-      // Create pricing with items in transaction
-      const pricing = await this.prisma.$transaction(async tx => {
+      // Create quote with items in transaction
+      const quote = await this.prisma.$transaction(async tx => {
         // Get next budget number (auto-increment)
         const maxBudgetNumber = await tx.taskQuote.aggregate({
           _max: { budgetNumber: true },
         });
         const nextBudgetNumber = (maxBudgetNumber._max.budgetNumber || 0) + 1;
 
-        const newPricing = await tx.taskQuote.create({
+        const newQuote = await tx.taskQuote.create({
           data: {
             budgetNumber: nextBudgetNumber,
             subtotal: aggregateSubtotal,
@@ -230,6 +230,7 @@ export class TaskQuoteService {
                 subtotal: config.subtotal || 0,
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
+                generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
                 downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
@@ -274,7 +275,7 @@ export class TaskQuoteService {
 
         // Generate installments for each customer config from paymentCondition
         for (const config of data.customerConfigs) {
-          const customerConfig = newPricing.customerConfigs.find(
+          const customerConfig = newQuote.customerConfigs.find(
             (cc: any) => cc.customerId === config.customerId,
           );
           if (customerConfig) {
@@ -303,18 +304,18 @@ export class TaskQuoteService {
         // Connect the task to this quote (one-to-one via Task.quoteId FK)
         await tx.task.update({
           where: { id: data.taskId },
-          data: { quoteId: newPricing.id },
+          data: { quoteId: newQuote.id },
         });
 
         // Log change
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TASK_QUOTE,
-          entityId: newPricing.id,
+          entityId: newQuote.id,
           action: CHANGE_ACTION.CREATE,
           userId,
           reason: 'Criação de orçamento',
           newValue: serializeChangelogValue({
-            id: newPricing.id,
+            id: newQuote.id,
             budgetNumber: nextBudgetNumber,
             subtotal: data.subtotal,
             total: data.total,
@@ -331,7 +332,7 @@ export class TaskQuoteService {
         });
 
         return tx.taskQuote.findUnique({
-          where: { id: newPricing.id },
+          where: { id: newQuote.id },
           include: {
             services: {
               orderBy: { position: 'asc' },
@@ -359,7 +360,7 @@ export class TaskQuoteService {
 
       return {
         success: true,
-        data: pricing as any,
+        data: quote as any,
         message: 'Orçamento criado com sucesso.',
       };
     } catch (error: unknown) {
@@ -370,7 +371,7 @@ export class TaskQuoteService {
   }
 
   /**
-   * Update existing pricing
+   * Update existing quote
    */
   async update(
     id: string,
@@ -431,9 +432,9 @@ export class TaskQuoteService {
         ? data.customerConfigs!.reduce((sum, c) => sum + (c.total || 0), 0)
         : undefined;
 
-      // Update pricing with items in transaction
+      // Update quote with items in transaction
       const updated = await this.prisma.$transaction(async tx => {
-        const updatedPricing = await tx.taskQuote.update({
+        const updatedQuote = await tx.taskQuote.update({
           where: { id },
           data: {
             ...(aggregateSubtotal !== undefined && { subtotal: aggregateSubtotal }),
@@ -507,7 +508,7 @@ export class TaskQuoteService {
           entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: id,
           oldEntity: existing,
-          newEntity: updatedPricing,
+          newEntity: updatedQuote,
           fieldsToTrack: [
             'subtotal',
             'total',
@@ -550,6 +551,7 @@ export class TaskQuoteService {
                 subtotal: config.subtotal || 0,
                 total: config.total || 0,
                 customPaymentText: config.customPaymentText || null,
+                generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
                 downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
@@ -632,10 +634,10 @@ export class TaskQuoteService {
           }
         }
 
-        // Track pricing services changes (per-service granular tracking)
+        // Track quote services changes (per-service granular tracking)
         if (data.services !== undefined) {
           const oldServices = (existing as any).services || [];
-          const newServices = (updatedPricing as any).services || [];
+          const newServices = (updatedQuote as any).services || [];
 
           // Log per-service changes (added, removed, field updates)
           await logQuoteServiceChanges({
@@ -729,7 +731,7 @@ export class TaskQuoteService {
         // =====================================================================
         if (data.services !== undefined) {
           const oldServices = (existing as any).services || [];
-          const newServices = (updatedPricing as any).services || [];
+          const newServices = (updatedQuote as any).services || [];
 
           // Build set of normalized descriptions in the new services
           const newDescriptions = new Set(
@@ -835,7 +837,7 @@ export class TaskQuoteService {
   }
 
   /**
-   * Delete pricing
+   * Delete quote
    */
   async delete(id: string, userId: string): Promise<TaskQuoteDeleteResponse> {
     try {
@@ -852,8 +854,8 @@ export class TaskQuoteService {
         throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
       }
 
-      // Store the full pricing data for changelog (enables rollback restoration)
-      const pricingSnapshot = {
+      // Store the full quote data for changelog (enables rollback restoration)
+      const quoteSnapshot = {
         id: existing.id,
         budgetNumber: existing.budgetNumber,
         subtotal: existing.subtotal,
@@ -890,7 +892,7 @@ export class TaskQuoteService {
             entityId: taskId,
             action: CHANGE_ACTION.UPDATE,
             field: 'quoteId',
-            oldValue: pricingSnapshot,
+            oldValue: quoteSnapshot,
             newValue: null,
             userId,
             reason: 'Orçamento removido (exclusão do orçamento)',
@@ -902,12 +904,12 @@ export class TaskQuoteService {
 
         await tx.taskQuote.delete({ where: { id } });
 
-        // Log the pricing deletion itself
+        // Log the quote deletion itself
         await this.changeLogService.logChange({
           entityType: ENTITY_TYPE.TASK_QUOTE,
           entityId: id,
           action: CHANGE_ACTION.DELETE,
-          oldValue: pricingSnapshot,
+          oldValue: quoteSnapshot,
           userId,
           reason: 'Exclusão de orçamento',
           triggeredBy: CHANGE_TRIGGERED_BY.USER_ACTION,
@@ -928,7 +930,7 @@ export class TaskQuoteService {
   }
 
   /**
-   * Update pricing status (approve/reject/cancel)
+   * Update quote status (approve/reject/cancel)
    */
   async updateStatus(
     id: string,
@@ -957,7 +959,7 @@ export class TaskQuoteService {
         message: `Orçamento ${this.getStatusLabel(status)} com sucesso.`,
       };
     } catch (error: unknown) {
-      this.logger.error(`Error updating pricing status ${id}:`, error);
+      this.logger.error(`Error updating quote status ${id}:`, error);
       throw error;
     }
   }
@@ -970,7 +972,7 @@ export class TaskQuoteService {
   }
 
   /**
-   * Financial verifies the pricing structure
+   * Financial verifies the quote structure
    */
   async verify(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
     return this.updateStatus(id, TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL, userId);
@@ -980,23 +982,23 @@ export class TaskQuoteService {
    * Commercial/admin final approval — triggers invoice + NFS-e generation
    */
   async internalApprove(id: string, userId: string): Promise<TaskQuoteUpdateResponse> {
-    this.logger.log(`[INTERNAL_APPROVE] Starting internal approval for pricing ${id} by user ${userId}`);
+    this.logger.log(`[INTERNAL_APPROVE] Starting internal approval for quote ${id} by user ${userId}`);
 
-    // 1. Validate the pricing exists and prerequisites are met
+    // 1. Validate the quote exists and prerequisites are met
     const existing = await this.taskQuoteRepository.findById(id);
     if (!existing) {
       throw new NotFoundException(`Orçamento com ID ${id} não encontrado.`);
     }
-    this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.INTERNAL_APPROVED);
-    await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.INTERNAL_APPROVED);
+    this.validateStatusTransition(existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.BILLING_APPROVED);
+    await this.validateStatusPrerequisites(id, existing.status as TASK_QUOTE_STATUS, TASK_QUOTE_STATUS.BILLING_APPROVED);
 
     // 2. Atomically claim the status transition (prevents concurrent approvals)
-    // Only one request can win: the one that finds status=VERIFIED and sets it to INTERNAL_APPROVED
+    // Only one request can win: the one that finds status=VERIFIED and sets it to BILLING_APPROVED
     const claimed = await this.prisma.taskQuote.updateMany({
       where: { id, status: TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL },
       data: {
-        status: TASK_QUOTE_STATUS.INTERNAL_APPROVED,
-        statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.INTERNAL_APPROVED),
+        status: TASK_QUOTE_STATUS.BILLING_APPROVED,
+        statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BILLING_APPROVED),
       },
     });
     if (claimed.count === 0) {
@@ -1005,7 +1007,7 @@ export class TaskQuoteService {
       );
     }
 
-    this.logger.log(`[INTERNAL_APPROVE] Status atomically claimed to INTERNAL_APPROVED for pricing ${id}`);
+    this.logger.log(`[INTERNAL_APPROVE] Status atomically claimed to BILLING_APPROVED for quote ${id}`);
 
     // Trigger invoice generation and auto-transition to UPCOMING
     // If anything fails, revert status back to VERIFIED so the user can retry
@@ -1053,21 +1055,21 @@ export class TaskQuoteService {
       });
 
       // Auto-transition to UPCOMING after successful invoice generation
-      this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning pricing ${id} to UPCOMING...`);
+      this.logger.log(`[INTERNAL_APPROVE] Auto-transitioning quote ${id} to UPCOMING...`);
       await this.update(id, { status: TASK_QUOTE_STATUS.UPCOMING } as any, userId);
-      this.logger.log(`[INTERNAL_APPROVE] Pricing ${id} transitioned to UPCOMING successfully`);
+      this.logger.log(`[INTERNAL_APPROVE] Quote ${id} transitioned to UPCOMING successfully`);
     } catch (error) {
       this.logger.error(
-        `[INTERNAL_APPROVE] Failed during invoice generation/transition for pricing ${id}: ${error}`,
+        `[INTERNAL_APPROVE] Failed during invoice generation/transition for quote ${id}: ${error}`,
       );
       if (error instanceof Error) {
         this.logger.error(`[INTERNAL_APPROVE] Stack trace: ${error.stack}`);
       }
 
-      // Revert status back to VERIFIED so the pricing is not stuck at INTERNAL_APPROVED
-      // Uses direct prisma update to bypass status transition validation (INTERNAL_APPROVED → VERIFIED is not normally allowed)
+      // Revert status back to VERIFIED so the quote is not stuck at BILLING_APPROVED
+      // Uses direct prisma update to bypass status transition validation (BILLING_APPROVED → VERIFIED is not normally allowed)
       try {
-        this.logger.warn(`[INTERNAL_APPROVE] Rolling back pricing ${id} status from INTERNAL_APPROVED to VERIFIED...`);
+        this.logger.warn(`[INTERNAL_APPROVE] Rolling back quote ${id} status from BILLING_APPROVED to VERIFIED...`);
         await this.prisma.taskQuote.update({
           where: { id },
           data: {
@@ -1075,10 +1077,10 @@ export class TaskQuoteService {
             statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL),
           },
         });
-        this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — pricing ${id} reverted to VERIFIED`);
+        this.logger.warn(`[INTERNAL_APPROVE] Rollback successful — quote ${id} reverted to VERIFIED`);
       } catch (rollbackError) {
         this.logger.error(
-          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback pricing ${id} status to VERIFIED: ${rollbackError}`,
+          `[INTERNAL_APPROVE] CRITICAL: Failed to rollback quote ${id} status to VERIFIED: ${rollbackError}`,
         );
       }
 
@@ -1094,7 +1096,7 @@ export class TaskQuoteService {
     return {
       success: true,
       data: existing as any,
-      message: 'Orçamento aprovado internamente com sucesso.',
+      message: 'Faturamento do orçamento aprovado com sucesso.',
     };
   }
 
@@ -1102,22 +1104,22 @@ export class TaskQuoteService {
    * Get approved price for a task
    */
   async getApprovedPriceForTask(taskId: string): Promise<number> {
-    const pricing = await this.taskQuoteRepository.findApprovedByTaskId(taskId);
-    return pricing?.total || 0;
+    const quote = await this.taskQuoteRepository.findApprovedByTaskId(taskId);
+    return quote?.total || 0;
   }
 
   /**
-   * Find expired pricings and optionally mark them
+   * Find expired quotes and optionally mark them
    */
   async findAndMarkExpired(): Promise<TaskQuote[]> {
     try {
       const expired = await this.taskQuoteRepository.findExpired();
 
-      this.logger.log(`Found ${expired.length} expired pricings`);
+      this.logger.log(`Found ${expired.length} expired quotes`);
 
       return expired;
     } catch (error: unknown) {
-      this.logger.error('Error finding expired pricings:', error);
+      this.logger.error('Error finding expired quotes:', error);
       throw new InternalServerErrorException('Erro ao buscar orçamentos expirados.');
     }
   }
@@ -1127,21 +1129,21 @@ export class TaskQuoteService {
   // =====================
 
   /**
-   * Find pricing for public view (customer budget page)
-   * Only returns data if pricing is not expired (unless ignoreExpiration is true)
-   * @param id - Pricing ID
-   * @param ignoreExpiration - If true, returns pricing even if expired (for authenticated users)
+   * Find quote for public view (customer budget page)
+   * Only returns data if quote is not expired (unless ignoreExpiration is true)
+   * @param id - Quote ID
+   * @param ignoreExpiration - If true, returns quote even if expired (for authenticated users)
    */
   async findPublic(id: string, ignoreExpiration = false): Promise<TaskQuoteGetUniqueResponse> {
     try {
-      const pricing = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           services: {
             orderBy: { position: 'asc' },
             include: {
               invoiceToCustomer: {
-                select: { id: true, fantasyName: true, cnpj: true },
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
             },
           },
@@ -1149,7 +1151,7 @@ export class TaskQuoteService {
           customerConfigs: {
             include: {
               customer: {
-                select: { id: true, fantasyName: true, cnpj: true },
+                select: { id: true, corporateName: true, fantasyName: true, cnpj: true },
               },
               customerSignature: true,
               responsible: true,
@@ -1165,13 +1167,13 @@ export class TaskQuoteService {
         },
       });
 
-      if (!pricing) {
+      if (!quote) {
         throw new NotFoundException('Orçamento não encontrado.');
       }
 
-      // Check if pricing is expired (skip check if user is authenticated)
+      // Check if quote is expired (skip check if user is authenticated)
       const now = new Date();
-      if (!ignoreExpiration && new Date(pricing.expiresAt) < now) {
+      if (!ignoreExpiration && new Date(quote.expiresAt) < now) {
         throw new BadRequestException(
           'Este orçamento expirou e não está mais disponível para visualização.',
         );
@@ -1179,11 +1181,11 @@ export class TaskQuoteService {
 
       return {
         success: true,
-        data: pricing as any,
+        data: quote as any,
         message: 'Orçamento carregado com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error finding public pricing ${id}:`, error);
+      this.logger.error(`Error finding public quote ${id}:`, error);
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
@@ -1192,8 +1194,8 @@ export class TaskQuoteService {
   }
 
   /**
-   * Upload customer signature for pricing (public endpoint)
-   * Only allows upload if pricing is not expired
+   * Upload customer signature for quote (public endpoint)
+   * Only allows upload if quote is not expired
    */
   async uploadCustomerSignature(
     id: string,
@@ -1201,7 +1203,7 @@ export class TaskQuoteService {
     customerConfigId?: string,
   ): Promise<TaskQuoteUpdateResponse> {
     try {
-      const pricing = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
           customerConfigs: {
@@ -1210,13 +1212,13 @@ export class TaskQuoteService {
         },
       });
 
-      if (!pricing) {
+      if (!quote) {
         throw new NotFoundException('Orçamento não encontrado.');
       }
 
-      // Check if pricing is expired
+      // Check if quote is expired
       const now = new Date();
-      if (new Date(pricing.expiresAt) < now) {
+      if (new Date(quote.expiresAt) < now) {
         throw new BadRequestException(
           'Este orçamento expirou. Não é possível enviar a assinatura.',
         );
@@ -1224,8 +1226,8 @@ export class TaskQuoteService {
 
       // Find the target customer config
       const targetConfig = customerConfigId
-        ? pricing.customerConfigs.find(c => c.id === customerConfigId)
-        : pricing.customerConfigs[0];
+        ? quote.customerConfigs.find(c => c.id === customerConfigId)
+        : quote.customerConfigs[0];
 
       if (!targetConfig) {
         throw new BadRequestException('Configuração de cliente não encontrada.');
@@ -1261,7 +1263,7 @@ export class TaskQuoteService {
           });
       }
 
-      // Re-fetch the full pricing
+      // Re-fetch the full quote
       const updated = await this.prisma.taskQuote.findUnique({
         where: { id },
         include: {
@@ -1296,7 +1298,7 @@ export class TaskQuoteService {
         triggeredById: null,
       });
 
-      this.logger.log(`Customer signature uploaded for pricing ${id}, config ${targetConfig.id}`);
+      this.logger.log(`Customer signature uploaded for quote ${id}, config ${targetConfig.id}`);
 
       return {
         success: true,
@@ -1304,7 +1306,7 @@ export class TaskQuoteService {
         message: 'Assinatura enviada com sucesso.',
       };
     } catch (error: unknown) {
-      this.logger.error(`Error uploading signature for pricing ${id}:`, error);
+      this.logger.error(`Error uploading signature for quote ${id}:`, error);
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
       }
@@ -1363,7 +1365,7 @@ export class TaskQuoteService {
         break;
       }
 
-      case `${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}->${TASK_QUOTE_STATUS.INTERNAL_APPROVED}`: {
+      case `${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
         // Each customerConfig must have valid paymentCondition and downPaymentDate
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
@@ -1457,7 +1459,7 @@ export class TaskQuoteService {
         break;
       }
 
-      // INTERNAL_APPROVED -> UPCOMING: automatic (done by internalApprove), no extra checks
+      // BILLING_APPROVED -> UPCOMING: automatic (done by internalApprove), no extra checks
       default:
         break;
     }
@@ -1472,7 +1474,7 @@ export class TaskQuoteService {
       [TASK_QUOTE_STATUS.PENDING]: 'salvo como pendente',
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'orçamento aprovado pelo cliente',
       [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 'verificado pelo financeiro',
-      [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 'aprovado internamente',
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'faturamento aprovado',
       [TASK_QUOTE_STATUS.UPCOMING]: 'com parcelas a vencer',
       [TASK_QUOTE_STATUS.DUE]: 'com parcelas vencidas',
       [TASK_QUOTE_STATUS.PARTIAL]: 'parcialmente pago',
@@ -1490,7 +1492,7 @@ export class TaskQuoteService {
       [TASK_QUOTE_STATUS.PENDING]: 1,
       [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
       [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 3,
-      [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 4,
+      [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
       [TASK_QUOTE_STATUS.UPCOMING]: 5,
       [TASK_QUOTE_STATUS.DUE]: 6,
       [TASK_QUOTE_STATUS.PARTIAL]: 7,

@@ -19,7 +19,7 @@ import type { File } from './file';
 // TaskQuote Status Enum (mirrored from constants)
 // =====================
 
-export type TASK_QUOTE_STATUS = 'PENDING' | 'BUDGET_APPROVED' | 'VERIFIED_BY_FINANCIAL' | 'INTERNAL_APPROVED' | 'UPCOMING' | 'DUE' | 'PARTIAL' | 'SETTLED';
+export type TASK_QUOTE_STATUS = 'PENDING' | 'BUDGET_APPROVED' | 'VERIFIED_BY_FINANCIAL' | 'BILLING_APPROVED' | 'UPCOMING' | 'DUE' | 'PARTIAL' | 'SETTLED';
 export type DISCOUNT_TYPE = 'NONE' | 'PERCENTAGE' | 'FIXED_VALUE';
 
 // =====================

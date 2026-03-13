@@ -60,7 +60,7 @@ export class TaskQuoteStatusCascadeService {
    */
   async cascadeFromQuote(quoteId: string): Promise<void> {
     try {
-      const pricing = await this.prisma.taskQuote.findUnique({
+      const quote = await this.prisma.taskQuote.findUnique({
         where: { id: quoteId },
         include: {
           customerConfigs: {
@@ -71,24 +71,24 @@ export class TaskQuoteStatusCascadeService {
         },
       });
 
-      if (!pricing) {
+      if (!quote) {
         this.logger.warn(`Quote ${quoteId} not found for cascade`);
         return;
       }
 
-      // Only cascade for pricings that are in UPCOMING, DUE, PARTIAL, or SETTLED state
+      // Only cascade for quotes that are in UPCOMING, DUE, PARTIAL, or SETTLED state
       const cascadableStatuses = [
         TASK_QUOTE_STATUS.UPCOMING,
         TASK_QUOTE_STATUS.DUE,
         TASK_QUOTE_STATUS.PARTIAL,
         TASK_QUOTE_STATUS.SETTLED,
       ];
-      if (!cascadableStatuses.includes(pricing.status as TASK_QUOTE_STATUS)) {
+      if (!cascadableStatuses.includes(quote.status as TASK_QUOTE_STATUS)) {
         return;
       }
 
       // Collect all installments across all customer configs
-      const allInstallments = pricing.customerConfigs.flatMap(
+      const allInstallments = quote.customerConfigs.flatMap(
         (config) => (config as any).installments || [],
       );
 
@@ -124,12 +124,12 @@ export class TaskQuoteStatusCascadeService {
         newStatus = TASK_QUOTE_STATUS.UPCOMING;
       }
 
-      if (newStatus !== pricing.status) {
+      if (newStatus !== quote.status) {
         const statusOrder: Record<string, number> = {
           [TASK_QUOTE_STATUS.PENDING]: 1,
           [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 2,
           [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 3,
-          [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 4,
+          [TASK_QUOTE_STATUS.BILLING_APPROVED]: 4,
           [TASK_QUOTE_STATUS.UPCOMING]: 5,
           [TASK_QUOTE_STATUS.DUE]: 6,
           [TASK_QUOTE_STATUS.PARTIAL]: 7,
@@ -145,7 +145,7 @@ export class TaskQuoteStatusCascadeService {
         });
 
         this.logger.log(
-          `Cascaded TaskQuote ${quoteId} status: ${pricing.status} → ${newStatus}`,
+          `Cascaded TaskQuote ${quoteId} status: ${quote.status} → ${newStatus}`,
         );
       }
     } catch (error) {

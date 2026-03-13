@@ -79,6 +79,7 @@ export class NfseEmissionScheduler {
                 select: {
                   id: true,
                   fantasyName: true,
+                  corporateName: true,
                   cnpj: true,
                   cpf: true,
                   email: true,
@@ -97,6 +98,12 @@ export class NfseEmissionScheduler {
                   id: true,
                   name: true,
                   serialNumber: true,
+                  truck: {
+                    select: {
+                      plate: true,
+                      chassisNumber: true,
+                    },
+                  },
                   quote: {
                     select: {
                       services: {
@@ -104,6 +111,8 @@ export class NfseEmissionScheduler {
                           description: true,
                           amount: true,
                           invoiceToCustomerId: true,
+                          discountType: true,
+                          discountValue: true,
                         },
                         orderBy: { position: 'asc' as const },
                       },
@@ -189,6 +198,8 @@ export class NfseEmissionScheduler {
                   description: string;
                   amount: any;
                   invoiceToCustomerId: string | null;
+                  discountType?: string;
+                  discountValue?: number | null;
                 }>
               | undefined;
 
@@ -201,9 +212,12 @@ export class NfseEmissionScheduler {
             .map((s) => ({
               description: s.description,
               amount: Number(s.amount),
+              discountType: s.discountType || undefined,
+              discountValue: s.discountValue != null ? Number(s.discountValue) : undefined,
             }));
 
           // Build the input for municipal NFSe emission (Elotech OXY)
+          const truck = (task as any).truck;
           const emitInput = {
             id: invoice.id,
             totalAmount: Number(invoice.totalAmount),
@@ -211,6 +225,7 @@ export class NfseEmissionScheduler {
               cnpj: customer.cnpj || undefined,
               cpf: customer.cpf || undefined,
               name: customer.fantasyName || '',
+              corporateName: (customer as any).corporateName || undefined,
               email: customer.email || undefined,
               phone: customer.phones?.[0] || undefined,
               address: customer.address
@@ -230,6 +245,12 @@ export class NfseEmissionScheduler {
               name: task.name,
               serialNumber: (task as any).serialNumber || undefined,
             },
+            truck: truck
+              ? {
+                  plate: truck.plate || undefined,
+                  chassisNumber: truck.chassisNumber || undefined,
+                }
+              : undefined,
             services,
           };
 
