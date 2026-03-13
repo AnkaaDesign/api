@@ -139,7 +139,7 @@ export class TaskQuoteController {
    * Update quote status
    *
    * Access: FINANCIAL, ADMIN, COMMERCIAL
-   * Note: FINANCIAL cannot set INTERNAL_APPROVED (only ADMIN/COMMERCIAL can)
+   * Note: FINANCIAL cannot set BILLING_APPROVED (only ADMIN/COMMERCIAL can)
    */
   @Put(':id/status')
   @Roles(SECTOR_PRIVILEGES.ADMIN, SECTOR_PRIVILEGES.FINANCIAL, SECTOR_PRIVILEGES.COMMERCIAL)
@@ -154,8 +154,8 @@ export class TaskQuoteController {
       throw new BadRequestException('Status inválido');
     }
 
-    // FINANCIAL cannot set INTERNAL_APPROVED — only ADMIN/COMMERCIAL can
-    if (status === TASK_QUOTE_STATUS.INTERNAL_APPROVED) {
+    // FINANCIAL cannot set BILLING_APPROVED — only ADMIN/COMMERCIAL can
+    if (status === TASK_QUOTE_STATUS.BILLING_APPROVED) {
       const userPrivilege = (req as any).user?.role;
       if (userPrivilege === SECTOR_PRIVILEGES.FINANCIAL) {
         throw new BadRequestException(
@@ -194,7 +194,7 @@ export class TaskQuoteController {
 
   /**
    * PUT /task-quotes/:id/internal-approve
-   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED_BY_FINANCIAL → INTERNAL_APPROVED)
+   * Commercial/admin final approval → triggers invoices + NFS-e (VERIFIED_BY_FINANCIAL → BILLING_APPROVED)
    *
    * Access: COMMERCIAL, ADMIN
    */

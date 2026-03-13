@@ -1408,10 +1408,43 @@ export class NotificationDispatchService {
 
       // Get target users based on targetRule from database configuration
       const allowedSectors = this.extractAllowedSectorsFromConfig(dbConfig);
-      const targetUsers = await this.getTargetUsersByRoles(
+      let targetUsers = await this.getTargetUsersByRoles(
         allowedSectors,
         triggeringUserId === 'system' ? undefined : triggeringUserId,
       );
+
+      // Sector-aware filtering for task notifications:
+      // When the task has a specific sector assigned and the config targets PRODUCTION-privilege
+      // sectors, only notify PRODUCTION/PRODUCTION_MANAGER users who belong to that specific
+      // sector. Users with other privileges (ADMIN, COMMERCIAL, etc.) remain unfiltered.
+      const taskSectorId = context.data?.taskSectorId;
+      if (taskSectorId && typeof taskSectorId === 'string') {
+        const productionPrivileges: SECTOR_PRIVILEGES[] = [
+          SECTOR_PRIVILEGES.PRODUCTION,
+          SECTOR_PRIVILEGES.PRODUCTION_MANAGER,
+        ];
+        const hasProductionInAllowed = allowedSectors.some(s => productionPrivileges.includes(s));
+
+        if (hasProductionInAllowed) {
+          const beforeCount = targetUsers.length;
+          targetUsers = targetUsers.filter(user => {
+            const userPrivilege = user.sector?.privileges;
+            // If the user is in a production-type sector, only keep them if their sectorId matches
+            if (userPrivilege && productionPrivileges.includes(userPrivilege as SECTOR_PRIVILEGES)) {
+              return user.sectorId === taskSectorId;
+            }
+            // Non-production users (ADMIN, COMMERCIAL, etc.) are not filtered by task sector
+            return true;
+          });
+
+          if (beforeCount !== targetUsers.length) {
+            this.logger.log(
+              `Sector-aware filter applied for task sector ${taskSectorId}: ` +
+                `${beforeCount} → ${targetUsers.length} users (${beforeCount - targetUsers.length} production users from other sectors excluded)`,
+            );
+          }
+        }
+      }
 
       if (targetUsers.length === 0) {
         this.logger.log(`No target users found for configuration: ${configKey}`);

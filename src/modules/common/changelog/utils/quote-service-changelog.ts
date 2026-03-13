@@ -22,7 +22,7 @@ interface ServiceDiffEntry {
 }
 
 /**
- * Compare old and new pricing service arrays and produce per-service diff entries.
+ * Compare old and new quote service arrays and produce per-service diff entries.
  * Matches services by normalized description (case-insensitive, trimmed).
  */
 export function diffQuoteServices(

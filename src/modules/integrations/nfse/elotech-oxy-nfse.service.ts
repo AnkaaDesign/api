@@ -30,9 +30,15 @@ export interface MunicipalEmitNfseInput {
     name: string;
     serialNumber?: string;
   };
+  truck?: {
+    plate?: string;
+    chassisNumber?: string;
+  };
   services?: Array<{
     description: string;
     amount: number;
+    discountType?: string;
+    discountValue?: number | null;
   }>;
   description?: string;
 }
@@ -694,48 +700,86 @@ export class ElotechOxyNfseService {
     }
 
     const totalAmount = invoice.totalAmount;
-    const osRef = `OS ${invoice.task.serialNumber || invoice.task.name}`;
+    const serialNumber = invoice.task.serialNumber || invoice.task.name;
+
+    // Build vehicle identification for description
+    const vehicleParts: string[] = [];
+    if (invoice.task.serialNumber) {
+      vehicleParts.push(`nº série: ${invoice.task.serialNumber}`);
+    }
+    if (invoice.truck?.chassisNumber) {
+      vehicleParts.push(`chassi: ${invoice.truck.chassisNumber}`);
+    }
+    if (invoice.truck?.plate) {
+      vehicleParts.push(`placa: ${invoice.truck.plate}`);
+    }
+    const vehicleRef = vehicleParts.length > 0
+      ? `Referente aos serviços executados no veículo ${vehicleParts.join(', ')}.`
+      : `Ref. OS ${serialNumber}`;
 
     // Build line items — must use exact field names from Elotech portal
     const services = invoice.services;
     let formItensNFSe: Record<string, any>[];
     let discriminacaoServico: string;
+    let totalDescontosIncondicionados = 0;
 
-    const buildItem = (description: string, amount: number, index: number) => ({
-      showPainelDeducao: false,
-      item: description,
-      quantidade: 1,
-      valorUnitario: amount,
-      valorDesconto: 0,
-      valorDescontoCondicionado: 0,
-      valorTotal: amount,
-      valorLiquido: amount,
-      isDeducao: false,
-      unidadeMedida: null,
-      deducao: {
-        tipoDeducao: null,
-        numeroNota: null,
-        valorNota: null,
-        tipoPessoa: null,
-        cpfCnpj: null,
-      },
-      expand: false,
-      itemIndex: index,
-    });
+    const buildItem = (
+      description: string,
+      amount: number,
+      index: number,
+      discountType?: string,
+      discountValue?: number | null,
+    ) => {
+      let valorDesconto = 0;
+      if (discountType === 'PERCENTAGE' && discountValue) {
+        valorDesconto = Math.round((amount * discountValue / 100) * 100) / 100;
+      } else if (discountType === 'FIXED_VALUE' && discountValue) {
+        valorDesconto = Math.min(discountValue, amount);
+      }
+      const valorLiquido = Math.max(0, Math.round((amount - valorDesconto) * 100) / 100);
+      totalDescontosIncondicionados += valorDesconto;
+
+      return {
+        showPainelDeducao: false,
+        item: description,
+        quantidade: 1,
+        valorUnitario: amount,
+        valorDesconto,
+        valorDescontoCondicionado: 0,
+        valorTotal: amount,
+        valorLiquido,
+        isDeducao: false,
+        unidadeMedida: null,
+        deducao: {
+          tipoDeducao: null,
+          numeroNota: null,
+          valorNota: null,
+          tipoPessoa: null,
+          cpfCnpj: null,
+        },
+        expand: false,
+        itemIndex: index,
+      };
+    };
 
     if (services && services.length > 0) {
-      formItensNFSe = services.map((svc, i) => buildItem(svc.description, svc.amount, i));
+      formItensNFSe = services.map((svc, i) =>
+        buildItem(svc.description, svc.amount, i, svc.discountType, svc.discountValue),
+      );
       const serviceLines = services.map((s) => s.description).join('\n');
       discriminacaoServico =
-        invoice.description || `${serviceLines}\nRef. ${osRef}`;
+        invoice.description || `${vehicleRef}\n\n${serviceLines}`;
     } else {
-      const fallbackDesc = invoice.description || `Serviço ref. ${osRef}`;
+      const fallbackDesc = invoice.description || `Serviço ref. OS ${serialNumber}`;
       formItensNFSe = [buildItem(fallbackDesc, totalAmount, 0)];
       discriminacaoServico = fallbackDesc;
     }
 
-    // ISS computation
-    const baseCalculoIss = totalAmount;
+    totalDescontosIncondicionados = Math.round(totalDescontosIncondicionados * 100) / 100;
+
+    // ISS computation — base = totalNfse - totalDescontosIncondicionados
+    const totalNfse = totalAmount;
+    const baseCalculoIss = Math.max(0, totalNfse - totalDescontosIncondicionados);
     const valorIss = Math.round(baseCalculoIss * this.servicoLCAliquota) / 100;
     const now = new Date().toISOString();
 
@@ -937,14 +981,14 @@ export class ElotechOxyNfseService {
         registroExportacao: null,
       },
       formTotal: {
-        totalDescontosIncondicionados: 0,
+        totalDescontosIncondicionados,
         totalDescontosCondicionados: 0,
         totalDeducoes: 0,
         percentualDeducoes: 0,
         baseCalculoIss,
         valorImpostos: valorIss,
-        valorLiquidoNfse: totalAmount,
-        totalNfse: totalAmount,
+        valorLiquidoNfse: Math.max(0, totalNfse - totalDescontosIncondicionados),
+        totalNfse,
       },
     };
   }

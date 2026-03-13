@@ -25,7 +25,7 @@ export abstract class TaskQuoteRepository extends BaseStringRepository<
 
   /**
    * Find all quotes by status
-   * @param status - Quote status (PENDING, BUDGET_APPROVED, VERIFIED_BY_FINANCIAL, INTERNAL_APPROVED, UPCOMING, DUE, PARTIAL, SETTLED)
+   * @param status - Quote status (PENDING, BUDGET_APPROVED, VERIFIED_BY_FINANCIAL, BILLING_APPROVED, UPCOMING, DUE, PARTIAL, SETTLED)
    * @returns Array of TaskQuote
    */
   abstract findByStatus(status: string): Promise<TaskQuote[]>;

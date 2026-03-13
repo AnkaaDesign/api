@@ -206,7 +206,7 @@ export function formatTaskSummary(task: Task): string {
 }
 
 /**
- * Calculate task price from pricing
+ * Calculate task price from quote
  */
 export function calculateTaskPrice(task: Task): number {
   if (!task.quote) return 0;
@@ -214,7 +214,7 @@ export function calculateTaskPrice(task: Task): number {
 }
 
 /**
- * Format task price from pricing total
+ * Format task price from quote total
  */
 export function formatTaskPrice(task: Task): string {
   if (!task.quote || !task.quote.total) return 'Sem valor';

@@ -158,6 +158,23 @@ export class SicrediService implements OnModuleInit {
   }
 
   /**
+   * Change the due date of an existing boleto at Sicredi.
+   * Uses PATCH /cobranca/boleto/v1/boletos/{nossoNumero}/data-vencimento
+   * @param nossoNumero - The boleto identifier
+   * @param newDueDate - New due date in YYYY-MM-DD format (must be >= today)
+   */
+  async changeDueDate(nossoNumero: string, newDueDate: string): Promise<void> {
+    this.logger.log(`[SICREDI_API] Changing due date for boleto ${nossoNumero} to ${newDueDate}`);
+
+    await this.apiClient.patch(
+      `/cobranca/boleto/v1/boletos/${nossoNumero}/data-vencimento`,
+      { dataVencimento: newDueDate },
+    );
+
+    this.logger.log(`[SICREDI_API] Due date changed successfully for boleto ${nossoNumero}`);
+  }
+
+  /**
    * Cancel (baixa) a boleto at Sicredi.
    */
   async cancelBoleto(nossoNumero: string): Promise<void> {

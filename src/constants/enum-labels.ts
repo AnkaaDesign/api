@@ -1968,14 +1968,14 @@ export const STATISTICS_PERIOD_LABELS: Record<STATISTICS_PERIOD, string> = {
 };
 
 // =====================
-// Task Pricing Labels
+// Task Quote Labels
 // =====================
 
 export const TASK_QUOTE_STATUS_LABELS: Record<TASK_QUOTE_STATUS, string> = {
   [TASK_QUOTE_STATUS.PENDING]: 'Pendente',
   [TASK_QUOTE_STATUS.BUDGET_APPROVED]: 'Orçamento Aprovado',
   [TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL]: 'Verificado pelo Financeiro',
-  [TASK_QUOTE_STATUS.INTERNAL_APPROVED]: 'Aprovado Internamente',
+  [TASK_QUOTE_STATUS.BILLING_APPROVED]: 'Faturamento Aprovado',
   [TASK_QUOTE_STATUS.UPCOMING]: 'A Vencer',
   [TASK_QUOTE_STATUS.DUE]: 'Vencido',
   [TASK_QUOTE_STATUS.PARTIAL]: 'Parcial',

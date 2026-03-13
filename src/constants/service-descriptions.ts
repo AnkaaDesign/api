@@ -254,3 +254,16 @@ export const DEFAULT_TASK_SERVICE_ORDER = {
   type: SERVICE_ORDER_TYPE.COMMERCIAL,
   description: 'Em Negociação',
 } as const;
+
+/**
+ * All default service orders created automatically for new tasks.
+ * Includes: 1 Commercial, 3 Artwork, 2 Logistic
+ */
+export const DEFAULT_TASK_SERVICE_ORDERS = [
+  { type: SERVICE_ORDER_TYPE.COMMERCIAL, description: 'Em Negociação' },
+  { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Elaborar Layout' },
+  { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Elaborar Projeto' },
+  { type: SERVICE_ORDER_TYPE.ARTWORK, description: 'Preparar Arquivos para Plotagem' },
+  { type: SERVICE_ORDER_TYPE.LOGISTIC, description: 'Checklist Entrada' },
+  { type: SERVICE_ORDER_TYPE.LOGISTIC, description: 'Checklist Saída' },
+] as const;

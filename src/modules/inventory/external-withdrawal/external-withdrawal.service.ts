@@ -192,7 +192,7 @@ export class ExternalWithdrawalService {
       }
     }
 
-    // Validate type and pricing logic
+    // Validate type and quote logic
     if (!isUpdate && 'type' in data && data.type === 'CHARGEABLE' && 'items' in data) {
       // If items are chargeable, validate that all items have prices
       for (const item of data.items || []) {

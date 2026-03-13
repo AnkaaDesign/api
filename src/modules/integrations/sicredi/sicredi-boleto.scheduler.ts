@@ -69,10 +69,17 @@ export class SicrediBoletoScheduler {
 
       // Find installments that are PENDING, due within 5 days,
       // and either have no BankSlip or have a BankSlip with ERROR/CREATING status (< 3 retries)
+      // Exclude installments from customer configs with custom payment text (those don't use boleto)
       const installments = await this.prisma.installment.findMany({
         where: {
           status: INSTALLMENT_STATUS.PENDING,
           dueDate: { lte: fiveDaysFromNow },
+          customerConfig: {
+            OR: [
+              { customPaymentText: null },
+              { customPaymentText: '' },
+            ],
+          },
           OR: [
             { bankSlip: { is: null } },
             {
