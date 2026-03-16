@@ -429,7 +429,10 @@ export class TaskService {
         delete (dataWithCreator as any).checkoutFileIds;
         delete (dataWithCreator as any).artworkStatuses;
         const newTask = await this.tasksRepository.createWithTransaction(tx, dataWithCreator, {
-          include,
+          include: {
+            ...include,
+            customer: true, // Always include customer for file path organization
+          },
         });
 
         // ======= EXPLICIT POST-CREATION: Connect pre-uploaded artworks and base files =======
