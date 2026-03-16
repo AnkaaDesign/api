@@ -357,13 +357,22 @@ export class FilesStorageService {
         // Entity-first: {root}/{entityName}/{contextSuffix}
         folderPath = join(entityRoot.root, entityRoot.entityName, contextSuffix);
       } else if (this.customerContexts.has(fileContext)) {
-        // Customer context but no customer name yet — catch-all folder
+        // Customer context but no customer name — catch-all folder
+        this.logger.warn(
+          `[getFolderPath] Missing customerName for customer context "${fileContext}" — file will be placed in Clientes/Outros/. Ensure customerName is passed from the upload flow.`,
+        );
         folderPath = join('Clientes', 'Outros', contextSuffix);
       } else if (this.supplierContexts.has(fileContext)) {
-        // Supplier context but no supplier name yet — catch-all folder
+        // Supplier context but no supplier name — catch-all folder
+        this.logger.warn(
+          `[getFolderPath] Missing supplierName for supplier context "${fileContext}" — file will be placed in Fornecedores/Outros/.`,
+        );
         folderPath = join('Fornecedores', 'Outros', contextSuffix);
       } else if (this.userContexts.has(fileContext)) {
-        // User context but no user name yet — catch-all folder
+        // User context but no user name — catch-all folder
+        this.logger.warn(
+          `[getFolderPath] Missing userName for user context "${fileContext}" — file will be placed in Colaboradores/Outros/.`,
+        );
         folderPath = join('Colaboradores', 'Outros', contextSuffix);
       } else {
         // Non-entity context: direct path from root
