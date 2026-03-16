@@ -9,4 +9,4 @@ CREATE UNIQUE INDEX "NfseDocument_nDps_key" ON "NfseDocument"("nDps") WHERE "nDp
 CREATE SEQUENCE IF NOT EXISTS nfse_ndps_seq;
 
 -- Initialize the sequence to the current max nDps value
-SELECT setval('nfse_ndps_seq', COALESCE((SELECT MAX("nDps") FROM "NfseDocument"), 0));
+SELECT setval('nfse_ndps_seq', COALESCE(NULLIF((SELECT MAX("nDps") FROM "NfseDocument"), 0), 1), false);

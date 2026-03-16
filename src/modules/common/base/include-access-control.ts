@@ -78,6 +78,7 @@ const INCLUDE_WHITELIST: Record<string, string[]> = {
     'relatedTasks',
     'relatedTo',
     'responsibles',
+    'forecastHistory',
   ],
   Customer: [
     'id',

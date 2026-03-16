@@ -1351,6 +1351,14 @@ export class TaskPrismaRepository
             databaseInclude[key] = processedValue;
           }
         }
+      } else if (typeof value === 'object' && value !== null && 'select' in value) {
+        // Handle objects with select (e.g., serviceOrders: { select: { id: true, type: true } })
+        // Select replaces the default include entirely since it's more restrictive
+        if (key === 'nfeReimbursements') {
+          databaseInclude.invoiceReimbursements = value;
+        } else {
+          databaseInclude[key] = value;
+        }
       }
     });
 
@@ -1439,6 +1447,7 @@ export class TaskPrismaRepository
                     subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
                     total: config.total !== undefined ? Number(config.total) : 0,
                     customPaymentText: config.customPaymentText || null,
+                    generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
                     downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
@@ -1639,6 +1648,7 @@ export class TaskPrismaRepository
                       subtotal: config.subtotal !== undefined ? Number(config.subtotal) : 0,
                       total: config.total !== undefined ? Number(config.total) : 0,
                       customPaymentText: config.customPaymentText || null,
+                      generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                       responsibleId: config.responsibleId || null,
                       paymentCondition: config.paymentCondition || null,
                       downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,

@@ -149,15 +149,6 @@ export class SectorPrismaRepository
           position: { select: { id: true, name: true } },
         },
       },
-      tasks: {
-        select: {
-          id: true,
-          name: true,
-          status: true,
-          term: true,
-          customer: { select: { id: true, fantasyName: true } },
-        },
-      },
       _count: {
         select: {
           users: true,
