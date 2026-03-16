@@ -2556,7 +2556,6 @@ export class TaskService {
                     assignedToId: serviceOrderData.assignedToId || null,
                     createdById: userId || '',
                     position: soIndex,
-                    shouldSync: (serviceOrderData as any).shouldSync !== false,
                     ...(isTaskCompleted && {
                       statusOrder: 4,
                       startedAt: new Date(),
@@ -2724,8 +2723,7 @@ export class TaskService {
               transaction: tx,
             });
 
-            // CRITICAL FIX: Set shouldSync = false on corresponding quote services
-            // This permanently prevents the sync from recreating this service order
+            // CASCADE DELETE: Delete corresponding quote services when production SO is deleted
             if (soToDelete.description && soToDelete.type === SERVICE_ORDER_TYPE.PRODUCTION) {
               const normalizedDesc = soToDelete.description.toLowerCase().trim();
 
@@ -2738,6 +2736,7 @@ export class TaskService {
                 },
               });
 
+              const deletedQuoteItemIds: string[] = [];
               for (const quoteItem of matchingQuoteItems) {
                 const quoteNormalizedDesc = (quoteItem.description || '').toLowerCase().trim();
                 // Check if descriptions match (quote service description may include observation suffix)
@@ -2746,12 +2745,38 @@ export class TaskService {
                   quoteNormalizedDesc.startsWith(normalizedDesc + ' - ')
                 ) {
                   this.logger.log(
-                    `[Task Update] Setting shouldSync=false on quote service ${quoteItem.id} (${quoteItem.description})`,
+                    `[Task Update] Cascade-deleting quote service ${quoteItem.id} (${quoteItem.description})`,
                   );
-                  await tx.taskQuoteService.update({
+                  await tx.taskQuoteService.delete({
                     where: { id: quoteItem.id },
-                    data: { shouldSync: false },
                   });
+                  deletedQuoteItemIds.push(quoteItem.id);
+                }
+              }
+
+              // Recalculate quote totals if any quote services were deleted
+              if (deletedQuoteItemIds.length > 0) {
+                const taskQuote = await tx.taskQuote.findFirst({
+                  where: { task: { id: id } },
+                });
+                if (taskQuote) {
+                  const remainingItems = await tx.taskQuoteService.findMany({
+                    where: { quoteId: taskQuote.id },
+                  });
+                  const newSubtotal = remainingItems.reduce(
+                    (sum, item) => sum + Number(item.amount || 0),
+                    0,
+                  );
+                  await tx.taskQuote.update({
+                    where: { id: taskQuote.id },
+                    data: {
+                      subtotal: newSubtotal,
+                      total: newSubtotal,
+                    },
+                  });
+                  this.logger.log(
+                    `[Task Update] Recalculated quote totals after cascade delete. New subtotal: ${newSubtotal}`,
+                  );
                 }
               }
             }
@@ -3398,12 +3423,11 @@ export class TaskService {
         // are detected by matching their description against existing services.
         const existingQuoteDescriptions = new Set<string>(
           (existingTask.quote?.services || [])
-            .filter((item: any) => item.shouldSync !== false)
             .map((item: any) => normalizeDescription(item.description)),
         );
         const existingSODescriptions = new Set<string>(
           (existingTask.serviceOrders || [])
-            .filter((so: any) => so.shouldSync !== false && so.type === 'PRODUCTION')
+            .filter((so: any) => so.type === 'PRODUCTION')
             .map((so: any) => normalizeDescription(so.description)),
         );
 
@@ -3425,10 +3449,10 @@ export class TaskService {
 
         if (hasNewServiceOrders || hasNewQuoteItems) {
           try {
-            // CRITICAL: Refetch task with quote services to ensure we have the latest shouldSync values
+            // Refetch task with quote services to ensure we have the latest state
             // This is necessary because:
             // 1. New quote might have been created by the repository
-            // 2. shouldSync might have been set to false on quote services when service orders were deleted
+            // 2. Quote services might have been cascade-deleted when service orders were deleted
             // 3. Previous refetches might not have included quote services
             const taskWithQuote = await tx.task.findUnique({
               where: { id },
@@ -3448,42 +3472,13 @@ export class TaskService {
 
             // Only proceed if we have data to sync
             if (currentQuote?.services || currentServiceOrders.length > 0) {
-              // Log ALL quote services with their shouldSync values for debugging
-              this.logger.log(`[QUOTE↔SO SYNC] ALL quote services BEFORE filtering:`);
-              for (const item of currentQuote?.services || []) {
-                this.logger.log(
-                  `  - "${item.description}" (id: ${item.id}, shouldSync: ${item.shouldSync})`,
-                );
-              }
-
-              // CRITICAL: Filter out quote services with shouldSync = false
-              // These are services whose corresponding service orders were explicitly deleted
-              const syncEligibleQuoteItems = (currentQuote?.services || []).filter(
-                (item: any) => item.shouldSync !== false,
-              );
-              const syncEligibleServiceOrders = currentServiceOrders.filter(
-                (so: any) => so.shouldSync !== false,
-              );
+              // All quote services and service orders participate in sync
+              const syncEligibleQuoteItems = currentQuote?.services || [];
+              const syncEligibleServiceOrders = currentServiceOrders;
 
               this.logger.log(
-                `[QUOTE↔SO SYNC] Filtering: ${(currentQuote?.services || []).length} total quote services, ${syncEligibleQuoteItems.length} eligible for sync`,
+                `[QUOTE↔SO SYNC] Quote services for sync: ${syncEligibleQuoteItems.length}, service orders for sync: ${syncEligibleServiceOrders.length}`,
               );
-              this.logger.log(
-                `[QUOTE↔SO SYNC] Filtering: ${currentServiceOrders.length} total service orders, ${syncEligibleServiceOrders.length} eligible for sync`,
-              );
-
-              // Log which items were filtered out
-              const filteredOutItems = (currentQuote?.services || []).filter(
-                (item: any) => item.shouldSync === false,
-              );
-              if (filteredOutItems.length > 0) {
-                this.logger.log(
-                  `[QUOTE↔SO SYNC] ⚠️ Items EXCLUDED from sync (shouldSync=false):`,
-                );
-                for (const item of filteredOutItems) {
-                  this.logger.log(`  - "${item.description}" (id: ${item.id})`);
-                }
-              }
 
               const quoteItems: SyncQuoteItem[] = syncEligibleQuoteItems.map((item: any) => ({
                 id: item.id,
@@ -3522,7 +3517,6 @@ export class TaskService {
                       description: itemToCreate.description,
                       observation: itemToCreate.observation || null,
                       amount: itemToCreate.amount,
-                      shouldSync: true, // Items created by sync should participate in sync
                     },
                   });
 
@@ -3536,7 +3530,6 @@ export class TaskService {
                       description: itemToCreate.description,
                       amount: Number(itemToCreate.amount),
                       observation: itemToCreate.observation || null,
-                      shouldSync: true,
                     }),
                     userId: userId || null,
                     reason: `Item '${itemToCreate.description}' adicionado via sincronização com O.S.`,
@@ -3609,7 +3602,6 @@ export class TaskService {
                       status: quoteSyncSoStatus,
                       statusOrder: isQuoteSyncTaskCompleted ? 4 : getServiceOrderStatusOrder(SERVICE_ORDER_STATUS.PENDING),
                       createdById: userId || '',
-                      shouldSync: true,
                       ...(isQuoteSyncTaskCompleted && {
                         startedAt: new Date(),
                         startedById: userId || '',
@@ -3848,7 +3840,22 @@ export class TaskService {
           if ((files?.budgets && files.budgets.length > 0) || data.budgetIds !== undefined) {
             // Start with the budgetIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
-            const budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : [];
+            let budgetIds: string[] = data.budgetIds ? [...data.budgetIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but budgetIds was NOT sent,
+            // merge with existing budgets to prevent accidental removal
+            if (data.budgetIds === undefined && files?.budgets && files.budgets.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { budgets: { select: { id: true } } },
+              });
+              if (currentTask?.budgets?.length) {
+                budgetIds = currentTask.budgets.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: budgetIds not sent but new files uploaded. Preserved ${budgetIds.length} existing budgets.`,
+                );
+              }
+            }
 
             // Upload new files and add their IDs
             if (files.budgets && files.budgets.length > 0) {
@@ -3880,7 +3887,22 @@ export class TaskService {
           if ((files?.invoices && files.invoices.length > 0) || data.invoiceIds !== undefined) {
             // Start with the invoiceIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
-            const invoiceIds: string[] = data.invoiceIds ? [...data.invoiceIds] : [];
+            let invoiceIds: string[] = data.invoiceIds ? [...data.invoiceIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but invoiceIds was NOT sent,
+            // merge with existing invoices to prevent accidental removal
+            if (data.invoiceIds === undefined && files?.invoices && files.invoices.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { invoices: { select: { id: true } } },
+              });
+              if (currentTask?.invoices?.length) {
+                invoiceIds = currentTask.invoices.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: invoiceIds not sent but new files uploaded. Preserved ${invoiceIds.length} existing invoices.`,
+                );
+              }
+            }
 
             // Upload new files and add their IDs
             if (files.invoices && files.invoices.length > 0) {
@@ -3912,7 +3934,22 @@ export class TaskService {
           if ((files?.receipts && files.receipts.length > 0) || data.receiptIds !== undefined) {
             // Start with the receiptIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
-            const receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : [];
+            let receiptIds: string[] = data.receiptIds ? [...data.receiptIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but receiptIds was NOT sent,
+            // merge with existing receipts to prevent accidental removal
+            if (data.receiptIds === undefined && files?.receipts && files.receipts.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { receipts: { select: { id: true } } },
+              });
+              if (currentTask?.receipts?.length) {
+                receiptIds = currentTask.receipts.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: receiptIds not sent but new files uploaded. Preserved ${receiptIds.length} existing receipts.`,
+                );
+              }
+            }
 
             // Upload new files and add their IDs
             if (files.receipts && files.receipts.length > 0) {
@@ -3941,7 +3978,22 @@ export class TaskService {
 
           // Bank slip files (multiple)
           if ((files?.bankSlips && files.bankSlips.length > 0) || data.bankSlipIds !== undefined) {
-            const bankSlipIds: string[] = data.bankSlipIds ? [...data.bankSlipIds] : [];
+            let bankSlipIds: string[] = data.bankSlipIds ? [...data.bankSlipIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but bankSlipIds was NOT sent,
+            // merge with existing bank slips to prevent accidental removal
+            if (data.bankSlipIds === undefined && files?.bankSlips && files.bankSlips.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { bankSlips: { select: { id: true } } },
+              });
+              if (currentTask?.bankSlips?.length) {
+                bankSlipIds = currentTask.bankSlips.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: bankSlipIds not sent but new files uploaded. Preserved ${bankSlipIds.length} existing bank slips.`,
+                );
+              }
+            }
 
             if (files.bankSlips && files.bankSlips.length > 0) {
               for (const bankSlipFile of files.bankSlips) {
@@ -4155,7 +4207,23 @@ export class TaskService {
           if ((files?.baseFiles && files.baseFiles.length > 0) || data.baseFileIds !== undefined) {
             // Start with the baseFileIds provided in the form data (files that should be kept)
             // If not provided, default to empty array (will only have the new uploads)
-            const baseFileIds: string[] = data.baseFileIds ? [...data.baseFileIds] : [];
+            let baseFileIds: string[] = data.baseFileIds ? [...data.baseFileIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but baseFileIds was NOT sent,
+            // merge with existing base files to prevent accidental removal
+            if (data.baseFileIds === undefined && files?.baseFiles && files.baseFiles.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { baseFiles: { select: { id: true } } },
+              });
+              if (currentTask?.baseFiles?.length) {
+                baseFileIds = currentTask.baseFiles.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: baseFileIds not sent but new files uploaded. Preserved ${baseFileIds.length} existing base files.`,
+                );
+              }
+            }
+
             this.logger.log(
               `[Task Update] Processing baseFiles - Received ${data.baseFileIds?.length || 0} existing IDs: [${data.baseFileIds?.join(', ') || 'none'}]`,
             );
@@ -4217,7 +4285,22 @@ export class TaskService {
 
           // Project files
           if ((files?.projectFiles && files.projectFiles.length > 0) || (data as any).projectFileIds !== undefined) {
-            const projectFileIds: string[] = (data as any).projectFileIds ? [...(data as any).projectFileIds] : [];
+            let projectFileIds: string[] = (data as any).projectFileIds ? [...(data as any).projectFileIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but projectFileIds was NOT sent,
+            // merge with existing project files to prevent accidental removal
+            if ((data as any).projectFileIds === undefined && files?.projectFiles && files.projectFiles.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { projectFiles: { select: { id: true } } },
+              });
+              if (currentTask?.projectFiles?.length) {
+                projectFileIds = currentTask.projectFiles.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: projectFileIds not sent but new files uploaded. Preserved ${projectFileIds.length} existing project files.`,
+                );
+              }
+            }
 
             if (files.projectFiles && files.projectFiles.length > 0) {
               for (const projectFile of files.projectFiles) {
@@ -4244,7 +4327,22 @@ export class TaskService {
 
           // Checkin files
           if ((files?.checkinFiles && files.checkinFiles.length > 0) || (data as any).checkinFileIds !== undefined) {
-            const checkinFileIds: string[] = (data as any).checkinFileIds ? [...(data as any).checkinFileIds] : [];
+            let checkinFileIds: string[] = (data as any).checkinFileIds ? [...(data as any).checkinFileIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but checkinFileIds was NOT sent,
+            // merge with existing checkin files to prevent accidental removal
+            if ((data as any).checkinFileIds === undefined && files?.checkinFiles && files.checkinFiles.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { checkinFiles: { select: { id: true } } },
+              });
+              if (currentTask?.checkinFiles?.length) {
+                checkinFileIds = currentTask.checkinFiles.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: checkinFileIds not sent but new files uploaded. Preserved ${checkinFileIds.length} existing checkin files.`,
+                );
+              }
+            }
 
             if (files.checkinFiles && files.checkinFiles.length > 0) {
               for (const checkinFile of files.checkinFiles) {
@@ -4271,7 +4369,22 @@ export class TaskService {
 
           // Checkout files
           if ((files?.checkoutFiles && files.checkoutFiles.length > 0) || (data as any).checkoutFileIds !== undefined) {
-            const checkoutFileIds: string[] = (data as any).checkoutFileIds ? [...(data as any).checkoutFileIds] : [];
+            let checkoutFileIds: string[] = (data as any).checkoutFileIds ? [...(data as any).checkoutFileIds] : [];
+
+            // SAFEGUARD: If new files are being uploaded but checkoutFileIds was NOT sent,
+            // merge with existing checkout files to prevent accidental removal
+            if ((data as any).checkoutFileIds === undefined && files?.checkoutFiles && files.checkoutFiles.length > 0) {
+              const currentTask = await tx.task.findUnique({
+                where: { id },
+                include: { checkoutFiles: { select: { id: true } } },
+              });
+              if (currentTask?.checkoutFiles?.length) {
+                checkoutFileIds = currentTask.checkoutFiles.map(f => f.id);
+                this.logger.log(
+                  `[Task Update] 🛡️ SAFEGUARD: checkoutFileIds not sent but new files uploaded. Preserved ${checkoutFileIds.length} existing checkout files.`,
+                );
+              }
+            }
 
             if (files.checkoutFiles && files.checkoutFiles.length > 0) {
               for (const checkoutFile of files.checkoutFiles) {
@@ -4541,7 +4654,6 @@ export class TaskService {
                   description: service.description,
                   amount: service.amount,
                   observation: service.observation,
-                  shouldSync: service.shouldSync,
                   position: service.position,
                 })),
                 customerConfigs: oldQuote.customerConfigs.map((c: any) => ({
@@ -4584,7 +4696,6 @@ export class TaskService {
                   description: service.description,
                   amount: service.amount,
                   observation: service.observation,
-                  shouldSync: service.shouldSync,
                   position: service.position,
                 })),
                 customerConfigs: newQuote.customerConfigs.map((c: any) => ({
@@ -7859,7 +7970,6 @@ export class TaskService {
                   description: item.description || '',
                   amount: item.amount || 0,
                   observation: item.observation ?? null,
-                  shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
                   position: item.position !== undefined ? item.position : i,
                 },
               });
@@ -7959,7 +8069,6 @@ export class TaskService {
                 description: itemData.description || itemDescription,
                 amount: itemData.amount || 0,
                 observation: itemData.observation ?? null,
-                shouldSync: itemData.shouldSync !== undefined ? itemData.shouldSync : true,
                 position: itemData.position ?? 0,
               },
             });
@@ -8379,7 +8488,6 @@ export class TaskService {
                       amount: item.amount || '0',
                       quoteId: quoteIdToRestore,
                       observation: item.observation ?? null,
-                      shouldSync: item.shouldSync !== undefined ? item.shouldSync : true,
                       position: item.position !== undefined ? item.position : i,
                       discountType: item.discountType || 'NONE',
                       discountValue: item.discountValue ?? null,
@@ -9864,7 +9972,6 @@ export class TaskService {
             description: true,
             amount: true,
             observation: true,
-            shouldSync: true,
             position: true,
             discountType: true,
             discountValue: true,
@@ -9917,7 +10024,6 @@ export class TaskService {
             description: service.description,
             amount: service.amount,
             observation: service.observation,
-            shouldSync: service.shouldSync,
             position: service.position,
             discountType: service.discountType,
             discountValue: service.discountValue,
@@ -10811,7 +10917,6 @@ export class TaskService {
                       status: SERVICE_ORDER_STATUS.PENDING,
                       statusOrder: 1, // PENDING order
                       createdById: userId,
-                      shouldSync: true,
                     },
                   });
                 }),

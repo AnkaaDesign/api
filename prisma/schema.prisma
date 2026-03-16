@@ -1121,7 +1121,6 @@ model ServiceOrder {
   startedAt     DateTime?
   approvedAt    DateTime?
   finishedAt    DateTime?
-  shouldSync    Boolean            @default(true)
   position      Int                @default(0)
   approvedBy    User?              @relation("SERVICE_ORDER_APPROVED_BY", fields: [approvedById], references: [id])
   assignedTo    User?              @relation("SERVICE_ORDER_ASSIGNED_TO", fields: [assignedToId], references: [id])
@@ -1177,7 +1176,6 @@ model TaskQuoteService {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   observation String?
-  shouldSync  Boolean     @default(true)
   position    Int         @default(0)
   discountType        DiscountType @default(NONE)
   discountValue       Decimal?    @db.Decimal(10, 2)

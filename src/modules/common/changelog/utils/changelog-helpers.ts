@@ -491,7 +491,6 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   budgetNumber: 'número do orçamento',
   // Task Pricing Service fields
   amount: 'valor',
-  shouldSync: 'sincronizar com O.S.',
   position: 'posição',
 
   // Service Order fields

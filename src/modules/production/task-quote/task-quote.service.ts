@@ -241,7 +241,6 @@ export class TaskQuoteService {
                 amount: service.amount || 0,
                 description: service.description || '',
                 observation: service.observation || null,
-                shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                 position: index,
                 discountType: (service as any).discountType || 'NONE',
                 discountValue: (service as any).discountValue || null,
@@ -465,7 +464,6 @@ export class TaskQuoteService {
                   amount: service.amount || 0,
                   description: service.description || '',
                   observation: service.observation || null,
-                  shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
                   position: index,
                   discountType: (service as any).discountType || 'NONE',
                   discountValue: (service as any).discountValue || null,
@@ -725,9 +723,8 @@ export class TaskQuoteService {
         }
 
         // =====================================================================
-        // BIDIRECTIONAL SYNC: When quote services are removed or have shouldSync=false,
-        // set shouldSync=false on corresponding PRODUCTION service orders
-        // This prevents the task update sync from recreating these services
+        // CASCADE DELETE: When quote services are removed, delete the
+        // corresponding PRODUCTION service orders
         // =====================================================================
         if (data.services !== undefined) {
           const oldServices = (existing as any).services || [];
@@ -738,30 +735,19 @@ export class TaskQuoteService {
             newServices.map((s: any) => normalizeDescription(s.description)),
           );
 
-          // Build set of descriptions with shouldSync=false in new services
-          const noSyncDescriptions = new Set(
-            newServices
-              .filter((s: any) => s.shouldSync === false)
-              .map((s: any) => normalizeDescription(s.description)),
-          );
-
           // Find descriptions that were removed (in old but not in new)
-          // or that have shouldSync=false in the new data
-          const descriptionsToUnsync = new Set<string>();
+          const descriptionsToDelete = new Set<string>();
 
           for (const oldSvc of oldServices) {
             const normalized = normalizeDescription(oldSvc.description);
             if (!normalized) continue;
             if (!newDescriptions.has(normalized)) {
               // Service was removed from quote
-              descriptionsToUnsync.add(normalized);
+              descriptionsToDelete.add(normalized);
             }
           }
-          for (const desc of noSyncDescriptions) {
-            if (desc) descriptionsToUnsync.add(desc);
-          }
 
-          if (descriptionsToUnsync.size > 0) {
+          if (descriptionsToDelete.size > 0) {
             // Get the task ID for this quote
             const quoteWithTask = await tx.taskQuote.findUnique({
               where: { id },
@@ -775,19 +761,17 @@ export class TaskQuoteService {
                 where: {
                   taskId,
                   type: SERVICE_ORDER_TYPE.PRODUCTION,
-                  shouldSync: true,
                 },
               });
 
               for (const so of productionSOs) {
                 const soNormalized = normalizeDescription(so.description);
-                if (descriptionsToUnsync.has(soNormalized)) {
+                if (descriptionsToDelete.has(soNormalized)) {
                   this.logger.log(
-                    `[Quote Update] Setting shouldSync=false on service order ${so.id} (${so.description})`,
+                    `[Quote Update] Deleting service order ${so.id} (${so.description}) — quote service removed`,
                   );
-                  await tx.serviceOrder.update({
+                  await tx.serviceOrder.delete({
                     where: { id: so.id },
-                    data: { shouldSync: false },
                   });
                 }
               }
@@ -871,7 +855,6 @@ export class TaskQuoteService {
           description: service.description,
           amount: service.amount,
           observation: service.observation,
-          shouldSync: service.shouldSync,
           position: service.position,
         })),
         customerConfigIds: existing.customerConfigs.map(c => c.customerId),

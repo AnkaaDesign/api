@@ -113,7 +113,6 @@ export class TaskQuotePrismaRepository
           amount: service.amount || 0,
           description: service.description || '',
           observation: service.observation || null,
-          shouldSync: service.shouldSync !== undefined ? service.shouldSync : true,
           position: index,
           discountType: (service as any).discountType || 'NONE',
           discountValue: (service as any).discountValue ?? null,

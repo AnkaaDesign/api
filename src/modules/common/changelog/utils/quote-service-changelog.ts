@@ -8,7 +8,6 @@ interface QuoteServiceForDiff {
   description: string;
   amount: number | string | { toNumber(): number }; // Supports Prisma Decimal
   observation?: string | null;
-  shouldSync?: boolean;
   position?: number;
 }
 
@@ -56,7 +55,6 @@ export function diffQuoteServices(
           description: oldService.description,
           amount: Number(oldService.amount),
           observation: oldService.observation || null,
-          shouldSync: oldService.shouldSync,
           position: oldService.position,
         },
       });
@@ -90,16 +88,6 @@ export function diffQuoteServices(
       });
     }
 
-    if (oldService.shouldSync !== undefined && newService.shouldSync !== undefined && oldService.shouldSync !== newService.shouldSync) {
-      entries.push({
-        type: 'updated',
-        serviceDescription: oldService.description,
-        serviceId: newService.id || oldService.id,
-        field: 'shouldSync',
-        oldValue: oldService.shouldSync,
-        newValue: newService.shouldSync,
-      });
-    }
   }
 
   // Check for added services
@@ -113,7 +101,6 @@ export function diffQuoteServices(
           description: newService.description,
           amount: Number(newService.amount),
           observation: newService.observation || null,
-          shouldSync: newService.shouldSync,
           position: newService.position,
         },
       });
