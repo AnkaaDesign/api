@@ -875,7 +875,6 @@ export const taskSelectDetail = {
           description: true,
           amount: true,
           observation: true,
-          shouldSync: true,
           position: true,
         },
       },
@@ -1068,497 +1067,51 @@ export const taskSelectHistory = {
 };
 
 // =====================
-// Include Schema Based on Prisma Schema (Second Level Only)
+// Include Schema — flexible Prisma relation queries
 // =====================
+
+// Recursive schema for Prisma-style relation queries (supports select, include, take, skip, orderBy, where)
+const prismaRelationValue: z.ZodSchema = z.lazy(() =>
+  z.union([
+    z.boolean(),
+    z.object({
+      select: z.record(z.string(), z.lazy(() => prismaRelationValue)).optional(),
+      include: z.record(z.string(), z.lazy(() => prismaRelationValue)).optional(),
+      take: z.number().optional(),
+      skip: z.number().optional(),
+      orderBy: z.any().optional(),
+      where: z.any().optional(),
+    }),
+  ]),
+);
 
 export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
   z
     .object({
-      sector: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                users: z.boolean().optional(),
-                tasks: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      customer: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                logo: z.boolean().optional(),
-                tasks: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      budgets: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      invoices: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      receipts: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                taskReceipt: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      observation: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                artworks: z.boolean().optional(),
-                task: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      generalPainting: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                formulas: z.boolean().optional(),
-                generalPaintings: z.boolean().optional(),
-                logoTasks: z.boolean().optional(),
-                relatedPaints: z.boolean().optional(),
-                relatedTo: z.boolean().optional(),
-                paintType: z.boolean().optional(),
-                paintBrand: z.boolean().optional(),
-                paintGrounds: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          paint: z.boolean().optional(),
-                          groundPaint: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                include: z
-                                  .object({
-                                    paintType: z.boolean().optional(),
-                                    paintBrand: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      createdBy: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                position: z.boolean().optional(),
-                sector: z.boolean().optional(),
-                ppeSize: z.boolean().optional(),
-                preference: z.boolean().optional(),
-                activities: z.boolean().optional(),
-                borrows: z.boolean().optional(),
-                notifications: z.boolean().optional(),
-                tasks: z.boolean().optional(),
-                vacations: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      artworks: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                file: z.boolean().optional(), // Include the File entity
-                task: z.boolean().optional(), // Include the Task entity
-                airbrushing: z.boolean().optional(), // Include the Airbrushing entity
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      baseFiles: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                reprimand: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      projectFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
-      checkinFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
-      checkoutFiles: z.union([z.boolean(), z.object({ include: z.object({}).optional() })]).optional(),
-      logoPaints: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                formulas: z.boolean().optional(),
-                generalPaintings: z.boolean().optional(),
-                logoTasks: z.boolean().optional(),
-                relatedPaints: z.boolean().optional(),
-                relatedTo: z.boolean().optional(),
-                paintType: z.boolean().optional(),
-                paintBrand: z.boolean().optional(),
-                paintGrounds: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          paint: z.boolean().optional(),
-                          groundPaint: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                include: z
-                                  .object({
-                                    paintType: z.boolean().optional(),
-                                    paintBrand: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      serviceOrders: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                task: z.boolean().optional(),
-                assignedTo: z.boolean().optional(),
-                checkinFiles: z.boolean().optional(),
-                checkoutFiles: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      quote: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                task: z.boolean().optional(),
-                services: z.boolean().optional(),
-                layoutFile: z.boolean().optional(),
-                customerSignature: z.boolean().optional(),
-                customerConfigs: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          customer: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                select: z
-                                  .object({
-                                    id: z.boolean().optional(),
-                                    fantasyName: z.boolean().optional(),
-                                    cnpj: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                          installments: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                orderBy: z.object({ number: z.enum(['asc', 'desc']) }).optional(),
-                              }),
-                            ])
-                            .optional(),
-                          responsible: z.boolean().optional(),
-                          invoice: z
-                            .union([
-                              z.boolean(),
-                              z.object({
-                                include: z
-                                  .object({
-                                    installments: z
-                                      .union([
-                                        z.boolean(),
-                                        z.object({
-                                          include: z
-                                            .object({
-                                              bankSlip: z.boolean().optional(),
-                                            })
-                                            .optional(),
-                                        }),
-                                      ])
-                                      .optional(),
-                                    nfseDocument: z.boolean().optional(),
-                                  })
-                                  .optional(),
-                              }),
-                            ])
-                            .optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-                responsible: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      truck: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                task: z.boolean().optional(),
-                leftSideLayout: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          layoutSections: z.boolean().optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-                rightSideLayout: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          layoutSections: z.boolean().optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-                backSideLayout: z
-                  .union([
-                    z.boolean(),
-                    z.object({
-                      include: z
-                        .object({
-                          layoutSections: z.boolean().optional(),
-                        })
-                        .optional(),
-                    }),
-                  ])
-                  .optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      airbrushings: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                task: z.boolean().optional(),
-                artworks: z.boolean().optional(),
-                budgets: z.boolean().optional(),
-                invoices: z.boolean().optional(),
-                invoiceReimbursements: z.boolean().optional(),
-                receipts: z.boolean().optional(),
-                reimbursements: z.boolean().optional(),
-              })
-              .optional(),
-            orderBy: z
-              .object({
-                createdAt: orderByDirectionSchema.optional(),
-                updatedAt: orderByDirectionSchema.optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      cutRequest: z.boolean().optional(),
-      cutPlan: z.boolean().optional(),
-      relatedTasks: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z.lazy(() => taskIncludeSchema).optional(),
-          }),
-        ])
-        .optional(),
-      relatedTo: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z.lazy(() => taskIncludeSchema).optional(),
-          }),
-        ])
-        .optional(),
-      responsibles: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                company: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
-      bankSlips: z
-        .union([
-          z.boolean(),
-          z.object({
-            include: z
-              .object({
-                tasksArtworks: z.boolean().optional(),
-                customerLogo: z.boolean().optional(),
-                taskBudget: z.boolean().optional(),
-                taskNfe: z.boolean().optional(),
-                supplierLogo: z.boolean().optional(),
-                orderNfe: z.boolean().optional(),
-                orderBudget: z.boolean().optional(),
-                orderReceipt: z.boolean().optional(),
-                observations: z.boolean().optional(),
-                airbrushingReceipts: z.boolean().optional(),
-                airbrushingInvoices: z.boolean().optional(),
-                vacation: z.boolean().optional(),
-                externalWithdrawalBudget: z.boolean().optional(),
-                externalWithdrawalNfe: z.boolean().optional(),
-                externalWithdrawalReceipt: z.boolean().optional(),
-              })
-              .optional(),
-          }),
-        ])
-        .optional(),
+      sector: prismaRelationValue.optional(),
+      customer: prismaRelationValue.optional(),
+      budgets: prismaRelationValue.optional(),
+      invoices: prismaRelationValue.optional(),
+      receipts: prismaRelationValue.optional(),
+      observation: prismaRelationValue.optional(),
+      generalPainting: prismaRelationValue.optional(),
+      createdBy: prismaRelationValue.optional(),
+      artworks: prismaRelationValue.optional(),
+      baseFiles: prismaRelationValue.optional(),
+      projectFiles: prismaRelationValue.optional(),
+      checkinFiles: prismaRelationValue.optional(),
+      checkoutFiles: prismaRelationValue.optional(),
+      logoPaints: prismaRelationValue.optional(),
+      serviceOrders: prismaRelationValue.optional(),
+      quote: prismaRelationValue.optional(),
+      truck: prismaRelationValue.optional(),
+      airbrushings: prismaRelationValue.optional(),
+      cutRequest: prismaRelationValue.optional(),
+      cutPlan: prismaRelationValue.optional(),
+      relatedTasks: prismaRelationValue.optional(),
+      relatedTo: prismaRelationValue.optional(),
+      responsibles: prismaRelationValue.optional(),
+      bankSlips: prismaRelationValue.optional(),
     })
     .partial(),
 );
@@ -2712,9 +2265,6 @@ const taskProductionServiceOrderCreateSchema = z.object({
   observation: z.string().nullable().optional(), // For rejection/approval notes
   startedAt: nullableDate.optional(),
   finishedAt: nullableDate.optional(),
-  // Controls bidirectional sync with TaskQuoteService
-  // When false, prevents auto-recreation of quote services from this service order
-  shouldSync: z.boolean().optional().default(true),
   // File IDs for checkin/checkout photos grouped by service order
   checkinFileIds: z.array(z.string().uuid('Arquivo de checkin inválido')).optional(),
   checkoutFileIds: z.array(z.string().uuid('Arquivo de checkout inválido')).optional(),
@@ -2833,6 +2383,7 @@ export const taskCreateSchema = z
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
     forecastDate: nullableDate.optional(),
+    forecastReason: z.string().max(500).nullable().optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
@@ -3056,6 +2607,7 @@ export const taskUpdateSchema = z
     startedAt: nullableDate.optional(),
     finishedAt: nullableDate.optional(),
     forecastDate: nullableDate.optional(),
+    forecastReason: z.string().max(500).nullable().optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),

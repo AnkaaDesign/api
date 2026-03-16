@@ -471,9 +471,6 @@ export const taskQuoteServiceCreateNestedSchema = z.object({
     .nullable()
     .default(0)
     .transform(val => val ?? 0),
-  // Controls bidirectional sync with ServiceOrder
-  // When false, prevents auto-recreation of service orders from this quote service
-  shouldSync: z.boolean().optional().default(true),
   invoiceToCustomerId: z.string().uuid('Cliente invalido').optional().nullable(),
   // Per-service discount (moved from CustomerConfig)
   discountType: discountTypeSchema.default('NONE').optional(),
