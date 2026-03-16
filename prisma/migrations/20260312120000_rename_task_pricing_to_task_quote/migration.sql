@@ -71,8 +71,8 @@ ALTER INDEX "Task_pricingId_key" RENAME TO "Task_quoteId_key";
 ALTER TABLE "TaskQuote" RENAME CONSTRAINT "TaskPricing_layoutFileId_fkey" TO "TaskQuote_layoutFileId_fkey";
 
 -- TaskQuoteService
-ALTER TABLE "TaskQuoteService" RENAME CONSTRAINT "TaskPricingService_pricingId_fkey" TO "TaskQuoteService_quoteId_fkey";
-ALTER TABLE "TaskQuoteService" RENAME CONSTRAINT "TaskPricingService_invoiceToCustomerId_fkey" TO "TaskQuoteService_invoiceToCustomerId_fkey";
+ALTER TABLE "TaskQuoteService" RENAME CONSTRAINT "TaskPricingItem_pricingId_fkey" TO "TaskQuoteService_quoteId_fkey";
+ALTER TABLE "TaskQuoteService" RENAME CONSTRAINT "TaskPricingItem_invoiceToCustomerId_fkey" TO "TaskQuoteService_invoiceToCustomerId_fkey";
 
 -- TaskQuoteCustomerConfig
 ALTER TABLE "TaskQuoteCustomerConfig" RENAME CONSTRAINT "TaskPricingCustomerConfig_pricingId_fkey" TO "TaskQuoteCustomerConfig_quoteId_fkey";

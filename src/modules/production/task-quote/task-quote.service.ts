@@ -526,16 +526,67 @@ export class TaskQuoteService {
 
         // Handle customerConfigs changes
         if (data.customerConfigs !== undefined) {
-          // Guard: prevent destructive customerConfig changes when invoices already exist
+          // Guard: prevent destructive customerConfig changes when there are real financial obligations
           const existingConfigIds = ((existing as any).customerConfigs || []).map((c: any) => c.id);
           if (existingConfigIds.length > 0) {
-            const invoiceCount = await tx.invoice.count({
-              where: { customerConfigId: { in: existingConfigIds } },
+            const blockingInvoices = await tx.invoice.findMany({
+              where: {
+                customerConfigId: { in: existingConfigIds },
+                status: { not: 'CANCELLED' },
+              },
+              include: {
+                installments: {
+                  include: { bankSlip: { select: { status: true } } },
+                },
+                nfseDocuments: { select: { status: true } },
+              },
             });
-            if (invoiceCount > 0) {
-              throw new BadRequestException(
-                'Não é possível alterar as configurações de clientes após a geração de faturas. Cancele as faturas primeiro.',
+
+            for (const inv of blockingInvoices) {
+              const hasActiveBankSlip = inv.installments.some(
+                (inst: any) => inst.bankSlip && !['CANCELLED'].includes(inst.bankSlip.status),
               );
+              const hasPaidInstallment = inv.installments.some(
+                (inst: any) => inst.status === 'PAID',
+              );
+              const hasActiveNfse = inv.nfseDocuments.some(
+                (nfse: any) => nfse.status === 'AUTHORIZED',
+              );
+
+              if (hasActiveBankSlip || hasPaidInstallment || hasActiveNfse) {
+                throw new BadRequestException(
+                  'Não é possível alterar as configurações de clientes enquanto houver boletos ativos, parcelas pagas ou notas fiscais autorizadas. Cancele-os primeiro.',
+                );
+              }
+
+              // Auto-cancel invoices that have no active obligations but are still marked as ACTIVE
+              if (inv.status !== 'CANCELLED') {
+                await tx.invoice.update({
+                  where: { id: inv.id },
+                  data: { status: 'CANCELLED' },
+                });
+              }
+            }
+
+            // If invoices were auto-cancelled, revert quote status to BUDGET_APPROVED
+            // so financial can re-verify before regenerating invoices/boletos/NFS-e
+            if (blockingInvoices.length > 0) {
+              const billingStatuses = [
+                TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL,
+                TASK_QUOTE_STATUS.BILLING_APPROVED,
+                TASK_QUOTE_STATUS.UPCOMING,
+                TASK_QUOTE_STATUS.DUE,
+                TASK_QUOTE_STATUS.PARTIAL,
+              ];
+              if (billingStatuses.includes((existing as any).status)) {
+                await tx.taskQuote.update({
+                  where: { id },
+                  data: {
+                    status: TASK_QUOTE_STATUS.BUDGET_APPROVED,
+                    statusOrder: this.getStatusOrder(TASK_QUOTE_STATUS.BUDGET_APPROVED),
+                  },
+                });
+              }
             }
           }
 
@@ -1355,6 +1406,7 @@ export class TaskQuoteService {
           select: {
             id: true,
             paymentCondition: true,
+            customPaymentText: true,
             downPaymentDate: true,
             customer: { select: { fantasyName: true } },
             installments: { select: { id: true } },
@@ -1369,6 +1421,7 @@ export class TaskQuoteService {
 
         for (const config of configs) {
           const customerName = config.customer?.fantasyName || 'Cliente';
+          const isCustomPayment = config.paymentCondition === 'CUSTOM';
 
           if (!config.paymentCondition) {
             throw new BadRequestException(
@@ -1376,9 +1429,20 @@ export class TaskQuoteService {
             );
           }
 
-          if (config.paymentCondition === 'CUSTOM' && config.installments.length === 0) {
+          // Custom payment uses free-text description — installments and downPaymentDate are optional
+          if (isCustomPayment) {
+            if (!config.customPaymentText?.trim()) {
+              throw new BadRequestException(
+                `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem o texto de pagamento preenchido.`,
+              );
+            }
+            // Skip installment and downPaymentDate checks for custom payment
+            continue;
+          }
+
+          if (config.installments.length === 0) {
             throw new BadRequestException(
-              `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem parcelas cadastradas.`,
+              `O cliente "${customerName}" não possui parcelas cadastradas.`,
             );
           }
 

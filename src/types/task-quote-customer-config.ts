@@ -16,6 +16,7 @@ export interface TaskQuoteCustomerConfig extends BaseEntity {
   subtotal: number;
   total: number;
   customPaymentText: string | null;
+  generateInvoice?: boolean;
   responsibleId?: string | null;
   paymentCondition?: string | null;
   downPaymentDate?: Date | null;

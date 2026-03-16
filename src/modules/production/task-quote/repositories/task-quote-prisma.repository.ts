@@ -235,6 +235,9 @@ export class TaskQuotePrismaRepository
           customer: {
             select: { id: true, fantasyName: true, cnpj: true },
           },
+          responsible: {
+            select: { id: true, name: true, role: true },
+          },
           installments: {
             include: {
               bankSlip: true,
@@ -403,6 +406,9 @@ export class TaskQuotePrismaRepository
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
+            responsible: {
+              select: { id: true, name: true, role: true },
+            },
           },
         },
       },
@@ -431,6 +437,9 @@ export class TaskQuotePrismaRepository
           include: {
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
+            },
+            responsible: {
+              select: { id: true, name: true, role: true },
             },
           },
         },
@@ -468,6 +477,9 @@ export class TaskQuotePrismaRepository
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
             },
+            responsible: {
+              select: { id: true, name: true, role: true },
+            },
           },
         },
       },
@@ -498,6 +510,9 @@ export class TaskQuotePrismaRepository
           include: {
             customer: {
               select: { id: true, fantasyName: true, cnpj: true },
+            },
+            responsible: {
+              select: { id: true, name: true, role: true },
             },
           },
         },

@@ -1112,6 +1112,7 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
       relatedTo: prismaRelationValue.optional(),
       responsibles: prismaRelationValue.optional(),
       bankSlips: prismaRelationValue.optional(),
+      forecastHistory: prismaRelationValue.optional(),
     })
     .partial(),
 );
