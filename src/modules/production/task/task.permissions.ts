@@ -9,7 +9,7 @@ export const TASK_FIELD_DOMAINS = {
   /** Task identity: name, customer, vehicle info */
   identity: ['name', 'details', 'customerId', 'serialNumber', 'chassis'],
   /** Scheduling dates */
-  dates: ['entryDate', 'term', 'forecastDate', 'forecastReason'],
+  dates: ['entryDate', 'term', 'forecastDate', 'forecastReason', 'cleared'],
   /** Task lifecycle status */
   status: ['status', 'startedAt', 'finishedAt'],
   /** Free-text observation */

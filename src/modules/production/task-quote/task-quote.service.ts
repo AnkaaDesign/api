@@ -233,7 +233,6 @@ export class TaskQuoteService {
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
-                downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
               })),
             },
             services: {
@@ -272,33 +271,7 @@ export class TaskQuoteService {
           },
         });
 
-        // Generate installments for each customer config from paymentCondition
-        for (const config of data.customerConfigs) {
-          const customerConfig = newQuote.customerConfigs.find(
-            (cc: any) => cc.customerId === config.customerId,
-          );
-          if (customerConfig) {
-            const installments = (config.installments && config.installments.length > 0)
-              ? config.installments
-              : this.generateInstallmentsFromCondition(
-                config.paymentCondition || null,
-                config.downPaymentDate || null,
-                config.total || 0,
-              );
-            if (installments.length > 0) {
-              await tx.installment.createMany({
-                data: installments.map(inst => ({
-                  customerConfigId: customerConfig.id,
-                  number: inst.number,
-                  dueDate: inst.dueDate,
-                  amount: inst.amount,
-                  paidAmount: 0,
-                  status: 'PENDING' as const,
-                })),
-              });
-            }
-          }
-        }
+        // Installments are now created at BILLING_APPROVED time, not at quote creation
 
         // Connect the task to this quote (one-to-one via Task.quoteId FK)
         await tx.task.update({
@@ -603,42 +576,10 @@ export class TaskQuoteService {
                 generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                 responsibleId: config.responsibleId || null,
                 paymentCondition: config.paymentCondition || null,
-                downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate as any) : null,
               })),
             });
 
-            // Re-create installments for each config
-            const newConfigs = await tx.taskQuoteCustomerConfig.findMany({
-              where: { quoteId: id },
-            });
-            this.logger.log(`[UPDATE] Re-creating installments for ${data.customerConfigs.length} config(s), found ${newConfigs.length} DB config(s)`);
-            for (const config of data.customerConfigs) {
-              const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
-              this.logger.log(`[UPDATE] Config customer=${config.customerId}: dbConfig=${dbConfig?.id || 'NOT FOUND'}, paymentCondition=${config.paymentCondition}, downPaymentDate=${config.downPaymentDate}, total=${config.total}, installments=${JSON.stringify(config.installments)}`);
-              if (dbConfig) {
-                const installments = (config.installments && config.installments.length > 0)
-                  ? config.installments
-                  : this.generateInstallmentsFromCondition(
-                    config.paymentCondition || null,
-                    config.downPaymentDate || null,
-                    config.total || 0,
-                  );
-                this.logger.log(`[UPDATE] Generated ${installments.length} installment(s) for config ${dbConfig.id}: ${JSON.stringify(installments)}`);
-                if (installments.length > 0) {
-                  await tx.installment.createMany({
-                    data: installments.map(inst => ({
-                      customerConfigId: dbConfig.id,
-                      number: inst.number,
-                      dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
-                      amount: inst.amount,
-                      paidAmount: 0,
-                      status: 'PENDING' as const,
-                    })),
-                  });
-                  this.logger.log(`[UPDATE] Created ${installments.length} installment(s) for config ${dbConfig.id}`);
-                }
-              }
-            }
+            // Installments are now created at BILLING_APPROVED time, not at quote update
           }
 
           // Clear orphaned service assignments: if a customer was removed from configs,
@@ -1400,22 +1341,32 @@ export class TaskQuoteService {
       }
 
       case `${TASK_QUOTE_STATUS.VERIFIED_BY_FINANCIAL}->${TASK_QUOTE_STATUS.BILLING_APPROVED}`: {
-        // Each customerConfig must have valid paymentCondition and downPaymentDate
+        // Each customerConfig must have valid paymentCondition; task must be finished
         const configs = await this.prisma.taskQuoteCustomerConfig.findMany({
           where: { quoteId },
           select: {
             id: true,
             paymentCondition: true,
             customPaymentText: true,
-            downPaymentDate: true,
             customer: { select: { fantasyName: true } },
-            installments: { select: { id: true } },
           },
         });
 
         if (configs.length === 0) {
           throw new BadRequestException(
             'É necessário ter pelo menos uma configuração de cliente antes de aprovar internamente.',
+          );
+        }
+
+        // Check that the task is finished (finishedAt is set) — needed for installment due date calculation
+        const taskForValidation = await this.prisma.task.findFirst({
+          where: { quoteId },
+          select: { finishedAt: true },
+        });
+
+        if (!taskForValidation?.finishedAt) {
+          throw new BadRequestException(
+            'A tarefa precisa estar finalizada para aprovar o faturamento. A data de finalização é usada para calcular os vencimentos das parcelas.',
           );
         }
 
@@ -1429,27 +1380,14 @@ export class TaskQuoteService {
             );
           }
 
-          // Custom payment uses free-text description — installments and downPaymentDate are optional
+          // Custom payment uses free-text description
           if (isCustomPayment) {
             if (!config.customPaymentText?.trim()) {
               throw new BadRequestException(
                 `O cliente "${customerName}" possui condição de pagamento personalizada, mas não tem o texto de pagamento preenchido.`,
               );
             }
-            // Skip installment and downPaymentDate checks for custom payment
             continue;
-          }
-
-          if (config.installments.length === 0) {
-            throw new BadRequestException(
-              `O cliente "${customerName}" não possui parcelas cadastradas.`,
-            );
-          }
-
-          if (!config.downPaymentDate) {
-            throw new BadRequestException(
-              `A data de início de pagamento não foi definida para o cliente "${customerName}".`,
-            );
           }
         }
         break;
@@ -1549,14 +1487,18 @@ export class TaskQuoteService {
   }
 
   /**
-   * Convert paymentCondition + downPaymentDate + total into installment records
+   * Convert paymentCondition + finishedAt + total into installment records.
+   * Due dates are calculated from task.finishedAt:
+   * - CASH_5: 1 payment, 5 days from finishedAt
+   * - CASH_40: 1 payment, 40 days from finishedAt
+   * - INSTALLMENTS_N: first at 5 days from finishedAt, subsequent +20 days each
    */
-  private generateInstallmentsFromCondition(
+  generateInstallmentsFromCondition(
     paymentCondition: string | null,
-    downPaymentDate: Date | null | string,
+    finishedAt: Date,
     total: number,
   ): { number: number; dueDate: Date; amount: number }[] {
-    this.logger.log(`[INSTALLMENTS] generateInstallmentsFromCondition: condition=${paymentCondition}, downPaymentDate=${downPaymentDate}, total=${total}`);
+    this.logger.log(`[INSTALLMENTS] generateInstallmentsFromCondition: condition=${paymentCondition}, finishedAt=${finishedAt}, total=${total}`);
 
     // Validate total: must be a finite positive number
     if (!Number.isFinite(total) || total <= 0) {
@@ -1569,8 +1511,24 @@ export class TaskQuoteService {
       return [];
     }
 
+    const baseDate = new Date(finishedAt);
+
+    // CASH_5: single payment, 5 days from finishedAt
+    if (paymentCondition === 'CASH_5') {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + 5);
+      return [{ number: 1, dueDate, amount: total }];
+    }
+
+    // CASH_40: single payment, 40 days from finishedAt
+    if (paymentCondition === 'CASH_40') {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + 40);
+      return [{ number: 1, dueDate, amount: total }];
+    }
+
+    // INSTALLMENTS_N: first at 5 days, subsequent +20 days each
     const conditionMap: Record<string, number> = {
-      CASH: 1,
       INSTALLMENTS_2: 2,
       INSTALLMENTS_3: 3,
       INSTALLMENTS_4: 4,
@@ -1581,20 +1539,6 @@ export class TaskQuoteService {
 
     const totalInstallments = conditionMap[paymentCondition] || 1;
 
-    // Validate downPaymentDate: fall back to current date if invalid
-    let baseDate: Date;
-    if (downPaymentDate) {
-      const parsed = new Date(downPaymentDate);
-      if (isNaN(parsed.getTime())) {
-        this.logger.warn(`[INSTALLMENTS] Invalid downPaymentDate "${downPaymentDate}", falling back to current date`);
-        baseDate = new Date();
-      } else {
-        baseDate = parsed;
-      }
-    } else {
-      baseDate = new Date();
-    }
-
     // Use integer math (cents) to avoid floating point rounding errors
     const totalCents = Math.round(total * 100);
     const baseCents = Math.floor(totalCents / totalInstallments);
@@ -1603,7 +1547,8 @@ export class TaskQuoteService {
     const installments: { number: number; dueDate: Date; amount: number }[] = [];
     for (let i = 0; i < totalInstallments; i++) {
       const dueDate = new Date(baseDate);
-      dueDate.setDate(dueDate.getDate() + i * 20); // 20 days apart
+      // First installment: 5 days from finishedAt; subsequent: +20 days each
+      dueDate.setDate(dueDate.getDate() + 5 + i * 20);
 
       // Put remainder on the LAST installment so sum equals exactly the total
       const isLast = i === totalInstallments - 1;

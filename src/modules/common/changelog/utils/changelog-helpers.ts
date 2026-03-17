@@ -480,7 +480,6 @@ export const FIELD_TRANSLATIONS: Record<string, string> = {
   expiresAt: 'data de validade',
   // Legacy fields (kept for historical changelog display)
   paymentCondition: 'condição de pagamento',
-  downPaymentDate: 'data de entrada',
   customPaymentText: 'texto de pagamento personalizado',
   guaranteeYears: 'anos de garantia',
   customGuaranteeText: 'texto de garantia personalizado',

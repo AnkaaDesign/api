@@ -43,6 +43,7 @@ const TASK_SELECT_MINIMAL: Prisma.TaskSelect = {
   serialNumber: true,
   term: true,
   forecastDate: true,
+  cleared: true,
   customerId: true,
   sectorId: true,
   createdAt: true,
@@ -105,6 +106,7 @@ const TASK_SELECT_SCHEDULE: Prisma.TaskSelect = {
   startedAt: true,
   finishedAt: true,
   forecastDate: true,
+  cleared: true,
   customerId: true,
   sectorId: true,
   createdAt: true,
@@ -561,6 +563,30 @@ export class TaskPrismaRepository
       price: databaseEntity.price ? Number(databaseEntity.price) : null,
     };
 
+    // Convert Prisma Decimal fields in nested quote relation
+    if (task.quote) {
+      task.quote = {
+        ...task.quote,
+        subtotal: task.quote.subtotal ? Number(task.quote.subtotal) : 0,
+        total: task.quote.total ? Number(task.quote.total) : 0,
+        services: task.quote.services?.map((service: any) => ({
+          ...service,
+          amount: service.amount ? Number(service.amount) : 0,
+          discountValue: service.discountValue ? Number(service.discountValue) : null,
+        })),
+        customerConfigs: task.quote.customerConfigs?.map((config: any) => ({
+          ...config,
+          subtotal: config.subtotal ? Number(config.subtotal) : 0,
+          total: config.total ? Number(config.total) : 0,
+          installments: config.installments?.map((inst: any) => ({
+            ...inst,
+            amount: inst.amount ? Number(inst.amount) : 0,
+            paidAmount: inst.paidAmount ? Number(inst.paidAmount) : 0,
+          })),
+        })),
+      };
+    }
+
     // Transform generalPainting.colorPreview path to URL
     if (task.generalPainting) {
       task.generalPainting = transformPaintColorPreview(task.generalPainting);
@@ -680,6 +706,7 @@ export class TaskPrismaRepository
       startedAt,
       finishedAt,
       forecastDate,
+      cleared,
       paintId,
       customerId,
       sectorId,
@@ -719,6 +746,7 @@ export class TaskPrismaRepository
     if (startedAt !== undefined) taskData.startedAt = startedAt;
     if (finishedAt !== undefined) taskData.finishedAt = finishedAt;
     if (forecastDate !== undefined) taskData.forecastDate = forecastDate;
+    if (cleared !== undefined) taskData.cleared = cleared;
 
     if (customerId) taskData.customer = { connect: { id: customerId } };
     if (paintId) taskData.generalPainting = { connect: { id: paintId } };
@@ -957,6 +985,7 @@ export class TaskPrismaRepository
       startedAt,
       finishedAt,
       forecastDate,
+      cleared,
       paintId,
       customerId,
       sectorId,
@@ -990,7 +1019,14 @@ export class TaskPrismaRepository
     if (term !== undefined) updateData.term = term;
     if (startedAt !== undefined) updateData.startedAt = startedAt;
     if (finishedAt !== undefined) updateData.finishedAt = finishedAt;
-    if (forecastDate !== undefined) updateData.forecastDate = forecastDate;
+    if (forecastDate !== undefined) {
+      updateData.forecastDate = forecastDate;
+      // Reset cleared when forecastDate changes, unless cleared is explicitly set in the same update
+      if (cleared === undefined) {
+        updateData.cleared = false;
+      }
+    }
+    if (cleared !== undefined) updateData.cleared = cleared;
 
     if (commission !== undefined) {
       updateData.commission = commission as any;
@@ -1450,7 +1486,6 @@ export class TaskPrismaRepository
                     generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                     responsibleId: config.responsibleId || null,
                     paymentCondition: config.paymentCondition || null,
-                    downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                   })),
                 },
               }),
@@ -1651,7 +1686,6 @@ export class TaskPrismaRepository
                       generateInvoice: config.generateInvoice !== undefined ? config.generateInvoice : true,
                       responsibleId: config.responsibleId || null,
                       paymentCondition: config.paymentCondition || null,
-                      downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                     })),
                   },
                 }),
@@ -1682,43 +1716,10 @@ export class TaskPrismaRepository
                 const dbConfig = newConfigs.find((c: any) => c.customerId === config.customerId);
                 if (!dbConfig) continue;
 
-                // Use explicitly provided installments, or generate from paymentCondition
-                let installmentsToCreate = config.installments && config.installments.length > 0
-                  ? config.installments
-                  : null;
-
-                if (!installmentsToCreate && config.paymentCondition && config.paymentCondition !== 'CUSTOM') {
-                  const configTotal = Number(dbConfig.total) || 0;
-                  if (configTotal > 0) {
-                    const conditionMap: Record<string, number> = {
-                      CASH: 1, INSTALLMENTS_2: 2, INSTALLMENTS_3: 3, INSTALLMENTS_4: 4,
-                      INSTALLMENTS_5: 5, INSTALLMENTS_6: 6, INSTALLMENTS_7: 7,
-                    };
-                    const totalInstallments = conditionMap[config.paymentCondition] || 1;
-                    const baseDate = config.downPaymentDate ? new Date(config.downPaymentDate) : new Date();
-                    const totalCents = Math.round(configTotal * 100);
-                    const baseCents = Math.floor(totalCents / totalInstallments);
-                    const installmentAmount = baseCents / 100;
-
-                    installmentsToCreate = [];
-                    for (let i = 0; i < totalInstallments; i++) {
-                      const dueDate = new Date(baseDate);
-                      dueDate.setDate(dueDate.getDate() + i * 20);
-                      const isLast = i === totalInstallments - 1;
-                      const amount = isLast
-                        ? (totalCents - baseCents * (totalInstallments - 1)) / 100
-                        : installmentAmount;
-                      installmentsToCreate.push({ number: i + 1, dueDate, amount });
-                    }
-                    this.logger.log(
-                      `[TaskRepository] Generated ${totalInstallments} installments from ${config.paymentCondition} for customer ${config.customerId} (total: ${configTotal})`,
-                    );
-                  }
-                }
-
-                if (installmentsToCreate && installmentsToCreate.length > 0) {
+                // Installments are now created at BILLING_APPROVED time, not at task create/duplicate
+                if (config.installments && config.installments.length > 0) {
                   await transaction.installment.createMany({
-                    data: installmentsToCreate.map((inst: any) => ({
+                    data: config.installments.map((inst: any) => ({
                       customerConfigId: dbConfig.id,
                       number: inst.number,
                       dueDate: inst.dueDate instanceof Date ? inst.dueDate : new Date(inst.dueDate),
@@ -1762,7 +1763,6 @@ export class TaskPrismaRepository
                         customPaymentText: config.customPaymentText || null,
                         responsibleId: config.responsibleId || null,
                         paymentCondition: config.paymentCondition || null,
-                        downPaymentDate: config.downPaymentDate ? new Date(config.downPaymentDate) : null,
                       })),
                     },
                   }),

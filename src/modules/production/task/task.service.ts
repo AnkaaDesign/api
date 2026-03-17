@@ -9989,7 +9989,6 @@ export class TaskService {
             customPaymentText: true,
             responsibleId: true,
             paymentCondition: true,
-            downPaymentDate: true,
             generateInvoice: true,
           },
         },
@@ -10043,7 +10042,6 @@ export class TaskService {
                   customPaymentText: c.customPaymentText,
                   responsibleId: c.responsibleId,
                   paymentCondition: c.paymentCondition,
-                  downPaymentDate: c.downPaymentDate,
                   generateInvoice: c.generateInvoice,
                 })),
               },
@@ -10453,6 +10451,8 @@ export class TaskService {
               );
               if (hasData(sourceTask.forecastDate)) {
                 updateData.forecastDate = sourceTask.forecastDate;
+                // Reset cleared when copying forecastDate — new forecast needs fresh confirmation
+                updateData.cleared = false;
                 copiedFields.push(field);
                 details.forecastDate = sourceTask.forecastDate;
                 this.logger.debug(`[copyFromTask] forecastDate copied: ${sourceTask.forecastDate}`);
@@ -11133,7 +11133,7 @@ export class TaskService {
     const updatedTask = await this.prisma.$transaction(async (tx: PrismaTransaction) => {
       const task = await tx.task.update({
         where: { id: taskId },
-        data: { forecastDate: data.forecastDate },
+        data: { forecastDate: data.forecastDate, cleared: false },
         include: include || undefined,
       });
 

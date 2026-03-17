@@ -45,10 +45,12 @@ export class InvoiceGenerationService {
   ): Promise<string[]> {
     this.logger.log(`[INVOICE_GEN] ====== Starting invoice generation for task ${taskId} ======`);
 
-    // Load the task with its quote and customer configs
+    // Load the task with its quote, customer configs, and finishedAt for due date calculation
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
-      include: {
+      select: {
+        id: true,
+        finishedAt: true,
         quote: {
           include: {
             customerConfigs: {
@@ -113,20 +115,29 @@ export class InvoiceGenerationService {
         const totalAmount = Number(config.total);
         this.logger.log(`[INVOICE_GEN] CustomerConfig ${config.id}: customer=${config.customer?.fantasyName} (${config.customer?.cnpj}), total=${totalAmount}`);
 
-        // Query existing installments created at quote time
-        const existingInstallments = await tx.installment.findMany({
-          where: { customerConfigId: config.id },
-          orderBy: { number: 'asc' },
-        });
-
-        this.logger.log(`[INVOICE_GEN] Found ${existingInstallments.length} installment(s) for customerConfig ${config.id}`);
-
-        if (existingInstallments.length === 0) {
+        // Generate installments from payment condition and task.finishedAt
+        const finishedAt = task.finishedAt;
+        if (!finishedAt) {
           this.logger.warn(
-            `[INVOICE_GEN] No installments found for customerConfig ${config.id}, skipping invoice generation.`,
+            `[INVOICE_GEN] Task ${taskId} has no finishedAt date, skipping invoice generation for customerConfig ${config.id}.`,
           );
           continue;
         }
+
+        const generatedInstallments = this.generateInstallmentsFromCondition(
+          config.paymentCondition || null,
+          finishedAt,
+          totalAmount,
+        );
+
+        if (generatedInstallments.length === 0) {
+          this.logger.warn(
+            `[INVOICE_GEN] No installments generated for customerConfig ${config.id} (condition=${config.paymentCondition}), skipping invoice generation.`,
+          );
+          continue;
+        }
+
+        this.logger.log(`[INVOICE_GEN] Generated ${generatedInstallments.length} installment(s) for customerConfig ${config.id}`);
 
         // Create the Invoice
         const invoice = await tx.invoice.create({
@@ -156,11 +167,18 @@ export class InvoiceGenerationService {
           );
         }
 
-        // Link existing installments to the invoice and optionally create BankSlips
-        for (const inst of existingInstallments) {
-          await tx.installment.update({
-            where: { id: inst.id },
-            data: { invoiceId: invoice.id },
+        // Create installments and optionally create BankSlips
+        for (const instData of generatedInstallments) {
+          const inst = await tx.installment.create({
+            data: {
+              customerConfigId: config.id,
+              invoiceId: invoice.id,
+              number: instData.number,
+              dueDate: instData.dueDate,
+              amount: instData.amount,
+              paidAmount: 0,
+              status: 'PENDING',
+            },
           });
 
           if (shouldCreateBankSlips) {
@@ -178,11 +196,11 @@ export class InvoiceGenerationService {
             });
 
             this.logger.log(
-              `[INVOICE_GEN]   Installment #${inst.number}: id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, bankSlip nossoNumero=${nossoNumero}, status=CREATING`,
+              `[INVOICE_GEN]   Installment #${instData.number}: id=${inst.id}, amount=${instData.amount}, dueDate=${instData.dueDate}, bankSlip nossoNumero=${nossoNumero}, status=CREATING`,
             );
           } else {
             this.logger.log(
-              `[INVOICE_GEN]   Installment #${inst.number}: id=${inst.id}, amount=${inst.amount}, dueDate=${inst.dueDate}, no BankSlip (custom payment)`,
+              `[INVOICE_GEN]   Installment #${instData.number}: id=${inst.id}, amount=${instData.amount}, dueDate=${instData.dueDate}, no BankSlip (custom payment)`,
             );
           }
         }
@@ -207,7 +225,7 @@ export class InvoiceGenerationService {
         }
         this.logger.log(
           `[INVOICE_GEN] Invoice ${invoice.id} fully created for customer ${config.customer?.fantasyName} (${config.customerId}): ` +
-            `${existingInstallments.length} installment(s), total: ${totalAmount}`,
+            `${generatedInstallments.length} installment(s), total: ${totalAmount}`,
         );
       }
     });
@@ -349,6 +367,65 @@ export class InvoiceGenerationService {
     }
 
     this.logger.log(`[BOLETO_REGISTER] Complete. Created: ${created}, Errors: ${errors}`);
+  }
+
+  /**
+   * Convert paymentCondition + finishedAt + total into installment records.
+   * Due dates are calculated from task.finishedAt:
+   * - CASH_5: 1 payment, 5 days from finishedAt
+   * - CASH_40: 1 payment, 40 days from finishedAt
+   * - INSTALLMENTS_N: first at 5 days from finishedAt, subsequent +20 days each
+   */
+  private generateInstallmentsFromCondition(
+    paymentCondition: string | null,
+    finishedAt: Date,
+    total: number,
+  ): { number: number; dueDate: Date; amount: number }[] {
+    if (!Number.isFinite(total) || total <= 0) return [];
+    if (!paymentCondition || paymentCondition === 'CUSTOM') return [];
+
+    const baseDate = new Date(finishedAt);
+
+    if (paymentCondition === 'CASH_5') {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + 5);
+      return [{ number: 1, dueDate, amount: total }];
+    }
+
+    if (paymentCondition === 'CASH_40') {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + 40);
+      return [{ number: 1, dueDate, amount: total }];
+    }
+
+    const conditionMap: Record<string, number> = {
+      INSTALLMENTS_2: 2,
+      INSTALLMENTS_3: 3,
+      INSTALLMENTS_4: 4,
+      INSTALLMENTS_5: 5,
+      INSTALLMENTS_6: 6,
+      INSTALLMENTS_7: 7,
+    };
+
+    const totalInstallments = conditionMap[paymentCondition] || 1;
+    const totalCents = Math.round(total * 100);
+    const baseCents = Math.floor(totalCents / totalInstallments);
+    const installmentAmount = baseCents / 100;
+
+    const installments: { number: number; dueDate: Date; amount: number }[] = [];
+    for (let i = 0; i < totalInstallments; i++) {
+      const dueDate = new Date(baseDate);
+      dueDate.setDate(dueDate.getDate() + 5 + i * 20);
+
+      const isLast = i === totalInstallments - 1;
+      const amount = isLast
+        ? (totalCents - baseCents * (totalInstallments - 1)) / 100
+        : installmentAmount;
+
+      installments.push({ number: i + 1, dueDate, amount });
+    }
+
+    return installments;
   }
 
   /**

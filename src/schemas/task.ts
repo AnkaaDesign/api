@@ -74,6 +74,7 @@ export const taskSelectSchema: z.ZodSchema = z.lazy(() =>
       startedAt: z.boolean().optional(),
       finishedAt: z.boolean().optional(),
       forecastDate: z.boolean().optional(),
+      cleared: z.boolean().optional(),
       createdAt: z.boolean().optional(),
       updatedAt: z.boolean().optional(),
 
@@ -618,6 +619,7 @@ export const taskSelectMinimal = {
   entryDate: true,
   term: true,
   forecastDate: true,
+  cleared: true,
   customer: {
     select: {
       id: true,
@@ -1121,40 +1123,32 @@ export const taskIncludeSchema: z.ZodSchema = z.lazy(() =>
 // Order By Schema
 // =====================
 
+const taskOrderByFieldsSchema = z.object({
+  id: orderByDirectionSchema.optional(),
+  name: orderByDirectionSchema.optional(),
+  status: orderByDirectionSchema.optional(),
+  statusOrder: orderByDirectionSchema.optional(),
+  serialNumber: orderByWithNullsSchema.optional(),
+  commissionOrder: orderByDirectionSchema.optional(),
+  entryDate: orderByDirectionSchema.optional(),
+  term: orderByDirectionSchema.optional(),
+  startedAt: orderByDirectionSchema.optional(),
+  finishedAt: orderByDirectionSchema.optional(),
+  forecastDate: orderByWithNullsSchema.optional(),
+  cleared: orderByDirectionSchema.optional(),
+  createdAt: orderByDirectionSchema.optional(),
+  updatedAt: orderByDirectionSchema.optional(),
+  // Nested relation sorting (for billing/financial views)
+  quote: z.object({
+    statusOrder: orderByDirectionSchema.optional(),
+    total: orderByDirectionSchema.optional(),
+  }).optional(),
+});
+
 export const taskOrderBySchema = z
   .union([
-    z.object({
-      id: orderByDirectionSchema.optional(),
-      name: orderByDirectionSchema.optional(),
-      status: orderByDirectionSchema.optional(),
-      statusOrder: orderByDirectionSchema.optional(),
-      serialNumber: orderByWithNullsSchema.optional(),
-      commissionOrder: orderByDirectionSchema.optional(),
-      entryDate: orderByDirectionSchema.optional(),
-      term: orderByDirectionSchema.optional(),
-      startedAt: orderByDirectionSchema.optional(),
-      finishedAt: orderByDirectionSchema.optional(),
-      forecastDate: orderByWithNullsSchema.optional(),
-      createdAt: orderByDirectionSchema.optional(),
-      updatedAt: orderByDirectionSchema.optional(),
-    }),
-    z.array(
-      z.object({
-        id: orderByDirectionSchema.optional(),
-        name: orderByDirectionSchema.optional(),
-        status: orderByDirectionSchema.optional(),
-        statusOrder: orderByDirectionSchema.optional(),
-        serialNumber: orderByWithNullsSchema.optional(),
-        commissionOrder: orderByDirectionSchema.optional(),
-        entryDate: orderByDirectionSchema.optional(),
-        term: orderByDirectionSchema.optional(),
-        startedAt: orderByDirectionSchema.optional(),
-        finishedAt: orderByDirectionSchema.optional(),
-        forecastDate: orderByWithNullsSchema.optional(),
-        createdAt: orderByDirectionSchema.optional(),
-        updatedAt: orderByDirectionSchema.optional(),
-      }),
-    ),
+    taskOrderByFieldsSchema,
+    z.array(taskOrderByFieldsSchema),
   ])
   .optional();
 
@@ -1276,6 +1270,7 @@ export const taskWhereSchema: z.ZodSchema<any> = z.lazy(() =>
           none: z.any().optional(),
         })
         .optional(),
+      quote: z.any().optional(),
       cutRequest: z.any().optional(),
       cutPlan: z.any().optional(),
       relatedTasks: z
@@ -1569,13 +1564,14 @@ const taskTransform = (data: any): any => {
   }
 
   // Financial-specific display logic:
-  // Show only COMPLETED tasks that have a quote and quote status is NOT SETTLED
+  // Show only COMPLETED tasks that have a quote and quote status is between BUDGET_APPROVED and PARTIAL
+  // (excludes PENDING and SETTLED)
   if (data.shouldDisplayForFinancial === true) {
     andConditions.push({
       AND: [
         { status: 'COMPLETED' },
         { quote: { isNot: null } },
-        { quote: { status: { not: 'SETTLED' } } },
+        { quote: { status: { notIn: ['PENDING', 'SETTLED'] } } },
       ],
     });
     delete data.shouldDisplayForFinancial;
@@ -2152,6 +2148,7 @@ export const taskGetManySchema = z
         },
       )
       .optional(),
+    cleared: z.coerce.boolean().optional(),
     createdAtRange: z
       .object({
         from: z.coerce.date().optional(),
@@ -2385,6 +2382,7 @@ export const taskCreateSchema = z
     finishedAt: nullableDate.optional(),
     forecastDate: nullableDate.optional(),
     forecastReason: z.string().max(500).nullable().optional(),
+    cleared: z.boolean().optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),
@@ -2609,6 +2607,7 @@ export const taskUpdateSchema = z
     finishedAt: nullableDate.optional(),
     forecastDate: nullableDate.optional(),
     forecastReason: z.string().max(500).nullable().optional(),
+    cleared: z.boolean().optional(),
     paintId: z.string().uuid('Tinta inválida').nullable().optional(),
     customerId: z.string().uuid('Cliente inválido').nullable().optional(),
     sectorId: z.string().uuid('Setor inválido').nullable().optional(),

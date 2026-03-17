@@ -3649,6 +3649,358 @@ export class DashboardPrismaRepository implements DashboardRepository {
     }));
   }
 
+  // Financial dashboard queries
+  async getFinancialInvoiceStatistics(dateFilter?: DateFilter, customerId?: string): Promise<{
+    totalInvoices: number;
+    activeInvoices: number;
+    paidInvoices: number;
+    cancelledInvoices: number;
+    totalInvoicedAmount: number;
+    totalPaidAmount: number;
+    totalPendingAmount: number;
+    overdueAmount: number;
+    byStatus: DashboardChartData;
+  }> {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+    if (customerId) {
+      where.customerId = customerId;
+    }
+
+    const [invoices, statusGroups, overdueBankSlips] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where,
+        _count: { id: true },
+        _sum: { totalAmount: true, paidAmount: true },
+      }),
+      this.prisma.invoice.groupBy({
+        by: ['status'],
+        where,
+        _count: { id: true },
+      }),
+      this.prisma.bankSlip.aggregate({
+        where: {
+          status: 'OVERDUE',
+          ...(dateFilter?.gte || dateFilter?.lte ? { createdAt: dateFilter } : {}),
+        },
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalInvoicedAmount = Number(invoices._sum.totalAmount || 0);
+    const totalPaidAmount = Number(invoices._sum.paidAmount || 0);
+
+    const statusMap: Record<string, number> = {};
+    for (const group of statusGroups) {
+      statusMap[group.status] = group._count.id;
+    }
+
+    const statusLabels: Record<string, string> = {
+      DRAFT: 'Rascunho',
+      ACTIVE: 'Ativa',
+      PARTIALLY_PAID: 'Parc. Paga',
+      PAID: 'Paga',
+      CANCELLED: 'Cancelada',
+    };
+
+    return {
+      totalInvoices: invoices._count.id,
+      activeInvoices: (statusMap['ACTIVE'] || 0) + (statusMap['PARTIALLY_PAID'] || 0),
+      paidInvoices: statusMap['PAID'] || 0,
+      cancelledInvoices: statusMap['CANCELLED'] || 0,
+      totalInvoicedAmount,
+      totalPaidAmount,
+      totalPendingAmount: totalInvoicedAmount - totalPaidAmount,
+      overdueAmount: Number(overdueBankSlips._sum.amount || 0),
+      byStatus: {
+        labels: Object.values(statusLabels),
+        datasets: [{
+          label: 'Faturas por Status',
+          data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
+        }],
+      },
+    };
+  }
+
+  async getFinancialBankSlipStatistics(dateFilter?: DateFilter): Promise<{
+    totalBankSlips: number;
+    activeBankSlips: number;
+    overdueBankSlips: number;
+    paidBankSlips: number;
+  }> {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+
+    const statusGroups = await this.prisma.bankSlip.groupBy({
+      by: ['status'],
+      where,
+      _count: { id: true },
+    });
+
+    const statusMap: Record<string, number> = {};
+    let total = 0;
+    for (const group of statusGroups) {
+      statusMap[group.status] = group._count.id;
+      total += group._count.id;
+    }
+
+    return {
+      totalBankSlips: total,
+      activeBankSlips: statusMap['ACTIVE'] || 0,
+      overdueBankSlips: statusMap['OVERDUE'] || 0,
+      paidBankSlips: statusMap['PAID'] || 0,
+    };
+  }
+
+  async getFinancialNfseStatistics(dateFilter?: DateFilter): Promise<{
+    totalNfse: number;
+    authorizedNfse: number;
+    pendingNfse: number;
+    cancelledNfse: number;
+  }> {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+
+    const statusGroups = await this.prisma.nfseDocument.groupBy({
+      by: ['status'],
+      where,
+      _count: { id: true },
+    });
+
+    const statusMap: Record<string, number> = {};
+    let total = 0;
+    for (const group of statusGroups) {
+      statusMap[group.status] = group._count.id;
+      total += group._count.id;
+    }
+
+    return {
+      totalNfse: total,
+      authorizedNfse: statusMap['AUTHORIZED'] || 0,
+      pendingNfse: (statusMap['PENDING'] || 0) + (statusMap['PROCESSING'] || 0),
+      cancelledNfse: statusMap['CANCELLED'] || 0,
+    };
+  }
+
+  async getFinancialQuoteStatistics(dateFilter?: DateFilter): Promise<{
+    totalQuotes: number;
+    pendingQuotes: number;
+    approvedQuotes: number;
+    settledQuotes: number;
+    byStatus: DashboardChartData;
+  }> {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+
+    const statusGroups = await this.prisma.taskQuote.groupBy({
+      by: ['status'],
+      where,
+      _count: { id: true },
+    });
+
+    const statusMap: Record<string, number> = {};
+    let total = 0;
+    for (const group of statusGroups) {
+      statusMap[group.status] = group._count.id;
+      total += group._count.id;
+    }
+
+    const statusLabels: Record<string, string> = {
+      PENDING: 'Pendente',
+      BUDGET_APPROVED: 'Aprovado',
+      VERIFIED_BY_FINANCIAL: 'Verificado',
+      BILLING_APPROVED: 'Fat. Aprovado',
+      UPCOMING: 'A Vencer',
+      DUE: 'Vencido',
+      PARTIAL: 'Parcial',
+      SETTLED: 'Liquidado',
+    };
+
+    return {
+      totalQuotes: total,
+      pendingQuotes: statusMap['PENDING'] || 0,
+      approvedQuotes: (statusMap['BUDGET_APPROVED'] || 0) + (statusMap['VERIFIED_BY_FINANCIAL'] || 0) + (statusMap['BILLING_APPROVED'] || 0),
+      settledQuotes: statusMap['SETTLED'] || 0,
+      byStatus: {
+        labels: Object.values(statusLabels),
+        datasets: [{
+          label: 'Orçamentos por Status',
+          data: Object.keys(statusLabels).map(s => statusMap[s] || 0),
+        }],
+      },
+    };
+  }
+
+  async getFinancialTopCustomers(dateFilter?: DateFilter, limit: number = 10): Promise<DashboardListItem[]> {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+
+    const customerInvoices = await this.prisma.invoice.groupBy({
+      by: ['customerId'],
+      where,
+      _sum: { totalAmount: true },
+      _count: { id: true },
+      orderBy: { _sum: { totalAmount: 'desc' } },
+      take: limit,
+    });
+
+    if (customerInvoices.length === 0) return [];
+
+    const customerIds = customerInvoices.map(c => c.customerId);
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: customerIds } },
+      select: { id: true, corporateName: true },
+    });
+
+    const customerMap = new Map(customers.map(c => [c.id, c.corporateName || 'Cliente']));
+    const totalRevenue = customerInvoices.reduce((sum, c) => sum + Number(c._sum.totalAmount || 0), 0);
+
+    return customerInvoices.map(c => ({
+      id: c.customerId,
+      name: customerMap.get(c.customerId) || 'Cliente',
+      value: Number(c._sum.totalAmount || 0),
+      percentage: totalRevenue > 0 ? Math.round((Number(c._sum.totalAmount || 0) / totalRevenue) * 100) : 0,
+      metadata: { invoiceCount: c._count.id },
+    }));
+  }
+
+  async getFinancialRevenueByCustomer(dateFilter?: DateFilter, limit: number = 10): Promise<DashboardChartData> {
+    const topCustomers = await this.getFinancialTopCustomers(dateFilter, limit);
+
+    return {
+      labels: topCustomers.map(c => c.name.substring(0, 20)),
+      datasets: [{
+        label: 'Receita por Cliente',
+        data: topCustomers.map(c => c.value),
+      }],
+    };
+  }
+
+  async getFinancialMonthlyRevenue(months: number = 6): Promise<DashboardChartData> {
+    const now = new Date();
+    const startDate = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        createdAt: { gte: startDate },
+        status: { notIn: ['DRAFT', 'CANCELLED'] },
+      },
+      select: { totalAmount: true, paidAmount: true, createdAt: true },
+    });
+
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const labels: string[] = [];
+    const invoicedData: number[] = [];
+    const paidData: number[] = [];
+
+    for (let i = 0; i < months; i++) {
+      const date = new Date(now.getFullYear(), now.getMonth() - (months - 1) + i, 1);
+      const month = date.getMonth();
+      const year = date.getFullYear();
+      labels.push(`${monthNames[month]}/${String(year).slice(2)}`);
+
+      const monthInvoices = invoices.filter(inv => {
+        const d = new Date(inv.createdAt);
+        return d.getMonth() === month && d.getFullYear() === year;
+      });
+
+      invoicedData.push(monthInvoices.reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0));
+      paidData.push(monthInvoices.reduce((sum, inv) => sum + Number(inv.paidAmount || 0), 0));
+    }
+
+    return {
+      labels,
+      datasets: [
+        { label: 'Faturado', data: invoicedData },
+        { label: 'Recebido', data: paidData },
+      ],
+    };
+  }
+
+  async getFinancialRecentActivities(dateFilter?: DateFilter, limit: number = 10): Promise<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      type?: string;
+      timestamp: Date;
+    }>
+  > {
+    const where: any = {};
+    if (dateFilter?.gte || dateFilter?.lte) {
+      where.createdAt = dateFilter;
+    }
+
+    const [recentInvoices, recentBankSlips] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        take: Math.ceil(limit / 2),
+        include: {
+          customer: { select: { corporateName: true } },
+        },
+      }),
+      this.prisma.bankSlip.findMany({
+        where: dateFilter?.gte || dateFilter?.lte ? { createdAt: dateFilter } : {},
+        orderBy: { updatedAt: 'desc' },
+        take: Math.ceil(limit / 2),
+        include: {
+          installment: {
+            include: {
+              invoice: {
+                include: { customer: { select: { corporateName: true } } },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const statusLabels: Record<string, string> = {
+      DRAFT: 'Rascunho',
+      ACTIVE: 'Ativa',
+      PARTIALLY_PAID: 'Parcialmente paga',
+      PAID: 'Paga',
+      CANCELLED: 'Cancelada',
+      CREATING: 'Criando',
+      REGISTERING: 'Registrando',
+      OVERDUE: 'Vencido',
+      REJECTED: 'Rejeitado',
+      ERROR: 'Erro',
+    };
+
+    const activities = [
+      ...recentInvoices.map(inv => ({
+        id: inv.id,
+        title: `Fatura - ${inv.customer?.corporateName || 'Cliente'}`,
+        description: `Status: ${statusLabels[inv.status] || inv.status} - R$ ${Number(inv.totalAmount).toFixed(2)}`,
+        type: 'invoice' as const,
+        timestamp: inv.updatedAt,
+      })),
+      ...recentBankSlips.map(bs => ({
+        id: bs.id,
+        title: `Boleto - ${bs.installment?.invoice?.customer?.corporateName || 'Cliente'}`,
+        description: `Status: ${statusLabels[bs.status] || bs.status} - R$ ${Number(bs.amount).toFixed(2)}`,
+        type: 'bankSlip' as const,
+        timestamp: bs.updatedAt,
+      })),
+    ];
+
+    return activities
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, limit);
+  }
+
   async getUserSectorInfo(userId: string): Promise<{ privileges: string; sectorId: string } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
